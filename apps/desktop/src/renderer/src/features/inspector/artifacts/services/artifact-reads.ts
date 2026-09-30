@@ -1,6 +1,4 @@
-// The artifact list read, and what its answer reads as.
-//
-// The reader owns who asked and when; this file owns what a served list means.
+// The artifact list read, and what its answer reads as. The reader owns who asked and when.
 
 import type {
   ArtifactManifest,

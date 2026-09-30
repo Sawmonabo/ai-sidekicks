@@ -1,12 +1,6 @@
-// One record per kind that has one, and four states for every one of them.
-//
-// The cases run over the table's own keys rather than over a list written here, so a
-// kind given a record arrives in this file as cases.
-//
-// The four states are asserted through the REAL store — `initialize` and
-// `markDegraded` are what a session does to itself — rather than through
-// hand-built props, because the ranking under test is a claim about what those
-// three store readings mean together.
+// One record per kind that has one, and four states for every one. Cases run over the table's
+// own keys, and states come through the real store since the ranking is about what its
+// readings mean together.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -91,9 +85,8 @@ describe.each(KINDS_WITH_A_RECORD)("the %s record", (kind) => {
     const store = readStore(kind);
     store.markDegraded("sequence-gap");
     const container = renderRecord(store, kind, ABSENT_ID);
-    // The record is missing AND the projection is incomplete. Reporting "there is
-    // none" here would assert a fact the daemon has withdrawn, so the degraded arm
-    // wins and carries the store's own word for why.
+    // The record is missing and the projection incomplete; "there is none" would assert a
+    // fact the daemon has withdrawn, so the degraded arm carries the store's word for why.
     expect(container.querySelector(".meridian-nothing--error")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
     expect(container.textContent).toContain("sequence-gap");

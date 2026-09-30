@@ -1,17 +1,15 @@
-// What the inspector's `Artifacts` section renders from, and the pure reductions over it.
+// What the `Artifacts` section renders from, and the pure reductions over it.
 //
-// `artifact-list-reader.ts` owns the calls, the scheduler and the generation stamp; this file
-// owns the immutable value those produce and every total function over it, so a
-// reduction can be driven directly in a test with no bridge, clock or reader.
+// `artifact-list-reader.ts` owns the calls and scheduling; this file owns the immutable value
+// and the total functions over it, so a reduction is testable with no bridge, clock or reader.
 
 import type { ArtifactManifestRow, ArtifactsSectionState } from "./artifact-model.js";
 import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-payload.js";
 
 /**
- * The instant a reading nobody has published yet carries.
+ * The instant of a reading nobody has published.
  *
- * Named rather than a bare `0`, so it reads as an instant nobody took and not midnight
- * 1970. The reader stamps its opening reading from the window's clock at construction.
+ * A name rather than a bare `0`, so it reads as an instant nobody took and not midnight 1970.
  */
 export const UNREAD_AT_MILLISECONDS = 0;
 
@@ -19,29 +17,23 @@ export const UNREAD_AT_MILLISECONDS = 0;
 export interface ArtifactListReading {
   readonly artifacts: ArtifactsSectionState;
   /**
-   * The instant this reading was published at, from the window's own clock.
+   * When this reading was published, from the window's clock.
    *
-   * On the reading so an age moves when the read moves and on no other occasion: a card
-   * calling `Date.now()` in its render body would move an age on any unrelated re-render.
-   * The reader's one publish stamps it, so no producer can put a reading on screen with
-   * an earlier instant.
+   * On the reading so an age moves only when the read moves: `Date.now()` in a render body
+   * would move it on any re-render.
    */
   readonly readAtMilliseconds: number;
   /** The payload fetch a user asked for, at most one at a time. Absent until one starts. */
   readonly payload: ArtifactPayloadReading | undefined;
-  /**
-   * Which rows have a manifest re-read on the wire, so their control holds.
-   *
-   * A set, because two rows re-reading at once are two independent calls.
-   */
+  /** Rows with a manifest re-read on the wire, so their control holds. */
   readonly manifestReadInFlightArtifactIds: ReadonlySet<string>;
 }
 
 /**
  * How one manifest re-read settled.
  *
- * `superseded` is a re-read whose answer changed nothing on screen and never will: the
- * reader was disposed under it, or a refresh had already re-read the row it was about.
+ * `superseded` changed nothing on screen and never will: the reader was disposed under it, or
+ * a refresh had already re-read the row.
  */
 export type ArtifactRowActOutcome =
   | { readonly status: "settled" }
@@ -61,9 +53,8 @@ export const NOTHING_READ_YET: ArtifactListReading = {
 /**
  * The listed rows with one replaced by a fresher read of the same artifact.
  *
- * A row the current list no longer holds is left out rather than re-added: putting a row
- * back on the strength of a single-artifact read would claim a place in the list no list
- * read established.
+ * A row absent from the current list is left out, not re-added: a single-artifact read must
+ * not claim a place in the list that no list read established.
  */
 export function withReplacedRow(
   artifacts: ArtifactsSectionState,
@@ -91,8 +82,7 @@ export function withArtifactActInFlight(
 /**
  * An in-flight set without the row whose re-read has settled.
  *
- * Releasing a row that is not held answers the same set, so a release with nothing to
- * release does not mint an identity a subscriber reads as a change.
+ * Releasing a row that is not held answers the same set, so a subscriber reads no change.
  */
 export function withoutArtifactActInFlight(
   inFlightArtifactIds: ReadonlySet<string>,
@@ -109,8 +99,7 @@ export function withoutArtifactActInFlight(
 /**
  * What a settled list read publishes, and what of the previous reading survives it.
  *
- * `payload` and the in-flight set survive: they belong to acts this read did not start,
- * and a row whose re-read is still on the wire is still holding its control.
+ * `payload` and the in-flight set survive: they belong to acts this read did not start.
  */
 export function settledReadReading(
   previous: ArtifactListReading,

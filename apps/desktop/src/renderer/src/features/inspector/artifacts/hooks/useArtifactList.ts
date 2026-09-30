@@ -1,13 +1,8 @@
-// How a React component holds one artifact list reader, and nothing about what the reader
-// reads.
+// How a React component holds one artifact list reader: construction, subscription and disposal.
 //
-// Split from `artifact-list-reader.ts`: that class owns the read, and this module owns the
-// binding to React's rendering lifecycle and its teardown. They meet at one object.
-//
-// The reader is constructed in a hook and never in a render body, subscribed through
-// `useSyncExternalStore` so a publish is a single transition, and disposed on unmount. It
-// is also stamped to its subject: a reader holds subject-scoped state (the payload and
+// The reader is stamped to its subject because it holds subject-scoped state (the payload and
 // the single-flight fetch are both about one artifact), so a component reused for another
+// artifact must not keep the first one's bytes or held control.
 // artifact must not keep the first artifact's bytes or its held control.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
@@ -34,23 +29,12 @@ export interface ArtifactListBinding {
 /**
  * Bind one component to its reader.
  *
- * The subject is the bridge together with the operations, and the key is the artifact id,
- * held through the console's resource seam. `useSubjectScopedResource` opens the reader
- * on the render that first sees a `(bridge, operations, artifact)` triple and closes it
- * however that render ended, including a pass React discards. A moved subject mints a new
- * reader, so the component opens on the new artifact's `loading` reading rather than the
- * previous artifact's bytes, and a fetch still on the wire for the previous subject
- * settles into a disposed reader. The operations are compared by identity, so a caller
- * that builds them anew on every render would mint a reader on every render and has to
- * hold them steady. The artifact id and not an address object is the key, because a caller
- * may compose its address object on every render.
- *
- * The seam's disposal followed by a replayed setup on the same committed reader is what
- * React's development double-mount does, and a disposed reader's `start()` returns at
- * once. The seam handles that through `isClosed`. The store is the half that stays here:
- * it is not part of the seam's key, so a projection replaced across a reconnect is caught
- * by asking the reader, and the replacement is published through the seam so it is closed
- * on the seam's own terms.
+ * The subject is the bridge with the operations, keyed by artifact id, held through
+ * `useSubjectScopedResource`, which closes the reader however its render ended (including a
+ * discarded pass). A moved subject mints a new reader, so the component opens on `loading`
+ * rather than the previous artifact's bytes. Operations are compared by identity, so a
+ * caller must hold them steady. The store is not part of the seam's key: a projection
+ * replaced across a reconnect is caught by asking the reader and published through the seam.
  */
 export function useArtifactList(
   bridge: PlatformBridge,

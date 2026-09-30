@@ -1,14 +1,8 @@
 // The published-artifact card a transcript row carries.
 //
-// Diffs, attachments and published artifacts go in the transcript as cards inside the row
-// that produced them, because they belong to that turn.
-//
-// Two features meet at the inline card registry and neither imports the other: the
-// transcript renders the registered card and the inspector owns the body, registered from
-// `contributions/inline-cards.ts`.
-//
-// The registry hands over an `EntityRef` and no manifest or bridge, so this body makes no
-// read: it renders the identity it was given, and the manifest row when its caller has one.
+// The inline card registry hands over an `EntityRef`, no manifest or bridge, so this body
+// makes no read: it renders the identity it was given, and the manifest row when the caller
+// has one.
 
 import "./inline-artifact-card.css";
 
@@ -42,8 +36,8 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
           <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
           Artifact
         </h4>
-        {/* Wire-verbatim, with the full string recoverable through the title, because an
-            artifact id is how a user reaches this row anywhere else in the product. */}
+        {/* Wire-verbatim; the title keeps the full string since the id is how a user finds the
+            artifact elsewhere. */}
         <span className="meridian-artifact-card__id" title={props.card.artifact.id}>
           {props.card.artifact.id}
         </span>

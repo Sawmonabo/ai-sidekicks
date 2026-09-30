@@ -1,12 +1,5 @@
-// When the section reads, what makes it read again, and which answers it drops.
-//
-// What a served answer means is in `services/artifact-reads.test.ts`; nothing below
-// asserts a row's members, because a case that did would fail for a reason that has nothing
-// to do with scheduling.
-//
-// The load-bearing block here is the refresh one: a reader that called the daemon on every
-// press would race itself, so two presses would cost two reads. Every case there fails on a
-// reader that skips the scheduler.
+// When the section reads, what makes it read again, and which answers it drops. What a served
+// answer means is in `services/artifact-reads.test.ts`, so nothing here asserts a row's members.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -81,9 +74,8 @@ describe("artifact list reader — the four reasons to read, and no fifth", () =
   });
 
   it("reads again on the repair edge that stands for a reconnect", async () => {
-    // Nothing publishes a bridge-level "reconnected", so the observed edge is the
-    // store's `degradedCause` clearing: the projection is whole again after not
-    // having been, which is what the refresh policy means.
+    // Nothing publishes a bridge-level "reconnected", so the observed edge is the store's
+    // `degradedCause` clearing.
     const clock = new ManualClock();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const reader = readerOver(sessionStore, clock);
@@ -98,10 +90,8 @@ describe("artifact list reader — the four reasons to read, and no fifth", () =
   });
 
   it("negative control: an unrelated frame asks for nothing", async () => {
-    // Without this every case above would pass against a reader that re-read on any
-    // store transition at all, which is interval polling with extra steps. A
-    // `workspace.stale` frame is among them on purpose: it is the repos section's
-    // terminal event and says nothing about this session's artifacts.
+    // Without this every case above would pass against a reader that re-read on any store
+    // transition. `workspace.stale` is the repos section's event, not this session's artifacts'.
     const clock = new ManualClock();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const reader = readerOver(sessionStore, clock);
@@ -124,8 +114,7 @@ describe("artifact list reader — the four reasons to read, and no fifth", () =
     const reader = readerOver(sessionStore, clock);
     reader.start();
     await readThrough(clock);
-    // No timer is armed once the read has settled: the reader owns no interval, and
-    // every reason it has arms the scheduler exactly once.
+    // No timer is armed once the read has settled: the reader owns no interval.
     expect(clock.pendingCount).toBe(0);
 
     reader.dispose();
@@ -156,8 +145,7 @@ describe("artifact list reader — a section that has gone", () => {
 
 describe("artifact list reader — reading again is coalesced, not raced", () => {
   it("costs one read when the user presses twice in one window", async () => {
-    // Two presses inside the coalescing window are one reason to re-read, not two. A
-    // reader that called the daemon on every press issues two list calls here.
+    // Two presses inside the coalescing window are one reason to re-read, not two.
     const clock = new ManualClock();
     const listArtifacts = vi.fn(async () => LISTED_ONE_ROW);
     const reader = new ArtifactListReader({
@@ -178,8 +166,7 @@ describe("artifact list reader — reading again is coalesced, not raced", () =>
   });
 
   it("never drops answered rows back to loading on a re-read", async () => {
-    // Dropping the rows back to `loading` on every press would blank a section that has an
-    // answer on it.
+    // Dropping to `loading` on every press would blank a section that has an answer on it.
     const clock = new ManualClock();
     const reader = new ArtifactListReader({
       ...artifactOperations({ listArtifacts: async () => [SERVED_SUMMARY] }),
@@ -199,8 +186,7 @@ describe("artifact list reader — reading again is coalesced, not raced", () =>
   });
 
   it("discards a completion that outlived the section it was read for", async () => {
-    // The generation stamp, exercised: the read is in flight when the section unmounts,
-    // and its answer arrives afterwards with a stamp that is no longer current.
+    // The read is in flight when the section unmounts; its answer arrives with a stale stamp.
     const clock = new ManualClock();
     const listCall = handAnsweredCall<readonly ArtifactManifest[]>();
     const reader = new ArtifactListReader({
@@ -223,26 +209,19 @@ describe("artifact list reader — reading again is coalesced, not raced", () =>
 
 describe("artifact reader — the frames this section re-reads on", () => {
   it("watches every registered artifact kind, derived from the contract's census", () => {
-    // A SET claim rather than a behavior, so the case re-derives the expected members
-    // from the same registry the module reads. A literal list here would be the
-    // hand-written list the derivation exists to retire, restated where nothing could
-    // catch its drift — and it is exactly how a fourth `artifact.*` kind would have
-    // gone unwatched with every case green.
+    // A set claim, so the expected members are re-derived from the same registry; a literal
+    // list would be the hand-written list the derivation retires.
     const registered = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter((eventType) =>
       eventType.startsWith("artifact."),
     );
     expect([...ARTIFACT_TERMINAL_EVENT_KINDS].sort()).toStrictEqual([...registered].sort());
-    // Non-vacuity: a filter that matched nothing would satisfy the equality above on
-    // both sides, and the section would re-read on no frame at all.
+    // Non-vacuity: a filter matching nothing would satisfy the equality above on both sides.
     expect(ARTIFACT_TERMINAL_EVENT_KINDS.length).toBeGreaterThan(1);
   });
 
   it("negative control: neither the whole category nor the whole census", () => {
-    // Two over-reaches at once. Selecting `artifact_publication` — the category the
-    // artifact kinds live in — also takes frames about other entities, and the pane
-    // would re-read on a diff or a git settlement it does not draw. Selecting nothing at all
-    // would make it re-read on every run frame and every token count, which is
-    // interval polling with extra steps.
+    // Two over-reaches: selecting the whole `artifact_publication` category would re-read on
+    // a diff or a git settlement, and selecting everything would re-read on every run frame.
     expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("diff.created");
     expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("git.settled");
     expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("run.queued");

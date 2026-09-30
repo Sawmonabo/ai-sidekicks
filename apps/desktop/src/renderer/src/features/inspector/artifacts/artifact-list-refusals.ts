@@ -1,13 +1,7 @@
-// Why the inspector's `Artifacts` section refuses, and the constructors that say so.
+// The refusal codes of the inspector's `Artifacts` section, and the constructors that mint them.
 //
-// The closed refusal vocabulary is declared in a module of its own, below every module
-// that raises one. Three of the section's modules construct a refusal — the reader on a
-// rejected call, the acts on a second manifest read, the payload fetch on a second
-// fetch. A vocabulary that lived beside any one of those would make a producer import
-// its sibling to name a code.
-//
-// ONE DECLARATION OF THE CLOSED SET, `as const`, with the union derived from it: a count
-// in a sentence is not something a further code can fail against.
+// Declared apart from the reader, the acts and the payload fetch, which all construct
+// refusals: a vocabulary beside any one of them would make its siblings import it.
 
 import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
@@ -15,30 +9,16 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 /**
  * Which subsystem refused, when the refusal is the section's own and not the port's.
  *
- * `core/refusal.ts` gives `origin` as the field that lets a refusal surfacing three
- * layers from where it was raised still name its author. Written once here rather than
- * spelled at each construction site.
- *
- * The suites that assert an `artifact-list-reader` origin spell the string rather than
- * importing this, which is what an assertion about a value has to do: a test that
- * imported the constant it asserts would pass whatever that constant became.
+ * Suites spell the string instead of importing it: a test importing the constant it asserts
+ * would pass whatever the constant became.
  */
 export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-list-reader";
 
 /**
- * The codes the section mints. The port owns every other refusal the section renders.
+ * The codes the section mints; the port owns every other refusal it renders.
  *
- * ONE ARRAY AND NO COUNT IN PROSE, on `persistence/refusals.ts`'s shape: a number in a
- * sentence is not something a further code can fail against.
- *
- * Declared here, beside the reading they are recorded on, rather than in either of the
- * two modules that raise them: a refusal vocabulary split across the reader and the
- * acts would be two closed sets for one section, and a caller narrowing on a code would
- * have to know which half minted it.
- *
- * Each literal is written at the single site that mints it, `satisfies`-checked against
- * the union below: without the check the closed vocabulary binds nothing, and dropping a
- * member from it would break no code at all.
+ * One `as const` array with the union derived from it. Each literal is `satisfies`-checked at
+ * the site that mints it, so dropping a member from the array breaks the build.
  */
 export const ARTIFACT_LIST_REFUSAL_CODES = [
   "read-threw",
@@ -46,36 +26,17 @@ export const ARTIFACT_LIST_REFUSAL_CODES = [
   "manifest-read-in-flight",
 ] as const;
 
-/** One code the section mints. Derived, so the vocabulary is declared exactly once. */
+/** One code the section mints. */
 export type ArtifactListRefusalCode = (typeof ARTIFACT_LIST_REFUSAL_CODES)[number];
 
 /**
  * The refusal a read that threw becomes.
  *
- * A thrown value is not a refusal until something makes it one, and the alternative —
- * letting it reject inside a timer callback — leaves the section on the in-flight absence
- * for the rest of its life.
- *
- * A DELEGATION, NOT A NORMALIZER. Flattening everything to one code and one sentence would
- * lose what a rejection carries: a JSON-RPC envelope carrying `data.type` would arrive as
- * `read-threw` with the daemon's dotted code and its own words discarded, a rate-limit
- * envelope would lose its retry hint, a `Refusal` thrown across the bridge would
- * lose the origin its author named, and `error instanceof Error` answers false for an
- * `Error` minted in the preload realm — which is the realm every bridge rejection
- * crosses — so that value would take the not-an-error arm and its message would go with
- * it. `core/wire-rejection.ts` owns all four of those readings and a terminal that never
- * throws, and the two things left here are the section's own: the origin, and the sentence
- * for a rejection that said nothing machine-readable.
- *
- * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
- * there — a rejection off the wire can carry user content as readily as a
- * schema failure can, so interpolating the message would put that content on screen.
- *
- * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `Refusal`
- * widened by the optional retry hint a rate-limit envelope registers, so every
- * consumer that takes a refusal takes this unchanged — and narrowing it back to
- * `Refusal` here would hide the one member this delegation exists to stop
- * dropping from the only reader that could offer the retry.
+ * Delegates to `normalizeWireRejection`, which keeps what a rejection carries: a JSON-RPC
+ * envelope's dotted code and words, a rate-limit retry hint, a bridge `Refusal`'s origin, and
+ * an `Error` from the preload realm (which fails `instanceof`). Only the origin and the
+ * sentence for a rejection that said nothing machine-readable are added here. The rejected
+ * value is never quoted into the sentence, since a wire rejection can carry user content.
  */
 export function readFailureRefusal(error: unknown): WireRefusal {
   return normalizeWireRejection(ARTIFACT_READER_REFUSAL_ORIGIN, error, {
@@ -85,14 +46,10 @@ export function readFailureRefusal(error: unknown): WireRefusal {
 }
 
 /**
- * The refusal a second payload fetch becomes while the first is still on the wire.
+ * The refusal a second payload fetch becomes while the first is on the wire.
  *
- * NAMED RATHER THAN SILENT, and it names the artifact the section is actually waiting
- * on rather than the one that was pressed: a user told "something is in
- * flight" cannot tell what. The control that produced it is held while a fetch is
- * pending, so this is structurally unreachable from the section — and recorded anyway,
- * because a press that produced nothing at all would be a silent no-op, and every
- * press the console offers gets an answer.
+ * Names the artifact being waited on, not the one pressed. The control is held while a fetch
+ * is pending, so this is unreachable from the section; it exists so no press is a silent no-op.
  */
 export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal {
   return refuse(
@@ -105,13 +62,8 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal 
 /**
  * The refusal a second manifest re-read becomes while this row's first is on the wire.
  *
- * NAMED RATHER THAN SILENT, on `payloadFetchInFlightRefusal`'s reason, and it names the
- * ROW: two presses on one row are two reads of one manifest whose answers can settle in
- * either order, so the older reply would put the staler row back. The control that
- * produced it is held while that row's read is pending, so this is structurally
- * unreachable from the section — and recorded anyway, because a press that produced
- * nothing at all would be a silent no-op, and every press the console offers gets an
- * answer.
+ * Names the row: two reads of one manifest can settle in either order, and the older reply
+ * would put the staler row back. Unreachable from the section for the same reason as above.
  */
 export function manifestReadInFlightRefusal(artifactId: string): Refusal {
   return refuse(

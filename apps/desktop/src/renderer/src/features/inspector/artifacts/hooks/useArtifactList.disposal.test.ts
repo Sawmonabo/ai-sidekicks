@@ -1,8 +1,5 @@
 // How the artifact reading's reader is held: the clock it runs on, and the subject-scoped
 // seam that decides when a new one is minted and the old one disposed.
-//
-// A reader that outlives its subject and a reader that reads the wall clock are both a
-// binding answering about a session it is no longer showing, so the cases sit together.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,18 +31,16 @@ afterEach(() => {
 
 describe("artifact reading — the reader runs on the window's clock, never one of its own", () => {
   it("reads when the window's clock reaches it, not when the host's does", async () => {
-    // A reader on its own `RealClock` would coalesce its reads against wall time while the
-    // window advanced on frozen time, and the host-timer advance below would list the row.
+    // A reader on its own `RealClock` would coalesce against wall time while the window
+    // advanced on frozen time, and the host-timer advance below would list the row.
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
     );
     const { container } = renderArtifactPayloadSection(subject);
 
-    // The HOST's clock, moved the whole debounce window. Nothing lists.
     await readThrough();
     expect(container.querySelector(".meridian-artifact-row")).toBeNull();
 
-    // The window's, moved the same window. The read runs.
     await readThrough(subject.clock);
     await settleAct();
     expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
@@ -54,10 +49,8 @@ describe("artifact reading — the reader runs on the window's clock, never one 
 
 describe("artifact reading — the reader is held by the subject-scoped seam", () => {
   it("comes back from the disposal-then-replay React's double-mount performs", async () => {
-    // `StrictMode` runs setup, then cleanup, then setup again on the same committed value:
-    // cleanup disposes the reader and the replayed setup would call `start()` on the corpse,
-    // which returns at once. The binding would then sit on `loading` for the life of the
-    // mount.
+    // `StrictMode` runs setup, cleanup, setup on the same committed value; the replayed setup
+    // would call `start()` on the disposed reader and the binding would sit on `loading`.
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
     );
@@ -69,8 +62,7 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
   });
 
   it("keeps one reader across a re-render at the same artifact", async () => {
-    // The seam holds the reader in state React owns, so a re-render at the same subject
-    // reaches the same reader: the row stands and the call is not made again.
+    // The seam holds the reader in state React owns, so a re-render reaches the same reader.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
     const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: artifactList }));
     const { container, rerender } = renderArtifactPayloadSection(subject);
@@ -88,8 +80,7 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
   });
 
   it("mints a reader of its own when the binding moves to another artifact", async () => {
-    // The subject is the key, so a moved subject is a new reader, and the binding opens on
-    // the new artifact's `loading` reading rather than on the previous one's rows.
+    // The subject is the key, so a moved subject is a new reader that opens on `loading`.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
     const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: artifactList }));
     const { container, rerender } = renderArtifactPayloadSection(subject);
@@ -100,7 +91,6 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
 
     rerender(artifactPayloadTree(subject, OTHER_ARTIFACT_ID));
     await settleAct();
-    // The new reader has read nothing yet, so it shows no rows.
     expect(container.querySelector(".meridian-artifact-row")).toBeNull();
 
     await readThrough(subject.clock);
@@ -109,9 +99,8 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
   });
 
   it("mints a reader of its own when the session projection is replaced", async () => {
-    // The store is not part of the seam's key, because an artifact id already names one
-    // session, so a projection rebuilt across a reconnect is caught by asking the reader.
-    // Without that arm the binding would keep observing a retired store.
+    // The store is not part of the seam's key, so a projection rebuilt across a reconnect is
+    // caught by asking the reader; otherwise the binding would observe a retired store.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
     const operations = artifactOperations({ listArtifacts: artifactList });
     const subject = artifactPayloadSubject(operations);
@@ -135,8 +124,7 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
   });
 
   it("mints a reader of its own when the operations are replaced", async () => {
-    // The operations are part of what the reader was built from. A reader kept across a
-    // new pair of calls would go on listing through the calls it was first given.
+    // A reader kept across new operations would go on listing through the calls it was given.
     const firstList = vi.fn(async () => LISTED_ONE_ROW);
     const secondList = vi.fn(async () => LISTED_ONE_ROW);
     const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: firstList }));
@@ -161,10 +149,8 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
   });
 
   it("negative control: an unmounted binding's reader is disposed and reads no more", async () => {
-    // A binding that answered the double-mount by never disposing would leave a torn-down
-    // section still scheduling, and one that re-minted on every effect run would read forever.
-    // The seam's cleanup disposes what the last commit held, and a clock advanced afterwards
-    // reaches nothing.
+    // A binding that never disposed would leave a torn-down section still scheduling, and one
+    // that re-minted on every effect run would read forever.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
     const subject = artifactPayloadSubject(artifactOperations({ listArtifacts: artifactList }));
     const { unmount } = renderArtifactPayloadSection(subject);
@@ -180,10 +166,9 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
   });
 
   it("disposes every reader it opened exactly once", async () => {
-    // The seam is told the disposal is terminal through `isClosed`, and the re-mint for a
-    // corpse is then the seam's. Re-derived in the hook's own effect, the corpse StrictMode's
-    // replay produced would be disposed a second time. `dispose` is re-entrant, so the call
-    // is the observable.
+    // The seam is told disposal is terminal through `isClosed`, so the corpse StrictMode's
+    // replay produced is not disposed a second time. `dispose` is re-entrant, so the call is
+    // the observable.
     const disposals = vi.spyOn(ArtifactListReader.prototype, "dispose");
     try {
       const subject = artifactPayloadSubject(
@@ -195,7 +180,6 @@ describe("artifact reading — the reader is held by the subject-scoped seam", (
       unmount();
 
       expect(repeatedDisposalCount(disposals)).toBe(0);
-      // Negative control on the count: a spy that saw nothing reports zero repeats.
       expect(disposals.mock.contexts.length).toBeGreaterThan(0);
     } finally {
       disposals.mockRestore();

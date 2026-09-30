@@ -1,11 +1,5 @@
-// The manifest re-read, driven through the reader that owns it.
-//
-// Every case presses a control on a live reader rather than supplying a hand-written publisher,
-// so the act is asserted against the half it is meant to be correct against.
-//
-// The load-bearing block is the re-read register: each row's re-read is single-flight by
-// row, so a second press on one row never reaches the port while a press on another row is
-// admitted, and a settlement the register has moved past is dropped.
+// The manifest re-read, driven through the reader that owns it, so the act is asserted against
+// the half it is meant to be correct against.
 
 import { type Mock, describe, expect, it, vi } from "vitest";
 
@@ -26,9 +20,8 @@ import {
 /**
  * A reader whose manifest re-reads are all parked, one resolver per call.
  *
- * A queue rather than one overwritten resolver, because the claim is about two reads of
- * one manifest settling in either order: a harness that could release only the newest call
- * could not deliver the older answer last.
+ * A queue rather than one resolver, so a case can settle two reads of one manifest in
+ * either order.
  */
 function readerWithHeldManifestReads(clock: ManualClock): {
   readonly reader: ArtifactListReader;
@@ -74,8 +67,7 @@ function listedDigest(reader: ArtifactListReader): string | undefined {
 
 describe("artifact list actions — one manifest re-read per row, each with its own identity", () => {
   it("sends one read when the row is pressed twice, and refuses the second in words", async () => {
-    // Two reads of one manifest settle in either order, so the older answer could
-    // overwrite the newer row.
+    // Two reads of one manifest settle in either order; the older could overwrite the newer.
     const clock = new ManualClock();
     const { reader, artifactRead, releaseNthRead } = readerWithHeldManifestReads(clock);
     reader.start();
@@ -86,8 +78,7 @@ describe("artifact list actions — one manifest re-read per row, each with its 
     await expect(reader.readManifest(SERVED_SUMMARY.id)).rejects.toThrow("already being read");
 
     expect(artifactRead).toHaveBeenCalledTimes(1);
-    // The row is named on the reading while its read is outstanding, which is what holds
-    // the control that sent it.
+    // The reading names the row while its read is outstanding, which holds the control.
     expect(reader.snapshot.manifestReadInFlightArtifactIds.has(SERVED_SUMMARY.id)).toBe(true);
 
     releaseNthRead(0, servedManifest("sha256:first"));
@@ -95,9 +86,7 @@ describe("artifact list actions — one manifest re-read per row, each with its 
   });
 
   it("drops a reply for a request this row's register has given up", async () => {
-    // A disposal takes the register out from under a continuation, and an answer for a
-    // request it has moved past writes nothing rather than putting an older manifest back
-    // on a row that has since been answered for.
+    // A disposal supersedes the register; the answer must not put an older manifest back.
     const clock = new ManualClock();
     const { reader, releaseNthRead } = readerWithHeldManifestReads(clock);
     reader.start();
@@ -113,8 +102,7 @@ describe("artifact list actions — one manifest re-read per row, each with its 
   });
 
   it("negative control: the register is given back, so the next press is sent rather than refused", async () => {
-    // A register taken and never released would pass both cases above and reject every
-    // later re-read of that row for the life of the section, with the control held.
+    // A register never released would reject every later re-read of that row.
     const clock = new ManualClock();
     const { reader, artifactRead, releaseNthRead } = readerWithHeldManifestReads(clock);
     reader.start();
@@ -136,9 +124,7 @@ describe("artifact list actions — one manifest re-read per row, each with its 
   });
 
   it("negative control: a second row is read while the first is still on the wire", async () => {
-    // Two rows re-reading are two calls about two manifests that cannot collide, and a
-    // section that held one row's control because another was waiting would block a press
-    // for a reason that is not about it.
+    // Two rows re-reading cannot collide; one row's control must not be held for the other.
     const clock = new ManualClock();
     const { reader, artifactRead } = readerWithHeldManifestReads(clock);
     reader.start();

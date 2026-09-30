@@ -1,28 +1,11 @@
-// The vocabulary one entity's record is written in: what a detail is handed, and
-// what it may put on a row.
+// The vocabulary one entity's record is written in: what a detail is handed, and what it may
+// put on a row.
 //
-// WHY FACETS ARE DATA AND NOT NODES. Each detail component declares the
-// rows its kind carries. If a row were a `React.ReactNode` every component would
-// pick its own formatter, and each picking is a chance to reach for `toFixed`
-// instead of `primitives/figures/wire-figures.ts`. A facet is therefore a VALUE with a
-// closed form, and `EntityRecord.tsx` is the only module that turns one into
-// markup — which is the same chokepoint discipline the figures module itself is.
-//
-// WHY THE BUILDERS TAKE `unknown`. `StoredEntity.body` is
-// `Readonly<Record<string, unknown>>` — a renderer-local extension point whose
-// shape belongs to whichever feature registers the projector for that kind, and
-// no feature has registered one yet. So a detail reads a body member by NAME, and
-// the name is this console's read-side expectation rather than a claim about a
-// wire: where a registered contract member exists the detail quotes it verbatim
-// (the repo / workspace / worktree lifecycle payload's `repoMountId` /
-// `workspaceId` / `worktreeId` / `actor`, `RunStateChangeEvent`'s `runVersion` and
-// `previousState`). Nothing here invents a method string, an event type, or a wire
-// member.
-//
-// AND WHY EVERY BUILDER HAS AN ABSENT ARM. A member the body does not carry is not
-// a member whose value is empty. Those two are kept apart, so a builder that cannot
-// narrow its input renders the `not-checked` absence naming the member — never a
-// blank cell, never a zero, and never a dash standing in for both.
+// A facet is a value with a closed form, not a `ReactNode`, so `EntityRecord.tsx` is the only
+// module turning one into markup and no detail picks its own formatter. Builders take `unknown`
+// because `StoredEntity.body` is a renderer-local map whose shape no projector has fixed; each
+// has an absent arm, so a member the body does not carry is never a blank cell, a zero or a
+// dash.
 
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
@@ -34,9 +17,8 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
 /**
  * What every per-kind detail is handed.
  *
- * It lives beside the facet vocabulary rather than beside the registry that
- * composes the details, because the registry imports every detail and every
- * detail imports this — putting the props there would close a cycle.
+ * Declared here rather than beside the registry, which imports every detail: putting the
+ * props there would close a cycle.
  */
 export interface EntityDetailProps {
   /** The stored record, or `undefined` where the store holds none for this id. */
@@ -52,12 +34,7 @@ export interface EntityDetailProps {
   /**
    * The pane this inspector was opened from, when the pane layout linked the two.
    *
-   * A PROP and never a coupling: an inspector may be linked to a source pane, and
-   * this console's own rule — stated in `InspectedEntity.tsx` — still keeps every
-   * pane independently movable and closable, which is what being a pane kind rather
-   * than a fixed third column means here. Holding a handle on the source pane would
-   * make one of those two false; holding its id makes the link a fact the record can
-   * state.
+   * An id, not a handle: a link must not cost either pane its independence.
    */
   readonly linkedSourcePaneId: string | undefined;
 }
@@ -65,9 +42,8 @@ export interface EntityDetailProps {
 /**
  * What a facet's value is, closed at three forms.
  *
- * Closed because the forms are the console's provenance signature for figures — a value the
- * wire supplied is mono, a value the console computed is not, and a value that is
- * not there is neither. A fourth form would be a fourth provenance.
+ * The forms are the console's provenance signature: a value the wire supplied is mono, one the
+ * console computed is not, and one that is not there is neither.
  */
 export type EntityFacetValue =
   | { readonly form: "wire"; readonly text: string }
@@ -88,9 +64,7 @@ export function readBodyMember(entity: StoredEntity | undefined, memberName: str
 
 /** A string the wire supplied — an id, a handle, a state name. Mono and verbatim. */
 export function wireFacet(label: string, value: unknown, memberName: string): EntityFacet {
-  // The empty-string-is-absent rule is `core/wire-strings.ts`', not this builder's:
-  // three views were each spelling it for themselves, and a facet that read
-  // `""` as a value would put an empty mono cell where the absent arm belongs.
+  // The empty string is absent: `readWireString` owns that rule, not this builder.
   const text = readWireString(value);
   return {
     label,
@@ -112,8 +86,8 @@ export function countFacet(label: string, value: unknown, memberName: string): E
 /**
  * A byte quantity, scaled by 1024 in the one module that scales bytes.
  *
- * Negative is refused rather than rendered: a byte count below zero is a defect in
- * whatever produced it, and a record that showed `-1 B` would be asserting a size.
+ * Negative is refused: a byte count below zero is a defect in its producer, and `-1 B` would
+ * assert a size.
  */
 export function byteFacet(label: string, value: unknown, memberName: string): EntityFacet {
   return {
@@ -128,14 +102,9 @@ export function byteFacet(label: string, value: unknown, memberName: string): En
 /**
  * An instant, as a wall-clock reading.
  *
- * Wall clock rather than relative, and that is a budget decision as much as a
- * formatting one: a relative phrase is only true for an instant, so a record
- * carrying one would need something telling it when now is — and the console has no
- * timer.
- *
- * A string that does not parse takes the absent arm rather than the figures
- * module's em dash, because a dash beside a label reads as "there is none" and the
- * fact is that the console was handed something that is not an instant.
+ * Wall clock rather than relative: a relative phrase is only true for an instant and the
+ * console has no timer. A string that does not parse takes the absent arm, since an em dash
+ * reads as "there is none".
  */
 export function instantFacet(label: string, value: unknown, memberName: string): EntityFacet {
   if (typeof value !== "string" || parseInstant(value).kind === "malformed") {
@@ -147,10 +116,8 @@ export function instantFacet(label: string, value: unknown, memberName: string):
 /**
  * An expiry, which has three answers rather than two.
  *
- * A wire timestamp renders from the exact value, and collapsing two kinds of
- * nothing is forbidden. THE EXPLICIT "no expiry" LABEL IS THIS MODULE'S OWN: a
- * member the projector set to `null` is a decision that never lapses and says so —
- * a different sentence from a member nobody projected.
+ * A member projected as `null` is a decision that never lapses and says "No expiry"; a member
+ * nobody projected is absent.
  */
 export function expiryFacet(label: string, value: unknown, memberName: string): EntityFacet {
   if (value === null) {
@@ -162,9 +129,7 @@ export function expiryFacet(label: string, value: unknown, memberName: string): 
 /**
  * How many entities of one kind this session attributes to a user.
  *
- * Over `StoredEntity.attributedTo`, which the store TYPES — so this is a read of
- * the projection rather than a guess at a body member, and it is the one relation
- * the inspector can compose today without a projector having landed.
+ * Read off the typed `StoredEntity.attributedTo`, not a body member.
  */
 export function countAttributedTo(
   entities: Readonly<Record<string, StoredEntity>>,
@@ -173,13 +138,7 @@ export function countAttributedTo(
   return Object.values(entities).filter((entity) => entity.attributedTo === userId).length;
 }
 
-/**
- * The sentence an absent member carries.
- *
- * One generator rather than thirty hand-written strings: the fact is the same
- * every time — the record the console holds does not carry this member — and a
- * fact restated thirty times drifts into thirty slightly different claims.
- */
+/** The sentence an absent member carries; one generator so the claim cannot drift. */
 function unrecorded(memberName: string): EntityFacetValue {
   return {
     form: "unrecorded",

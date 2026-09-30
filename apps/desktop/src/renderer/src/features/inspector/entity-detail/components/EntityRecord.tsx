@@ -1,29 +1,7 @@
 // One entity's record, drawn once for every kind.
 //
-// Every detail component supplies WHAT its kind carries and WHAT each of its four
-// states says; this module decides how any of that looks. The split is the reason
-// kinds do not become one layout each: a kind that drew its own frame would
-// pick its own heading weight, its own facet alignment, and its own answer to where
-// the identifier goes, and a reader moving between two panes would be reading two
-// consoles.
-//
-// THE FOUR ARMS, IN THIS ORDER, AND THE ORDER IS THE CLAIM.
-//
-//   1. **The read has not answered.** `not-loaded`. Nothing is known, so nothing is
-//      said — a sentence here would be replaced a beat later.
-//   2. **The projection is known-incomplete.** `error`, carrying the store's own
-//      word for why plus what an incomplete projection costs THIS kind. It is
-//      ranked above the absence arm deliberately: while the projection is
-//      incomplete, a missing record is not evidence that there is no record, and a
-//      pane that said "there is none" here would be asserting a fact the daemon has
-//      explicitly withdrawn.
-//   3. **Answered, and there is no such record.** `empty`, in the kind's own words.
-//      The one arm allowed to say a record is not there.
-//   4. **There is a record.** The record.
-//
-// They are four rather than two because a renderer that collapses two of these
-// kinds of nothing into one is wrong. That the second is a RANK on the record
-// rather than a replacement for it is this console's own rule.
+// Each detail supplies what its kind carries and what its four states say; this module decides
+// how any of it looks, so kinds do not become one layout each.
 
 import "./EntityRecord.css";
 
@@ -32,13 +10,13 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-// The record's kind glyph is drawn at the pane header's scale, and takes it from the
-// one home that publishes that scale rather than restating the number.
+// The kind glyph is drawn at the pane header's scale, taken from its one home.
 import { GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { EntityFacet } from "../entity-facets.js";
 
+/** What one entity record draws: identity, facets, and the wording of its absence arms. */
 export interface EntityRecordProps {
   /** The kind's glyph, from the console's glyph set. */
   readonly glyph: GlyphName;
@@ -53,10 +31,9 @@ export interface EntityRecordProps {
   readonly hasRecord: boolean;
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
-   * What an incomplete projection costs this kind, as the second half of a
-   * sentence beginning "The projection is incomplete (…), so ". The kind supplies
-   * it because the cost differs: a partial run list is a wrong count, a partial
-   * artifact record is a wrong size.
+   * What an incomplete projection costs this kind, as the second half of a sentence beginning
+   * "The projection is incomplete (…), so ": a partial run list is a wrong count, a partial
+   * artifact record a wrong size.
    */
   readonly degradedConsequence: string;
   /** What it means, in this kind's words, that the store answered and holds none. */
@@ -68,6 +45,10 @@ export interface EntityRecordProps {
   readonly children?: React.ReactNode;
 }
 
+/**
+ * One entity's record. The arms rank: read not answered, then projection incomplete (above
+ * absence, since a missing record proves nothing while incomplete), then absent, then the record.
+ */
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   const subject = props.heading.toLowerCase();
   if (!props.isInitialized) {
@@ -79,9 +60,8 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         kind="error"
         placement="block"
         title={`The ${subject} record is incomplete.`}
-        // The cause is the store's own word, rendered as received. The console
-        // does not paraphrase it, and it offers no Retry: nothing reachable from
-        // an inspector re-pulls a session.
+        // The cause is the store's own word, unparaphrased. No Retry: nothing reachable from an
+        // inspector re-pulls a session.
         detail={`The projection is incomplete (${props.degradedCause}), so ${props.degradedConsequence}`}
       />
     );

@@ -1,8 +1,5 @@
-// The standing-permission list's own read state, beside the list it belongs to.
-//
-// The rules read is a SECOND read next to the approvals projection, and its phase is
-// its own: folding the two into one state would hide a readable approvals list behind
-// a rules list that is still loading, or the reverse.
+// The standing-permission list's own read state. Its phase is separate from the approvals
+// projection's, so neither list hides behind the other's loading.
 
 import type { RememberedRule } from "@ai-sidekicks/contracts";
 

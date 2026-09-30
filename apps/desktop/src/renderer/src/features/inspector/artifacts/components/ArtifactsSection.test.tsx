@@ -7,8 +7,7 @@ import { formatByteQuantity, formatCount } from "@renderer/lib/wire-figures.js";
 import { ARTIFACT_PRODUCER_ID, artifactRow } from "@test/helpers/artifact-summaries.js";
 import { ArtifactsSection } from "./ArtifactsSection.js";
 
-// Built rather than parsed: a fixture instant is this suite's own decision, and the
-// console's one reader of a wire stamp is `parseInstant`, not this line.
+// Built rather than parsed, so the suite does not depend on `parseInstant`.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
 describe("ArtifactsSection — the arms are different absences", () => {
@@ -30,9 +29,8 @@ describe("ArtifactsSection — the arms are different absences", () => {
 
 describe("ArtifactsSection — a count is a reading, and only a list produces one", () => {
   it("states no session total and offers no type filter while a read is in flight", () => {
-    // A head that reports a total over rows nobody read contradicts the body beneath it,
-    // and seven buttons all reading zero promise that pressing one narrows a list this
-    // panel does not have.
+    // A total over unread rows would contradict the body, and filter buttons all reading zero
+    // promise a narrowing this panel cannot do.
     const { container, queryByRole } = render(
       <ArtifactsSection state={{ kind: "loading" }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
@@ -52,8 +50,7 @@ describe("ArtifactsSection — a count is a reading, and only a list produces on
   });
 
   it("negative control: a served EMPTY list is a reading, so it keeps both", () => {
-    // The arm that earns a zero. `listed` with no rows is a read that found none, which is
-    // a different claim from `loading` and renders its own total.
+    // `listed` with no rows is a read that found none, not `loading`, so it renders its total.
     const { container, getByRole } = render(
       <ArtifactsSection state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
@@ -110,7 +107,6 @@ describe("ArtifactsSection — the type filter is one filter over one list", () 
       <ArtifactsSection state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
-    // Seven: the six types plus the member that selects them all.
     expect(within(filter).getAllByRole("button")).toHaveLength(7);
     expect(filter.textContent).toContain("workflow_output");
   });
@@ -126,8 +122,8 @@ describe("ArtifactsSection — the type filter is one filter over one list", () 
   });
 
   it("says the FILTER matched nothing, not that the session has nothing", () => {
-    // The read served two artifacts. A panel that branched on the rows the filter kept
-    // would report the session as empty here, hiding that the filter is what has no matches.
+    // The read served two artifacts; branching on the filtered rows would report the session
+    // as empty.
     const { container } = render(
       <ArtifactsSection state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
@@ -137,16 +133,14 @@ describe("ArtifactsSection — the type filter is one filter over one list", () 
 
     const body = container.querySelector(".meridian-artifacts__body");
     expect(body?.textContent).toContain("No artifacts of the type this filter is set to");
-    // The type it is set to, and how many rows of other types it is hiding.
     expect(body?.textContent).toContain("summary");
     expect(body?.textContent).toContain(formatCount(rows.length));
     expect(body?.textContent).not.toContain("Nothing made here yet.");
   });
 
   it("negative control: the session-empty copy survives, on the arm that earns it", () => {
-    // The other side of the same branch. A fix that routed every empty body through
-    // the filter-scoped sentence would leave a read that genuinely found none with
-    // no way to say so, and would name a filter the user never touched.
+    // Routing every empty body through the filter sentence would name a filter the user never
+    // touched.
     const { container } = render(
       <ArtifactsSection state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
     );

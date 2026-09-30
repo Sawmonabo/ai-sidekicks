@@ -1,32 +1,18 @@
 // The inspector pane's registration: one kind claimed, one body behind it.
 //
-// The feature's `index.ts` publishes the registrar below and `app/registrations.ts` calls it.
-// A feature registers through its own registrar and never edits the pane registry or the
-// pane-kind set.
-//
-// The owner string is the KIND's owner rather than the feature's. The registry
-// refuses a second owner on one kind, and a refusal that named a whole feature would
-// leave a reader hunting three directories for which body is already there.
-
-// THE SHEET IS NOT IMPORTED HERE. The pane is loader-backed, so the body module is the
-// root of the chunk and therefore the sheet's owner.
+// The feature's `index.ts` publishes the registrar and `app/registrations.ts` calls it. The
+// owner string is the kind's owner, not the feature's, since the registry refuses a second
+// owner on one kind and the refusal should say which body is already there. The stylesheet is
+// not imported here: the pane is loader-backed, so the body module owns it.
 
 import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
-/**
- * Claim the `inspector` kind.
- *
- * The descriptor makes no claim about being torn off — `isDetachablePaneKind` is
- * the one answer, read off the window model rather than advertised here, and the
- * inspector is not among the kinds it admits.
- */
+/** Claim the `inspector` kind, with its body loaded on demand. */
 export function registerInspectorPane(registry: PaneRegistry): void {
   registry.register({
     kind: "inspector",
     owner: "inspector-pane",
-    // A LOADER AND NOT A `render`: this pane is not on the flagship first paint, so
-    // its body, its readers, and its sheets ride the chunk the specifier below names
-    // rather than the initial import graph.
+    // A loader, not a `render`: the body, readers and sheets ride a separate chunk.
     body: () => import("./inspector-pane-body.js"),
   });
 }

@@ -1,10 +1,4 @@
-// The pane's two boundary absences, its registration, and the claim that neither
-// absence is the record's.
-//
-// The pane is rendered through the real `PaneContext` shape rather than a
-// props object of its own, because the two questions under test — was an entity
-// addressed, and is there a session to read it from — are answered off that
-// contract and nowhere else.
+// The pane's boundary absence, its registration, and that the absence is not the record's.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -12,7 +6,6 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-// The declaring module rather than the public entry: the predicate is read only from suites.
 import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { registerInspectorPane } from "./contributions/panes.js";
@@ -20,23 +13,12 @@ import { InspectorPane } from "./InspectorPane.js";
 
 const SESSION_ID = "session-inspector";
 
-/**
- * A bridge the pane never touches: the inspector reads the store, not the wire.
- *
- * The shipped fixture rather than an empty object cast to the type, because "never
- * touches it" is a claim rather than a premise: a pane that grew a read would get a
- * real answer here and change what this file renders, where a cast stand-in answers
- * `undefined.something` and fails somewhere that names neither the read nor the pane.
- */
+// The shipped fixture rather than a cast stand-in: a stand-in fails with `undefined.something`
+// far from the read that caused it.
 const UNUSED_BRIDGE: PlatformBridge = createFixture().bridge;
 
-/**
- * The entity an inspector is addressed at.
- *
- * Read off the address union rather than widened to `EntityRef`: the
- * inspector's arm admits a workspace or a worktree, so a run or a repo
- * reference is refused at the address and never reaches this pane.
- */
+// Read off the address union rather than widened to `EntityRef`: the inspector's arm admits
+// only a workspace or a worktree.
 type InspectedRef = PaneContextOf<"inspector">["entity"];
 
 function renderPane(
@@ -56,7 +38,6 @@ function renderPane(
   return container;
 }
 
-/** The element the pane names itself by, resolved the way an assistive reader does. */
 function accessibleName(pane: HTMLElement): string {
   const labelledBy = pane.getAttribute("aria-labelledby");
   if (labelledBy === null) {
@@ -69,7 +50,6 @@ function accessibleName(pane: HTMLElement): string {
   return naming.textContent ?? "";
 }
 
-/** A session store holding the one worktree the link cases inspect. */
 function storeWithWorktree(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
   store.initialize({
@@ -80,10 +60,8 @@ function storeWithWorktree(): SessionStore {
 }
 
 describe("the inspector's one boundary absence", () => {
-  // There is no case for an inspector opened with no entity, and that is the
-  // address union's doing: the inspector's arm REQUIRES one, so the refusal lives
-  // at `parsePaneAddress` — where an untyped layout row or route is read —
-  // and this body is never reached without it.
+  // No case for an inspector opened with no entity: `parsePaneAddress` refuses it, so this
+  // body is never reached without one.
   it("says so when there is an entity and no session to read it from", () => {
     const container = renderPane({ kind: "worktree", id: "worktree-1" }, undefined);
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
@@ -91,9 +69,8 @@ describe("the inspector's one boundary absence", () => {
   });
 
   it("negative control: that absence is not the record's own", () => {
-    // The arm above is `not-checked` — nothing was asked. Rendering the record's
-    // `not-loaded` or `empty` instead would have the pane claiming a read is in
-    // flight, or that the entity does not exist, over a question it never put.
+    // `not-checked`, nothing was asked. The record's `not-loaded` or `empty` would claim a read
+    // in flight or a missing entity.
     const withoutSession = renderPane({ kind: "worktree", id: "worktree-1" }, undefined);
     expect(withoutSession.querySelector(".meridian-nothing--not-loaded")).toBeNull();
     expect(withoutSession.querySelector(".meridian-nothing--empty")).toBeNull();
@@ -113,11 +90,8 @@ describe("the inspector with an entity and a session", () => {
   });
 
   it("wears the pane chrome, and is named by its whole trail", () => {
-    // The name is `aria-labelledby` and not an `aria-label`: the two cannot both name
-    // one element, so the chrome points at the crumb list and the pane's name is
-    // "session-inspector worktree-1 Inspector" rather than "Inspector" for every
-    // inspector in the pane layout. The entity contributes its ID and not its kind — the
-    // kind is already said by the glyph and the last crumb.
+    // `aria-labelledby` on the crumb list, since it and `aria-label` cannot both name one
+    // element: the name is the whole trail, not "Inspector" for every pane.
     const store = new SessionStore({ sessionId: SESSION_ID });
     const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
       ".meridian-pane",
@@ -132,8 +106,7 @@ describe("the inspector with an entity and a session", () => {
   });
 
   it("negative control: the name is the trail rather than the kind alone", () => {
-    // Without this the case above would pass for a chrome that named every pane
-    // "Inspector" and happened to render the ids somewhere else in the subtree.
+    // Without this the case above passes for a chrome naming every pane "Inspector".
     const store = new SessionStore({ sessionId: SESSION_ID });
     const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
       ".meridian-pane",
@@ -148,9 +121,7 @@ describe("the inspector with an entity and a session", () => {
 
 describe("a linked inspector says which pane opened it", () => {
   it("names the source pane the pane layout opened it from", () => {
-    // The pane layout puts the source pane's id on the pane context, and the record has rendered
-    // that provenance line all along — the pane was discarding the member before
-    // the record could read it, so every linked inspector looked unlinked.
+    // The pane layout puts the source pane's id on the pane context; the pane must pass it on.
     const container = renderPane(
       { kind: "worktree", id: "worktree-1" },
       storeWithWorktree(),
@@ -162,8 +133,7 @@ describe("a linked inspector says which pane opened it", () => {
   });
 
   it("negative control: an unlinked inspector claims no source pane", () => {
-    // Without this, a pane that named some other pane unconditionally would pass
-    // the case above and tell every reader their inspector came from somewhere.
+    // Without this, a pane naming some other pane unconditionally would pass the case above.
     const container = renderPane({ kind: "worktree", id: "worktree-1" }, storeWithWorktree());
     expect(container.querySelector(".meridian-entity-record__link")).toBeNull();
   });

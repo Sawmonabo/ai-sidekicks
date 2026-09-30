@@ -1,8 +1,4 @@
 // The payload fetch's single flight, driven through the reader that owns it.
-//
-// The reading holds one payload, which is what these cases assert: a second press never
-// reaches the port while a fetch is out, a settlement the register has moved past is
-// dropped, and a list refresh landing under a fetch neither cancels it nor loses its answer.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -29,8 +25,7 @@ function fetchedText(reader: ArtifactListReader): string {
 
 describe("artifact list actions — one payload fetch in flight, each with its own identity", () => {
   it("sends one fetch when the control is pressed twice, and refuses the second in words", async () => {
-    // Two fetches in flight are two downloads, and the older answer could overwrite the
-    // newer bytes and the newer manifest beside them.
+    // Two fetches in flight could settle out of order and overwrite the newer bytes.
     const clock = new ManualClock();
     const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
     reader.start();
@@ -41,7 +36,6 @@ describe("artifact list actions — one payload fetch in flight, each with its o
     await expect(reader.fetchPayload(OTHER_ARTIFACT_ID)).rejects.toThrow("already in flight");
 
     expect(artifactRead).toHaveBeenCalledTimes(1);
-    // The payload arm still belongs to the fetch that is genuinely outstanding.
     expect(reader.snapshot.payload).toStrictEqual({
       status: "fetching",
       artifactId: SERVED_SUMMARY.id,
@@ -53,8 +47,7 @@ describe("artifact list actions — one payload fetch in flight, each with its o
   });
 
   it("drops a settlement whose request the register has given up", async () => {
-    // A disposal takes the register out from under a continuation, and an answer that
-    // writes anyway would publish onto a section that unmounted.
+    // A disposal supersedes the register; a write anyway would publish onto an unmounted section.
     const clock = new ManualClock();
     const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
     reader.start();
@@ -73,9 +66,8 @@ describe("artifact list actions — one payload fetch in flight, each with its o
   });
 
   it("negative control: a list refresh under a fetch neither cancels it nor loses its answer", async () => {
-    // Without this the register could be the refresh stamp: a refresh landing under a fetch
-    // would return `superseded` and publish nothing, leaving the reading on `fetching` with
-    // no answer ever coming and the control held forever.
+    // Without this the register could be the refresh stamp: the fetch would return
+    // `superseded` and leave the reading on `fetching` with the control held forever.
     const clock = new ManualClock();
     const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
     reader.start();
@@ -94,8 +86,7 @@ describe("artifact list actions — one payload fetch in flight, each with its o
   });
 
   it("negative control: the register is given back, so a later press is sent rather than refused", async () => {
-    // Without this a register taken and never released would pass every case above and
-    // reject the second fetch a user ever asks for, for the life of the section.
+    // Without this a register never released would reject every later fetch.
     const clock = new ManualClock();
     const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
     reader.start();
@@ -116,8 +107,7 @@ describe("artifact list actions — one payload fetch in flight, each with its o
   });
 
   it("propagates a rejected fetch and gives the control back", async () => {
-    // A call that rejected leaves nothing to answer the `fetching` arm, so the reading
-    // goes back to no payload and the next press is sent.
+    // A rejected call leaves nothing to answer `fetching`, so the reading returns to no payload.
     const clock = new ManualClock();
     const artifactRead = vi
       .fn<ReadArtifact>()

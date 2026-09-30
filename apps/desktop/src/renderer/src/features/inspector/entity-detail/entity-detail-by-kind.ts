@@ -1,10 +1,8 @@
 // Which detail renders which entity kind.
 //
-// The keys are the kinds the inspector's address admits, read off that address, so a
-// kind added to it fails to compile here until it has a record body.
-//
-// The table is the only module that imports every detail, and none of them
-// imports it. That keeps the shared vocabulary (`entity-facets.ts`) below both,
+// The keys are the kinds the inspector's address admits, so a kind added to it fails to compile
+// until it has a record body. Details never import this table; `EntityDetailProps` lives in
+// `entity-facets.ts` to keep that dependency one way.
 // which is why `EntityDetailProps` lives there rather than here.
 
 import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";

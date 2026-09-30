@@ -1,10 +1,7 @@
-// A worktree's record — one checkout, bound as an execution root.
+// A worktree's record: one checkout, bound as an execution root.
 //
-// It shares a payload shape with the workspace and still reads differently: the
-// worktree lifecycle vocabulary is its own (`creating` / `dirty` / `merged` /
-// `retired`), and the checkout path — the thing an operator actually wants — is on
-// no registered lifecycle member, so this record says so rather than leaving a
-// reader to conclude the worktree has none.
+// No registered lifecycle member carries the checkout path, so the record says so rather than
+// leaving a reader to conclude the worktree has none.
 
 import { EntityRecord } from "./EntityRecord.js";
 import {
@@ -14,6 +11,7 @@ import {
   type EntityDetailProps,
 } from "../entity-facets.js";
 
+/** The worktree record body: worktree, workspace, actor and last touch. */
 export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Element {
   return (
     <EntityRecord

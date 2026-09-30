@@ -1,18 +1,8 @@
-// What the inspector's `Artifacts` section holds, what it can act on, and who is told when
-// it changes.
+// The `Artifacts` section's reading of a session's artifacts, and who is told when it changes.
 //
-// The list read and the two artifact reads its acts make are calls the caller supplies
-// (`ArtifactOperations`); nothing here reaches the wire itself. A rejected call is not
-// caught here: it propagates to whoever awaited it.
-//
-// When the read runs is `artifact-read-schedule.ts`'s, and this class extends it: the
-// scheduler, the refresh reasons, the generation register and the list read live there,
-// and what is left here is what the section renders and who is told when it changes.
-//
-// The acts are `artifact-row-actions.ts`'s. `readManifest` and `fetchPayload` delegate to
-// `ArtifactRowActions`, which is handed only the operations `ArtifactListReadingPublisher`
-// names. The methods stay on this class because the reader is the one object the section
-// holds.
+// The list read and the two act reads are calls the caller supplies (`ArtifactOperations`); a
+// rejected call propagates to whoever awaited it. Scheduling lives in `artifact-read-schedule.ts`
+// and the acts in `artifact-row-actions.ts`.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 
@@ -49,8 +39,7 @@ export class ArtifactListReader extends ArtifactReadSchedule {
   public constructor(options: ArtifactListReaderOptions) {
     super(options);
     this.#clock = options.clock;
-    // Stamped at construction, so every reading the section can reach carries an instant
-    // somebody took.
+    // Stamped at construction so even the opening reading carries an instant somebody took.
     this.#reading = { ...NOTHING_READ_YET, readAtMilliseconds: this.#clock.now() };
     this.#actions = new ArtifactRowActions({
       readArtifact: options.readArtifact,
@@ -69,11 +58,10 @@ export class ArtifactListReader extends ArtifactReadSchedule {
   }
 
   /**
-   * Read again, because a user asked.
+   * Read again because a user asked.
    *
-   * Routed through the schedule rather than performed here, so a second press inside the
-   * coalescing window costs no second read and a press made while a read is outstanding
-   * becomes the next read rather than a parallel one.
+   * Goes through the schedule: a press inside the coalescing window costs no second read, and
+   * a press during a read becomes the next read.
    */
   public refresh(): void {
     this.requestRead("user-request");
@@ -89,7 +77,7 @@ export class ArtifactListReader extends ArtifactReadSchedule {
     return this.#actions.fetchPayload(artifactId);
   }
 
-  /** Terminal. No later completion, frame, or focus can reach a section that unmounted. */
+  /** Terminal: nothing that completes after this reaches a section that unmounted. */
   public override dispose(): void {
     // The acts are disposed too, so a fetch still in flight settles into nothing.
     this.#actions.dispose();
@@ -97,24 +85,17 @@ export class ArtifactListReader extends ArtifactReadSchedule {
     this.#changes.clear();
   }
 
-  /** The schedule's half of the seam: what it is about to replace. */
   protected override currentReading(): ArtifactListReading {
     return this.#reading;
   }
 
-  /** The schedule's other half: where a settled round is put. */
   protected override publishReading(
     reading: Omit<ArtifactListReading, "readAtMilliseconds">,
   ): void {
     this.#publish(reading);
   }
 
-  /**
-   * This reader's half of the act seam, as the one object the acts are given.
-   *
-   * An adapter rather than an `implements` clause, because every member reads or writes
-   * state this class owns and implementing the port would make all three public.
-   */
+  /** The act seam's adapter; an `implements` clause would make all three members public. */
   #readingPublisher(): ArtifactListReadingPublisher {
     return {
       currentReading: () => this.#reading,
@@ -128,9 +109,8 @@ export class ArtifactListReader extends ArtifactReadSchedule {
   /**
    * Put one reading on the section, stamped with the instant it was put there.
    *
-   * Every publish comes through here, so the instant is a property of the publish and not
-   * of whichever producer remembered to take one. The parameter omits the stamp because a
-   * producer cannot supply it; one that spreads a stamped reading forward is overwritten.
+   * Every publish passes through here so the instant belongs to the publish; the parameter
+   * omits the stamp so a producer cannot supply one.
    */
   #publish(reading: Omit<ArtifactListReading, "readAtMilliseconds">): void {
     const stamped: ArtifactListReading = { ...reading, readAtMilliseconds: this.#clock.now() };
