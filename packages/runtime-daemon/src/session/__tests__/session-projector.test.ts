@@ -1,10 +1,11 @@
-// `replay()` refuses an event log whose bootstrap is missing or not at sequence 0, since
-// projecting from it would present partial state as complete.
+// `replay()` projects the owner from the bootstrap `session.created` event's `actor`, and refuses
+// an event log whose bootstrap is missing or not at sequence 0, since projecting from it would
+// present partial state as complete.
 
 import { describe, expect, it } from "vitest";
 
 import { replay } from "../session-projector.js";
-import type { StoredEvent } from "../types.js";
+import type { DaemonSessionSnapshot, StoredEvent } from "../types.js";
 
 const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
 const OWNER_ACTOR_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
@@ -41,6 +42,21 @@ function makeCreatedEvent(): StoredEvent {
     version: "1.0",
   };
 }
+
+describe("session-projector — bootstrap projection", () => {
+  it("records the owner from a single session.created event", () => {
+    const snapshot: DaemonSessionSnapshot | null = replay([makeCreatedEvent()]);
+    expect(snapshot).not.toBeNull();
+    if (snapshot === null) return; // type guard for TS
+
+    expect(snapshot.sessionId).toBe(SESSION_ID);
+    expect(snapshot.state).toBe("provisioning");
+    expect(snapshot.createdAt).toBe(OCCURRED_AT);
+    expect(snapshot.asOfSequence).toBe(0);
+
+    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
+  });
+});
 
 describe("session-projector — bootstrap refusals", () => {
   it("rejects a first event that is not session.created", () => {
