@@ -21,7 +21,6 @@ export interface AttachmentIngestClientOptions {
 }
 
 /** Every attachment a user has handed this staged list, in the order they chose. */
-/** Every attachment a user has handed this staged list, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #ledger = new AttachmentIngestEntries();
   readonly #reclaimer: AttachmentSpoolReclaimer;
