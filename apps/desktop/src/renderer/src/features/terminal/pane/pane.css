@@ -1,29 +1,16 @@
 /*
- * The terminal pane's box — the three bands the lease line and the host sit in.
+ * The terminal pane's box: the padding and the column the lease line and the emulator host
+ * sit in, inside the body region `components/PaneFrame/PaneFrame.css` leaves.
  *
- * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal color,
- * every value read back out of a custom property.
+ * No literal color; every value comes from a custom property. One of the terminal feature's
+ * three sheets, each imported only from `pane/terminal-pane-body.ts`, so the bundler sees one
+ * edge into each and the styles stay out of the initial document.
  *
- * One of the terminal feature's three sheets, one per sub-module directory and named
- * for that directory. Every one is imported from `pane/terminal-pane-body.ts` and from
- * nowhere else, so the bundler sees exactly one edge into each — which is what keeps
- * this feature out of the document the operator waits for.
- */
-
-/*
- * The pane's BODY, inside the body region `components/PaneFrame/PaneFrame.css` leaves. The
- * frame, its background, and its boundary are that sheet's; what is left here is the padding
- * this feature wants inside it and the column the lease line and the host sit in.
- *
- * `box-sizing` is stated here for the reason `primitives/figures/chip.css` states it on every
- * primitive that pairs a fixed size with a boundary: the generated base sheet sets no
- * global `border-box` reset, so a padded box that also has to fill its region sizes its
- * CONTENT to the region and adds the padding outside it. In a fixed-height pane slot the
- * pane would be taller than its region by twice `--meridian-space-3`, which pushes
- * the emulator's bottom rows out of view or introduces a scrollbar nothing asked for.
- * The fill is `flex: 1 1 auto` against the chrome's own column rather than
- * `block-size: 100%` against a parent with no stated height, and the
- * hazard is the same one: the padding has to be inside whatever the box grows to.
+ * `box-sizing` is stated because the generated base sheet has no global `border-box` reset:
+ * padding added outside a box sized to fill its region would make the pane taller than the
+ * region by twice `--meridian-space-3`, pushing the emulator's bottom rows out of view or
+ * adding a scrollbar. The fill is `flex: 1 1 auto` against the frame's column rather than
+ * `block-size: 100%` against a parent with no stated height.
  */
 .meridian-terminal-pane {
   box-sizing: border-box;

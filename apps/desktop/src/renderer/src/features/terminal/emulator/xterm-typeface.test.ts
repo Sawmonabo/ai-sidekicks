@@ -44,9 +44,8 @@ describe("the face the grid is told to draw in", () => {
   });
 
   it("reads nothing from a mount element outside any document", () => {
-    // The shape a detached element and a DOM shim both answer with. It has to be
-    // distinguishable from a real declaration, because the two are treated
-    // differently one function down.
+    // The shape a detached element and a DOM shim both answer with; it must stay distinguishable
+    // from a real declaration.
     expect(readDeclaredMonospaceFamily(document.createElement("div"))).toBeUndefined();
   });
 
@@ -70,9 +69,8 @@ describe("the face the grid is told to draw in", () => {
   });
 
   it("does not rewrite the face it is already set to", () => {
-    // The write re-measures the cell and repaints every row, and `attach` runs on
-    // every remount — so the guard is the difference between a remount that costs
-    // nothing and one that costs a full re-render.
+    // The write re-measures the cell and repaints every row, and `attach` runs on every
+    // remount, so the guard separates a free remount from a full re-render.
     const terminal = fakeTerminal("Menlo, monospace");
 
     applyDeclaredMonospaceFamily(terminal, mountElementDeclaring("Menlo, monospace"));

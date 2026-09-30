@@ -1,8 +1,5 @@
-// Which links a terminal may open, driven with the strings an attack would use.
-//
-// A pure rule over a string, so the cases call it directly rather than dispatching
-// a mouse event nobody can dispatch in a DOM shim. That is the whole reason the
-// rule is a module and not a branch inside the emulator wrapper.
+// Which links a terminal may open, driven with the strings an attack would use. A pure rule,
+// so the cases call it directly rather than dispatch a mouse event.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,8 +16,7 @@ describe("the link scheme guard", () => {
   });
 
   it("refuses the schemes a program can print to attack the terminal that renders it", () => {
-    // A terminal renders whatever a process writes, so the printed text is
-    // attacker-controlled whenever the process is.
+    // Printed text is attacker-controlled whenever the process is.
     expect(allowedTerminalLinkHref("javascript:alert(1)")).toBeUndefined();
     expect(allowedTerminalLinkHref("file:///etc/passwd")).toBeUndefined();
     expect(allowedTerminalLinkHref("data:text/html,<script>x</script>")).toBeUndefined();

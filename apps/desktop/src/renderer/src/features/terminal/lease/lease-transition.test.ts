@@ -1,11 +1,6 @@
-// One event, read on its own terms.
-//
-// The reader is driveable with a single payload and no session, which is the whole
-// reason it is a module: every case below states what ONE `pty.control_changed`
-// obliges, without a device or an ordering standing between the payload and the
-// answer. The fold's response to a refusal is `lease-model.test.ts`'s, and which
-// holder shapes each reason admits is the contract's own suite; what is here is that
-// the reader reads through that contract and records what it refuses.
+// Reading one `pty.control_changed` on its own terms: no device, no ordering. Which holder
+// shapes each reason admits is the contract's own suite; here the reader is held to reading
+// through that contract and recording what it refuses.
 
 import { describe, expect, it } from "vitest";
 
@@ -53,9 +48,8 @@ describe("reading one transition — the holder is the wire's", () => {
   });
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
-    // The expensive direction: a shell the daemon has just handed to someone, offered
-    // as one anybody may take. The refusal is the contract's; this case holds that the
-    // reader goes through it.
+    // The expensive direction: a shell just handed to someone, offered as free. The refusal is
+    // the contract's; this case holds that the reader goes through it.
     expect(
       readTerminalLeaseTransition(transitionEvent(READER_EVENT_SEQUENCE, "taken", null)),
     ).toBeUndefined();
@@ -79,8 +73,8 @@ describe("reading the transition it could NOT read", () => {
   });
 
   it("negative control: a payload with nothing to name carries nothing", () => {
-    // Without it the case above would pass against a reader that stringified whatever
-    // the member held, which is the lease line inventing a vocabulary.
+    // Without it the case above would pass against a reader that stringified whatever the
+    // member held.
     expect(
       readTerminalLeaseUnreadTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "" }),

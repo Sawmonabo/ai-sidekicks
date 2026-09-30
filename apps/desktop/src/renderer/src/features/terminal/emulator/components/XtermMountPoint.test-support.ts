@@ -1,16 +1,8 @@
-// The emulator readings the mount point's suites take, and the ledger sweep they share.
-//
-// Every claim about this component is asserted through an observable consequence rather
-// than by reading its internals: the ledger's own readings, the emulator's own first
-// child, the absence primitive's class, and the region's accessible name. Those readers
-// live here because three suites take them, and because two of them — the hidden
-// textarea and the settled-load wait — are subtle enough that a second copy written
-// slightly differently would quietly assert something else.
-//
-// THE LOADER IS THE REAL ONE in all of them. A stub that resolved the adapter
-// synchronously would test a component that does not exist: the whole point of the
-// module under test is that the emulator's code arrives a commit later than the mount,
-// and a substitute that erased that gap would pass over the bug it exists to catch.
+// The emulator readings the mount point's suites take, and the ledger sweep they share. Claims
+// about the component are asserted through observable consequences: the ledger's readings, the
+// emulator's first child, the absence primitive's class, the region's accessible name. The
+// loader is the real one, since a stub that resolved the adapter synchronously would erase the
+// commit gap the component exists to handle.
 
 import { act, render, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
@@ -18,10 +10,7 @@ import { expect } from "vitest";
 import { terminalEmulatorLoader } from "../emulator-loader.js";
 import { terminalRendererPool } from "../renderer-pool.js";
 
-/**
- * The hidden textarea xterm.js listens on: the emulator's one input element.
- * Resolved once, because every reading of it is about that same element.
- */
+/** The hidden textarea xterm.js listens on: the emulator's one input element. */
 export function emulatorInputOf(mountElement: HTMLElement): HTMLTextAreaElement {
   const textarea = mountElement.querySelector("textarea");
   if (!(textarea instanceof HTMLTextAreaElement)) {
@@ -31,10 +20,8 @@ export function emulatorInputOf(mountElement: HTMLElement): HTMLTextAreaElement 
 }
 
 /**
- * Type one character, the way the library's own listener sees it. xterm.js turns a
- * keydown on that textarea into a data event, which is the only path a keystroke takes
- * to `onKeystroke` — so dispatching here makes the assertion about the wiring rather
- * than about a function reference the test already holds.
+ * Type one character the way the library's listener sees it: a keydown on that textarea
+ * becomes the data event, the only path a keystroke takes to `onKeystroke`.
  */
 export function typeOneCharacter(mountElement: HTMLElement): void {
   emulatorInputOf(mountElement).dispatchEvent(
@@ -42,6 +29,7 @@ export function typeOneCharacter(mountElement: HTMLElement): void {
   );
 }
 
+/** The element the emulator draws into, or a throw. */
 export function emulatorElementOf(container: HTMLElement): HTMLElement {
   const mountElement = container.querySelector(".meridian-terminal-mount-point__mount-element");
   if (!(mountElement instanceof HTMLElement)) {
@@ -50,6 +38,7 @@ export function emulatorElementOf(container: HTMLElement): HTMLElement {
   return mountElement;
 }
 
+/** The mount point's outer box, or a throw. */
 export function mountPointBoxOf(container: HTMLElement): HTMLElement {
   const box = container.querySelector(".meridian-terminal-mount-point");
   if (!(box instanceof HTMLElement)) {
@@ -59,13 +48,9 @@ export function mountPointBoxOf(container: HTMLElement): HTMLElement {
 }
 
 /**
- * Wait for the emulator's chunk to have been fetched AND for every callback registered
- * on it to have run.
- *
- * Awaiting the loader's own promise is what makes the wait exact rather than a guessed
- * number of ticks: the component registered its continuation on that same promise
- * first, so by the time this one settles the component's has already run, and `act`
- * flushes the state it set.
+ * Wait for the emulator's chunk to be fetched and every callback registered on it to run.
+ * Awaiting the loader's own promise is exact: the component registered its continuation on
+ * that promise first, and `act` flushes the state it set.
  */
 export async function settleEmulatorLoad(): Promise<void> {
   await act(async () => {
@@ -74,28 +59,19 @@ export async function settleEmulatorLoad(): Promise<void> {
 }
 
 /**
- * Whether the LIBRARY thinks this terminal may be typed into.
- *
- * xterm.js mirrors its own `disableStdin` option onto the hidden textarea it listens on
- * — at open and again on every change of that option — so this reads the emulator's gate
- * rather than a field of ours that was set beside it. It is the only place the write
- * gate becomes observable outside the adapter, and it is what makes "the gate reached
- * the emulator" a claim a test can hold.
+ * Whether the library thinks this terminal may be typed into. xterm.js mirrors its
+ * `disableStdin` option onto the hidden textarea, so this reads the emulator's gate and not a
+ * field of ours.
  */
 export function isEmulatorAcceptingInput(mountElement: HTMLElement): boolean {
   return !emulatorInputOf(mountElement).readOnly;
 }
 
 /**
- * Render a mount point and wait until its emulator has attached and settled a renderer.
- *
- * The wait is on the ATTRIBUTE rather than on the mount element, and the two are
- * different commits: the mount element appears when the chunk lands, and the adapter is built
- * by the effect that runs after that commit. Waiting on the element alone returns in
- * between and reads the mount-pending value — which is the whole subject of the
- * renderer-mode suite, and is a latent race for every other case that reads the box.
- * The stronger wait is the one every suite gets, because it strictly follows the weaker
- * one: no mount point reaches a settled mode without its mount element already on screen.
+ * Render a mount point and wait until its emulator has attached and settled a renderer. The
+ * wait is on the `data-renderer` attribute, not the mount element: the element appears when the
+ * chunk lands and the adapter is built by the effect after that commit, so waiting on the
+ * element alone reads the pending value.
  */
 export async function renderSettledMountPoint(element: React.JSX.Element): Promise<RenderResult> {
   const view = render(element);
@@ -106,12 +82,9 @@ export async function renderSettledMountPoint(element: React.JSX.Element): Promi
 }
 
 /**
- * Give back every page-ledger hold this file's components took.
- *
- * The ledger is module state the component reaches through the adapter's default pool.
- * A leaked hold silently narrows every later case, so the sweep is unconditional rather
- * than per-case — and it RECLAIMS rather than releases, because this environment has no
- * WebGL2 and so never made a context for a stale hold to stand for.
+ * Give back every page-ledger hold these components took. The ledger is module state reached
+ * through the adapter's default pool, so the sweep is unconditional. It reclaims rather than
+ * releases because this environment has no WebGL2 and never made a context.
  */
 export function reclaimComponentHolds(terminalIds: readonly string[]): void {
   for (const terminalId of terminalIds) {

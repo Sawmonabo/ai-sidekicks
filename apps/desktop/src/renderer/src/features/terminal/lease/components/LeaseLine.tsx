@@ -1,10 +1,7 @@
-// The lease line: where one of the session's shells is held, and the control region
-// beside it.
-//
-// The pane shows output and this line only. The line states the holder from the fold
-// and never derives it from a take: it moves when a `pty.control_changed` transition
-// reaches the fold, and not before. The take control is `LeaseTakeControl.tsx`, which
-// a caller puts in `controls`.
+// The lease line: where one of the session's shells is held, and the control region beside it.
+// It states the holder from the fold and never derives it from a take: the line moves when a
+// `pty.control_changed` transition reaches the fold. The take control is
+// `LeaseTakeControl.tsx`, passed in `controls`.
 
 import type { ReactNode } from "react";
 
@@ -21,16 +18,9 @@ export interface LeaseLineProps {
 }
 
 /**
- * What the chip says for each holding. Total over the closed set; `null` draws no chip.
- *
- * A run's hold draws none: the line for it is the one sentence the pane's design
- * states, with nothing beside it.
- *
- * `unrecognized-transition` is the one amber row, and amber is spent on exactly what it
- * means: a person is needed. The daemon moved the shell under a transition this build
- * cannot read, so where it is held cannot be told until somebody updates this console
- * or looks at the log — which is a different thing from the neutral "not checked",
- * where the console simply has not asked.
+ * What the chip says for each holding; `null` draws no chip. `unrecognized-transition` is the
+ * one attention tone: a person is needed, because the console cannot tell where the shell is
+ * held, unlike the neutral "not checked" where it simply has not asked.
  */
 const HOLDING_CHIPS: Readonly<
   Record<TerminalLeaseHolder, { label: string; tone: ChipTone } | null>

@@ -1,36 +1,22 @@
 // The face the grid draws in, taken from the element it draws into.
 //
-// `@xterm/xterm` measures its cell from ITS OWN `fontFamily` option and never from
-// the element it was opened onto. So `emulator.css`'s
-// `font-family: var(--meridian-font-mono)` on `.meridian-terminal-mount-point__mount-element`
-// reached the accessible row list and nothing else: the grid drew in the library's
-// default `courier-new, courier, monospace` while every other monospace figure in
-// the console drew in the console's own stack. Two faces for one role, and the
-// grid's row height — which is what sizes the whole pane — came from the one nobody
-// chose.
-//
-// Reading the mount element's COMPUTED family rather than importing the token keeps
-// one source of truth. The stylesheet already declares which face that element is in;
-// a document that overrides the custom property is followed rather than
-// second-guessed; and no copy of a value `tokens/palette.ts` owns lives here.
+// `@xterm/xterm` measures its cell from its own `fontFamily` option, never from the element it
+// opens onto, so the stylesheet's `--meridian-font-mono` alone left the grid on the library's
+// default face and sized the pane from it. Reading the mount element's computed family keeps
+// the stylesheet the one source of the face.
 
 /**
- * The part of `Terminal` this module touches.
- *
- * Structural rather than the class itself, so the rule can be proved against a
- * plain object. `Terminal` satisfies it, and a test that had to build a real
- * emulator to check which face it was told to use would be measuring the library.
+ * The part of `Terminal` this module touches, so the rule can be proved against a plain
+ * object.
  */
 export interface MonospaceTypefaceTarget {
   readonly options: { fontFamily?: string | undefined };
 }
 
 /**
- * The face declared on a mount element, or nothing when it declares none.
- *
- * A detached element and a DOM shim both answer with an empty string, and the
- * library's default is a worse face but a working one — so an absent declaration
- * leaves the emulator alone rather than clearing what it has.
+ * The face declared on a mount element, or `undefined` when it declares none. A detached
+ * element and a DOM shim both answer with an empty string, so an absent declaration leaves the
+ * emulator's face alone.
  */
 export function readDeclaredMonospaceFamily(mountElement: HTMLElement): string | undefined {
   const declared =
@@ -39,11 +25,8 @@ export function readDeclaredMonospaceFamily(mountElement: HTMLElement): string |
 }
 
 /**
- * Tell an emulator which face its mount element is in.
- *
- * Assigning is skipped when the answer has not moved, because the library re-measures
- * its cell and re-renders every row on the write — and `attach` runs on every remount,
- * where the answer is almost always the one already set.
+ * Tell an emulator which face its mount element is in. Skipped when unchanged, because
+ * assigning re-measures the cell and re-renders every row, and `attach` runs on every remount.
  */
 export function applyDeclaredMonospaceFamily(
   terminal: MonospaceTypefaceTarget,

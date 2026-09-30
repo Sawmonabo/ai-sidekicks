@@ -1,57 +1,7 @@
-// The emulator's mount point, and nothing else.
-//
-// The component's whole job is to own a DOM box and the lifetime of one
-// `XtermTerminalAdapter` against it. Everything a terminal DOES — the buffer, the
-// renderer, the addons, the write gate — belongs to that class, so this file has
-// no branch a reviewer has to trace: the emulator's code is fetched, an effect
-// attaches on mount, detaches on unmount, and a second effect forwards the write
-// gate.
-//
-// WHY THE EMULATOR ARRIVES ON A LATER COMMIT THAN THE MOUNT. `@xterm/xterm`, its
-// five addons, and its stylesheet are the console's largest single dependency, and
-// the initial-bundle budget excludes the terminal by name. So this component reaches
-// the adapter through
-// `emulator-loader.ts`'s `import()` rather than a static import, and renders the
-// box's absence — `not-loaded`, the read-in-flight kind — until the chunk lands.
-// The skeleton is the primitive the rest of the console uses for a read in flight;
-// a spinner here would be the console's second vocabulary for one state.
-//
-// WHERE THAT FETCH IS DECIDED. `emulator-state.ts` beside this file holds the
-// reading and the rejection arm, because this component resolves the page's own
-// loader and a fetch that REFUSES is only drivable where the loader is a parameter.
-// This module renders the reading and decides nothing about it.
-//
-// WHY THE ADAPTER IS BUILT IN AN EFFECT AND NOT IN THE RENDER BODY. React may
-// discard a render pass, and an adapter constructed during one would be an
-// emulator — with a pooled WebGL context — that nothing will ever dispose. An
-// effect runs only for a commit that stuck, and its cleanup is the only place the
-// construction can be paired with the disposal. The one extra render that costs is
-// paid once per mount and buys a teardown that cannot leak a context.
-//
-// WHY THE CALLBACKS ARE REACHED THROUGH A REF AND ARE NOT DEPENDENCIES. A parent
-// that builds `onKeystroke` in its own render body hands this component a new
-// function on every pass, and an effect that depended on that identity would
-// dispose the adapter and build a fresh emulator for a re-render that changed
-// nothing — silently dropping the operator's scrollback, and with it whatever the
-// shell had printed. The emulator's lifetime belongs to the terminal id, so the
-// functions live in a ref the adapter reads at call time. What DOES stay in the
-// dependency list is whether each callback is present at all: a terminal that
-// gains the ability to write to the wire is built differently, and the adapter's
-// own gate is the absence of the option rather than a check inside it.
-//
-// WHY THE RENDERER MODE IS SUBSCRIBED AND NOT COPIED. The renderer an instance
-// draws with is not settled for the life of the mount: the GPU can take the WebGL
-// context away at any point, and the addon's fallback to the DOM renderer is
-// permanent for that instance. A mode read once at attachment would leave this
-// box's `data-renderer` — and every consumer of `onRendererMode` — reporting
-// `webgl` over a terminal that is no longer drawing with one.
-//
-// WHY THE MOUNT ELEMENT IS ONLY NAMED AND THE LIVE TEXT IS NOT HERE. xterm.js draws
-// a grid of spans (or a WebGL canvas), and its own accessibility layer exposes rows
-// through an `aria-live="assertive"` region with a twenty-row flood guard. That
-// region is the terminal's; announcing the grid a second time from outside it would
-// read every cell twice. So this component names the region and lets the emulator
-// own what is inside it.
+// The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
+// The emulator's code arrives a commit after the mount (`emulator-loader.ts`), so the box shows a
+// `not-loaded` absence until it lands. This component names the region and leaves the live text
+// to xterm's own `aria-live` region, since announcing the grid again would read every cell twice.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -60,8 +10,9 @@ import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator
 import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
 import type { TerminalRendererMode } from "../xterm-adapter.js";
 
+/** Props for the emulator's box: which terminal, the write gate, and the callbacks to forward. */
 export interface XtermMountPointProps {
-  /** The shared terminal this emulator shows. One per session in V1. */
+  /** The shared terminal this emulator shows. One per session. */
   readonly terminalId: string;
   /** Whether the lease says this user may type. Watch mode is `false`. */
   readonly isWriteEnabled: boolean;
@@ -72,14 +23,13 @@ export interface XtermMountPointProps {
   /** Where an allowed link goes. Absent means links render and never activate. */
   readonly onActivateLink?: ((url: string) => void) | undefined;
   /**
-   * Told which renderer the instance settled on, and told again whenever that
-   * changes — a lost WebGL context falls the instance back to the DOM renderer
-   * for good, and a consumer still showing the old one is reporting a renderer that
-   * is no longer drawing anything.
+   * Told which renderer the instance settled on, and again on every change: a lost WebGL
+   * context falls the instance back to the DOM renderer for good.
    */
   readonly onRendererMode?: ((mode: TerminalRendererMode) => void) | undefined;
 }
 
+/** The emulator's box for one terminal, with a region name that carries the write gate. */
 export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element {
   const mountElementRef = useRef<HTMLDivElement | null>(null);
   const adapterRef = useRef<XtermTerminalAdapterInstance | undefined>(undefined);
@@ -88,30 +38,23 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
 
   const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
   const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
-  // What the terminal CAN do, rather than which functions were passed this pass.
-  // Gaining or losing a capability changes how the emulator is built and is worth
-  // a rebuild; a freshly created function for a capability the terminal already had
-  // is not.
+  // Callbacks live in `callbacksRef`, so a parent's fresh function identities do not rebuild
+  // the emulator and drop its scrollback. What the terminal can do is what rebuilds it: gaining
+  // or losing a capability does, a fresh function for an existing one does not.
   const canWriteToWire = onKeystroke !== undefined;
   const canActivateLinks = onActivateLink !== undefined;
   const writeGate = terminalWriteGate(isWriteEnabled, canWriteToWire);
   const isWritable = writeGate === "writable";
-  // THE LEASE AS THE MOUNT EFFECT SEES IT, and the reason the gate has exactly one
-  // mutator. An adapter is replaced whenever the terminal id or a capability moves,
-  // and the lease does not move with it — so a gate applied only by the effect that
-  // watches the LEASE left the fresh binding on its default shut stdin while the box
-  // below went on rendering `data-write-enabled="true"`, and every character the
-  // holder typed was discarded until the shell next changed hands. Handing the answer
-  // to the construction rather than correcting the binding afterwards is what keeps
-  // the two in step: a binding is BUILT with the lease, and `setWriteEnabled` moves it
-  // only when the lease itself does.
+  // The lease as the mount effect sees it, so the write gate has one mutator: a replaced
+  // adapter is built with this answer, and `setWriteEnabled` moves it only when the lease
+  // moves. Applying the gate only from the lease effect left a fresh binding shut while the
+  // box read `data-write-enabled="true"`.
   const isWritableRef = useLatestRef(isWritable);
 
   useEffect(() => {
     const mountElement = mountElementRef.current;
     if (emulator.status !== "loaded" || mountElement === null) {
-      // Nothing to pair a disposal with yet: the box below is the absence, not the
-      // mount element, so there is no element for an emulator to open against.
+      // No mount element yet, so there is nothing to pair a disposal with.
       return undefined;
     }
     const adapter = new emulator.module.XtermTerminalAdapter({
@@ -130,23 +73,14 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     });
     adapterRef.current = adapter;
     let unsubscribeFromRendererMode: (() => void) | undefined;
-    // EVERY STEP THAT CAN LEAVE AN EMULATOR BEHIND, UNDER ONE GUARD, and the reason
-    // is that React only pairs a construction with a disposal through the cleanup
-    // this effect RETURNS. An attach opens the terminal and can take a pooled WebGL
-    // context; the subscription that follows delivers the settled mode
-    // SYNCHRONOUSLY, so a parent's `onRendererMode` that throws — a render-phase
-    // store write, a consumer that asserts — threw out of the effect body before the
-    // cleanup existed. React then had no disposer for a live emulator: its terminal,
-    // its observers, and its renderer allocation stayed for the life of the page,
-    // and the page's context allowance stayed spent. Disposing here and re-raising
-    // keeps the failure visible while leaving nothing running behind it.
+    // One guard around every step that can leave an emulator behind: React pairs a disposal
+    // only with the cleanup this effect returns. `subscribeToRendererMode` delivers the mode
+    // synchronously, so a throwing `onRendererMode` would escape before the cleanup existed
+    // and leak the emulator and its renderer allocation. Dispose and re-raise.
     try {
       adapter.attach(mountElement);
-      // After the attach, because the renderer selection happens synchronously
-      // inside it and the subscription delivers the current mode on subscribe — so
-      // this order reports the SETTLED mode once rather than the constructed one
-      // followed by the selected one. Every later delivery is a context loss, which
-      // reaches the adapter asynchronously and so cannot slip through this gap.
+      // After the attach, so the settled mode is reported once. Later deliveries are context
+      // losses, which arrive asynchronously.
       unsubscribeFromRendererMode = adapter.subscribeToRendererMode((mode) => {
         setRendererMode(mode);
         callbacksRef.current.onRendererMode?.(mode);
@@ -158,23 +92,15 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
     }
     return () => {
       adapterRef.current = undefined;
-      // Before the disposal, which resets the mode: a delivery from a teardown
-      // would be a state write against a tree React is dropping, and it would say
-      // the renderer fell back when what happened is that the pane closed.
+      // Before the disposal, so its mode reset is not delivered into a tree React is dropping.
       unsubscribeFromRendererMode?.();
-      // Final, not `detach()`. The pane is going away, so the emulator's hold on
-      // its renderer has to go back — a detach would keep the instance alive for
-      // a remount that is never coming.
+      // Final, not `detach()`: the pane is going away, so the renderer hold must go back.
       adapter.dispose();
     };
   }, [emulator, terminalId, canWriteToWire, canActivateLinks, callbacksRef, isWritableRef]);
 
-  // Separate from the mount effect on purpose: the lease changes far more often
-  // than the pane mounts, and folding the two would tear down an emulator every
-  // time the shell changed hands. It watches the LEASE and nothing else, because a
-  // binding that did not exist when the lease last moved was constructed with the
-  // answer above — so this is the gate's one mutator, and there is no second list of
-  // adapter-replacing inputs here to fall out of step with the mount effect's.
+  // Separate from the mount effect because the lease changes far more often than the pane
+  // mounts. It watches the lease only and is the write gate's one mutator.
   useEffect(() => {
     adapterRef.current?.setWriteEnabled(isWritable);
   }, [isWritable]);
@@ -200,15 +126,9 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
 }
 
 /**
- * Hold the newest value where a long-lived consumer can read it, without making
- * that consumer depend on the value's identity.
- *
- * A `useLayoutEffect` rather than an assignment in the render body: a render pass
- * React discards must not be able to move what a live emulator will call, and a
- * layout effect runs on the commit that stuck and before the browser can deliver
- * the next keystroke. Local to this file on `apps/desktop/AGENTS.md`'s hoist-on-
- * the-second-use rule — the console has one consumer today, and the home for a
- * second one is `primitives/`.
+ * Hold the newest value where a long-lived consumer can read it without depending on its
+ * identity. Written in a layout effect, not the render body, so a discarded render cannot
+ * move what a live emulator calls.
  */
 function useLatestRef<Value>(value: Value): { readonly current: Value } {
   const ref = useRef(value);
@@ -222,18 +142,9 @@ function useLatestRef<Value>(value: Value): { readonly current: Value } {
 type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
 
 /**
- * What stands in the mount point's box while the emulator's code is not there.
- *
- * Two of `Nothing`'s five kinds, and the two the states actually are: a fetch in
- * flight is `not-loaded` — the skeleton that says nothing, because there is nothing
- * yet to say — and a fetch that refused is `error`. Neither is `empty`, which would
- * claim the shell printed nothing, and neither is `not-checked`, which would claim
- * nobody asked.
- *
- * The refused arm renders the refusal's own two halves: the code goes on screen because
- * a code is what a person acts on, and the sentence beneath it is whatever the
- * producing side wrote — never a serialization of the rejected value, which
- * `core/wire-rejection.ts` is the one place allowed to decide.
+ * What stands in the box while the emulator's code is not there: `not-loaded` while the fetch
+ * is in flight, `error` with the refusal's code and detail when it refused. Not `empty` or
+ * `not-checked`, which would make claims about the shell or the session.
  */
 function renderEmulatorAbsence(
   emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
@@ -251,31 +162,13 @@ function renderEmulatorAbsence(
 }
 
 /**
- * Whether this terminal may be typed into, and when it may not, why.
- *
- * Two conditions and not one. The lease says whether this user is ALLOWED
- * to write; `onKeystroke` says whether there is anywhere for a keystroke to GO.
- * A terminal built without the writer — which is what the pane mounts today, and
- * what a re-render across a terminal id already exercises — opened xterm's stdin
- * on the lease alone, so the emulator accepted every character, the adapter's
- * `onData` subscription did not exist to forward it, and the region announced
- * itself writable while the shell heard nothing. A gate is only a gate if it
- * covers the whole path.
- *
- * The set is declared as the table that RENDERS it, rather than as a tuple beside
- * a record: the suffix a gate carries is what distinguishes it on screen, so the
- * two cannot be allowed to drift, and a fourth gate is a compile error here rather
- * than a name that silently reads like one of these three.
- *
- * A window that does not hold the shell gets the live output in a read-only watch
- * mode, with the input area absent rather than disabled. A disabled input announces
- * itself as a control that exists and cannot
- * be used, which is a different and worse claim than "you are watching" — so the
- * state reaches assistive technology through the region's own name instead.
- *
- * The third name is not a variant of the second: "you do not hold the shell" and
- * "this build has nowhere to send what you type" send a person to two different
- * places, and collapsing them would have them wait for a lease they already hold.
+ * Accessible-name suffix for each write gate, and so the set of gates. A terminal may be typed
+ * into only when the lease allows it AND `onKeystroke` gives a keystroke somewhere to go; the
+ * lease alone left the emulator accepting input that nothing forwarded. A watcher gets
+ * read-only watch mode with the input absent rather than disabled, and the state reaches
+ * assistive technology through the region's name. "Lease not held" and "no input channel" stay
+ * separate because they send a person to different places. Being a table, a fourth gate is a
+ * compile error.
  */
 const ACCESSIBLE_NAME_SUFFIXES = {
   writable: "",
@@ -287,8 +180,7 @@ type TerminalWriteGate = keyof typeof ACCESSIBLE_NAME_SUFFIXES;
 
 function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): TerminalWriteGate {
   if (!isWriteEnabled) {
-    // First, because it is the state a person is in most of the time: the shell is
-    // held from somewhere else, and no input channel would change that.
+    // First, because it is the state a person is usually in; no input channel would not change it.
     return "lease-not-held";
   }
   return canWriteToWire ? "writable" : "no-input-channel";

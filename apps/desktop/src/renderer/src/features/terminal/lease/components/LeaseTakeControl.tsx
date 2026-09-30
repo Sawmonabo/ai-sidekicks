@@ -1,18 +1,7 @@
-// The lease line's one control: take the shell.
-//
-// Its prohibitions are each a line of code here rather than a note:
-//
-//   • **Never derives the holder from the last observed take.** Pressing the
-//     control calls the wire and then does nothing to the holder. The line moves
-//     when a `pty.control_changed` transition reaches the fold, and not before.
-//   • **Never offers a take by the current holder.** A device that holds the shell
-//     sees no control, so the idempotent self-take — which succeeds and broadcasts
-//     nothing — is not reachable from the lease line at all.
-//   • **Never queues a take.** No retry, no timer, no wait list.
-//   • **Never offers a take it cannot attribute.** The control acts on this device's
-//     behalf and the fold names the holder by user id, so until this device's
-//     identity has been READ there is no control here at all, and no sentence about
-//     one. `lease-acquisition.ts` owns that fold.
+// The lease line's one control: take the shell. It never derives the holder from the last take
+// (the line moves when a `pty.control_changed` transition reaches the fold), never queues or
+// retries one, and is absent while this device holds the shell, a run holds it, or this
+// device's identity has not been read.
 
 import { resolveTakeShellAvailability } from "../take-shell-availability.js";
 import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
@@ -25,12 +14,8 @@ export interface LeaseTakeControlProps {
   readonly takeShell: UseTakeShellResult;
   readonly holding: TerminalLeaseHolder;
   /**
-   * Which device this is, which is what the control is gated on.
-   *
-   * The control acts on this device's behalf and the fold names the holder by user id,
-   * so a lease line that offered it without the identity would be offering a control it
-   * cannot report the outcome of: a take would come back as a hold it could not
-   * recognize.
+   * Which device this is. Without it no control is offered: the fold names holders by user id,
+   * so a take could come back as a hold the line cannot recognize as this device's.
    */
   readonly deviceIdentity: TerminalDeviceIdentity;
 }

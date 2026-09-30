@@ -1,16 +1,7 @@
-// What the lease is, from this device's point of view, in words.
-//
-// Split from `LeaseLine.tsx` so that module declares one component. The arm ORDER is
-// the content: `unrecognized-transition` is answered before the null-holder arm,
-// because a fold that refused to guess and a wire that said nobody holds it produce
-// the same null holder and opposite sentences, and rendering the free-lease line for
-// the first is the one thing here that is certainly wrong.
-//
-// NO HOLDER IS NAMED, and that is the whole shape of this sentence. The shell belongs to
-// the one person using this machine, so a hold this device does not have is a hold one
-// of their OTHER devices has — which is a fact about where the keyboard is and not
-// about who somebody is. Naming an identifier here would be answering a question nobody
-// asked with a value nobody can act on.
+// What the lease is, from this device's point of view, in words. No holder is named: the shell
+// belongs to one person, so a hold this device lacks is held by another of their devices.
+// `unrecognized-transition` is answered before `unheld`: both have a null holder, and the free
+// line is wrong for a fold that refused to guess.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import type { TerminalLeaseHolder } from "../lease-model.js";
@@ -25,9 +16,6 @@ export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.
   switch (props.holding) {
     case "not-checked":
       return <DerivedFigure text="The lease has not been read." />;
-    // Before the unheld arm, which would otherwise render this state as the free
-    // lease — the one sentence that is certainly wrong here. The holder is null
-    // because the fold refused to guess, not because the wire said nobody holds it.
     case "unrecognized-transition":
       return <DerivedFigure text="The console cannot read where the shell is held." />;
     case "unheld":
@@ -36,10 +24,8 @@ export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.
       return <DerivedFigure text="You may type into the shared shell." />;
     case "held-by-another-device":
       return <DerivedFigure text="The shell is held from another device." />;
-    // The design's line is `<agent>'s running command holds the shell.` beside a
-    // `Stop the run` link. The fold has the holding run and nothing that names its
-    // agent, and there is no act here to stop it, so both are left out rather than
-    // replaced with words the design does not say.
+    // The fold names no agent for a run's hold and this line has no stop action, so the
+    // sentence carries neither.
     case "held-by-run":
       return <DerivedFigure text="Running command holds the shell." />;
   }

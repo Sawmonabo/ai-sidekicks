@@ -1,19 +1,9 @@
-// The write gate, as the emulator and a screen reader both see it.
-//
-// Two claims, and neither is about a field of ours. The gate reaches the LIBRARY: xterm
-// mirrors `disableStdin` onto the hidden textarea it listens on, so the emulator's own
-// input state is what these cases read. And it reaches a person: the region's accessible
-// name says whether this terminal may be typed into, and it distinguishes the two
-// read-only states — somebody else holds the shell, versus there is nowhere to send what
-// you type — because a lease this user holds over a terminal with no output stream
-// registered is still read-only, and a name that said otherwise would be a promise the
-// wire has not made.
-//
-// A lease change forwards the gate WITHOUT tearing the emulator down, which is the other
-// half: the scrollback and the operator's scroll position survive a claim.
-//
-// The readers are `XtermMountPoint.test-support.tsx`'s, and the loader is the real one there
-// too.
+// The write gate as the emulator and a screen reader both see it. It reaches the library (xterm
+// mirrors `disableStdin` onto its hidden textarea, which these cases read) and a person (the
+// region's accessible name says whether the terminal may be typed into, and separates "someone
+// else holds the shell" from "nowhere to send what you type"). A lease change forwards the gate
+// without tearing the emulator down, so scrollback survives a claim. The readers are in
+// `XtermMountPoint.test-support.ts`.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -62,10 +52,8 @@ describe("the write gate reaches assistive technology by name", () => {
   });
 
   it("opens the emulator's own gate for a lease that was already this device's", async () => {
-    // The emulator is built a commit AFTER the one that first carried the lease, so
-    // a gate forwarded only when the lease MOVES would leave a holder watching a
-    // shell they hold — the emulator would be built closed and stay closed until
-    // the next transition.
+    // The emulator is built a commit after the one that first carried the lease, so a gate
+    // forwarded only when the lease moves would leave a holder watching a shell they hold.
     const { container } = await renderSettledMountPoint(
       <XtermMountPoint
         terminalId="terminal-1"
@@ -112,20 +100,17 @@ describe("the write gate reaches assistive technology by name", () => {
         />,
       );
     });
-    // A transition never disturbs the foreground process. The emulator is the
-    // same instance — the mount effect did not run a second time — and only the
-    // gate moved.
+    // A transition never disturbs the foreground process: the mount effect does not run again,
+    // only the gate moves.
     expect(observed).toHaveBeenCalledTimes(1);
     expect(emulatorElementOf(container).firstElementChild).toBe(emulatorBefore);
     expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 
   it("opens the gate on the emulator a new terminal id builds under the same lease", async () => {
-    // The finding. A terminal id that moves replaces the adapter, and the lease did
-    // not move with it — so a gate forwarded only when the LEASE changes left the
-    // fresh binding on its default shut stdin while the box below still read
-    // `data-write-enabled="true"`, and every character the holder typed was dropped
-    // until the shell next changed hands.
+    // A terminal id that moves replaces the adapter while the lease does not, so the fresh
+    // binding must be built with the lease's answer, or the box reads
+    // `data-write-enabled="true"` over a shut stdin.
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
         terminalId="terminal-1"
@@ -152,8 +137,8 @@ describe("the write gate reaches assistive technology by name", () => {
   });
 
   it("negative control: a shut lease stays shut across the same terminal id change", async () => {
-    // Without it the case above would pass against a component that opened stdin on
-    // every adapter it built, which is watch mode failing open on a rebuild.
+    // Without it the case above would pass against a component that opened stdin on every
+    // adapter it built.
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
         terminalId="terminal-1"
@@ -224,11 +209,9 @@ describe("the write gate reaches assistive technology by name", () => {
 });
 
 describe("a held lease with nowhere to send a keystroke is still read-only", () => {
-  // The pane mounts exactly this combination today — the output wire is
-  // unregistered, so no writer is passed — and a re-render across a terminal id
-  // reaches it too. The old gate read the lease alone, so xterm accepted every
-  // character while the adapter, built without an `onData` subscription, forwarded
-  // none of them.
+  // The pane mounts this combination (no writer is passed), and a re-render across a terminal
+  // id reaches it too. A gate that read the lease alone would open xterm's stdin with no
+  // `onData` subscription to forward it.
 
   it("keeps the emulator's own gate shut when the terminal has no writer", async () => {
     const { container } = await renderSettledMountPoint(
@@ -241,8 +224,8 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
     const { container } = await renderSettledMountPoint(
       <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
     );
-    // The old component announced "Terminal output" here — a name that says a
-    // person may type into a shell that will discard everything they send.
+    // A name of "Terminal output" here would say a person may type into a shell that discards
+    // everything they send.
     expect(emulatorElementOf(container).getAttribute("aria-label")).toBe(
       "Terminal output, read-only: no input channel",
     );
@@ -252,9 +235,8 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
   });
 
   it("distinguishes the missing channel from the lease being somebody else's", async () => {
-    // Two different next moves: wait for the shell, or stop waiting because this
-    // build has nowhere to put a keystroke. One suffix for both would send a holder
-    // to wait for a lease they already have.
+    // Two different next moves: wait for the shell, or stop waiting because this build has
+    // nowhere to put a keystroke.
     const noWriter = await renderSettledMountPoint(
       <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
     );

@@ -1,9 +1,6 @@
-// The device-identity hook, driven with a plain read function.
-//
-// The identity belongs to the inputs that produced it: a pane handed a different session
-// reverts to `not-loaded` on the first frame that sees it, and a read that lands after
-// its inputs were left settles nothing. The read is held by hand so each case chooses
-// when it answers.
+// `useTerminalDeviceIdentity` driven with a read each case answers by hand. The identity
+// belongs to the inputs that produced it: a different session reverts to `not-loaded` on the
+// first frame, and a read that lands after its inputs were left settles nothing.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

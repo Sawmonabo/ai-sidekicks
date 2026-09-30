@@ -1,13 +1,6 @@
-// The emulator wrapper's own life: built once, kept across a detach, disposed once.
-//
-// What the ADAPTER owns, as opposed to the three modules it composes: when the
-// emulator comes into existence, which mount element it is currently in, what its
-// scrollback is capped at, what a teardown lets go of, and what it spends on the
-// page's context ledger. The accessible view is here too, because
-// `screenReaderMode` is an option this module constructs the terminal with.
-//
-// Against the real library, and cleaned up through the directory's one live-emulator
-// registry — see `xterm-adapter.test-support.ts` for both reasons.
+// The emulator wrapper's own life: built once, kept across a detach, disposed once. Also its
+// scrollback cap, what it spends on the page ledger, and the accessible view
+// (`screenReaderMode` is set at construction).
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -49,9 +42,8 @@ describe("the emulator wrapper", () => {
   });
 
   it("takes the emulator out of the mount element it is leaving", async () => {
-    // The finding. Dropping the mount element and the size observer takes the
-    // adapter off the box and takes nothing off the screen, so a detached pane went
-    // on displaying a live grid whose data listener was still armed.
+    // The detached element leaves the screen with the tie; otherwise a live grid with an armed
+    // data listener stays behind.
     const { adapter, mountElement } = mountedAdapter({ terminalId: "moved-away" });
     await writeText(adapter, "printed before the move\n");
     expect(emulatorElementsIn(mountElement)).toHaveLength(1);
@@ -62,10 +54,9 @@ describe("the emulator wrapper", () => {
   });
 
   it("re-appends that same emulator on the next mount element, scrollback and all", async () => {
-    // The other half: the element leaves, and the EMULATOR does not. The pinned
-    // library's `open()` returns early for a terminal it has already built one for,
-    // so the re-append is the adapter's own — and a second `open()` that had built a
-    // second element would show up here as two grids in the new mount element.
+    // The element leaves and the emulator does not. `open()` returns early for a terminal that
+    // already has an element, so the re-append is the adapter's own; a second element would
+    // show up as two grids.
     const { adapter, mountElement } = mountedAdapter({ terminalId: "moved-on" });
     await writeText(adapter, "printed before the move\n");
     const nextMountElement = attachedMountElement();
@@ -80,9 +71,8 @@ describe("the emulator wrapper", () => {
   });
 
   it("negative control: an attach to the mount element it is already on moves nothing", async () => {
-    // Without this the cases above would pass against an adapter that tore the
-    // element out and put it back on every re-fit, which would drop the operator's
-    // scroll position and the focus with it.
+    // Without this the cases above would pass against an adapter that removed and re-added the
+    // element on every re-fit, dropping scroll position and focus.
     const { adapter, mountElement } = mountedAdapter({ terminalId: "already-here" });
     const grid = emulatorElementsIn(mountElement)[0];
     expect(grid).toBeDefined();
@@ -95,15 +85,15 @@ describe("the emulator wrapper", () => {
   it("caps the buffer at its scrollback rather than growing with the output", async () => {
     const { adapter } = mountedAdapter({ scrollbackLines: 200 });
     await writeLines(adapter, 2_000);
-    // The ceiling is the scrollback plus the visible grid; the exact grid height
-    // is the environment's, so the claim is the bound and not a magic total.
+    // The ceiling is scrollback plus the visible grid; the grid height is the environment's,
+    // so the claim is the bound.
     expect(adapter.bufferLineCount).toBeGreaterThan(200);
     expect(adapter.bufferLineCount).toBeLessThanOrEqual(200 + 100);
   });
 
   it("negative control: an unbounded buffer would exceed that ceiling", async () => {
-    // Same writes, a scrollback ten times smaller — if the ring were an appending
-    // array the two readings would differ by the write count rather than by the cap.
+    // Same writes, a scrollback ten times smaller: an appending array would differ by the
+    // write count, not the cap.
     const { adapter } = mountedAdapter({ scrollbackLines: 20, terminalId: "small" });
     await writeLines(adapter, 2_000);
     expect(adapter.bufferLineCount).toBeLessThan(200);
@@ -147,11 +137,9 @@ describe("teardown", () => {
 
     adapter.dispose();
 
-    // Disposed: they answer their empty value rather than reaching a terminal
-    // this object still holds. An addon kept as a field outlives `#terminal` and
-    // holds the whole emulator through it — measured, before this was fixed, as
-    // almost all of a full instance's bytes surviving a teardown, which is what
-    // `tests/endurance/xterm-adapter.test.ts` holds it to.
+    // Disposed: they answer their empty value. An addon kept as a field would outlive
+    // `#terminal` and hold the whole emulator (measured: almost all of a full instance's bytes
+    // survived a teardown; `tests/endurance/xterm-adapter.test.ts` holds it).
     expect(adapter.serialize()).toBe("");
     expect(adapter.findNext("a line the serializer can see")).toBe(false);
   });
@@ -182,9 +170,8 @@ describe("the context ledger, through the adapter", () => {
       const { adapter } = mountedAdapter({ pool, terminalId: `churn-${String(cycle)}` });
       adapter.dispose();
     }
-    // The addon threw before it made a context, so there is nothing out there to
-    // count — and a terminal opened after twenty cycles must still be able to take
-    // one on a host that later has one to give.
+    // The addon threw before making a context, so nothing counts; a terminal opened after
+    // twenty cycles must still be able to take one on a host that later has one.
     expect(pool.createdContextCount).toBe(0);
     expect(pool.acquire("late-arrival")).toBeDefined();
   });
@@ -210,15 +197,9 @@ describe("the context ledger, through the adapter", () => {
 
     adapter.dispose();
 
-    // The teardown adds no second hand-back of either kind. There is no context to
-    // give up on this host — the selection already reclaimed the lease it was
-    // granted, and a hand-back names the LEASE now, so there is nothing left to
-    // name. Reclaiming again would spend the page's allowance twice for one
-    // context that never existed.
-    //
-    // The other arm — a teardown of a terminal that really is holding one, which
-    // releases and does not reclaim — needs a renderer that activates, so it lives
-    // in `renderer-pool.context-loss.test.ts` where one does.
+    // The teardown adds no second hand-back: the selection already reclaimed the lease, so
+    // reclaiming again would spend the allowance twice for a context that never existed. The
+    // releasing arm needs an activating renderer and lives in `renderer-pool.context-loss.test.ts`.
     expect(pool.releasedTerminalIds).toStrictEqual([]);
     expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
   });
@@ -229,9 +210,8 @@ describe("the accessible view of the grid", () => {
     const { adapter, mountElement } = mountedAdapter();
     await writeText(adapter, "the shell printed this\n");
 
-    // The grid itself is a canvas under the WebGL renderer and positioned spans
-    // under the DOM one, and neither is readable. This is the readable form, and
-    // the library builds it only when it is asked to.
+    // The grid is a canvas (WebGL) or positioned spans (DOM), neither readable; this is the
+    // readable form, which the library builds only when asked.
     expect(mountElement.querySelector(".xterm-accessibility")).not.toBeNull();
     const rowList = mountElement.querySelector(".xterm-accessibility-tree");
     expect(rowList?.getAttribute("role")).toBe("list");
@@ -240,10 +220,8 @@ describe("the accessible view of the grid", () => {
   });
 
   it("negative control: the library builds none of it under its own default", () => {
-    // Driven against the library directly, because the wrapper no longer has the
-    // shape that produced this. `screenReaderMode` defaults to off, and with it
-    // off a screen reader reaches the named group `XtermMountPoint` renders and finds
-    // nothing inside it to read.
+    // Driven against the library directly. `screenReaderMode` defaults to off, and off a screen
+    // reader reaches the named group `XtermMountPoint` renders and finds nothing to read.
     const mountElement = attachedMountElement();
     const defaultOptionsTerminal = new Terminal({});
     try {

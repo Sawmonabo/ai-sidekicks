@@ -1,12 +1,8 @@
-// The terminal pane once a session is addressed.
+// The terminal pane once a session is addressed: the lease line over the emulator.
 //
-// Split from `TerminalPane.tsx` because the store hook below may only be called when
-// there IS a store; the split makes that condition a mount rather than a branch.
-//
-// The pane shows one of the session's shells, named by the session's id as the emulator
-// names it, until the pane reads the session's shell list. The lease line states that
-// shell's holder from the session's log and draws no claim control, and the emulator
-// mounts with nothing to show.
+// Split from `TerminalPane.tsx` because the store hook may only be called when there is a
+// store. The pane shows the shell keyed by the session's id; the lease line states its holder
+// from the session log, and the emulator mounts with nothing to show.
 
 import { useMemo } from "react";
 
@@ -19,20 +15,9 @@ import { LeaseLine } from "../../lease/components/LeaseLine.js";
 import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../lease/lease-model.js";
 
-/** What the terminal feature calls its pane, and the base the name below is built on. */
 const TERMINAL_PANE_WORD = "Terminal";
 
-/**
- * The emulator's accessible name, inside the pane.
- *
- * The pane frame names the pane's own region, from a title table that is
- * module-private to it — deliberately, so two features cannot each spell the same
- * pane two ways — and the emulator INSIDE it is still the terminal feature's to name.
- * Deriving from a local word rather than reaching for that table is what keeps the
- * private table private; the cost is that a rename of the pane kind does not reach in
- * here, which is why the word above is stated as the base of a derivation rather than
- * as the pane's name.
- */
+// Built from a local word because the pane frame's title table is private to it.
 const TERMINAL_OUTPUT_LABEL = `${TERMINAL_PANE_WORD} output`;
 
 /** The store of the session whose shell the pane shows. */
@@ -46,8 +31,7 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
   const sessionId = sessionStore.sessionId;
   const timeline = useSessionStore(sessionStore, selectTimeline);
 
-  // Derivation under `useMemo`: the selector returns the stored array and the fold runs
-  // only when that array's identity changes.
+  // The selector returns the stored array, so the fold reruns only when its identity changes.
   const lease: TerminalLeaseState = useMemo(
     () =>
       projectTerminalLease(timeline, {

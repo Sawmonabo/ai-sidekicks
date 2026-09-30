@@ -1,21 +1,12 @@
 // Whether this device may take the shell.
 //
-// A FOLD RATHER THAN A CONDITION IN THE LINE, on `lease-model.ts`'s rule: the lease
-// line RENDERS, and the moment it acquires a rule that rule belongs somewhere it can
-// be driven without mounting React.
+// There is no entitlement axis: the shell belongs to the one person using this machine, so
+// the only requirement is knowing which device is asking. Without the identity a take would
+// come back as a hold the lease line cannot recognize as this device's own.
 //
-// THERE IS NO ENTITLEMENT AXIS, and its absence is the design. The shell belongs to the
-// one person using this machine, so nothing here asks what they are allowed to do —
-// every device that can say which device it is may take the shell. What the fold still
-// needs is the IDENTITY, because it is how `held-by-this-device` is told from a hold this device
-// does not have: a control offered without it would be one whose outcome the lease line
-// cannot report, since a take would come back as a hold it could not recognize as its
-// own.
-//
-// THERE IS NO RELEASE. The control is drawn only while this device does not hold the
-// shell, and the next device that takes it displaces the holder. A run's hold is the
-// exception: the daemon refuses a take against it, and only stopping the run ends it,
-// so no take is offered while a run holds the shell.
+// There is no release. The control is drawn only while this device does not hold the shell,
+// and the next device to take it displaces the holder. The daemon refuses a take against a
+// run's hold, so none is offered while a run holds the shell.
 
 import type { TerminalLeaseHolder } from "./lease-model.js";
 import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.js";

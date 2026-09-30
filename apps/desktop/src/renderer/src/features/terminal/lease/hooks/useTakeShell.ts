@@ -1,12 +1,7 @@
-// Take the shell, and report whether that call is still out.
-//
-// The hook holds one renderer-local fact, and never derives the holder: where the shell
-// is held is the fold's in `lease-model.ts`.
-//
-// The fact is stamped with the `(bridge, sessionId)` subject and compared during render,
-// so a pane rebound to another session never inherits the previous session's disabled
-// control. The single-flight register is keyed on the visit (the publisher the holder
-// re-mints on each re-seed), so a session visited twice starts with a free register.
+// Take the shell, and report whether that call is still out. The hook never derives the
+// holder; the fold in `lease-model.ts` owns it. The in-flight fact is scoped to the
+// `(bridge, sessionId)` subject, so a rebound pane never inherits a disabled control, and the
+// single-flight latch is keyed on the visit, so a session visited twice starts free.
 
 import { useCallback } from "react";
 
@@ -32,10 +27,8 @@ export interface UseTakeShellResult {
 const IDLE_TERMINAL_LEASE_TAKE = { isInFlight: false };
 
 /**
- * Drive the take call and report whether one is out.
- *
- * A served reply sets no holder: the daemon accepting a take is not this device now
- * holding the shell, and the fold owns the holder. A rejected call is not caught; it
+ * Drive the take call and report whether one is out. A served reply sets no holder: the daemon
+ * accepting a take is not this device now holding the shell. A rejected call is not caught; it
  * surfaces as an unhandled rejection.
  */
 export function useTakeShell(
@@ -48,9 +41,9 @@ export function useTakeShell(
     sessionId,
     () => IDLE_TERMINAL_LEASE_TAKE,
   );
-  // The latch refuses a second claim while one is live, which is the rule the control's
-  // disabled state renders. Its claim is also the serial a settlement compares against,
-  // so an earlier press's `finally` cannot clear the flag a later press set.
+  // The latch refuses a second claim while one is live, which the control's disabled state
+  // renders. Its claim is also the serial a settlement compares, so an earlier press's `finally`
+  // cannot clear the flag a later press set.
   const dispatches = useGenerationLatch();
 
   const takeShell = useCallback(async (): Promise<void> => {

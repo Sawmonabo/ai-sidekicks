@@ -1,12 +1,6 @@
-// The deferred edge into the emulator: one fetch per loader, and the real module
-// at the end of it.
-//
-// The BUNDLING half of this module's claim — that `@xterm/xterm` lands in a lazy
-// chunk rather than in the initial document — is not assertable from here; it is
-// the renderer initial-bundle budget's subject, measured against Vite's own chunk
-// manifest in `test/console/budget/bundle-budget.test.ts`. What is assertable here
-// is the contract that makes that split safe to depend on: the module a caller
-// gets is the real adapter, and two callers share one fetch.
+// The deferred edge into the emulator: one fetch per loader, and the real module at the end
+// of it. That `@xterm/xterm` lands in a lazy chunk is the initial-bundle budget's subject
+// (`tests/budget/bundle-budget.test.ts`) and is not assertable here.
 
 import { describe, expect, it } from "vitest";
 

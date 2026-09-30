@@ -1,33 +1,14 @@
-// The one edge into the emulator's code, and the only one that is asynchronous.
+// The one edge into the emulator's code, and the only asynchronous one.
 //
-// WHY THIS MODULE EXISTS. The renderer's initial-bundle budget excludes the lazy
-// chunks — the terminal, the node graph, math, diagrams, and the browser tools — so the
-// terminal is named a LAZY chunk by the budget it is measured against.
-// `xterm-adapter.ts` pulls in `@xterm/xterm`, five addons,
-// and the library's own stylesheet; reached by a static import from a component the
-// console mounts at boot, every one of those bytes lands in the document the
-// operator waits for, whether or not a terminal is ever opened.
-//
-// So the adapter is reached through `import()` and through nothing else. That makes
-// the module the bundler's split point: everything only `xterm-adapter.js` reaches
-// — the library, the addons, the sheet, the renderer pool — is emitted as its own
-// chunk and fetched the first time a terminal host mounts.
-//
-// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoized: two
-// terminal panes mounting in one frame must not start two fetches, and a
-// remount must not re-enter the module. A module-level `let` holding that promise
-// is the state `apps/desktop/AGENTS.md` rejects, and it would also be untestable —
-// there would be no second instance to compare a first against. The memo is a
-// private field, so a test builds its own loader and the page's default is one
-// `const` beside it, exactly as `renderer-pool.ts` holds the page's WebGL budget.
+// `xterm-adapter.ts` pulls in `@xterm/xterm`, its addons and its stylesheet, so it is reached
+// through `import()` only: a static import from anything mounted at boot would put all of
+// those bytes in the initial document. The memoized promise is a private field of a class,
+// not module state, so a test can build its own loader.
 
 /**
- * What a caller gets: the adapter class, and deliberately nothing else.
- *
- * Narrowed from the module's own shape rather than restated, so a rename in
- * `xterm-adapter.ts` fails here instead of drifting. `typeof import(...)` in a TYPE
- * position is erased by the compiler — it opens no runtime edge into the chunk this
- * module exists to keep out of the initial graph.
+ * The adapter class and nothing else, narrowed from `xterm-adapter.ts` so a rename there fails
+ * here. A type-position `typeof import(...)` is erased, so it opens no runtime edge into the
+ * lazy chunk.
  */
 export type TerminalEmulatorModule = Pick<
   typeof import("./xterm-adapter.js"),
@@ -40,14 +21,14 @@ export type TerminalEmulatorModule = Pick<
 export class TerminalEmulatorLoader {
   #modulePromise: Promise<TerminalEmulatorModule> | undefined;
 
-  /** Whether the chunk has been asked for yet. The memo, observable. */
+  /** Whether the chunk has been requested yet. */
   public get isLoadStarted(): boolean {
     return this.#modulePromise !== undefined;
   }
 
   /**
-   * The emulator chunk, fetched once. Every later call gets the same promise, so
-   * two terminal panes mounting together share one fetch rather than racing two.
+   * The emulator chunk, fetched once; every later call gets the same promise, so panes
+   * mounting together share one fetch.
    */
   public load(): Promise<TerminalEmulatorModule> {
     this.#modulePromise ??= this.#fetchModule();
@@ -59,11 +40,8 @@ export class TerminalEmulatorLoader {
       const { XtermTerminalAdapter } = await import("./xterm-adapter.js");
       return { XtermTerminalAdapter };
     } catch (loadError) {
-      // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-      // transiently. Memoizing the rejection would leave every later mount for the
-      // life of the window holding a failure that a second request would not have
-      // reproduced, so the memo is dropped and the caller that asked still sees
-      // this attempt's error.
+      // A chunk fetch can fail transiently. Memoizing the rejection would hand every later
+      // mount the same failure, so the memo is dropped and this caller still sees the error.
       this.#modulePromise = undefined;
       throw loadError;
     }

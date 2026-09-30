@@ -1,10 +1,7 @@
-// Which device this is, for the one terminal decision that needs it.
-//
-// `lease-model.ts` tells `held-by-this-device` from `held-by-another-device` by comparing the daemon's
-// holder against this device's user, so the take control is withheld until that
-// identity has been read. The reading is held per `(bridge, sessionId)` by the console's
-// one subject-scoped holder, which reverts it to `not-loaded` on the pass that first
-// sees new inputs.
+// Which device this is, for the one terminal decision that needs it: `lease-model.ts` tells
+// `held-by-this-device` from `held-by-another-device` by comparing the holder with this
+// device's user, so the take control waits for the identity. Held per `(bridge, sessionId)`
+// by the console's subject-scoped holder.
 
 import { useEffect } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

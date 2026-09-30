@@ -1,23 +1,9 @@
-// What ONE `pty.control_changed` event says, and nothing about what a log of them
-// folds to.
+// Reads one `pty.control_changed` event on its own, with no ordering and no device.
 //
-// The two questions were one module, and they are not one job. This half is a
-// READER: it reads one event's payload through the contract, decoded at the bridge,
-// and records a payload the contract refuses. It knows nothing about a device or which holding the
-// lease line settles into — both are `lease-model.ts`'s, because both are properties
-// of the SEQUENCE rather than of the event.
-//
-// The split is along that seam and not along a line count. A reader can be driven
-// with one event and no session; the fold cannot be driven at all without a log. So
-// each side is testable on its own terms, and the fold imports the reader rather
-// than restating any part of it.
-//
-// Both halves obey one hard rule — **the holder is a wire field and is never derived
-// from the last observed take** — and this is where it is enforced, because this is
-// where a payload becomes a reading at all. The shape each reason obliges the
-// payload to have (a take names its holder, a release names nobody) is the
-// contract's refinement, so a payload that contradicts its own reason is refused
-// here without this module restating the rule.
+// The holder is a wire field and is never derived from the last observed take. The holder
+// shape each reason requires (a take names its holder, a release names nobody) is the
+// contract's refinement, so a payload that contradicts its reason is refused here without
+// restating the rule. `lease-model.ts` folds a log of these readings into a lease state.
 
 import type {
   CommandId,
@@ -46,17 +32,13 @@ export interface TerminalLeaseTransition {
 /**
  * A lease transition the console could not read, kept so the lease line can say so.
  *
- * The wire moved the lease and this build does not understand the move. Skipping it
- * would leave the previous holder standing as the newest state, which is the one
- * reading that lets a person keep typing into a shell the daemon has taken from
- * them — so the transition is carried in its own right, with whatever the wire
- * called it, and the projection settles into the arm that writes nothing.
+ * Skipping it would leave the previous holder standing, which lets a person keep typing into
+ * a shell the daemon has taken from them; the projection settles into the arm that writes
+ * nothing instead.
  */
 export interface TerminalLeaseUnreadTransition {
   /**
-   * The reason the wire sent, when it sent a non-empty string — verbatim, for the
-   * operator to paste somewhere. `undefined` when the payload named none at all,
-   * which is the same fact with less to say about it.
+   * The reason the wire sent, verbatim, when it was a non-empty string; otherwise `undefined`.
    */
   readonly reason: string | undefined;
 }
@@ -92,13 +74,8 @@ export function readTerminalLeaseShell(event: ProjectedSessionEvent): string | u
 }
 
 /**
- * Read one unreadable transition off its event.
- *
- * Separate from {@link readTerminalLeaseTransition} because the two answer different
- * questions: that one asks whether the console understands the move, this one records
- * the move it does not understand. The reason is carried verbatim and only when the
- * wire sent a non-empty string — anything else is a payload with nothing to name,
- * and a stringified object would be the lease line inventing a vocabulary.
+ * Record an unreadable transition. The reason is carried verbatim only when the wire sent a
+ * non-empty string; anything else names nothing, and stringifying it would invent a vocabulary.
  */
 export function readTerminalLeaseUnreadTransition(
   event: ProjectedSessionEvent,

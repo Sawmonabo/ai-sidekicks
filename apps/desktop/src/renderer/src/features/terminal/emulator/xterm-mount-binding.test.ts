@@ -1,14 +1,8 @@
-// The tie between one emulator and one mount element: the write gate, and the size seam.
-//
-// Both halves belong to the TIE rather than to the emulator. Watch mode is the
-// default and the gate is applied twice on purpose — the `disableStdin` option and
-// the check inside `onData` — because the expensive mistake on a shared shell is
-// sending a keystroke nobody was allowed to send. And a detached emulator has no
-// box to be measured against, so it reports the shut gate and re-opens it, without
-// being told again, on the mount element that takes it next.
-//
-// Against the real library, and cleaned up through the directory's one live-emulator
-// registry — see `xterm-adapter.test-support.ts` for both reasons.
+// The tie between one emulator and one mount element: the write gate and the size seam. The
+// gate is applied twice (the `disableStdin` option and the check inside `onData`), because
+// sending a keystroke nobody was allowed to send is the expensive mistake on a shared shell.
+// A detached emulator has no box, so it reports the shut gate and re-opens it on the next
+// mount element.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -24,19 +18,10 @@ import {
 
 afterEach(disposeLiveEmulators);
 
-// The grid re-fits when its mount element's box changes, and it does so through the console's
-// ONE size seam.
-//
-// The environment implements no `ResizeObserver`, so the fake is what makes the seam
-// reachable here at all — and it is `primitives/element-resize.test-support.ts`'s,
-// the same one three browser suites drive, because a second fake beside this one
-// would be the duplication the hoist removed reappearing in the test tier.
-//
-// `fitToMountPoint` is watched rather than stubbed: the spy calls through, so what the
-// cases below assert is that a delivery reached the real re-fit. The fit ITSELF is
-// the addon's and is exercised where a box can be measured; in this environment the
-// mount element has no layout, so the addon's own division is undefined and the adapter
-// swallows it by design.
+// The grid re-fits when its mount element's box changes, through the console's one size seam.
+// The environment has no `ResizeObserver`, so the fake in `tests/helpers/element-resize.ts` makes
+// the seam reachable. `fitToMountPoint` is spied, not stubbed, so the assertions reach the real
+// re-fit; the fit itself is the addon's and needs a measurable box.
 describe("the grid's size source", () => {
   it("re-fits when a size change is delivered for its own mount element", () => {
     const resizeObserver = installFakeResizeObserver();
@@ -65,9 +50,8 @@ describe("the grid's size source", () => {
   });
 
   it("negative control: a size change somewhere else is not this terminal's", () => {
-    // Without this the cases above would pass against an adapter that re-fitted on
-    // every delivery in the document, which is a terminal that re-measures itself
-    // whenever any other pane resizes.
+    // Without this the cases above would pass against an adapter that re-fitted on every
+    // delivery in the document.
     const resizeObserver = installFakeResizeObserver();
     const { adapter } = mountedAdapter({ terminalId: "elsewhere" });
     const refit = vi.spyOn(adapter, "fitToMountPoint");
@@ -95,10 +79,8 @@ describe("the write gate — watch mode is the default", () => {
   });
 
   it("takes a lease that was already open at construction, without a second call", () => {
-    // The mount point builds a fresh emulator for every terminal id and every capability
-    // change, under a lease that did not move with it. Correcting the binding after
-    // construction is a binding that was briefly wrong and a correction a caller can
-    // forget, so the answer travels with the build.
+    // The mount point builds a fresh emulator under a lease that did not move, so the answer
+    // travels with the build; correcting the binding afterwards is briefly wrong.
     const { adapter } = mountedAdapter({ terminalId: "born-writable", isWriteEnabled: true });
 
     expect(adapter.isWriteEnabled).toBe(true);
@@ -114,10 +96,9 @@ describe("the write gate — watch mode is the default", () => {
   });
 
   it("shuts the gate while the emulator is off screen and re-opens it on the next mount element", () => {
-    // The write state belongs to the TIE. A detached emulator has no box to click
-    // and no mount element to be measured against, so a gate left open there is an
-    // emulator accepting input for a terminal nobody can see — and the lease has not
-    // moved, so the next mount element gets the answer the lease gave without being told again.
+    // The write state belongs to the tie: a detached emulator has no box to click, so an open
+    // gate there accepts input nobody can see, and the next mount element gets the lease's
+    // answer without being told again.
     const { adapter, mountElement } = mountedAdapter({ terminalId: "gated-by-mount" });
     adapter.setWriteEnabled(true);
     expect(adapter.isStdinDisabled).toBe(false);
@@ -134,9 +115,7 @@ describe("the write gate — watch mode is the default", () => {
   });
 
   it("negative control: a mount element does not open a gate the lease never opened", () => {
-    // Without it the case above would pass against a binding that opened stdin on
-    // every attach, which is watch mode failing open on the one terminal where the
-    // expensive mistake is sending a keystroke nobody was allowed to send.
+    // Without it the case above would pass against a binding that opened stdin on every attach.
     const { adapter, mountElement } = mountedAdapter({ terminalId: "watcher-remount" });
 
     adapter.detach();
