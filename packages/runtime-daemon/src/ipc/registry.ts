@@ -38,11 +38,8 @@ import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
  */
 const METHOD_NAME_LSP_REGEX = /^\$\/[a-z][a-zA-Z0-9]*(?:\/[a-z][a-zA-Z0-9]*)*$/;
 
-/**
- * Whether `method` matches the dotted-camelCase format or the LSP `$/` system-method format.
- * Exported for tests; production callers go through `register()`.
- */
-export function isCanonicalMethodName(method: string): boolean {
+/** Whether `method` matches the dotted-camelCase format or the LSP `$/` system-method format. */
+function isCanonicalMethodName(method: string): boolean {
   return METHOD_NAME_FORMAT.test(method) || METHOD_NAME_LSP_REGEX.test(method);
 }
 

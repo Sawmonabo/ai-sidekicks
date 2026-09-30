@@ -9,7 +9,6 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../jsonrpc-error-mapping.js";
 import {
-  isCanonicalMethodName,
   MethodRegistryImpl,
   RegistryDispatchError,
   RegistryRegistrationError,
@@ -152,7 +151,10 @@ describe("method-name format validation", () => {
     "daemon.hello",
   ];
   it.each(ACCEPTED)("accepts canonical name `%s`", (name) => {
-    expect(isCanonicalMethodName(name)).toBe(true);
+    const registry = new MethodRegistryImpl();
+    expect(() =>
+      registry.register(name, passthroughSchema(), passthroughSchema(), async () => ({})),
+    ).not.toThrow();
   });
 
   const REJECTED = [
@@ -169,7 +171,10 @@ describe("method-name format validation", () => {
     "$/Subscription/notify", // uppercase head after $/
   ];
   it.each(REJECTED)("rejects malformed name `%s`", (name) => {
-    expect(isCanonicalMethodName(name)).toBe(false);
+    const registry = new MethodRegistryImpl();
+    expect(() =>
+      registry.register(name, passthroughSchema(), passthroughSchema(), async () => ({})),
+    ).toThrow(expect.objectContaining({ registryCode: "invalid_method_name" }));
   });
 
   it("registering a malformed method-name throws `RegistryRegistrationError(`invalid_method_name`)`", () => {
