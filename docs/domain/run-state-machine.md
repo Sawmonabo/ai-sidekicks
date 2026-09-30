@@ -65,7 +65,7 @@ Primary allowed transitions:
 - `starting -> failed`
 - `starting -> interrupted`
 - `running -> waiting_for_approval`
-- `running -> waiting_for_input` (an agent's question recorded: the question handler that holds the provider's request open appends `question.asked` and moves the run in the same step — a Claude Code question, a Codex user-input request or a tool server's MCP elicitation alike)
+- `running -> waiting_for_input` (an agent's question recorded: the question handler that holds the provider's request open appends `question.asked` and moves the run in the same step — a Claude Code question, a Codex user-input request or a tool server's MCP elicitation alike; or Claude Code's retry-or-edit choice on a refused turn, recorded as `run.refusal_choice_requested`)
 - `running -> pausing` (the pause toggle; the step already in flight is still finishing)
 - `pausing -> paused` (the step in flight landed)
 - `pausing -> running` (the pause toggle pressed again, or a send, before the step in flight landed)
@@ -75,14 +75,14 @@ Primary allowed transitions:
 - `running -> failed`
 - `waiting_for_approval -> running` (approval resolved; or a pending permission-ask's provider retraction, atomic with `approval.canceled`, no outcome delivered)
 - `waiting_for_approval -> interrupted`
-- `waiting_for_input -> running` (the question answered, the question handler moving the run back as it writes the answer's `user.message` row; or the question canceled — the provider withdrew its held request — with no answer delivered)
-- `waiting_for_input -> interrupted`
+- `waiting_for_input -> running` (the question answered, the question handler moving the run back as it writes the answer's `user.message` row; or the question canceled — the provider withdrew its held request — with no answer delivered; or the refusal choice answered `retry_fallback`)
+- `waiting_for_input -> interrupted` (not while the refusal choice waits: an interrupt answers that choice `cancelled`, and the run ends `failed`)
 - `paused -> running` (the pause toggle pressed again — `run.resume` — or a send)
 - `paused -> interrupted`
 - `interrupted -> running` (a send, or the messages that were waiting going as the next turn)
 - `completed -> running` (a send into a finished child run's own steer box)
 - `waiting_for_approval -> failed` (provider or transport failure while waiting)
-- `waiting_for_input -> failed` (provider or transport failure while waiting)
+- `waiting_for_input -> failed` (provider or transport failure while waiting; or the refusal choice answered `edit_prompt` or `cancelled`, the run ending with `failureCategory: 'refused'`)
 - `paused -> failed` (resume handle lost or recovery exhausted)
 
 ## Recovery Transitions
@@ -120,7 +120,7 @@ The following table lists every allowed run state transition. It includes primar
 | `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
 | `starting` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while run setup is in progress or parked (e.g. blocked-in-setup per [Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior)) |
 | `running` | `waiting_for_approval` | Approval requested | Run requires explicit approval before continuing |
-| `running` | `waiting_for_input` | Input requested | Run requires user input or structured answers |
+| `running` | `waiting_for_input` | Input requested | Run requires user input or structured answers, or Claude Code's retry-or-edit choice on a refused turn waits on the person (`run.refusal_choice_requested`) |
 | `running` | `pausing` | Pause toggle pressed | The step already in flight is still finishing and nothing new starts ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `pausing` | `paused` | The step in flight landed | Nothing is running; the run continues later from exactly where it stopped, with nothing repeated |
 | `pausing` | `running` | The pause toggle pressed again, or a send | Pressed before the step in flight landed; the run goes on from where it is, with nothing repeated ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
@@ -134,7 +134,9 @@ The following table lists every allowed run state transition. It includes primar
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
 | `waiting_for_input` | `running` | Question answered | The person answered the question: the question handler writes the answer as an ordinary `user.message` row and moves the run back in the same step. A question waits until it is answered, so nothing reaches this row on elapsed time (Spec-010 §Required Behavior) |
 | `waiting_for_input` | `running` | Question canceled | The provider withdrew its still-held request on the live leg — the question handler settles the question canceled and the run resumes with no answer delivered |
-| `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or an undo, which cancels the question the run held (§Rollback Transitions) |
+| `waiting_for_input` | `running` | Refusal choice answered `retry_fallback` | The person chose to retry on the fallback model; the daemon sends that answer, appends `run.refusal_choice_resolved`, and the turn goes on on that model |
+| `waiting_for_input` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting, or an undo, which cancels the question the run held (§Rollback Transitions). An interrupt while the refusal choice waits takes the next row instead |
+| `waiting_for_input` | `failed` | Refusal choice answered `edit_prompt` or `cancelled` | The person chose to edit the message, or the choice was answered `cancelled` — by an interrupt, by a message sent while it waits, which then goes as the next turn, or by Claude Code settling it itself; the run ends with `failureCategory: 'refused'` |
 | `waiting_for_input` | `failed` | Provider or transport failure | Failure occurs while run is blocked on input |
 | `paused` | `running` | The pause toggle pressed again (`run.resume`), or a send | Resume handle valid and provider ready; the run continues from exactly where it stopped with nothing repeated, and any messages that were waiting are delivered ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `paused` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while paused, or an undo (§Rollback Transitions) |
