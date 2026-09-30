@@ -177,7 +177,7 @@ const RENDERER_WIRE_RESTRICTED_PATTERNS = [
  */
 const BRIDGE_GLOBAL_READ = {
   selector:
-    ':matches(MemberExpression[object.name="window"][property.name="desktopBridge"], MemberExpression[object.name="globalThis"][property.name="desktopBridge"], MemberExpression[object.type="TSAsExpression"][property.name="desktopBridge"], MemberExpression[computed=true][property.value="sidekicks"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="sidekicks"])',
+    ':matches(MemberExpression[object.name="window"][property.name="desktopBridge"], MemberExpression[object.name="globalThis"][property.name="desktopBridge"], MemberExpression[object.type="TSAsExpression"][property.name="desktopBridge"], MemberExpression[computed=true][property.value="desktopBridge"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="desktopBridge"])',
   message:
     "The import-boundary rules in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `services/platform/live-bridge.ts`, and every surface above it takes the bridge from the platform bridge provider's context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
