@@ -316,7 +316,7 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
           "continuation to explain it: the client renders a surface that exists and shows " +
           "nothing, which is indistinguishable from the unavailable state while asserting the " +
           "opposite — a producer with nothing to serve must answer with the state that is true " +
-          "(unavailable, compacted, or policy_redacted) rather than with an empty page",
+          "(unavailable, purged, or policy_redacted) rather than with an empty page",
       },
     ];
   },

@@ -705,8 +705,8 @@ describe("timeline.bodyRead", () => {
     await expect(dispatchBodyRead(registry)).rejects.toBeInstanceOf(SessionNotFoundError);
   });
 
-  it("never puts a compacted body on the wire", async () => {
-    const registry = registryReading(async () => storedRow("compacted"));
+  it("never puts a purged body on the wire", async () => {
+    const registry = registryReading(async () => storedRow("audit_stub"));
     const refusal = await dispatchBodyRead(registry).catch((error: unknown) => error);
     expect(refusal).toBeInstanceOf(RegistryDispatchError);
     expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_result");

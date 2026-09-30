@@ -8,7 +8,7 @@
 //
 // THE COLORS ARE NAMES, NOT VALUES. The parse runs with `use_classes: true`, so anser
 // reports `ansi-red` rather than `rgb(187, 0, 0)` — a NAME the console resolves through
-// its own palette, exactly as the code highlighter resolves token kinds. A tool that
+// its own palette, exactly as a code block paints the daemon's span classes. A tool that
 // prints red gets the console's red, which is legible on both schemes and is the same
 // red every other failure in the transcript uses. Resolved triples would put a stranger's
 // palette inside a console where amber and red are the only colors that ask for attention.
