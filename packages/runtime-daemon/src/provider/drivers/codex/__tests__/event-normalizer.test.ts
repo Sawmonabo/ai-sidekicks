@@ -269,15 +269,6 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "compact_boundary",
       },
     ],
-    [
-      "model/safetyBuffering/updated",
-      {
-        transport: "server-notification",
-        family: "run_lifecycle",
-        eventType: "run.safety_buffering_updated",
-        normalizedKind: null,
-      },
-    ],
     // `process/*` (delta row: `tool_activity`).
     [
       "process/outputDelta",
@@ -339,6 +330,9 @@ const EXPECTED_NOT_EVENTED_METHODS: readonly CodexInboundFrameMethod[] = [
   // The review's start and the moderation hint go to the daemon's log only.
   "item/autoApprovalReview/started",
   "turn/moderationMetadata",
+  // The safety hold is relayed live on the run's state stream, never as a
+  // session row.
+  "model/safetyBuffering/updated",
 ];
 
 /**

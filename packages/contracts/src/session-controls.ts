@@ -3,8 +3,8 @@
 // servers and their resources, the live `/` list, the side question, the review,
 // the definitions reload, the step bound, and the Codex sessions typed in a
 // terminal. It also holds the payloads of the flow rows these controls write: the
-// session notice, the reviewer's flag, the answered side question, the reached
-// step bound and Codex's safety hold on a turn.
+// session notice, the reviewer's flag, the answered side question and the reached
+// step bound, and the live frame of Codex's safety hold on a turn.
 //
 // The session's directory and lifecycle live in `session.ts`; these per-session
 // controls sit beside it in their own module because one file would hold two
@@ -370,25 +370,18 @@ export const SessionSideQuestionAskResponseSchema: z.ZodType<SessionSideQuestion
   .strict();
 
 /**
- * The `session.side_question_answered` payload: the question and the answer, so
- * the aside row survives a reload. The aside never enters the conversation.
+ * The stored `session.side_question_answered` payload: the half the personal-data
+ * split leaves in the event. The question is the person's words and the answer the
+ * provider's, so the emitter moves both into the row's personal-data partition, and
+ * neither is a member here. The aside never enters the conversation.
  */
 export type SessionSideQuestionAnsweredPayload = {
   sessionId: SessionId;
   sideQuestionId: SideQuestionId;
-  question: string;
-  answer: string;
 };
 /** Parses a {@link SessionSideQuestionAnsweredPayload}. */
 export const SessionSideQuestionAnsweredPayloadSchema: z.ZodType<SessionSideQuestionAnsweredPayload> =
-  z
-    .object({
-      sessionId: SessionIdSchema,
-      sideQuestionId: SideQuestionIdSchema,
-      question: sideQuestionTextSchema,
-      answer: composedTextSchema,
-    })
-    .strict();
+  z.object({ sessionId: SessionIdSchema, sideQuestionId: SideQuestionIdSchema }).strict();
 
 const SESSION_REVIEW_TARGET_VALUES = ["workingTree", "staged", "branch"] as const;
 
@@ -456,10 +449,10 @@ export const RunStepLimitReachedPayloadSchema: z.ZodType<RunStepLimitReachedPayl
   .strict();
 
 /**
- * The `run.safety_buffering_updated` payload: Codex is holding a turn for a safety
- * check (`active`), or has released it. `fasterModel` is the model Codex names, as
- * it sent it. It is relayed live and never kept in the session's history, so a
- * re-opened session does not replay it.
+ * Codex's safety hold on a turn: Codex is holding the turn for a safety check
+ * (`active`), or has released it. `fasterModel` is the model Codex names, as it
+ * sent it. It is relayed live on the run's state stream and never kept in the
+ * session's history, so a re-opened session does not replay it.
  */
 export type RunSafetyBufferingUpdatedPayload = {
   sessionId: SessionId;

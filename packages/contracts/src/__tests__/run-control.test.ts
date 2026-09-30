@@ -21,9 +21,9 @@
 //     (`agentId`, `effectiveRunConfig`) are pinned as REJECTED, so their
 //     absence is a recorded decision rather than a silent gap a producer could
 //     stumble into.
-//   • The two arms of the `run.subscribeState` stream are pinned AGAINST
+//   • The three arms of the `run.subscribeState` stream are pinned AGAINST
 //     EACH OTHER: the stream carries no wire tag, so each schema is shown to
-//     reject the other's well-formed payload — the property that makes one
+//     reject the others' well-formed payloads — the property that makes one
 //     untagged stream safe to parse.
 //   • The two `run.subscribe*` request shapes are pinned against the two
 //     members a copy of a neighboring subscribe shape would bring with it: a
@@ -42,6 +42,7 @@ import {
   InterventionStateSchema,
   RunControlAckSchema,
   RunFailureCategorySchema,
+  RUN_CONTROL_METHOD_DESCRIPTORS,
   RunPauseRequestSchema,
   RunReadSnapshotSchema,
   RunRecoveryResolvedPayloadSchema,
@@ -56,6 +57,7 @@ import {
   type RunState,
 } from "../run-control.js";
 import { RunQueueSubscribeRequestSchema } from "../run-queue.js";
+import { RunSafetyBufferingUpdatedPayloadSchema } from "../session-controls.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
@@ -689,6 +691,34 @@ describe("RunRolledBackEvent", () => {
     expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
     expect(() => RunStateChangeEventSchema.parse(minimalRolledBack)).toThrow();
     expect(() => RunRolledBackEventSchema.parse(minimalRunStateChange)).toThrow();
+  });
+});
+
+const safetyHold = {
+  sessionId: SESSION_ID,
+  runId: RUN_ID,
+  turnId: "turn-3",
+  active: true,
+  fasterModel: "gpt-5.5-mini",
+} as const;
+
+describe("Codex's safety hold on run.subscribeState", () => {
+  const stateStream = RUN_CONTROL_METHOD_DESCRIPTORS["run.subscribeState"].emissionSchema;
+
+  it("delivers a hold frame on the run's state stream", () => {
+    expect(stateStream.parse(safetyHold)).toEqual(safetyHold);
+  });
+
+  it("refuses a hold that names no turn", () => {
+    const { turnId: _turnId, ...noTurn } = safetyHold;
+    expect(stateStream.safeParse(noTurn).success).toBe(false);
+  });
+
+  it("is disjoint from the state change and the rollback", () => {
+    expect(() => RunStateChangeEventSchema.parse(safetyHold)).toThrow();
+    expect(() => RunRolledBackEventSchema.parse(safetyHold)).toThrow();
+    expect(() => RunSafetyBufferingUpdatedPayloadSchema.parse(minimalRunStateChange)).toThrow();
+    expect(() => RunSafetyBufferingUpdatedPayloadSchema.parse(minimalRolledBack)).toThrow();
   });
 });
 

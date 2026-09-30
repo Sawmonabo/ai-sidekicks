@@ -1624,7 +1624,6 @@ const QUESTION = {
   sessionId: SESSION_ID,
   runId: OWNER_RUN_ID,
   pageCount: 1,
-  questions: [{ text: "Which branch?", options: [], severalAnswers: false, secret: false }],
 };
 const MCP_STATUS = {
   provider: "claude",
@@ -1639,8 +1638,6 @@ const MCP_STATUS = {
 const SIDE_QUESTION = {
   sessionId: SESSION_ID,
   sideQuestionId: OWNER_SIDE_QUESTION_ID,
-  question: "Why is the build slow?",
-  answer: "The type check runs twice.",
 };
 const REVIEW_FLAGGED = {
   sessionId: SESSION_ID,
@@ -1718,13 +1715,6 @@ const REVIEWER_DENIED = {
   reason: "[Data Exfiltration]",
   overridable: true,
   contentLength: 412,
-};
-const SAFETY_BUFFERING = {
-  sessionId: SESSION_ID,
-  runId: OWNER_RUN_ID,
-  turnId: "turn-3",
-  active: true,
-  fasterModel: "gpt-5.5-mini",
 };
 const WORKFLOW_RUN_EVENT = {
   sessionId: SESSION_ID,
@@ -1863,11 +1853,11 @@ const OWNED_VARIANT_FAMILIES: ReadonlyArray<
   ],
   [
     "side question",
-    "an answer with no question",
+    "the person's question kept in the plain half",
     ownedVariantEvent("session.side_question_answered", "session_lifecycle", SIDE_QUESTION),
     ownedVariantEvent("session.side_question_answered", "session_lifecycle", {
       ...SIDE_QUESTION,
-      question: undefined,
+      question: "Why is the build slow?",
     }),
   ],
   [
@@ -2117,15 +2107,6 @@ const OWNED_VARIANT_FAMILIES: ReadonlyArray<
     }),
   ],
   [
-    "safety hold",
-    "a hold that names no turn",
-    ownedVariantEvent("run.safety_buffering_updated", "run_lifecycle", SAFETY_BUFFERING),
-    ownedVariantEvent("run.safety_buffering_updated", "run_lifecycle", {
-      ...SAFETY_BUFFERING,
-      turnId: undefined,
-    }),
-  ],
-  [
     "goal update",
     "a goal that names no agent",
     ownedVariantEvent("session.goal_updated", "session_lifecycle", {
@@ -2163,6 +2144,7 @@ const OWNED_VARIANT_FAMILIES: ReadonlyArray<
       terminalId: "term-1",
       holderDeviceId: "desktop-1",
       holderRunId: OWNER_RUN_ID,
+      holderCommandId: "command-1",
       previousHolderDeviceId: null,
       reason: "taken",
     }),

@@ -82,9 +82,12 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
   });
 
 /**
- * `question.asked`: the record the screen renders. Several questions page one at
- * a time: `pageCount` is how many there are and `questions` carries them all, so
- * paging needs no further read.
+ * The stored `question.asked` payload: the half the personal-data split leaves in
+ * the event. Several questions page one at a time, and `pageCount` is how many
+ * there are. The questions themselves are text an agent, a tool server or a
+ * workflow wrote, and it can echo the person's words, so the emitter moves them
+ * whole into the row's personal-data partition as {@link QuestionAskedPersonalData};
+ * none of them is a member here.
  *
  * Exactly one of `runId` and `waitId` names what is waiting. An agent's or a tool
  * server's question names the agent's run. A workflow step waiting for a chat
@@ -98,7 +101,6 @@ export type QuestionAskedPayload = {
   runId?: RunId | undefined;
   waitId?: string | undefined;
   pageCount: number;
-  questions: QuestionPrompt[];
 };
 /** Parses a {@link QuestionAskedPayload}. */
 export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
@@ -108,7 +110,6 @@ export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
     runId: RunIdSchema.optional(),
     waitId: uuidTextFormSchema.optional(),
     pageCount: z.number().int().positive(),
-    questions: z.array(QuestionPromptSchema).min(1),
   })
   .strict()
   .superRefine((payload, context) => {
@@ -119,14 +120,21 @@ export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
         message: "a question names either the run or the workflow wait it holds, not both",
       });
     }
-    if (payload.pageCount !== payload.questions.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["pageCount"],
-        message: "a question record has one page per question",
-      });
-    }
   });
+
+/**
+ * The personal-data half of a `question.asked` row: every question of the record,
+ * one per page in order, so a rebuilt card pages through them with no further read
+ * and each question keeps its own `severalAnswers` and `secret` beside its text.
+ * The emitter seals it with the row and writes `pageCount` as its length.
+ */
+export interface QuestionAskedPersonalData {
+  questions: QuestionPrompt[];
+}
+/** Parses a {@link QuestionAskedPersonalData}. */
+export const QuestionAskedPersonalDataSchema: z.ZodType<QuestionAskedPersonalData> = z
+  .object({ questions: z.array(QuestionPromptSchema).min(1) })
+  .strict();
 
 /**
  * The answer to one question: the picked labels, typed text, a secret, or a skip.

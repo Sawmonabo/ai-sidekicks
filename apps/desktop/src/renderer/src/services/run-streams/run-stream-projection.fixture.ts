@@ -11,7 +11,9 @@
 // registered PROJECTIONS and carry nothing of the sort: `run.subscribeState` streams
 // `RunStateChangeEvent | RunRolledBackEvent` and `run.subscribeQueue` streams
 // `QueueItemSummary`, none of which has a `kind`, a `sequence`, or a nested `payload`,
-// and all of which name members the envelope does not. So a runs view built against a
+// and all of which name members the envelope does not. The state stream's third
+// delivery, Codex's safety hold, is a live frame with no session row, so no beat
+// projects to it here. So a runs view built against a
 // fixture that handed over the envelope would read `event.payload.newState` where the
 // wire sends a top-level `newState`, and every screenshot, geometry reading, and
 // end-to-end result taken against it would be about a frame no daemon produces.

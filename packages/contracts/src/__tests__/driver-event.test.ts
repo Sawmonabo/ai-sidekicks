@@ -94,7 +94,7 @@ const DRIVER_EVENT_CATEGORIES: readonly EventCategory[] = [
 // (vitest strips types and would not catch it). The set-versus-type bind below
 // covers every registered arm.
 const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = [
-  "run.safety_buffering_updated",
+  "run.step_limit_reached",
   "assistant.message",
   "tool.invoked",
   "question.asked",

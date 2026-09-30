@@ -24,7 +24,7 @@
 // goals, notices, side questions, the reviewer's flag, commands, git
 // settlements, the relay pin, the session verbs, a chat's conversion, a
 // worktree sweep, a branch change, an agent's provider binding, the run's step
-// bound and safety hold, the terminal's holder, workflow runs, steps and gates,
+// bound, the terminal's holder, workflow runs, steps and gates,
 // and backups. `usage.model_rerouted` is the exception:
 // no other contract declares its payload, so it is declared here.
 //
@@ -128,12 +128,10 @@ import {
 } from "./run-control.js";
 import {
   ModerationReviewFlaggedPayloadSchema,
-  RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   SessionNoticePayloadSchema,
   SessionSideQuestionAnsweredPayloadSchema,
   type ModerationReviewFlaggedPayload,
-  type RunSafetyBufferingUpdatedPayload,
   type RunStepLimitReachedPayload,
   type SessionNoticePayload,
   type SessionSideQuestionAnsweredPayload,
@@ -1842,11 +1840,6 @@ export type RunStepLimitReachedEvent = SessionEventVariant<
   "run_lifecycle",
   RunStepLimitReachedPayload
 >;
-export type RunSafetyBufferingUpdatedEvent = SessionEventVariant<
-  "run.safety_buffering_updated",
-  "run_lifecycle",
-  RunSafetyBufferingUpdatedPayload
->;
 export type RunRecoveryResolvedEvent = SessionEventVariant<
   "run.recovery_resolved",
   "run_lifecycle",
@@ -2178,11 +2171,6 @@ const runStepLimitReachedVariantSchema = buildSessionEventVariantSchema(
   "run_lifecycle",
   RunStepLimitReachedPayloadSchema,
 );
-const runSafetyBufferingUpdatedVariantSchema = buildSessionEventVariantSchema(
-  "run.safety_buffering_updated",
-  "run_lifecycle",
-  RunSafetyBufferingUpdatedPayloadSchema,
-);
 const runRecoveryResolvedVariantSchema = buildSessionEventVariantSchema(
   "run.recovery_resolved",
   "run_lifecycle",
@@ -2410,7 +2398,6 @@ export type SessionEvent =
   | ApprovalReviewerDeniedEvent
   | ApprovalDenialOverriddenEvent
   | RunStepLimitReachedEvent
-  | RunSafetyBufferingUpdatedEvent
   | RunRecoveryResolvedEvent
   | SessionGoalUpdatedEvent
   | SessionRenamedEvent
@@ -2634,7 +2621,6 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   approvalReviewerDeniedVariantSchema,
   approvalDenialOverriddenVariantSchema,
   runStepLimitReachedVariantSchema,
-  runSafetyBufferingUpdatedVariantSchema,
   runRecoveryResolvedVariantSchema,
   sessionGoalUpdatedVariantSchema,
   sessionRenamedVariantSchema,
@@ -2702,7 +2688,6 @@ export type SessionEventType =
   | "run.turn_started"
   | "run.worker_shutdown"
   | "run.step_limit_reached"
-  | "run.safety_buffering_updated"
   | "run.recovery_resolved"
   | "assistant.message"
   | "assistant.thinking_update"
@@ -2731,7 +2716,6 @@ export type SessionEventType =
   | "intervention.expired"
   | "driver_ask.requested"
   | "driver_ask.responded"
-  | "driver_ask.expired"
   | "driver_ask.canceled"
   | "user.message"
   | "question.asked"
@@ -2942,7 +2926,6 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "approval.reviewer_denied",
   "approval.denial_overridden",
   "run.step_limit_reached",
-  "run.safety_buffering_updated",
   "run.recovery_resolved",
   "session.goal_updated",
   "session.renamed",
@@ -2992,7 +2975,6 @@ export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "run.turn_started",
   "run.worker_shutdown",
   "run.step_limit_reached",
-  "run.safety_buffering_updated",
   "run.recovery_resolved",
 ] as const;
 
@@ -3026,7 +3008,6 @@ export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
   "intervention.expired",
   "driver_ask.requested",
   "driver_ask.responded",
-  "driver_ask.expired",
   "driver_ask.canceled",
   "user.message",
   "question.asked",
@@ -3230,7 +3211,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.turn_started": "run_lifecycle",
   "run.worker_shutdown": "run_lifecycle",
   "run.step_limit_reached": "run_lifecycle",
-  "run.safety_buffering_updated": "run_lifecycle",
   "run.recovery_resolved": "run_lifecycle",
   // assistant_output
   "assistant.message": "assistant_output",
@@ -3258,7 +3238,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "intervention.expired": "interactive_request",
   "driver_ask.requested": "interactive_request",
   "driver_ask.responded": "interactive_request",
-  "driver_ask.expired": "interactive_request",
   "driver_ask.canceled": "interactive_request",
   "user.message": "interactive_request",
   "question.asked": "interactive_request",
@@ -3580,7 +3559,7 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
  *     both-present; the arm split forbids neither-present. `eventType`
  *     names the row's PRIMARY target only — outcome-dependent fan-out
  *     (`tool.error`, `approval.rejected` / `.expired` / `.canceled`,
- *     `driver_ask.expired` / `.canceled`, `subagent.completed`) is
+ *     `driver_ask.canceled`, `subagent.completed`) is
  *     normalizer detail, not registry data.
  *   • `correlate`/`discard` entries carry only the non-empty `reason` —
  *     the no-silent-capability-loss justification — and NO taxonomy
@@ -3678,8 +3657,7 @@ const EVENT_DISPOSITION_RECORD = {
     category: "interactive_request",
     eventType: "driver_ask.requested",
   },
-  // Driver-ask resolution; fans to `driver_ask.expired` /
-  // `driver_ask.canceled`.
+  // Driver-ask resolution; fans to `driver_ask.canceled`.
   user_input_resolved: {
     disposition: "adopt",
     category: "interactive_request",

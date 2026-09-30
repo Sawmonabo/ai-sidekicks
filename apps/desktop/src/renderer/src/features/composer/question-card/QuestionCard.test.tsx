@@ -1,4 +1,4 @@
-// The ask card: two answer arms, a countdown that settles nothing, four terminals, and
+// The ask card: two answer arms, a countdown that settles nothing, two terminals, and
 // what became of the answer a press dispatched.
 //
 // THE DELIVERY CASES READ WHAT A USER WOULD SEE AND WHAT THEY COULD STILL DO.
@@ -139,14 +139,13 @@ describe("the countdown", () => {
   });
 
   // THE RULE THIS CARD MOST HAS TO KEEP: a countdown at zero is a statement about
-  // the console, never about the ask. An input ask that expires parks its run, and
-  // only the `driver_ask.expired` row may say that it did.
+  // the console, never about the ask. Only a row the daemon writes settles it.
   it("waits for the daemon past zero rather than settling a terminal", () => {
     const container = renderCard(pendingAsk(), {
       nowEpochMilliseconds: PAST_THE_DEADLINE_MILLISECONDS,
     });
     expect(container.textContent).toContain("Waiting for the background service.");
-    expect(container.textContent).not.toContain("expired");
+    expect(container.textContent).not.toContain("was canceled");
   });
 
   it("negative control: the answer arms survive a countdown that reached zero", () => {
@@ -179,19 +178,12 @@ describe("the terminals", () => {
     expect(container.textContent).toContain("develop");
   });
 
-  it("says which of the two closures happened", () => {
-    expect(renderCard(pendingAsk({ state: "expired" })).textContent).toContain("expired");
+  it("says the ask was canceled on the canceled row", () => {
     expect(renderCard(pendingAsk({ state: "canceled" })).textContent).toContain("canceled");
   });
 
-  it("negative control: expired and canceled are not one sentence", () => {
-    const expired = renderCard(pendingAsk({ state: "expired" })).textContent;
-    const canceled = renderCard(pendingAsk({ state: "canceled" })).textContent;
-    expect(expired).not.toBe(canceled);
-  });
-
   it("offers no answer arm on a settled ask", () => {
-    const container = renderCard(pendingAsk({ state: "expired" }));
+    const container = renderCard(pendingAsk({ state: "canceled" }));
     expect(container.querySelector(".meridian-input-ask__field")).toBeNull();
     expect(container.querySelector(".meridian-input-ask__option")).toBeNull();
   });

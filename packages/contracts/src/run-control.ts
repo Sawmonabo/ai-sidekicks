@@ -7,13 +7,13 @@
 // module imports from here rather than restating: `RunState`,
 // `RunFailureCategory` and `InterventionState`.
 //
-// It imports downward only. The shapes below compose `./device.js`,
-// `./provider-driver.js`, `./session-cost.js`, `./session.js` and the three run
-// modules, each an eager module-scope Zod initializer, so a back-import from any
-// of them would throw `ReferenceError` at import time rather than fail to
-// compile. The same reason keeps the message bounds (`DRIVER_WIRE_STEER_*`) in
-// `./provider-driver.js`: its `SteerPayload` applies them and cannot import from
-// here.
+// It imports downward only. The shapes below compose `./provider-driver.js`,
+// `./run-children.js`, `./run-queue.js`, `./session-controls.js`,
+// `./session-cost.js` and `./session.js`, each an eager module-scope Zod
+// initializer, so a back-import from any of them would throw `ReferenceError` at
+// import time rather than fail to compile. The same reason keeps the message
+// bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its `SteerPayload`
+// applies them and cannot import from here.
 //
 // Request schemas use the double-T `z.ZodType<T, T>` form and response and
 // event schemas the single-T `z.ZodType<T>` form, matching `session.ts`: only
@@ -85,6 +85,10 @@ import {
   type QueueReorderRequest,
   type RunQueueSubscribeRequest,
 } from "./run-queue.js";
+import {
+  RunSafetyBufferingUpdatedPayloadSchema,
+  type RunSafetyBufferingUpdatedPayload,
+} from "./session-controls.js";
 import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
@@ -556,11 +560,22 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
   })
   .strict();
 
-/** One delivery on `run.subscribeState`: a state change or a rollback. */
-export type RunStateStreamEvent = RunStateChangeEvent | RunRolledBackEvent;
+/**
+ * One delivery on `run.subscribeState`: a state change, a rollback, or Codex's
+ * safety hold on the run's turn. The hold is a live detail of the run's working
+ * status and the stream is its only carrier: it is not written to the session's
+ * history, so a re-opened session does not replay it. Like the rollback it carries
+ * no tag; `.strict()` on all three keeps them apart, since each lacks the others'
+ * required members.
+ */
+export type RunStateStreamEvent =
+  | RunStateChangeEvent
+  | RunRolledBackEvent
+  | RunSafetyBufferingUpdatedPayload;
 const RunStateStreamEventSchema: z.ZodType<RunStateStreamEvent> = z.union([
   RunStateChangeEventSchema,
   RunRolledBackEventSchema,
+  RunSafetyBufferingUpdatedPayloadSchema,
 ]);
 
 // --------------------------------------------------------------------------

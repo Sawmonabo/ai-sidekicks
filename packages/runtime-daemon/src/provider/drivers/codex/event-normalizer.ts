@@ -861,14 +861,14 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: null,
   },
   // Codex holding a running turn for a safety check. The frame names its
-  // thread and turn, so the event belongs to that turn's run.
+  // thread and turn, so it belongs to that turn's run, and it reaches the
+  // screen on the run's own state stream rather than as a session row.
   "model/safetyBuffering/updated": {
-    disposition: "normalized",
+    disposition: "not-evented",
     nativeMethod: "model/safetyBuffering/updated",
     transport: "server-notification",
-    family: "run_lifecycle",
-    eventType: "run.safety_buffering_updated",
-    normalizedKind: null,
+    reason:
+      "Codex's safety hold on a running turn is a live detail of the run's working status: it is relayed on the run's state stream as the hold frame and never written to the session's history, so a re-opened session does not replay it",
   },
 
   // ------------------------------------------------------------------

@@ -64,7 +64,7 @@ describe("the question-settlement fold", () => {
         response: "develop",
       }),
       askEvent("driver_ask.requested", 3, { runId: FIRST_RUN_ID, askId: "ask-02" }),
-      askEvent("driver_ask.expired", 4, { runId: FIRST_RUN_ID, askId: "ask-03" }),
+      askEvent("driver_ask.canceled", 4, { runId: FIRST_RUN_ID, askId: "ask-03" }),
     ]);
 
     expect(settlementIn(store, openQuestion(FIRST_RUN_ID, "ask-01"))).toStrictEqual({
@@ -72,7 +72,7 @@ describe("the question-settlement fold", () => {
       deliveredAnswer: "develop",
     });
     expect(settlementIn(store, openQuestion(FIRST_RUN_ID, "ask-03"))).toStrictEqual({
-      state: "expired",
+      state: "canceled",
       deliveredAnswer: undefined,
     });
     expect(settlementIn(store, openQuestion(FIRST_RUN_ID, "ask-02"))).toBeUndefined();

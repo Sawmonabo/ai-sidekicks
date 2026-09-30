@@ -135,7 +135,7 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
   },
   {
     openedBy: "driver_ask.requested",
-    closedBy: ["driver_ask.responded", "driver_ask.expired", "driver_ask.canceled"],
+    closedBy: ["driver_ask.responded", "driver_ask.canceled"],
     correlationMember: "askId",
     // `runId` is required on all four `driver_ask.*` shapes, which is what
     // makes the scope readable off the payload here rather than off a row this register

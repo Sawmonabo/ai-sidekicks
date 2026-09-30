@@ -24,7 +24,8 @@
 //   • `session.subscribe` — the replay-then-tail stream of the WHOLE session,
 //     delivered as frames of its events, each carrying the event's envelope and
 //     cursor. Every kind the session emits reaches it.
-//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
+//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`
+//     and Codex's live safety hold, which no session row carries.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection.
 //   • `presence.subscribe` — the devices connected to this machine, which is the
 //     one row here that is not a session-event stream and is registered anyway: it
