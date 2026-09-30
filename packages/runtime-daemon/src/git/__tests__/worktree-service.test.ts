@@ -1,43 +1,14 @@
-// WorktreeService + typed error vocabulary — Phase 2.
+// Drives the real WorktreeService over a real SQLite test database, with the event log as the
+// durable append path and a recording fake git runner in place of the child process. The git
+// seam takes no `cwd`, so a recorded argv is the whole claim about what git was asked to do.
 //
-// Drives the real service over a real test SQLite database (same lifecycle as
-// emitter suite: `openDatabase` factory → per-test tmp file → `afterEach`
-// close + remove) with the `EventLogService` as the durable append path and a
-// RECORDING fake git runner in place of the child process. The fake is what
-// makes the invocation-shape invariants assertable: argv is the whole
-// invocation (the seam takes no `cwd`), so a recorded argv is the complete
-// claim about what git was asked to do.
+// Covered: the branch-name pattern and slug rules, both collision policies, reuse validation,
+// retirement, the cleanup pass, and the typed error vocabulary.
 //
-// Coverage map (the cites are the contract, not just the ACs):
-//   * the branch-name PATTERN `sidekicks/<session-short-id>/<task-slug>`,
-//     which is all that section carries about naming.
-//   * The slug MECHANICS, table-driven over lowercasing, non-alphanumeric
-//     collapse, trimming, the 40-character truncation at a `-` boundary, and the
-//     `run-<run-short-id>` fallback (they are locked here, not in the section
-//     that states the pattern). The provenance-split collision policy, carried
-//     by the explicit `onCollision` parameter (`refuse` raises the typed
-//     collision error; `suffix` takes `-2` then `-3` and reports the chosen name
-//     verbatim) — both arms exercised on the SAME branch name, which is what
-//     pins the behavior to the parameter rather than to how the name happened to
-//     be obtained.
-//   * a dirty candidate without acknowledgement refuses and with one binds; an
-//     INCOMPATIBLE candidate refuses even with an acknowledgement; a failed
-//     provisioning records the failure rather than substituting anything.
-//   * reuse of an existing checkout is explicit and preserves the candidate's
-//     branch and provenance context.
-//   * the row's provenance columns are populated at creation and survive
-//     retirement.
-//   * the error vocabulary: every class reports its code and notional status,
-//     the two registries are covered exactly, and `workspace.busy` (already
-//     shipped as `WorkspaceBusyError`) is absent.
-//
-// The interleaving-sensitive cases drive their races through a SUBCLASSED
-// `WorktreeEventEmitter` whose overridden emit method performs the interfering
-// write and then delegates to `super`. That is the deterministic form of "a
-// concurrent writer landed between the read and the transaction": the write
-// commits on the same synchronous connection immediately before the append
-// transaction opens, which is precisely the window an out-of-transaction probe
-// leaves open and an in-prelude one closes.
+// The race cases use a subclassed `WorktreeEventEmitter` whose emit method performs the
+// interfering write and then delegates to `super`: the write commits on the same synchronous
+// connection just before the append transaction opens, the window a check made outside that
+// transaction cannot see.
 
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,9 +58,7 @@ import type {
 // Fixtures
 // ----------------------------------------------------------------------------
 
-// Session, mount, workspace and worktree ids all flow through branded UUID
-// schemas — at the emission boundary for the first two and at `retire`'s
-// response projection for the last — so every fixture is a real UUID.
+// The emitter and `retire` parse ids through UUID schemas, so every fixture id is a real UUID.
 const SESSION_ID: string = "0190f8b0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 const REPO_MOUNT_ID: string = "0190f8b2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 const OTHER_REPO_MOUNT_ID: string = "0190f8b5-5a7b-7c9d-8e54-6f0a9e82d354";
@@ -97,24 +66,20 @@ const WORKSPACE_ID: string = "0190f8b3-3e5f-7a8c-8b43-4e9f8d60c132";
 const RUN_ID: string = "0190f8b4-4f60-7b9d-9c54-5f0a9e71c243";
 const BRANCH_CONTEXT_ID: string = "0190f8b6-6b8c-7d0e-8f65-7a1b0f93e465";
 const UNKNOWN_WORKTREE_ID: string = "0190f8b7-7c9d-7e1f-9a76-8b2c1a04f576";
-// A real UUID, because an injected id still travels the emitter's
-// `WorktreeIdSchema.parse` on every emission — a counter would fail there
-// rather than at the constraint the case is about.
+// A real UUID, because an injected id is still parsed by the emitter's `WorktreeIdSchema`;
+// a counter would fail there rather than at the constraint the case is about.
 const FIXED_WORKTREE_ID: string = "0190f8b8-8d0e-7f20-8b87-9c3d2b15a687";
 
-// Two distinct canonical roots: `idx_repo_mounts_active_root` is UNIQUE over
-// (node_id, canonical_root) for attached rows, so a second mount on the same
-// node needs a root of its own.
+// `idx_repo_mounts_active_root` is UNIQUE over (node_id, canonical_root) for attached rows, so a
+// second mount on the same node needs a root of its own.
 const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-mount";
 const OTHER_CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-other-mount";
 const HEAD_BRANCH: string = "main";
 const NOW: string = "2026-08-04T00:00:00.000Z";
 
-// The name the run-setup gate would derive for these fixtures, COMPOSED the way
-// composes it: derive first, then hand `create` an explicit name. Calling the
-// helper rather than restating its output as a literal is what makes the
-// collision cases exercise the real two-layer path — the service itself holds no
-// summary and derives nothing.
+// The name a caller derives for these fixtures before handing `create` an explicit name; the
+// service itself holds no summary and derives nothing. Calling the helper keeps the collision
+// cases on the real two-step path.
 const DERIVED_BRANCH_NAME: string = deriveWorktreeBranchName({
   sessionId: SESSION_ID,
   runId: RUN_ID,
@@ -148,18 +113,13 @@ function resolveGit(stdout: string): Promise<WorktreeGitInvocationResult> {
 }
 
 /**
- * Records every invocation and answers the three verbs the service issues,
- * across the four invocation shapes they take.
+ * Records every invocation and answers the verbs the service issues: `symbolic-ref`, `status`,
+ * and `worktree` with `add` or `prune`.
  *
- * `worktree add` MATERIALIZES the target directory, because two arms depend on a
- * root that really exists: the cleanup pass has to be observed removing one, and
- * a retire has to be observed NOT removing one.
- *
- * An unrecognized verb — or an unrecognized `worktree` subcommand — REJECTS
- * rather than resolving empty. A fixture that shrugged at an unknown invocation
- * would let a new git call into the service without a single case noticing, and
- * the two universal-quantifier claims below are exactly the ones such a call
- * would escape.
+ * `worktree add` creates the target directory, because the cleanup pass must be seen removing a
+ * real root and a retire must be seen leaving one. An unrecognized verb or `worktree`
+ * subcommand rejects, so a new git call added to the service cannot slip past the
+ * every-invocation assertions below.
  */
 class FakeGit {
   readonly invocations: RecordedGitInvocation[] = [];
@@ -171,8 +131,8 @@ class FakeGit {
 
   readonly run: WorktreeGitRunner = (argv, options) => {
     this.invocations.push({ argv: [...argv], timeoutMs: options.timeoutMs });
-    // argv is `-c core.hooksPath=… -c core.fsmonitor=false -C <dir> <verb> …`,
-    // so the verb is index 6 and a `worktree` subcommand is index 7.
+    // argv is `-c core.hooksPath=… -c core.fsmonitor=false -C <dir> <verb> …`: the verb is
+    // index 6 and a `worktree` subcommand is index 7.
     const verb: string | undefined = argv[6];
 
     if (verb === "symbolic-ref") {
@@ -274,8 +234,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a MODULE SINGLETON — a case that left a queue
-  // entry behind would stall the next case on the same session id.
+  // The per-session append lock is a module singleton; a leftover queue entry would stall the
+  // next case on the same session id.
   __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
@@ -297,11 +257,9 @@ function makeService(overrides: Partial<WorktreeServiceDeps> = {}): WorktreeServ
 // Row fixtures and reads
 // ----------------------------------------------------------------------------
 
-// Options objects rather than positionals, matching suites: the sibling suite's
-// same-named workspace seeder keys its one slot on the workspace ID where this
-// one keys the STATE, and the acceptance suite's mount seeder puts a PATH in
-// the slot this one gives a state — same-arity `(string)` signatures with
-// opposite meanings let a miscopied call type-check while seeding garbage.
+// Options objects rather than positionals: same-named seeders in other suites take a bare
+// `(string)` with a different meaning, so a miscopied positional call would type-check while
+// seeding garbage.
 function insertMount(options: {
   readonly repoMountId: string;
   readonly state?: string;
@@ -382,13 +340,7 @@ function readAllWorktreeIds(): readonly string[] {
   return rows.map((row) => row.id);
 }
 
-/**
- * The id of the single row a case expects to exist, unwrapped once.
- *
- * `noUncheckedIndexedAccess` makes `ids[0]` a `string | undefined`, so the
- * unwrap has to happen somewhere; doing it here keeps the cases that only need
- * "the row that was just written" free of the ceremony.
- */
+/** The id of the one worktrees row a case expects; throws unless there is exactly one. */
 function readSoleWorktreeId(): string {
   const ids = readAllWorktreeIds();
   const soleId = ids[0];
@@ -414,10 +366,7 @@ async function captureRejection(work: () => Promise<unknown>): Promise<unknown> 
   throw new Error("expected the call to reject, but it resolved");
 }
 
-/**
- * The happy path, reused by the reuse / retire / cleanup blocks. `refuse` is
- * the wire-prepare arm, so it is the default posture here.
- */
+/** The happy path, reused by the reuse, retire and cleanup blocks; it uses the `refuse` policy. */
 async function createReadyWorktree(service: WorktreeService): Promise<CreatedWorktree> {
   return service.create({
     repoMountId: REPO_MOUNT_ID,
@@ -432,29 +381,17 @@ async function createReadyWorktree(service: WorktreeService): Promise<CreatedWor
 // Emitter subclasses — injected races and injected append failures
 // ----------------------------------------------------------------------------
 //
-// Two roles, and which one a case uses decides what its assertions can mean.
-//
-// The RACE-INJECTING pair performs its interfering write and THEN delegates to
-// `super`: the write commits on the shared synchronous connection in the exact
-// window a pre-transaction decision cannot see into, and the append that follows
-// is the real one, prelude included. That is the deterministic form of "a
-// concurrent writer landed between the read and the transaction".
-//
-// The FAILURE-INJECTING pair interferes with nothing and never calls `super`. It
-// rejects outright, so no append transaction opens and the prelude never runs at
-// all — which is what the row and event censuses in those cases rest on: an
-// absent row means the write never happened, not that it was rolled back.
-//
-// The service under test is the real one throughout; only the emission seam is
-// wrapped.
+// The race-injecting pair performs its interfering write and then delegates to `super`, so the
+// real append runs, prelude included. The failure-injecting pair never calls `super`: it
+// rejects outright, so no append transaction opens and an absent row means the write never
+// happened, not that it was rolled back. The service under test is the real one throughout.
 
-/** Takes the busy hold while the retirement is in flight (A1's race). */
+/** Takes the busy hold while the retirement is in flight. */
 class BusyHolderInjectingEmitter extends WorktreeEventEmitter {
   override async emitWorktreeRetired(
     input: EmitWorktreeEventInput,
   ): Promise<EventLogAppendReceipt> {
-    // The hold is what means by one: a `busy` workspace whose CURRENT
-    // `fs_root` is the worktree's own directory.
+    // A hold is a `busy` workspace whose current `fs_root` is the worktree's own directory.
     const row = ctx.db
       .prepare<[string], { fs_root: string }>(`SELECT fs_root FROM worktrees WHERE id = ?`)
       .get(input.worktreeId);
@@ -478,7 +415,7 @@ class PreRetiringEmitter extends WorktreeEventEmitter {
   }
 }
 
-/** The `worktree.ready` append that never lands (A2's failure). */
+/** The failure the `worktree.ready` append rejects with. */
 const READY_EMISSION_FAILURE: Error = new Error("fixture: the worktree.ready append failed");
 
 class ReadyEmissionFailingEmitter extends WorktreeEventEmitter {
@@ -488,12 +425,10 @@ class ReadyEmissionFailingEmitter extends WorktreeEventEmitter {
 }
 
 /**
- * Rejects the `worktree.created` append with a caller-chosen value.
- *
- * The only way to drive the two arms of the UNIQUE-violation confirmation
- * separately: through the real database each arm shadows the other, because the
- * partial-unique branch index reports `SQLITE_CONSTRAINT_UNIQUE` exactly when a
- * live row on that branch exists to confirm it.
+ * Rejects the `worktree.created` append with a caller-chosen value. It drives the code check and
+ * the live-row confirmation of a UNIQUE violation separately; through the real database the
+ * branch index reports `SQLITE_CONSTRAINT_UNIQUE` only when a live row on that branch exists,
+ * so each check would shadow the other.
  */
 class CreatedEmissionFailingEmitter extends WorktreeEventEmitter {
   readonly #failure: unknown;
@@ -509,14 +444,12 @@ class CreatedEmissionFailingEmitter extends WorktreeEventEmitter {
 }
 
 // ----------------------------------------------------------------------------
-// The two per-invocation quantifiers, hoisted
+// The two every-invocation assertions
 // ----------------------------------------------------------------------------
 //
-// Hoisted because the claims are over EVERY invocation the service can issue,
-// and a loop living inside one `create` case only ever sees the two verbs
-// `create` reaches. The reuse path's `status --porcelain` is the third, and the
-// sweep's `worktree prune` the fourth invocation shape; each caller below names
-// which ones its own run produced.
+// Shared because the claims cover every invocation the service can issue, and `create` reaches
+// only two of the four shapes: the reuse path adds `status --porcelain` and the cleanup pass
+// adds `worktree prune`.
 
 function assertEveryInvocationIsHookNeutralized(): void {
   expect(ctx.git.invocations.length).toBeGreaterThan(0);
@@ -545,10 +478,8 @@ function assertNoInvocationMutatesTheMainCheckout(): void {
 // deriveWorktreeBranchName — pattern, filled slug rule
 // ----------------------------------------------------------------------------
 
-// The rule's clauses, one row each. The third column is the SLUG SEGMENT alone;
-// the assertion composes the full `sidekicks/<session-short-id>/<slug>` name
-// around it, so every row re-asserts the prefix and the short-id derivation as
-// well as the clause it is named for.
+// One row per slug clause. The third column is the slug segment alone; the assertion wraps it
+// in `sidekicks/<session-short-id>/`, so every row also checks the prefix and short id.
 const SLUG_CASES: ReadonlyArray<readonly [string, string | null, string]> = [
   ["lowercases and hyphenates a plain summary", "Fix the login bug", "fix-the-login-bug"],
   [
@@ -585,11 +516,9 @@ describe("deriveWorktreeBranchName", () => {
   }
 
   it("keeps two sessions minted in the same 65,536 ms window apart", () => {
-    // RFC 9562 v7: the first 8 hex digits are the high 32 bits of the
-    // millisecond timestamp, identical for every id minted within one
-    // 65,536 ms window. Two sessions created a minute apart on one repository
-    // with one task slug must still derive distinct branch names, so the short
-    // id must come from the id's random tail and never its timestamp head.
+    // In a UUIDv7 the first 8 hex digits are the high 32 bits of the millisecond timestamp,
+    // identical within one 65,536 ms window. Two sessions a minute apart with one task slug must
+    // still get distinct branch names, so the short id comes from the random tail.
     const sameWindowSessionId = "0190f8b0-7e2d-7c4a-9b1c-0f0e0d0c0b0a";
     const first = deriveWorktreeBranchName({
       sessionId: SESSION_ID,
@@ -662,10 +591,8 @@ describe("WorktreeService.create", () => {
     const service = makeService();
     await createReadyWorktree(service);
 
-    // The quantifier is over ALL invocations, not the provisioning one: a
-    // per-call-site assertion would let a later-added invocation escape. This
-    // run produces two of the four shapes; the reuse and sweep cases below
-    // carry the other two.
+    // Asserted over all invocations, not just provisioning, so a later-added call cannot escape.
+    // This run produces two of the four shapes; the reuse and cleanup cases cover the others.
     expect(ctx.git.verbs()).toEqual(["symbolic-ref", "worktree"]);
     assertEveryInvocationIsHookNeutralized();
   });
@@ -709,7 +636,7 @@ describe("WorktreeService.create", () => {
     expect(collision.code).toBe("worktree.branch_collision");
     expect(collision.branchName).toBe("feature/login");
     expect(collision.repoMountId).toBe(REPO_MOUNT_ID);
-    // The losing attempt left NEITHER a row nor an event.
+    // The losing attempt left neither a row nor an event.
     expect(readAllWorktreeIds()).toHaveLength(1);
     expect(readEventTypes()).toHaveLength(eventsBeforeCollision);
   });
@@ -735,13 +662,10 @@ describe("WorktreeService.create", () => {
   });
 
   it("selects the arm from `onCollision`, never from how the name was obtained", async () => {
-    // The regression guard for a presence-based discriminant: ONE name, both
-    // arms, opposite outcomes. every production request carries an explicit
-    // name, so any policy inferred from the name's shape or its presence would
-    // collapse to a single arm and make the other dead code.
+    // One name, both policies, opposite outcomes. Every production request carries an explicit
+    // name, so a policy inferred from the name would collapse to one arm.
     const service = makeService();
-    // Annotated `Omit<…, "onCollision">` so the type states the case's own
-    // claim: every input except the policy is identical across the three calls.
+    // Every input except the policy is identical across the calls.
     const base: Omit<CreateWorktreeInput, "onCollision"> = {
       repoMountId: REPO_MOUNT_ID,
       sessionId: SESSION_ID,
@@ -758,12 +682,10 @@ describe("WorktreeService.create", () => {
   });
 
   it("refuses a suffix that would outgrow the ref cap instead of persisting it", async () => {
-    // A name accepted AT `WORKTREE_GIT_REF_MAX_LEN` collides; every suffixed
-    // candidate is strictly longer than the cap, and a persisted over-cap
-    // `branch_name` would fail response validation for the WHOLE status
-    // projection. The write refuses instead — `branch_name_unavailable`, the
-    // same answer ordinal exhaustion gives: the request's policy has no usable
-    // name left.
+    // A name at `WORKTREE_GIT_REF_MAX_LEN` collides and every suffixed candidate is longer than
+    // the cap. A persisted over-cap `branch_name` would fail response validation for the whole
+    // status projection, so the write refuses with `branch_name_unavailable`, the same answer
+    // as ordinal exhaustion.
     const service = makeService();
     const capLengthBranchName = `feature/${"x".repeat(WORKTREE_GIT_REF_MAX_LEN - "feature/".length)}`;
     const base: Omit<CreateWorktreeInput, "onCollision"> = {
@@ -778,7 +700,7 @@ describe("WorktreeService.create", () => {
 
     expect(thrown).toBeInstanceOf(WorktreeCreateFailedError);
     expect((thrown as WorktreeCreateFailedError).reason).toBe("branch_name_unavailable");
-    // The guard refused before anything landed: one row, the original's.
+    // Refused before anything landed: one row, the original's.
     expect(readAllWorktreeIds()).toHaveLength(1);
   });
 
@@ -796,27 +718,17 @@ describe("WorktreeService.create", () => {
     await service.retire(first.worktreeId);
     const second = await service.create(suffixingInput);
 
-    // A claim about the DB ARBITER and nothing more: the index predicate
-    // excludes retired rows, so the bare name is free again and the "live"
-    // reads agree with it. It is deliberately NOT a claim that the name is
-    // reusable end to end — git keeps the branch after the worktree goes (see
-    // the service header's residual section), and only the real-git tier can
-    // observe that leg at all.
+    // This covers the database only: the index predicate excludes retired rows, so the bare name
+    // is free again. It does not claim the name is reusable end to end, because git keeps the
+    // branch after the worktree goes, which only a real-git test can observe.
     expect(second.branchName).toBe("sidekicks/5b3e8f00/fix-login");
   });
 
   it("re-throws an id collision rather than reading it as a branch collision", async () => {
-    // The END-TO-END guard, driven through real SQLite: an injected id source is
-    // the only way to collide on the PRIMARY KEY, and because the two branch
-    // names differ the branch index is not in play, so the failure reaches the
-    // retry loop coded `SQLITE_CONSTRAINT_PRIMARYKEY`.
-    //
-    // It pins the two checks as a PAIR — losing both is what it catches — and
-    // isolates neither. The per-arm isolators are the two cases below: "re-throws
-    // a non-constraint append failure even on a branch that IS taken" for the
-    // code check, and "re-throws a UNIQUE violation that no live row on the
-    // branch explains" for the live-row confirmation. All three earn their keep;
-    // none is a redundant spelling of another.
+    // An injected id source is the only way to collide on the PRIMARY KEY; the branch names
+    // differ, so the branch index is not involved and the retry loop sees
+    // `SQLITE_CONSTRAINT_PRIMARYKEY`. This pins the code check and the live-row confirmation as
+    // a pair; the next two cases isolate each one.
     const service = makeService({ newWorktreeId: () => FIXED_WORKTREE_ID });
     await service.create({
       repoMountId: REPO_MOUNT_ID,
@@ -834,9 +746,8 @@ describe("WorktreeService.create", () => {
       }),
     );
 
-    // The observable outcome, never the SQLite code: an id collision reported
-    // as a branch collision would send the caller to rename a branch that is
-    // not the problem.
+    // An id collision reported as a branch collision would send the caller to rename a branch
+    // that is not the problem.
     expect(thrown).not.toBeInstanceOf(WorktreeBranchCollisionError);
     expect(readAllWorktreeIds()).toEqual([FIXED_WORKTREE_ID]);
     expect(readWorktreeRow(FIXED_WORKTREE_ID).branch_name).toBe("feature/first");
@@ -844,9 +755,8 @@ describe("WorktreeService.create", () => {
   });
 
   it("re-throws a non-constraint append failure even on a branch that IS taken", async () => {
-    // The CODE check, isolated. The branch genuinely has a live row, so the
-    // live-row confirmation would find one and — without the code check — would
-    // launder an unrelated append failure into a 409 the caller cannot clear.
+    // Isolates the code check: the branch has a live row, so without the code check the
+    // confirmation would turn an unrelated append failure into a 409 the caller cannot clear.
     const service = makeService();
     await service.create({
       repoMountId: REPO_MOUNT_ID,
@@ -873,10 +783,9 @@ describe("WorktreeService.create", () => {
   });
 
   it("re-throws a UNIQUE violation that no live row on the branch explains", async () => {
-    // The live-row CONFIRMATION, isolated. The code says UNIQUE and no row on
-    // this branch accounts for it, which is what a constraint other than the
-    // active-branch index would look like from here. Trusting the code alone
-    // would suffix — or refuse — over a collision that never happened.
+    // Isolates the live-row confirmation: the code says UNIQUE but no row on this branch explains
+    // it, as a constraint other than the active-branch index would look. Trusting the code alone
+    // would suffix or refuse over a collision that never happened.
     const uniqueViolation = Object.assign(new Error("fixture: UNIQUE constraint failed"), {
       code: "SQLITE_CONSTRAINT_UNIQUE",
     });
@@ -950,7 +859,7 @@ describe("WorktreeService.create", () => {
 
     expect(created.baseRef).toBe("release/1.0");
     expect(ctx.git.argvFor("worktree").at(-1)).toBe("release/1.0");
-    // No HEAD query at all — the supplied ref short-circuits the default.
+    // No HEAD query: the supplied ref replaces the default.
     expect(ctx.git.verbs()).toEqual(["worktree"]);
   });
 
@@ -970,14 +879,14 @@ describe("WorktreeService.create", () => {
     expect(thrown).toBeInstanceOf(WorktreeCreateFailedError);
     const failure = thrown as WorktreeCreateFailedError;
     expect(failure.reason).toBe("git_invocation_failed");
-    // The message must not carry the git stderr, which is where a path would be.
+    // The message must not carry git's stderr, which is where a path would appear.
     expect(failure.message).not.toContain(ctx.executionRootsDirectory);
 
     expect(readWorktreeRow(readSoleWorktreeId()).state).toBe("failed");
-    // The row records the failure; no `worktree.failed` event exists.
+    // The row records the failure; there is no `worktree.failed` event.
     expect(readEventTypes()).toEqual(["worktree.created"]);
-    // The interrupted create leaks the same administrative entry a completed
-    // one would, so the recovery prunes it too.
+    // An interrupted create leaks the same administrative entry a completed one does, so the
+    // recovery prunes it too.
     expect(ctx.git.worktreeSubcommandArgvs("prune")).toEqual([
       [
         "-c",
@@ -993,24 +902,21 @@ describe("WorktreeService.create", () => {
   });
 
   it("marks the row failed and clears the root when the READY emission fails", async () => {
-    // The row is `creating` at this point, which `idx_worktrees_active_branch`
-    // counts as LIVE — so without the recovery the (mount, branch) pair would
-    // be wedged by a row no sweep leg can reach.
+    // A `creating` row counts as live to `idx_worktrees_active_branch`, so without the recovery
+    // the (mount, branch) pair would stay blocked by a row no sweep step reaches.
     const service = makeService({
       events: new ReadyEmissionFailingEmitter({ sessionEvents: ctx.eventLog }),
     });
 
     const thrown = await captureRejection(() => createReadyWorktree(service));
 
-    // The ORIGINAL failure, not whatever the recovery did about it.
+    // The original failure, not whatever the recovery did about it.
     expect(thrown).toBe(READY_EMISSION_FAILURE);
     const row = readWorktreeRow(readSoleWorktreeId());
     expect(row.state).toBe("failed");
     expect(existsSync(row.fs_root)).toBe(false);
     expect(readEventTypes()).toEqual(["worktree.created"]);
-    // The one recovery arm where `worktree add` SUCCEEDED in full, so the
-    // administrative entry certainly exists rather than possibly — which makes
-    // this the case that most needs the prune, not the one that least does.
+    // `worktree add` succeeded in full here, so the administrative entry certainly exists.
     expect(ctx.git.worktreeSubcommandArgvs("prune")).toEqual([
       [
         "-c",
@@ -1086,10 +992,8 @@ describe("WorktreeService.validateReuse", () => {
   });
 
   it("hook-neutralizes and stays non-mutating on the cleanliness verb too", async () => {
-    // The third verb, and the reason the two quantifiers are hoisted: it is
-    // reachable only through `validateReuse`, so a suite that asserted them
-    // inside a `create` case alone would leave `status --porcelain` covered by
-    // nothing at all.
+    // `status --porcelain` is reachable only through `validateReuse`, so a `create` case alone
+    // would leave it unchecked.
     const service = makeService();
     const created = await createReadyWorktree(service);
 
@@ -1137,7 +1041,7 @@ describe("WorktreeService.validateReuse", () => {
     });
 
     expect(candidate.dirty).toBe(true);
-    // Reported, not acted on: validation writes no row and emits no event.
+    // Validation writes no row and emits no event.
     expect(readWorktreeRow(created.worktreeId).state).toBe("ready");
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
   });
@@ -1177,7 +1081,7 @@ describe("WorktreeService.validateReuse", () => {
     expect(thrown).toBeInstanceOf(WorktreeReuseConflictError);
     const conflict = thrown as WorktreeReuseConflictError;
     expect(conflict.reason).toBe("mount_mismatch");
-    // The mount check precedes the git layer, so nothing was spawned for it.
+    // The mount check runs before any git call, so git was not spawned for it.
     expect(ctx.git.verbs()).toEqual(["symbolic-ref", "worktree"]);
   });
 
@@ -1249,7 +1153,7 @@ describe("WorktreeService.retire", () => {
     expect(response).toEqual({ worktreeId: created.worktreeId, state: "retired" });
     const row = readWorktreeRow(created.worktreeId);
     expect(row.state).toBe("retired");
-    // The observable form of recorded-then-cleaned: retire stamps nothing.
+    // Retire stamps nothing; only the cleanup pass sets `cleaned_at`.
     expect(row.cleaned_at).toBeNull();
     expect(existsSync(created.fsRoot)).toBe(true);
     expect(row.created_by_session_id).toBe(SESSION_ID);
@@ -1276,11 +1180,9 @@ describe("WorktreeService.retire", () => {
   });
 
   it("retires a worktree whose historical binder is busy on a different root", async () => {
-    // `branch_contexts` rows are retained history: a workspace that once bound
-    // this worktree and has since reprovisioned elsewhere is not holding THIS
-    // root, and a probe keyed through the context rows would refuse the
-    // retirement for the whole duration of an unrelated run. The probe is
-    // `fs_root`-keyed exactly so this retirement proceeds.
+    // `branch_contexts` rows are retained history: a workspace that once bound this worktree and
+    // has since moved elsewhere does not hold this root. The busy probe is keyed on `fs_root` so
+    // such a workspace does not block the retirement.
     const service = makeService();
     const created = await createReadyWorktree(service);
     insertWorkspace({ state: "busy", fsRoot: OTHER_CANONICAL_ROOT });
@@ -1306,10 +1208,9 @@ describe("WorktreeService.retire", () => {
   it("refuses a hold taken between the read and the retirement transaction", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
-    // The hold lands after `retire` has read the row and before the append
-    // transaction opens — the window a pre-transaction probe cannot see into,
-    // and the one in which a run's execution root would otherwise be retired
-    // out from under it (after which the sweep would `rm -rf` a live root).
+    // The hold lands after `retire` reads the row and before the append transaction opens, a
+    // window the earlier probe cannot see; without the in-transaction check a live run's root
+    // would be retired and then removed by the cleanup pass.
     const racedService = makeService({
       events: new BusyHolderInjectingEmitter({ sessionEvents: ctx.eventLog }),
     });
@@ -1319,8 +1220,7 @@ describe("WorktreeService.retire", () => {
     expect(thrown).toBeInstanceOf(WorktreeRetireConflictError);
     const conflict = thrown as WorktreeRetireConflictError;
     expect(conflict.holdingWorkspaceId).toBe(WORKSPACE_ID);
-    // A prelude throw aborts before the event INSERT, so the refusal persists
-    // nothing: not the row flip, not the event.
+    // The refusal aborts before the event insert, so neither the state change nor the event lands.
     expect(readWorktreeRow(created.worktreeId).state).toBe("ready");
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
   });
@@ -1328,10 +1228,8 @@ describe("WorktreeService.retire", () => {
   it("answers idempotently when a concurrent retirement wins the race", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
-    // The competing retirement commits inside the same window. Before the
-    // in-prelude state re-check, this surfaced as an anonymous internal error
-    // from the compare-and-swap assert — contradicting the documented
-    // idempotency for a race the method is supposed to absorb.
+    // The competing retirement commits inside the same window; retire absorbs the race and
+    // answers idempotently rather than failing its compare-and-swap.
     const racedService = makeService({
       events: new PreRetiringEmitter({ sessionEvents: ctx.eventLog }),
     });
@@ -1340,8 +1238,7 @@ describe("WorktreeService.retire", () => {
 
     expect(response).toEqual({ worktreeId: created.worktreeId, state: "retired" });
     expect(readWorktreeRow(created.worktreeId).state).toBe("retired");
-    // No SECOND `worktree.retired`: one event per real transition, and this
-    // call performed none.
+    // No second `worktree.retired`: one event per real transition, and this call made none.
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
   });
 
@@ -1358,11 +1255,9 @@ describe("WorktreeService.retire", () => {
   });
 
   it("retires a failed row, its only route to sweep eligibility", async () => {
-    // The `failed -> retired` admission the service documents as deliberate. A
-    // creation that never materialized still owns a row, and `cleanupPass` only
-    // ever looks at `retired` rows — so without this transition the row would
-    // sit forever, which is why `failed` is a legal predecessor even though it
-    // is never a retire OUTCOME.
+    // A creation that never materialized still owns a row, and `cleanupPass` only looks at
+    // `retired` rows, so `failed` must be a legal predecessor of `retired` or the row would stay
+    // forever.
     ctx.git.worktreeAddFails = true;
     const service = makeService();
     await captureRejection(() =>
@@ -1382,19 +1277,16 @@ describe("WorktreeService.retire", () => {
     expect(response.state).toBe("retired");
     const retiredRow = readWorktreeRow(failedWorktreeId);
     expect(retiredRow.state).toBe("retired");
-    // Provenance survives, and it is the ROW's own session the retirement
-    // event rode — the only prior event is `worktree.created`, because
-    // `-> failed` emits none.
+    // Provenance survives, and the retirement event rides the row's own session; the only
+    // earlier event is `worktree.created` because `-> failed` emits none.
     expect(retiredRow.created_by_session_id).toBe(SESSION_ID);
     expect(retiredRow.created_by_run_id).toBe(RUN_ID);
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.retired"]);
 
     const cleanup = await service.cleanupPass();
 
-    // Sweep-eligible now. The root removal tolerates the debris directory the
-    // failure path already cleared, so leg (d) still stamps — and leg (c) is
-    // EMPTY, which is what makes this the retirement's doing rather than a
-    // cascade the sweep would have performed anyway.
+    // Eligible for removal now. The removal tolerates the directory the failure path already
+    // cleared, and the cascade step retires nothing, so the retire call is what made it eligible.
     expect(cleanup.retiredWorktreeIds).toEqual([]);
     expect(cleanup.cleanedWorktreeIds).toEqual([failedWorktreeId]);
     expect(readWorktreeRow(failedWorktreeId).cleaned_at).not.toBeNull();
@@ -1427,9 +1319,8 @@ describe("WorktreeService.cleanupPass", () => {
   });
 
   it("unregisters the worktree with git as part of the cleanup", async () => {
-    // The directory removal alone leaves a `$GIT_DIR/worktrees/<name>` entry in
-    // the USER's repository, visible in every `git worktree list` they run and
-    // pruned by nothing else in the daemon.
+    // Removing the directory alone leaves a `$GIT_DIR/worktrees/<name>` entry in the user's
+    // repository, visible in `git worktree list`, and nothing else in the daemon prunes it.
     const service = makeService();
     const created = await createReadyWorktree(service);
     await service.retire(created.worktreeId);
@@ -1448,15 +1339,14 @@ describe("WorktreeService.cleanupPass", () => {
         "prune",
       ],
     ]);
-    // The fourth invocation shape, held to both per-invocation quantifiers.
+    // The fourth invocation shape, held to both every-invocation assertions.
     assertEveryInvocationIsHookNeutralized();
     assertNoInvocationMutatesTheMainCheckout();
   });
 
   it("still stamps cleaned_at when the prune fails", async () => {
-    // Best-effort by design: the load-bearing half (the removal) has already
-    // succeeded, and propagating a bookkeeping failure would wedge every later
-    // row in the pass behind a cosmetic one.
+    // Pruning is best-effort: the removal has already succeeded, and propagating a bookkeeping
+    // failure would block every later row in the pass.
     const service = makeService();
     const created = await createReadyWorktree(service);
     await service.retire(created.worktreeId);
@@ -1479,11 +1369,9 @@ describe("WorktreeService.cleanupPass", () => {
 
     const result = await racedService.cleanupPass();
 
-    // An EMPTY `retiredWorktreeIds` here is the sentinel's signature, not the
-    // sweep query's: the mount is detached and the row was live when leg (c)
-    // selected it, so the row WAS visited — it is absent from the result only
-    // because the prelude found the competing retirement and the pass skipped
-    // past it. That it still appears below is what "continue" buys.
+    // The mount is detached and the row was live when the cascade selected it, so it was
+    // visited; it is absent from `retiredWorktreeIds` only because the competing retirement was
+    // found and skipped. It still reaches the removal step below.
     expect(result.retiredWorktreeIds).toEqual([]);
     expect(result.cleanedWorktreeIds).toEqual([created.worktreeId]);
     expect(readWorktreeRow(created.worktreeId).cleaned_at).not.toBeNull();
@@ -1491,15 +1379,10 @@ describe("WorktreeService.cleanupPass", () => {
   });
 
   it("propagates a busy hold on the cascade arm instead of sweeping past it", async () => {
-    // Leg (c) reaches retirement through the SAME prelude `retire` does, so the
-    // busy probe is structural on this arm rather than absent — and the sweep
-    // documents the resulting conflict as propagating fail-closed.
-    //
-    // The state is one the detach guard makes unreachable (it refuses to detach
-    // while a dependent workspace is busy), so it is constructed directly here.
-    // That is the point of the pin: if the two plans' tables ever disagree, the
-    // sweep must report it rather than retire a root a live run is using and then
-    // remove it from disk in the same pass.
+    // The cascade retires through the same busy check `retire` uses, and the resulting conflict
+    // propagates. The detach guard makes this state unreachable (it refuses to detach while a
+    // dependent workspace is busy), so it is built directly: if the tables ever disagree, the
+    // sweep must report it rather than retire and delete a root a live run is using.
     const service = makeService();
     const created = await createReadyWorktree(service);
     ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached' WHERE id = ?`).run(REPO_MOUNT_ID);
@@ -1510,9 +1393,8 @@ describe("WorktreeService.cleanupPass", () => {
     expect(thrown).toBeInstanceOf(WorktreeRetireConflictError);
     const conflict = thrown as WorktreeRetireConflictError;
     expect(conflict.holdingWorkspaceId).toBe(WORKSPACE_ID);
-    // Nothing downstream of the refusal ran: the row never left `ready`, no
-    // retirement event landed, and leg (d) — which would have removed the root
-    // out from under the holder — never began.
+    // Nothing after the refusal ran: the row stayed `ready`, no retirement event landed, and the
+    // removal step never began.
     const row = readWorktreeRow(created.worktreeId);
     expect(row.state).toBe("ready");
     expect(row.cleaned_at).toBeNull();
@@ -1521,10 +1403,9 @@ describe("WorktreeService.cleanupPass", () => {
   });
 
   it("defers leg (d) removal while a busy workspace holds the retired root", async () => {
-    // The retire-time probe decides at the retirement instant, and the
-    // `markBusy` requires only `ready` — so a workspace still pointing at the
-    // root can become busy AFTERWARD. Without the sweep-side deferral the next
-    // pass would remove a working tree out from under the run holding it.
+    // The retire-time probe decides at the retirement instant, and `markBusy` requires only
+    // `ready`, so a workspace still pointing at the root can become busy afterward. Without the
+    // sweep-side deferral the next pass would remove a tree a live run holds.
     const service = makeService();
     const created = await createReadyWorktree(service);
     await service.retire(created.worktreeId);
@@ -1536,8 +1417,7 @@ describe("WorktreeService.cleanupPass", () => {
     expect(existsSync(created.fsRoot)).toBe(true);
     expect(readWorktreeRow(created.worktreeId).cleaned_at).toBeNull();
 
-    // Deferral, not exclusion: the holder returning to `ready` releases the
-    // root to the very next pass.
+    // Deferral, not exclusion: once the holder returns to `ready` the next pass removes the root.
     ctx.db.prepare(`UPDATE workspaces SET state = 'ready' WHERE id = ?`).run(WORKSPACE_ID);
     const released = await service.cleanupPass();
 
@@ -1547,12 +1427,10 @@ describe("WorktreeService.cleanupPass", () => {
   });
 
   it("re-decides the leg (d) deferral per row, before each removal", async () => {
-    // The candidate list is a SNAPSHOT: a `markBusy` landing during an earlier
-    // row's removal await would be invisible to a predicate evaluated once for
-    // the whole pass, and the pass would then delete a working tree a live run
-    // just received. Symmetric injection on purpose — leg (d)'s ordering is
-    // not observable here, so whichever root is removed first takes a busy
-    // hold on the OTHER, the deterministic form of "markBusy landed mid-pass".
+    // The candidate list is a snapshot: a `markBusy` landing during an earlier row's removal
+    // would be invisible to a check made once per pass, and the pass would delete a tree a live
+    // run just received. Whichever root is removed first takes a busy hold on the other, since
+    // the removal order is not observable here.
     const service = makeService();
     const first = await createReadyWorktree(service);
     const second = await service.create({
@@ -1598,8 +1476,7 @@ describe("WorktreeService.cleanupPass", () => {
     }
     expect(readWorktreeRow(survivor.worktreeId).cleaned_at).toBeNull();
 
-    // Deferral, not exclusion: releasing the hold frees the root to the next
-    // pass.
+    // Deferral, not exclusion: releasing the hold lets the next pass remove the root.
     ctx.db.prepare(`UPDATE workspaces SET state = 'ready' WHERE id = ?`).run(WORKSPACE_ID);
     const released = await service.cleanupPass();
     expect(released.cleanedWorktreeIds).toEqual([survivor.worktreeId]);
@@ -1641,7 +1518,7 @@ describe("WorktreeService.cleanupPass", () => {
 
     expect(result.retiredWorktreeIds).toEqual([created.worktreeId]);
     expect(readWorktreeRow(created.worktreeId).state).toBe("retired");
-    // Cascade-retired in the same tick, then cleaned by leg (d).
+    // Cascade-retired, then removed in the same pass.
     expect(result.cleanedWorktreeIds).toEqual([created.worktreeId]);
     expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready", "worktree.retired"]);
   });
@@ -1651,11 +1528,9 @@ describe("WorktreeService.cleanupPass", () => {
 // The typed error vocabulary
 // ----------------------------------------------------------------------------
 
-// `name` is spelled as a LITERAL per case, never derived from the instance.
-// `DaemonDomainError` sets `this.name = new.target.name`, so asserting
-// `error.name === error.constructor.name` would assert that JavaScript works;
-// the literal catches a subclass that shadows `name` and so breaks the log and
-// crash-report vocabulary downstream tasks grep for.
+// `name` is a literal per case, never derived from the instance: `DaemonDomainError` sets
+// `this.name = new.target.name`, so comparing to `constructor.name` would test JavaScript. The
+// literal catches a subclass that shadows `name` and breaks the names logs are searched by.
 interface CarrierCase {
   readonly error: DaemonDomainError;
   readonly name: string;
@@ -1738,9 +1613,8 @@ describe("error vocabulary", () => {
   });
 
   it("declares no carrier for -owned workspace.busy code", () => {
-    // `workspace.busy` ships as `WorkspaceBusyError` workspace service.
-    // Re-declaring it here would fork a live symbol — two classes minting one
-    // code, with `instanceof` depending on the import site.
+    // `workspace.busy` is already carried by `WorkspaceBusyError` in the workspace service; a
+    // second class minting the same code would make `instanceof` depend on the import site.
     expect(registeredWorkspaceCodes()).not.toContain("workspace.busy");
   });
 
@@ -1758,16 +1632,14 @@ describe("error vocabulary", () => {
     const error = new WorkspaceExecutionRootUnresolvedError(WORKSPACE_ID, null);
 
     expect(error.causeCode).toBeNull();
-    // The absence is reported by DROPPING the clause, never by rendering the
-    // sentinel into prose a user reads.
+    // The absence drops the clause rather than printing the sentinel into prose a user reads.
     expect(error.message).not.toContain("null");
     expect(error.message).toContain("root preparation failed and the run stays parked in setup");
-    // Positive membership: the conditional spread omits the key rather than
-    // carrying `causeCode: null` through to `data.fields`.
+    // The key is omitted rather than carried as `causeCode: null` into `data.fields`.
     expect(error.detail).toEqual({ workspaceId: WORKSPACE_ID });
     expect(error.detail).not.toHaveProperty("causeCode");
 
-    // The contrast pins the BRANCH rather than one side of it.
+    // The contrast pins both sides of the branch.
     const withCause = new WorkspaceExecutionRootUnresolvedError(
       WORKSPACE_ID,
       "worktree.create_failed",
@@ -1780,11 +1652,9 @@ describe("error vocabulary", () => {
   });
 
   it("never echoes a filesystem path in a creation-failure message", () => {
-    // A total `Record` rather than an array literal, so the "never" quantifier
-    // is enforced by the compiler: a reason added to the union without a row
-    // here fails to typecheck instead of silently escaping the sweep. Values
-    // rather than keys because `Object.values` preserves the union type, where
-    // `Object.keys` would widen to `string` and need a cast.
+    // A total `Record` makes the compiler enforce coverage: a reason added to the union without a
+    // row here fails to typecheck. `Object.values` keeps the union type where `Object.keys`
+    // would widen to `string`.
     const reasons: Record<WorktreeCreateFailureReason, WorktreeCreateFailureReason> = {
       base_ref_option_like: "base_ref_option_like",
       base_ref_unresolved: "base_ref_unresolved",

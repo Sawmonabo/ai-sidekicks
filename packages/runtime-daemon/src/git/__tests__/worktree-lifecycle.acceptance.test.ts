@@ -1,73 +1,42 @@
 // Worktree-lifecycle acceptance suite.
 //
-// The ACCEPTANCE tier for the git services: `../worktree-service.ts` and
-// `../../workspace/execution-root-service.ts`, driven over REAL git repositories
-// in temporary directories. The sibling unit suites assert what the services ASK
-// git to do by recording argv against a fake; this suite asserts what git
-// actually DID, which is the only tier where a modeling mistake in those fakes
-// can be caught.
+// The acceptance tier for the git services: `../worktree-service.ts` and
+// `../../workspace/execution-root-service.ts`, driven over real git repositories in temporary
+// directories. The sibling unit suites assert what the services ask git to do by recording argv
+// against a fake; this suite asserts what git actually did, which catches a modeling mistake in
+// those fakes.
 //
-// Two harness choices carry the evidential weight:
+// Harness choices:
+//   * `WorktreeService`'s git seam is left at its production default (`execFile` against the real
+//     `git` binary), so nothing about the invocation is modeled. `ExecutionRootService` takes its
+//     `git` and `filesystem` seams with no defaults, so the suite supplies real ones.
+//   * Every fixture repository is hostile: sentinel hooks are installed in its `.git/hooks` before
+//     any service touches it, and each records that it ran. Fixture-side git is itself
+//     hook-neutralized, so any marker was caused by a service invocation. A negative control runs
+//     one un-neutralized `worktree add` and asserts the markers do appear; without it, "no hooks
+//     fired" would be satisfied by sentinels that were never armed.
+//   * Each test builds its own repository (one `git init` and commit): several cases create
+//     branches, merge, collide branch names or detach HEAD, and a shared repository would let one
+//     case's refs decide another's outcome.
 //
-//   * The git seam of `WorktreeService` is left at its PRODUCTION default —
-//     `execFile` against the real `git` binary. The services are therefore
-//     exercised through the same process seam a daemon uses; nothing about the
-//     invocation is modeled here. `ExecutionRootService`
-//     takes its `git` / `filesystem` seams with no defaults, so this suite
-//     supplies real ones rather than stubs.
-//   * Every fixture repository is HOSTILE: sentinel hooks are installed in its
-//     `.git/hooks` before any service touches it, and each one records that it
-//     ran. Fixture-side git is itself hook-neutralized, so the presence of ANY
-//     marker is caused by a service invocation and nothing else. The negative
-//     control below runs one un-neutralized `worktree add` and asserts the
-//     markers DO appear — without it, "no hooks fired" would be satisfied by
-//     sentinels that were never armed.
-//
-// Several arms mutate the repository (branch creation, a real merge, a
-// pre-created colliding branch, a detached HEAD), and a shared repository
-// would let one case's refs decide another case's outcome. The cost is one
-// `git init` + commit per test.
-//
-// Coverage map:
-//
-//   * the main checkout is never mutated as a hidden fallback. Asserted as GROUND
-//     TRUTH: a content hash of every working-tree file, plus HEAD's symbolic ref,
-//     HEAD's commit, `status --porcelain` and the branch roster, compared before and
-//     after every failure path in one pass.
-//   * a run on a git repo defaults to provisioned-worktree mode. Asserted at the
-//     capability projection AND end-to-end through `ExecutionRootService.prepare`,
-//     which materializes a real linked worktree.
-//   * worktree creation failure blocks the run instead of mutating the main
-//     checkout. Both divergence arms (`refuse` and `suffix`) surface a typed
-//     refusal, mark the row `failed`, leave no root behind, and leave the checkout
-//     byte-identical.
-//   * a reused worktree stays explicitly linked to its branch and prior run
-//     context — same worktree, same root, same `branch_contexts` row (id and
-//     `created_at` preserved), provenance intact.
-//
-// Verifies invariant:
-//
-//   * No path checks out, creates, switches or merges branches inside the
-//     mount's main checkout. The byte-identity pass is the ground truth; the
-//     merge arm shows that even a MERGED branch is observed as a git fact rather
-//     than produced by the daemon.
-//   * No silent mode substitution: a failed materialization refuses with the
-//     typed carrier and lands the workspace in `stale` with the failure
-//     recorded, rather than returning a lesser mode or a fallback root.
-//   * Explicit reuse only: a candidate binds solely via `reuseWorktreeId`, a
-//     dirty candidate needs `acknowledgeDirtyCandidate` as well, and a prepare
-//     that omits the id REFUSES rather than rebinding.
-//   * No repository-controlled code executes during provisioning: the
-//     hostile hooks never fire for any service invocation — the
-//     `hooks/`-resident sentinels `core.hooksPath` redirects away AND the
-//     config-named fsmonitor hook `-c core.fsmonitor=false` suppresses — and
-//     the neutralization directory the services point `core.hooksPath` at is
-//     empty.
-//   * Every observed lifecycle transition emits its mapped event: the
-//     full-sequence event assertions on the lifecycle walks
-//     (create→reuse→retire→cleanup and the failure arms) are the evidence the
-//     emitter and its unit suite delegate to this tier — a thinned sequence
-//     assertion here breaks that hand-off.
+// What the suite establishes:
+//   * No path checks out, creates, switches or merges branches inside the mount's main checkout.
+//     The ground truth is a content hash of every working-tree file plus HEAD's symbolic ref and
+//     commit, `status --porcelain` and the branch roster, compared before and after every failure
+//     path. Even a merged branch is observed as a git fact, not produced by the daemon.
+//   * A run on a git repo defaults to provisioned-worktree mode, at the capability projection and
+//     end to end through `ExecutionRootService.prepare`, which materializes a real linked worktree.
+//   * A failed materialization refuses with the typed error and lands the workspace in `stale`
+//     with the failure recorded. No lesser mode or fallback root is substituted, no root is left
+//     behind, and the checkout is byte-identical, under both `refuse` and `suffix`.
+//   * Reuse is explicit: a candidate binds only via `reuseWorktreeId`, a dirty candidate also needs
+//     `acknowledgeDirtyCandidate`, and a prepare that omits the id refuses. A reused worktree keeps
+//     its row, root and `branch_contexts` row (id and `created_at` preserved).
+//   * No repository-controlled code runs during provisioning: neither the `hooks/`-resident
+//     sentinels that `core.hooksPath` redirects away nor the config-named fsmonitor hook that
+//     `-c core.fsmonitor=false` suppresses, and the neutralization directory is empty.
+//   * The full event sequences asserted on the lifecycle walks (create, reuse, retire, cleanup and
+//     the failure cases) are the evidence that each lifecycle transition emits its mapped event.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -115,8 +84,8 @@ import { WorktreeService, deriveWorktreeBranchName } from "../worktree-service.j
 // Constants
 // ----------------------------------------------------------------------------
 
-// Session, mount, workspace and worktree ids travel branded UUID schemas at the
-// emission boundary, so every fixture id is a real UUID.
+// Session, mount, workspace and worktree ids are parsed as branded UUIDs at the emission
+// boundary, so every fixture id is a real UUID.
 const SESSION_ID: string = "0191a2b0-1111-7c4a-9b1c-1b7c5b3e8f00";
 const REPO_MOUNT_ID: string = "0191a2b0-2222-7f7b-9a32-3d8e7c5f0b21";
 const WORKSPACE_ID: string = "0191a2b0-4444-7a8c-8b43-4e9f8d60c132";
@@ -130,22 +99,17 @@ const EPOCH_MS: number = Date.UTC(2026, 7, 4, 0, 0, 0);
 const FIXTURE_GIT_TIMEOUT_MS: number = 30_000;
 
 /**
- * Per-test ceiling. Well above the observed cost of a fixture build plus a
- * handful of git processes, and far below anything that would let a hung child
- * stall the run — vitest's 5s default is not enough for a case that spawns
- * several git processes.
+ * Per-test ceiling: well above a fixture build plus several git processes (vitest's 5s default is
+ * too short), and far below anything that would let a hung child stall the run.
  */
 const ACCEPTANCE_TEST_TIMEOUT_MS: number = 60_000;
 
 /**
- * The hooks installed in every fixture repository.
- *
- * Chosen for what a provisioning invocation would actually trip: `git worktree
- * add -b` writes a ref (`reference-transaction`) and populates a checkout
- * (`post-checkout`); `post-merge`, `pre-commit` and `post-commit` cover the
- * mutating verbs says are never issued at all. Each script exits 0 — a
- * `reference-transaction` hook that failed would abort the ref update and turn a
- * hook-neutralization case into a git-failure case.
+ * The hooks installed in every fixture repository. `git worktree add -b` trips
+ * `reference-transaction` (ref write) and `post-checkout` (checkout population); `post-merge`,
+ * `pre-commit` and `post-commit` cover mutating verbs the services never issue. Each script exits
+ * 0, since a failing `reference-transaction` hook would abort the ref update and turn a
+ * neutralization case into a git-failure case.
  */
 const SENTINEL_HOOK_NAMES: readonly string[] = [
   "post-checkout",
@@ -156,14 +120,11 @@ const SENTINEL_HOOK_NAMES: readonly string[] = [
 ];
 
 /**
- * The marker the config-named fsmonitor sentinel writes.
- *
- * Deliberately NOT a member of {@link SENTINEL_HOOK_NAMES}: those are
- * `hooks/`-resident files `core.hooksPath` redirects away, while the fsmonitor
- * hook is named by a repo-local `core.fsmonitor=<pathname>` that
- * `core.hooksPath` never governs. The services suppress it with
- * `-c core.fsmonitor=false`, and the mechanism-attribution control below is
- * what proves that second flag is load-bearing rather than decorative.
+ * The marker the config-named fsmonitor sentinel writes. It is not in {@link SENTINEL_HOOK_NAMES}:
+ * those are `hooks/`-resident files `core.hooksPath` redirects away, while the fsmonitor hook is
+ * named by a repo-local `core.fsmonitor=<pathname>` that `core.hooksPath` never governs. The
+ * services suppress it with `-c core.fsmonitor=false`; the mechanism-attribution control below
+ * proves that flag is load-bearing.
  */
 const FSMONITOR_SENTINEL_MARKER: string = "fsmonitor-hook";
 
@@ -178,14 +139,10 @@ interface FixtureGitResult {
 }
 
 /**
- * Build the environment fixture git runs under.
- *
- * Hermetic by construction: system and global configuration are switched off,
- * `HOME` and `XDG_CONFIG_HOME` point inside the fixture, and every discovery
- * redirector inherited from the ambient environment is stripped. These fixtures
- * are built while the process working directory is the repository under
- * development, and a `GIT_DIR` leaking in from the harness would point fixture
- * commands at THAT repository.
+ * The environment fixture git runs under. Hermetic: system and global config are off, `HOME` and
+ * `XDG_CONFIG_HOME` point inside the fixture, and inherited discovery redirectors are stripped (a
+ * `GIT_DIR` leaking in from the harness would point fixture commands at the repository under
+ * development).
  */
 function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env };
@@ -215,14 +172,9 @@ function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
 }
 
 /**
- * Spawn git and RESOLVE on any exit status, rejecting only when there was no
- * exit status at all.
- *
- * The distinction matters for the assertions built on top: `merge-base
- * --is-ancestor` reports its answer as an exit code, so a helper that threw on
- * non-zero could not ask the question. A missing binary or a killed process
- * carries a string `code` (or none) instead, and that is a harness fault rather
- * than an answer.
+ * Spawns git and resolves on any exit status, rejecting only when there is none. `merge-base
+ * --is-ancestor` reports its answer as an exit code, so a helper that threw on non-zero could not
+ * ask it. A missing binary or killed process carries a string `code` (or none): a harness fault.
  */
 function spawnGit(
   argv: readonly string[],
@@ -239,8 +191,8 @@ function spawnGit(
           resolve({ exitCode: 0, stdout, stderr });
           return;
         }
-        // `ExecFileException.code` admits `null` as well as the string codes a
-        // spawn failure carries; only a NUMBER is an exit status.
+        // `ExecFileException.code` admits `null` and string spawn-failure codes; only a number is
+        // an exit status.
         const reportedCode: number | string | null | undefined = error.code;
         if (typeof reportedCode !== "number") {
           reject(new Error(`fixture git ${argv.join(" ")} did not run: ${String(error.message)}`));
@@ -253,14 +205,9 @@ function spawnGit(
 }
 
 /**
- * One real git repository under a temporary root, plus the sentinel-hook
- * apparatus that makes assertable.
- *
- * Fixture-side invocations are hook-neutralized by DEFAULT, the same way the
- * services neutralize theirs. That is what gives the marker directory its
- * meaning: a marker can only have been written by an invocation this class did
- * not issue — i.e. by a service — or by the one deliberate negative control that
- * asks for hooks to run.
+ * One real git repository under a temporary root, plus the sentinel-hook apparatus. Fixture-side
+ * invocations are hook-neutralized by default, like the services', so a marker can only come from
+ * a service or from the one negative control that asks for hooks to run.
  */
 class FixtureRepository {
   readonly root: string;
@@ -307,19 +254,16 @@ class FixtureRepository {
   }
 
   /**
-   * The first escape hatch: an invocation that lets the repository's own hooks
-   * run. Reserved for the controls that prove the sentinels are armed.
+   * Escape hatch: lets the repository's own hooks run. For the controls that prove the sentinels
+   * are armed.
    */
   gitWithHooksLive(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
     return spawnGit([...argv], this.#environment, cwd);
   }
 
   /**
-   * The second escape hatch: `core.hooksPath` neutralized, `core.fsmonitor`
-   * left alone. Reserved for the mechanism-attribution control — the
-   * config-named fsmonitor hook fires through this form and through nothing
-   * {@link gitCapturing} issues, which is what pins the services' second flag
-   * as load-bearing.
+   * Escape hatch: `core.hooksPath` neutralized, `core.fsmonitor` left alone. Only the config-named
+   * fsmonitor hook fires through this form, which pins the services' second flag as load-bearing.
    */
   gitWithHooksPathOnly(
     argv: readonly string[],
@@ -333,14 +277,10 @@ class FixtureRepository {
   }
 
   /**
-   * Install the `hooks/`-resident sentinels plus the fsmonitor sentinel script,
-   * and return the pathname the repo-local `core.fsmonitor` must point at —
-   * config the CALLER writes, because this method spawns nothing.
-   *
-   * The fsmonitor script answers the hook protocol honestly: `/` on stdout is
-   * the valid "consider everything changed" reply, so a consulted sentinel
-   * leaves git CORRECT and merely slower — a sentinel that broke `status` would
-   * turn a neutralization case into a git-failure case.
+   * Installs the `hooks/`-resident sentinels and the fsmonitor sentinel script, and returns the
+   * pathname the repo-local `core.fsmonitor` must point at (the caller writes that config; this
+   * method spawns nothing). The fsmonitor script answers `/` on stdout, the valid "everything
+   * changed" reply, so a consulted sentinel leaves git correct and only slower.
    */
   installSentinelHooks(): string {
     const hooksDirectory = join(this.root, ".git", "hooks");
@@ -375,15 +315,10 @@ class FixtureRepository {
 }
 
 /**
- * Create a repository with one commit and the sentinel hooks installed.
- *
- * `git init` followed by `symbolic-ref HEAD` rather than `git init -b main`: the
- * hermetic environment above switches off the configuration that would otherwise
- * name a default branch, and this repository has no ratified minimum git version
- * to lean on for the newer flag. The initial commit is not optional — a `create`
- * against an unborn HEAD resolves a base ref that names no commit, and
- * `worktree add` would then fail for a reason that has nothing to do with the
- * case under test.
+ * Creates a repository with one commit and the sentinel hooks installed. `git init` plus
+ * `symbolic-ref HEAD` stands in for `git init -b main`, so the fixture does not depend on a git
+ * version new enough for that flag. The initial commit is required: `worktree add` against an
+ * unborn HEAD fails for reasons unrelated to the case under test.
  */
 async function buildFixtureRepository(options: {
   readonly parentDirectory: string;
@@ -418,17 +353,12 @@ async function buildFixtureRepository(options: {
 }
 
 /**
- * Assert that THIS repository's sentinels really fire, then undo the trigger.
- *
- * "No hook ran" is only evidence if a hook could have run, and the negative
- * control below uses a throwaway repository of its own — so a mount fixture that
- * silently failed to install its hooks would satisfy every assertion vacuously.
- * A ref update is the smallest un-neutralized trigger available for the
- * `hooks/`-resident sentinels: it fires `reference-transaction` and leaves
- * nothing behind once the branch is deleted. The fsmonitor sentinel needs its
- * own arming probe because no `hooks/`-resident trigger reaches it — an
- * un-neutralized `status` refreshes the index and must consult the repo-local
- * `core.fsmonitor` pathname.
+ * Asserts that this repository's sentinels really fire, then undoes the trigger. "No hook ran" is
+ * evidence only if a hook could have run, and the negative control uses a throwaway repository, so
+ * a mount fixture that failed to install its hooks would pass every assertion vacuously. A branch
+ * create is the smallest un-neutralized trigger for the `hooks/`-resident sentinels
+ * (`reference-transaction`). The fsmonitor sentinel needs its own probe, an un-neutralized
+ * `status`, because no `hooks/`-resident trigger reaches it.
  */
 async function proveSentinelsAreArmed(repository: FixtureRepository): Promise<void> {
   const armingProbe = await repository.gitWithHooksLive(["branch", "sentinel-arming-probe"]);
@@ -457,13 +387,9 @@ interface MainCheckoutSnapshot {
 }
 
 /**
- * Hash the working tree, skipping `.git`.
- *
- * `.git` is excluded deliberately: a lawful `worktree add` DOES write
- * administrative files there, and the claim is about the CHECKOUT — the files a
- * user has open and the branch they are on. The ref roster and HEAD are
- * captured separately, through git, so ref-level changes are still in the
- * comparison without dragging worktree bookkeeping into it.
+ * Hashes the working tree, skipping `.git`. A lawful `worktree add` writes administrative files
+ * there, and the claim is about the checkout; ref-level changes are still compared through the
+ * ref roster and HEAD captured separately.
  */
 function hashWorkingTree(root: string): readonly string[] {
   const entries: string[] = [];
@@ -491,10 +417,9 @@ async function snapshotMainCheckout(repository: FixtureRepository): Promise<Main
     "--format=%(refname) %(objectname)",
     "refs/heads",
   ]);
-  // `--quiet` turns detachment into a plain exit 1 instead of a fatal 128, so
-  // the ONE snapshot helper serves attached and detached checkouts alike — a
-  // null here doubles as the detachment premise the bound-root refusal case
-  // asserts on before exercising the seam.
+  // `--quiet` makes a detached HEAD a plain exit 1 instead of a fatal 128, so one helper serves
+  // attached and detached checkouts; a null result is also the detachment premise the bound-root
+  // refusal case asserts on.
   const headSymbolicRefProbe = await repository.gitCapturing(["symbolic-ref", "--quiet", "HEAD"]);
   return {
     workingTree: hashWorkingTree(repository.root),
@@ -538,13 +463,10 @@ function advanceClock(milliseconds: number): void {
 }
 
 /**
- * `ExecutionRootService`'s git seam, wired to the real binary.
- *
- * Unlike the two git services, this one takes its seam with NO default, so the
- * composition root — here, the suite — has to supply it. The seam reports an
- * exit code because `bound-root` mode's `symbolic-ref --quiet` answers "detached
- * HEAD" by exiting 1 with empty output, which is a legitimate answer rather than
- * a failure.
+ * `ExecutionRootService`'s git seam, wired to the real binary. The service takes it with no
+ * default, so the suite supplies it. It reports an exit code because bound-root mode's
+ * `symbolic-ref --quiet` answers "detached HEAD" by exiting 1 with empty output, which is a
+ * legitimate answer, not a failure.
  */
 function buildExecutionRootGitRunner(environment: NodeJS.ProcessEnv): ExecutionRootGitRunner {
   return (argv, options) =>
@@ -558,8 +480,8 @@ function buildExecutionRootGitRunner(environment: NodeJS.ProcessEnv): ExecutionR
             resolve({ exitCode: 0, stdout, stderr });
             return;
           }
-          // `ExecFileException.code` admits `null` as well as the string codes a
-          // spawn failure carries; only a NUMBER is an exit status.
+          // `ExecFileException.code` admits `null` and string spawn-failure codes; only a number
+          // is an exit status.
           const reportedCode: number | string | null | undefined = error.code;
           if (typeof reportedCode !== "number") {
             reject(new Error(`git ${argv.join(" ")} did not run: ${String(error.message)}`));
@@ -572,10 +494,9 @@ function buildExecutionRootGitRunner(environment: NodeJS.ProcessEnv): ExecutionR
 }
 
 beforeEach(async () => {
-  // `realpathSync` because macOS hands out `/var/...` symlinks for the temporary
-  // directory while git reports the resolved `/private/var/...` form. Comparing
-  // a service-minted path against `git worktree list` output needs both sides
-  // resolved.
+  // `realpathSync` because macOS hands out `/var/...` symlinks for the temporary directory while
+  // git reports the resolved `/private/var/...`; comparing service-minted paths with
+  // `git worktree list` needs both resolved.
   const fixtureRoot: string = realpathSync(
     mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-acceptance-")),
   );
@@ -605,9 +526,8 @@ beforeEach(async () => {
     sessions: new SessionService(db),
     now: clock,
   });
-  // The `git` seam is deliberately OMITTED on the worktree service: omitting it
-  // is what selects the production `execFile` runner, which is the whole point
-  // of this tier.
+  // The worktree service's `git` seam is omitted on purpose: that selects the production `execFile`
+  // runner.
   const worktrees = new WorktreeService({
     database: db,
     events: new WorktreeEventEmitter({ sessionEvents: eventLog }),
@@ -655,8 +575,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a MODULE SINGLETON — a case that left a queue
-  // entry behind would stall the next case on the same session id.
+  // The per-session append lock is a module singleton; a leftover queue entry would stall the next
+  // case on the same session id.
   __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
@@ -680,12 +600,9 @@ function insertMount(repoMountId: string, canonicalRoot: string): void {
 }
 
 /**
- * Seed a workspace directly.
- *
- * Raw INSERT rather than `WorkspaceService.bind`: a bind lands `preparing`
- * with no root, and these cases start from a workspace that already has one.
- * Every case that cares about a TRANSITION still drives the real primitives
- * through the service under test.
+ * Seeds a workspace directly. A raw INSERT rather than `WorkspaceService.bind`, which lands
+ * `preparing` with no root; these cases start from a workspace that already has one. Cases about a
+ * transition still drive the real primitives through the service under test.
  */
 function insertWorkspace(options: {
   readonly workspaceId: string;
@@ -854,8 +771,8 @@ describe("a run on a git repository defaults to provisioned-worktree mode", () =
         runId: RUN_ID,
       });
 
-      // The dispatched mode is the requested one, and the root is path rather
-      // than any fallback.
+      // The dispatched mode is the requested one, and the root is the worktree path, not a
+      // fallback.
       expect(prepared.executionMode).toBe("provisioned-worktree");
       expect(prepared.branchName).toBe(branchName);
       const worktreeId = requireValue(prepared.worktreeId, "prepared.worktreeId");
@@ -949,8 +866,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
     "reports a dirty checkout only with acknowledgement, and never writes the dirty state",
     async () => {
       const created = await createWorktree("feature/login");
-      // A real uncommitted change in the real checkout — `status --porcelain`
-      // reads it, nothing is modeled.
+      // A real uncommitted change in the real checkout; `status --porcelain` reads it.
       writeFileSync(join(created.fsRoot, "scratch-notes.txt"), "work in progress\n");
 
       // The unacknowledged candidate REFUSES.
@@ -975,13 +891,12 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       expect(acknowledged.createdBySessionId).toBe(SESSION_ID);
       expect(acknowledged.createdByRunId).toBe(RUN_ID);
 
-      // The adjudicated boundary: dirtiness is REPORTED, never recorded. The
-      // `-> dirty` row transition and its event belong to the Phase 3 binder.
+      // Dirtiness is reported, never recorded: `validateReuse` writes no `-> dirty` row transition
+      // or event.
       expect(readWorktreeRow(created.worktreeId).state).toBe("ready");
       expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
 
-      // Committing the work makes the same call report a clean candidate — the
-      // negative control for the dirty arm.
+      // Committing the work makes the same call report a clean candidate (negative control).
       await ctx.repository.git(["add", "-A"], created.fsRoot);
       await ctx.repository.git(["commit", "-q", "-m", "work in progress"], created.fsRoot);
       const clean = await ctx.worktrees.validateReuse({
@@ -1002,8 +917,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       await ctx.repository.git(["add", "-A"], created.fsRoot);
       await ctx.repository.git(["commit", "-q", "-m", "add login"], created.fsRoot);
 
-      // The MERGE is performed by the fixture, standing in for the human or the
-      // Phase 3 binder. No service merges anything.
+      // The fixture performs the merge; no service merges anything.
       await ctx.repository.git(["merge", "--no-ff", "-m", "merge login", "feature/login"]);
 
       // "Merged" as git answers it, not as a row claims it.
@@ -1015,10 +929,9 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       ]);
       expect(ancestry.exitCode).toBe(0);
 
-      // The row is untouched by the merge: the `-> merged` transition belongs to
-      // the binder, and the branch is still HELD by a live worktree...
+      // The merge leaves the row untouched, and a live worktree still holds the branch...
       expect(readWorktreeRow(created.worktreeId).state).toBe("ready");
-      // ...which is why a second create on the same branch still collides.
+      // ...so a second create on the same branch still collides.
       const collision = await captureRejection(() => createWorktree("feature/login"));
       expect(collision).toBeInstanceOf(WorktreeBranchCollisionError);
       expect(collision).toMatchObject({ branchName: "feature/login" });
@@ -1101,9 +1014,9 @@ describe("no repository-controlled code executes during provisioning", () => {
   it(
     "negative control: an un-neutralized worktree add DOES fire the repository's hooks",
     async () => {
-      // Without this case, every "no hooks fired" assertion below is satisfied by
-      // sentinels that were never armed. It runs in a THROWAWAY repository so the
-      // ref and worktree registration it leaves behind cannot perturb anything.
+      // Without this case, every "no hooks fired" assertion below could pass on sentinels that were
+      // never armed. It runs in a throwaway repository so the ref and worktree registration it
+      // leaves behind cannot perturb anything.
       const hostileRepository = await buildFixtureRepository({
         parentDirectory: ctx.fixtureRoot,
         name: "hook-control-repository",
@@ -1123,14 +1036,12 @@ describe("no repository-controlled code executes during provisioning", () => {
       expect(added.exitCode).toBe(0);
       expect(hostileRepository.firedHooks()).toContain("post-checkout");
       expect(hostileRepository.firedHooks()).toContain("reference-transaction");
-      // The checkout population also consults the config-named fsmonitor hook —
-      // the leg `core.hooksPath` cannot reach.
+      // Checkout population also consults the config-named fsmonitor hook, which `core.hooksPath`
+      // cannot reach.
       expect(hostileRepository.firedHooks()).toContain(FSMONITOR_SENTINEL_MARKER);
 
-      // `core.hooksPath` alone suppresses the `hooks/`-resident sentinels and
-      // NOTHING else: the fsmonitor sentinel still fires, exactly alone. This is
-      // the arm that pins the services' second flag as load-bearing rather than
-      // decorative.
+      // `core.hooksPath` alone suppresses only the `hooks/`-resident sentinels: the fsmonitor
+      // sentinel still fires, alone. This pins the services' second flag as load-bearing.
       hostileRepository.clearFiredHooks();
       const hooksPathOnly = await hostileRepository.gitWithHooksPathOnly([
         "worktree",
@@ -1143,9 +1054,8 @@ describe("no repository-controlled code executes during provisioning", () => {
       expect(hooksPathOnly.exitCode).toBe(0);
       expect(hostileRepository.firedHooks()).toEqual([FSMONITOR_SENTINEL_MARKER]);
 
-      // And the full service prefix — both flags — fires nothing: the A/B/C
-      // that attributes each suppression to its mechanism rather than to
-      // coincidence.
+      // The full service prefix (both flags) fires nothing, attributing each suppression to its
+      // mechanism.
       hostileRepository.clearFiredHooks();
       const neutralized = await hostileRepository.gitCapturing([
         "worktree",
@@ -1178,8 +1088,8 @@ describe("no repository-controlled code executes during provisioning", () => {
       await ctx.worktrees.cleanupPass();
 
       expect(ctx.repository.firedHooks()).toEqual([]);
-      // An EMPTY directory is the mechanism: `core.hooksPath` pointing at a
-      // directory with no hooks in it is what makes every lookup miss.
+      // An empty directory is the mechanism: `core.hooksPath` pointing at a directory with no hooks
+      // makes every lookup miss.
       expect(existsSync(ctx.hookNeutralizationDirectory)).toBe(true);
       expect(readdirSync(ctx.hookNeutralizationDirectory)).toEqual([]);
     },
@@ -1188,6 +1098,7 @@ describe("no repository-controlled code executes during provisioning", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Derived-name collisions
 // ----------------------------------------------------------------------------
 
 describe("derived-name collisions against real git", () => {
@@ -1253,10 +1164,8 @@ describe("a branch free in the index but taken in git", () => {
   it(
     "surfaces a creation failure rather than a branch collision under refuse",
     async () => {
-      // The divergence: a branch that real git holds and the index has never
-      // heard of. This is the recorded outcome of the residual on
-      // `../worktree-service.ts` — the honest answer would be a 409 branch
-      // collision, and what the caller actually sees is a 500 creation failure.
+      // A branch real git holds that the index has never heard of: the caller sees a creation
+      // failure (`git_invocation_failed`), not a branch collision.
       await ctx.repository.git(["branch", "feature/taken"]);
 
       const failure = await captureRejection(() => createWorktree("feature/taken"));
@@ -1265,8 +1174,8 @@ describe("a branch free in the index but taken in git", () => {
       expect(failure).not.toBeInstanceOf(WorktreeBranchCollisionError);
       expect(failure).toMatchObject({ reason: "git_invocation_failed" });
 
-      // Fail-closed: the row records the failure, no root survives, and the
-      // creation event is the only one — `-> failed` emits nothing.
+      // Fail-closed: the row records the failure, no root survives, and `-> failed` emits no event,
+      // so creation is the only one.
       const rows = readWorktreeRows();
       expect(rows).toHaveLength(1);
       const failedRow = rows[0];
@@ -1284,9 +1193,8 @@ describe("a branch free in the index but taken in git", () => {
 
       const failure = await captureRejection(() => createWorktree("feature/taken", "suffix"));
 
-      // The second half of the same residual: the ordinal loop retries only on a
-      // SQLite UNIQUE violation, and this failure never reaches the database — so
-      // `suffix` refuses exactly where `refuse` does, on the bare name.
+      // The ordinal loop retries only on a SQLite UNIQUE violation, and this failure never reaches
+      // the database, so `suffix` refuses exactly where `refuse` does, on the bare name.
       expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
       expect(failure).toMatchObject({ reason: "git_invocation_failed" });
       const rows = readWorktreeRows();
@@ -1301,13 +1209,14 @@ describe("a branch free in the index but taken in git", () => {
 });
 
 // ----------------------------------------------------------------------------
+// The main checkout across every failure path
 // ----------------------------------------------------------------------------
 
 describe("the main checkout across every failure path", () => {
   it(
     "leaves the working tree, HEAD and the branch roster byte-identical",
     async () => {
-      // Setup for the four failure paths (a)-(d), all of it BEFORE the snapshot.
+      // Setup for the four failure paths (a)-(d), all before the snapshot.
       await ctx.repository.git(["branch", "feature/taken"]);
       const live = await createWorktree("feature/live");
       writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
@@ -1374,8 +1283,8 @@ describe("the main checkout across every failure path", () => {
         }),
       );
 
-      // The run is BLOCKED with the original typed cause — no lesser mode, no
-      // fallback root — and the workspace records why.
+      // The run is blocked with the original typed cause (no lesser mode, no fallback root), and
+      // the workspace records why.
       expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
       const workspace = readWorkspaceRow(WORKSPACE_ID);
       expect(workspace.state).toBe("stale");
@@ -1468,8 +1377,8 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
       });
       const worktreeId = requireValue(first.worktreeId, "the first prepare's worktreeId");
 
-      // The same branch, no `reuseWorktreeId`. An implicit-reuse implementation
-      // would hand back the existing worktree says it refuses.
+      // The same branch with no `reuseWorktreeId`: an implicit-reuse implementation would hand back
+      // the existing worktree.
       const refusal = await captureRejection(() =>
         ctx.executionRoots.prepare({
           workspaceId: WORKSPACE_ID,
@@ -1491,27 +1400,20 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
 // Ambient GIT_OBJECT_DIRECTORY — the strip the worktree service inherits
 // ----------------------------------------------------------------------------
 //
-// THIS TIER OR NOWHERE. The service builds its child environment inside its
-// default `execFile` runner, and its git seam is `(argv, {timeoutMs})` — it
-// carries no environment at all. The sibling unit suite injects a fake runner
-// for every case, which bypasses that builder entirely, so a strip assertion
-// written there could only ever observe the fake. This suite is the one place
-// the seam is left at its production default, which makes it the only place
-// the environment the child actually receives is on the table.
+// This tier is the only place to test this: the service builds its child environment inside its
+// default `execFile` runner, and its git seam is `(argv, {timeoutMs})` with no environment. The
+// sibling unit suite injects a fake runner for every case, bypassing that builder, so a strip
+// assertion there could only observe the fake.
 //
-// The variable is `GIT_OBJECT_DIRECTORY`, and it is NOT a discovery redirector
-// in the `GIT_DIR` sense: git substitutes it into its own is-this-a-repository
-// predicate, so a value naming nothing accessible makes every candidate fail
-// that predicate and every invocation refuse with `not a git repository` at exit
-// 128 (git 2.50.1). The service strips it because it shares
-// `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` with `../../workspace/repo-root-resolver.ts`,
-// which is where the full observation and its mechanism note live.
+// `GIT_OBJECT_DIRECTORY` is not a discovery redirector in the `GIT_DIR` sense: git substitutes it
+// into its is-this-a-repository predicate, so a value naming nothing accessible makes every
+// candidate fail and every invocation exit 128 with `not a git repository` (observed on git
+// 2.50.1). The service strips it because it uses `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` from
+// `../../workspace/repo-root-resolver.ts`, which documents the full observation.
 //
-// ORDER IS LOAD-BEARING in each case below. The fixture environment is captured
-// by `buildFixtureEnvironment` in `beforeEach`, BEFORE any stub, so fixture-side
-// git keeps a clean environment throughout and the read-back assertions are
-// never themselves running under the hijack. The services read `process.env` at
-// CALL time, so the stub reaches them and nothing else.
+// Order matters in each case: the fixture environment is captured by `buildFixtureEnvironment` in
+// `beforeEach`, before any stub, so fixture-side git stays clean and read-backs never run under
+// the hijack. The services read `process.env` at call time, so the stub reaches only them.
 describe("ambient GIT_OBJECT_DIRECTORY cannot reach the worktree service's git", () => {
   /** A path that names nothing — the shape that blinds git's predicate. */
   function poisonedObjectDirectory(): string {
@@ -1529,17 +1431,15 @@ describe("ambient GIT_OBJECT_DIRECTORY cannot reach the worktree service's git",
   }
 
   it("negative control — raw git IS blinded by GIT_OBJECT_DIRECTORY", async () => {
-    // Without this, the case below is satisfied by a variable that never
-    // mattered. `spawnGit` takes the environment explicitly, so this control
-    // poisons the fixture environment rather than `process.env`.
+    // Without this, the case below could pass on a variable that never mattered. `spawnGit` takes
+    // the environment explicitly, so this poisons the fixture environment, not `process.env`.
     const blinded = await spawnGit(
       ["-C", ctx.repository.root, "rev-parse", "--show-toplevel"],
       { ...ctx.environment, GIT_OBJECT_DIRECTORY: poisonedObjectDirectory() },
       ctx.fixtureRoot,
     );
 
-    // git's fatal exit, and the wording every blinded invocation below would
-    // otherwise have drawn.
+    // git's fatal exit and message for a blinded invocation.
     expect(blinded.exitCode).toBe(128);
     expect(blinded.stderr).toContain("not a git repository");
   });
@@ -1579,10 +1479,9 @@ describe("bound-root mode — the main checkout as the execution root", () => {
   it(
     "binds the mount's own checkout and mutates nothing",
     async () => {
-      // The one mode whose execution root IS the user's checkout —
-      // the exact blast radius this tier polices — driven through the real
-      // bracket: `assertWritable` → bind-verify (real `symbolic-ref`) →
-      // `beginRootPreparation` → `completeRootPreparation`.
+      // The one mode whose execution root is the user's checkout, driven through the real bracket:
+      // `assertWritable` → bind-verify (real `symbolic-ref`) → `beginRootPreparation` →
+      // `completeRootPreparation`.
       const before = await snapshotMainCheckout(ctx.repository);
       insertWorkspace({
         workspaceId: BOUND_ROOT_WORKSPACE_ID,
@@ -1599,9 +1498,8 @@ describe("bound-root mode — the main checkout as the execution root", () => {
       expect(prepared.executionMode).toBe("bound-root");
       expect(prepared.executionRoot).toBe(ctx.repository.root);
       expect(readWorkspaceRow(BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
-      // The context row fills no worktree column (the bound-root arm) and
-      // self-anchors — bound-root mode cuts nothing, so there is no cut point to
-      // record.
+      // The context row fills no worktree column and self-anchors: bound-root cuts nothing, so
+      // there is no cut point to record.
       const contextRow = ctx.db
         .prepare<
           [string],
@@ -1630,20 +1528,18 @@ describe("bound-root mode — the main checkout as the execution root", () => {
   it(
     "refuses a detached main checkout as a mismatch through real git's exit status",
     async () => {
-      // The seam contract `#verifyBoundRootBranch` discriminates on — detached
-      // HEAD means `symbolic-ref --quiet --short HEAD` exits 1 with empty
-      // stdout — pinned here against real git. Any other
-      // exit status would surface as the anonymous invariant carrier instead
-      // of the ratified `workspace.branch_mismatch` refusal.
+      // The seam contract `#verifyBoundRootBranch` discriminates on, pinned against real git: a
+      // detached HEAD makes `symbolic-ref --quiet --short HEAD` exit 1 with empty stdout. Any other
+      // exit status would surface as the anonymous invariant error instead of
+      // `workspace.branch_mismatch`.
       insertWorkspace({
         workspaceId: BOUND_ROOT_WORKSPACE_ID,
         executionMode: "bound-root",
         fsRoot: ctx.repository.root,
       });
       await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-      // Premise check: the shared helper's `headSymbolicRef` is null exactly
-      // when `symbolic-ref --quiet` exits non-zero — the same exit-status
-      // contract `#verifyBoundRootBranch` reads.
+      // Premise check: `headSymbolicRef` is null exactly when `symbolic-ref --quiet` exits
+      // non-zero, the contract `#verifyBoundRootBranch` reads.
       const before = await snapshotMainCheckout(ctx.repository);
       expect(before.headSymbolicRef).toBeNull();
 

@@ -1,65 +1,23 @@
 // WorktreeEventEmitter behavior.
 //
-// Exercises the single seam every worktree state transition appends its
-// `session_lifecycle` event through, over a real test SQLite DB (same lifecycle
-// as emitter suite this file instantiates for the worktree domain:
-// `openDatabase` factory → per-test tmp file → `afterEach` close + unlink), with
-// the `EventLogService` as the durable append path. A structural block at the
-// bottom drives the same emitter through a plain-object log to pin the parts of
-// the seam contract a real database cannot show.
+// The emitter is the single seam every worktree state transition appends its `session_lifecycle`
+// event through. Most cases run it over a real test SQLite database with `EventLogService` as the
+// durable append path; the WorktreeEventLog seam block at the bottom uses plain-object logs for
+// the parts of the contract a real database cannot show.
 //
-// Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Registry anchor: `SESSION_EVENT_CATEGORY_BY_TYPE` maps all five types to
-//     `session_lifecycle`. This is what keeps the per-event category assertions
-//     below non-circular — the emitter READS that registry, so comparing a
-//     persisted row against it proves only propagation until the registry's own
-//     contents are pinned once, here.
-//   * Per-event persistence: each of the five methods appends exactly ONE row
-//     carrying its own type, its registry category, and the schema-parsed
-//     payload — including the post-transition state the method determines.
-//   * Mapping AS A SET: all five methods driven through one recording log
-//     yield exactly the five `{type, state}` pairs the decision names, and no
-//     other.
-//   * Carve-out, emitter-side: no emission carries `state: "failed"`, even
-//     though the payload schema admits that state (it is the row vocabulary).
-//     The absence and union rejection of `worktree.failed` are pinned in
-//     `packages/contracts/src/__tests__/worktree.test.ts`; re-asserting them
-//     here would test contracts, not this seam.
-//   * monotonic_ns: the emitter forwards its injected clock, and the append
-//     path persists it.
-//   * Reconciliation: one `sessionId` / `actor` input populates BOTH the
-//     envelope and the payload, and the envelope-only linkage fields stay OUT of
-//     the payload.
-//   * Subject identification: every emission names its worktree; the two
-//     optional associations are present only when the producer supplies them,
-//     and ABSENT (not present-and-undefined) when it does not.
-//   * Emission boundary: a payload the family schema refuses makes the emit
-//     throw BEFORE the append, so nothing is persisted — the `.parse()` seam is
-//     a true gate, not a post-hoc check. Including the subject-id floor: a
-//     compiler-bypassed missing `worktreeId` is refused at RUNTIME by the seam's
-//     own brand-parse, which the family schema (where the field is optional)
-//     would have let through as a subjectless row.
-//   * Determinism: injected `now` / `newEventId` flow through to the persisted
-//     row and the receipt, and the DEFAULT id source is unique per emit (a
-//     constant would collide on the primary key).
-//   * Seam contract: the emitter names no concrete storage class, forwards a
-//     caller's `transactionalPrelude` verbatim and WITHOUT invoking it itself
-//     (the invocation count is what separates forwarding from double-applying
-//     the producer's row write) — and against the real append path a THROWING
-//     prelude aborts before the INSERT, so no row persists, which is the
-//     transactional half of — admits any thenable, propagates a rejecting
-//     append unchanged, and refuses a synchronous append at both layers (the
-//     compile-time `Promise` return, pinned by a `@ts-expect-error` control,
-//     plus the runtime fail-closed tripwire).
-//
-// One arm is deliberately ABSENT: there is no "rejects an out-of-vocabulary
-// state" test, because the emitter accepts no state to reject. Each method
-// derives its own from the type it emits, so the malformed-state case is
-// unrepresentable rather than merely refused — pinned by the compile-time
-// control below instead. The schema's own state vocabulary is
-// `packages/contracts/src/__tests__/worktree.test.ts`'s beat, and asserting it
-// from here would test contracts, not this seam.
-//
+// Non-obvious points:
+//   * The emitter reads `SESSION_EVENT_CATEGORY_BY_TYPE`, so the registry test pins that mapping
+//     once; without it the per-event category assertions would only prove propagation.
+//   * No emission carries `state: "failed"`, though the payload schema admits it. The schema side
+//     is pinned in `packages/contracts/src/__tests__/worktree.test.ts`.
+//   * Each method derives its own state, so there is no "rejects an out-of-vocabulary state"
+//     case: it is unrepresentable, and a compile-time control pins that instead.
+//   * A payload the family schema refuses makes the emit throw before the append, so nothing is
+//     persisted. A missing `worktreeId` is refused at runtime by the emitter's own brand parse.
+//   * The prelude is forwarded verbatim and never invoked by the emitter; a throwing prelude
+//     aborts the real append before the INSERT.
+//   * A synchronous append is refused twice: by the `Promise` return type (a `@ts-expect-error`
+//     control) and by a runtime tripwire.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -92,20 +50,16 @@ import type {
 // Fixtures
 // ----------------------------------------------------------------------------
 
-// All four ids are validated through branded UUID schemas at the emission
-// boundary, so the fixtures must be real UUIDs — not arbitrary opaque scalars.
+// All four ids are parsed as branded UUIDs at the emission boundary, so fixtures are real UUIDs.
 const SESSION_ID: string = "0190f8b0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 const WORKTREE_ID: string = "0190f8b1-1c3d-7e6a-8f21-2c7d6b4e9a10";
 const REPO_MOUNT_ID: string = "0190f8b2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 const WORKSPACE_ID: string = "0190f8b3-3e5f-7a8c-8b43-4e9f8d60c132";
-// `actor` is the free-form envelope actor string (a bounded audit scalar), NOT
-// a branded id — any bounded non-blank string is valid.
+// `actor` is a free-form bounded string, not a branded id.
 const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
-// The five types this emitter owns. `SessionEventType`-annotated so a literal
-// that left the census fails this file's compile rather than silently asserting
-// against a name nothing registers — which is also why `worktree.failed` can
-// appear NOWHERE in this list: it is not a census member.
+// The five types this emitter owns. The `SessionEventType` annotation makes a type missing from
+// the event registry fail compilation; `worktree.failed` is deliberately not a member.
 const WORKTREE_EVENT_TYPES: readonly SessionEventType[] = [
   "worktree.created",
   "worktree.ready",
@@ -114,12 +68,8 @@ const WORKTREE_EVENT_TYPES: readonly SessionEventType[] = [
   "worktree.retired",
 ];
 
-// Mapping, restated INDEPENDENTLY of the emitter's own table (the emitter reads
-// its private `WORKTREE_STATE_BY_EVENT_NAME`; this file spells the decision
-// out), so a mis-keyed table entry fails here rather than being confirmed by its
-// own source. The `WorktreeState` annotation binds the state half to the
-// contract enum — and `"failed"` is deliberately absent from every row, which is
-// the mapping half of the carve-out.
+// The type-to-state mapping restated independently of the emitter's private table, so a mis-keyed
+// entry fails here. `failed` is absent from every row.
 const STATE_TO_EVENT_MAPPING: ReadonlyArray<readonly [SessionEventType, WorktreeState]> = [
   ["worktree.created", "creating"],
   ["worktree.ready", "ready"],
@@ -153,29 +103,23 @@ function readRawRows(db: DatabaseType, sessionId: string): ReadonlyArray<Lifecyc
     .all(sessionId) as ReadonlyArray<LifecycleRow>;
 }
 
-// A deterministic, COLLISION-FREE id source: a constant id would violate the
-// `TEXT PRIMARY KEY` on the second emit, so tests that emit more than once
-// inject this counter.
+// Deterministic, collision-free id source: a constant id would violate the `TEXT PRIMARY KEY`.
 function makeCounterIdSource(prefix: string): () => string {
   let counter: number = 0;
   return () => `${prefix}-${(counter++).toString()}`;
 }
 
 /**
- * The `state` an envelope's payload carries, read structurally. The envelope
- * types `payload` as `Record<string, unknown>` (the version-tolerant carrier),
- * so reading the field back needs one narrow — hoisted here rather than
- * repeated inline at every assertion site.
+ * The `state` an envelope's payload carries. The envelope types `payload` as
+ * `Record<string, unknown>`, so reading it needs one narrow.
  */
 function payloadState(envelope: UnsequencedEventEnvelope): unknown {
   return (envelope.payload as { state?: unknown }).state;
 }
 
 /**
- * A plain-object append seam that records what it was handed and hands back a
- * receipt of its own. Proves the emitter names no concrete storage class, and
- * gives the envelope-level assertions a view no SQL query offers (the
- * correlation pair's ABSENCE, for one).
+ * A plain-object append seam that records the envelopes it is handed. It proves the emitter names
+ * no concrete storage class and shows envelope facts SQL cannot (the correlation pair's absence).
  */
 function recordingEventLog(appended: UnsequencedEventEnvelope[]): WorktreeEventLog {
   return {
@@ -204,10 +148,8 @@ let ctx: TestContext;
 beforeEach(() => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-emitter-test-"));
   const dbPath: string = join(tmpDir, "test.db");
-  // Canonical factory — same open semantics (pragmas + migrations) as
-  // production. No session or worktree row is seeded: `session_events` carries
-  // no foreign key to either, so emitting against bare ids is valid, exactly as
-  // the existing append suites do.
+  // Canonical factory, so pragmas and migrations match production. `session_events` has no foreign
+  // key to sessions or worktrees, so no rows are seeded.
   const db: DatabaseType = openDatabase(dbPath);
   ctx = {
     db,
@@ -219,10 +161,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a MODULE SINGLETON, so a case that left a
-  // queue entry behind would stall the next case touching the same session id —
-  // and the failure would present as an unrelated timeout. Reset between cases,
-  // never during one.
+  // The per-session append lock is a module singleton; reset it between cases so a leftover queue
+  // entry cannot stall the next case as an unrelated timeout.
   __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
@@ -239,10 +179,8 @@ function makeEmitter(overrides: Partial<WorktreeEventEmitterDeps> = {}): Worktre
 }
 
 /**
- * Read back the single row an emit is expected to have appended, asserting the
- * "exactly once" half of plus the envelope fields every one of the five carries.
- * The category comes from the registry rather than a literal — the anchor test
- * above is what stops that from being circular.
+ * Reads the single row an emit appended and checks the envelope fields all five types share. The
+ * category comes from the registry, which the anchor test pins.
  */
 function readSingleRow(expectedType: SessionEventType): LifecycleRow {
   const rows: ReadonlyArray<LifecycleRow> = readRawRows(ctx.db, SESSION_ID);
@@ -258,20 +196,10 @@ function readSingleRow(expectedType: SessionEventType): LifecycleRow {
 }
 
 /**
- * Assert the persisted payload BOTH matches the literal shape mandates and
- * equals what the family schema itself returns for that input.
- *
- * The literal comparison is the load-bearing one: `toEqual` fails on a missing
- * key AND on an extra one, so an envelope-only field leaking into the payload —
- * or a state that is not the emitting method's — breaks it. The schema
- * comparison is identical TODAY, because the family schema normalizes nothing
- * (its branded-UUID parsers are pure validators and its actor parser does not
- * trim) — and on a CANONICAL fixture it would stay identical even after a
- * normalizer landed, since normalization is the identity on canonical input. The
- * tripwire is therefore only live where a fixture is deliberately non-canonical:
- * the whitespace-padded-actor arm below is that fixture, and the day a parser
- * starts normalizing, its literal comparison fails and the schema comparison
- * names the NORMALIZED value the emitter must persist instead.
+ * Asserts the persisted payload equals the expected literal and what the family schema returns
+ * for it. The literal comparison catches missing, extra and wrong-state keys. The schema
+ * comparison discriminates only on a non-canonical fixture (the padded-actor case): if a parser
+ * starts normalizing, the literal comparison fails and the schema one names the value to persist.
  */
 function expectPersistedPayload(row: LifecycleRow, expected: Record<string, unknown>): void {
   const persisted: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
@@ -296,8 +224,7 @@ describe("WorktreeEventEmitter — category registry anchor", () => {
 });
 
 // ----------------------------------------------------------------------------
-// One method per event type — exactly one row, right type, right category,
-// schema-parsed payload, method-determined state
+// One method per event type
 // ----------------------------------------------------------------------------
 
 describe("WorktreeEventEmitter — per-event emission", () => {
@@ -326,8 +253,7 @@ describe("WorktreeEventEmitter — per-event emission", () => {
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
       state: "ready",
-      // A system-driven transition: absent input actor narrows to null, the
-      // wire form for "no user or agent did this".
+      // A system-driven transition: an absent actor becomes null.
       actor: null,
     });
   });
@@ -376,10 +302,8 @@ describe("WorktreeEventEmitter — per-event emission", () => {
   });
 
   it("takes no state from the caller — the method determines it", async () => {
-    // BOTH halves of the "unrepresentable, not merely rejected" claim in one
-    // case. Compile-time: `state` is not a member of the input, so the literal
-    // below is an excess property. Deleting the directive must yield that
-    // excess-property error, never an unused-directive TS2578.
+    // Compile time: `state` is not a member of the input, so the literal is an excess property.
+    // Deleting the directive must yield that error, not an unused-directive TS2578.
     await makeEmitter().emitWorktreeRetired({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -388,9 +312,8 @@ describe("WorktreeEventEmitter — per-event emission", () => {
       state: "dirty",
     });
 
-    // Runtime: a state forced past the compiler is not read at all. The
-    // persisted state is the one `emitWorktreeRetired` owns, so the seam cannot
-    // be talked into writing a row that lies about its own transition.
+    // Runtime: a state forced past the compiler is ignored; the persisted state is the one
+    // `emitWorktreeRetired` owns.
     expectPersistedPayload(readSingleRow("worktree.retired"), {
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -400,13 +323,9 @@ describe("WorktreeEventEmitter — per-event emission", () => {
   });
 
   it("persists a whitespace-padded actor VERBATIM — the family schema normalizes nothing", async () => {
-    // The one deliberately NON-canonical fixture in the file, and the arm that
-    // keeps `expectPersistedPayload`'s literal-vs-parsed pair discriminating
-    // (see its doc comment): "  alice  " is accepted today — the actor regex
-    // requires only one non-whitespace character and no parser trims — so both
-    // comparisons pass. The day a `.trim()` lands in the actor parser, the
-    // literal comparison here fails and the schema comparison names the
-    // normalized value the emitter must persist instead.
+    // The one non-canonical fixture; it keeps `expectPersistedPayload`'s literal-vs-parsed pair
+    // discriminating. The actor regex needs one non-whitespace character and no parser trims, so
+    // it persists verbatim; if a parser starts trimming, the literal comparison fails.
     await makeEmitter().emitWorktreeCreated({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -428,20 +347,17 @@ describe("WorktreeEventEmitter — per-event emission", () => {
 
 describe("WorktreeEventEmitter — mapping and carve-out", () => {
   it("emits exactly the five mapped {type, state} pairs across all five methods", async () => {
-    // The per-event arms above each prove ONE pairing against a persisted row.
-    // This one proves the mapping as a whole, through a recording log so all
-    // five fit in a single ordered comparison. A future sixth method, a
-    // mis-keyed table entry, or a method silently re-using another's state
+    // Each per-event case proves one pairing against a persisted row; this proves the mapping as a
+    // whole in one ordered comparison. A sixth method, a mis-keyed entry, or a method reusing
+    // another's state fails here.
     // fails here even when every individual row still parses.
     const appended: UnsequencedEventEnvelope[] = [];
     const emitter: WorktreeEventEmitter = new WorktreeEventEmitter({
       sessionEvents: recordingEventLog(appended),
       newEventId: makeCounterIdSource("mapping"),
     });
-    // Annotated, not inferred: a shared literal driven through five methods is
-    // exactly where excess-property checking earns its keep — an inferred
-    // `{ sessionId, worktreeId }` would silently accept a stray key (a
-    // hand-supplied `state`, say) that the annotation refuses at the literal.
+    // Annotated, not inferred, so excess-property checking refuses a stray key (a hand-supplied
+    // `state`, say).
     const input: EmitWorktreeEventInput = { sessionId: SESSION_ID, worktreeId: WORKTREE_ID };
 
     await emitter.emitWorktreeCreated(input);
@@ -455,13 +371,9 @@ describe("WorktreeEventEmitter — mapping and carve-out", () => {
   });
 
   it("never emits state `failed`, though the payload schema admits it", async () => {
-    // The discriminating fact: `failed` IS a member of `WorktreeState` and the
-    // family payload parses it clean (worktree.ts — "FIVE OF THE SIX STATES
-    // appear on the wire"), so nothing downstream of this seam would refuse a
-    // `worktree.retired` carrying `state: "failed"`. What makes the `-> failed`
-    // transition unevented is that no method here resolves to that state; the
-    // failure incident is evented as `workspace.stale` by the coupled
-    // `failRootPreparation` instead.
+    // `failed` is a `WorktreeState` and the payload schema parses it, so nothing downstream would
+    // refuse a `worktree.retired` carrying it; the only guard is that no method here resolves to
+    // that state. A failed preparation is evented as `workspace.stale` by `failRootPreparation`.
     const failedStatePayload = WorktreeLifecyclePayloadSchema.safeParse({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -482,9 +394,7 @@ describe("WorktreeEventEmitter — mapping and carve-out", () => {
     await emitter.emitWorktreeMerged(input);
     await emitter.emitWorktreeRetired(input);
 
-    // Non-vacuity first: `not.toContain` passes on an EMPTY array, so the two
-    // negative assertions below mean "no `failed` among five real emissions"
-    // only once the count is pinned.
+    // Pin the count first: `not.toContain` passes on an empty array.
     expect(appended).toHaveLength(5);
     expect(appended.map(payloadState)).not.toContain("failed");
     expect(appended.map((envelope) => envelope.type)).not.toContain("worktree.failed");
@@ -517,8 +427,7 @@ describe("WorktreeEventEmitter — monotonic_ns and sequence", () => {
       worktreeId: WORKTREE_ID,
     });
 
-    // The receipts report what the append path ASSIGNED, and the rows agree —
-    // no sequence this emitter invented.
+    // Receipts and rows both carry the sequences the append path assigned.
     expect([created.sequence, ready.sequence]).toEqual([0, 1]);
     expect(readRawRows(ctx.db, SESSION_ID).map((row) => row.sequence)).toEqual([0n, 1n]);
   });
@@ -538,9 +447,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
 
     const row: LifecycleRow = readSingleRow("worktree.created");
     const persisted: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
-    // The row's own actor column IS the payload's actor, and the row lives under
-    // the session the payload names — a caller has no second input with which to
-    // make the two disagree.
+    // The row's actor column is the payload's actor, and the row lives under the session the
+    // payload names.
     expect(row.actor).toBe(USER_ID);
     expect(persisted["actor"]).toBe(USER_ID);
     expect(persisted["sessionId"]).toBe(SESSION_ID);
@@ -561,9 +469,7 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
     const envelope: UnsequencedEventEnvelope | undefined = appended[0];
     expect(envelope?.correlationId).toBe("corr-1");
     expect(envelope?.causationId).toBe("cause-1");
-    // The payload is the FAMILY shape and nothing else: correlation and
-    // causation are envelope linkage, and a payload carrying copies of them
-    // would be schema drift the strict parse would refuse anyway.
+    // The payload is the family shape only; correlation and causation are envelope linkage.
     expect(envelope?.payload).toEqual({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -573,9 +479,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("omits the correlation pair entirely when the caller supplies none", async () => {
-    // Negative control for the arm above. `EventEnvelope` types the pair
-    // optional and NOT nullable, so absent — not present-and-null — is the
-    // no-value wire state.
+    // Negative control: absent, not present-and-null, since `EventEnvelope` types the pair optional
+    // and not nullable.
     const appended: UnsequencedEventEnvelope[] = [];
     const emitter: WorktreeEventEmitter = new WorktreeEventEmitter({
       sessionEvents: recordingEventLog(appended),
@@ -589,10 +494,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("names the full subject context when the producer carries it", async () => {
-    // The shape contracts' own worktree fixture models: the worktree id always,
-    // plus the mount the checkout belongs to and the workspace its root serves.
-    // Legitimately multi-id, which is why the family payload has no
-    // "exactly one id" refinement.
+    // The worktree id plus the mount the checkout belongs to and the workspace its root serves.
+    // Multi-id is legitimate, so the payload has no "exactly one id" refinement.
     await makeEmitter().emitWorktreeReady({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -612,11 +515,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("omits the optional associations when the producer carries neither", async () => {
-    // Negative control for the arm above, and it matters more here than
-    // precedent because there are TWO optional associations: a
-    // present-but-undefined key would be as wrong as a populated one, since
-    // which ids a payload carries is how a reader attributes the event. The
-    // `worktreeId` floor is what every emission still guarantees.
+    // Negative control: a present-but-undefined key is as wrong as a populated one, since which ids
+    // a payload carries is how a reader attributes the event.
     await makeEmitter().emitWorktreeDirty({
       sessionId: SESSION_ID,
       worktreeId: WORKTREE_ID,
@@ -630,9 +530,8 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("carries one association without inventing the other", async () => {
-    // The worktree service's create seam holds `repoMountId` and no
-    // `workspaceId` — the association that lives one layer up — so this is the
-    // shape its emissions actually take. The absent workspace key must stay
+    // The worktree service's create seam holds `repoMountId` but no `workspaceId`, so this is the
+    // shape its emissions take. The absent key must not be back-filled.
     // absent rather than being back-filled from anywhere.
     await makeEmitter().emitWorktreeCreated({
       sessionId: SESSION_ID,
@@ -651,15 +550,9 @@ describe("WorktreeEventEmitter — envelope/payload reconciliation", () => {
 // Emission boundary — the family schema's `.parse()` is a true gate
 // ----------------------------------------------------------------------------
 //
-// Every case below but the LAST is reachable with a TYPE-VALID input: these
-// exercise the runtime `.parse()`, not a TypeScript error. Each asserts BOTH the
-// rejection and that nothing was persisted — a schema that ran after the append
-// would pass the first half and fail the second.
-//
-// The final arm is the deliberate exception: it forces a shape the input
-// interface forbids, because the guarantee it pins — `worktreeId` is refused at
-// RUNTIME, not merely required by the compiler — exists precisely for a producer
-// wired past the compiler.
+// Each case but the last is reachable with a type-valid input and asserts both the rejection and
+// that nothing was persisted (a schema running after the append would fail the second half). The
+// last forces a shape the interface forbids, to pin that `worktreeId` is refused at runtime.
 
 describe("WorktreeEventEmitter — emission-boundary rejection", () => {
   it("rejects a non-UUID worktreeId and appends nothing", async () => {
@@ -705,9 +598,8 @@ describe("WorktreeEventEmitter — emission-boundary rejection", () => {
   });
 
   it("rejects a whitespace-only actor and appends nothing", async () => {
-    // The family payload's actor is a wire free-form string: blank is a producer
-    // bug, not a system actor (that is `null` or an absent key). Only
-    // ALL-whitespace is blank — padding around content (`"  alice  "`) passes,
+    // A blank actor is a producer bug, not a system actor (that is null or absent). Only
+    // all-whitespace is blank; padding around content passes.
     // and the padded-actor arm above proves it persists verbatim.
     await expect(
       makeEmitter().emitWorktreeRetired({
@@ -720,8 +612,7 @@ describe("WorktreeEventEmitter — emission-boundary rejection", () => {
   });
 
   it("rejects an over-length actor and appends nothing", async () => {
-    // 257 chars trips the payload actor's 256-char cap — the same bound the
-    // envelope's own actor carries, so a value accepted here could never be
+    // 257 chars trips the 256-char actor cap, the same bound the envelope's actor carries.
     // rejected one layer down.
     await expect(
       makeEmitter().emitWorktreeCreated({
@@ -734,14 +625,9 @@ describe("WorktreeEventEmitter — emission-boundary rejection", () => {
   });
 
   it("rejects a compiler-bypassed missing worktreeId and appends nothing", async () => {
-    // The subject-id floor, as a RUNTIME guarantee. The family payload schema
-    // types `worktreeId` optional — subject-id presence is per-type emitter
-    // discipline, not a family shape rule — so this input parses clean through
-    // that schema alone and would persist a SUBJECTLESS `worktree.created` row
-    // that no reader could attribute to a worktree. The seam's own
-    // `WorktreeIdSchema.parse` is what refuses it, and this arm is what fails if
-    // that line is ever dropped as "already enforced by the interface": the
-    // cast is exactly the shape a plain-JS producer presents.
+    // The family schema types `worktreeId` optional, so this input parses clean there and would
+    // persist a subjectless row. The emitter's own `WorktreeIdSchema.parse` refuses it; the cast
+    // models a plain-JS producer.
     const subjectless = { sessionId: SESSION_ID } as unknown as EmitWorktreeEventInput;
 
     await expect(makeEmitter().emitWorktreeCreated(subjectless)).rejects.toThrow();
@@ -755,8 +641,8 @@ describe("WorktreeEventEmitter — emission-boundary rejection", () => {
 
 describe("WorktreeEventEmitter — determinism (injected monotonicNow/now/newEventId)", () => {
   it("flows injected monotonicNow, now, and newEventId through to the persisted row", async () => {
-    // Canonical RFC 3339 UTC milliseconds on purpose: the append path normalizes
-    // non-canonical timestamps, so only a canonical fixture asserts the INJECTED
+    // Canonical RFC 3339 UTC milliseconds: the append path normalizes other timestamps, so only a
+    // canonical fixture proves the injected value flowed through verbatim.
     // value flowed through verbatim.
     const FIXED_MONOTONIC: bigint = 8_484_000_000n;
     const FIXED_OCCURRED_AT: string = "2026-08-05T10:30:00.000Z";
@@ -774,9 +660,8 @@ describe("WorktreeEventEmitter — determinism (injected monotonicNow/now/newEve
       worktreeId: WORKTREE_ID,
     });
 
-    // The receipt echoes the injected id source; the clocks are asserted on the
-    // persisted row — the surface a verifier reads. An emitter that ignored the
-    // injected deps and called the production sources directly would pass every
+    // The receipt echoes the injected id; the clocks are asserted on the persisted row. An emitter
+    // calling the production sources directly would pass every other case.
     // other arm in this file; this one is what fails.
     expect(returned.id).toBe(FIXED_EVENT_ID);
 
@@ -786,10 +671,8 @@ describe("WorktreeEventEmitter — determinism (injected monotonicNow/now/newEve
   });
 
   it("defaults newEventId to a unique-per-emit source so successive emits do not collide on the PRIMARY KEY", async () => {
-    // No `newEventId` override → the production `mintUuidV7` default.
-    // Two emits must land two rows with DISTINCT ids — this is what pins the dep
-    // comment's claim that a CONSTANT id would collide on the TEXT PRIMARY KEY
-    // across successive emits.
+    // No `newEventId` override, so the production `mintUuidV7` default applies. A constant id
+    // would collide on the `TEXT PRIMARY KEY`.
     const emitter: WorktreeEventEmitter = new WorktreeEventEmitter({
       sessionEvents: ctx.eventLog,
     });
@@ -809,8 +692,7 @@ describe("WorktreeEventEmitter — determinism (injected monotonicNow/now/newEve
 });
 
 // ----------------------------------------------------------------------------
-// WorktreeEventLog seam — structural arms against plain-object logs, plus the
-// one real-append arm the structural set cannot carry (prelude abort).
+// WorktreeEventLog seam — plain-object logs, plus one real-append case (prelude abort)
 // ----------------------------------------------------------------------------
 
 describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
@@ -833,20 +715,14 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
     expect(appended).toHaveLength(2);
     expect(appended[0]?.type).toBe("worktree.created");
     expect(appended[1]?.type).toBe("worktree.ready");
-    // The emitter surfaced the seam's assigned sequences verbatim — it invented
-    // neither.
+    // The seam's sequences are surfaced verbatim.
     expect([created.sequence, ready.sequence]).toEqual([0, 1]);
   });
 
   it("forwards a caller-supplied transactionalPrelude verbatim and never runs it", async () => {
-    // This emitter's job is to FORWARD it, not to wrap, re-order, or invoke it,
-    // so the assertions are identity AND a zero invocation count: anything done
-    // to the closure would break the atomicity the append path provides around
-    // it. The count is what separates "forwards it" from "forwards it AND runs
-    // it" — the capturing log below never invokes what it captures, so the only
-    // thing that could move the counter is the emitter itself, which would
-    // apply the row write twice (once here, OUTSIDE any transaction, and once
-    // inside the real append path's).
+    // The emitter must forward the prelude untouched and never invoke it: invoking would apply the
+    // producer's row write a second time, outside the append transaction. The capturing log never
+    // runs what it captures, so a nonzero count means the emitter ran it.
     const forwardedOptions: Array<{ transactionalPrelude?: () => void }> = [];
     const capturingEventLog: WorktreeEventLog = {
       append: (envelope, options) => {
@@ -871,8 +747,7 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
   });
 
   it("omits transactionalPrelude entirely when the caller supplies none", async () => {
-    // Negative control for the arm above: the KEY is absent, not
-    // present-and-undefined.
+    // Negative control: the key is absent, not present-and-undefined.
     const forwardedOptions: Array<Record<string, unknown>> = [];
     const capturingEventLog: WorktreeEventLog = {
       append: (envelope, options) => {
@@ -891,16 +766,9 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
   });
 
   it("aborts the append when the forwarded prelude throws against the real path — no row persists", async () => {
-    // The identity arms above prove the closure REACHES the options object; this
-    // arm proves the mechanism the "transactionally with the row write" rests
-    // on: against the real append path the prelude runs INSIDE the transaction,
-    // so its throw aborts before the INSERT and the failure surfaces to the
-    // producer. An emitter that wrapped, deferred, or invoked the prelude itself
-    // already fails the identity/invocation arms above; one that swallowed the
-    // append rejection, or whose forwarding stopped reaching the real
-    // transaction boundary, passes those and fails HERE. (The positive control,
-    // a prelude whose `worktrees` write commits atomically with the row, ships
-    // with the first real dual-write producer.)
+    // Against the real append path the prelude runs inside the transaction, so its throw aborts
+    // before the INSERT and reaches the producer. An emitter that swallowed the rejection, or whose
+    // forwarding missed the transaction boundary, passes the identity cases and fails here.
     await expect(
       makeEmitter().emitWorktreeCreated({
         sessionId: SESSION_ID,
@@ -914,11 +782,9 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
   });
 
   it("rejects a synchronous append at COMPILE time (Promise return, not undefined)", async () => {
-    // Layer 1 of the seam contract, pinned: `undefined` is not assignable to
-    // `Promise<EventLogAppendReceipt>`, so the synchronous shape fails the
-    // assignment. Deleting the directive below must yield that underlying
-    // assignment error — an unused-directive TS2578 here would mean the
-    // compile-time layer silently regressed to accepting synchronous appenders.
+    // `undefined` is not assignable to `Promise<EventLogAppendReceipt>`. Deleting the directive
+    // must yield that assignment error; an unused-directive TS2578 would mean the compile-time
+    // layer regressed.
     const compileRejectedEventLog: WorktreeEventLog = {
       // @ts-expect-error — a synchronous `append` (returns `undefined`) does not
       // satisfy `append(envelope, options): Promise<EventLogAppendReceipt>`.
@@ -934,11 +800,9 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
   });
 
   it("refuses a non-thenable append fail-closed", async () => {
-    // The seam is ASYNC-transactional by contract, and the compile-time layer is
-    // its `Promise` return type — so reaching the runtime tripwire at all
-    // requires wiring the compiler never saw, which the cast below models. A
-    // synchronous append would report success before the write is durable and
-    // would never commit the caller's prelude atomically with the row.
+    // The seam is async-transactional by contract: a synchronous append would report success before
+    // the write is durable and never commit the prelude atomically with the row. Reaching the
+    // runtime tripwire needs wiring the compiler never saw, which the cast models.
     const appendCalls: UnsequencedEventEnvelope[] = [];
     const syncEventLog: WorktreeEventLog = {
       append: (envelope): Promise<EventLogAppendReceipt> => {
@@ -954,19 +818,14 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
       }),
     ).rejects.toThrow(/did not return a promise[\s\S]*transactionalPrelude/);
 
-    // Tripwire, not prevention: the implementation has already run by the time
-    // the non-promise comes back. The guard's job is to be LOUD on the first
-    // emit, not to undo that work.
+    // A tripwire, not prevention: the append has already run when the non-promise comes back.
     expect(appendCalls).toHaveLength(1);
   });
 
   it("admits a custom thenable (duck-typed, not instanceof Promise)", async () => {
-    // Positive control for the guard's duck test: `await` latches onto ANY
-    // `then` function, so the guard must too — an `instanceof Promise` check
-    // would reject a valid async implementation built on a userland promise or a
-    // wrapper, a false positive on the fail-closed side. A regression to
-    // `instanceof` leaves every other arm green (their fakes return real
-    // Promises); this one is what fails.
+    // Positive control for the duck test: `await` accepts any `then` function, so the guard must
+    // too. An `instanceof Promise` check would wrongly reject a userland promise, and every other
+    // case returns real Promises and would stay green.
     const receipt: EventLogAppendReceipt = { id: "x", sequence: 3 };
     const customThenableEventLog: WorktreeEventLog = {
       append: (): Promise<EventLogAppendReceipt> =>
@@ -984,9 +843,8 @@ describe("WorktreeEventEmitter — WorktreeEventLog seam", () => {
   });
 
   it("propagates a REJECTING append unchanged", async () => {
-    // The failure channel a producer learns from: its durable write did not
-    // commit. The emitter awaits, so the rejection reaches the caller verbatim
-    // rather than becoming a fire-and-forget that reported success.
+    // The producer learns its durable write failed from this rejection; the emitter awaits, so it
+    // arrives verbatim.
     const rejectingEventLog: WorktreeEventLog = {
       append: (): Promise<EventLogAppendReceipt> => Promise.reject(new Error("append lock lost")),
     };
