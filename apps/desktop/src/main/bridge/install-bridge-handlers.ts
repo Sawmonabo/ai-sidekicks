@@ -1,5 +1,7 @@
 // Every channel answers only a console document: the asking frame must be on an origin a
-// console window may navigate within. Any other frame is refused before its request is read.
+// console window may navigate within. Any other frame is refused before its request is read; this
+// is a backstop, as only a navigation the policy failed to stop could put another origin in a
+// window.
 
 import path from "node:path";
 
