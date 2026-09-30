@@ -283,6 +283,7 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
   if (!Array.isArray(rawModels)) {
     throw new CodexModelCatalogUnreadableError("reply has no `data` array");
   }
+  // Answering the first page alone would publish a silently short model list.
   const nextCursor = reply["nextCursor"];
   if (nextCursor !== null && nextCursor !== undefined) {
     throw new CodexModelCatalogUnreadableError(
@@ -301,6 +302,7 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     if (id === undefined) {
       throw new CodexModelCatalogUnreadableError("a `data` entry has no `id`");
     }
+    // This surface has no alias mechanism, so a duplicate id is a malformed reply.
     if (seenIds.has(id)) {
       throw new CodexModelCatalogUnreadableError(`model '${id}' appears twice`);
     }
@@ -328,6 +330,7 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
       capabilities: [],
       fast: Array.isArray(rawServiceTiers) && rawServiceTiers.length > 0,
     };
+    // `null` counts as absence: refusing it would cost the whole catalog, as any entry fault does.
     const rawEfforts = entry["supportedReasoningEfforts"];
     if (rawEfforts !== undefined && rawEfforts !== null && !Array.isArray(rawEfforts)) {
       throw new CodexModelCatalogUnreadableError(

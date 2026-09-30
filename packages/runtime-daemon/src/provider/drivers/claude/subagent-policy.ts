@@ -17,7 +17,10 @@ import { ClaudeSessionUnavailableError } from "./session-errors.js";
  */
 export const CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS = false;
 
-/** The subagent depth ceiling this driver clamps to; a policy asking for less gets less. */
+/**
+ * The subagent depth ceiling this driver clamps to; a policy asking for less gets less. Depth
+ * multiplies a run's blast radius and the daemon answers for every level, so it is bounded.
+ */
 export const CLAUDE_SUBAGENT_MAX_DEPTH_CEILING: number = 5;
 
 // Permission modes under which a subagent's tool calls still pass the daemon's permission prompt;

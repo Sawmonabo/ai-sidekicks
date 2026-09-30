@@ -209,9 +209,10 @@ export class ReplayTargetAbandonedError extends Error {
 }
 
 /**
- * The per-driver record of burned replay targets, in memory and uncapped (evicting an entry would
- * re-admit a burned target). Every cause burns the target, even a pristine one; the memo
- * settlement always lands in a fresh target.
+ * The per-driver record of burned replay targets, in memory on purpose (after a restart Codex
+ * replay resolves only live session records, so a burned target stays unseedable) and uncapped
+ * (evicting an entry would re-admit one). Every cause burns the target, even a pristine one; the
+ * memo settlement always lands in a fresh target.
  */
 export class ReplayTargetLedger {
   readonly #abandoned: Map<string, ReplayTargetAbandonmentCause> = new Map();

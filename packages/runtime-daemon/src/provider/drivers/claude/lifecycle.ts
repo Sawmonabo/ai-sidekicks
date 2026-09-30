@@ -1041,7 +1041,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   /**
    * Reconstitutes the canonical transcript into a fresh provider session, returning only after the
    * target's readback confirms it. Refuses on every published build: no stable prior-turn seeding
-   * contract exists, so the capability probe answers `false` and the memo floor takes over.
+   * contract exists, so the capability probe answers `false` and the memo floor takes over. No
+   * control-request subtype seeds turns, and the CLI's stored-session format (what `--resume`,
+   * `--fork-session` and `--resume-session-at` resume) is not a contract this daemon may write.
    */
   async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     const targetProviderSessionId: string = params.target.providerSessionId;

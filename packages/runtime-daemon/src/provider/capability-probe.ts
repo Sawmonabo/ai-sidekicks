@@ -719,8 +719,9 @@ async function dispatchProbe(
 }
 
 /**
- * Intersect a driver's declared matrix with what the probes found: `declared && !withdrawn`.
- * Returns a fresh record because the matrix constant is frozen and shared.
+ * Intersect a driver's declared matrix with what the probes found: `declared && !withdrawn`, since
+ * a probe must never declare a capability the driver code does not implement. Returns a fresh
+ * record because the matrix constant is frozen and shared.
  */
 export function applyCapabilityDetection(
   declared: Readonly<Record<DriverCapabilityFlag, boolean>>,

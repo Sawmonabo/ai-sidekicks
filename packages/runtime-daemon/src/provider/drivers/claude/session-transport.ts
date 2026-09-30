@@ -302,11 +302,12 @@ export interface ClaudeSessionTransport {
    * Starts a provider process for a new session. The child environment is constructed, never
    * inherited: the curated base plus run-provisioned variables, minus the names denied by the
    * request's own `sandboxSettings.credentialPolicyRef` (never a policy from an earlier spawn).
-   * `CLAUDE_*` and `CLAUDECODE*` are stripped, and configuration comes through `--settings`, not
-   * `~/.claude`. `mandatedEnvironment` is applied last, replacing same-named entries. This holds
-   * for `resumeSession` and `rewindSession`. A determinate logged-out failure throws
-   * `ClaudeAuthenticationRequiredError` (the only route to `reauth-required`), any other failure
-   * throws something else.
+   * `CLAUDE_*` and `CLAUDECODE*` are stripped and configuration comes through `--settings`, not
+   * `~/.claude`, so ambient developer config cannot reach the agent and two sessions on one node
+   * cannot read each other's settings. `mandatedEnvironment` is applied last, replacing
+   * same-named entries. This holds for `resumeSession` and `rewindSession`. A determinate
+   * logged-out failure throws `ClaudeAuthenticationRequiredError` (the only route to
+   * `reauth-required`), any other failure throws something else.
    */
   spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment>;
   /** Re-attaches to an existing provider session, with `spawnSession`'s auth-failure obligation. */

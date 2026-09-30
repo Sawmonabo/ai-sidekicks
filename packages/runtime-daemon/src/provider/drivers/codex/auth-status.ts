@@ -13,7 +13,11 @@ import { isPlainObject } from "./record-readers.js";
 import type { CodexAppServerConnection } from "./app-server-connection.js";
 import { CodexProviderRequestError } from "./session-errors.js";
 
-/** Zero-turn auth probe; answerable with `experimentalApi: false`. */
+/**
+ * Zero-turn auth probe; answerable with `experimentalApi: false`. Preferred over the `codex login
+ * status` and `codex doctor --json` CLIs, which spawn a second process and parse human-shaped
+ * output.
+ */
 const CODEX_AUTH_STATUS_METHOD = "getAuthStatus";
 
 /** Deadline for the auth probe, which reads local credential state and gates admission. */

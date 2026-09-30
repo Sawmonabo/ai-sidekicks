@@ -117,7 +117,10 @@ export interface CodexSessionRecord {
    * evidence itself (an id alone would report a zero-turn interception as a completed turn).
    */
   readonly unmatchedTurnEvidence: Map<string, UnmatchedTurnEvidence>;
-  /** `turn/start` requests awaiting an answer; at zero nothing can claim evidence. */
+  /**
+   * `turn/start` requests awaiting an answer. At zero nothing can claim evidence: only the start
+   * handed the turn id claims it, and the provider never reuses a turn id.
+   */
   inFlightTurnStarts: number;
   /**
    * Turn ids whose terminal was ingested, newest last, so `steerRun` can ask whether an
@@ -288,7 +291,8 @@ export type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 /**
  * Reduces `error.data.codexErrorInfo` to the classifier's shape (message prose is never read).
  * Only `badRequest` is structural; where a rejection carries the member is undocumented at the
- * pin.
+ * pin. `-32600` refusals differ only in the deserializer's prose, so neither the code nor the
+ * message can be read; only the typed member counts, and without one the refusal is not escalated.
  */
 function readCodexProviderRefusalShape(
   providerErrorData: unknown,
@@ -336,7 +340,8 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
   /**
    * Spawn context for a cold resume and the auth probe; required, since a bare environment hides
    * the credential home and fails like a bad handle. Parse untyped input with
-   * `parseCodexSessionConfig`.
+   * `parseCodexSessionConfig`. `thread/resume` restores the thread's own cwd, so `cwd` here is the
+   * process's directory.
    */
   readonly resumeSpawnConfig: CodexSessionConfig;
   /**

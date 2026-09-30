@@ -53,8 +53,9 @@ export function composeClaudeCallbackMcpServer(
 }
 
 /**
- * The `--settings` sandbox document one posture composes to. The transport resolves
- * `credentialPolicyRef` into `permissions.deny` `Read` rules beside the environment scrub.
+ * The `--settings` sandbox document one posture composes to; the transport resolves
+ * `credentialPolicyRef` into `permissions.deny` `Read` rules beside the environment scrub, so the
+ * driver never sees the denied names and the deny holds on both the filesystem and the environment.
  */
 export interface ClaudeSandboxSettings {
   readonly sandbox: {

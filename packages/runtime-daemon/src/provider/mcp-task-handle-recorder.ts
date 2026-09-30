@@ -179,7 +179,8 @@ export class McpTaskHandleRecorder {
         return { status: "recorded" };
       }
 
-      // Zero rows changed: the row is absent or already has a handle. Reading it back tells which.
+      // Zero rows changed: the row is absent or already has a handle. Reading it back tells which;
+      // `mcp_task_id` only goes from NULL to non-NULL, so the read-back cannot go stale.
       const storedRow = this.#readStoredHandleStatement.get(observation.commandId) as
         | StoredHandleRow
         | undefined;

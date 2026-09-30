@@ -29,8 +29,10 @@ export interface CredentialEnvPolicy {
 }
 
 /**
- * The auto-update opt-out per provider. The Codex entry is empty because codex-cli documents no
- * environment opt-out; the driver pins an exact build path instead (`resolveProviderExecutable`).
+ * The auto-update opt-out per provider, required for correctness: a build that updates itself
+ * mid-session makes the recorded version and the admitted capability snapshot describe a process
+ * no longer running. The Codex entry is empty because codex-cli documents no environment opt-out;
+ * the driver pins an exact build path instead (`resolveProviderExecutable`).
  */
 export const PROVIDER_AUTO_UPDATE_OPT_OUT_ENV: Readonly<
   Record<FlooredDriverName, Readonly<Record<string, string>>>
@@ -49,7 +51,10 @@ export interface ProviderSpawnEnvRequest {
   readonly hostEnvNameMatch: SpawnEnvNameMatch;
   /** Absent under a `trusted` posture, which denies nothing. */
   readonly credentialEnvPolicy?: CredentialEnvPolicy | undefined;
-  /** Mandated like the opt-out and exempt from the deny strip; a colliding name throws. */
+  /**
+   * Mandated like the opt-out and exempt from the deny strip; a colliding name throws. The Codex
+   * binary path uses it: it pins the build and stands in for that provider's missing opt-out.
+   */
   readonly additionalMandatedPairs?: readonly SpawnEnvPair[] | undefined;
 }
 
