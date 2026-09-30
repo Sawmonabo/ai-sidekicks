@@ -3,8 +3,6 @@
 // The lookup takes a `string` because refusals arrive off the wire: an unlisted code answers
 // `undefined` and renders with no next move.
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts";
-
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import type { CasedRefusalRemedy } from "@renderer/lib/refusal-remedies.js";
 
@@ -185,18 +183,4 @@ export function mountRefusalRemedy(
     return NOT_A_GIT_REPOSITORY_REMEDY;
   }
   return readFrozenRecord(MOUNT_REFUSAL_REMEDIES, code);
-}
-
-/**
- * The mount's own reason for one mode, off the capabilities reply. `restrictions` is sparse: a
- * mode with no entry has no reason on file, not an empty one.
- */
-export function modeRestrictionReason(
-  restrictions: Readonly<Partial<Record<ExecutionMode, string>>> | undefined,
-  mode: ExecutionMode | undefined,
-): string | undefined {
-  if (restrictions === undefined || mode === undefined) {
-    return undefined;
-  }
-  return restrictions[mode];
 }
