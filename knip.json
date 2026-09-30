@@ -36,10 +36,7 @@
   "workspaces": {
     ".": {
       "entry": [],
-      "project": [],
-      // `semver` is declared in the root manifest but imported by no root file, so knip would
-      // report it unused.
-      "ignoreDependencies": ["semver"]
+      "project": []
     },
 
     "apps/desktop": {
