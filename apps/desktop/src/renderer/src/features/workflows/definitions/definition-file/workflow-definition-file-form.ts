@@ -2,11 +2,12 @@
 // module so a file this console wrote is a file it reads. It is YAML (JSON reads too, being
 // YAML), so a file the CLI or SDK writes imports here and the reverse. The document is a schema
 // marker plus the hashed body and an optional `layout` that is ignored; any other top-level key
-// is refused, as a conforming reader does. The marker is written double-quoted because unquoted
-// `1.0` resolves to the number 1, is read off the scalar node, is checked for the `N.N` shape
-// and never against a constant, and is not sent in the create request. The parser is imported
-// statically because the codec reaches this module through `import()`, keeping it in one
-// on-demand chunk; the two entries are synchronous.
+// is refused, as a conforming reader does. The marker is written quoted, which the writer does for
+// any string that would read back as a number, since unquoted `1.0` resolves to the number 1. It
+// is read off the scalar node, is checked for the `N.N` shape and never against a constant, and
+// is not sent in the create request. The parser is imported statically because the codec reaches
+// this module through `import()`, keeping it in one on-demand chunk; the two entries are
+// synchronous.
 
 import { Document, Scalar, isScalar, parseAllDocuments } from "yaml";
 
@@ -83,10 +84,7 @@ export interface WorkflowDefinitionImportTarget {
  */
 export function serializeDefinitionFile(body: WorkflowVersionBody): string {
   const fileDocument = new Document({}, { version: "1.2", schema: "core" });
-  // Double-quoted so the value stays a string on the way back in.
-  const marker = new Scalar(body.schemaVersion);
-  marker.type = Scalar.QUOTE_DOUBLE;
-  fileDocument.set(SCHEMA_MARKER_KEY, marker);
+  fileDocument.set(SCHEMA_MARKER_KEY, body.schemaVersion);
   const bodyRecord = definitionBodyFileRecord(body);
   for (const key of DEFINITION_BODY_KEYS) {
     fileDocument.set(key, bodyRecord[key]);
