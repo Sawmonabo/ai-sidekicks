@@ -2,27 +2,35 @@
 //
 // Every intervention arm, and the pause and resume requests, must refuse a missing
 // `expectedRunVersion`, so the stale-replay guard cannot be bypassed by omitting it. A steer's
-// attachments must be artifact ids, never a path. The `run.subscribeState` arms carry no wire
-// tag, so each schema must refuse the others' payloads. The cross-field rules (a message
-// delivered first, a refusal cause, the execution posture's mode and network arms) are checked
-// beside a payload each one admits.
+// attachments must be artifact ids, never a path, kept in declared order. A state change carries
+// every member of both recovery vocabularies and nothing else, and a paused run whose step is
+// still finishing reads `pausing`. The `run.subscribeState` arms carry no wire tag, so each schema
+// must refuse the others' payloads. The cross-field rules (a message delivered first, a refusal
+// cause, the execution posture's mode and network arms) are checked beside a payload each one
+// admits.
 import { describe, expect, it } from "vitest";
 
 import type { InterventionType } from "../provider-driver.js";
+import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver-recovery.js";
 import {
   InterventionRequestPayloadSchema,
+  RunControlAckSchema,
   RUN_CONTROL_METHOD_DESCRIPTORS,
   RunPauseRequestSchema,
   RunResumeRequestSchema,
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
 } from "../run-control.js";
+import { RunStateSchema } from "../run-state.js";
 import { RunSafetyBufferingUpdatedPayloadSchema } from "../session-controls.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
 const RUN_ID = "0f2b4d5e-6666-4666-8666-666666666666";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
+// Two distinct artifact ids, so an order assertion over the steer carrier can tell them apart.
+const FIRST_ARTIFACT_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SECOND_ARTIFACT_ID = "0f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TIMESTAMP = "2026-08-31T12:00:00.000Z";
 
 const guards = {
@@ -87,6 +95,14 @@ describe("InterventionRequestPayload", () => {
       attachments,
     });
 
+    it("REFUSES a non-id element", () => {
+      expect(() =>
+        InterventionRequestPayloadSchema.parse(steerCarrying([{ kind: "blob" }])),
+      ).toThrow();
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying([{}]))).toThrow();
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying([17]))).toThrow();
+    });
+
     it("REFUSES a string that is not an artifact id", () => {
       // `ArtifactId` is an RFC 9562 UUID the daemon mints at manifest creation; a caller-supplied
       // id reaching a manifest lookup must not be a path or a store-key fragment, which a bare
@@ -98,6 +114,20 @@ describe("InterventionRequestPayload", () => {
       expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(["artifact-1"]))).toThrow(
         /uuid/i,
       );
+    });
+
+    it("accepts the empty carrier and preserves declared order", () => {
+      // Ordering is the daemon's delivery duty; the parse must only not reorder or drop, so the
+      // round-trip pins the sequence.
+      expect(InterventionRequestPayloadSchema.parse(steerCarrying([]))).toEqual(steerCarrying([]));
+      const ordered = [SECOND_ARTIFACT_ID, FIRST_ARTIFACT_ID];
+      expect(
+        (
+          InterventionRequestPayloadSchema.parse(steerCarrying(ordered)) as {
+            attachments: string[];
+          }
+        ).attachments,
+      ).toEqual(ordered);
     });
   });
 });
@@ -111,6 +141,36 @@ const minimalRunStateChange = {
 } as const;
 
 describe("RunStateChangeEvent", () => {
+  it("carries every member of both recovery vocabularies", () => {
+    // Driven from the imported arrays so a member added to either vocabulary reaches this
+    // carrier; a narrower local copy would still compile but dead-letter the member at parse.
+    for (const recoveryCondition of RECOVERY_CONDITIONS) {
+      for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
+        const stateChange = {
+          ...minimalRunStateChange,
+          newState: "failed",
+          failureCategory: "provider failure",
+          recoveryCondition,
+          recoverySpanClassification,
+        };
+        expect(RunStateChangeEventSchema.parse(stateChange)).toEqual(stateChange);
+      }
+    }
+  });
+
+  it("rejects an off-union value on either recovery member", () => {
+    // Referencing the shared parsers must not widen the carrier into accepting free strings.
+    for (const member of ["recoveryCondition", "recoverySpanClassification"] as const) {
+      expect(
+        RunStateChangeEventSchema.safeParse({
+          ...minimalRunStateChange,
+          newState: "failed",
+          [member]: "retry-later",
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   describe("a turn the provider refused", () => {
     const refusal = {
       cause: "refused",
@@ -250,6 +310,12 @@ describe("the run.subscribeState arms", () => {
 
 describe("run pause and resume", () => {
   const request = { targetRunId: RUN_ID, expectedRunVersion: 6 };
+
+  it("admits `pausing`, the state a run holds while its step finishes after a pause", () => {
+    expect(RunStateSchema.parse("pausing")).toBe("pausing");
+    const ack = { runId: RUN_ID, newState: "pausing", runVersion: 7 };
+    expect(RunControlAckSchema.parse(ack)).toEqual(ack);
+  });
 
   it.each([
     ["RunPauseRequestSchema", RunPauseRequestSchema],

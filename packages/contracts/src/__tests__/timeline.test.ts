@@ -1,9 +1,12 @@
-// Contract tests for timeline rows and paged reads. A row's `kind` selects its arm, and each arm
-// refuses what would misfile the attribution rollback projection keys on: run attribution on the
-// general arm, a payload that contradicts its row, a boundary row that disagrees with its payload,
-// and a superseded marker at or below its row. Paged replies run oldest to newest, fit one frame
-// and never continue empty; an expansion carries only its own run's rows and no run is its own
-// parent. Body reads fit one frame, and search hits keep their match ranges and counts coherent.
+// Contract tests for timeline rows and paged reads. A row's `kind` selects its arm, and a row that
+// fails its arm never falls through to the general arm, which would strip the attribution rollback
+// projection keys on. Each arm refuses what would misfile that attribution: run attribution on the
+// general arm, a payload that contradicts its row, a boundary row that disagrees with its typed
+// payload, and a superseded marker at or below its row. A child-run summary always says whether it
+// is complete; the reasoning surface says which of its three states it is in. Paged replies run
+// oldest to newest, fit one frame and never continue empty; an expansion carries only its own
+// run's rows and no run is its own parent. Body reads fit one frame, and search hits keep their
+// match ranges and counts coherent.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,9 +15,13 @@ import { EVENT_CURSOR_MAX_LEN } from "../session.js";
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import type { RunRolledBackEvent } from "../run-control.js";
 import {
+  CHILD_RUN_INCOMPLETE_CAUSES,
   countEntriesFittingOneFrame,
+  ChildRunCompletenessSchema,
   ChildRunExpandResponseSchema,
   ChildRunSummarySchema,
+  REASONING_ENTRY_CONTENT_MAX_LEN,
+  REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadResponseSchema,
   TIMELINE_PAGE_FRAME_RESERVE_BYTES,
   TIMELINE_PAGE_MAX_BYTES,
@@ -101,12 +108,57 @@ const childRunSummary = {
   completeness: { state: "complete" },
 } as const;
 
+/** The incomplete arm, spelled out once so the cause axis can vary against it. */
+const incompleteCompleteness = {
+  state: "incomplete",
+  cause: "detail_fetch_failed",
+  observedAt: "2026-09-01T12:00:00Z",
+} as const;
+
 /** Assert a value parses AND that the parse output round-trips unchanged. */
 const expectRoundTrip = (schema: { parse: (value: unknown) => unknown }, value: unknown): void => {
   expect(schema.parse(value)).toStrictEqual(value);
 };
 
 describe("TimelineRow arm selection", () => {
+  // The load-bearing half of each assertion is the second: the row must fail its `kind`-selected
+  // arm and must not be re-offered to the general arm, which would silently strip the attribution
+  // a rollback rule keys on.
+  const partialAttributionRows = [
+    ["epoch missing", { ...runScopedRow, epoch: undefined }],
+    ["position missing", { ...runScopedRow, position: undefined }],
+    ["runId missing", { ...runScopedRow, runId: undefined }],
+    [
+      "whole triple missing",
+      { ...runScopedRow, runId: undefined, position: undefined, epoch: undefined },
+    ],
+  ] as const;
+
+  it.each(partialAttributionRows)(
+    "%s — a partial run row fails its own arm and never falls through",
+    (_label, malformed) => {
+      const withoutUndefinedKeys = Object.fromEntries(
+        Object.entries(malformed).filter(([, value]) => value !== undefined),
+      );
+      const result = TimelineRowSchema.safeParse(withoutUndefinedKeys);
+      expect(result.success).toBe(false);
+      if (result.success) {
+        return;
+      }
+      // Every reported issue must be the run arm's own missing-member complaint, at the path of an
+      // attribution member. Two shapes are what a fallthrough would look like and neither may
+      // appear: `invalid_union` at `kind` (no arm accepted the row, so `kind` stopped selecting
+      // the arm) and `unrecognized_keys` (the row reached the general arm, where the surviving
+      // attribution members are unknown keys).
+      const attributionMembers = new Set(["runId", "position", "epoch"]);
+      expect(result.error.issues.length).toBeGreaterThan(0);
+      for (const issue of result.error.issues) {
+        expect(issue.code).toBe("invalid_type");
+        expect(attributionMembers.has(String(issue.path[0]))).toBe(true);
+      }
+    },
+  );
+
   it("the general arm refuses smuggled run attribution", () => {
     expect(
       TimelineRowSchema.safeParse({ ...generalRow, runId: RUN_ID, position: 7, epoch: 0 }).success,
@@ -158,6 +210,36 @@ describe("TimelineRow arm selection", () => {
 });
 
 describe("TimelineRollbackBoundary", () => {
+  it("an agreeing boundary parses with a typed payload, no cast", () => {
+    const parsed = TimelineRowSchema.parse(rollbackBoundaryRow);
+    expect(parsed.kind).toBe("rollback_boundary");
+    if (parsed.kind !== "rollback_boundary") {
+      throw new Error("expected the rollback_boundary arm");
+    }
+    // The whole point of the arm: `targetPosition` is reachable as a number through the narrowed
+    // payload rather than out of `Record<string, unknown>`.
+    const cutoff: number = parsed.payload.targetPosition;
+    expect(cutoff).toBe(5);
+    expect(parsed.payload.runVersion).toBe(12);
+  });
+
+  it("a payload that is not a RunRolledBackEvent fails, and does not throw", () => {
+    // Each shape below breaks the payload a different way; none may escape as a TypeError out of
+    // the arm's cross-field refinement.
+    const badPayloads: unknown[] = [
+      { detail: "opaque" },
+      { ...rolledBackPayload, runVersion: undefined },
+      { ...rolledBackPayload, targetPosition: "5" },
+      { ...rolledBackPayload, unexpected: true },
+      null,
+      "run.rolled_back",
+    ];
+    for (const payload of badPayloads) {
+      const result = TimelineRowSchema.safeParse({ ...rollbackBoundaryRow, payload });
+      expect(result.success).toBe(false);
+    }
+  });
+
   it("refuses a boundary row whose runId, sessionId or position disagrees with its payload", () => {
     {
       const result = TimelineRowSchema.safeParse({ ...rollbackBoundaryRow, runId: OTHER_RUN_ID });
@@ -189,8 +271,200 @@ describe("TimelineRollbackBoundary", () => {
   });
 });
 
-describe("the reasoning surface's continuing page", () => {
+describe("ChildRunSummary completeness marker", () => {
+  const withCompleteness = (completeness: unknown): unknown => ({
+    ...childRunSummary,
+    completeness,
+  });
+
+  it("the complete arm round-trips and carries nothing else", () => {
+    expectRoundTrip(ChildRunCompletenessSchema, { state: "complete" });
+    expectRoundTrip(ChildRunSummarySchema, childRunSummary);
+  });
+
+  it("every cause in the closed set round-trips on the incomplete arm", () => {
+    for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
+      expectRoundTrip(ChildRunCompletenessSchema, { ...incompleteCompleteness, cause });
+      expectRoundTrip(
+        ChildRunSummarySchema,
+        withCompleteness({ ...incompleteCompleteness, cause }),
+      );
+    }
+  });
+
+  it("`completeness` is required; an absent marker is not a third state", () => {
+    const { completeness: _dropped, ...withoutMarker } = childRunSummary;
+    expect(ChildRunSummarySchema.safeParse(withoutMarker).success).toBe(false);
+  });
+
+  it("the incomplete arm requires `cause`", () => {
+    const { cause: _dropped, ...withoutCause } = incompleteCompleteness;
+    expect(ChildRunCompletenessSchema.safeParse(withoutCause).success).toBe(false);
+    expect(ChildRunSummarySchema.safeParse(withCompleteness(withoutCause)).success).toBe(false);
+  });
+
+  it("the incomplete arm requires `observedAt`", () => {
+    const { observedAt: _dropped, ...withoutTime } = incompleteCompleteness;
+    expect(ChildRunCompletenessSchema.safeParse(withoutTime).success).toBe(false);
+  });
+
+  it("a cause outside the closed set is refused", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, cause: "node_offline" })
+        .success,
+    ).toBe(false);
+    // Negative control: the rejection is the vocabulary, not the fixture.
+    expect(
+      ChildRunCompletenessSchema.safeParse({
+        ...incompleteCompleteness,
+        cause: "detail_fetch_failed",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("a `state` outside the two arms selects no arm", () => {
+    const result = ChildRunCompletenessSchema.safeParse({ state: "partial" });
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+    // Discriminator failure, not a member failure: the union rejected the row before reading
+    // anything else, which is what keeps the arms independent.
+    expect(result.error.issues.some((issue) => issue.path.join(".") === "state")).toBe(true);
+  });
+
+  it("the complete arm refuses a cause or an observation time", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ state: "complete", cause: "detail_fetch_failed" })
+        .success,
+    ).toBe(false);
+    expect(
+      ChildRunCompletenessSchema.safeParse({
+        state: "complete",
+        observedAt: "2026-09-01T12:00:00Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("`observedAt` is an offset-bearing ISO-8601 instant, not a free string", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, observedAt: "yesterday" })
+        .success,
+    ).toBe(false);
+    expect(
+      ChildRunCompletenessSchema.safeParse({
+        ...incompleteCompleteness,
+        observedAt: "2026-09-01T12:00:00+02:00",
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("the reasoning surface's availability and paging", () => {
   const reasoningEntry = { sequence: 1, content: "normalized reasoning", timestamp: TIMESTAMP };
+
+  it("each of the three states round-trips", () => {
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
+      availability: "available",
+      reasoningEntries: [reasoningEntry],
+      hasMore: false,
+    });
+    // The paged form of the same state is a continuation, not another state.
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
+      availability: "available",
+      reasoningEntries: [reasoningEntry],
+      hasMore: true,
+      nextCursor: "seq-42",
+    });
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, { availability: "unavailable" });
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
+      availability: "policy_redacted",
+      policyReason: "withheld by organization policy",
+    });
+  });
+
+  it("a terminal `available` page accepts an empty entry list", () => {
+    // This arm is how a continuation says it reached the end of a surface that exists:
+    // `unavailable` would say no reasoning was captured and `policy_redacted` that it was
+    // withheld, both wrong for a cursor that simply ran out.
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
+      availability: "available",
+      reasoningEntries: [],
+      hasMore: false,
+    });
+  });
+
+  it("`available` without `reasoningEntries` fails", () => {
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({ availability: "available", hasMore: false })
+        .success,
+    ).toBe(false);
+  });
+
+  it("the paged `available` state obeys the same cursor rule the window does", () => {
+    // A reasoning surface that says there is more and cannot say where to resume is the same
+    // broken promise as a cursorless `hasMore: true` window.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningEntry],
+        hasMore: true,
+      }).success,
+    ).toBe(false);
+    // `hasMore` is required on the state that pages: its absence would be a third answer to a
+    // two-valued question.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningEntry],
+      }).success,
+    ).toBe(false);
+    // The unpaged state carries no continuation at all: `hasMore` on a state that returns nothing
+    // would promise more of nothing.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "unavailable",
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("`policy_redacted` without `policyReason` fails", () => {
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({ availability: "policy_redacted" }).success,
+    ).toBe(false);
+  });
+
+  it("entries or a policy reason on `unavailable` fail strict parse", () => {
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "unavailable",
+        reasoningEntries: [reasoningEntry],
+      }).success,
+    ).toBe(false);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "unavailable",
+        policyReason: "withheld",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("an `available: boolean` shape fails; there is no tolerant arm", () => {
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        available: true,
+        reasoningEntries: [reasoningEntry],
+      }).success,
+    ).toBe(false);
+    expect(ReasoningSurfaceReadResponseSchema.safeParse({ available: false }).success).toBe(false);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        available: false,
+        policyReason: "withheld",
+      }).success,
+    ).toBe(false);
+  });
 
   it("a continuing `available` page refuses an empty entry list", () => {
     // A continuing page with no entries promises more, supplies a cursor to ask
@@ -426,6 +700,46 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
     ).toBe(false);
   });
 
+  it("a reasoning page whose entries go backwards is refused", () => {
+    // `ReasoningEntry` carries the same `sequence` and its entries are ordered by it; a consumer
+    // that does not re-sort a scrambled page renders a run's thinking out of order.
+    const reasoningAt = (sequence: number): unknown => ({
+      sequence,
+      content: "considered the alternatives",
+      timestamp: "2026-09-01T00:00:00.000Z",
+    });
+    const result = ReasoningSurfaceReadResponseSchema.safeParse({
+      availability: "available",
+      reasoningEntries: [reasoningAt(10), reasoningAt(3)],
+      hasMore: false,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // The issue path names the member the caller actually sent, not the timeline window's
+      // `entries`: a path pointing at a member not on this response sends a producer looking in
+      // the wrong place.
+      expect(
+        result.error.issues.some((issue) => issue.path.join(".") === "reasoningEntries.1.sequence"),
+      ).toBe(true);
+    }
+    // Positive controls, as for the window: ascending parses and so does a repeated sequence,
+    // because the rule is nondecreasing on both surfaces.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningAt(3), reasoningAt(10)],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningAt(3), reasoningAt(3)],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
+  });
+
   it("an expansion carries only the expanded run's rows", () => {
     // An expansion answers "what did child run X do". A row attributed to
     // another run is either a projection defect or a cross-run leak, and both
@@ -533,6 +847,48 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
       result: { entries: page, hasMore: true, nextCursor: maximalCursor },
     };
     expect(jsonUtf8ByteLength(frameBody)).toBeLessThan(MAX_MESSAGE_BYTES);
+  });
+
+  // This case parses a frame-sized payload on purpose, so its cost is the workload: well under a
+  // second bare, past the 5 s default under coverage instrumentation.
+  it("the same budget bounds the expansion and the reasoning surface", { timeout: 60_000 }, () => {
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "completed",
+        entries: worstCasePage,
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+
+    const worstCaseEntries = Array.from(
+      { length: REASONING_SURFACE_ENTRIES_MAX },
+      (_unused, index) => ({
+        sequence: index,
+        content: worstCaseUnit.repeat(REASONING_ENTRY_CONTENT_MAX_LEN),
+        timestamp: TIMESTAMP,
+      }),
+    );
+    expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: worstCaseEntries,
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+    // Positive control on the same axis: the fitted prefix parses.
+    const fitted = countEntriesFittingOneFrame(worstCaseEntries, REASONING_SURFACE_ENTRIES_MAX);
+    expect(fitted).toBeGreaterThan(0);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: worstCaseEntries.slice(0, fitted),
+        hasMore: true,
+        nextCursor: cursor,
+      }).success,
+    ).toBe(true);
   });
 
   it("the budget is the frame cap less a reserve, and the measure is exact", () => {

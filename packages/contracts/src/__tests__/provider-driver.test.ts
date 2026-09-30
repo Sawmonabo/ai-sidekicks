@@ -5,15 +5,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DriverCompactionResultSchema,
   DriverTranscriptReplayResultSchema,
   type DriverTranscriptReplayResult,
 } from "../provider-driver-transcript.js";
 import {
+  ArtifactIdSchema,
+  DRIVER_CAPABILITY_FLAGS,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DriverInterventionResultSchema,
   McpServerStatusEmissionSchema,
   ProviderToolMetadataSchema,
   type ApplyInterventionParams,
+  type DriverCapabilities,
   type DriverInterventionResult,
   type DriverTransportConfig,
   type ExecutionPosture,
@@ -24,13 +28,75 @@ import {
   CompactContextRequestSchema,
   ListProviderCommandsRequestSchema,
 } from "../provider-driver-wire.js";
-import { DriverResumeResultSchema, type DriverResumeResult } from "../provider-driver-recovery.js";
+import {
+  DriverResumeResultSchema,
+  type DriverResumeResult,
+  type ProviderUsageLimitCause,
+  type RecoveryCondition,
+} from "../provider-driver-recovery.js";
+import * as contracts from "../index.js";
 
 // Real RFC 9562 UUIDs; the brands are type-only, so the runtime value is a plain string.
 const SESSION_UUID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_UUID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 
 const RUN_ID = RUN_UUID as RunId;
+const AN_ARTIFACT_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
+
+// `DriverCapabilities.flags` is `Record<DriverCapabilityFlag, boolean>`, so an extra key and an
+// incomplete record are both type errors. An unused `@ts-expect-error` is itself a TS2578 error, so
+// the check fails if either ever became valid.
+
+describe("ProviderDriver contract: the capability flag record is closed and total", () => {
+  it("rejects a capability flag outside the DriverCapabilityFlag union at compile time", () => {
+    const flagsWithExtra: DriverCapabilities["flags"] = {
+      resume: true,
+      steer: true,
+      interactive_requests: false,
+      mcp: false,
+      tool_calls: true,
+      reasoning_stream: false,
+      model_mutation: false,
+      structured_output: false,
+      rollback: false,
+      session_goals: false,
+      callback_tools: false,
+      subagents: false,
+      transcript_replay: false,
+      context_compaction: false,
+      provider_commands: false,
+      output_speed: false,
+      // `pause` is not a driver capability (it is an orchestration-layer construct) and not an
+      // intervention type. An excess key on a `Record<Union, …>` literal is a type error.
+      // @ts-expect-error pause is not a DriverCapabilityFlag
+      pause: true,
+    };
+    // The runtime read keeps the binding used; the compile is the check.
+    expect(flagsWithExtra.resume).toBe(true);
+  });
+
+  it("rejects an incomplete flag record that omits a required capability (totality)", () => {
+    // The flag record is total, so a driver cannot leave a capability unanswered. Omitting the
+    // three newest flags shows totality covers the whole union, not only the original flags.
+    // @ts-expect-error the flag record is total and must answer every flag
+    const incompleteFlags: DriverCapabilities["flags"] = {
+      resume: true,
+      steer: true,
+      interactive_requests: false,
+      mcp: false,
+      tool_calls: true,
+      reasoning_stream: false,
+      model_mutation: false,
+      structured_output: false,
+      rollback: false,
+      session_goals: false,
+      callback_tools: false,
+      subagents: false,
+      transcript_replay: false,
+    };
+    expect(incompleteFlags.resume).toBe(true);
+  });
+});
 
 // Silent provider-session replacement is inexpressible: `DriverResumeResult` is a
 // `status`-discriminated union. `failed` carries the recovery condition, span classification
@@ -103,6 +169,40 @@ describe("ProviderDriver contract: failed resume cannot carry a binding", () => 
       expect(leakedPosition).toBeUndefined();
     } else {
       throw new Error(`expected the failed variant, got status=${resume.status}`);
+    }
+  });
+});
+
+describe("DriverResumeResultSchema — the recovery condition is a closed vocabulary", () => {
+  it.each(["recovery-needed", "reauth-required"] as const)(
+    "accepts the %s condition on the failed variant",
+    (recoveryCondition) => {
+      const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
+        status: "failed",
+        recoveryCondition,
+        recoverySpanClassification: "unclassifiable",
+        providerFailureDetail: "provider credential expired",
+      });
+      if (parsed.status === "failed") {
+        expect(parsed.recoveryCondition).toBe(recoveryCondition);
+      } else {
+        throw new Error(`expected the failed variant, got status=${parsed.status}`);
+      }
+    },
+  );
+
+  it("rejects a `failed` object whose recoveryCondition is not a RecoveryCondition member", () => {
+    const result = DriverResumeResultSchema.safeParse({
+      status: "failed",
+      recoveryCondition: "all-good",
+      recoverySpanClassification: "irreversible",
+      providerFailureDetail: "provider session expired",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // The defect is an off-union value, not a missing field, so assert the issue's path.
+      const paths = result.error.issues.map((issue) => issue.path.join("."));
+      expect(paths).toContain("recoveryCondition");
     }
   });
 });
@@ -326,5 +426,92 @@ describe("CompactContext and ListProviderCommands requests — no binding member
       ListProviderCommandsRequestSchema.safeParse({ ...listRequest, bindingId: "binding-1" })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("DriverCompactionResultSchema — the two structural rules, made checkable", () => {
+  // The compaction result is composed daemon-side from the wait's own settlement, so no dispatch
+  // path parses through this schema. It exists so the two rules are enforced by the type; a later
+  // widening that broke either fails here.
+
+  it("REQUIRES `boundaryPosition` on the applied arm", () => {
+    // A compaction with no boundary is one the driver cannot prove: the boundary row is the
+    // typed evidence, and without it the operation could settle on the request merely having
+    // been accepted.
+    expect(DriverCompactionResultSchema.safeParse({ status: "applied" }).success).toBe(false);
+    expect(
+      DriverCompactionResultSchema.safeParse({ status: "applied", boundaryPosition: 12 }).success,
+    ).toBe(true);
+  });
+
+  it("admits `capability_undeclared` as NO arm's reason", () => {
+    // The static capability gate refuses an undeclared compaction before the driver is called,
+    // so an arm for it would be a second, contradictory encoding of one refusal. Both
+    // refusal-shaped arms are probed so the reason cannot pass by landing on the other.
+    expect(
+      DriverCompactionResultSchema.safeParse({
+        status: "refused",
+        reason: "capability_undeclared",
+      }).success,
+    ).toBe(false);
+    expect(
+      DriverCompactionResultSchema.safeParse({
+        status: "failed",
+        reason: "capability_undeclared",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ArtifactIdSchema — the attachment element brand", () => {
+  it("accepts a UUID and brands it", () => {
+    expect(ArtifactIdSchema.parse(AN_ARTIFACT_ID)).toBe(AN_ARTIFACT_ID);
+  });
+
+  it("REFUSES a non-UUID artifact id", () => {
+    // The value reaches an artifact manifest lookup, so a path or store-key fragment must not
+    // arrive as one.
+    expect(ArtifactIdSchema.safeParse("../../etc/passwd").success).toBe(false);
+    expect(ArtifactIdSchema.safeParse("artifact-1").success).toBe(false);
+    expect(ArtifactIdSchema.safeParse("").success).toBe(false);
+  });
+
+  it("is re-exported from the package barrel under its own name", () => {
+    // Every consumer imports this symbol rather than declaring a sibling, so there is one
+    // source of truth for what an artifact id is.
+    expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);
+  });
+});
+
+describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition member", () => {
+  it("keeps the two cause vocabularies mutually unassignable in BOTH directions", () => {
+    // A `RecoveryCondition` must never carry the usage-limit cause; that is a claim about types,
+    // so it is asserted where it can fail. These lines break the build if either union grows
+    // into the other, which would route a self-clearing pause into the operator-remediation
+    // queue. Both directions are checked: a one-way check would pass if `RecoveryCondition`
+    // were widened to contain the cause.
+    // @ts-expect-error — a usage-limit cause is not a recovery condition.
+    const conditionFromCause: RecoveryCondition = "plan-allowance-exhausted";
+    // @ts-expect-error — a recovery condition is not a usage-limit cause.
+    const causeFromCondition: ProviderUsageLimitCause = "reauth-required";
+    void conditionFromCause;
+    void causeFromCondition;
+
+    // The runtime companion: the value sets are disjoint too, so a consumer switching on one can
+    // never fall into the other's arm.
+    const recoveryConditions: readonly RecoveryCondition[] = ["recovery-needed", "reauth-required"];
+    const usageLimitCauses: readonly ProviderUsageLimitCause[] = ["plan-allowance-exhausted"];
+    for (const cause of usageLimitCauses) {
+      expect(recoveryConditions).not.toContain(cause as string);
+    }
+  });
+
+  it("adds no capability flag for it — recognizing a usage limit is every driver's duty", () => {
+    // A flag would let a driver declare the obligation away, leaving a run refused for spend in
+    // the generic failure path with nothing saying why.
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(16);
+    for (const flag of DRIVER_CAPABILITY_FLAGS) {
+      expect(flag).not.toMatch(/usage|limit|rate/);
+    }
   });
 });
