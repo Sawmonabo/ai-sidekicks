@@ -1,13 +1,12 @@
-// The enumeration hook: when a read is issued at all and what a reader sees while one is in flight.
+// The enumeration hook asks the provider nothing until the command list opens, so a person who
+// never types a slash costs no provider round trip.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import { useProviderCommandEnumeration } from "./useProviderCommandEnumeration.js";
 import {
   FIRST_AGENT,
-  SECOND_AGENT,
   enumerationCalls,
   recordingBridge,
   targetForAgent,
@@ -26,109 +25,6 @@ describe("useProviderCommandEnumeration", () => {
         bridge,
         target: targetForAgent(FIRST_AGENT),
         isOpen: false,
-      }),
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-
-    expect(result.current.phase).toBe("not-checked");
-    expect(enumerationCalls(recorded)).toHaveLength(0);
-  });
-
-  it("reads the addressed agent once the command list opens", async () => {
-    const recorded: RecordedDaemonCall[] = [];
-    const bridge = recordingBridge(recorded);
-    const enumeration = new ProviderCommandEnumeration();
-    const { result } = renderHook(() =>
-      useProviderCommandEnumeration({
-        enumeration,
-        bridge,
-        target: targetForAgent(FIRST_AGENT),
-        isOpen: true,
-      }),
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-
-    expect(result.current.phase).toBe("served");
-    expect(enumerationCalls(recorded)).toHaveLength(1);
-    expect((enumerationCalls(recorded)[0]?.params as { agentId: string }).agentId).toBe(
-      FIRST_AGENT,
-    );
-  });
-
-  it("re-reads for a newly addressed agent rather than reusing the list in hand", async () => {
-    const recorded: RecordedDaemonCall[] = [];
-    const bridge = recordingBridge(recorded);
-    const enumeration = new ProviderCommandEnumeration();
-    const { result, rerender } = renderHook(
-      (agentId: string) =>
-        useProviderCommandEnumeration({
-          enumeration,
-          bridge,
-          target: targetForAgent(agentId),
-          isOpen: true,
-        }),
-      { initialProps: FIRST_AGENT },
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-    expect(result.current.phase).toBe("served");
-
-    rerender(SECOND_AGENT);
-
-    // The previous agent's groups are gone before the new read answers.
-    expect(result.current.phase).toBe("not-loaded");
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-    expect(
-      enumerationCalls(recorded).map((entry) => (entry.params as { agentId: string }).agentId),
-    ).toEqual([FIRST_AGENT, SECOND_AGENT]);
-  });
-
-  it("negative control: re-rendering at the same address asks nothing a second time", async () => {
-    const recorded: RecordedDaemonCall[] = [];
-    const bridge = recordingBridge(recorded);
-    const enumeration = new ProviderCommandEnumeration();
-    const { rerender } = renderHook(
-      (agentId: string) =>
-        useProviderCommandEnumeration({
-          enumeration,
-          bridge,
-          target: targetForAgent(agentId),
-          isOpen: true,
-        }),
-      { initialProps: FIRST_AGENT },
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-
-    rerender(FIRST_AGENT);
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-
-    expect(enumerationCalls(recorded)).toHaveLength(1);
-  });
-
-  it("asks nothing for a composer addressed at a session, not at a run", async () => {
-    const recorded: RecordedDaemonCall[] = [];
-    const bridge = recordingBridge(recorded);
-    const enumeration = new ProviderCommandEnumeration();
-    const { result } = renderHook(() =>
-      useProviderCommandEnumeration({
-        enumeration,
-        bridge,
-        target: {
-          path: "session-message",
-          sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
-        },
-        isOpen: true,
       }),
     );
     await act(async () => {

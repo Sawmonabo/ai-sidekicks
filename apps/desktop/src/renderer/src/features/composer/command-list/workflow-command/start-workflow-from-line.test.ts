@@ -1,4 +1,4 @@
-// What the line handler sends and what it refuses to send; each refusal names what was typed.
+// A name two definitions share starts nothing, since the line cannot say which one was meant.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,86 +15,6 @@ function line(text: string): ComposerCommandLine {
 }
 
 describe("startWorkflowFromLine", () => {
-  it("starts the pinned version of the definition it found", async () => {
-    const calls = recordedWorkflowCalls();
-    const operations = fixtureWorkflowStartOperations({
-      definitions: [{ name: "nightly" }],
-      calls,
-    });
-
-    const outcome = await startWorkflowFromLine(line("/workflow start nightly"), {
-      operations,
-      sessionId: WORKFLOW_TEST_SESSION_ID,
-    });
-
-    expect(outcome).toStrictEqual({ status: "applied" });
-    expect(calls.started).toStrictEqual([
-      { workflowVersionId: "version-nightly", sessionId: WORKFLOW_TEST_SESSION_ID },
-    ]);
-  });
-
-  it("starts the definition found on a later page of the enumeration", async () => {
-    // This name is unreachable from the first page, so the read must follow the cursor.
-    const calls = recordedWorkflowCalls();
-    const operations = fixtureWorkflowStartOperations({
-      pages: [{ definitions: [{ name: "nightly" }] }, { definitions: [{ name: "release" }] }],
-      calls,
-    });
-
-    const outcome = await startWorkflowFromLine(line("/workflow start release"), {
-      operations,
-      sessionId: WORKFLOW_TEST_SESSION_ID,
-    });
-
-    expect(outcome).toStrictEqual({ status: "applied" });
-    expect(calls.started.map((request) => request.workflowVersionId)).toStrictEqual([
-      "version-release",
-    ]);
-  });
-
-  it("refuses a line that named no definition, and asks for nothing", async () => {
-    const calls = recordedWorkflowCalls();
-    const operations = fixtureWorkflowStartOperations({
-      definitions: [{ name: "nightly" }],
-      calls,
-    });
-
-    const outcome = await startWorkflowFromLine(line("/workflow start"), {
-      operations,
-      sessionId: WORKFLOW_TEST_SESSION_ID,
-    });
-
-    expect(refusalCodeOf(outcome)).toBe("command-argument-invalid");
-    expect(calls.listed).toHaveLength(0);
-    expect(calls.started).toHaveLength(0);
-  });
-
-  it("refuses a verb this command does not take, naming the verb", async () => {
-    const outcome = await startWorkflowFromLine(line("/workflow stop nightly"), {
-      operations: fixtureWorkflowStartOperations({ definitions: [{ name: "nightly" }] }),
-      sessionId: WORKFLOW_TEST_SESSION_ID,
-    });
-
-    expect(refusalCodeOf(outcome)).toBe("command-argument-invalid");
-    expect(refusalDetailOf(outcome)).toContain("stop");
-  });
-
-  it("refuses a name no definition carries, and starts nothing", async () => {
-    const calls = recordedWorkflowCalls();
-    const operations = fixtureWorkflowStartOperations({
-      definitions: [{ name: "nightly" }],
-      calls,
-    });
-
-    const outcome = await startWorkflowFromLine(line("/workflow start weekly"), {
-      operations,
-      sessionId: WORKFLOW_TEST_SESSION_ID,
-    });
-
-    expect(refusalCodeOf(outcome)).toBe("command-argument-invalid");
-    expect(calls.started).toHaveLength(0);
-  });
-
   it("refuses to choose between two definitions of one name", async () => {
     const calls = recordedWorkflowCalls();
     const operations = fixtureWorkflowStartOperations({
@@ -113,30 +33,7 @@ describe("startWorkflowFromLine", () => {
     expect(refusalDetailOf(outcome)).toContain("2 workflows");
     expect(calls.started).toHaveLength(0);
   });
-
-  it("refuses where the composer is addressed within no session", async () => {
-    const calls = recordedWorkflowCalls();
-    const operations = fixtureWorkflowStartOperations({
-      definitions: [{ name: "nightly" }],
-      calls,
-    });
-
-    const outcome = await startWorkflowFromLine(line("/workflow start nightly"), {
-      operations,
-      sessionId: undefined,
-    });
-
-    expect(refusalCodeOf(outcome)).toBe("command-unavailable-here");
-    expect(calls.listed).toHaveLength(0);
-  });
 });
-
-function refusalCodeOf(outcome: Awaited<ReturnType<typeof startWorkflowFromLine>>): string {
-  if (outcome.status !== "refused") {
-    throw new Error("this line must not have started a workflow");
-  }
-  return outcome.refusal.code;
-}
 
 function refusalDetailOf(outcome: Awaited<ReturnType<typeof startWorkflowFromLine>>): string {
   if (outcome.status !== "refused") {

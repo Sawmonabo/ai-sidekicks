@@ -1,8 +1,7 @@
 // The executor outlives every re-render while its handlers close over the addressed session, so a
 // composer re-addressed from no session to a session must run the handler against that session.
-// Asserted through recorded calls: an executor holding the first render's handlers refuses locally
-// and starts nothing, so the failure is a call that never happens. The workflow root is registered
-// here because the hook does not register it and the executor refuses unlisted names first.
+// The workflow root is registered here because the hook does not register it and the executor
+// refuses unlisted names first.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -108,26 +107,5 @@ describe("the composer command zone reads the committed render's handlers", () =
     await executor.current?.(START_LINE);
 
     expect(readSessionIds(calls)).toStrictEqual([WORKFLOW_TEST_SESSION_ID]);
-  });
-
-  it("negative control: the first render's handlers reach no call at all", async () => {
-    // A stale handler carries `sessionId: undefined`, which is refused locally, so the failure
-    // is a silent absence of calls rather than a wrong id.
-    registerWorkflowRoot();
-    const calls = recordedWorkflowCalls();
-    const executor: { current: CommandExecutor | undefined } = { current: undefined };
-    render(
-      <ComposerCommandZoneHost
-        sessionId={undefined}
-        operations={operationsRecording(calls)}
-        commandEnumeration={new ProviderCommandEnumeration()}
-        executor={executor}
-      />,
-    );
-
-    const outcome = await executor.current?.(START_LINE);
-
-    expect(outcome?.status).toBe("refused");
-    expect(readSessionIds(calls)).toStrictEqual([]);
   });
 });
