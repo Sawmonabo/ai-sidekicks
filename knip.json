@@ -155,8 +155,6 @@
         "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
         "src/renderer/src/services/daemon/session-reads.ts",
-        // The Notifications page's line when the operating system refuses notifications.
-        "src/renderer/src/features/settings/pages/notifications/components/NotificationPermissionNotice.tsx",
         // The operating-system notification permission fold, which moves to main beside the
         // notification poster.
         "src/renderer/src/features/settings/pages/notifications/os-notification-delivery.ts",
