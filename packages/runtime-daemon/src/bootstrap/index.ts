@@ -1,23 +1,9 @@
-// Daemon bootstrap orchestrator — sequences `SecureDefaults.load` ahead of any
-// listener bind, and exposes the load-before-bind guard the local IPC gateway
-// calls at the top of its bind path.
+// Daemon bootstrap: runs `SecureDefaults.load` ahead of any listener bind, and exposes the
+// load-before-bind guard the local IPC gateway calls at the top of its bind path.
 //
-// Invariant: `SecureDefaults.load(config)` MUST run before any daemon listener
-// binds. Binding a listener before `SecureDefaults.load` completes is a
-// programmer error and MUST throw.
-//
-// The daemon binds only its OS-local socket or named pipe; `/metrics` is its
-// one network listener.
-//
-// Design: a stateless guard (`assertLoadedForBind`) plus a sequence
-// orchestrator (`bootstrap`), rather than a `BootstrapHandle` that bind paths
-// take as proof of load. `SecureDefaults` already owns the load-state
-// singleton (`SecureDefaults.isLoaded()`); a handle would duplicate that state
-// without runtime enforcement (handle-as-evidence is a TypeScript-only
-// convention a caller could construct out-of-band), and the guard lets every
-// bind path check synchronously without threading a handle through
-// constructors. The trade: each bind path must call `assertLoadedForBind()`
-// itself.
+// Binding a listener before `SecureDefaults.load` has completed is a programmer error and
+// throws. The guard is stateless because `SecureDefaults` already owns the load state;
+// the trade is that each bind path must call `assertLoadedForBind()` itself.
 
 import type { SecureDefaultsConfig } from "./secure-defaults.js";
 import { SecureDefaults } from "./secure-defaults.js";
@@ -31,8 +17,6 @@ import { SecureDefaults } from "./secure-defaults.js";
  * the previously loaded settings; a later successful call replaces them.
  */
 export function bootstrap(config: SecureDefaultsConfig): void {
-  // `SecureDefaults.load` runs FIRST so every listener the daemon subsequently
-  // exposes is gated on the validated settings.
   SecureDefaults.load(config);
 }
 
