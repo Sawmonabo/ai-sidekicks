@@ -17,10 +17,15 @@
 // `out/preload/index.cjs` is CommonJS because a sandboxed preload cannot be ESM; the decision log
 // is the header of `electron.vite.config.ts`.
 
+import { existsSync, readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
+import { SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
 import {
   BOOT_TEST_TIMEOUT_MS,
+  MAIN_ENTRY,
   spawnElectron,
   WINDOW_BUDGET_MS,
 } from "./helpers/smoke-probe-harness.js";
@@ -108,4 +113,23 @@ describe("desktop main process boot", () => {
     // Derived from the phases it contains; see BOOT_TEST_TIMEOUT_MS.
     BOOT_TEST_TIMEOUT_MS,
   );
+
+  // No blank-document load ships. The smoke bundle is the one build where the probe body
+  // survives (a release bundle tree-shakes the branch), so checking it is the only form of this
+  // assertion with force. A re-introduced blank-document load would fail other assertions for a
+  // reason nobody would read as a revert; this says it directly.
+  it("ships no blank-document load in the built smoke bundle", () => {
+    expect(
+      existsSync(MAIN_ENTRY),
+      `Main entry missing at ${MAIN_ENTRY}. Run \`pnpm --filter @ai-sidekicks/desktop test\` (which rebuilds the smoke bundle).`,
+    ).toBe(true);
+
+    const builtMainBundle = readFileSync(MAIN_ENTRY, "utf8");
+
+    expect(builtMainBundle).not.toContain("about:blank");
+    // Positive control: the probe body is present, so the absence above is real and not a wrong
+    // path or a tree-shaken release bundle.
+    expect(builtMainBundle).toContain(SMOKE_PROBE_TAG);
+    expect(builtMainBundle).toContain("sidekicks-renderer://app/index.html");
+  });
 });

@@ -237,6 +237,27 @@ describe("the artifact reader and the posture comparison can fail", () => {
       ),
     ).toStrictEqual(["RunAsNode: required DISABLE, artifact carries ENABLE"]);
   });
+
+  it("names a fuse the wire does not carry at all", () => {
+    expect(
+      findFusePostureViolations(
+        { [FuseV1Options.RunAsNode]: FuseState.DISABLE },
+        REQUIRED_POSTURE_FIXTURE,
+      ),
+    ).toStrictEqual(["OnlyLoadAppFromAsar: required ENABLE, artifact carries nothing"]);
+  });
+
+  it("refuses an inherited state, which is neither of the two the posture admits", () => {
+    expect(
+      findFusePostureViolations(
+        {
+          [FuseV1Options.RunAsNode]: FuseState.INHERIT,
+          [FuseV1Options.OnlyLoadAppFromAsar]: FuseState.REMOVED,
+        },
+        REQUIRED_POSTURE_FIXTURE,
+      ),
+    ).toHaveLength(2);
+  });
 });
 
 describe("the packaged-artifact discovery can fail", () => {
