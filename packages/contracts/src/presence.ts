@@ -98,7 +98,6 @@ export interface PresenceDevice {
   deviceType: string;
   appVisible: boolean;
   state: PresenceState;
-  lastSeen: string;
 }
 
 const PresenceDeviceSchema: z.ZodType<PresenceDevice, PresenceDevice> = z
@@ -107,7 +106,6 @@ const PresenceDeviceSchema: z.ZodType<PresenceDevice, PresenceDevice> = z
     deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceDevice.deviceType"),
     appVisible: z.boolean(),
     state: PresenceStateSchema,
-    lastSeen: z.iso.datetime({ offset: true }),
   })
   .strict();
 

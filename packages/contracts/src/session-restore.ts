@@ -22,6 +22,7 @@ import {
 } from "./provider-driver.js";
 import {
   EventCursorSchema,
+  FILE_PATH_MAX_LEN,
   SessionIdSchema,
   wireFreeFormString,
   type EventCursor,
@@ -137,7 +138,10 @@ export interface SessionRestoreSkippedFile {
   reason: SessionRestoreSkipReason;
 }
 const SessionRestoreSkippedFileSchema: z.ZodType<SessionRestoreSkippedFile> = z
-  .object({ path: z.string().min(1), reason: z.enum(SESSION_RESTORE_SKIP_REASONS) })
+  .object({
+    path: z.string().min(1).max(FILE_PATH_MAX_LEN),
+    reason: z.enum(SESSION_RESTORE_SKIP_REASONS),
+  })
   .strict();
 
 /** Paths another session working in the same folder also changed since the point. */
@@ -198,10 +202,15 @@ export const SessionRestorePreviewResponseSchema: z.ZodType<SessionRestorePrevie
     skipped: z.array(SessionRestoreSkippedFileSchema),
     affectedChildCount: z.number().int().nonnegative(),
     runningCommands: z.number().int().nonnegative(),
-    ignoredFolders: z.array(z.string().min(1)),
+    ignoredFolders: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
     commandsRanAfterPoint: z.boolean(),
     alsoChangedBy: z.array(
-      z.object({ sessionId: SessionIdSchema, paths: z.array(z.string().min(1)) }).strict(),
+      z
+        .object({
+          sessionId: SessionIdSchema,
+          paths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
+        })
+        .strict(),
     ),
   })
   .strict();

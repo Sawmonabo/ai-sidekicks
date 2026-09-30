@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ArtifactIdSchema, type ArtifactId } from "../provider-driver.js";
 import { SessionIdSchema, type SessionId } from "../session.js";
 
+import { ARTIFACT_CHUNK_MAX_BYTES } from "./ingest.js";
 import { ArtifactManifestSchema, type ArtifactManifest } from "./manifest.js";
 
 /**
@@ -30,24 +31,51 @@ export const ArtifactListRequestSchema: z.ZodType<ArtifactListRequest, ArtifactL
   .strict();
 
 /**
+ * A window of a payload's bytes: `length` bytes from `offset`, counted from 0. One
+ * window is at most {@link ARTIFACT_CHUNK_MAX_BYTES}, so its encoded bytes fit one
+ * message. A window reaching past the payload's end answers the bytes up to the end.
+ */
+export interface ArtifactByteRange {
+  offset: number;
+  length: number;
+}
+
+/**
  * Asks for one artifact. Without `includePayload` the reply carries the manifest and
  * a handle; with it, the reply carries the bytes when they fit in one message.
- * `version` counts from 1, oldest first; without it the read answers the newest
- * version, which is where a reader opens.
+ * With `range`, the reply carries that window of the bytes: a payload too large for
+ * one message is read whole by asking for its windows in turn, so a text body, a
+ * picture or a PDF is never cut short. `version` counts from 1, oldest first;
+ * without it the read answers the newest version, which is where a reader opens.
  */
 export interface ArtifactReadRequest {
   artifactId: ArtifactId;
   version?: number | undefined;
   includePayload?: boolean | undefined;
+  range?: ArtifactByteRange | undefined;
 }
-/** Parses an {@link ArtifactReadRequest}; a version below 1 is refused. */
+/**
+ * Parses an {@link ArtifactReadRequest}; a version below 1, a window past the chunk
+ * bound, and a window on a read that declines the payload are refused.
+ */
 export const ArtifactReadRequestSchema: z.ZodType<ArtifactReadRequest, ArtifactReadRequest> = z
   .object({
     artifactId: ArtifactIdSchema,
     version: z.number().int().positive().optional(),
     includePayload: z.boolean().optional(),
+    range: z
+      .object({
+        offset: z.number().int().nonnegative(),
+        length: z.number().int().positive().max(ARTIFACT_CHUNK_MAX_BYTES),
+      })
+      .strict()
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine((request) => request.range === undefined || request.includePayload !== false, {
+    message: "A byte range reads the payload, so it cannot decline it.",
+    path: ["range"],
+  });
 
 /** A picture's width and height in pixels, as the store measured them at ingest. */
 export interface ArtifactPictureSize {
@@ -83,18 +111,21 @@ interface ArtifactReadFacts {
 }
 
 /**
- * The reply that hands back a key to fetch the bytes with, not the bytes. Neither
- * arm is exported: a reader narrows the union by testing `payload`, which is absent
- * here and required on the inline arm.
+ * The reply that hands back a key for the bytes, not the bytes; a reader fetches
+ * them with ranged reads. Neither arm is exported: a reader narrows the union by
+ * testing `payload`, which is absent here and required on the inline arm.
  */
 interface ArtifactReadDeferred extends ArtifactReadFacts {
-  /** The content-store key or URL to fetch the payload from. Required: it is what this arm is. */
+  /** The content-store key or URL for the payload. Required: it is what this arm is. */
   payloadHandle: string;
   payload?: never;
   payloadEncoding?: never;
 }
 
-/** The reply that carries the bytes and the encoding to read them by. */
+/**
+ * The reply that carries the bytes and the encoding to read them by: the whole
+ * payload, or the window a ranged read asked for.
+ */
 interface ArtifactReadInline extends ArtifactReadFacts {
   /** Allowed beside the bytes; a reply may return both. */
   payloadHandle?: string | undefined;

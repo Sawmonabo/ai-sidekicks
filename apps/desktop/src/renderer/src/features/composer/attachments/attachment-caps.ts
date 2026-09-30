@@ -2,7 +2,7 @@
 
 // The byte and count limits are the contract's (`SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT`,
 // `SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT`) and the chunk size is
-// `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`. The stream ceiling below is enforced by the daemon;
+// `ARTIFACT_CHUNK_MAX_BYTES`. The stream ceiling below is enforced by the daemon;
 // the console carries it to explain the bound ahead of the refusal. It is
 // operator-tunable, so a view that shows it says "default" until the daemon answers with
 // the value in force.

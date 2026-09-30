@@ -19,7 +19,7 @@ import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { McpServerNameSchema } from "./mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Staging limits
@@ -142,7 +142,7 @@ export interface SessionAttachmentSummary {
 export const SessionAttachmentSummarySchema: z.ZodType<SessionAttachmentSummary> = z
   .object({
     artifactId: ArtifactIdSchema,
-    fileName: z.string().min(1),
+    fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
     mimeType: z.string().min(1),
     sizeBytes: z.number().int().nonnegative(),
   })
@@ -199,7 +199,7 @@ export const SessionAttachmentAddRequestSchema: z.ZodType<
             .object({
               kind: z.literal("file"),
               clientStagingId: z.uuid(),
-              path: z.string().min(1),
+              path: z.string().min(1).max(FILE_PATH_MAX_LEN),
             })
             .strict(),
           z

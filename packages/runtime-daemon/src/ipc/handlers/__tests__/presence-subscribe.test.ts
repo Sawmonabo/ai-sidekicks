@@ -62,7 +62,6 @@ function buildMachinePresence(): MachinePresence {
         deviceType: "mobile",
         appVisible: false,
         state: "online",
-        lastSeen: "2026-01-22T19:14:35.000Z",
       },
     ],
   };

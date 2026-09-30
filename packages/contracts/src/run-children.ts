@@ -22,6 +22,7 @@ import {
   RunIdSchema,
   type RunId,
 } from "./provider-driver.js";
+import { RunStateSchema, type RunState } from "./run-state.js";
 import { wireFreeFormString } from "./session.js";
 
 /**
@@ -63,13 +64,16 @@ export const ChildInterruptRequestSchema: z.ZodType<ChildInterruptRequest, Child
     })
     .strict();
 
-/** What an interrupt did: the child was interrupted, or it had already ended. */
+/**
+ * Where the child stands after the interrupt. A child that had already finished
+ * answers the state it finished in.
+ */
 export interface ChildInterruptResponse {
   childHandle: ChildHandle;
-  outcome: "interrupted" | "already_ended";
+  state: RunState;
 }
 export const ChildInterruptResponseSchema: z.ZodType<ChildInterruptResponse> = z
-  .object({ childHandle: ChildHandleSchema, outcome: z.enum(["interrupted", "already_ended"]) })
+  .object({ childHandle: ChildHandleSchema, state: RunStateSchema })
   .strict();
 
 /** Pauses one child (`paused: true`) or continues it (`paused: false`): the toggle's two presses. */
@@ -156,8 +160,9 @@ export const ChildrenStopResponseSchema: z.ZodType<ChildrenStopResponse> = z
 
 /**
  * The refusal of a child control: the daemon's index names no such child, the
- * child has ended, or the provider refused the act. A hold lost before a
- * continue is a result, never this refusal.
+ * child has ended (an interrupt instead answers the state it finished in), or the
+ * provider refused the act. A hold lost before a continue is a result, never this
+ * refusal.
  */
 export const RUN_CHILD_CONTROL_REFUSED_CODE = "run.child_control_refused" as const;
 /** The type of {@link RUN_CHILD_CONTROL_REFUSED_CODE}. */

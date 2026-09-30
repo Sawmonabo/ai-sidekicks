@@ -50,14 +50,14 @@ import {
   RunResumeRequestSchema,
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
-  RunStateSchema,
   RunStateSubscribeRequestSchema,
   type InterventionState,
   type RunFailureCategory,
-  type RunState,
 } from "../run-control.js";
 import { RunQueueSubscribeRequestSchema } from "../run-queue.js";
+import { RunStateSchema, type RunState } from "../run-state.js";
 import { RunSafetyBufferingUpdatedPayloadSchema } from "../session-controls.js";
+import { FILE_PATH_MAX_LEN } from "../session.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
@@ -564,6 +564,16 @@ describe("RunStateChangeEvent", () => {
           RunStateChangeEventSchema.parse({ ...minimalRunStateChange, executionPosture }),
         ).toEqual({ ...minimalRunStateChange, executionPosture });
       }
+    });
+
+    it("refuses a writable root longer than the longest path the wire carries", () => {
+      const posture = (root: string) => ({
+        ...minimalRunStateChange,
+        executionPosture: { writableRoots: [root], networkAccess: "none", mode: "trusted" },
+      });
+      const longest = `/${"a".repeat(FILE_PATH_MAX_LEN - 1)}`;
+      expect(RunStateChangeEventSchema.safeParse(posture(longest)).success).toBe(true);
+      expect(RunStateChangeEventSchema.safeParse(posture(`${longest}a`)).success).toBe(false);
     });
 
     it("refuses an empty allowed-domains list", () => {

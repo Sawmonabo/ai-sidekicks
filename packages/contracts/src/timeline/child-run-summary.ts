@@ -30,7 +30,7 @@
 import { z } from "zod";
 
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../run-control.js";
+import { RunStateSchema, type RunState } from "../run-state.js";
 
 /**
  * Why a child-run summary is not the whole picture. Closed; see this module's

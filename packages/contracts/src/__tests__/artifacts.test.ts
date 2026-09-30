@@ -11,7 +11,7 @@ import {
   ArtifactReadResponseSchema,
   decodeArtifactPayloadText,
 } from "../artifacts/index.js";
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "../artifacts/ingest.js";
+import { ARTIFACT_CHUNK_MAX_BYTES } from "../artifacts/ingest.js";
 import { MAX_MESSAGE_BYTES } from "../jsonrpc.js";
 
 const MANIFEST = {
@@ -138,6 +138,31 @@ describe("ArtifactReadRequestSchema", () => {
       ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, version: 0 }).success,
     ).toBe(false);
   });
+
+  it("reads a window of the payload no longer than one chunk", () => {
+    const window = (length: number) => ({
+      artifactId: MANIFEST.id,
+      range: { offset: ARTIFACT_CHUNK_MAX_BYTES, length },
+    });
+    expect(ArtifactReadRequestSchema.safeParse(window(ARTIFACT_CHUNK_MAX_BYTES)).success).toBe(
+      true,
+    );
+    expect(ArtifactReadRequestSchema.safeParse(window(ARTIFACT_CHUNK_MAX_BYTES + 1)).success).toBe(
+      false,
+    );
+  });
+
+  it("refuses a window on a read that declines the payload", () => {
+    const range = { offset: 0, length: 1 };
+    expect(
+      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, includePayload: true, range })
+        .success,
+    ).toBe(true);
+    expect(
+      ArtifactReadRequestSchema.safeParse({ artifactId: MANIFEST.id, includePayload: false, range })
+        .success,
+    ).toBe(false);
+  });
 });
 
 /** Base64 characters an RFC 4648 section 4 encoder emits for this many raw bytes. */
@@ -145,13 +170,13 @@ function base64Length(decodedByteLength: number): number {
   return Math.ceil(decodedByteLength / 3) * 4;
 }
 
-describe("ATTACHMENT_INGEST_CHUNK_MAX_BYTES", () => {
+describe("ARTIFACT_CHUNK_MAX_BYTES", () => {
   it("keeps an encoded chunk inside the frame ceiling the wire declares", () => {
     // The chunk size is fixed rather than tunable because THIS is what fixes it: the wire
     // is JSON with no binary serialization, so a chunk rides as base64 and expands by 4/3,
     // and the framer refuses a declared length over `MAX_MESSAGE_BYTES` before it buffers
     // a body.
-    expect(base64Length(ATTACHMENT_INGEST_CHUNK_MAX_BYTES)).toBeLessThan(MAX_MESSAGE_BYTES);
+    expect(base64Length(ARTIFACT_CHUNK_MAX_BYTES)).toBeLessThan(MAX_MESSAGE_BYTES);
   });
 
   it("negative control: the expansion is what the ceiling binds, not the raw length", () => {

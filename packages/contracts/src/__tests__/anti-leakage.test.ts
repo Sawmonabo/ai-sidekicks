@@ -75,7 +75,6 @@ import * as contracts from "../index.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
-const LAST_SEEN = "2026-05-22T14:29:45.000Z";
 const DEVICE_ID = "device-7c4a-9b1c-1b7c";
 const DEVICE_TYPE = "desktop";
 
@@ -99,7 +98,6 @@ const buildValidMachinePresence = () => ({
       deviceType: DEVICE_TYPE,
       appVisible: true,
       state: "online" as PresenceState,
-      lastSeen: LAST_SEEN,
     },
   ],
 });

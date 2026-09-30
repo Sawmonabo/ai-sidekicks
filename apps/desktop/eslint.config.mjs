@@ -601,7 +601,7 @@ export default [
   // with no lint error anywhere. The ban is therefore on the NAME as well as on the
   // package: a renderer module outside `services/**` may import types and non-schema
   // values from contracts (`SESSION_EVENT_CATEGORY_BY_TYPE`, `createStubBridge`,
-  // `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`) and no binding whose name ends in `Schema`.
+  // `ARTIFACT_CHUNK_MAX_BYTES`) and no binding whose name ends in `Schema`.
   //
   // WHY THE IMPORT AND NOT THE CALL. A `.parse(` / `.safeParse(` selector was the
   // other candidate and is measurably worse in both directions. `.parse(` is not a

@@ -3,17 +3,17 @@
 // `run.*` method table, which also serves the queue (`run-queue.ts`) and a child's
 // own controls (`run-children.ts`).
 //
-// This module owns the branded `InterventionId` and three closed sets every other
-// module imports from here rather than restating: `RunState`,
-// `RunFailureCategory` and `InterventionState`.
+// This module owns the branded `InterventionId` and two closed sets every other
+// module imports from here rather than restating: `RunFailureCategory` and
+// `InterventionState`. `RunState` is in `./run-state.js`, below the run modules.
 //
 // It imports downward only. The shapes below compose `./provider-driver.js`,
-// `./run-children.js`, `./run-queue.js`, `./session-controls.js`,
-// `./session-cost.js` and `./session.js`, each an eager module-scope Zod
-// initializer, so a back-import from any of them would throw `ReferenceError` at
-// import time rather than fail to compile. The same reason keeps the message
-// bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its `SteerPayload`
-// applies them and cannot import from here.
+// `./run-children.js`, `./run-queue.js`, `./run-state.js`,
+// `./session-controls.js`, `./session-cost.js` and `./session.js`, each an eager
+// module-scope Zod initializer, so a back-import from any of them would throw
+// `ReferenceError` at import time rather than fail to compile. The same reason
+// keeps the message bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its
+// `SteerPayload` applies them and cannot import from here.
 //
 // Request schemas use the double-T `z.ZodType<T, T>` form and response and
 // event schemas the single-T `z.ZodType<T>` form, matching `session.ts`: only
@@ -85,12 +85,18 @@ import {
   type QueueReorderRequest,
   type RunQueueSubscribeRequest,
 } from "./run-queue.js";
+import { RunStateSchema, type RunState } from "./run-state.js";
 import {
   RunSafetyBufferingUpdatedPayloadSchema,
   type RunSafetyBufferingUpdatedPayload,
 } from "./session-controls.js";
 import { UsdMicrosSchema } from "./session-cost.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 // --------------------------------------------------------------------------
 // Branded identifiers
@@ -107,7 +113,7 @@ export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
 // `RunFailureCategory`'s values carry a space by design: they are the wire
 // literals, not identifiers.
 //
-// All three are typed double-T (`z.ZodType<T, T>`), as `QueueItemState` is: a
+// Both are typed double-T (`z.ZodType<T, T>`), as `QueueItemState` is: a
 // set that composes into a request schema loses Standard Schema V1 input
 // inference the moment its input degrades to `unknown` (see
 // `./internal/branded.ts`), and the sets stay alike.
@@ -126,34 +132,6 @@ export const InterventionStateSchema: z.ZodType<InterventionState, InterventionS
   "rejected",
   "degraded",
   "expired",
-]);
-
-/**
- * Where a run stands. `pausing` is the step in flight finishing after a pause was
- * asked for; the run reads `paused` once nothing runs.
- */
-export type RunState =
-  | "queued"
-  | "starting"
-  | "running"
-  | "waiting_for_approval"
-  | "waiting_for_input"
-  | "pausing"
-  | "paused"
-  | "completed"
-  | "interrupted"
-  | "failed";
-export const RunStateSchema: z.ZodType<RunState, RunState> = z.enum([
-  "queued",
-  "starting",
-  "running",
-  "waiting_for_approval",
-  "waiting_for_input",
-  "pausing",
-  "paused",
-  "completed",
-  "interrupted",
-  "failed",
 ]);
 
 export type RunFailureCategory =
@@ -179,6 +157,7 @@ export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureC
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
+  .max(FILE_PATH_MAX_LEN)
   .refine((value) => !value.includes("\0"), {
     message: "Filesystem path MUST NOT contain a NUL byte.",
   });

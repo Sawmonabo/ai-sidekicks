@@ -16,7 +16,7 @@ import { brandedUuidIdSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */
@@ -75,7 +75,7 @@ export const PlanProposedPayloadSchema: z.ZodType<PlanProposedPayload> = z
     text: z.string(),
     stepCount: z.number().int().nonnegative(),
     fileCount: z.number().int().nonnegative(),
-    planFilePath: z.string().min(1).optional(),
+    planFilePath: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
   })
   .strict();
 

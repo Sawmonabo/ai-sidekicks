@@ -9,8 +9,8 @@
 // native view per page in step with the list.
 import { z } from "zod";
 
-import { decodedByteLength } from "./internal/base64.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { MAX_MESSAGE_BYTES } from "./jsonrpc.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -97,14 +97,12 @@ export const PreviewAddressRefusedDetailsSchema: z.ZodType<PreviewAddressRefused
 // Pages
 // ---------------------------------------------------------------------------
 
-/** The longest page icon the list carries, in decoded bytes. */
-export const PREVIEW_FAVICON_MAX_BYTES: number = 64 * 1024;
-
 /**
  * A page's own icon, as the image's bytes rather than its address. The console
  * draws only images it holds (its content policy admits `data:` and nothing
  * remote), another device cannot reach an icon a loopback page serves, and a
- * released page keeps its icon in the strip while nothing is loaded.
+ * released page keeps its icon in the strip while nothing is loaded. The encoded
+ * icon is held to one message frame, the most any single member can carry.
  */
 export interface PreviewFavicon {
   mediaType: string;
@@ -113,12 +111,7 @@ export interface PreviewFavicon {
 const PreviewFaviconSchema: z.ZodType<PreviewFavicon, PreviewFavicon> = z
   .object({
     mediaType: z.string().regex(/^image\/[a-z0-9.+-]+$/u, "mediaType must be an image type"),
-    data: z
-      .base64()
-      .min(1)
-      .refine((value) => decodedByteLength(value) <= PREVIEW_FAVICON_MAX_BYTES, {
-        message: `data must decode to at most ${PREVIEW_FAVICON_MAX_BYTES} bytes`,
-      }),
+    data: z.base64().min(1).max(MAX_MESSAGE_BYTES),
   })
   .strict();
 

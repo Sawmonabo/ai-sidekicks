@@ -23,7 +23,7 @@ const REGISTERED_CALL = "presence.read";
 /** A call the registry deliberately does not bind. */
 const UNREGISTERED_CALL = "gitflow.branchContextRead";
 
-/** The reply `presence.read` registers: devices, each with the five members. */
+/** The reply `presence.read` registers: devices, each with the four members. */
 const ON_CONTRACT_REPLY = {
   devices: [
     {
@@ -31,7 +31,6 @@ const ON_CONTRACT_REPLY = {
       deviceType: "desktop",
       appVisible: true,
       state: "online",
-      lastSeen: "2026-01-01T14:20:00.500Z",
     },
   ],
 };

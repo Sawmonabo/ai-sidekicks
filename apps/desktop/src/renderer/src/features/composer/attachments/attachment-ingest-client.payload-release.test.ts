@@ -12,7 +12,7 @@
 // as wrong: a refused upload is retried in place, and it can only replay bytes it still
 // has.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES, type ArtifactId } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES, type ArtifactId } from "@ai-sidekicks/contracts";
 
 import { describe, expect, it } from "vitest";
 
@@ -91,9 +91,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
-    client.attach(
-      sourceOver("attachment-two", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-two", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
 
     const [refused] = client.snapshot;
@@ -189,9 +187,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.holdChunks();
-    client.attach(
-      sourceOver("attachment-two", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-two", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;

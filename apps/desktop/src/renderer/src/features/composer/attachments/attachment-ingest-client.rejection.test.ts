@@ -7,7 +7,7 @@
 // it is reported on the diagnostic band. A rejected port call is neither: it propagates out
 // of the driver unchanged.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -48,7 +48,7 @@ describe("ingest client — a file that stops being readable", () => {
     const movable = movableSourceOver(
       "attachment-moved",
       "capture.bin",
-      ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2,
+      ARTIFACT_CHUNK_MAX_BYTES * 2,
     );
     movable.moveFile();
     client.attach(movable.source);
@@ -68,9 +68,7 @@ describe("ingest client — a file that stops being readable", () => {
     // happened, which would report a healthy upload as a failure.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    client.attach(
-      sourceOver("attachment-two", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-two", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
 
     const [entry] = client.snapshot;

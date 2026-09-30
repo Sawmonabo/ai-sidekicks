@@ -8,7 +8,7 @@
 // on the console's own frozen clock and renders the real card from the snapshot it
 // publishes, which is the composition the composer's attachment strip makes.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
 import { act, render } from "@testing-library/react";
 import { StrictMode, type ReactElement } from "react";
@@ -124,7 +124,7 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     const clock = new ManualClock(START_MILLISECONDS);
     const firstChunkGate = port.holdChunks();
     const stagedAttachments = stagedAttachmentsOver(port, clock);
-    stagedAttachments.attachFiles([pickedFile(ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2)]);
+    stagedAttachments.attachFiles([pickedFile(ARTIFACT_CHUNK_MAX_BYTES * 2)]);
     await crossMacrotaskBoundary();
 
     // Half a disclosure window in, the second chunk is gated before the first is let

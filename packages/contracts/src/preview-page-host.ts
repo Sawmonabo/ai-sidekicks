@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { PreviewAddressSchema, PreviewPageIdSchema, type PreviewPageId } from "./preview.js";
+import { FILE_PATH_MAX_LEN } from "./session.js";
 
 /**
  * One debug-protocol message between the daemon's relay and a page's in-process
@@ -129,7 +130,7 @@ export const PreviewCookieSchema: z.ZodType<PreviewCookie, PreviewCookie> = z
     name: z.string(),
     value: z.string(),
     domain: z.string().min(1),
-    path: z.string().min(1),
+    path: z.string().min(1).max(FILE_PATH_MAX_LEN),
     expires: z.number(),
     httpOnly: z.boolean(),
     secure: z.boolean(),

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ChildInterruptRequestSchema,
+  ChildInterruptResponseSchema,
   ChildPauseSetRequestSchema,
   ChildPauseSetResponseSchema,
   ChildrenStopResponseSchema,
@@ -37,6 +38,16 @@ describe("a child's controls", () => {
     const { expectedRunVersion: _version, ...withoutComparand } = control;
     expect(
       ChildSteerRequestSchema.safeParse({ ...withoutComparand, content: "Skip the docs" }).success,
+    ).toBe(false);
+  });
+
+  it("answers an interrupt with where the child stands, a finished child with its finished state", () => {
+    expect(
+      ChildInterruptResponseSchema.safeParse({ childHandle: "task-7", state: "completed" }).success,
+    ).toBe(true);
+    expect(
+      ChildInterruptResponseSchema.safeParse({ childHandle: "task-7", state: "already_ended" })
+        .success,
     ).toBe(false);
   });
 

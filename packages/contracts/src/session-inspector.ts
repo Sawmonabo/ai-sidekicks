@@ -11,7 +11,7 @@ import { composedTextSchema, countSchema, percentSchema } from "./internal/wire-
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 import { SessionAddressedRequestSchema, type SessionAddressedRequest } from "./session-controls.js";
 
 // --------------------------------------------------------------------------
@@ -75,6 +75,9 @@ export type SessionContextBreakdown =
       outputTokens: number;
       reasoningTokens: number;
     };
+
+/** A path the daemon composed, held to the longest path the wire carries. */
+const composedPathSchema: z.ZodString = composedTextSchema.max(FILE_PATH_MAX_LEN);
 
 const contextPartSchema = z.object({ name: composedTextSchema, tokens: countSchema }).strict();
 const contextCategorySchema = z
@@ -166,12 +169,12 @@ export interface SessionMemoryReadResponse {
 export const SessionMemoryReadResponseSchema: z.ZodType<SessionMemoryReadResponse> = z
   .object({
     sessionId: SessionIdSchema,
-    home: composedTextSchema,
+    home: composedPathSchema,
     autoMemory: z
       .object({ enabled: z.boolean(), enabledAtNextStart: z.boolean().optional() })
       .strict(),
     entries: z.array(
-      z.object({ path: composedTextSchema, kind: z.enum(["file", "folder"]) }).strict(),
+      z.object({ path: composedPathSchema, kind: z.enum(["file", "folder"]) }).strict(),
     ),
   })
   .strict();
@@ -247,7 +250,7 @@ export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
         folders: z.array(
           z
             .object({
-              folder: composedTextSchema,
+              folder: composedPathSchema,
               hooks: z.array(
                 z
                   .object({
@@ -257,7 +260,7 @@ export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
                     command: composedTextSchema.optional(),
                     matcher: composedTextSchema.optional(),
                     timeoutSeconds: countSchema,
-                    sourcePath: composedTextSchema,
+                    sourcePath: composedPathSchema,
                     source: composedTextSchema,
                     enabled: z.boolean(),
                     managed: z.boolean(),
@@ -267,7 +270,7 @@ export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
                   .strict(),
               ),
               errors: z.array(
-                z.object({ path: composedTextSchema, message: composedTextSchema }).strict(),
+                z.object({ path: composedPathSchema, message: composedTextSchema }).strict(),
               ),
               warnings: z.array(composedTextSchema),
             })
@@ -279,7 +282,7 @@ export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
       .object({
         sessionId: SessionIdSchema,
         provider: z.literal("claude"),
-        files: z.array(z.object({ path: composedTextSchema }).strict()),
+        files: z.array(z.object({ path: composedPathSchema }).strict()),
       })
       .strict(),
   ]);

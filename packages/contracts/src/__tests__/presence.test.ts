@@ -31,7 +31,6 @@ const SECOND_DEVICE_ID = "device-9b1c-1b7c-7c4a";
 const DEVICE_TYPE = "desktop";
 const SECOND_DEVICE_TYPE = "mobile";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
-const LAST_SEEN = "2026-05-22T14:29:45.000Z";
 
 // Fixture returns a wire-shaped object without per-field brand casts —
 // safeParse accepts plain UUID strings and brands them on the way out.
@@ -386,7 +385,7 @@ describe.each([
 // =============================================================================
 //
 // Wire shape:
-//   `{devices: Array<{deviceId, deviceType, appVisible, state, lastSeen}>}`
+//   `{devices: Array<{deviceId, deviceType, appVisible, state}>}`
 //
 // `presence.read` answers with it and `presence.subscribe` pushes it.
 
@@ -395,7 +394,6 @@ const buildDeviceEntry = () => ({
   deviceType: DEVICE_TYPE,
   appVisible: true,
   state: "online" as PresenceState,
-  lastSeen: LAST_SEEN,
 });
 
 describe("MachinePresenceSchema (the devices connected to this machine)", () => {
@@ -406,7 +404,6 @@ describe("MachinePresenceSchema (the devices connected to this machine)", () => 
     expect(parsed.devices[0]?.deviceType).toBe(DEVICE_TYPE);
     expect(parsed.devices[0]?.appVisible).toBe(true);
     expect(parsed.devices[0]?.state).toBe("online");
-    expect(parsed.devices[0]?.lastSeen).toBe(LAST_SEEN);
   });
 
   it("accepts an empty devices array (no device connected)", () => {
@@ -423,7 +420,6 @@ describe("MachinePresenceSchema (the devices connected to this machine)", () => 
           deviceType: SECOND_DEVICE_TYPE,
           appVisible: false,
           state: "reconnecting" as PresenceState,
-          lastSeen: LAST_SEEN,
         },
       ],
     };
@@ -431,7 +427,7 @@ describe("MachinePresenceSchema (the devices connected to this machine)", () => 
     expect(parsed.devices).toHaveLength(2);
   });
 
-  it.each(["deviceId", "deviceType", "appVisible", "state", "lastSeen"] as const)(
+  it.each(["deviceId", "deviceType", "appVisible", "state"] as const)(
     "rejects a device element missing required field: %s",
     (field) => {
       const broken = { ...buildDeviceEntry() } as Record<string, unknown>;
@@ -458,18 +454,6 @@ describe("MachinePresenceSchema (the devices connected to this machine)", () => 
   it("rejects a device element with unknown state (composes from PresenceStateSchema)", () => {
     const broken = { ...buildDeviceEntry(), state: "away" };
     expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
-  });
-
-  it("rejects a device element with non-ISO lastSeen", () => {
-    const broken = { ...buildDeviceEntry(), lastSeen: "an hour ago" };
-    expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
-  });
-
-  it("accepts lastSeen with numeric offset (RFC 3339 section 5.6)", () => {
-    const payload = {
-      devices: [{ ...buildDeviceEntry(), lastSeen: "2026-05-22T08:29:45-04:00" }],
-    };
-    expect(MachinePresenceSchema.safeParse(payload).success).toBe(true);
   });
 
   it("rejects response missing the devices field", () => {

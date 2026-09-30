@@ -11,7 +11,12 @@ import { z } from "zod";
 
 import { countSchema } from "../internal/wire-scalars.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "../session.js";
 import {
   ChangeRequestNumberSchema,
   HostHandleSchema,
@@ -276,7 +281,7 @@ export interface ReviewThread {
 const ReviewThreadSchema: z.ZodType<ReviewThread> = z
   .object({
     threadId: HostHandleSchema,
-    path: z.string().min(1).optional(),
+    path: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
     line: z.number().int().positive().optional(),
     side: DiffSideSchema.optional(),
     state: ReviewThreadStateSchema,

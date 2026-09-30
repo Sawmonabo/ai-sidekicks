@@ -24,8 +24,8 @@ import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 /** A device id the response schema accepts. Same seam, same run-time check. */
 const DEVICE_ID = "device-workstation";
 
-/** An RFC 3339 instant the response schema accepts. */
-const SEEN_AT = "2026-01-01T14:20:00.500Z";
+/** A device state the response schema accepts. */
+const ONLINE = "online";
 
 /**
  * A value the response schema rejects, spelled so a leak is unmistakable.
@@ -36,21 +36,20 @@ const SEEN_AT = "2026-01-01T14:20:00.500Z";
 const OFF_CONTRACT = "the person said something private";
 
 /** One served presence reply, in the shape the registered schema admits. */
-function servedPresenceReply(lastSeen: string, count = 1): unknown {
+function servedPresenceReply(state: string, count = 1): unknown {
   return {
     devices: Array.from({ length: count }, () => ({
       deviceId: DEVICE_ID,
       deviceType: "desktop",
       appVisible: true,
-      state: "online",
-      lastSeen,
+      state,
     })),
   };
 }
 
 describe("callDaemon — a served reply is a parsed reply", () => {
   it("serves the registered shape the daemon answered with", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(SEEN_AT));
+    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
 
     const reply = await callDaemon(bridge, "presence.read", {});
 
@@ -73,7 +72,6 @@ describe("callDaemon — a served reply is a parsed reply", () => {
           deviceType: "desktop",
           appVisible: true,
           state: "loitering",
-          lastSeen: SEEN_AT,
         },
       ],
     }));
@@ -101,7 +99,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
-    expect(refusal.detail).toContain("devices.0.lastSeen");
+    expect(refusal.detail).toContain("devices.0.state");
   });
 
   it("never puts the refused VALUE in the sentence a person reads", async () => {
@@ -124,13 +122,13 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.detail).toContain("and more");
-    expect(refusal.detail.match(/devices\.\d+\.lastSeen/gu)).toHaveLength(3);
+    expect(refusal.detail.match(/devices\.\d+\.state/gu)).toHaveLength(3);
   });
 });
 
 describe("callDaemon — a request the contract does not admit is never sent", () => {
   it("refuses before the call, and the daemon sees nothing", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(SEEN_AT));
+    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
 
     // The branded id is a compile-time marker over an opaque string, so a caller CAN
     // hand this seam a value the wire would refuse; the parse is what stops it
@@ -151,7 +149,7 @@ describe("callDaemon — a request the contract does not admit is never sent", (
     // The parsed request travels. A forwarded reference would let a caller keep
     // mutating an object the console had already declared sendable, and would leave
     // any member the schema normalizes un-normalized on the wire.
-    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(SEEN_AT));
+    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
     const request = {};
 
     await callDaemon(bridge, "presence.read", request);
@@ -190,11 +188,11 @@ describe("describeFailingPaths — a shape it cannot read yields no clause", () 
             throw new Error("this getter is the defect");
           },
         },
-        { path: ["devices", 0, "lastSeen"] },
+        { path: ["devices", 0, "state"] },
       ],
     };
 
-    expect(describeFailingPaths(mixed)).toBe(" (at devices.0.lastSeen)");
+    expect(describeFailingPaths(mixed)).toBe(" (at devices.0.state)");
   });
 
   it("names a segment it cannot render rather than throwing on it", () => {

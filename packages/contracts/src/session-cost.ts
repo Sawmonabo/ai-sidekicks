@@ -15,7 +15,7 @@ import {
   type BillingMode,
   type ProviderAccountId,
 } from "./provider-account.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN, type RunId } from "./provider-driver.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
 import {
   SessionIdSchema,
   UserIdSchema,
@@ -113,18 +113,6 @@ export const SessionCostReceiptRequestSchema: z.ZodType<
   SessionCostReceiptRequest,
   SessionCostReceiptRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
-
-/**
- * One run's row on the receipt.
- *
- * `aggregationScope` is required and closed at one value: the receipt is the one
- * surface that shows run-scoped cost, and every row declaring it is what lets that be
- * checked positively rather than by nobody having added a second scope.
- */
-export interface SessionCostReceiptRunRow {
-  runId: RunId;
-  aggregationScope: "run-only";
-}
 
 /**
  * One provider account's spend: its tokens and its dollars. `billingMode` labels the

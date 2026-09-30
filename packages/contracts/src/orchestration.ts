@@ -31,7 +31,7 @@ import {
   RunIdSchema,
   type RunId,
 } from "./provider-driver.js";
-import { RunStateSchema, type RunState } from "./run-control.js";
+import { RunStateSchema, type RunState } from "./run-state.js";
 import {
   OrchestrationBudgetReadRequestSchema,
   OrchestrationBudgetStateSchema,

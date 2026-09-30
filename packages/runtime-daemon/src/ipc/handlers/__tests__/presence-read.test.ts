@@ -46,9 +46,6 @@ const TEST_DEVICE_ID = "660e8400-e29b-41d4-a716-446655440001";
  * on `MachinePresenceSchema`. The mock `readPresence` returns this
  * verbatim so the registry's step-4 `safeParse(result)` succeeds and the
  * dispatched value reaches the test assertion intact.
- *
- * The liveness timestamp is RFC 3339 with an explicit offset — the schema uses
- * `z.iso.datetime({ offset: true })` per the presence.ts wire contract.
  */
 function buildMachinePresence(): MachinePresence {
   return {
@@ -58,7 +55,6 @@ function buildMachinePresence(): MachinePresence {
         deviceType: "desktop",
         appVisible: true,
         state: "online",
-        lastSeen: "2026-01-22T19:14:35.000Z",
       },
     ],
   };

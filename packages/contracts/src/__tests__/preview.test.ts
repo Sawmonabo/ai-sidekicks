@@ -11,10 +11,10 @@ import {
   PreviewPageOpenResponseSchema,
   PreviewPageReorderRequestSchema,
   PreviewZoomRequestSchema,
-  PREVIEW_FAVICON_MAX_BYTES,
   type PreviewPage,
   type PreviewPageId,
 } from "../preview.js";
+import { MAX_MESSAGE_BYTES } from "../jsonrpc.js";
 import { webAddressFault } from "../web-address.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -110,8 +110,8 @@ describe("preview.pageList frames", () => {
     ).toBe(true);
   });
 
-  it("refuses an icon past the cap, and one that is not an image", () => {
-    const oversized = btoa("x".repeat(PREVIEW_FAVICON_MAX_BYTES + 1));
+  it("refuses an icon past one message frame, and one that is not an image", () => {
+    const oversized = "A".repeat(MAX_MESSAGE_BYTES + 4);
     const tooLarge = { ...PAGE, favicon: { mediaType: "image/png", data: oversized } };
     const notAnImage = { ...PAGE, favicon: { mediaType: "text/html", data: "iVBORw0KGgo=" } };
     for (const page of [tooLarge, notAnImage]) {

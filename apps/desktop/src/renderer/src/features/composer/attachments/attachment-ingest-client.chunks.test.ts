@@ -5,7 +5,7 @@
 // every chunk request — the only vantage point from which "the daemon received the file"
 // is a checkable claim rather than an intention.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encodeBase64 } from "./base64.js";
@@ -39,7 +39,7 @@ describe("ingest client — the payload reaches the daemon", () => {
   it("sends the file as cap-sized slices, in order, inside the frame ceiling", async () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    const byteLength = ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2 + 7;
+    const byteLength = ARTIFACT_CHUNK_MAX_BYTES * 2 + 7;
     const payload = patternedBytes(byteLength);
     client.attach(sourceOver("attachment-three", "capture.bin", byteLength));
     await crossMacrotaskBoundary();
@@ -52,11 +52,9 @@ describe("ingest client — the payload reaches the daemon", () => {
     expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1, 2]);
     expect(port.chunkCalls.every((call) => carriesAPayload({ ...call }))).toBe(true);
     expect(port.chunkCalls.map((call) => call.chunk)).toStrictEqual([
-      encodeBase64(payload.subarray(0, ATTACHMENT_INGEST_CHUNK_MAX_BYTES)),
-      encodeBase64(
-        payload.subarray(ATTACHMENT_INGEST_CHUNK_MAX_BYTES, ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-      ),
-      encodeBase64(payload.subarray(ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2)),
+      encodeBase64(payload.subarray(0, ARTIFACT_CHUNK_MAX_BYTES)),
+      encodeBase64(payload.subarray(ARTIFACT_CHUNK_MAX_BYTES, ARTIFACT_CHUNK_MAX_BYTES * 2)),
+      encodeBase64(payload.subarray(ARTIFACT_CHUNK_MAX_BYTES * 2)),
     ]);
     for (const call of port.chunkCalls) {
       // The cap binds the decoded bytes and the ceiling binds what is written, which is
@@ -82,7 +80,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     // daemon spooled, and could not tell the two apart.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
-    const byteLength = ATTACHMENT_INGEST_CHUNK_MAX_BYTES + 7;
+    const byteLength = ARTIFACT_CHUNK_MAX_BYTES + 7;
     client.attach(sourceOver("attachment-four", "capture.bin", byteLength));
     await crossMacrotaskBoundary();
 
@@ -113,9 +111,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
-    client.attach(
-      sourceOver("attachment-four", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-four", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
 
     expect(port.chunkCalls).toHaveLength(1);
