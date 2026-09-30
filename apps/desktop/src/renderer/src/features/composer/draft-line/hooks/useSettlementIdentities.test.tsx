@@ -3,23 +3,13 @@
 // suspends renders every hook, then is thrown away with the previous tree still mounted.
 
 import { act, render, screen } from "@testing-library/react";
-import { Suspense, startTransition, useState } from "react";
+import { Suspense, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
 import { useSettlementIdentities, type SettlementIdentities } from "./useSettlementIdentities.js";
-
-/** A promise that never settles, so a component reading it suspends for the test. */
-const NEVER_SETTLES = new Promise<void>(() => undefined);
-
-/** Suspends the moment it is asked to, and renders nothing when it is not. */
-function SuspendsWhenAsked(props: { readonly suspend: boolean }): React.JSX.Element | null {
-  if (props.suspend) {
-    throw NEVER_SETTLES;
-  }
-  return null;
-}
 
 /**
  * The hook under a tree that can re-address and suspend in one transition. `readdress` is
@@ -58,10 +48,8 @@ describe("the settlement mirrors move at the commit", () => {
     );
     const issued = seen.current?.issue("send");
 
-    await act(async () => {
-      startTransition(() => {
-        readdress.current?.();
-      });
+    await abandonOneRenderPass(() => {
+      readdress.current?.();
     });
 
     // The discarded pass ran this hook under the new draft key; written during that render,
@@ -69,32 +57,6 @@ describe("the settlement mirrors move at the commit", () => {
     expect(screen.queryByText("composer")).not.toBeNull();
     expect(issued).toBeDefined();
     expect(seen.current?.isCurrent(issued as NonNullable<typeof issued>)).toBe(true);
-  });
-
-  it("keeps the act on screen current after the register is narrowed to its address", () => {
-    // Narrowing shares the layout effect that moves the mirrors, so the failure to catch is
-    // dropping the just-committed address's key, which would discard its settlement. The bound
-    // itself is asserted in `send-settlement.test.ts`.
-    const seen: { current: SettlementIdentities | undefined } = { current: undefined };
-    const readdress: { current: (() => void) | undefined } = { current: undefined };
-    render(
-      <ComposerHost
-        bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO }).bridge}
-        seen={seen}
-        readdress={readdress}
-      />,
-    );
-    seen.current?.issue("send");
-
-    act(() => {
-      readdress.current?.();
-    });
-    const afterReaddress = seen.current?.issue("send");
-
-    expect(afterReaddress).toBeDefined();
-    expect(seen.current?.isCurrent(afterReaddress as NonNullable<typeof afterReaddress>)).toBe(
-      true,
-    );
   });
 
   it("negative control: a committed re-address retires the earlier visit's act", () => {

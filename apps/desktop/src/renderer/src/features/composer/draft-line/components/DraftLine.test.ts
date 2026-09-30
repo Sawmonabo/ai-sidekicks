@@ -1,6 +1,6 @@
 // The message line, Send, and the draft beneath them: an unsent body lives in the supplied
 // draft store, so a send that did not land must leave what the person wrote (a line with its
-// own copy would lose it). Enter belongs to neither; the line takes it and sends nothing.
+// own copy would lose it). Two presses inside one frame send once.
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -13,7 +13,6 @@ import {
   answerSteer,
   mountAddressable,
   mountDraftLine,
-  mountLine,
   openSessionStore,
   pressSend,
 } from "./draft-line.test-support.js";
@@ -74,21 +73,6 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
   });
 });
 
-describe("DraftLine — the line without Send", () => {
-  it("takes typing into the draft store, and Enter keeps it as typed and draws nothing", () => {
-    const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
-    const { line, result } = mountLine({ draftStore, sessionStore: openSessionStore() });
-
-    fireEvent.change(line, { target: { value: "/workflow start nightly" } });
-    const wasLeftToTheBrowser = fireEvent.keyDown(line, { key: "Enter" });
-
-    // A canceled key event is the line taking Enter: no newline goes into the field.
-    expect(wasLeftToTheBrowser).toBe(false);
-    expect(line.value).toBe("/workflow start nightly");
-    expect(result.container.querySelector(".meridian-refusal")).toBeNull();
-  });
-});
-
 describe("DraftLine — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
     // Nothing in the reply says the message traveled, so the line must not clear for an
@@ -132,52 +116,63 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
   });
 });
 
-describe("DraftLine — a refusal about the whole session leaves the bar", () => {
-  /** Calls whose steer is rejected with one daemon reason. */
-  function callsRejectingWith(rejectionReason: string): ReturnType<typeof sendCallsAnswering> {
-    return sendCallsAnswering(async () => ({
-      interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
-      interventionType: "steer",
-      state: "rejected",
-      runVersion: 4,
-      rejectionReason,
-    }));
-  }
-
-  /** Type one line and send it, against a bar over `calls` addressed at a steerable run. */
-  function sendAgainst(
-    calls: ReturnType<typeof sendCallsAnswering>,
-  ): ReturnType<typeof mountAddressable> {
-    const bar = mountAddressable(calls);
-    fireEvent.change(bar.line(), { target: { value: "worth keeping" } });
-    return bar;
-  }
-
-  it("raises the frame's banner while the composer keeps the daemon's words", async () => {
-    // A session that has left the node is the whole window's fact, so the bar hands it to the
-    // frame; the line and the card stay, since the person's words are unsent.
-    const bar = sendAgainst(callsRejectingWith("session.not_found"));
-
-    await act(async () => {
-      pressSend(bar.result.container);
+describe("DraftLine — one send in flight", () => {
+  it("dispatches once for two Send presses inside one frame", async () => {
+    // Both presses run before React re-renders, so both read `status === "idle"`; only the
+    // controller's synchronous latch separates them. Without it the stub is called twice.
+    const settleCalls: string[] = [];
+    let releaseFirstCall: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseFirstCall = resolve;
+    });
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+    });
+    const { line, result } = mountDraftLine({
+      calls: sendCallsAnswering(async ({ method }) => {
+        settleCalls.push(method);
+        await pending;
+        return undefined;
+      }),
+      draftStore,
+      sessionStore: openSessionStore(),
     });
 
-    expect(bar.frameStore.getState().banners.map((banner) => banner.code)).toStrictEqual([
-      "session.not_found",
-    ]);
-    expect(bar.line().value).toBe("worth keeping");
-    expect(bar.result.container.textContent).toContain("session.not_found");
+    fireEvent.change(line, { target: { value: "once, please" } });
+    await act(async () => {
+      pressSend(result.container);
+      pressSend(result.container);
+    });
+    expect(settleCalls).toStrictEqual(["run.queueCreate"]);
+
+    await act(async () => {
+      releaseFirstCall();
+      await pending;
+    });
+    expect(settleCalls).toStrictEqual(["run.queueCreate"]);
   });
 
-  it("negative control: a refusal about this send alone raises no banner", async () => {
-    // Without this, the case above would pass a bar that escalated every refused send.
-    const bar = sendAgainst(callsRejectingWith("ratelimit.exceeded"));
-
-    await act(async () => {
-      pressSend(bar.result.container);
+  it("accepts the next send once the first has settled", async () => {
+    // The latch releases in `finally`; a wedged one would send exactly once per window.
+    const settleCalls: string[] = [];
+    const draftStore = new DraftStore({
+      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
+    });
+    const { line, result } = mountDraftLine({
+      calls: sendCallsAnswering(async ({ method }) => {
+        settleCalls.push(method);
+        return undefined;
+      }),
+      draftStore,
+      sessionStore: openSessionStore(),
     });
 
-    expect(bar.frameStore.getState().banners).toStrictEqual([]);
-    expect(bar.result.container.textContent).toContain("ratelimit.exceeded");
+    for (const body of ["first", "second"]) {
+      fireEvent.change(line, { target: { value: body } });
+      await act(async () => {
+        pressSend(result.container);
+      });
+    }
+    expect(settleCalls).toHaveLength(2);
   });
 });

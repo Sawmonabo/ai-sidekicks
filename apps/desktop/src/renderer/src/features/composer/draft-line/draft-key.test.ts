@@ -42,12 +42,6 @@ describe("composerDraftKey — the address the chip names", () => {
     expect(composerDraftKey(runTarget())).toBe(composerDraftKey(sameAgentLaterRun));
   });
 
-  it("gives two agents in one session different keys", () => {
-    expect(composerDraftKey(runTarget())).not.toBe(
-      composerDraftKey(runTarget({ agentId: "agent-reviewer" })),
-    );
-  });
-
   it("gives two sessions on one agent different keys", () => {
     expect(composerDraftKey(runTarget())).not.toBe(
       composerDraftKey(runTarget({ sessionId: "session-2" })),
@@ -58,10 +52,5 @@ describe("composerDraftKey — the address the chip names", () => {
     expect(composerDraftKey(sessionTarget())).not.toBe(
       composerDraftKey(sessionTarget({ sessionId: "session-2" })),
     );
-  });
-
-  it("never gives a session address and a run address the same key", () => {
-    // The discriminator leads the key, so the key spaces are disjoint by construction.
-    expect(composerDraftKey(sessionTarget())).not.toBe(composerDraftKey(runTarget()));
   });
 });

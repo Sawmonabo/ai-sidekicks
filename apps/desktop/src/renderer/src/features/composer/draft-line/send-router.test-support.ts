@@ -15,7 +15,7 @@ export const RUN_ID = "2b3c4d5e-6f7a-4b1c-9d2e-4f5a6b7c8d9e";
 /** The idempotency key the router mints in tests. */
 export const PINNED_REQUEST_UUID = "3c4d5e6f-7a8b-4c1d-8e2f-5a6b7c8d9e0f";
 /** Id of the intervention in `interventionResponse`. */
-export const INTERVENTION_ID = "4d5e6f7a-8b9c-4d1e-8f2a-6b7c8d9e0f1a";
+const INTERVENTION_ID = "4d5e6f7a-8b9c-4d1e-8f2a-6b7c8d9e0f1a";
 
 /**
  * One registered `run.intervene` response, in the shape the wire admits. The router reads its
@@ -62,9 +62,6 @@ export const RUN_TARGET: ComposerRunTarget = {
   providerFailureDetail: undefined,
 };
 
-/** The daemon-call mock these cases assert on, called as `(method, params)`. */
-export type DaemonCallMock = Mock & ((method: string, params: unknown) => Promise<unknown>);
-
 /** Stub send calls that answer as the case says; `answer` gets the method and request. */
 export function sendCallsAnswering(
   answer: (call: RecordedDaemonCall) => Promise<unknown>,
@@ -93,3 +90,6 @@ export function routerWith(
     mintIdempotencyKey: () => PINNED_REQUEST_UUID,
   });
 }
+
+/** The daemon-call mock these cases assert on, called as `(method, params)`. */
+type DaemonCallMock = Mock & ((method: string, params: unknown) => Promise<unknown>);

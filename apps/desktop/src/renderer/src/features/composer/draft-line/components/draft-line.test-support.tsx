@@ -18,28 +18,11 @@ import { DraftLine } from "./DraftLine.js";
 import { SendButton } from "./SendButton.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 
-/** One mounted line and Send, with the stores a case reads. */
-export interface MountedDraftLine {
-  readonly result: RenderResult;
-  readonly line: HTMLTextAreaElement;
-  /** The window store the bar escalates into, for a case that reads its banners. */
-  readonly frameStore: WindowStore;
-}
-
 /** An initialized, empty session store for the default session. */
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: 0, entities: [] });
   return sessionStore;
-}
-
-/** The mounted Send, or a throw naming what was missing. */
-export function sendButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector(".meridian-composer__primary");
-  if (!(button instanceof HTMLButtonElement)) {
-    throw new Error("the composer rendered no Send button");
-  }
-  return button;
 }
 
 /** Press the mounted Send, the way a pointer does. */
@@ -78,27 +61,21 @@ export function mountDraftLine(options: {
   return { result, line, frameStore };
 }
 
-/** The message line alone, as the composer host mounts it: no Send, no calls. */
-export function mountLine(options: {
-  readonly draftStore: DraftStore;
-  readonly sessionStore: SessionStore;
-}): MountedDraftLine {
-  const frameStore = new WindowStore();
-  const result = render(
-    <DraftLine
-      sessionStore={options.sessionStore}
-      bridge={inertBridge()}
-      draftStore={options.draftStore}
-      frameStore={frameStore}
-      route={DEFAULT_ROUTE}
-      focusedPane={undefined}
-    />,
-  );
-  const line = result.container.querySelector("textarea");
-  if (!(line instanceof HTMLTextAreaElement)) {
-    throw new Error("the message line rendered no field");
+/** One mounted line and Send, with the stores a case reads. */
+interface MountedDraftLine {
+  readonly result: RenderResult;
+  readonly line: HTMLTextAreaElement;
+  /** The window store the bar escalates into, for a case that reads its banners. */
+  readonly frameStore: WindowStore;
+}
+
+/** The mounted Send, or a throw naming what was missing. */
+function sendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector(".meridian-composer__primary");
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error("the composer rendered no Send button");
   }
-  return { result, line, frameStore };
+  return button;
 }
 
 /** The transport the bar's held state belongs to; every call goes through `calls`. */
@@ -135,7 +112,7 @@ export async function answerSteer(call: RecordedDaemonCall): Promise<unknown> {
 }
 
 /** The first agent's steerable run. */
-export const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
+const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
 /** The second agent's steerable run. */
 export const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
 /**
