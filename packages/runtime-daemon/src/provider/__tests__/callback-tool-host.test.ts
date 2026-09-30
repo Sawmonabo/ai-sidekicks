@@ -18,17 +18,19 @@ import type {
 import {
   bindCallbackToolsForSpawn,
   CallbackToolHost,
-  composeCallbackToolContentItems,
-  createCallbackToolAskResponder,
   describeArgumentRefusal,
   resolveRegisteredCallbackToolName,
   type CallbackToolActivityRecord,
   type CallbackToolApprovalOutcome,
   type CallbackToolApprovalRequest,
   type CallbackToolSpawnBinding,
+} from "../callback-tool-host.js";
+import {
+  composeCallbackToolContentItems,
+  createCallbackToolAskResponder,
   type RoutedProviderAsk,
   type RoutedProviderAskResponder,
-} from "../callback-tool-host.js";
+} from "../callback-tool-ask-responder.js";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
 
 const TEST_SESSION_ID: SessionId = "11111111-1111-4111-8111-111111111111" as SessionId;

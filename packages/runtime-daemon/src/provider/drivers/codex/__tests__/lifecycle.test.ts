@@ -39,9 +39,9 @@ import {
 import {
   bindCallbackToolsForSpawn,
   CallbackToolHost,
-  createCallbackToolAskResponder,
   type CallbackToolSpawnBinding,
 } from "../../../callback-tool-host.js";
+import { createCallbackToolAskResponder } from "../../../callback-tool-ask-responder.js";
 import {
   DriverDiagnosticsEmitter,
   type DriverDiagnosticRecord,
