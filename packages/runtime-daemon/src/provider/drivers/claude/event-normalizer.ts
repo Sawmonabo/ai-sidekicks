@@ -182,8 +182,9 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.api_retry",
     normalizedKind: "api_retry",
   },
-  // The one rename: `rate_limit_event` becomes `rate_limits`, an account quota snapshot. It is the
-  // preferred carrier because it is pushed, with no round trip on the experimental `get_usage`.
+  // The rename happens here: the wire's `rate_limit_event` becomes the `rate_limits` kind, an
+  // account quota snapshot. It is the preferred carrier because it is pushed, with no round trip
+  // on the experimental `get_usage`.
   "system/rate_limit_event": {
     disposition: "normalized",
     frameKind: "system/rate_limit_event",

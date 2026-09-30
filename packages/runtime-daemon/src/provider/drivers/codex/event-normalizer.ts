@@ -401,7 +401,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     transport: "server-notification",
     family: "tool_activity",
     eventType: "tool.result",
-    normalizedKind: "codex_exec_result",
+    normalizedKind: "command_exit",
   },
   "turn/moderationMetadata": {
     disposition: "not-evented",
