@@ -56,12 +56,6 @@ export interface Budget {
   readonly subjectSymbol: string | null;
   /** Why it is not measurable yet; non-null exactly when `status` is `"n/a"`. */
   readonly notMeasurableReason: string | null;
-  /**
-   * The size in bytes of the smallest extra subject this row's ceiling was derived to refuse;
-   * `null` when the figure was not chosen against one. The harness plants its control at exactly
-   * this number, so it reads it here instead of restating it.
-   */
-  readonly refusalControlBytes: number | null;
   readonly notes: string;
   /** Non-numeric conditions the budget also carries; gated elsewhere. */
   readonly additionalCriteria: readonly string[];
@@ -108,22 +102,6 @@ function requireString(owner: Record<string, unknown>, field: string, where: str
 function optionalString(owner: Record<string, unknown>, field: string): string | null {
   const value = owner[field];
   return typeof value === "string" && value !== "" ? value : null;
-}
-
-/** A positive figure where the field is present at all, refusing anything else. */
-function optionalPositiveNumber(
-  owner: Record<string, unknown>,
-  field: string,
-  where: string,
-): number | null {
-  const value = owner[field];
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    refuse(`${where}: \`${field}\` must be a positive finite number where it is present.`);
-  }
-  return value;
 }
 
 function requireNumber(owner: Record<string, unknown>, field: string, where: string): number {
@@ -195,7 +173,6 @@ function parseBudget(rawEntry: unknown, entryIndex: number): Budget {
     measuredBy,
     subjectSymbol,
     notMeasurableReason,
-    refusalControlBytes: optionalPositiveNumber(entry, "refusalControlBytes", where),
     notes: requireString(entry, "notes", where),
     additionalCriteria: Object.freeze(
       Array.isArray(additionalCriteria)
