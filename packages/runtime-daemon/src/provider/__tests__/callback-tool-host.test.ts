@@ -17,8 +17,8 @@ import {
 import {
   composeCallbackToolContentItems,
   createCallbackToolAskResponder,
-  type RoutedProviderAsk,
-} from "../callback-tool-ask-responder.js";
+} from "../drivers/codex/callback-tool-ask-responder.js";
+import type { CodexSessionServerRequest } from "../drivers/codex/server-requests.js";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
 import type { CallbackToolInvocation, CallbackToolResult } from "../provider-driver.js";
 
@@ -298,7 +298,9 @@ function buildAskResponder(harness: HostHarness) {
   return createCallbackToolAskResponder({ host: harness.host, approvalAskResponder: null });
 }
 
-function makeToolCallAsk(overrides?: Partial<RoutedProviderAsk>): RoutedProviderAsk {
+function makeToolCallAsk(
+  overrides?: Partial<CodexSessionServerRequest>,
+): CodexSessionServerRequest {
   return {
     method: TOOL_CALL_METHOD,
     askKind: "callback-tool",

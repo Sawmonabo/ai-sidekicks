@@ -1,37 +1,18 @@
 /**
- * Answers a provider's routed ask: a callback tool call goes to the host, an approval ask to the
- * approval responder. Also shapes the reply content the provider receives.
+ * Answers a routed Codex server request: a callback tool call goes to the host, an approval ask
+ * to the approval responder. Also shapes the reply content Codex receives.
  */
 
-import { type RunId, type SessionId } from "@ai-sidekicks/contracts";
-import type { CallbackToolHost } from "./callback-tool-host.js";
-import { CallbackToolInvocationSchema, type CallbackToolInvocation } from "./provider-driver.js";
-
-/**
- * One inbound provider ask carrying the session and run identity the daemon needs to adjudicate
- * it. Declared here, not imported from the Codex driver, which declares its own responder port; a
- * mismatch is a type error where the composition root binds them.
- */
-export interface RoutedProviderAsk {
-  /** The provider's own method name, verbatim and untrusted; a label only. */
-  readonly method: string;
-  readonly askKind: "callback-tool" | "approval";
-  /** The raw wire params, untrusted; this adapter parses what it needs. */
-  readonly params: unknown;
-  readonly sessionId: SessionId;
-  /** `null` when no turn is active: establishment, or after a turn retired. */
-  readonly runId: RunId | null;
-}
-
-/** The daemon's answer to one routed ask. */
-type RoutedProviderAskDecision =
-  | { readonly decision: "allow"; readonly payload?: Record<string, unknown> | undefined }
-  | { readonly decision: "refuse"; readonly reason: string };
-
-/** The port a provider band binds to have its routed asks answered. */
-export interface RoutedProviderAskResponder {
-  answer(request: RoutedProviderAsk): Promise<RoutedProviderAskDecision>;
-}
+import type { CallbackToolHost } from "../../callback-tool-host.js";
+import {
+  CallbackToolInvocationSchema,
+  type CallbackToolInvocation,
+} from "../../provider-driver.js";
+import type {
+  CodexServerRequestDecision,
+  CodexSessionServerRequest,
+  CodexSessionServerRequestResponder,
+} from "./server-requests.js";
 
 /** Construction inputs for {@link createCallbackToolAskResponder}. */
 export interface CallbackToolAskResponderOptions {
@@ -40,20 +21,20 @@ export interface CallbackToolAskResponderOptions {
    * The responder for `askKind: "approval"` asks, or an explicit `null` for a daemon composed
    * without one. Required-but-nullable so every construction site decides.
    */
-  readonly approvalAskResponder: RoutedProviderAskResponder | null;
+  readonly approvalAskResponder: CodexSessionServerRequestResponder | null;
 }
 
 /**
- * Composes the responder a provider band binds for routed asks: callback tool calls go to the
+ * Composes the responder the Codex driver binds for routed asks: callback tool calls go to the
  * {@link CallbackToolHost}, approval asks to the approval responder. Every path answers; a refusal
  * becomes the asking method's own refusal shape, not a protocol fault.
  */
 export function createCallbackToolAskResponder(
   options: CallbackToolAskResponderOptions,
-): RoutedProviderAskResponder {
+): CodexSessionServerRequestResponder {
   const { host, approvalAskResponder } = options;
   return {
-    async answer(request: RoutedProviderAsk): Promise<RoutedProviderAskDecision> {
+    async answer(request: CodexSessionServerRequest): Promise<CodexServerRequestDecision> {
       if (request.askKind === "approval") {
         if (approvalAskResponder === null) {
           // No diagnostic: the `callback_tool_*` kinds name this host's own conditions, so one here
@@ -99,10 +80,12 @@ export function createCallbackToolAskResponder(
 
 /**
  * Builds the `CallbackToolInvocation` one routed ask carries, or returns a `string` refusal reason
- * for the provider and the diagnostic. Field names are the pinned Codex `DynamicToolCallParams`
+ * for the provider and the diagnostic. Field names are the pinned `DynamicToolCallParams`
  * (`tool`, `callId`, `arguments`); a non-object `arguments` is refused.
  */
-function readCallbackToolInvocation(request: RoutedProviderAsk): CallbackToolInvocation | string {
+function readCallbackToolInvocation(
+  request: CodexSessionServerRequest,
+): CallbackToolInvocation | string {
   // A well-formed call raised outside any active turn cannot be attributed; `runId` is required so
   // no invocation is adjudicated against an invented run.
   if (request.runId === null) {
@@ -136,7 +119,7 @@ function readOptionalWireString(params: unknown, memberName: string): string | n
 }
 
 /**
- * The three content-item arms the pinned Codex `DynamicToolCallOutputContentItem` union declares,
+ * The three content-item arms the pinned `DynamicToolCallOutputContentItem` union declares,
  * each with the one member it requires. Keying by arm checks the union, not just the discriminator.
  */
 const CALLBACK_TOOL_CONTENT_ITEM_REQUIRED_MEMBERS: ReadonlyMap<string, string> = new Map([
