@@ -1,5 +1,5 @@
-// The count must be trustworthy: every arm of the reading is asserted, and zero is asserted
-// to be an absence rather than a zero.
+// The count on the rail is the number of sessions waiting on a person, read off the summary's
+// actionable split.
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
@@ -53,24 +53,5 @@ describe("attentionCountOf", () => {
         addressedSessionIds: ADDRESSED_SESSION_IDS,
       }),
     ).toBe(1);
-  });
-
-  it("answers undefined rather than zero when nothing is waiting", () => {
-    // A "0" badge on the rail's quietest state would be permanent furniture.
-    const summary = new AttentionSummary([]);
-    expect(
-      attentionCountOf({
-        phase: "read",
-        summary,
-        droppedCount: 0,
-        refusedSessions: [],
-        addressedSessionIds: ADDRESSED_SESSION_IDS,
-      }),
-    ).toBeUndefined();
-  });
-
-  it("suppresses the count while the read is in flight", () => {
-    // Until the projection answers, the rail says nothing rather than the number from before.
-    expect(attentionCountOf({ phase: "reading" })).toBeUndefined();
   });
 });

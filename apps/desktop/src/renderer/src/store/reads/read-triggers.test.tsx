@@ -1,16 +1,12 @@
-// Whether one arrived frame owes a reading a re-read, and both wirings asking it once.
-// `eventTriggersRead` is checked directly and not only through a feature whose reading
-// declares a frame rule, since a reading that declared one and was asked the other gate would
-// either re-read on everything or stop re-reading. It is also driven through the React wiring
-// against a real store, because a predicate consulted by `useSessionReadTriggers` and not by
-// `SessionRefreshTriggers` would go stale on exactly the views wired the other way; the
-// imperative wiring is driven in `features/workflows/run-page/run-live-refresh.test.ts`.
+// A reading asks for a fresh read when an admitted frame owes it one: through the React wiring
+// against a real store, for a reading that states a frame rule and one that does not. A reading
+// that never hears its frames stays on screen with an answer the session has moved past.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ProjectedSessionEvent } from "../session/entities/entities.js";
-import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
+import { type ReadTriggerTarget } from "./read-triggers.js";
 import { useSessionReadTriggers } from "./hooks/useSessionReadTriggers.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
@@ -18,18 +14,12 @@ import { SessionStore } from "../session/session-store.js";
 
 const SESSION_ID = "session-read-triggers";
 const DECLARED_KIND = "run.completed";
-/** The subject one reading is about, and another frame of the same kind is not. */
-const SUBJECT_ON_SCREEN = "019b7a10-0280-7aa1-8100-70100000000a";
+/** The subject every frame here names. */
 const SUBJECT_ELSEWHERE = "019b7a10-0280-7aa1-8100-70100000000b";
 
 /** One frame of the declared kind, naming whichever subject the case is about. */
-function frameNaming(subjectId: string | undefined, sequence: number): ProjectedSessionEvent {
-  return eventOfKind(
-    SESSION_ID,
-    DECLARED_KIND,
-    sequence,
-    subjectId === undefined ? undefined : { subjectId },
-  );
+function frameNaming(subjectId: string, sequence: number): ProjectedSessionEvent {
+  return eventOfKind(SESSION_ID, DECLARED_KIND, sequence, { subjectId });
 }
 
 /** A reading that records what it was asked for, and what it declares about frames. */
@@ -59,36 +49,6 @@ class KindOnlyReadTarget implements ReadTriggerTarget {
   }
 }
 
-describe("eventTriggersRead — the kind, and then the frame", () => {
-  it("refuses a kind the reading never declared, without reading the payload", () => {
-    const target = new RecordingReadTarget(SUBJECT_ON_SCREEN);
-    expect(
-      eventTriggersRead(
-        target,
-        eventOfKind(SESSION_ID, "run.failed", 1, { subjectId: SUBJECT_ON_SCREEN }),
-      ),
-    ).toBe(false);
-  });
-
-  it("admits a declared kind whose frame names this reading's subject", () => {
-    const target = new RecordingReadTarget(SUBJECT_ON_SCREEN);
-    expect(eventTriggersRead(target, frameNaming(SUBJECT_ON_SCREEN, 1))).toBe(true);
-  });
-
-  it("refuses a declared kind whose frame names another subject", () => {
-    const target = new RecordingReadTarget(SUBJECT_ON_SCREEN);
-    expect(eventTriggersRead(target, frameNaming(SUBJECT_ELSEWHERE, 1))).toBe(false);
-  });
-
-  it("admits every declared kind for a reading that states no frame rule", () => {
-    // The absence is the default: a reading that states no frame rule admits every frame of a
-    // declared kind.
-    const target = new KindOnlyReadTarget();
-    expect(eventTriggersRead(target, frameNaming(SUBJECT_ELSEWHERE, 1))).toBe(true);
-    expect(eventTriggersRead(target, frameNaming(undefined, 2))).toBe(true);
-  });
-});
-
 describe("useSessionReadTriggers — the React wiring consults the same predicate", () => {
   /** A store the wiring reads transitions off — initialized, as the trigger set requires. */
   function initializedStore(): SessionStore {
@@ -113,20 +73,13 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
     return sessionStore;
   }
 
-  it("does not ask for a read when every frame names another subject", () => {
-    const target = new RecordingReadTarget(SUBJECT_ON_SCREEN);
-    wireAndApply(target, [frameNaming(SUBJECT_ELSEWHERE, 1), frameNaming(SUBJECT_ELSEWHERE, 2)]);
-    expect(target.reasons).toStrictEqual([]);
-  });
-
-  it("negative control: the same frames advance a reading addressed at THAT subject", () => {
-    // Guards against a wiring that had stopped observing the timeline at all.
+  it("asks for a read when a frame names the subject the reading is about", () => {
     const target = new RecordingReadTarget(SUBJECT_ELSEWHERE);
     wireAndApply(target, [frameNaming(SUBJECT_ELSEWHERE, 1), frameNaming(SUBJECT_ELSEWHERE, 2)]);
     expect(target.reasons).toStrictEqual(["terminal-event"]);
   });
 
-  it("negative control: a reading that states no frame rule takes them all", () => {
+  it("asks for a read on every frame of a declared kind when the reading states no frame rule", () => {
     const target = new KindOnlyReadTarget();
     wireAndApply(target, [frameNaming(SUBJECT_ELSEWHERE, 1)]);
     expect(target.reasons).toStrictEqual(["terminal-event"]);

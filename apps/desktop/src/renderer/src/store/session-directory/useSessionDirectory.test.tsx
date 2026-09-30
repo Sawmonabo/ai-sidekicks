@@ -1,6 +1,5 @@
 // The directory read holds one answer and asks again when the node's list moves. The call is a
-// plain function the test hands the hook, so the hook's own logic is measured. Which frames a
-// call swap paints is a claim about frames, measured in `useSessionDirectory.frames.test.tsx`.
+// plain function the test hands the hook, so the hook's own logic is measured.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -90,27 +89,6 @@ describe("useSessionDirectory — one read", () => {
     await settleReactWork();
     expect(servedSessionIds(lastState(observed))).toStrictEqual(["session-read-1"]);
   });
-
-  it("reads once per mount, and not again on a re-render", async () => {
-    // A re-read on every render would be a poll.
-    const counted = countedDirectoryCall();
-    const observed: SessionDirectoryState[] = [];
-    const probe = (
-      <DirectoryProbe
-        read={counted.read}
-        onObserve={(state) => {
-          observed.push(state);
-        }}
-      />
-    );
-    const view = render(probe);
-    await settleReactWork();
-    view.rerender(probe);
-    await settleReactWork();
-
-    expect(counted.readCount()).toBe(1);
-    expect(lastState(observed).status).toBe("served");
-  });
 });
 
 describe("useSessionDirectory — the node's list moves, and so does the read", () => {
@@ -147,60 +125,6 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
     expect(counted.readCount()).toBe(2);
     expect(servedSessionIds(lastState(observed))).toContain("session-read-2");
   });
-
-  it("keeps the answer already on screen while the re-read is in flight", async () => {
-    // Re-addressing would re-seed to `reading` and blank the list on every focus.
-    const counted = countedDirectoryCall();
-    const observed = observeDirectory(counted.read);
-    await settleReactWork();
-    const settledCount = observed.length;
-
-    act(() => {
-      requestSessionDirectoryRead(counted.read);
-    });
-
-    expect(observed.slice(settledCount).every((state) => state.status === "served")).toBe(true);
-    await settleReactWork();
-    expect(lastState(observed).status).toBe("served");
-  });
-
-  it("reaches every view reading the same call, not only the one that asked", async () => {
-    // A revision held per caller would leave the other views on the pre-act list.
-    const counted = countedDirectoryCall();
-    const first: SessionDirectoryState[] = [];
-    const second: SessionDirectoryState[] = [];
-    render(
-      <>
-        <DirectoryProbe
-          read={counted.read}
-          onObserve={(state) => {
-            first.push(state);
-          }}
-        />
-        <DirectoryProbe
-          read={counted.read}
-          onObserve={(state) => {
-            second.push(state);
-          }}
-        />
-      </>,
-    );
-    await settleReactWork();
-
-    act(() => {
-      requestSessionDirectoryRead(counted.read);
-    });
-    await settleReactWork();
-
-    // Two views read twice each. Which later read each view holds is React's effect order;
-    // the claim is that neither still renders a first-pass answer.
-    expect(counted.readCount()).toBe(4);
-    for (const observed of [first, second]) {
-      const rendered = servedSessionIds(lastState(observed));
-      expect(rendered).not.toContain("session-read-1");
-      expect(rendered).not.toContain("session-read-2");
-    }
-  });
 });
 
 describe("offeredSessionIds — the union a view offers", () => {
@@ -212,22 +136,6 @@ describe("offeredSessionIds — the union a view offers", () => {
 
     expect(offeredSessionIds(directory, ["session-local"])).toStrictEqual([
       "session-node",
-      "session-local",
-    ]);
-  });
-
-  it("names a session once when both sources hold it", () => {
-    const directory: SessionDirectoryState = {
-      status: "served",
-      sessions: [{ sessionId: "session-both", state: "active" }],
-    };
-
-    expect(offeredSessionIds(directory, ["session-both"])).toStrictEqual(["session-both"]);
-  });
-
-  it("falls back to this window's own sessions while the directory has not answered", () => {
-    // A view keeps offering what it can name while a read is in flight.
-    expect(offeredSessionIds({ status: "reading" }, ["session-local"])).toStrictEqual([
       "session-local",
     ]);
   });

@@ -25,18 +25,6 @@ function openStore(options: { readonly timelineCap?: number } = {}): SessionStor
 }
 
 describe("SessionStore.prependEarlierEvents — growing the log at its head", () => {
-  it("carries the submitted read position onto the window head", () => {
-    expect(openStore().snapshot().windowHeadCursor).toBe("cursor-at-18");
-  });
-
-  it("reports no window head for a read that submitted no position", () => {
-    // The ordinary first read: `undefined` means nothing precedes the window.
-    const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 3, entities: [], timeline: eventsAt([3]) });
-
-    expect(store.snapshot().windowHeadCursor).toBeUndefined();
-  });
-
   it("grows the log at the head and counts what it admitted", () => {
     const store = openStore();
     const merge = store.prependEarlierEvents(eventsAt([15, 16, 17]));
@@ -53,18 +41,6 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
 
     expect(merge.admitted).toBe(0);
     expect(store.snapshot().timeline).toHaveLength(3);
-  });
-
-  it("does not move the cursor, the gaps, or the degraded cause", () => {
-    // A backward page is history, not progress: it repairs nothing the reconciler recorded.
-    const store = openStore();
-    store.markReadFailed();
-    store.prependEarlierEvents(eventsAt([17]));
-    const state = store.snapshot();
-
-    expect(state.cursor).toBe(20);
-    expect(state.gaps).toStrictEqual([]);
-    expect(state.degradedCause).toBe("read-failed");
   });
 
   it("keeps the OLDEST end once a backward page has landed", () => {

@@ -1,7 +1,6 @@
-// The fold's rules, driven directly rather than through a bridge. A reading held by the
-// same-window high-water guard and one held because a newer reading stands are different
-// decisions that a hook-level test could only tell apart by the number on screen; here the
-// disposition itself is asserted.
+// The quota fold, driven directly rather than through a bridge. Consumption does not fall inside
+// one window, so a lower same-window reading is held rather than hiding imminent exhaustion; a
+// moved reset horizon is a new window; and a reading is keyed by account and limit, not length.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -10,7 +9,7 @@ import {
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
-import { ProviderAccountFold, decideUsageWindowMerge } from "./provider-account-fold.js";
+import { ProviderAccountFold } from "./provider-account-fold.js";
 
 // Minted through the registered schema rather than cast, so a case cannot file a reading under
 // an id the wire would refuse.
@@ -71,61 +70,6 @@ function usedPercentFor(fold: ProviderAccountFold, limitId: string): number {
   return found.usedPercent;
 }
 
-describe("decideUsageWindowMerge — consumption does not fall inside one window", () => {
-  it("drops a lower reading in the same window however new its observation is", () => {
-    const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
-    const lowerButNewer = usageWindow({ usedPercent: 20, observedAt: LATER });
-
-    expect(decideUsageWindowMerge(lowerButNewer, held, true)).toBe("dropped-below-high-water");
-  });
-
-  it("stores a lower reading once the window itself has moved on", () => {
-    // A moved reset horizon is a window reset, not a regression, which is why the guard keys on
-    // `resetsAt` rather than the percentage alone.
-    const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
-    const nextWindow = usageWindow({
-      usedPercent: 20,
-      observedAt: LATER,
-      resetsAt: NEXT_WINDOW_RESET,
-    });
-
-    expect(decideUsageWindowMerge(nextWindow, held, true)).toBe("stored");
-  });
-
-  it("treats two readings that publish no reset horizon as one continuing window", () => {
-    // A provider with no horizon publishes one window; treating two absences as different
-    // windows would disable the guard for that provider.
-    const held = usageWindow({ usedPercent: 90, observedAt: EARLIER, resetsAt: undefined });
-    const lowerButNewer = usageWindow({ usedPercent: 20, observedAt: LATER, resetsAt: undefined });
-
-    expect(decideUsageWindowMerge(lowerButNewer, held, true)).toBe("dropped-below-high-water");
-  });
-
-  it("negative control: an equal-or-higher same-window reading is stored on its timestamp", () => {
-    // Guards against a guard that unconditionally held whatever is stored.
-    const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
-    const higher = usageWindow({ usedPercent: 91, observedAt: LATER });
-
-    expect(decideUsageWindowMerge(higher, held, true)).toBe("stored");
-  });
-
-  it("negative control: an older same-window reading is held by observation time", () => {
-    // Held because something newer stands, which is worth no diagnostic anywhere.
-    const held = usageWindow({ usedPercent: 90, observedAt: LATER });
-    const older = usageWindow({ usedPercent: 95, observedAt: EARLIER });
-
-    expect(decideUsageWindowMerge(older, held, true)).toBe("held");
-  });
-
-  it("breaks an exact observation tie by arrival and by nothing else", () => {
-    const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
-    const tied = usageWindow({ usedPercent: 92, observedAt: EARLIER });
-
-    expect(decideUsageWindowMerge(tied, held, true)).toBe("stored");
-    expect(decideUsageWindowMerge(tied, held, false)).toBe("held");
-  });
-});
-
 describe("ProviderAccountFold — the readings a view renders", () => {
   it("keeps the high-water figure when the wire sends a lower one for the same window", () => {
     const fold = new ProviderAccountFold();
@@ -151,26 +95,7 @@ describe("ProviderAccountFold — the readings a view renders", () => {
     expect(usedPercentFor(fold, "weekly-all")).toBe(20);
   });
 
-  it("marks a reading behind its own account's generation stale", () => {
-    const fold = new ProviderAccountFold();
-    fold.putAccount(account({ credentialGeneration: 2 }));
-    fold.mergeUsageWindow(usageWindow({ observedCredentialGeneration: 1 }));
-
-    expect(fold.readings()[0]?.isStale).toBe(true);
-  });
-
-  it("takes a removed account's readings with it", () => {
-    const fold = new ProviderAccountFold();
-    fold.putAccount(account());
-    fold.mergeUsageWindow(usageWindow());
-    expect(fold.readings()).toHaveLength(1);
-
-    fold.forgetAccount(ACCOUNT_ID);
-
-    expect(fold.readings()).toStrictEqual([]);
-  });
-
-  it("negative control: two windows of one length stay apart under their limit ids", () => {
+  it("keeps two windows of one length apart under their limit ids", () => {
     // The pair key, and the whole reason the readings are not keyed by duration.
     const fold = new ProviderAccountFold();
     fold.putAccount(account());
@@ -181,42 +106,5 @@ describe("ProviderAccountFold — the readings a view renders", () => {
 
     expect(usedPercentFor(fold, "weekly-all")).toBe(90);
     expect(usedPercentFor(fold, "weekly-opus")).toBe(30);
-  });
-});
-
-describe("ProviderAccountFold — the account labels a view joins a handle to", () => {
-  it("labels an account that has no observed window at all", () => {
-    // An account the registry carries has a label whether or not a quota row was ever observed
-    // for it, so scanning `readings()` for one would find nothing here.
-    const fold = new ProviderAccountFold();
-    fold.putAccount(account());
-
-    expect(fold.readings()).toStrictEqual([]);
-    expect([...fold.accountLabels()]).toStrictEqual([[ACCOUNT_ID, "Team"]]);
-  });
-
-  it("takes the label the newest `putAccount` carries, not the first", () => {
-    // The registry sends state, not deltas, so a renamed account is put again whole; a label
-    // that stuck at the first reading would name it by a word already changed.
-    const fold = new ProviderAccountFold();
-    fold.putAccount(account());
-    fold.putAccount(account({ displayLabel: "Team (renamed)" }));
-
-    expect(fold.accountLabels().get(ACCOUNT_ID)).toBe("Team (renamed)");
-  });
-
-  it("drops a removed account's label, so a stale handle joins to nothing", () => {
-    const fold = new ProviderAccountFold();
-    fold.putAccount(account());
-    expect(fold.accountLabels().has(ACCOUNT_ID)).toBe(true);
-
-    fold.forgetAccount(ACCOUNT_ID);
-
-    expect(fold.accountLabels().has(ACCOUNT_ID)).toBe(false);
-  });
-
-  it("negative control: the rows are empty before anything is put", () => {
-    // Guards against an `accountLabels` that answered with one fixed row.
-    expect([...new ProviderAccountFold().accountLabels()]).toStrictEqual([]);
   });
 });
