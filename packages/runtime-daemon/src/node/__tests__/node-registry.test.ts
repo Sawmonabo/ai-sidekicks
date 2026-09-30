@@ -1,5 +1,5 @@
 // NodeRegistry over a real SQLite file: the registration is keyed by machine and owning user,
-// and a re-registration keeps the first-seen time.
+// needs no session, and a re-registration keeps the first-seen time.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,6 +51,18 @@ describe("NodeRegistry", () => {
     expect(registry.lookup(NODE_ID, OWNER_USER_ID)).toBeDefined();
     expect(registry.lookup(NODE_ID, OTHER_USER_ID)).toBeUndefined();
     expect(registry.lookup("node-never-registered", OWNER_USER_ID)).toBeUndefined();
+  });
+
+  it("registers without a session: only the registration row is written", () => {
+    const beforeSnapshots: number = tableRowCount("session_snapshots");
+    const beforeUserKeys: number = tableRowCount("user_keys");
+
+    new NodeRegistry(context.database).register({ nodeId: NODE_ID, ownerUserId: OWNER_USER_ID });
+
+    expect(tableRowCount("node_trust_state")).toBe(1);
+    expect(tableRowCount("session_events")).toBe(0);
+    expect(tableRowCount("session_snapshots")).toBe(beforeSnapshots);
+    expect(tableRowCount("user_keys")).toBe(beforeUserKeys);
   });
 
   it("refreshes only updated_at on re-registration", () => {
