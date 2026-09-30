@@ -51,8 +51,8 @@ const TEST_RUN_ID = "00000000-0000-4000-8000-000000000001" as RunId;
 const TEST_IDEMPOTENCY_KEY = "00000000-0000-4000-8000-000000000002";
 
 /**
- * The fallback the Claude driver names for a provider with no native steer. A literal because this
- * package receives it off the wire; the driver's own tests pin the producer-side value.
+ * The fallback a driver with no native steer names. A literal because this package receives it off
+ * the wire, never from a driver module.
  */
 const QUEUE_AND_INTERRUPT = "queue_and_interrupt";
 
