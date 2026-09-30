@@ -1,4 +1,5 @@
-// The settings page registry, and the one search matcher it shares with the palette.
+// The settings page list as a closed set, the page registry, and the one search matcher it shares
+// with the palette.
 
 import { describe, expect, it } from "vitest";
 import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
@@ -25,6 +26,22 @@ function pageFor(
     ...overrides,
   };
 }
+
+describe("settings sections — the closed set the page list renders", () => {
+  it("labels every section, and labels nothing else", () => {
+    // A total record makes a new section a compile error rather than an entry reading
+    // `mcp-servers`. Checked at runtime too, since a cast could widen the record past the
+    // union.
+    expect(Object.keys(SETTINGS_PAGE_LABELS).sort()).toStrictEqual([...SETTINGS_PAGE_IDS].sort());
+    for (const section of SETTINGS_PAGE_IDS) {
+      expect(SETTINGS_PAGE_LABELS[section].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("names each section exactly once", () => {
+    expect(new Set(SETTINGS_PAGE_IDS).size).toBe(SETTINGS_PAGE_IDS.length);
+  });
+});
 
 describe("settings page registry — one page per section", () => {
   it("answers in rail order rather than registration order", () => {

@@ -11,6 +11,7 @@ import {
   mountAccountsPage,
   pressFirstStartControl,
   startControls,
+  WIRE_LIMIT_IDS,
 } from "./accounts-fixture-body.test-support.js";
 import {
   accountPlaneCalls,
@@ -22,6 +23,17 @@ afterEach(() => {
 });
 
 describe("AccountsFixtureBody", () => {
+  // Three of the selected account's limits share one window length, so each keeps its own row.
+  // A limit identifier never reaches the screen; a row is named by the provider's label, or by
+  // its window length where it gave none.
+  it("renders one quota row per limit and draws no limit identifier", () => {
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
+    expect(container.querySelectorAll(".meridian-accounts__quota tbody tr")).toHaveLength(3);
+    for (const limitId of WIRE_LIMIT_IDS) {
+      expect(container.textContent).not.toContain(limitId);
+    }
+  });
+
   // The token is never held by the fixture body, so nothing reads it back and no other field is
   // masked; the label field is the negative control and must stay ordinary text.
   it("offers one write-only token field that starts empty, and masks nothing else", () => {
