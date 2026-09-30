@@ -265,9 +265,10 @@ export const ProviderListResponseSchema: z.ZodType<ProviderListResponse> = z
  * One knob changed, one member per press.
  *
  * `commandPath: null` returns the command to auto-detect; a new path is checked again where it
- * now points and the provider's model catalog is read again. `outputStyle` is Claude Code's alone
- * and `terminalSessionsReachable` Codex's alone. A `helpersAtOnce` outside the range the provider
- * accepts settles on the nearest value it accepts, and the reply carries the value that settled.
+ * now points and the provider's model catalog is read again. `outputStyle` and
+ * `terminalSessionsReachable` are refused for a provider without them. A `helpersAtOnce` outside
+ * the range the provider accepts settles on the nearest value it accepts, and the reply carries
+ * the value that settled.
  */
 export interface ProviderUpdateRequest {
   provider: ProviderName;
@@ -287,6 +288,25 @@ const PROVIDER_UPDATE_SETTING_KEYS = [
   "outputStyle",
   "terminalSessionsReachable",
 ] as const;
+
+const PROVIDER_OWN_SETTING_KEYS = ["outputStyle", "terminalSessionsReachable"] as const;
+
+/** A setting only some providers have. */
+type ProviderOwnSettingKey = (typeof PROVIDER_OWN_SETTING_KEYS)[number];
+
+/** Which provider has each setting only some providers have; a new provider declares its row. */
+const PROVIDER_OWN_SETTINGS: Readonly<
+  Record<ProviderName, Readonly<Record<ProviderOwnSettingKey, boolean>>>
+> = Object.freeze({
+  claude: Object.freeze({ outputStyle: true, terminalSessionsReachable: false }),
+  codex: Object.freeze({ outputStyle: false, terminalSessionsReachable: true }),
+});
+
+const PROVIDER_OWN_SETTING_REFUSALS: Readonly<Record<ProviderOwnSettingKey, string>> =
+  Object.freeze({
+    outputStyle: "this provider has no output style",
+    terminalSessionsReachable: "this provider has no shared terminal service",
+  });
 
 /** Parses a {@link ProviderUpdateRequest}: exactly one knob, and only one its provider has. */
 export const ProviderUpdateRequestSchema: z.ZodType<ProviderUpdateRequest, ProviderUpdateRequest> =
@@ -311,19 +331,15 @@ export const ProviderUpdateRequestSchema: z.ZodType<ProviderUpdateRequest, Provi
         });
         return;
       }
-      if (request.outputStyle !== undefined && request.provider !== "claude") {
-        context.addIssue({
-          code: "custom",
-          path: ["outputStyle"],
-          message: "the output style is Claude Code's alone",
-        });
-      }
-      if (request.terminalSessionsReachable !== undefined && request.provider !== "codex") {
-        context.addIssue({
-          code: "custom",
-          path: ["terminalSessionsReachable"],
-          message: "the shared terminal service is Codex's alone",
-        });
+      const ownSettings = PROVIDER_OWN_SETTINGS[request.provider];
+      for (const key of PROVIDER_OWN_SETTING_KEYS) {
+        if (request[key] !== undefined && !ownSettings[key]) {
+          context.addIssue({
+            code: "custom",
+            path: [key],
+            message: PROVIDER_OWN_SETTING_REFUSALS[key],
+          });
+        }
       }
     });
 
