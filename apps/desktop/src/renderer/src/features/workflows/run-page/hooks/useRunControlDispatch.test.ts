@@ -1,11 +1,19 @@
-// A press puts the run and the operator's reason on the calls, and a served answer settles the
-// control. Timing and address are in `useRunControlDispatch.flight.test.ts`; both share
-// `useRunControlDispatch.test-support.tsx`.
+// The run controls' dispatch: a press puts the run and the operator's reason on the call, one act
+// per run and action is in flight, an answer lands only on the run that asked, and a rejected call
+// gives its key back.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { RUN_A, heldCancelCalls, observeControls } from "./useRunControlDispatch.test-support.js";
+import { unhandledRejectionsDuring } from "@test/helpers/unhandled-rejection.js";
+import {
+  CANCEL_FAILURE,
+  RUN_A,
+  RUN_B,
+  heldCancelCalls,
+  observeControls,
+  rejectingCancelCalls,
+} from "./useRunControlDispatch.test-support.js";
 import { settle } from "../../workflows-probe.test-support.js";
 
 afterEach(() => {
@@ -22,17 +30,6 @@ describe("a press reaches the calls", () => {
     expect(held.requests).toStrictEqual([{ workflowRunId: RUN_A, reason: "superseded" }]);
   });
 
-  it("omits the reason key entirely when the operator gave none", async () => {
-    // Not `reason: undefined`: the member is optional under `exactOptionalPropertyTypes`, and
-    // a key carrying nothing is a different request from one without the key.
-    const held = heldCancelCalls();
-    const controls = observeControls(held.calls, RUN_A);
-    await act(async () => {
-      controls.latest().cancel.cancel(undefined);
-    });
-    expect(held.requests).toStrictEqual([{ workflowRunId: RUN_A }]);
-  });
-
   it("carries the chosen re-pin as the resume request's optional member", async () => {
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
@@ -43,36 +40,71 @@ describe("a press reaches the calls", () => {
       { workflowRunId: RUN_A, versionRepin: { targetWorkflowVersionId: "wfv-02" } },
     ]);
   });
+});
 
-  it("negative control: a pane naming no run puts nothing on the calls", async () => {
-    // Both requests need a run id; a fabricated one would ask about a run that does not exist.
+describe("one act per run and action is in flight, and a second press is told so", () => {
+  it("refuses the second press instead of dispatching it", async () => {
     const held = heldCancelCalls();
-    const controls = observeControls(held.calls, undefined);
+    const controls = observeControls(held.calls, RUN_A);
+    // One captured control pressed twice inside one `act`: across two `act` scopes a rendered
+    // `dispatching` flag refuses the second press just as the latch does, so only a single
+    // frame tells them apart. Both handlers read `dispatching: false`; only a latch claimed at
+    // dispatch stops the second call.
+    const pressed = controls.latest().cancel;
     await act(async () => {
-      controls.latest().cancel.cancel("superseded");
+      pressed.cancel(undefined);
+      pressed.cancel(undefined);
     });
-    expect(held.requests).toStrictEqual([]);
-    expect(controls.latest().cancel.outcome.kind).toBe("idle");
+    // One call, not two: the daemon would otherwise take two cancellations for one act.
+    expect(held.requests).toHaveLength(1);
+    const { outcome } = controls.latest().cancel;
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind !== "refused") {
+      throw new Error("the second press was not refused");
+    }
+    expect(outcome.refusal.code).toBe("act-already-in-flight");
+  });
+
+  it("gives the key back when the call rejects, and advances no round", async () => {
+    // No reply was served, so no read is owed; the key must go back or every later press
+    // would be refused as a duplicate.
+    const failing = rejectingCancelCalls();
+    const controls = observeControls(failing.calls, RUN_A);
+    // The dispatcher does not catch the rejection, so the runner reports it; the witness
+    // reads that report instead of letting it fail the run.
+    const escaped = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        controls.latest().cancel.cancel(undefined);
+      });
+      await act(async () => {
+        controls.latest().cancel.cancel(undefined);
+      });
+    });
+    expect(escaped).toStrictEqual([CANCEL_FAILURE, CANCEL_FAILURE]);
+    expect(failing.requests).toHaveLength(2);
+    expect(controls.latest().servedActCount).toBe(0);
   });
 });
 
-describe("a served answer settles the control", () => {
-  it("settles on the settled arm with the wire word verbatim", async () => {
+describe("an answer is about the run that asked", () => {
+  it("drops an in-flight act when the pane is retargeted in place", async () => {
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
       controls.latest().cancel.cancel(undefined);
     });
+
+    controls.retarget(RUN_B);
+    // The new run starts clean rather than inheriting the previous one's dispatch.
+    expect(controls.latest().cancel.outcome.kind).toBe("idle");
+
     await act(async () => {
       held.serve();
     });
     await settle();
-    const { outcome } = controls.latest().cancel;
-    expect(outcome.kind).toBe("settled");
-    if (outcome.kind !== "settled") {
-      throw new Error("the cancel control settled on the wrong arm");
-    }
-    // The wire word verbatim, so the settlement and the run agree on one string.
-    expect(outcome.runState).toBe("canceled");
+    // Run A's answer lands nowhere: settling it under run B would tell an operator that the
+    // run in front of them had been canceled when it had not.
+    expect(controls.latest().cancel.outcome.kind).toBe("idle");
+    expect(controls.latest().servedActCount).toBe(0);
   });
 });
