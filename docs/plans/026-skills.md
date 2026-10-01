@@ -36,7 +36,7 @@ The icon rail, `rail-navigation.ts` and the routing module are Plan-020's files.
 
 ### CP-026-2 — The watch, the record and the session pack in [Plan-024](./024-agent-definitions-and-peer-invocation.md)-owned files
 
-The daemon's file watch over the agent origins, the record kept beside a provider's file with its orphan and reattach rules, and the one session pack module, `packages/runtime-daemon/src/agents/session-pack.ts`, are Plan-024's files. Skills need the same three things: a watch over the skill roots, a record beside a provider's folder holding availability and icon, and skills in each provider's pack. A second watch, a second record store or a second pack would be two mechanisms doing one job.
+The daemon's file watch over the agent origins, the record kept beside a provider's file with its orphan and reattach rules, and the one session pack module, `packages/runtime-daemon/src/agents/session-pack.ts`, are files Plan-024 builds. Skills need the same three things: a watch over the skill roots, a record beside a provider's folder holding availability and icon, and skills in each provider's pack. A second watch, a second record store or a second pack would be two mechanisms doing one job.
 
 **Resolution.** Plan-024 builds the watch and the record in its T2.1 and the pack in its T4.1, and admits this plan's extensions: the skill roots registered on the watch, the skill record kept through the same record mechanism, and the skills added to the pack. Plan-026 Phase 1 gates on Plan-024 Phase 2 merged and Phase 3 on Plan-024 Phase 4 merged, so each mechanism exists before skills join it.
 

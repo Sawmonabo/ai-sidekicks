@@ -41,7 +41,7 @@ The desktop app is the primary interactive client, but it must remain a client. 
 - Fixture scenarios, compiled only into development and fixture builds and never shipped: `apps/desktop/fixtures/`
 - Tests that span modules or the whole application: `apps/desktop/tests/`; every other desktop test sits beside its source
 - Shared client SDK root: `packages/client-sdk/`
-- Related CLI client root: `apps/cli/`
+- Related CLI client root, which [Plan-005](../plans/005-local-ipc-and-daemon-control.md) creates: `apps/cli/`
 
 Inside the renderer, imports run one way: `lib/`, `styles/` and `assets/`, then `routing/`, `components/` and `hooks/`, `store/`, `services/`, `registries/`, `features/`, `layout/`, and `app/` last. Each folder imports only the folders before it, no feature imports another, and the renderer never imports Electron or Node APIs. dependency-cruiser enforces the direction.
 
