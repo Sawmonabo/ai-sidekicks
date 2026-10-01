@@ -81,13 +81,7 @@ export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodStr
 export const FILE_PATH_MAX_LEN = 4096;
 
 /** Where a session is in its lifecycle. */
-export type SessionState =
-  | "provisioning"
-  | "active"
-  | "archived"
-  | "closed"
-  | "purge_requested"
-  | "purged";
+export type SessionState = "provisioning" | "active" | "archived" | "closed" | "purge_requested";
 /** Parses a {@link SessionState}. */
 export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
   "provisioning",
@@ -95,7 +89,6 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
   "archived",
   "closed",
   "purge_requested",
-  "purged",
 ]);
 
 /**

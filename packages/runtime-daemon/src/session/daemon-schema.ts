@@ -35,10 +35,6 @@ CREATE TABLE session_events (
   -- the writer parses the real shape. TEXT, because comparison parses the parts.
   version           TEXT NOT NULL DEFAULT '1.0'
                     CHECK(version GLOB '[0-9]*.[0-9]*'),
-  -- NULL = live row; 'audit_stub' = purged. A column, not a payload member, so
-  -- a reader can branch on it without parsing the payload.
-  retention_class   TEXT
-                    CHECK(retention_class IS NULL OR retention_class = 'audit_stub'),
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -46,11 +42,6 @@ CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequen
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
--- Keeps replay and the purge's candidate scan off the stub suffix, which
--- grows without bound while the live set stays bounded.
-CREATE INDEX idx_session_events_live ON session_events(session_id, sequence)
-  WHERE retention_class IS NULL;
-
 -- At most one terminal event per (runId, runVersion). The key lives in the JSON
 -- payload, so the index is partial over terminal run_lifecycle rows only.
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once
@@ -335,20 +326,17 @@ CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(work
 -- ---------------------------------------------------------------------------
 -- The admission queue, interventions and command receipts.
 -- ---------------------------------------------------------------------------
--- A queued item's body never rides payload: a user-authored body is sealed into
--- pii_payload under the author's key. Orchestration-authored content is session
--- work product, not personal data, and stays in payload with both PII columns
--- NULL. pii_user_id is unindexed on both tables: it is read only by a
--- maintenance scan, and an index would cost every write.
+-- A queued item's body, a person's send or an orchestration-authored prompt, and a
+-- steer's text ride payload as plain text. device_id is the device a person's
+-- write came from, found from the connection; NULL on the system's own.
 CREATE TABLE queue_items (
   id                        TEXT PRIMARY KEY,
   session_id                TEXT NOT NULL,
   state                     TEXT NOT NULL DEFAULT 'queued'
     CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'not_delivered')),
   priority                  INTEGER NOT NULL DEFAULT 0, -- higher is more urgent
-  payload                   TEXT NOT NULL DEFAULT '{}', -- JSON, non-PII members only
-  pii_payload               BLOB,
-  pii_user_id               TEXT,
+  payload                   TEXT NOT NULL DEFAULT '{}', -- JSON
+  device_id                 TEXT,
   -- Run-bound admission: NULL on an ordinary item, which admission turns into a
   -- new run. Set only by the edit-and-resend composite, whose item is delivered
   -- into its bound run on resume.
@@ -371,25 +359,22 @@ CREATE TABLE interventions (
                           CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
     CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  -- JSON, non-PII fields only; a steer's text is in pii_payload
-  payload                 TEXT NOT NULL DEFAULT '{}',
+  payload                 TEXT NOT NULL DEFAULT '{}', -- JSON
   expected_run_version    INTEGER NOT NULL,           -- the fail-closed comparand
   client_idempotency_key  TEXT NOT NULL,              -- requester-generated UUID
-  -- The user-authored body, sealed under the requester's key. The retention pass
-  -- NULLs it after the 90-day full-retention bound.
-  pii_payload             BLOB,
-  pii_user_id             TEXT,
-  -- 'user' for a request over an identity-carrying transport, 'system' for the
-  -- in-process orchestration entry. No DEFAULT: a default would fail open, so
+  -- 'user' for a request admitted over the wire, carrying its device_id;
+  -- 'system' for the in-process orchestration entry, with none. No DEFAULT: a default would fail open, so
   -- every insert names its path.
   origin                  TEXT NOT NULL
                           CHECK(origin IN ('user', 'system')),
+  device_id               TEXT,
   result                  TEXT,                       -- JSON outcome
   -- Why a request was rejected. A rejected outcome carries no result, so an
   -- idempotent replay rebuilds rejectionReason from here.
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
+  CHECK((origin = 'user') = (device_id IS NOT NULL)),
   -- An identical retry replays the recorded outcome; a reused key with a
   -- different payload is refused (intervention.idempotency_conflict).
   UNIQUE (target_run_id, client_idempotency_key)

@@ -32,7 +32,7 @@
 //
 // Ids are UUIDs, as the strict layer requires. `session.created` carries no title, because
 // its `.strict()` payload rejects one. Assistant and tool payloads describe their body and
-// never carry it; the body is sealed in `content_payload`.
+// never carry it; the body is stored in `content_payload`.
 
 import {
   composeScriptBeats,
@@ -384,6 +384,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     actorId: USER_YOU,
     members: {
       effectiveScope: APPROVAL_SCOPE,
+      deviceId: "019b79ee-0280-7d02-8110-d1a4c1150041",
       clientResolutionId: "019b79ee-0280-7c01-8110-d1a4c1150031",
     },
   }),

@@ -97,6 +97,7 @@ const RESOLVED_ROW = {
   state: "approved",
   resolvedAt: AT,
   decision: "approved",
+  deviceId: "device-this-mac",
   effectiveScope: "pnpm test",
   rememberedScope: ALLOW_THIS_SESSION,
 };

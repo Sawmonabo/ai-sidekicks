@@ -2,7 +2,7 @@
 // and read by the library, the composer and the workflow chooser. These cases hold the refusals
 // every one of them relies on: one binding per provider, a project scope that names its project,
 // a plugin agent that says so, requests that carry only their own members, and the closed
-// refusal reasons of import and resolution.
+// refusal reasons of resolution.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,7 +10,6 @@ import {
   AgentDefinitionExportRequestSchema,
   AgentDefinitionListEntrySchema,
   AgentDefinitionUpdateRequestSchema,
-  AgentImportRefusedDetailsSchema,
   AgentResolutionRefusedDetailsSchema,
 } from "../agent-definition.js";
 
@@ -147,13 +146,6 @@ describe("agent.definitionExport", () => {
 });
 
 describe("the definition refusals", () => {
-  it("closes the import refusal's reasons", () => {
-    expect(AgentImportRefusedDetailsSchema.safeParse({ reason: "unknown_format" }).success).toBe(
-      true,
-    );
-    expect(AgentImportRefusedDetailsSchema.safeParse({ reason: "name_taken" }).success).toBe(false);
-  });
-
   it("carries a null model where the definition binds none for the driver", () => {
     const details = {
       definitionId: DEFINITION_ID,

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
+import type { WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
 
 import {
   REUSE_UNANSWERED_COPY,
@@ -110,28 +110,6 @@ describe("readReuseCheckState", () => {
 describe("resolvePrepareForm", () => {
   it("sends an ordinary prepare with a branch and no candidate", () => {
     expect(resolvePrepareForm(form(), answered({ kind: "none" })).status).toBe("sendable");
-  });
-
-  it("holds a branch name past the contract's own bound, in the wire's units", () => {
-    // Both prepare requests bound `branchName`; without this the control opens onto a schema error.
-    const overCap = "b".repeat(WORKTREE_GIT_REF_MAX_LEN + 1);
-    const verdict = resolvePrepareForm(
-      { branchName: overCap, acknowledgedCandidateId: undefined },
-      answered({ kind: "none" }),
-    );
-    expect(verdict.status).toBe("incomplete");
-    expect(verdict.status === "incomplete" && verdict.because).toContain(
-      String(WORKTREE_GIT_REF_MAX_LEN + 1),
-    );
-  });
-
-  it("sends a branch name at the bound", () => {
-    expect(
-      resolvePrepareForm(
-        { branchName: "b".repeat(WORKTREE_GIT_REF_MAX_LEN), acknowledgedCandidateId: undefined },
-        answered({ kind: "none" }),
-      ).status,
-    ).toBe("sendable");
   });
 
   it("holds the act until the reuse check for that branch has answered", () => {

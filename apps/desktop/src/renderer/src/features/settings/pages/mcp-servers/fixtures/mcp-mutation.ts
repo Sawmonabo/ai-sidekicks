@@ -1,4 +1,4 @@
-// The two governance mutations this fixture body sends and the idempotency key it mints.
+// The governance mutation this fixture body sends and the idempotency key it mints.
 //
 // The key is minted once per press by the view: `clientIdempotencyKey` means "this is the same
 // operation", which only the view that watched the press can know, so a key minted inside the
@@ -11,7 +11,6 @@ import type {
   McpMutationResult,
   McpServerBindingRef,
   McpSetEnabledRequest,
-  McpSetTrustRequest,
 } from "@ai-sidekicks/contracts";
 
 /** How a mutation this fixture body sent has settled. */
@@ -32,9 +31,6 @@ export type IdempotencyKeyMinter = () => string;
 
 /** Sends a binding's enablement change to the daemon. */
 export type SendMcpEnabled = (request: McpSetEnabledRequest) => Promise<McpMutationResult>;
-
-/** Sends a binding's trust change to the daemon. */
-export type SendMcpTrust = (request: McpSetTrustRequest) => Promise<McpMutationResult>;
 
 /** The default minter: the platform's own identifier source. */
 export function mintIdempotencyKey(): string {
@@ -58,26 +54,5 @@ export async function setBindingEnabled(options: {
     kind: "settled",
     binding,
     result: await send({ ...binding, enabled, clientIdempotencyKey: idempotencyKey }),
-  };
-}
-
-/**
- * Turn a binding's trust press into a settled outcome.
- *
- * A trust grant binds at the daemon and reaches no provider config, so its reply carries
- * `daemon_enforced` and no live results. The page renders that difference, since one result
- * shape carries both.
- */
-export async function setBindingTrust(options: {
-  readonly send: SendMcpTrust;
-  readonly binding: McpServerBindingRef;
-  readonly trusted: boolean;
-  readonly idempotencyKey: string;
-}): Promise<McpMutationOutcome> {
-  const { send, binding, trusted, idempotencyKey } = options;
-  return {
-    kind: "settled",
-    binding,
-    result: await send({ ...binding, trusted, clientIdempotencyKey: idempotencyKey }),
   };
 }

@@ -1,6 +1,6 @@
 import { memo, type MemoExoticComponent } from "react";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { isAuditStubSession, type SessionListRow } from "../rows/session-rows.js";
+import { isSessionBeingDeleted, type SessionListRow } from "../rows/session-rows.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 
 /** What a session row is handed: the row and how to open it. */
@@ -17,13 +17,13 @@ export interface SessionRowProps {
 export const SessionRow: MemoExoticComponent<(props: SessionRowProps) => React.JSX.Element> = memo(
   function SessionRow(props: SessionRowProps): React.JSX.Element {
     const { row } = props;
-    const isAuditStub = isAuditStubSession(row.state);
+    const isBeingDeleted = isSessionBeingDeleted(row.state);
     return (
       <div
-        className={`meridian-session-row${isAuditStub ? " meridian-session-row--audit-stub" : ""}`}
+        className={`meridian-session-row${isBeingDeleted ? " meridian-session-row--deleting" : ""}`}
       >
         <div className="meridian-session-row__identity">
-          {isAuditStub ? (
+          {isBeingDeleted ? (
             <span className="meridian-session-row__name">
               <WireFigure value={row.sessionId} />
             </span>

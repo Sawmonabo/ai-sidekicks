@@ -14,8 +14,8 @@ export const DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS = 5_000;
 
 /**
  * A stop or restart: how long to wait for the other connected clients to
- * leave before refusing. Omitted, the service waits
- * {@link DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS}.
+ * leave before going ahead anyway. Omitted, the service waits
+ * {@link DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS}. A confirmed stop is never refused.
  */
 export interface DaemonStopRequest {
   idleDrainDeadlineMs?: number | undefined;
@@ -34,10 +34,7 @@ export const DaemonRestartRequestSchema: z.ZodType<DaemonRestartRequest, DaemonR
   .object({ idleDrainDeadlineMs: z.number().int().nonnegative().optional() })
   .strict();
 
-/**
- * The service took the stop or restart. A refusal is the typed error, never a
- * success reply saying no.
- */
+/** The service took the stop or restart. */
 export interface DaemonLifecycleAccepted {
   accepted: true;
 }
@@ -45,31 +42,6 @@ export interface DaemonLifecycleAccepted {
 export const DaemonLifecycleAcceptedSchema: z.ZodType<DaemonLifecycleAccepted> = z
   .object({ accepted: z.literal(true) })
   .strict();
-
-/**
- * Other clients were still connected when the drain deadline passed, so the
- * service did not stop or restart. The caller's own connection is never counted.
- */
-export type DaemonLifecycleConflictCode = "daemon.lifecycle_conflict";
-/** Error code for a stop or restart refused because other clients are still connected. */
-export const DAEMON_LIFECYCLE_CONFLICT_CODE: DaemonLifecycleConflictCode =
-  "daemon.lifecycle_conflict";
-
-/** The other clients still connected past the deadline. */
-export interface DaemonLifecycleConflictDetails {
-  activeClientCount: number;
-  observedClientIds: string[];
-}
-/** Parses {@link DaemonLifecycleConflictDetails}; the count is the list's length. */
-export const DaemonLifecycleConflictDetailsSchema: z.ZodType<DaemonLifecycleConflictDetails> = z
-  .object({
-    activeClientCount: z.number().int().positive(),
-    observedClientIds: z.array(z.string().min(1).max(256)).min(1),
-  })
-  .strict()
-  .refine((details) => details.activeClientCount === details.observedClientIds.length, {
-    message: "activeClientCount counts observedClientIds.",
-  });
 
 /** `daemon.flush` takes nothing: everything pending is made durable. */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type

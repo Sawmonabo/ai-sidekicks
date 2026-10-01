@@ -569,30 +569,45 @@ export const AgentDefinitionExportResponseSchema: z.ZodType<AgentDefinitionExpor
   .strict();
 
 /**
- * Reads the file the person picked and creates every definition in it or none, in
- * one daemon transaction. It only creates, never overwrites, suffixes a colliding
- * name, and lands every definition in the global scope, because the file carries
- * nothing tied to one machine. Accounts arrive cleared, so an import binds none.
+ * Reads the folder the person picked and creates every agent definition in it, in one daemon
+ * transaction. It only creates, never overwrites, suffixes a colliding name, and lands every
+ * definition in the global scope, because the files carry nothing tied to one machine. Accounts
+ * arrive cleared, so an import binds none. Every other file is skipped and listed, never refusing
+ * the import.
  *
- * `filePath` is the path main's relay put in place of the token the platform's open
- * chooser returned.
+ * `folder` is the path main's relay put in place of the token the platform's open chooser
+ * returned.
  */
 export interface AgentDefinitionImportRequest {
-  filePath: string;
+  folder: string;
 }
 /** Parses an {@link AgentDefinitionImportRequest}. */
 export const AgentDefinitionImportRequestSchema: z.ZodType<
   AgentDefinitionImportRequest,
   AgentDefinitionImportRequest
-> = z.object({ filePath: wireFreeFormString(FILE_PATH_MAX_LEN, "filePath") }).strict();
+> = z.object({ folder: wireFreeFormString(FILE_PATH_MAX_LEN, "folder") }).strict();
 
-/** The created rows, under their final and possibly suffixed names. */
+/**
+ * The created rows, under their final and possibly suffixed names, and each file skipped because
+ * it is not an agent definition, listed once.
+ */
 export interface AgentDefinitionImportResponse {
   definitions: AgentDefinitionListEntry[];
+  skipped: Array<{ fileName: string; reason: "not_an_agent_definition" }>;
 }
 /** Parses an {@link AgentDefinitionImportResponse}. */
 export const AgentDefinitionImportResponseSchema: z.ZodType<AgentDefinitionImportResponse> = z
-  .object({ definitions: z.array(AgentDefinitionListEntrySchema).min(1) })
+  .object({
+    definitions: z.array(AgentDefinitionListEntrySchema),
+    skipped: z.array(
+      z
+        .object({
+          fileName: wireFreeFormString(FILE_PATH_MAX_LEN, "fileName"),
+          reason: z.literal("not_an_agent_definition"),
+        })
+        .strict(),
+    ),
+  })
   .strict();
 
 // Refusals
@@ -610,28 +625,6 @@ export interface AgentExportWriteFailedDetails {
 /** Parses {@link AgentExportWriteFailedDetails}. */
 export const AgentExportWriteFailedDetailsSchema: z.ZodType<AgentExportWriteFailedDetails> = z
   .object({ cause: wireFreeFormString(AGENT_REASON_MAX_LEN, "cause") })
-  .strict();
-
-/** An import that applied nothing. */
-export type AgentImportRefusedCode = "agent.import_refused";
-/** The code of an import that applied nothing. */
-export const AGENT_IMPORT_REFUSED_CODE: AgentImportRefusedCode = "agent.import_refused";
-
-/**
- * Why a whole file was refused: its format marker is one the daemon does not know,
- * or one of its entries is not a valid definition.
- */
-export const AGENT_IMPORT_REFUSED_REASONS = ["unknown_format", "invalid_entry"] as const;
-/** One of {@link AGENT_IMPORT_REFUSED_REASONS}. */
-export type AgentImportRefusedReason = (typeof AGENT_IMPORT_REFUSED_REASONS)[number];
-
-/** The import refusal's details. */
-export interface AgentImportRefusedDetails {
-  reason: AgentImportRefusedReason;
-}
-/** Parses {@link AgentImportRefusedDetails}. */
-export const AgentImportRefusedDetailsSchema: z.ZodType<AgentImportRefusedDetails> = z
-  .object({ reason: z.enum(AGENT_IMPORT_REFUSED_REASONS) })
   .strict();
 
 /** A definition that exists and cannot produce a runnable agent now. */

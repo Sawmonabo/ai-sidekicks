@@ -14,24 +14,21 @@ import { ToolOverrideList } from "./ToolOverrideList.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 /**
- * One inventory row: the binding's identity, what is known about it, and the two controls this
+ * One inventory row: the binding's identity, what is known about it, and the control this
  * fixture body sends.
  *
  * The identity is the scope-qualified tuple, never the name: two same-named servers in two
- * scopes are two bindings, so provider, scope and scope reference are all on screen. Every
- * control is offered and none is eligibility-gated; a control disables only while its own call
- * is in flight. The exception is structural: when the trust store is unreachable, `trusted`,
- * `configHash` and the overrides are absent from the wire, and the trust control is withheld on
- * that row because there is no current value for a toggle to move away from.
+ * scopes are two bindings, so provider, scope and scope reference are all on screen. The control
+ * is offered and not eligibility-gated; it disables only while its own call is in flight. When
+ * the binding store is unreachable the overrides are absent from the wire, and the row says so.
  */
 export function ServerRow(props: {
   readonly entry: McpServerInventoryEntry;
   readonly outcome: McpMutationOutcome;
   readonly pending: boolean;
   readonly onSetEnabled: (binding: McpServerBindingRef, enabled: boolean) => void;
-  readonly onSetTrust: (binding: McpServerBindingRef, trusted: boolean) => void;
 }): ReactNode {
-  const { entry, outcome, pending, onSetEnabled, onSetTrust } = props;
+  const { entry, outcome, pending, onSetEnabled } = props;
   const binding = bindingOf(entry);
   return (
     <li className="meridian-mcp__row">
@@ -41,9 +38,6 @@ export function ServerRow(props: {
         <Chip label={entry.scope} mono />
         <Chip label={entry.status} mono tone={toneForServerStatus(entry.status)} />
         {entry.requiredServer === true ? <Chip label="required" tone="attention" /> : null}
-        {entry.effectiveInRuns ? null : (
-          <Chip label="not effective in runs" tone="attention" glyph="alert" />
-        )}
       </div>
 
       <div className="meridian-mcp__row-provenance">
@@ -55,7 +49,6 @@ export function ServerRow(props: {
             <WireFigure value={binding.scopeRef} />
           </>
         )}
-        {entry.scopeRefDigest === undefined ? null : <WireFigure value={entry.scopeRefDigest} />}
         {entry.observedAt === undefined ? (
           <span className="meridian-settings-page__aside">Never observed.</span>
         ) : (
@@ -79,8 +72,8 @@ export function ServerRow(props: {
           <Nothing
             kind="not-checked"
             placement="inline"
-            title="The trust store could not be read."
-            detail="Whether this binding is trusted, what its configuration hashes to, and which tools carry overrides are all unknown right now — not false, and not empty."
+            title="The binding store could not be read."
+            detail="Which tools carry overrides is unknown right now — not false, and not empty."
           />
         ) : (
           <ToolOverrideList overrides={entry.toolOverrides} />
@@ -98,23 +91,6 @@ export function ServerRow(props: {
         >
           {entry.enabled === true ? "Disable this binding" : "Enable this binding"}
         </button>
-        {entry.trustUnavailable === true ? (
-          <span className="meridian-settings-page__aside">
-            The trust control is withheld while the trust store cannot be read: there is no current
-            value for it to move away from.
-          </span>
-        ) : (
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-action-button"
-            disabled={pending}
-            onClick={() => {
-              onSetTrust(binding, !entry.trusted);
-            }}
-          >
-            {entry.trusted ? "Withdraw trust" : "Grant trust"}
-          </button>
-        )}
       </div>
 
       <MutationOutcomeLine outcome={outcome} />

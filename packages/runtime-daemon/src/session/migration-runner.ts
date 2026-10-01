@@ -15,12 +15,15 @@ import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
  *   power loss.
  * - foreign_keys=ON: enforces foreign keys at INSERT and UPDATE.
  * - busy_timeout=5000: a concurrent writer waits up to 5 s before SQLITE_BUSY surfaces.
+ * - secure_delete=ON: a deleted row's page is overwritten with zeros, so a purged session's
+ *   content does not linger in free pages.
  */
 export function applyPragmas(db: DatabaseType): void {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = FULL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
+  db.pragma("secure_delete = ON");
 }
 
 /**

@@ -340,9 +340,8 @@ export const SkillUpdateResponseSchema: z.ZodType<SkillUpdateResponse> = z
 // skill.availabilityUpdate
 
 /**
- * Sets one provider on or off. Two holds are enforced when the request is handled,
- * so a forced click changes nothing: a provider's own skill stays on its home
- * provider, and the last provider a skill is on stays on.
+ * Sets one provider on or off, with no lock: a provider's own skill can be switched off
+ * its home provider, and a skill can be off everywhere.
  */
 export interface SkillAvailabilityUpdateRequest {
   skillId: SkillId;
@@ -493,30 +492,6 @@ export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> =
     path: z.string().max(FILE_PATH_MAX_LEN),
     reason: z.enum(SKILL_PATH_REFUSED_REASONS),
   })
-  .strict();
-
-/** An availability change a hold refuses; the setting stays as it was. */
-export type SkillAvailabilityHeldCode = "skill.availability_held";
-/** The code of an availability change a hold refuses. */
-export const SKILL_AVAILABILITY_HELD_CODE: SkillAvailabilityHeldCode = "skill.availability_held";
-
-/**
- * Which hold refused it: a provider's own skill cannot be switched off its home
- * provider, which loads the folder from its own tree whatever the app says; and the
- * last provider a skill is on cannot be removed, because a skill available nowhere
- * never reaches a session.
- */
-export const SKILL_AVAILABILITY_HELD_REASONS = ["home_provider", "last_provider"] as const;
-/** One of {@link SKILL_AVAILABILITY_HELD_REASONS}. */
-export type SkillAvailabilityHeldReason = (typeof SKILL_AVAILABILITY_HELD_REASONS)[number];
-
-/** The availability hold's details. */
-export interface SkillAvailabilityHeldDetails {
-  reason: SkillAvailabilityHeldReason;
-}
-/** Parses {@link SkillAvailabilityHeldDetails}. */
-export const SkillAvailabilityHeldDetailsSchema: z.ZodType<SkillAvailabilityHeldDetails> = z
-  .object({ reason: z.enum(SKILL_AVAILABILITY_HELD_REASONS) })
   .strict();
 
 // The skill.* method table

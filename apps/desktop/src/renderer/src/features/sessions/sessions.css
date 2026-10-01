@@ -53,7 +53,7 @@
   background: var(--meridian-surface);
 }
 
-.meridian-session-row--audit-stub {
+.meridian-session-row--deleting {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
 }

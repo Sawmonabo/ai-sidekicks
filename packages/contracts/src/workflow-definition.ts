@@ -462,8 +462,9 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
 export type WorkflowDefinitionFindingRule = (typeof WORKFLOW_DEFINITION_FINDING_RULES)[number];
 
 /**
- * One finding. Only a Code node's package lock carries `detail`, and always does: bun's
- * or uv's own error, which names the package that did not resolve.
+ * One finding. Only `code_packages_unresolved` carries `detail`, and always does: the package a
+ * full-tier Code step names at two versions in two imports. A package that merely cannot be
+ * locked is no finding; the save is kept.
  */
 export type WorkflowDefinitionFinding =
   | {

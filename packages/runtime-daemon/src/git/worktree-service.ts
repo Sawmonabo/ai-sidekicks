@@ -15,7 +15,6 @@
 import { join } from "node:path";
 import type { Database, Statement } from "better-sqlite3";
 import {
-  WORKTREE_GIT_REF_MAX_LEN,
   WorktreeIdSchema,
   WorktreeStateSchema,
   type WorktreeRetireResponse,
@@ -624,13 +623,6 @@ export class WorktreeService {
     for (let ordinal = 1; ordinal <= MAX_BRANCH_NAME_ORDINAL; ordinal += 1) {
       const candidateBranchName =
         ordinal === 1 ? input.branchName : `${input.branchName}-${ordinal}`;
-
-      // The suffix can outgrow the wire cap, and a persisted over-cap `branch_name` would fail the
-      // status-read projection for every worktree, so the first over-cap candidate is refused
-      // (later ordinals are longer). Ordinal 1 reaches it only from a caller that bypassed the cap.
-      if (candidateBranchName.length > WORKTREE_GIT_REF_MAX_LEN) {
-        throw new WorktreeCreateFailedError("branch_name_unavailable");
-      }
 
       try {
         await this.#events.emitWorktreeCreated({

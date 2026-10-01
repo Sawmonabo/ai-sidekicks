@@ -92,8 +92,8 @@ export interface WorkflowPhaseState {
   /** The bounded engine-authored cause. Present whenever `parkReason` is. */
   readonly parkCause?: string;
   /**
-   * The armed resume instant, where the park armed one. Its absence marks the unscheduled,
-   * operator-resumable kind.
+   * The armed resume instant, where the park armed one. Its absence marks the unscheduled kind,
+   * which the person resumes.
    */
   readonly autoResumeAt?: string;
   /** The provider-account key concurrently parked phases group by. */

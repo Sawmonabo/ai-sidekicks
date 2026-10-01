@@ -26,6 +26,7 @@ import {
 import {
   SessionIdSchema,
   wireFreeFormString,
+  wireUncappedFreeFormString,
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
@@ -108,15 +109,6 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // checked when the daemon parses its own response, and some depend on state a schema cannot see.
 
 /**
- * Maximum length of a git ref name on the wire, for `branchName` and `baseRef` alike. It is the
- * 256 identifier class, not the path class: every branch name a response carries came in through
- * this cap or from the daemon's slug rule, and a suffixed name that would outgrow it is refused
- * at the write. A pre-existing branch longer than 256 characters cannot be probed through
- * `repo.worktreeReuseCheck` or named as a `baseRef`; it fails loudly at the wire.
- */
-export const WORKTREE_GIT_REF_MAX_LEN = 256;
-
-/**
  * Maximum length of the reuse check's `reason`, a short authored summary rather than captured
  * git output. Kept apart from the same-valued `EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN` so
  * neither contract owes the other an equality.
@@ -189,17 +181,11 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
     // Optional in the schema, required in practice: a wire prepare has no run to derive a name
     // from, so omitting it draws the typed `workspace.branch_name_required` refusal before any
     // git call.
-    branchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "ExecutionRootPrepareRequest.branchName",
-    ).optional(),
+    branchName: wireUncappedFreeFormString("ExecutionRootPrepareRequest.branchName").optional(),
     // Omitted means the mount's current HEAD branch, which the daemon reads; a detached HEAD with
     // no explicit base is a typed refusal. Git reads a leading dash as an option even in the
     // positional slot, so the daemon refuses such a value before git.
-    baseRef: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "ExecutionRootPrepareRequest.baseRef",
-    ).optional(),
+    baseRef: wireUncappedFreeFormString("ExecutionRootPrepareRequest.baseRef").optional(),
     // Reuse happens only by naming a candidate; there is no implicit "reuse if available" path.
     // The candidate must belong to the mount behind `workspaceId`; neither row is visible at
     // parse time, so the reuse validation checks it.
@@ -257,10 +243,7 @@ export const WorktreeReuseCheckRequestSchema: z.ZodType<
     // several workspaces on one mount share those candidates.
     repoMountId: RepoMountIdSchema,
     // Required, unlike on prepare: with no branch there is no key to look a candidate up by.
-    branchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "WorktreeReuseCheckRequest.branchName",
-    ),
+    branchName: wireUncappedFreeFormString("WorktreeReuseCheckRequest.branchName"),
   })
   .strict();
 
@@ -289,10 +272,7 @@ export const WorktreeReuseCheckResponseSchema: z.ZodType<WorktreeReuseCheckRespo
     // cross-field rule this schema does not make.
     state: WorktreeStateSchema.optional(),
     // Echoed so the caller sees which branch the candidate holds.
-    branchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "WorktreeReuseCheckResponse.branchName",
-    ).optional(),
+    branchName: wireUncappedFreeFormString("WorktreeReuseCheckResponse.branchName").optional(),
     // Daemon verdicts: `isClean` gates the dirty acknowledgement, and an incompatible candidate
     // never binds, acknowledged or not.
     isClean: z.boolean().optional(),
@@ -450,11 +430,8 @@ const worktreeStatusRecordSchema: z.ZodType<WorktreeStatusRecord> = z
     worktreeId: WorktreeIdSchema,
     repoMountId: RepoMountIdSchema,
     name: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.name"),
-    branchName: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "WorktreeStatusRecord.branchName"),
-    baseBranchName: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "WorktreeStatusRecord.baseBranchName",
-    ),
+    branchName: wireUncappedFreeFormString("WorktreeStatusRecord.branchName"),
+    baseBranchName: wireUncappedFreeFormString("WorktreeStatusRecord.baseBranchName"),
     // A root under the daemon's worktrees folder, never a path inside the
     // attached checkout.
     fsRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.fsRoot"),
@@ -533,19 +510,15 @@ export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadRespo
     repoRoot: z
       .object({
         path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusReadResponse.repoRoot.path"),
-        branchName: wireFreeFormString(
-          WORKTREE_GIT_REF_MAX_LEN,
-          "WorktreeStatusReadResponse.repoRoot.branchName",
-        ),
+        branchName: wireUncappedFreeFormString("WorktreeStatusReadResponse.repoRoot.branchName"),
       })
       .strict(),
     worktrees: z.array(worktreeStatusRecordSchema),
     countsAsOf: z.iso.datetime({ offset: true }).optional(),
     newWorktree: z
       .object({
-        fixedPart: z.string().max(WORKTREE_GIT_REF_MAX_LEN),
-        suggestedTail: wireFreeFormString(
-          WORKTREE_GIT_REF_MAX_LEN,
+        fixedPart: z.string(),
+        suggestedTail: wireUncappedFreeFormString(
           "WorktreeStatusReadResponse.newWorktree.suggestedTail",
         ),
         folderBefore: wireFreeFormString(

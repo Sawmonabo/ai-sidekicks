@@ -27,7 +27,7 @@
 //   - A cost or token reading. No meter is on the transcript frame, the run groups or the
 //     seams; `concurrent-streaming.ts` moves the meter.
 //   - A machine body. `assistant.*` and `tool.*` payloads describe their body and never carry
-//     it; the body is sealed in `content_payload`.
+//     it; the body is stored in `content_payload`.
 
 import {
   composeScriptBeats,
@@ -139,8 +139,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   {
     atMs: 280,
     kind: "user.message",
-    // The author is the envelope's actor; the text is sealed per user in `pii_payload`, so it is
-    // not on the payload.
+    // The author is the envelope's actor; the fixture draws no message text.
     actorId: USER_YOU,
     payload: { sessionId: SESSION_ID },
   },

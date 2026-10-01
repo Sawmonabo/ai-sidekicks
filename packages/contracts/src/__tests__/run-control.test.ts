@@ -208,7 +208,7 @@ describe("RunStateChangeEvent", () => {
           ...base,
           networkAccess: "full",
           mode: "workspace-sandboxed",
-          credentialPolicyRef: "sha256:abc",
+          credentialPolicyRef: "policy://workspace",
         },
         {
           ...base,
@@ -221,7 +221,7 @@ describe("RunStateChangeEvent", () => {
           networkAccess: "allowed-domains",
           allowedDomains: ["registry.npmjs.org"],
           mode: "readonly-sandboxed",
-          credentialPolicyRef: "sha256:def",
+          credentialPolicyRef: "policy://readonly",
         },
       ];
       for (const executionPosture of postures) {
@@ -247,7 +247,7 @@ describe("RunStateChangeEvent", () => {
             ...base,
             networkAccess: "none",
             mode: "trusted",
-            credentialPolicyRef: "sha256:abc",
+            credentialPolicyRef: "policy://workspace",
           },
         }),
       ).toThrow();

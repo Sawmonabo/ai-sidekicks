@@ -8,7 +8,7 @@ import type {
   McpServerInventoryEntry,
 } from "@ai-sidekicks/contracts";
 
-import { setBindingEnabled, setBindingTrust } from "./mcp-mutation.js";
+import { setBindingEnabled } from "./mcp-mutation.js";
 
 const USER_BINDING: McpServerBindingRef = {
   provider: "claude",
@@ -25,12 +25,9 @@ const PROJECT_BINDING: McpServerBindingRef = {
 
 const SETTLED_ROW: McpServerInventoryEntry = {
   ...USER_BINDING,
-  effectiveInRuns: true,
   config: { transport: "stdio", command: "npx" },
   status: "connected",
   enabled: false,
-  trusted: true,
-  configHash: "b3:0000",
   toolOverrides: [],
 };
 
@@ -64,17 +61,5 @@ describe("setBindingEnabled", () => {
       idempotencyKey: "key-1",
     });
     expect(outcome).toEqual({ kind: "settled", binding: USER_BINDING, result: RESULT });
-  });
-});
-
-describe("setBindingTrust", () => {
-  it("sends the binding, the target trust, and the caller's key", async () => {
-    const send = sendAnswering();
-    await setBindingTrust({ send, binding: USER_BINDING, trusted: true, idempotencyKey: "key-2" });
-    expect(send).toHaveBeenCalledWith({
-      ...USER_BINDING,
-      trusted: true,
-      clientIdempotencyKey: "key-2",
-    });
   });
 });

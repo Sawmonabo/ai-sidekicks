@@ -170,7 +170,7 @@ describe("the projector on a payload that does not carry its kind's state", () =
         sessionId: SYNTHETIC_SESSION_ID,
         runId: "run-1",
         runVersion: 6,
-        trigger: "idle_timeout",
+        trigger: "step_limit",
       }),
       sequence: 2,
       occurredAt: "2026-01-01T14:20:00.900Z",

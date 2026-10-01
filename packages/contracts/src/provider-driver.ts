@@ -378,10 +378,9 @@ export type ExecutionPostureNetwork =
  * The sandbox and permission surface of a spawn or turn, daemon-constructed, carried by
  * `CreateSessionParams` and `StartRunParams` and stamped on `run.running` for audit.
  * `credentialPolicyRef` is required on both sandboxed modes and absent under `mode: "trusted"`,
- * which records no enforced credential constraint. It is a content-addressed `"sha256:<hex>"` over
- * the RFC 8785 JCS-canonicalized credential-policy artifact: a reference, so auditors can
- * reconstruct which credentials were denied without the posture embedding an
- * installation-revealing list.
+ * which records no enforced credential constraint. It is a plain reference to the credential deny
+ * list the run kept, so the posture names which credentials were denied without embedding a list
+ * that reveals the installation.
  */
 export type ExecutionPosture = ExecutionPostureNetwork & {
   writableRoots: string[];

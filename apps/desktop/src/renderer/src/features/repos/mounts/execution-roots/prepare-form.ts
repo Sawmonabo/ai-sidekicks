@@ -5,7 +5,7 @@
 // Collapsing the last two would offer consent for a refusal that consent does not lift. An
 // unanswered check is a fourth situation, so the form reads a standing, not a bare verdict.
 
-import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
+import type { WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
 
 import type { ActPrerequisiteReading } from "../../acts/act-reading.js";
 
@@ -125,8 +125,8 @@ export const REUSE_UNANSWERED_COPY =
 /**
  * Read one prepare form against the reuse standing it is sent under. The branch is required
  * here though optional on the wire, because only a run can derive one; sending without it is
- * rejected with `workspace.branch_name_required`. The length limit is the contract's, counted in
- * code units on the untrimmed text the request carries. An unanswered check holds the control
+ * rejected with `workspace.branch_name_required`. Git's own rule judges the name, so the form
+ * sets no length. An unanswered check holds the control
  * shut, since a prepare sent inside the debounce window would omit `reuseWorktreeId` for a
  * branch that has a candidate, an implicit collision the daemon refuses. The consent is checked
  * against the verdict, so one given for a candidate that has stopped being dirty is ignored.
@@ -137,12 +137,6 @@ export function resolvePrepareForm(
 ): PrepareFormVerdict {
   if (form.branchName.trim().length === 0) {
     return { status: "incomplete", because: "Name the branch this root should check out." };
-  }
-  if (form.branchName.length > WORKTREE_GIT_REF_MAX_LEN) {
-    return {
-      status: "incomplete",
-      because: `That branch name is ${String(form.branchName.length)} characters. The wire accepts ${String(WORKTREE_GIT_REF_MAX_LEN)}.`,
-    };
   }
   if (!standing.answered) {
     return { status: "incomplete", because: REUSE_UNANSWERED_COPY };

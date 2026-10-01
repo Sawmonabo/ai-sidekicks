@@ -237,7 +237,7 @@ const buildEventMaintenanceBaseShape = () => ({
   occurredAt: z.iso.datetime({ offset: true }),
 });
 
-/** One session a deletion removed, with the range of its rows the deletion stubbed. */
+/** One session a deletion removed, with the range of its rows the deletion deleted. */
 export interface EventCompactedRemovedSession {
   sessionId: SessionId;
   fromSeq: number;
@@ -251,15 +251,14 @@ const EventCompactedRemovedSessionSchema: z.ZodType<EventCompactedRemovedSession
   })
   .strict()
   .refine((removed) => removed.fromSeq <= removed.toSeq, {
-    message: "a stubbed range starts at or before its end",
+    message: "a deleted range starts at or before its end",
     path: ["toSeq"],
   });
 
 /**
- * `event.compacted` — the receipt of one session deletion (`Delete old data`):
- * every session it removed and the range of rows it replaced with audit stubs
- * in each. It is written only when a deletion stubbed rows, so it names at least
- * one session.
+ * `event.compacted` — the receipt of one session deletion (`Delete old data`): every session it
+ * removed and the range of rows it deleted in each. It is written only when a deletion deleted
+ * rows, so it names at least one session.
  */
 export type EventCompactedPayload = {
   nodeId: NodeId;
@@ -275,7 +274,7 @@ export const EventCompactedPayloadSchema: z.ZodType<EventCompactedPayload> = z
   })
   .strict();
 
-/** Emitted once per session deletion that stubbed rows. */
+/** Emitted once per session deletion that deleted rows. */
 export interface EventCompactedEvent extends EventEnvelope {
   type: "event.compacted";
   category: "event_maintenance";
@@ -313,8 +312,7 @@ export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
 
 /**
  * The payload key carrying the body's pre-truncation UTF-8 byte length, so a truncated row still
- * reports how much was dropped. It survives compaction in the audit stub, where it is the whole
- * remaining record of the destroyed body's size.
+ * reports how much was dropped.
  */
 export const CONTENT_LENGTH_PAYLOAD_KEY = "contentLength" as const;
 

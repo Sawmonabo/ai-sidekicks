@@ -47,11 +47,8 @@ import type {
 import { GitSettledPayloadSchema } from "./gitflow/local.js";
 import { uuidTextFormSchema } from "./internal/branded.js";
 import {
-  McpServerConfigChangedPayloadSchema,
   McpServerOauthCompletedPayloadSchema,
   McpServerStatusChangedPayloadSchema,
-  McpServerTrustChangedPayloadSchema,
-  McpToolOverrideChangedPayloadSchema,
 } from "./mcp-governance.js";
 import {
   PlanAcceptedPayloadSchema,
@@ -166,7 +163,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "question.asked": "interactive_request",
   // artifact_publication
   "artifact.published": "artifact_publication",
-  "artifact.visibility_updated": "artifact_publication",
   "artifact.superseded": "artifact_publication",
   "diff.created": "artifact_publication",
   "git.settled": "artifact_publication",
@@ -177,7 +173,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.reactivated": "session_lifecycle",
   "session.closed": "session_lifecycle",
   "session.purge_requested": "session_lifecycle",
-  "session.purged": "session_lifecycle",
   "session.goal_updated": "session_lifecycle",
   "session.goal_cleared": "session_lifecycle",
   "session.provider_status": "session_lifecycle",
@@ -233,7 +228,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   // security_events
   "security.update.available": "security_events",
   "daemon.master_key_source": "security_events",
-  "daemon.pii_split_ambiguous": "security_events",
   "relay.pin_refused": "security_events",
   // event_maintenance
   "event.compacted": "event_maintenance",
@@ -244,9 +238,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "orchestration.rejected": "orchestration_admission",
   // mcp_governance
   "mcp.server_status_changed": "mcp_governance",
-  "mcp.server_config_changed": "mcp_governance",
-  "mcp.server_trust_changed": "mcp_governance",
-  "mcp.tool_override_changed": "mcp_governance",
   "mcp.server_oauth_completed": "mcp_governance",
   // workflow_lifecycle
   "workflow.created": "workflow_lifecycle",
@@ -273,8 +264,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "workflow.phase_suspended": "workflow_phase_lifecycle",
   "workflow.phase_resumed": "workflow_phase_lifecycle",
   "workflow.phase_completed": "workflow_phase_lifecycle",
-  "workflow.human_phase_claimed": "workflow_phase_lifecycle",
-  "workflow.human_phase_escalated": "workflow_phase_lifecycle",
   "workflow.step_started": "workflow_phase_lifecycle",
   "workflow.step_finished": "workflow_phase_lifecycle",
   "workflow.step_failed": "workflow_phase_lifecycle",
@@ -403,21 +392,6 @@ const mcpServerStatusChangedVariantSchema = buildSessionEventVariantSchema(
   "mcp.server_status_changed",
   "mcp_governance",
   McpServerStatusChangedPayloadSchema,
-);
-const mcpServerConfigChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.server_config_changed",
-  "mcp_governance",
-  McpServerConfigChangedPayloadSchema,
-);
-const mcpServerTrustChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.server_trust_changed",
-  "mcp_governance",
-  McpServerTrustChangedPayloadSchema,
-);
-const mcpToolOverrideChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.tool_override_changed",
-  "mcp_governance",
-  McpToolOverrideChangedPayloadSchema,
 );
 const mcpServerOauthCompletedVariantSchema = buildSessionEventVariantSchema(
   "mcp.server_oauth_completed",
@@ -831,9 +805,6 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   planHandedOffVariantSchema,
   questionAskedVariantSchema,
   mcpServerStatusChangedVariantSchema,
-  mcpServerConfigChangedVariantSchema,
-  mcpServerTrustChangedVariantSchema,
-  mcpToolOverrideChangedVariantSchema,
   mcpServerOauthCompletedVariantSchema,
   cloudTaskUpdatedVariantSchema,
   sessionRestoreFinishedVariantSchema,

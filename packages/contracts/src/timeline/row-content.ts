@@ -21,10 +21,7 @@ import {
 
 import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
 
-/**
- * Refuse stored text a reply could not carry inside one frame. A frame past the bound closes
- * the connection, so this keeps an oversized reply a failed read.
- */
+/** Refuse stored text over the page budget, so an oversized reply is a failed read. */
 const requireMemberToRideOneFrame = (
   member: unknown,
   memberName: string,
@@ -37,7 +34,7 @@ const requireMemberToRideOneFrame = (
       path: [memberName],
       message:
         `${memberName} measures ${String(measuredBytes)} JSON bytes, over the ` +
-        `${String(TIMELINE_PAGE_MAX_BYTES)}-byte bound one reply frame holds`,
+        `${String(TIMELINE_PAGE_MAX_BYTES)}-byte page budget`,
     });
   }
 };

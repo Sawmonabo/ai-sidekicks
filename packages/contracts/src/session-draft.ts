@@ -18,13 +18,13 @@ import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 
 // The daemon enforces the staging limits; a client reads them to explain a limit before the
-// refusal rather than after it. Each is the shipped default, and an operator may change the first
+// refusal rather than after it. Each is the shipped default, and the person may change the first
 // two, so a surface that shows one says it is the default until the daemon reports the value in
 // force.
 
 /**
  * The largest file one staged attachment may be, in bytes, by default. Equal to the largest
- * artifact the relay carries, so every staged file can reach another device. An operator may set
+ * artifact the relay carries, so every staged file can reach another device. The person may set
  * it between one megabyte and one gigabyte.
  */
 export const SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT: number = 100 * 1024 * 1024;
@@ -52,7 +52,7 @@ export const SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES: readonly string[] = [
 ];
 
 /**
- * The media types staging admits by default. An operator's list replaces this one whole.
+ * The media types staging admits by default. A list the person sets replaces this one whole.
  * `image/svg+xml` is left out on purpose: it is a picture that is also a document that can run
  * script.
  */

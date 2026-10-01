@@ -1,7 +1,7 @@
 // The event log's wire guards. A type parses only under its own category; an envelope string
 // refuses a NUL byte; the category lookup never walks the prototype chain; envelope versions
 // order numerically and exactly; the tolerant carrier keeps a newer producer's types and payload
-// keys but refuses an own `__proto__` key; a compaction's stubbed range never runs backwards; and
+// keys but refuses an own `__proto__` key; a deletion's range never runs backwards; and
 // neither a machine-authored body nor a person's words ride in the plain payload. Every category
 // has a registered type, and a registered type keeps its name and its category.
 import { describe, expect, it } from "vitest";
@@ -255,7 +255,6 @@ describe("SESSION_EVENT_CATEGORY_BY_TYPE — the category registry", () => {
     // The namespace prefix of these rows does not name their category. The registry, not the
     // prefix, is the category authority, so a cleanup by namespace heuristic must fail loudly.
     ["daemon.master_key_source", "security_events"],
-    ["daemon.pii_split_ambiguous", "security_events"],
     ["relay.pin_refused", "security_events"],
     ["moderation.review_flagged", "approval_flow"],
     ["plan.proposed", "approval_flow"],
@@ -382,7 +381,7 @@ describe("event_maintenance payload variant", () => {
     expect(firstPass).toStrictEqual(original);
   });
 
-  it("event.compacted refuses a stubbed range that ends before it starts", () => {
+  it("event.compacted refuses a deleted range that ends before it starts", () => {
     const event = buildEventCompacted();
     expect(
       SessionEventSchema.safeParse({

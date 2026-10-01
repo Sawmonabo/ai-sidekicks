@@ -42,6 +42,8 @@ const APPROVAL_PENDING_ASK = "019b7a33-3300-7f01-8140-d1a4c1150524";
 
 /** The daemon's durable id for the permission ask, carried on its `approval.requested` payload. */
 const PERMISSION_ASK_ID = "ask-permission-force-push";
+// The device the answer came from: this machine's own screen.
+const ANSWERING_DEVICE_ID = "019b7a33-3300-7d02-8110-d1a4c1150541";
 
 /** One approved and three waiting approval requests raised by one agent in one run. */
 export const APPROVAL_REQUEST_SCENARIO: Scenario = {
@@ -98,8 +100,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
           newState: "running",
           executionPosture: {
             mode: "workspace-sandboxed",
-            credentialPolicyRef:
-              "sha256:7c4e1b93a52f6d08e14b7c93a52f6d08e14b7c93a52f6d08e14b7c93a52f6d08",
+            credentialPolicyRef: "policy://workspace",
             networkAccess: "allowed-domains",
             allowedDomains: ["registry.npmjs.org", "github.com"],
             writableRoots: ["/Users/dev/code/ai-sidekicks"],
@@ -136,8 +137,8 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
         actorId: USER_YOU,
-        // A resolution carries the scope that took effect (never broader than requested) and the
-        // id the answering client minted.
+        // A resolution carries the scope that took effect (never broader than requested), the
+        // device that answered and the id the answering client minted.
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -145,6 +146,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
           category: "tool_execution",
           scope: "run",
           effectiveScope: "run",
+          deviceId: ANSWERING_DEVICE_ID,
           clientResolutionId: "019b7a33-3300-7c01-8110-d1a4c1150531",
         },
       },

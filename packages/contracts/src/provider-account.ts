@@ -17,7 +17,7 @@ import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 
 /** Longest daemon-minted opaque account id; equals `NODE_ID_MAX_LEN`. */
 export const PROVIDER_ACCOUNT_ID_MAX_LEN = 256;
-/** Longest operator-chosen account label. */
+/** Longest account label the person chooses. */
 export const PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN = 256;
 /** Longest provider-reported email; RFC 5321 caps a forward path at 320 octets. */
 export const PROVIDER_ACCOUNT_EMAIL_MAX_LEN = 320;
@@ -29,7 +29,7 @@ export const PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN = 256;
 export const PROVIDER_SIGN_IN_INVOCATION_MAX_LEN = 512;
 /** Longest daemon-minted id of one sign-in attempt. */
 export const PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN = 256;
-/** Longest operator-facing sign-in failure text. */
+/** Longest sign-in failure text shown to the person. */
 export const PROVIDER_LOGIN_FAILURE_REASON_MAX_LEN = 512;
 /** Longest provider limit id. */
 export const PROVIDER_QUOTA_LIMIT_ID_MAX_LEN = 128;
@@ -242,7 +242,7 @@ export const ProviderAccountMemoryImportOutcomeSchema: z.ZodType<
 export interface ProviderAccount {
   accountId: ProviderAccountId;
   provider: ProviderName;
-  /** Operator-chosen and personal data; never provider-reported. */
+  /** Chosen by the person, and personal data; never provider-reported. */
   displayLabel: string;
   credentialGeneration: CredentialGeneration;
   billingMode: BillingMode;
@@ -284,7 +284,7 @@ export interface ProviderAccount {
    */
   expectedReloginAtEstimate: string | null;
   /**
-   * `false` means the operator silenced the background observer for this account. The probe
+   * `false` means the person silenced the background observer for this account. The probe
    * verb and spawn validation still write the stored health pair.
    */
   probeEnabled: boolean;
@@ -365,7 +365,7 @@ export interface ProviderRegisterRemedy {
   provider: ProviderName;
 }
 
-/** Remedy for `no_default`: the operator picks one of the listed accounts as the default. */
+/** Remedy for `no_default`: the person picks one of the listed accounts as the default. */
 export interface ProviderChooseDefaultRemedy {
   kind: "choose_default";
   /** The daemon lists the candidates and never picks one. */
@@ -495,8 +495,8 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
       });
       return;
     }
-    // A `sign_in` remedy must name the entry's own resolved account; otherwise the operator
-    // is pointed at one account's home to fix another's, or at a home no entry owns.
+    // A `sign_in` remedy must name the entry's own resolved account; otherwise the person is
+    // pointed at one account's home to fix another's, or at a home no entry owns.
     if (remedy.kind === "sign_in" && remedy.accountId !== entry.resolvedAccountId) {
       ctx.addIssue({
         code: "custom",
@@ -662,7 +662,7 @@ export type ProviderAccountNotification =
       attemptId: string;
       accountId: ProviderAccountId;
       outcome: ProviderLoginOutcome;
-      /** Operator-facing text with no credential material, provider error body or home path. */
+      /** Text for the person, with no credential material, provider error body or home path. */
       failureReason?: string | undefined;
     }
   | {

@@ -29,7 +29,7 @@ function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactLis
 }
 
 describe("artifact list reader — what makes it read again", () => {
-  it.each(["artifact.published", "artifact.superseded", "artifact.visibility_updated"])(
+  it.each(["artifact.published", "artifact.superseded"])(
     "reads again when a %s frame arrives",
     async (kind) => {
       const clock = new ManualClock();

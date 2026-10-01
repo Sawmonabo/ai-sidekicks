@@ -424,12 +424,9 @@ export interface RunStateChangeEvent {
   intendedClose?: true | undefined;
   // Stamped only on `run.running`, where the workspace root and effective posture are final.
   executionPosture?: ExecutionPosture | undefined;
-  trigger?:
-    | "turn_limit"
-    | "budget_exhausted"
-    | "idle_timeout"
-    | "workflow_phase_canceled"
-    | undefined;
+  // Why the daemon stopped the run: one of the limits the person set, or its workflow phase
+  // was canceled.
+  trigger?: "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled" | undefined;
   timestamp: string;
 }
 
@@ -452,7 +449,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     intendedClose: z.literal(true).optional(),
     executionPosture: executionPostureSchema.optional(),
     trigger: z
-      .enum(["turn_limit", "budget_exhausted", "idle_timeout", "workflow_phase_canceled"])
+      .enum(["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"])
       .optional(),
     timestamp: z.iso.datetime({ offset: true }),
   })

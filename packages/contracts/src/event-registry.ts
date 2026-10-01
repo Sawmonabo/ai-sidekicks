@@ -67,7 +67,6 @@ export type SessionEventType =
   | "question.asked"
   // artifact_publication
   | "artifact.published"
-  | "artifact.visibility_updated"
   | "artifact.superseded"
   | "diff.created"
   | "git.settled"
@@ -78,7 +77,6 @@ export type SessionEventType =
   | "session.reactivated"
   | "session.closed"
   | "session.purge_requested"
-  | "session.purged"
   | "session.goal_updated"
   | "session.goal_cleared"
   | "session.provider_status"
@@ -134,7 +132,6 @@ export type SessionEventType =
   // security_events
   | "security.update.available"
   | "daemon.master_key_source"
-  | "daemon.pii_split_ambiguous"
   | "relay.pin_refused"
   // event_maintenance
   | "event.compacted"
@@ -145,9 +142,6 @@ export type SessionEventType =
   | "orchestration.rejected"
   // mcp_governance
   | "mcp.server_status_changed"
-  | "mcp.server_config_changed"
-  | "mcp.server_trust_changed"
-  | "mcp.tool_override_changed"
   | "mcp.server_oauth_completed"
   // workflow_lifecycle
   | "workflow.created"
@@ -174,8 +168,6 @@ export type SessionEventType =
   | "workflow.phase_suspended"
   | "workflow.phase_resumed"
   | "workflow.phase_completed"
-  | "workflow.human_phase_claimed"
-  | "workflow.human_phase_escalated"
   | "workflow.step_started"
   | "workflow.step_finished"
   | "workflow.step_failed"
@@ -219,9 +211,6 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "plan.handed_off",
   "question.asked",
   "mcp.server_status_changed",
-  "mcp.server_config_changed",
-  "mcp.server_trust_changed",
-  "mcp.tool_override_changed",
   "mcp.server_oauth_completed",
   "cloud.task_updated",
   "session.restore_finished",
@@ -341,7 +330,6 @@ export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
 /** The event types of the `artifact_publication` category. */
 export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
   "artifact.published",
-  "artifact.visibility_updated",
   "artifact.superseded",
   "diff.created",
   "git.settled",
@@ -359,7 +347,6 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.reactivated",
   "session.closed",
   "session.purge_requested",
-  "session.purged",
   "session.goal_updated",
   "session.goal_cleared",
   "session.provider_status",
@@ -427,7 +414,6 @@ export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
 export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
   "security.update.available",
   "daemon.master_key_source",
-  "daemon.pii_split_ambiguous",
   "relay.pin_refused",
 ] as const;
 
@@ -445,14 +431,11 @@ export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] = 
 ] as const;
 
 /**
- * The event types of the `mcp_governance` category. Four of the five bind to the daemon-scope
- * sentinel session; `mcp.server_status_changed` binds per event.
+ * The event types of the `mcp_governance` category. `mcp.server_oauth_completed` binds to the
+ * daemon-scope sentinel session; `mcp.server_status_changed` binds per event.
  */
 export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
   "mcp.server_status_changed",
-  "mcp.server_config_changed",
-  "mcp.server_trust_changed",
-  "mcp.tool_override_changed",
   "mcp.server_oauth_completed",
 ] as const;
 
@@ -485,8 +468,6 @@ export const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
   "workflow.phase_suspended",
   "workflow.phase_resumed",
   "workflow.phase_completed",
-  "workflow.human_phase_claimed",
-  "workflow.human_phase_escalated",
   "workflow.step_started",
   "workflow.step_finished",
   "workflow.step_failed",

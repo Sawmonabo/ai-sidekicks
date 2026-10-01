@@ -5,7 +5,7 @@
 // unknown one is refused, not answered with an empty reply.
 import { z } from "zod";
 
-import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "./jsonrpc.js";
+import { jsonUtf8ByteLength } from "./jsonrpc.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 
@@ -51,11 +51,10 @@ export const HIGHLIGHT_SPAN_WIDTH = 3;
 export const HIGHLIGHT_SOURCE_MAX_BYTES = 262_144;
 
 /**
- * The largest span list a reply carries, in UTF-8 bytes as it travels. A frame past
- * `MAX_MESSAGE_BYTES` closes the connection, so 1,024 bytes are held back for the reply envelope,
- * the echoed request id (at most 256 bytes) and the `spans` key.
+ * The largest span list a reply carries, in UTF-8 bytes as it travels: its own figure, not derived
+ * from the transport's message limit, which the reply with its envelope stays well inside.
  */
-export const HIGHLIGHT_SPANS_MAX_BYTES: number = MAX_MESSAGE_BYTES - 1024;
+export const HIGHLIGHT_SPANS_MAX_BYTES = 998_976;
 
 /** The code a surface wants colored. */
 export interface HighlightReadRequest {

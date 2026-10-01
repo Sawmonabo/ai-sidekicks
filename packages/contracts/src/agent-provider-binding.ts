@@ -48,23 +48,19 @@ const bindingTokenSchema = (label: string): z.ZodString =>
 // Closed vocabularies
 
 /**
- * Which mechanism carried the conversation across the switch. Four different acts,
- * not degrees of one:
+ * Which route carried the conversation across the switch. Two different acts, not degrees of
+ * one:
  *
- * - `in_place`: carried on the running process: a per-turn setting, a run-bound
- *   setting the provider takes without a restart, or an account moved at the next
- *   request. Nothing was respawned or rebuilt.
- * - `resumed`: a fresh process of the same provider reopened its own conversation
- *   in the same credential home.
- * - `brief`: the new binding started from a hand-over brief, with the old transcript
- *   written beside it as a file the provider reads on demand.
- * - `replayed`: a same-provider reopen did not load, so the transcript was sent as
- *   text and the conversation restarted.
+ * - `in_place`: the same provider carried the conversation on, as every same-provider change
+ *   does: a per-turn setting, a run-bound setting, or an account moved at the next request.
+ *   Nothing was rebuilt.
+ * - `brief`: a switch across providers; the new binding started from a hand-over brief, with
+ *   the old transcript written beside it as a file the provider reads on demand.
  *
- * `in_place` and `resumed` are applied switches; `brief` and `replayed` are degraded
- * ones and are never presented as an ordinary success.
+ * `in_place` is an applied switch; `brief` is a degraded one and is never presented as an
+ * ordinary success.
  */
-export const AGENT_BINDING_CONTINUITIES = ["in_place", "resumed", "brief", "replayed"] as const;
+export const AGENT_BINDING_CONTINUITIES = ["in_place", "brief"] as const;
 /** One of {@link AGENT_BINDING_CONTINUITIES}. */
 export type AgentBindingContinuity = (typeof AGENT_BINDING_CONTINUITIES)[number];
 
@@ -186,9 +182,8 @@ export const AgentBindingSwitchPendingSchema: z.ZodType<AgentBindingSwitchPendin
  * A switch that applied: how the conversation arrived and what it lost.
  *
  * `declaredLosses` is required, and an empty list is a claim that nothing was
- * dropped. It is empty on `in_place` and `resumed`; on `brief` it names at least the
- * summarized history and the provider's private reasoning; on `replayed` it is never
- * empty. It speaks about the conversation only: whether a requested setting took
+ * dropped. It is empty on `in_place`; on `brief` it names at least the summarized history
+ * and the provider's private reasoning. It speaks about the conversation only: whether a requested setting took
  * effect on the new binding is read back on the agent, never reported as a loss.
  */
 export interface AgentBindingSwitchOutcome {
@@ -202,12 +197,11 @@ function refineDeclaredLosses(outcome: AgentBindingSwitchOutcome, context: z.Ref
   const losses = new Set(outcome.declaredLosses);
   switch (outcome.continuity) {
     case "in_place":
-    case "resumed":
       if (losses.size > 0) {
         context.addIssue({
           code: "custom",
           path: ["declaredLosses"],
-          message: `A ${outcome.continuity} switch rebuilt nothing, so it declares no loss.`,
+          message: "An in-place switch rebuilt nothing, so it declares no loss.",
         });
       }
       return;
@@ -220,15 +214,6 @@ function refineDeclaredLosses(outcome: AgentBindingSwitchOutcome, context: z.Ref
           code: "custom",
           path: ["declaredLosses"],
           message: "A brief declares the summarized history and the private reasoning.",
-        });
-      }
-      return;
-    case "replayed":
-      if (losses.size === 0) {
-        context.addIssue({
-          code: "custom",
-          path: ["declaredLosses"],
-          message: "A replayed switch restarted the conversation, so it declares a loss.",
         });
       }
       return;
@@ -279,10 +264,9 @@ const switchFailureFields = {
 };
 
 /**
- * What `agent.configUpdate` answers with. `applied` is exactly a conversation that
- * arrived whole (`in_place`, `resumed`) and `degraded` exactly one that did not
- * (`brief`, `replayed`), so no client re-derives the honest-degrade rule from
- * `continuity`.
+ * What `agent.configUpdate` answers with. `applied` is exactly a conversation that arrived whole
+ * (`in_place`) and `degraded` exactly one that did not (`brief`), so no client re-derives the
+ * honest-degrade rule from `continuity`.
  */
 export type AgentBindingSwitchDisposition =
   | AgentBindingSwitchPending
@@ -297,7 +281,7 @@ export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDi
       .object({
         status: z.literal("applied"),
         ...switchOutcomeFields,
-        continuity: z.enum(["in_place", "resumed"]),
+        continuity: z.literal("in_place"),
       })
       .strict()
       .superRefine(refineDeclaredLosses),
@@ -305,7 +289,7 @@ export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDi
       .object({
         status: z.literal("degraded"),
         ...switchOutcomeFields,
-        continuity: z.enum(["brief", "replayed"]),
+        continuity: z.literal("brief"),
       })
       .strict()
       .superRefine(refineDeclaredLosses),

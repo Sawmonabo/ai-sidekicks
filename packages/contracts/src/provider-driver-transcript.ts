@@ -176,7 +176,7 @@ export interface ProviderCommandEntry {
  * Validates a {@link ProviderCommandEntry}. Strict, siding with the result envelopes: the driver
  * builds it from what its provider published, so an unknown key is a driver bug. Both
  * provider-authored strings are `wireFreeFormString`-bounded because a local skill file's front
- * matter is operator-writable and the assembled list travels to a client.
+ * matter is the person's to write and the assembled list travels to a client.
  */
 export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, ProviderCommandEntry> = z
   .object({
@@ -240,7 +240,7 @@ export interface ProviderCommandListResult {
  * work produces, and holds it for the binding's life; until then every reader sees absent, never a
  * default. It is discarded with the session and deliberately not written to
  * `runtime_bindings.spawn_config` (what was requested, for resume) or `agents.output_speed` (the
- * operator's accepted choice): persisting an observation there would create a second, staler
+ * person's accepted choice): persisting an observation there would create a second, staler
  * record and make a mode that stopped being available look accepted after a restart. `declared`
  * is verbatim and not narrowed to `outputSpeedLevels`, which bounds what a caller may request; a
  * level the driver's table does not list is a real state under version skew, and coercing it would

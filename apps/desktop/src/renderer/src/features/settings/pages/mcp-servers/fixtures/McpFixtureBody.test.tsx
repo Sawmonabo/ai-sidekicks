@@ -1,7 +1,7 @@
 // The MCP fixture body, driven with the daemon verbs handed in as arguments. The three rows are
-// the arms the page must draw: a trusted binding, one needing authorization while a leg is
-// fine, and one whose trust store could not be read. Every status and outcome is drawn as the
-// daemon reported it, and the degraded row loses only the controls whose input never arrived.
+// the arms the page must draw: a connected binding, one needing authorization while a leg is
+// fine, and one whose binding store could not be read. Every status and outcome is drawn as the
+// daemon reported it.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +34,6 @@ const FILESYSTEM: McpServerInventoryEntry = {
   provider: "claude",
   scope: "user",
   serverName: "filesystem",
-  effectiveInRuns: true,
   config: {
     transport: "stdio",
     command: "npx",
@@ -43,8 +42,6 @@ const FILESYSTEM: McpServerInventoryEntry = {
   },
   status: "connected",
   enabled: true,
-  trusted: true,
-  configHash: "hash-filesystem",
   toolOverrides: [],
 };
 
@@ -53,7 +50,6 @@ const ISSUE_TRACKER: McpServerInventoryEntry = {
   scope: "project",
   scopeRef: "/work/repo",
   serverName: "issue-tracker",
-  effectiveInRuns: true,
   config: {
     transport: "http",
     url: "https://issues.example.test/mcp",
@@ -66,8 +62,6 @@ const ISSUE_TRACKER: McpServerInventoryEntry = {
     { sessionId: SESSION_B, bindingId: "leg-b", status: "connected" },
   ],
   enabled: true,
-  trusted: false,
-  configHash: "hash-issues",
   toolOverrides: [],
 };
 
@@ -76,7 +70,6 @@ const SCRATCHPAD: McpServerInventoryEntry = {
   scope: "local",
   scopeRef: "/work/repo",
   serverName: "scratchpad",
-  effectiveInRuns: false,
   config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
   status: "unknown",
   trustUnavailable: true,
@@ -104,7 +97,6 @@ function operationsServing(
     listInventory: async () => await Promise.resolve({ servers }),
     subscribeInventoryChanges: () => () => undefined,
     sendEnabled: async () => await Promise.resolve(PARTIAL_APPLICATION),
-    sendTrust: async () => await Promise.resolve(PARTIAL_APPLICATION),
     ...overrides,
   };
 }
@@ -195,28 +187,6 @@ describe("McpFixtureBody", () => {
       "needs-auth",
     ]);
     expect(chipLabels(".meridian-mcp__legs")).toStrictEqual(["needs-auth", "connected"]);
-  });
-
-  it("withholds the trust control on the row whose trust store could not be read", async () => {
-    const { container } = await renderSettledMcpPage(
-      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
-    );
-    const degradedRow = rowNamed(container, "scratchpad");
-    expect(degradedRow?.textContent).toContain("trust control is withheld");
-    expect(
-      [...(degradedRow?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
-    ).not.toContain("Grant trust");
-  });
-
-  // Negative control: every other row offers it, so the withholding is about that row's arm.
-  it("offers the trust control on the rows whose trust arm arrived", async () => {
-    const { container } = await renderSettledMcpPage(
-      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
-    );
-    const trustButtons = [...container.querySelectorAll("button")].filter((button) =>
-      /trust/iu.test(button.textContent ?? ""),
-    );
-    expect(trustButtons).toHaveLength(2);
   });
 
   it("names no invented status on the degraded row", async () => {

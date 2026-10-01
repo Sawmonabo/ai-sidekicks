@@ -20,7 +20,6 @@ const statusChanged = {
   payload: {
     provider: "claude",
     scope: "project",
-    scopeRefDigest: "b3:9f2c",
     serverName: "docs",
     previousStatus: "starting",
     status: "failed",

@@ -1,15 +1,13 @@
 // The `mcp.*` wire the settings page and the daemon share. A binding names a folder exactly at
-// the scopes that have one, on both providers; a project binding travels with the repository, so
-// it never carries a secret value, while a user binding may; a server address carries no
-// credentials; a tool override sets something; and a read-back never invents trust facts the
-// store did not answer.
+// the scopes that have one, on both providers; every scope takes the values the person typed; a
+// server address carries no credentials; a tool override sets something; and a read-back never
+// invents facts the binding store did not answer.
 import { describe, expect, it } from "vitest";
 
 import {
   McpGetResponseSchema,
   McpSetEnabledRequestSchema,
   McpSetToolOverrideRequestSchema,
-  McpSetTrustRequestSchema,
   McpUpsertServerRequestSchema,
 } from "../mcp.js";
 
@@ -20,7 +18,6 @@ const PROJECT_BINDING = {
   serverName: "docs",
 } as const;
 const PRESS_ID = "11111111-1111-4111-8111-111111111111";
-const DIGEST = "b3:9f2c";
 
 describe("the binding a mutation names", () => {
   it("accepts a local binding on Codex, whose local scope the daemon emulates", () => {
@@ -28,9 +25,9 @@ describe("the binding a mutation names", () => {
       ...PROJECT_BINDING,
       scope: "local",
       clientIdempotencyKey: PRESS_ID,
-      trusted: true,
+      enabled: true,
     };
-    expect(McpSetTrustRequestSchema.safeParse(request).success).toBe(true);
+    expect(McpSetEnabledRequestSchema.safeParse(request).success).toBe(true);
   });
 
   it("refuses a user binding that names a folder", () => {
@@ -47,20 +44,11 @@ describe("the binding a mutation names", () => {
 describe("mcp.upsertServer", () => {
   const stdio = { transport: "stdio", command: "npx", args: ["-y", "docs-server"] } as const;
 
-  it("accepts a user binding carrying environment values", () => {
-    const request = {
+  it("accepts environment and header values on a user and a project binding", () => {
+    const withEnv = {
       provider: "claude",
       scope: "user",
       serverName: "docs",
-      clientIdempotencyKey: PRESS_ID,
-      config: { ...stdio, env: { DOCS_TOKEN: "secret" } },
-    };
-    expect(McpUpsertServerRequestSchema.safeParse(request).success).toBe(true);
-  });
-
-  it("refuses an environment or header value on a project binding", () => {
-    const withEnv = {
-      ...PROJECT_BINDING,
       clientIdempotencyKey: PRESS_ID,
       config: { ...stdio, env: { DOCS_TOKEN: "secret" } },
     };
@@ -73,21 +61,11 @@ describe("mcp.upsertServer", () => {
         headers: { Authorization: "Bearer secret" },
       },
     };
-    expect(McpUpsertServerRequestSchema.safeParse(withEnv).success).toBe(false);
-    expect(McpUpsertServerRequestSchema.safeParse(withHeader).success).toBe(false);
-  });
-
-  it("accepts a project binding that names its variables and carries no value", () => {
-    const request = {
-      ...PROJECT_BINDING,
-      clientIdempotencyKey: PRESS_ID,
-      config: {
-        transport: "http",
-        url: "https://docs.example.com/mcp",
-        bearerTokenEnvVar: "DOCS_TOKEN",
-      },
-    };
-    expect(McpUpsertServerRequestSchema.safeParse(request).success).toBe(true);
+    expect(McpUpsertServerRequestSchema.safeParse(withEnv).success).toBe(true);
+    expect(McpUpsertServerRequestSchema.safeParse({ ...withEnv, ...PROJECT_BINDING }).success).toBe(
+      true,
+    );
+    expect(McpUpsertServerRequestSchema.safeParse(withHeader).success).toBe(true);
   });
 
   it("refuses an address with credentials in it or a scheme other than http", () => {
@@ -127,27 +105,25 @@ describe("mcp.setToolOverride", () => {
 describe("the inventory entry", () => {
   const base = {
     ...PROJECT_BINDING,
-    effectiveInRuns: true,
     config: { transport: "stdio", command: "npx" },
     status: "connected",
-    scopeRefDigest: DIGEST,
   };
-  const trusted = { enabled: true, trusted: true, configHash: DIGEST, toolOverrides: [] };
+  const answered = { enabled: true, toolOverrides: [] };
 
-  it("serves the trusted arm and the arm whose trust store did not answer", () => {
-    expect(McpGetResponseSchema.safeParse({ server: { ...base, ...trusted } }).success).toBe(true);
+  it("serves the arm whose binding store answered and the arm whose store did not", () => {
+    expect(McpGetResponseSchema.safeParse({ server: { ...base, ...answered } }).success).toBe(true);
     expect(
       McpGetResponseSchema.safeParse({ server: { ...base, trustUnavailable: true } }).success,
     ).toBe(true);
   });
 
-  it("refuses a trust verdict on an entry whose trust store did not answer", () => {
-    const invented = { ...base, trustUnavailable: true, trusted: false };
+  it("refuses tool overrides on an entry whose binding store did not answer", () => {
+    const invented = { ...base, trustUnavailable: true, toolOverrides: [] };
     expect(McpGetResponseSchema.safeParse({ server: invented }).success).toBe(false);
   });
 
   it("carries a failure reason only on a failed server", () => {
-    const failed = { ...base, ...trusted, status: "failed", failedReason: "commandNotRunnable" };
+    const failed = { ...base, ...answered, status: "failed", failedReason: "commandNotRunnable" };
     expect(McpGetResponseSchema.safeParse({ server: failed }).success).toBe(true);
     expect(
       McpGetResponseSchema.safeParse({ server: { ...failed, status: "connected" } }).success,
