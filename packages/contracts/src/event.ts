@@ -234,7 +234,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
   // security_events
-  "security.default.override": "security_events",
   "security.update.available": "security_events",
   "daemon.master_key_source": "security_events",
   "daemon.pii_split_ambiguous": "security_events",

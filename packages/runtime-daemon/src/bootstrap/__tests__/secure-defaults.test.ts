@@ -1,18 +1,13 @@
 // Binding before load throws, invalid config fails closed with a typed error, the settings view
-// holds only its two keys, an insecure setting is refused on the wire, and each override event is
-// emitted once per process. Both modules hold singleton state, so every case starts from a reset.
+// holds only its two keys, and an insecure setting is refused on the wire. The module holds
+// singleton state, so every case starts from a reset.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
 import { bootstrap, assertLoadedForBind } from "../index.js";
-import {
-  SecureDefaultOverrideEmitter,
-  type SecurityDefaultOverrideEvent,
-  type SecurityDefaultOverrideSink,
-} from "../secure-defaults-events.js";
 import {
   SecureDefaults,
   SecureDefaultsValidationError,
@@ -24,27 +19,12 @@ const VALID_BASE_CONFIG: SecureDefaultsConfig = {
   bannerFormat: "text",
 };
 
-function makeOverrideEvent(
-  behavior: number,
-  overrides: Partial<SecurityDefaultOverrideEvent> = {},
-): SecurityDefaultOverrideEvent {
-  return {
-    behavior,
-    row: "7a",
-    effective_value: "loopback_only",
-    banner_printed_at: "2026-04-28T12:00:00.000Z",
-    ...overrides,
-  };
-}
-
 beforeEach(() => {
   SecureDefaults.__resetForTest();
-  SecureDefaultOverrideEmitter.__resetForTest();
 });
 
 afterEach(() => {
   SecureDefaults.__resetForTest();
-  SecureDefaultOverrideEmitter.__resetForTest();
 });
 
 describe("load-before-bind", () => {
@@ -169,43 +149,4 @@ describe("extended-scope-key refusal", () => {
       expect(SecureDefaults.isLoaded()).toBe(false);
     },
   );
-});
-
-describe("single-emit-per-startup", () => {
-  it("emits exactly once for a single behavior even when emit() is called twice", () => {
-    const sink = vi.fn<SecurityDefaultOverrideSink>();
-    SecureDefaultOverrideEmitter.setSink(sink);
-
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
-
-    expect(sink).toHaveBeenCalledTimes(1);
-    expect(sink).toHaveBeenCalledWith(makeOverrideEvent(1));
-    expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(true);
-  });
-
-  it("emits independently for two distinct behaviors, each exactly once", () => {
-    const sink = vi.fn<SecurityDefaultOverrideSink>();
-    SecureDefaultOverrideEmitter.setSink(sink);
-
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(2));
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(2));
-
-    expect(sink).toHaveBeenCalledTimes(2);
-    const behaviorsCalled = sink.mock.calls.map((call) => call[0].behavior).sort();
-    expect(behaviorsCalled).toEqual([1, 2]);
-    expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(true);
-    expect(SecureDefaultOverrideEmitter.hasEmitted(2)).toBe(true);
-  });
-
-  it("emit() throws when no sink is installed and keeps the behavior's one event", () => {
-    expect(SecureDefaultOverrideEmitter.hasSink()).toBe(false);
-    expect(() => SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1))).toThrow(
-      /SecureDefaultOverrideEmitter\.setSink\(sink\) must be called before emit\(\)/,
-    );
-    // The failed emit must not use up the behavior's single event.
-    expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(false);
-  });
 });

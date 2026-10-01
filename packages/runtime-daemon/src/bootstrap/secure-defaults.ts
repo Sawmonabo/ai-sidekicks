@@ -1,7 +1,7 @@
 // SecureDefaults: the validated bootstrap configuration, loaded before any listener binds.
 // `effectiveSettings()` throws until `load()` has succeeded. Only `localIpcPath` and
 // `bannerFormat` exist; any other key is refused with `unknown_setting`. Socket-path probing
-// belongs to the listener, and override events come from `secure-defaults-events.ts`.
+// belongs to the listener.
 
 /** The bootstrap settings: the OS-local socket or pipe path and the banner format. */
 export interface SecureDefaultsConfig {

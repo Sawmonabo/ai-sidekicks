@@ -137,7 +137,6 @@ export type SessionEventType =
   | "recovery.succeeded"
   | "recovery.failed"
   // security_events
-  | "security.default.override"
   | "security.update.available"
   | "daemon.master_key_source"
   | "daemon.pii_split_ambiguous"
@@ -440,7 +439,6 @@ export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
 
 /** The event types of the `security_events` category. */
 export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "security.default.override",
   "security.update.available",
   "daemon.master_key_source",
   "daemon.pii_split_ambiguous",
