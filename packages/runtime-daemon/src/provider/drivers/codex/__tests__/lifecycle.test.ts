@@ -3046,7 +3046,7 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
     expect(outcome).toBeInstanceOf(PermanentStructuralRefusalError);
     expect((outcome as PermanentStructuralRefusalError).providerSessionId).toBe(THREAD_ID);
-    expect((outcome as PermanentStructuralRefusalError).reconstitutionRequired).toBe(true);
+    expect((outcome as PermanentStructuralRefusalError).freshSessionRequired).toBe(true);
     // Condemned, not merely failed: the binding is gone, so a caller cannot re-dispatch onto the
     // poisoned thread.
     expect(harness.server.killedSessions).toEqual([

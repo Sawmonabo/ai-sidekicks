@@ -81,7 +81,7 @@ export class PermanentStructuralRefusalError extends Error {
   /** Always the structural member; carried so a log line names the evidence. */
   readonly refusalShape = "history-structurally-invalid" as const;
   /** The caller's standing obligation; a literal type because every construction owes it. */
-  readonly reconstitutionRequired = true as const;
+  readonly freshSessionRequired = true as const;
 
   constructor(details: {
     readonly providerSessionId: string;
@@ -89,7 +89,7 @@ export class PermanentStructuralRefusalError extends Error {
     readonly cause?: unknown;
   }) {
     super(
-      `The provider refused the request because the session history is structurally invalid; provider session "${details.providerSessionId}" must be reconstituted rather than retried.`,
+      `The provider refused the request because the session history is structurally invalid; provider session "${details.providerSessionId}" must be replaced by a fresh session from the hand-over brief rather than retried.`,
       details.cause === undefined ? undefined : { cause: details.cause },
     );
     this.name = "PermanentStructuralRefusalError";
