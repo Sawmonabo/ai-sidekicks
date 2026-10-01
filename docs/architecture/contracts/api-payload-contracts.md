@@ -893,8 +893,8 @@ interface SessionSnapshot {
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
   // unbounded and each provider does what it does on its own. What the bound does and how each
-  // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget and not an
-  // intervention, and reaching it ends a TURN rather than the run.
+  // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget, and reaching
+  // it ends the turn and then the run, as run.interrupted with trigger "step_limit".
   maxStepsPerTurn?: number;
   // The address another session writes to when it messages this one — what the session inspector
   // offers as `Copy address`. It names the inbox the daemon holds for the session — one socket (a named
@@ -1724,8 +1724,8 @@ interface CreateSessionParams {
   // where that is unset each provider does what it does on its own. The driver carries the number
   // onto its own realization: `--max-turns` on the Claude leg, where the provider enforces it, and
   // the daemon's own per-turn count on the Codex leg, that provider publishing no cap. Spawn-bound
-  // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends a
-  // TURN and leaves the run where it was, so it is neither a budget nor an intervention.
+  // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends
+  // the turn and then the run, as run.interrupted with trigger "step_limit". It is not a budget.
   maxStepsPerTurn?: number;
   onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-010's Cedar pipeline (CP-004-7 / B13 T2.8). See CallbackToolInvocation below
   onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink; the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate. Producer-only at Plan-004 — the consumer is Plan-025's status normalizer (§Plan-025 — MCP Governance Contract Surfaces below; Spec-025). See McpServerStatusEmission below
