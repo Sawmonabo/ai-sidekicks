@@ -25,7 +25,7 @@
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "10.0.0",
     "@stryker-mutator/vitest-runner": "10.0.0",
-    "@types/node": "^25.9.8",
+    "@types/node": "^26.6.3",
     "@vitest/coverage-v8": "catalog:testing",
     "eslint": "^10.11.0",
     "knip": "6.39.0",
