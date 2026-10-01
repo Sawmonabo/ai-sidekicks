@@ -72,7 +72,7 @@ const SCRATCHPAD: McpServerInventoryEntry = {
   serverName: "scratchpad",
   config: { transport: "stdio", command: "./scripts/scratchpad-mcp" },
   status: "unknown",
-  trustUnavailable: true,
+  bindingStoreUnavailable: true,
 };
 
 const PARTIAL_APPLICATION: McpMutationResult = {

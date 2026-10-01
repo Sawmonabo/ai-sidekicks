@@ -109,12 +109,13 @@ describe("the inventory entry", () => {
   it("serves the arm whose binding store answered and the arm whose store did not", () => {
     expect(McpGetResponseSchema.safeParse({ server: { ...base, ...answered } }).success).toBe(true);
     expect(
-      McpGetResponseSchema.safeParse({ server: { ...base, trustUnavailable: true } }).success,
+      McpGetResponseSchema.safeParse({ server: { ...base, bindingStoreUnavailable: true } })
+        .success,
     ).toBe(true);
   });
 
   it("refuses tool overrides on an entry whose binding store did not answer", () => {
-    const invented = { ...base, trustUnavailable: true, toolOverrides: [] };
+    const invented = { ...base, bindingStoreUnavailable: true, toolOverrides: [] };
     expect(McpGetResponseSchema.safeParse({ server: invented }).success).toBe(false);
   });
 

@@ -236,7 +236,7 @@ interface McpServerInventoryFacts {
 /**
  * One inventory row: the binding and what is known about it.
  *
- * A pair on `trustUnavailable`. When the binding store is unreachable the members that depend on
+ * A pair on `bindingStoreUnavailable`. When the binding store is unreachable the members that depend on
  * it are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists. A client
  * renders the absence.
  */
@@ -244,12 +244,12 @@ export type McpServerInventoryEntry = McpServerBindingRef &
   McpServerInventoryFacts &
   (
     | {
-        trustUnavailable?: undefined;
+        bindingStoreUnavailable?: undefined;
         enabled: boolean;
         toolOverrides: McpToolOverride[];
       }
     | {
-        trustUnavailable: true;
+        bindingStoreUnavailable: true;
         enabled?: boolean | undefined;
       }
   );
@@ -598,8 +598,8 @@ const storeAnsweredEntryShape = {
   enabled: z.boolean(),
   toolOverrides: z.array(McpToolOverrideSchema),
 };
-const trustUnavailableEntryShape = {
-  trustUnavailable: z.literal(true),
+const bindingStoreUnavailableEntryShape = {
+  bindingStoreUnavailable: z.literal(true),
   enabled: z.boolean().optional(),
 };
 
@@ -607,7 +607,7 @@ const trustUnavailableEntryShape = {
 const inventoryEntryArms = <Binding extends z.ZodRawShape>(binding: Binding) =>
   [
     z.object({ ...binding, ...inventoryFactsShape, ...storeAnsweredEntryShape }).strict(),
-    z.object({ ...binding, ...inventoryFactsShape, ...trustUnavailableEntryShape }).strict(),
+    z.object({ ...binding, ...inventoryFactsShape, ...bindingStoreUnavailableEntryShape }).strict(),
   ] as const;
 
 /** Parses an {@link McpServerInventoryEntry}; refuses a failure reason on a non-`failed` server. */
