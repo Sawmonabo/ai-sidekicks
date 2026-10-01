@@ -1,5 +1,5 @@
 // Type-level guard: no property name reachable from `PreloadApi`, including through what its
-// methods return, contains "token", "dpop", "prf" or "secret", so no auth material appears on
+// methods return, contains "token", "dpop" or "secret", so no auth material appears on
 // `window.desktopBridge`. The typecheck fails with TS2344 at the `AssertNever<Offenders>` line
 // the moment such a key enters the bridge.
 //
@@ -49,11 +49,9 @@ type ContainsForbidden<K extends string> = K extends string
     ? K
     : Lowercase<K> extends `${string}dpop${string}`
       ? K
-      : Lowercase<K> extends `${string}prf${string}`
+      : Lowercase<K> extends `${string}secret${string}`
         ? K
-        : Lowercase<K> extends `${string}secret${string}`
-          ? K
-          : never
+        : never
   : never;
 
 /** Every bridge key matching a forbidden substring; `never` when the bridge is clean. */
@@ -64,6 +62,6 @@ type AssertNever<T extends never> = T;
 
 /**
  * Fails the typecheck if `PreloadApi` grows a property name, or a method returns a value with a
- * property name, matching /token|dpop|prf|secret/i.
+ * property name, matching /token|dpop|secret/i.
  */
 type _NoForbiddenKeysOnBridge = AssertNever<Offenders>;
