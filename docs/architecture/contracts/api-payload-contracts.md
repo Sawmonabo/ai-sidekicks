@@ -721,6 +721,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.keptVarsClear` | Clear the values `Keep for later runs` kept for one workflow | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.11 |
 | `workflow.kindList` | Node catalog | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.19 |
 | `workflow.layoutSet` | Save the canvas layout without a new version | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
+| `workflow.permissionLevelSet` | Set the workflow's own permission level from the builder's level pill | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
 | `workflow.nodeExecute` with scope `"node"` or `"fromHere"` | Run this node, and Run from here | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.9 |
 | `workflow.pinDataSet` | Pin or unpin a node's test data: inspector, step panel Pin, Copy this run into the builder | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
 | the `workflow.results_posted` and `workflow.step_*` events, drawn as transcript row kind `workflow_run` | The progress row, then the results row, in the session that asked | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.3, T5.8 |
@@ -6464,6 +6465,7 @@ interface WorkflowDefinitionReadResponse {
   // workflow.runStart accepts as `workflowVersionId`.
   workflowVersionId: string;
   document: WorkflowDocument;
+  permissionLevel: ExecutionPostureMode; // the workflow's own level, which every run of it uses
   // The webhook token's dates, present only where the document's trigger is a webhook and a token
   // exists. The token itself is never read back — only its hash is kept, and
   // workflow.webhookTokenRotate shows a new one once — so the trigger's Address section reads
@@ -7218,6 +7220,19 @@ interface WorkflowLayoutSetResponse {
   updatedAt: string;
 }
 
+// WorkflowPermissionLevelSet — workflow.permissionLevelSet. Sets the workflow's own permission level from
+// the builder's level pill; a new workflow starts at `yolo`. Every run of the workflow uses that level
+// wherever the run lives, a chat's session or the workflow's own, and a live run takes a change from
+// its next step. The level sits outside the hashed body, so a change mints no version.
+interface WorkflowPermissionLevelSetRequest {
+  definitionId: WorkflowDefinitionId;
+  level: ExecutionPostureMode;
+}
+interface WorkflowPermissionLevelSetResponse {
+  definitionId: WorkflowDefinitionId;
+  level: ExecutionPostureMode;
+}
+
 // WorkflowPinDataSet — workflow.pinDataSet. Pins test data onto one node, or unpins it with `items: null`,
 // from the inspector's Output panel, a run's step panel, or Copy this run into the builder — without a new
 // version, because pinned data sits outside the hashed body. Pinned data is honored only in manual runs and
@@ -7641,6 +7656,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.kindList` | `query` | `WorkflowKindListRequest` → `WorkflowKindListResponse` | The node catalog with its param specs, so the palette, the inspector and an agent read one list |
 | `workflow.runsPauseSet` | `mutation` | `WorkflowRunsPauseSetRequest` → `WorkflowRunsPauseSetResponse` | The scheduler-wide hold on starting new runs; takes no run id and answers with how many starts are waiting |
 | `workflow.layoutSet` | `mutation` | `WorkflowLayoutSetRequest` → `WorkflowLayoutSetResponse` | The canvas layout, saved beside the definition without a new version |
+| `workflow.permissionLevelSet` | `mutation` | `WorkflowPermissionLevelSetRequest` → `WorkflowPermissionLevelSetResponse` | The workflow's own permission level, saved beside the definition without a new version |
 | `workflow.pinDataSet` | `mutation` | `WorkflowPinDataSetRequest` → `WorkflowPinDataSetResponse` | Pins or unpins a node's test data without a new version; honored only in manual runs |
 | `workflow.draftUpdate` | `mutation` | `WorkflowDraftUpdateRequest` → `WorkflowDraftUpdateResponse` | The builder's unsaved draft, held by the daemon so it survives a reload; the first call mints the draft's id |
 | `workflow.draftRead` | `query` | `WorkflowDraftReadRequest` → `WorkflowDraftReadResponse` | The draft read back after a reload, by the id the builder's address carries |

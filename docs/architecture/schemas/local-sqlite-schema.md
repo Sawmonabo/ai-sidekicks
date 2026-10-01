@@ -666,6 +666,11 @@ CREATE TABLE workflow_definitions (
                        CHECK(schema_version GLOB '[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
+  -- The workflow's own permission level, set from the builder's level pill and starting at 'yolo':
+  -- every run of the workflow uses it wherever the run lives, and a live run takes a change from its
+  -- next step. OUTSIDE the content_hash preimage, so a change mints no version.
+  permission_level     TEXT NOT NULL DEFAULT 'yolo'
+                       CHECK(permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
