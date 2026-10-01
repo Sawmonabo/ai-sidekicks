@@ -191,7 +191,7 @@ describe("RFC 8785 published vectors", () => {
     if (sample.expectedJson === null) {
       it(`Appendix B — ${label} is refused: JSON admits no such value`, () => {
         // RFC 8785 section 3.2.2.3 requires an error here. The refusal comes from
-        // `canonicalize@3.0.0` with its bare wording; pinning it makes a library swap that emits
+        // `canonicalize@5.1.0` with its bare wording; pinning it makes a library swap that emits
         // `null` (plain `JSON.stringify` behavior) fail loudly.
         const message = captureThrownMessage(() =>
           canonicalizeJson(ieee754HexToNumber(sample.ieee754Hex)),
@@ -487,9 +487,8 @@ describe("canonicalizeJson — refusals", () => {
 
   it("reports a cyclic own-property graph as depth exhaustion, not as a hang", () => {
     // The depth walk drives a cycle's depth up without bound, so it fires before
-    // `canonicalize@3.0.0`'s own cycle detection. Pinning which message arrives shows the
-    // iterative guard ran, not the library's recursion, which would overflow the stack on deep
-    // untrusted input.
+    // `canonicalize@5.1.0`'s own cycle detection. Pinning which message arrives shows the depth
+    // guard ran before the two walks that have no cycle detection.
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
     const message = captureThrownMessage(() => canonicalizeJson(cyclic));
@@ -505,7 +504,7 @@ describe("canonicalizeJson — refusals", () => {
   });
 
   it("surfaces the NaN and Infinity refusals the RFC requires", () => {
-    // These come from `canonicalize@3.0.0` with its bare wording; a library that emitted `null`
+    // These come from `canonicalize@5.1.0` with its bare wording; a library that emitted `null`
     // instead would fail here.
     expect(captureThrownMessage(() => canonicalizeJson({ sequence: Number.NaN }))).toBe(
       "NaN is not allowed",
@@ -516,8 +515,8 @@ describe("canonicalizeJson — refusals", () => {
   });
 });
 
-// RFC 8785 section 3.2.2.2 requires an error on a lone surrogate. The library would escape it as
-// `\ud800`, valid JSON that no conforming implementation agrees is canonical.
+// RFC 8785 section 3.2.2.2 requires an error on a lone surrogate. The library refuses it too, but
+// with a bare message that says neither where the surrogate sits nor which code unit it is.
 
 /** A lone HIGH surrogate (no low surrogate follows) — the U+D800 end of the range. */
 const LONE_HIGH_SURROGATE = "\ud800";
@@ -596,7 +595,7 @@ describe("canonicalizeJson — lone surrogates", () => {
   });
 });
 
-// `canonicalize@3.0.0` serializes whatever a callable `toJSON` returns, an uninspected tree, so
+// `canonicalize@5.1.0` serializes whatever a callable `toJSON` returns, an uninspected tree, so
 // `canonicalizeJson` refuses the whole class.
 const TO_JSON_REFUSAL = /canonicalization refused: .* carries a callable toJSON/;
 
@@ -621,12 +620,11 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).not.toContain("1970-01-01");
   });
 
-  it("costs one more getter invocation per member — the count the module documents", () => {
-    // `assertWithinCanonicalDepth`'s docblock states six invocations of an own enumerable getter
-    // end to end: one per walk (depth, `toJSON`, well-formedness) and three inside the
-    // serializer's per-member `undefined` / `symbol` / recurse sequence. A non-idempotent getter
-    // is the one residual the `toJSON` refusal does not close, so this count bounds how many
-    // different trees it can hand out.
+  it("reads an own getter once per guard walk and once in the serializer", () => {
+    // Four invocations of an own enumerable getter end to end: one per walk (depth, `toJSON`,
+    // well-formedness) and one inside `canonicalize@5.1.0`, which reads each member once. A
+    // non-idempotent getter is the one residual the `toJSON` refusal does not close, so this
+    // count bounds how many different trees it can hand out.
     let accessorCalls = 0;
     const withGetter: Record<string, unknown> = {
       get member(): unknown {
@@ -635,7 +633,7 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
       },
     };
     expect(decodeUtf8(canonicalizeJson(withGetter))).toBe('{"member":"value"}');
-    expect(accessorCalls).toBe(6);
+    expect(accessorCalls).toBe(4);
   });
 
   it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
@@ -688,7 +686,7 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     // another, so the library's cycle detection is the last line for that shape alone.
     // `canonicalizeJson` runs three walks before serializing (depth, `toJSON`, well-formedness),
     // so a getter that turns cyclic on call 4 shows every guard an acyclic tree and the
-    // serializer a cyclic one. The threshold is the walk count from the six-invocation test.
+    // serializer a cyclic one. The threshold is the walk count from the four-invocation test.
     let accessorCalls = 0;
     const nonIdempotentAccessor: Record<string, unknown> = {
       get member(): unknown {

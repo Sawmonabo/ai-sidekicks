@@ -4,7 +4,7 @@
 // never disagree on one value.
 // `canonicalizeJson` refuses excess nesting, a callable `toJSON` and an unpaired surrogate;
 // `canonicalizeEvent` also refuses an unsafe-integer `sequence`.
-// The serializer `canonicalize@3.0.0` is pinned exactly so a bump cannot change output bytes; the
+// The serializer `canonicalize@5.1.0` is pinned exactly so a bump cannot change output bytes; the
 // golden-vector suite binds it to RFC 8785 Appendix B, Table 1. Its bare errors (`NaN is not
 // allowed`, `Infinity is not allowed`, `Circular reference detected`) can still surface.
 
@@ -96,7 +96,8 @@ export function normalizeOccurredAt(occurredAt: string): string {
 
 /**
  * The deepest container nesting {@link canonicalizeJson} serializes (`{}` is depth 1). The library
- * recurses once per level; on Node 22.12 it overflows near depth 1500, so 64 leaves wide headroom.
+ * walks iteratively, so this is not a stack bound: the two guards after the depth walk have no
+ * cycle detection, and this ceiling is what turns a cycle into a refusal instead of a hang.
  */
 const CANONICAL_JSON_MAX_DEPTH = 64;
 
@@ -114,7 +115,7 @@ function assertWithinCanonicalDepth(value: unknown): void {
     if (entry.node === null || typeof entry.node !== "object") continue;
     if (entry.depth > CANONICAL_JSON_MAX_DEPTH) {
       throw new Error(
-        `RFC 8785 canonicalization refused: the value nests containers deeper than ${CANONICAL_JSON_MAX_DEPTH} levels. canonicalize@3.0.0 recurses once per level, so unbounded nesting is a stack-overflow denial of service on this entry point — which hands untrusted request bodies.`,
+        `RFC 8785 canonicalization refused: the value nests containers deeper than ${CANONICAL_JSON_MAX_DEPTH} levels. The guards after this one have no cycle detection, so an unbounded or cyclic value would stall this entry point, which handles untrusted request bodies.`,
       );
     }
     for (const childValue of Object.values(entry.node as Record<string, unknown>)) {
@@ -146,7 +147,7 @@ function assertNoToJsonOverride(value: unknown): void {
           entry.containersAbove === 0
             ? "the top-level value"
             : `a value nested ${String(entry.containersAbove)} containers deep`
-        } carries a callable toJSON, which canonicalize@3.0.0 invokes and serializes INSTEAD of the value — so the canonical bytes would come from a tree none of this module's guards inspected, and a stateful toJSON makes two canonicalizations of one value produce DIFFERENT bytes, which no consumer re-canonicalizing the value can reproduce. Apply the conversion explicitly and pass the converted plain-JSON value instead. The property path is withheld: this entry point also canonicalizes PII plaintext.`,
+        } carries a callable toJSON, which the serializer invokes and serializes INSTEAD of the value — so the canonical bytes would come from a tree none of this module's guards inspected, and a stateful toJSON makes two canonicalizations of one value produce DIFFERENT bytes, which no consumer re-canonicalizing the value can reproduce. Apply the conversion explicitly and pass the converted plain-JSON value instead. The property path is withheld: this entry point also canonicalizes PII plaintext.`,
       );
     }
     for (const childValue of Object.values(entry.node as Record<string, unknown>)) {
@@ -167,7 +168,7 @@ function assertNoLoneSurrogate(text: string, positionDescription: string): void 
   if (match === null) return;
   const codeUnit = text.charCodeAt(match.index);
   throw new Error(
-    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(match.index)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates, but canonicalize@3.0.0 escapes them through JSON.stringify and keeps going — so these bytes would be produced here while any conforming implementation refuses to produce them at all, breaking the cross-implementation byte agreement. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
+    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(match.index)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
   );
 }
 
