@@ -95,13 +95,6 @@ export const DRIVER_WIRE_REASON_MAX_LEN = 512;
  */
 export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
 /**
- * Max attachments on one message wherever the content cap applies: a coarse frame-abuse ceiling on
- * the count (each element is already bounded by the `ArtifactId` UUID shape). Not the policy bound:
- * `max_attachments_per_carrier` (default 10, range 1-50) is enforced by the daemon at carrier
- * acceptance, so this is sized above that range and a parse never pre-empts the operator's refusal.
- */
-export const DRIVER_WIRE_STEER_ATTACHMENTS_MAX = 64;
-/**
  * Max length of a driver's `contractVersion`, on the capability reply and where the daemon stores
  * it. The daemon's SQL CHECK constraints repeat the value and change with it.
  */
@@ -324,10 +317,9 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       payload: z
         .object({
           content: wireUncappedFreeFormString("SteerPayload.content"),
-          // `ArtifactId` elements, so a non-id element is refused outright; the `.max()` is the
-          // coarse frame-abuse count ceiling. The policy count is the daemon's at carrier
-          // acceptance (see `SteerPayload`).
-          attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
+          // `ArtifactId` elements, so a non-id element is refused outright. How many files a
+          // message carries is what the daemon and the provider accept, never a count of ours.
+          attachments: z.array(ArtifactIdSchema).optional(),
           expectedTurnId: wireFreeFormString(
             DRIVER_WIRE_HANDLE_MAX_LEN,
             "SteerPayload.expectedTurnId",

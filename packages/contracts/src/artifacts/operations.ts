@@ -225,7 +225,6 @@ export function decodeArtifactPayloadText(
 const ARTIFACT_REFUSAL_CODE_VALUES = [
   "artifact.not_found",
   "artifact.too_large",
-  "artifact.too_many_attachments",
   "artifact.unsupported_media_type",
   "artifact.scanner_rejected",
   "artifact.ingest_capacity_exhausted",

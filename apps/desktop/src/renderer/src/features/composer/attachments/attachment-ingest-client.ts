@@ -50,9 +50,8 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * Takes one attachment and begins its stream. The count cap is not enforced here: the daemon
-   * refuses the whole list at acceptance with `artifact.too_many_attachments`, and blocking the
-   * eleventh attach would be wrong once an operator raises the bound.
+   * Takes one attachment and begins its stream. No count of the app's own is enforced: how many
+   * files a message carries is what the daemon and the provider accept.
    */
   public attach(source: AttachmentSource): void {
     const localId = source.declared.localId;

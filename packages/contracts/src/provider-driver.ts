@@ -290,11 +290,8 @@ export interface SteerPayload {
   // never dropped (a silently shortened list makes the recipient reason about a message that was
   // never sent).
   //
-  // Two bounds: `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` in `provider-driver-wire.ts` is this seam's
-  // coarse frame-abuse ceiling; the policy bound `max_attachments_per_carrier` (default 10,
-  // operator-tunable 1-50) is enforced by the daemon at carrier acceptance, which refuses the whole
-  // carrier as `artifact.too_many_attachments` (413) rather than truncating. A schema constant
-  // cannot read operator configuration.
+  // No count of the app's own bounds the list: how many files a message carries is what the
+  // daemon and the provider accept.
   //
   // No daemon seam resolves an `ArtifactId` to bytes yet, so the IPC ingress
   // (`runtime-daemon/src/ipc/handlers/driver-handlers.ts`, `refuseAttachmentDeliveryUnsupported`)

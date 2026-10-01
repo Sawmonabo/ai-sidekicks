@@ -33,7 +33,6 @@ import {
 import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
-  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_TOKEN_MAX_LEN,
 } from "./provider-driver-wire.js";
 import {
@@ -212,7 +211,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
         expectedRunVersion: countSchema,
         clientIdempotencyKey: z.uuid(),
         content: wireUncappedFreeFormString("InterventionRequestPayload.content"),
-        attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
+        attachments: z.array(ArtifactIdSchema).optional(),
         expectedTurnId: wireFreeFormString(
           DRIVER_WIRE_HANDLE_MAX_LEN,
           "InterventionRequestPayload.expectedTurnId",

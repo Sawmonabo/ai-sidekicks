@@ -6,10 +6,7 @@ import { z } from "zod";
 import { ChildHandleSchema, type ChildHandle } from "./agent.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
-import {
-  DRIVER_WIRE_REASON_MAX_LEN,
-  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
-} from "./provider-driver-wire.js";
+import { DRIVER_WIRE_REASON_MAX_LEN } from "./provider-driver-wire.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
 import {
   SessionIdSchema,
@@ -36,13 +33,10 @@ export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z
 ]);
 
 // The words and files of a message the person sends. The files are artifact ids in staging order;
-// the count ceiling here only guards the wire frame, and the per-message file limit is checked by
-// the daemon when it accepts the message.
+// how many a message carries is what the daemon and the provider accept, never a count of ours.
 const messageContentSchema = (fieldLabel: string): z.ZodString =>
   wireUncappedFreeFormString(fieldLabel);
-const messageAttachmentsSchema: z.ZodType<ArtifactId[], ArtifactId[]> = z
-  .array(ArtifactIdSchema)
-  .max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX);
+const messageAttachmentsSchema: z.ZodType<ArtifactId[], ArtifactId[]> = z.array(ArtifactIdSchema);
 
 // run.queueCreate
 

@@ -29,12 +29,6 @@ import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js
  */
 export const SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT: number = 100 * 1024 * 1024;
 
-/**
- * How many files one message may carry, by default. One message at this count fills the
- * session's relay budget exactly. An operator may set it between 1 and 50.
- */
-export const SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT = 10;
-
 /** Media types admitted because the bytes are well-formed UTF-8, with no signature to check. */
 export const SESSION_ATTACHMENT_TEXT_MEDIA_TYPES: readonly string[] = [
   "text/plain",
