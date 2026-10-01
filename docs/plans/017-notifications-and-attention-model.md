@@ -226,7 +226,7 @@ Plan-017 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 ##### T3.3 — Delivery outcomes and the test sends
 
 - **Files:** `packages/runtime-daemon/src/attention/delivery/` (new: the outcome table and the `attention.deliveryRead` and `attention.deliveryTest` handlers) plus co-located tests.
-- **Step:** Keep one outcome row per channel, overwritten on each attempt and removed with the channel's secret; answer `attention.deliveryRead` from it and run `attention.deliveryTest` through the same sender each channel uses. A locked or unavailable keychain refuses with `attention.delivery_store_unavailable`; a channel missing its address or password refuses with `attention.delivery_not_configured`.
+- **Step:** Keep one outcome row per channel, overwritten on each attempt and removed with the channel's secret; answer `attention.deliveryRead` from it and run `attention.deliveryTest` through the same sender each channel uses; a test of saved web-address text with no scheme and host sends nothing and answers `result: notAnAddress`, which the page reads as `Not a web address, so nothing was sent.` A locked or unavailable keychain refuses with `attention.delivery_store_unavailable`; a channel missing its address or password refuses with `attention.delivery_not_configured`.
 - **Test:** none beyond T3.4 and T3.5, which exercise the senders these verbs call.
 - **Spec coverage:** Spec-017 §Interfaces And Contracts (the delivery verbs)
 - **Verifies invariant:** none

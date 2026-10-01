@@ -5106,7 +5106,15 @@ interface AttentionSeenUpdateResponse {}
 // log or an error.
 interface AttentionDeliveryOutcome {
   at: string;
-  result: "delivered" | "refused" | "unreachable" | "timedOut" | "signInRefused" | "notEncrypted";
+  // notAnAddress: a test of saved web-address text with no scheme and host; nothing was sent.
+  result:
+    | "delivered"
+    | "refused"
+    | "unreachable"
+    | "timedOut"
+    | "signInRefused"
+    | "notEncrypted"
+    | "notAnAddress";
   httpStatus?: number;
   undelivered: number;
 }
