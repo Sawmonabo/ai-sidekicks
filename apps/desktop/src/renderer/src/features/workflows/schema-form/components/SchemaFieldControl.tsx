@@ -1,11 +1,11 @@
 // Dispatches a field's declared kind to the control that draws it. A component with an
 // exhaustive switch, so a new kind stops compiling instead of rendering nothing.
 
-import { SchemaCheckboxField } from "./fields/SchemaCheckboxField.js";
-import { SchemaChoiceField } from "./fields/SchemaChoiceField.js";
-import { SchemaLongTextField } from "./fields/SchemaLongTextField.js";
-import { SchemaNumberField } from "./fields/SchemaNumberField.js";
-import { SchemaTextField } from "./fields/SchemaTextField.js";
+import { SchemaCheckboxField } from "./SchemaFields/SchemaCheckboxField.js";
+import { SchemaChoiceField } from "./SchemaFields/SchemaChoiceField.js";
+import { SchemaLongTextField } from "./SchemaFields/SchemaLongTextField.js";
+import { SchemaNumberField } from "./SchemaFields/SchemaNumberField.js";
+import { SchemaTextField } from "./SchemaFields/SchemaTextField.js";
 import { fieldDrawsAsCheckbox } from "../plan/schema-fields.js";
 import type { SchemaFieldControlProps } from "./field-control-props.js";
 
