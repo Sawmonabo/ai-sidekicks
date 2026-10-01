@@ -110,7 +110,6 @@ export function definition(overrides: DefinitionOverrides = {}): AgentDefinition
       },
       overrides: [],
     },
-    executionPostureMode: "sandboxed",
     instructions: "Be exact.",
     goal: "Ship a clean diff.",
     toolAllowlist: ["read", "grep"],

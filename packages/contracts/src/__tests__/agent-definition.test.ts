@@ -35,7 +35,6 @@ const DESIGN_CREATE = {
   icon: "magnifier",
   accentHue: "teal",
   bindings: { default: CLAUDE_BINDING, overrides: [CODEX_BINDING] },
-  executionPostureMode: "reviewed",
   instructions: "Review the change.",
   goal: null,
   toolAllowlist: [],
@@ -53,7 +52,6 @@ const STORED_ENTRY = {
   icon: null,
   accentHue: null,
   bindings: { default: CLAUDE_BINDING, overrides: [] },
-  executionPostureMode: null,
   instructions: "",
   goal: null,
   toolAllowlist: null,
@@ -99,15 +97,6 @@ describe("agent.definitionCreate", () => {
     ).toBe(false);
   });
 
-  it("refuses a permission level outside the five", () => {
-    expect(
-      AgentDefinitionCreateRequestSchema.safeParse({
-        ...DESIGN_CREATE,
-        executionPostureMode: "trusted",
-      }).success,
-    ).toBe(false);
-  });
-
   it("refuses a member the request does not carry", () => {
     expect(
       AgentDefinitionCreateRequestSchema.safeParse({ ...DESIGN_CREATE, origin: "claude" }).success,
@@ -120,7 +109,6 @@ describe("agent.definitionUpdate", () => {
     const request = {
       definitionId: DEFINITION_ID,
       bindings: { default: { ...CLAUDE_BINDING, effort: null } },
-      executionPostureMode: null,
       hooks: null,
       reattachFilePath: "/Users/person/.claude/agents/reviewer.md",
     };

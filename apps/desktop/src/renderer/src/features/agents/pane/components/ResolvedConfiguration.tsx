@@ -24,16 +24,6 @@ export function ResolvedConfiguration(props: {
         </dd>
       </div>
       <div className="meridian-agent-card__resolved-row">
-        <dt>Execution posture</dt>
-        <dd>
-          {resolved.executionPostureMode === null ? (
-            <span className="meridian-agent-card__axis-absent">not pinned</span>
-          ) : (
-            <WireFigure value={resolved.executionPostureMode} />
-          )}
-        </dd>
-      </div>
-      <div className="meridian-agent-card__resolved-row">
         <dt>Tools</dt>
         <dd>
           <ToolAllowlist position={props.toolGrant} />

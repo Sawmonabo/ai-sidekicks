@@ -28,7 +28,6 @@ import {
 import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
-import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 /** The longest reason text a refusal or a load failure carries. */
 export const AGENT_REASON_MAX_LEN = 1024;
@@ -209,7 +208,6 @@ export interface AgentDefinition {
   /** One step of the console's twelve-step hue wheel; null is no chosen hue. */
   accentHue: string | null;
   bindings: AgentDefinitionBindings;
-  executionPostureMode: ExecutionPostureMode | null;
   instructions: string;
   goal: string | null;
   toolAllowlist: string[] | null;
@@ -227,7 +225,6 @@ const agentDefinitionFields = {
   icon: z.string().min(1).nullable(),
   accentHue: z.string().min(1).nullable(),
   bindings: AgentDefinitionBindingsSchema,
-  executionPostureMode: ExecutionPostureModeSchema.nullable(),
   instructions: z.string(),
   goal: z.string().nullable(),
   toolAllowlist: z.array(toolNameSchema).nullable(),
@@ -347,7 +344,6 @@ export const AgentDefinitionListEntrySchema: z.ZodType<AgentDefinitionListEntry>
 export interface AgentResolvedConfiguration {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
-  executionPostureMode: ExecutionPostureMode | null;
   toolAllowlist: string[] | null;
   instructions: string;
   goal: string | null;
@@ -357,7 +353,6 @@ export const AgentResolvedConfigurationSchema: z.ZodType<AgentResolvedConfigurat
   .object({
     resolvedFromDefinitionId: AgentDefinitionIdSchema,
     resolvedBinding: AgentProviderBindingSchema,
-    executionPostureMode: agentDefinitionFields.executionPostureMode,
     toolAllowlist: agentDefinitionFields.toolAllowlist,
     instructions: agentDefinitionFields.instructions,
     goal: agentDefinitionFields.goal,
@@ -410,7 +405,6 @@ export interface AgentDefinitionCreateRequest {
   icon?: string | null | undefined;
   accentHue?: string | null | undefined;
   bindings: AgentDefinitionBindingsDraft;
-  executionPostureMode?: ExecutionPostureMode | null | undefined;
   instructions?: string | undefined;
   goal?: string | null | undefined;
   toolAllowlist?: string[] | null | undefined;
@@ -426,7 +420,6 @@ const writableDefinitionFields = {
   description: agentDefinitionFields.description.optional(),
   icon: agentDefinitionFields.icon.optional(),
   accentHue: agentDefinitionFields.accentHue.optional(),
-  executionPostureMode: agentDefinitionFields.executionPostureMode.optional(),
   instructions: agentDefinitionFields.instructions.optional(),
   goal: agentDefinitionFields.goal.optional(),
   toolAllowlist: agentDefinitionFields.toolAllowlist.optional(),
@@ -481,7 +474,6 @@ export interface AgentDefinitionUpdateRequest {
   icon?: string | null | undefined;
   accentHue?: string | null | undefined;
   bindings?: AgentDefinitionBindingsDraft | undefined;
-  executionPostureMode?: ExecutionPostureMode | null | undefined;
   instructions?: string | undefined;
   goal?: string | null | undefined;
   toolAllowlist?: string[] | null | undefined;

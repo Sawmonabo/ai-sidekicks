@@ -487,8 +487,8 @@ export const SessionTerminalCodexListResponseSchema: z.ZodType<SessionTerminalCo
  *   and the line; Claude Code's `doctor` names the file and, for one bad value, the key, and
  *   never a line.
  * - `conversation_reloaded`: the conversation was reopened to take new definitions.
- * - `permission_level_lowered`: a saved posture the session cannot give runs at a more careful
- *   level, never a looser one.
+ * - `permission_level_lowered`: a session a plan seeds, on a provider that cannot give the
+ *   planning session's level, runs one step more careful, never looser.
  * - `review_started` and `review_finished`: the two ends of a review.
  * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its cap on unmet
  *   checks, or a goal check ran past its limit; the goal stays active.

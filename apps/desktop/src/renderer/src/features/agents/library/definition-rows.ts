@@ -117,7 +117,6 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
       wireAxis("model", "Model", binding.modelId),
       pinnedAxis("account", "Account", binding.providerAccountId, "The provider's default"),
       pinnedAxis("effort", "Effort", binding.effort, "The driver's default"),
-      pinnedAxis("posture", "Posture", definition.executionPostureMode, "Not pinned"),
       consoleAxis("tools", "Tools", describeToolAllowlist(definition.toolAllowlist)),
       consoleAxis("instructions", "Instructions", describeProsePresence(definition.instructions)),
       consoleAxis("goal", "Goal", describeProsePresence(definition.goal)),

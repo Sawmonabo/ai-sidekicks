@@ -94,7 +94,7 @@ export function composeSessionCreatedPayload(input: SessionCreatedInput): Sessio
  * The agent a `run.queued` beat brings into the session, with the configuration it was
  * resolved from. Throws when the agent names no saved definition.
  *
- * The definition holds only empty defaults (no posture, tool list, instructions or goal)
+ * The definition holds only empty defaults (no tool list, instructions or goal)
  * because no scenario reads them.
  */
 export function composeResolvedAgent(input: ResolvedAgentInput): AgentListEntry {
@@ -115,7 +115,6 @@ export function composeResolvedAgent(input: ResolvedAgentInput): AgentListEntry 
     resolvedConfiguration: {
       resolvedFromDefinitionId: agent.definitionId,
       resolvedBinding: binding,
-      executionPostureMode: null,
       toolAllowlist: null,
       instructions: "",
       goal: null,

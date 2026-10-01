@@ -103,7 +103,6 @@ describe("session.create", () => {
         resolvedConfiguration: {
           resolvedFromDefinitionId: DEFINITION_ID,
           resolvedBinding: lead,
-          executionPostureMode: null,
           toolAllowlist: null,
           instructions: "Review the diff.",
           goal: null,

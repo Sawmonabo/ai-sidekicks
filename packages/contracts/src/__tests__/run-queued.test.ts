@@ -35,7 +35,6 @@ const CHILD_FROM_DEFINITION = {
     resolvedConfiguration: {
       resolvedFromDefinitionId: DEFINITION_ID,
       resolvedBinding: BINDING,
-      executionPostureMode: "reviewed",
       toolAllowlist: null,
       instructions: "Review the change.",
       goal: null,

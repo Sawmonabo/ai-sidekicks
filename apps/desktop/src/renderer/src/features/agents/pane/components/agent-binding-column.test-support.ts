@@ -37,7 +37,6 @@ export function resolvedConfiguration(
       providerAccountId: null,
       effort: "high",
     },
-    executionPostureMode: "sandboxed",
     toolAllowlist: null,
     instructions: "Read before writing.",
     goal: "Survey the repository",
