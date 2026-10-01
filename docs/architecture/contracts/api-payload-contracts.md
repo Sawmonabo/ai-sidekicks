@@ -1735,13 +1735,10 @@ interface ResumeSessionParams {
   // rather than a capability one: a resume that re-resolved "whichever account is current now"
   // would move a live run's spend onto an account it was never admitted against, mid-run, with the
   // receipt's per-paying-account key still claiming the original. Moving the current account moves a
-  // live SESSION, and it does so by ENDING the run at the next tool boundary and continuing the work
-  // in a new run — never by re-resolving this stamp under a run that is already admitted. The
-  // session's own total keeps counting across that move: the runs before it stay under the account
-  // they were admitted against, the runs after it under the new one, and the receipt carries both as
-  // account rows summing to one total. The accountant RE-BASELINES on the new process's own counters
-  // at the resume, because a provider's cumulative figure restarts with its process; that
-  // per-process figure is an input to the baseline and reaches no client payload.
+  // live SESSION in place at its next request, the cost splitting at the provider's acknowledgment —
+  // never by re-resolving this stamp at a resume. The session's own total keeps counting across that
+  // move: the requests before it stay under the account they ran on, the requests after it under the
+  // new one, and the receipt carries both as account rows summing to one total.
   // Read back from the durable
   // `runtime_bindings.spawn_config` record written at the original spawn — never re-resolved, and
   // never re-supplied: no wire request carries an account, and recovery holds none to take one from.
@@ -2456,7 +2453,7 @@ interface CommandWriteResponse {
 
 **Two records the flow folds.** A command's output arrives as `command.output` and streams into that command's own row as it prints; the row is the one home for the whole output, and the live view above it is a window onto the same rows rather than a second copy. A command settles as `command.ended`, carrying which of the three endings it was — it finished, it failed, or the person ended it — because a row that cannot say which of the three happened cannot be read. The taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
-**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process: on Claude Code it is the process's first frame, replaced whole by each `commands_changed` push, and a new process — a new session, a switch of provider or worktree at its boundary, or an account switch on the resume path — brings a new frame and a new list; on Codex, whose wire parses no slash text, it is the console's words and the skills the daemon lists (`skill.list`), the other provider's skills grayed beside them; Codex's own `skills/list` is read only for what Codex loaded, so a skill Codex failed to load stays listed and grayed with its load error, matched to its row by its `SKILL.md` path. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `ProviderCommandsSubscribeRequest` and emits `ProviderCommandsUpdate`, the whole list on every emission (§Plan-004 above), over the daemon JSON-RPC transport only.
+**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process: on Claude Code it is the process's first frame, replaced whole by each `commands_changed` push, and a new process — a new session, a switch of provider or worktree at its boundary — brings a new frame and a new list; on Codex, whose wire parses no slash text, it is the console's words and the skills the daemon lists (`skill.list`), the other provider's skills grayed beside them; Codex's own `skills/list` is read only for what Codex loaded, so a skill Codex failed to load stays listed and grayed with its load error, matched to its row by its `SKILL.md` path. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `ProviderCommandsSubscribeRequest` and emits `ProviderCommandsUpdate`, the whole list on every emission (§Plan-004 above), over the daemon JSON-RPC transport only.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -5760,7 +5757,7 @@ interface AgentConfigUpdateResponse {
 // The disposition has the arms below because holding a request open until settlement means every settlement the boundary
 // can reach must be expressible to a caller still waiting for one. "applied" and "degraded" split
 // the outcome by a TOTAL and stated mapping — `applied` iff the conversation arrived whole
-// (`continuity` "in_place" or "resumed"), `degraded` iff it did not ("brief" or "replayed") — so the
+// (`continuity` "in_place"), `degraded` iff it did not ("brief") — so the
 // honest-degrade rule is carried by the wire's own discriminator rather than left to each client to
 // re-derive from `continuity`. "failed" is the immediate arm's share of the
 // `agent.provider_binding_change_failed` terminal: an accepted switch that cannot be applied settles
@@ -5780,9 +5777,7 @@ interface AgentBindingSwitchPending {
   switchId: string;
   // The boundary this switch will apply at — resolved against the TARGET driver's declared
   // vocabulary, never assumed, and the widest of the moved members' individual boundaries.
-  // `next_tool_call` is written only by `providerAccount.setCurrent` (§Plan-026) for a busy session it
-  // moves by the resume path.
-  appliesAt: "turn_boundary" | "run_boundary" | "next_tool_call";
+  appliesAt: "turn_boundary" | "run_boundary";
   // TRUE on the interruptAndSwitch arm, FALSE on the deferred one. The boundary above says WHEN
   // the switch applies; this says whether REACHING that boundary requires an interrupt the daemon
   // must dispatch. They are independent — a deferred switch and an interrupted one can both
@@ -5811,9 +5806,8 @@ interface AgentBindingSwitchPending {
 //
 //   the admitting device — the device whose connection carried the switch (§Authenticated Principal
 //     And Authorization Model: a write records its device). Both terminals require an `actor`, and a
-//     switch settling after a restart has no request left to read one from. Its two writers —
-//     `agent.configUpdate`, and `providerAccount.setCurrent` (§Plan-026) for a session it moves by
-//     the resume path — are both the person's own acts.
+//     switch settling after a restart has no request left to read one from. Its one writer,
+//     `agent.configUpdate`, is the person's own act.
 //   interruptDispatch — "requested" | "dispatched", present exactly when `interruptRequested` is
 //     true. Deliberately NOT a boolean and not folded into `interruptRequested`, because recovery
 //     must separate "crashed before the interrupt went out, so dispatch it" from "crashed after it
@@ -5865,10 +5859,9 @@ type AgentBindingSwitchAccountState =
   | "not_registered";
 
 // The binding members a switch moves, as a partial record: an omitted key is a member this switch
-// does not move. `agent.configUpdate` never sets `providerAccountId` — the account moves on the
-// provider surface (`providerAccount.setCurrent`, §Plan-026) — and `providerAccount.setCurrent` sets
-// only it, for a session it moves by the resume path; so one record holds either kind of switch. One
-// shape serves three surfaces — the wire acknowledgment above, the durable `agents.pending_switch`
+// does not move. It holds no account: the account moves on the provider surface
+// (`providerAccount.setCurrent`, §Plan-026), in place at the next request, and writes no pending
+// switch. One shape serves three surfaces — the wire acknowledgment above, the durable `agents.pending_switch`
 // slot, and `agent.list`'s `pendingSwitch` member — so a client, a projector, and a restarted daemon
 // all read the same record of the same intent.
 // The record deliberately has no reset: no operation clears a binding member back to a driver
@@ -5882,7 +5875,6 @@ type AgentBindingSwitchAccountState =
 interface AgentBindingSwitchTarget {
   driverName?: string;
   modelId?: string;
-  providerAccountId?: ProviderAccountId; // written only by providerAccount.setCurrent's resume path
   effort?: string;
   outputSpeed?: string;
 }
@@ -5892,14 +5884,10 @@ type AgentProviderAxis = keyof AgentBindingSwitchTarget;
 // The settlement of a switch, carried by the `agent.provider_binding_changed` payload below.
 interface AgentBindingSwitchOutcome {
   switchId: string; // correlates with the pending acknowledgment above
-  // WHICH MECHANISM CARRIED THE CONVERSATION. Four different acts, not degrees of one.
+  // WHICH MECHANISM CARRIED THE CONVERSATION. Two different acts, not degrees of one.
   // "in_place" = a member carried on the RUNNING process — a per-turn override, a run-bound setting
   // the provider takes without a restart, or an account moved at the next request: nothing was
   // respawned and nothing was reconstituted.
-  // "resumed" = a fresh process of the SAME provider reopened its OWN conversation by its own
-  // identifier — in the same credential home, or, on an account move's resume path, in the new
-  // account's home after the daemon copied the provider's own conversation file there. The
-  // conversation arrived whole.
   // "brief" = a DIFFERENT provider was started from a hand-over brief: the old provider's own
   // summary taken on a throwaway copy of the session, then the current diffs and branch read from
   // disk, then every earlier step as a one-line note, then the last exchanges verbatim, then a
@@ -5907,26 +5895,16 @@ interface AgentBindingSwitchOutcome {
   // brief for the new provider to read on demand with its own file tools. Replaying the whole
   // conversation as text is deliberately NOT what a provider switch does: the expensive thing is
   // not pushed into the message, and it is still reachable. The file is not a transcript row.
-  // This arm also carries a SAME-provider target that could be neither reopened nor replayed
-  // into — the reopen did not load and `transcript_replay` is false, the target refused the
-  // frames, or the transcript exceeds its context window — the brief being that case's floor
-  // and the mechanism identical (Spec-004 §The hand-over brief is the floor, and it is visibly
-  // a floor).
-  // "replayed" = the FALLBACK: a same-provider reopen did not load, so the canonical transcript was
-  // sent as text instead, which restarts the conversation rather than continuing it.
-  // "in_place" and "resumed" are `applied`; "brief" and "replayed" are `degraded` and are never
+  // "in_place" is `applied`; "brief" is `degraded` and is never
   // presented as an ordinary success. On the held-open arm that mapping is carried by the
   // disposition's own `status` discriminator above, so a client never re-derives it; on the terminal
   // event it is carried by this member alone, the event having no status.
-  continuity: "in_place" | "resumed" | "brief" | "replayed";
+  continuity: "in_place" | "brief";
   // REQUIRED, and an EMPTY ARRAY IS A CLAIM: it asserts that nothing was dropped. A driver that
   // does not know what it lost may not emit one. A loss is a `DeclaredLossKind`,
-  // never a free string. Requiredness is scoped to the continuity arm: "in_place" and
-  // "resumed" MUST carry the empty array (nothing was reconstituted, so no loss could occur),
-  // "brief" MUST be non-empty and MUST include "conversation_history_summarized" together with
-  // "provider_private_reasoning", and "replayed" MUST be non-empty and MUST include
-  // "conversation_history_restarted" — a fallback that restarts the conversation and claimed no
-  // loss would be claiming the restart was free.
+  // never a free string. Requiredness is scoped to the continuity arm: "in_place" MUST carry the
+  // empty array (nothing was reconstituted, so no loss could occur), and "brief" MUST be non-empty
+  // and MUST include "conversation_history_summarized" together with "provider_private_reasoning".
   // The claim is scoped to TRANSCRIPT CONTENT and to nothing else. An empty array
   // asserts that the conversation arrived intact; it asserts nothing about whether a requested
   // provider SETTING took effect on the new binding. Those are different facts with different
@@ -5941,7 +5919,6 @@ type DeclaredLossKind =
   | "context_truncated" // only the last exchanges travel verbatim, so older ones did not (whole exchanges only, never halves)
   | "tool_call_history_repaired" // an unpaired call took a synthetic error result rather than being dropped
   | "conversation_history_summarized" // the brief's own summary stood in for the conversation the new provider cannot read
-  | "conversation_history_restarted" // the fallback arm: a same-provider reopen did not load, so the transcript was sent as text and the conversation restarted rather than continued. REQUIRED on a "replayed" settlement
   | "helper_conversations" // the old provider's helper conversations under this session; their conclusions survive in the transcript, the conversations themselves do not
   | "tool_output_bodies" // earlier steps travel as one-line notes, so the bodies of their output do not. Files touched on disk are unchanged
   | "live_tool_calls" // tool calls arrive as history and never as work in flight; a call that was about to run does not run
@@ -5951,8 +5928,8 @@ type DeclaredLossKind =
 // agent.provider_binding_changed — a switch landed (Spec-005 §Agent Lifecycle). A change
 // of model, effort or speed alone settles `in_place` with no declared losses and draws no transcript
 // row; a provider switch or an account switch draws the switch row: the binding it left and the one
-// it is on, the account the run landed on, how the conversation continued, what did not carry over,
-// and whether the turn continued.
+// it is on, the account the run landed on, how the conversation continued, and what did not carry
+// over.
 interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   sessionId: SessionId;
   agentId: AgentId;
@@ -5962,9 +5939,6 @@ interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   // The account the run actually landed on, separate from `to.providerAccountId`, so an agent that
   // follows the current account is never silently pinned to the account it happened to land on.
   landedProviderAccountId: ProviderAccountId;
-  // True only on an account move's resume path, where the turn in flight was interrupted at a tool
-  // call and `continue` was sent so it went on; an in-place switch interrupts nothing.
-  turnContinued: boolean;
 }
 
 // agent.provider_binding_change_failed — a switch accepted as pending could not be applied, and the
@@ -8371,33 +8345,23 @@ interface ProviderAccountRemoveResponse {
 // service with the new account's tokens, which the daemon holds only in its own memory and never
 // stores, logs, shows or hands to a renderer. Each session's cost splits at the switch's
 // acknowledgment: requests before it stay on the old account, requests after it go to the new one.
+// Every supported version moves in place, and no version is checked: there is no second way to move a
+// session's account. The move lands at the acknowledgment and writes no pending switch, so the
+// working line shows no waiting words for it.
 //
-// THE RESUME PATH is the fallback where a provider version's pin check refuses the in-place switch,
-// and it is reported as a version fault: an idle session moves at once and a busy one at its next tool
-// call, held there by the pause boundary, its turn interrupted at that hold, the provider's own
-// conversation file copied into the new account's credential home, the conversation reopened there by
-// the provider's own resume, and `continue` sent so the turn goes on. Only this path writes a PENDING
-// SWITCH: one per moved agent in `agents.pending_switch` (§Plan-014), its target carrying only
-// `providerAccountId`, served on `agent.list`, so the session's working line reads
-// `switching to account <name>` across a reload and on every device. An in-place switch lands at the
-// acknowledgment and writes no pending switch.
-//
-// Each move settles on its own session with `agent.provider_binding_changed` (§Plan-014): one faint
-// collapsed row at the point of the move, `Switched to account <name>` (the account as the Providers
-// page lists it), opening to the account it came from, the account it went to and the time, with
-// `turn continued` only where a `continue` was sent — or, where the resume path's reopen did not load
-// and the transcript was replayed as text instead, `Conversation restarted on account <name>`. A move
-// that fails settles with
+// Each move settles on its own session with `agent.provider_binding_changed` (§Plan-014),
+// `continuity: "in_place"`: one faint collapsed row at the point of the move,
+// `Switched to account <name>` (the account as the Providers page lists it), opening to the account
+// it came from, the account it went to and the time. A move that fails settles with
 // `agent.provider_binding_change_failed`, reason `account_unavailable`: the session stays on the
-// account it had — where an in-place switch's new login fails at the next request, the daemon hands
-// the previous account back — and the transcript gains one system message naming the switch and the
-// reason. Those events are the settlement; this reply is not.
+// account it had — where the new login fails at the next request, the daemon hands the previous
+// account back — and the transcript gains one system message naming the switch and the reason.
+// Those events are the settlement; this reply is not.
 //
 // NO PER-SESSION SWITCH VERB EXISTS. `agent.configUpdate` carries no account member (§Plan-014): one
 // control setting one fact is what stops a session sitting on an account the provider surface says
-// it is not on. Nothing here copies a credential between homes: the resume path copies one
-// conversation file between two directories the daemon owns, and the provider's own login in each
-// home is left exactly as it is.
+// it is not on. Nothing here copies a credential or a conversation between homes, and the provider's
+// own login in each home is left exactly as it is.
 //
 // REFUSES IN PLACE where the named account fails the fail-closed spawn validation, or where its last
 // limits read showed a dead login (Claude Code's read answering `rate_limits_available: false`): the
@@ -8407,15 +8371,12 @@ interface ProviderAccountSetCurrentRequest {
 }
 interface ProviderAccountSetCurrentResponse {
   account: ProviderAccount; // the account now current for its provider
-  // The sessions the daemon is moving, so the caller knows the press reached live work rather than
-  // only the registry. Each entry says whether the move already happened — every in-place move, and
-  // an idle session on the resume path — or is held for that session's next tool call on the resume
-  // path. It is NOT a settlement: each move settles on its own session's timeline. A press that
-  // reached no running session carries an empty array, which is a claim that nothing was live rather
-  // than an absence of information.
+  // The sessions the daemon is moving, each at its next request, so the caller knows the press
+  // reached live work rather than only the registry. It is NOT a settlement: each move settles on its
+  // own session's timeline. A press that reached no running session carries an empty array, which is
+  // a claim that nothing was live rather than an absence of information.
   movingSessions: Array<{
     sessionId: SessionId;
-    appliesAt: "immediately" | "next_tool_call";
   }>;
 }
 
@@ -8629,7 +8590,7 @@ interface ProviderAccountUsageWindow {
 
 **Run-start selection.** Which account a run pays from is **resolved by the daemon and never supplied by a client**: the account pinned by the run's saved agent definition or workflow step where one pins, and otherwise the provider's current account. The resolved value rides the driver's session-creation and resume parameter shapes as `providerAccountId` ([Spec-004 §Interfaces And Contracts](../../specs/004-provider-driver-contract-and-capabilities.md#interfaces-and-contracts)) and is stamped server-side as `admittedProviderAccountId` on the run's admission record. No wire request carries an account per session or per run, so there is no per-run override to authorize and a client-supplied stamp is ignored. Resume rebinds to the account the session was last on rather than re-resolving whichever account is current now, so a restart never moves billing. Moving the current account DOES move a live session, in place at its next request (`providerAccount.setCurrent` above): the usage rows before the switch's acknowledgment name the old account and the rows after it the new one, so the receipt's per-paying-account key stays exact and a session that moved mid-way yields two account rows summing to the same total.
 
-**Switching a live session's account is `providerAccount.setCurrent` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: in place at its next request, and a session pinned to an account not at all. The verb's own comment above states the mechanism and its resume-path fallback. `agent.configUpdate` carries no account member (§Plan-014), so there is no per-session account switch and nothing for a client to reconcile between two controls; the only pending switch an account move writes is the resume path's, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
+**Switching a live session's account is `providerAccount.setCurrent` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: in place at its next request, and a session pinned to an account not at all. The verb's own comment above states the mechanism. `agent.configUpdate` carries no account member (§Plan-014), so there is no per-session account switch and nothing for a client to reconcile between two controls; an account move writes no pending switch, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
 
 **The one-time memory import is `providerAccount.memoryImport`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its payload pair is `ProviderAccountMemoryImportRequest` / `ProviderAccountMemoryImportResponse` above, and the outcome it records is `ProviderAccount.memoryImport`.
 
