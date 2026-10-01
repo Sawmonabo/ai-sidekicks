@@ -7,7 +7,7 @@
 // Fail-closed, and absent is not `false`. No declaration for a driver leaves every control this
 // readout gates off screen, a different fact from a driver having declared the flag absent.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag, ProviderName } from "@ai-sidekicks/contracts";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 
@@ -20,7 +20,7 @@ export interface DriverCapabilityReadout {
    * One entry per reported driver, keyed by the reply's own `driverName`. Retained, never
    * folded: any collapse of separate declarations answers a question no reader asks.
    */
-  readonly flagsByDriverName: ReadonlyMap<string, DeclaredDriverFlags>;
+  readonly flagsByDriverName: ReadonlyMap<ProviderName, DeclaredDriverFlags>;
   /**
    * Which driver each run is bound to, for every run whose binding is nameable.
    *
@@ -28,7 +28,7 @@ export interface DriverCapabilityReadout {
    * joins it on through `withRunDriverBindings` from the session's own projection, so it is
    * empty on the readout the read settles.
    */
-  readonly driverNameByRunId: ReadonlyMap<string, string>;
+  readonly driverNameByRunId: ReadonlyMap<string, ProviderName>;
   /**
    * Why the declarations could not be read, where they could not be: the daemon rejected the
    * read, or answered something the registered schema will not accept. A view whose controls

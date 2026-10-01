@@ -7,6 +7,7 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
   wireFreeFormString,
+  type ProviderName,
 } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
@@ -95,7 +96,7 @@ export function assertValidResumeHandle(value: string): void {
  * naming `driverName` but never the values, since a raw CLI version can carry an install path.
  * The parameter is `unknown` because a malformed driver can send a non-object.
  */
-export function assertValidCliVersionReport(driverName: string, report: unknown): void {
+export function assertValidCliVersionReport(driverName: ProviderName, report: unknown): void {
   if (typeof report !== "object" || report === null || Array.isArray(report)) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,

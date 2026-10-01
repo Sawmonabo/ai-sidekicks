@@ -5,6 +5,7 @@ import { defineMethodDescriptors, type MethodDescriptor } from "./method-descrip
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   DriverCompactionResultSchema,
+  ProviderCommandBindingSchema,
   ProviderCommandEntrySchema,
   type DriverCompactionResult,
   type ProviderCommandBindingGroup,
@@ -453,12 +454,7 @@ export const ProviderCommandBindingGroupSchema: z.ZodType<
     // answer `null`, and an absent key would look like a producer that forgot to attribute the
     // group.
     runId: RunIdSchema.nullable(),
-    binding: z
-      .object({
-        driverName: ProviderNameSchema,
-        providerAccountId: z.string().min(1).nullable(),
-      })
-      .strict(),
+    binding: ProviderCommandBindingSchema,
     // Bounded at `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX`, the provider-boundary cap per group, not
     // the smaller `DRIVER_WIRE_CATALOG_ENTRIES_MAX`: entries already admitted at the larger cap
     // would otherwise fail result validation with a `-32603`. Truncation carries a marker, so this

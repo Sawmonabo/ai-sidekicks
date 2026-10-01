@@ -26,9 +26,9 @@ import type { ProviderDriver } from "./provider-driver.js";
  */
 export class DriverUnavailableError extends Error {
   readonly code = "driver.unavailable" as const;
-  readonly fields: { readonly driverId: string };
+  readonly fields: { readonly driverId: ProviderName };
 
-  constructor(driverId: string) {
+  constructor(driverId: ProviderName) {
     super("Provider driver is currently unavailable");
     this.name = "DriverUnavailableError";
     this.fields = { driverId };
@@ -44,9 +44,9 @@ export class DriverUnavailableError extends Error {
  */
 export class DriverCapabilityUnsupportedError extends Error {
   readonly code = "driver.capability_unsupported" as const;
-  readonly fields: { readonly driverId: string; readonly flag: DriverCapabilityFlag };
+  readonly fields: { readonly driverId: ProviderName; readonly flag: DriverCapabilityFlag };
 
-  constructor(driverId: string, flag: DriverCapabilityFlag) {
+  constructor(driverId: ProviderName, flag: DriverCapabilityFlag) {
     super("Requested capability is not supported by the driver");
     this.name = "DriverCapabilityUnsupportedError";
     this.fields = { driverId, flag };

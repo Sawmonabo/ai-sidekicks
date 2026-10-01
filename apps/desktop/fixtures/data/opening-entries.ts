@@ -5,6 +5,7 @@ import {
   AgentListEntrySchema,
   SessionCreatedPayloadSchema,
   type AgentListEntry,
+  type ProviderName,
   type SessionCreatedPayload,
   type SessionShape,
 } from "@ai-sidekicks/contracts";
@@ -19,7 +20,7 @@ import { type ScriptEntry } from "./script-entries.js";
 export interface ScenarioAgent {
   readonly agentId: string;
   readonly name: string;
-  readonly driverName: string;
+  readonly driverName: ProviderName;
   readonly modelId: string;
   /** The saved definition an agent other than the lead was started from. */
   readonly definitionId?: string;

@@ -2,6 +2,8 @@
 // agents' declared drivers. A run whose agent cannot be resolved contributes nothing rather
 // than a default, so a gated control is taken off screen instead of guessed.
 
+import type { ProviderName } from "@ai-sidekicks/contracts";
+
 import {
   readAgentDriverNames,
   readRunAgentId,
@@ -18,9 +20,9 @@ import {
 export function foldRunDriverBindings(
   runs: Readonly<Record<string, StoredEntity>>,
   timeline: readonly ProjectedSessionEvent[],
-): ReadonlyMap<string, string> {
+): ReadonlyMap<string, ProviderName> {
   const driverNameByAgentId = readAgentDriverNames(timeline);
-  const driverNameByRunId = new Map<string, string>();
+  const driverNameByRunId = new Map<string, ProviderName>();
   for (const run of Object.values(runs)) {
     const agentId = readRunAgentId(run);
     const driverName = agentId === undefined ? undefined : driverNameByAgentId.get(agentId);

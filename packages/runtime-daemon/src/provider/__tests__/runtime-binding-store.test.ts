@@ -1,12 +1,13 @@
 // The runtime binding store over real SQLite: the row recovery resumes from round-trips, the
 // provider's contract version and resume handle are bounded before they land, the batch lookup
 // returns superseded rows too, a corrupt spawn-bound record fails loud instead of resuming
-// unsandboxed, the version pair holds its CHECK and records the build that answered, and the
-// resume request is rebuilt from the row.
+// unsandboxed, so does a stored driver name that names no provider, the version pair holds its
+// CHECK and records the build that answered, and the resume request is rebuilt from the row.
 
 import {
   DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
   type ExecutionPosture,
+  type ProviderName,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -34,7 +35,7 @@ import type { CallbackToolResult, DriverCliVersionReport } from "../provider-dri
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
-const DRIVER_NAME: string = "claude";
+const DRIVER_NAME: ProviderName = "claude";
 const CONTRACT_VERSION: string = "1.2.3";
 
 let db: DatabaseType;
@@ -82,9 +83,10 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
 // Direct-SQL insert that bypasses the write seam: the only way to stage a corrupt
-// `spawn_config` or a half-present CLI-version pair.
+// `spawn_config` or `driver_name`, or a half-present CLI-version pair.
 function insertRawBinding(overrides: {
   id?: string;
+  driverName?: string;
   spawnConfig?: string;
   cliVersionRaw?: string | null;
   cliVersionSemver?: string | null;
@@ -98,7 +100,7 @@ function insertRawBinding(overrides: {
   ).run({
     id,
     run_id: RUN_ID,
-    driver_name: DRIVER_NAME,
+    driver_name: overrides.driverName ?? DRIVER_NAME,
     contract_version: CONTRACT_VERSION,
     cli_version_raw: overrides.cliVersionRaw ?? null,
     cli_version_semver: overrides.cliVersionSemver ?? null,
@@ -598,6 +600,27 @@ describe("RuntimeBindingStore — spawn_config", () => {
       expect((thrown as Error).message).toContain("spawn_config");
     });
   }
+});
+
+describe("RuntimeBindingStore — driver_name", () => {
+  it("FAILS LOUD on a stored driver_name that names no provider", () => {
+    // The write seam is typed, so only out-of-band corruption lands here; a cast would hand
+    // recovery a name no driver answers to.
+    const store = makeStore();
+    const rawId = insertRawBinding({ id: "corrupt-driver-1", driverName: "gemini" });
+
+    let thrown: unknown;
+    try {
+      store.findById(rawId);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as Error).message).toContain(rawId);
+    expect((thrown as Error).message).toContain("driver_name");
+  });
 });
 
 describe("RuntimeBindingStore — cliVersion pair", () => {

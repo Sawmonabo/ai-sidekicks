@@ -1,5 +1,6 @@
 // One session's run-to-driver bindings, read off its store.
 
+import type { ProviderName } from "@ai-sidekicks/contracts";
 import { useMemo } from "react";
 
 import { foldRunDriverBindings } from "../run-driver-bindings.js";
@@ -17,7 +18,9 @@ import { type SessionStoreState } from "@renderer/store/session/session-state.js
  *
  * @consumedBy the composer's run controls
  */
-export function useRunDriverBindings(sessionStore: SessionStore): ReadonlyMap<string, string> {
+export function useRunDriverBindings(
+  sessionStore: SessionStore,
+): ReadonlyMap<string, ProviderName> {
   const runs = useSessionPartition(sessionStore, "run");
   const timeline = useSessionStore(sessionStore, selectSessionTimeline);
   return useMemo(() => foldRunDriverBindings(runs, timeline), [runs, timeline]);

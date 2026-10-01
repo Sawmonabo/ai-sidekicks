@@ -9,6 +9,7 @@ import {
   RunQueuedPayloadSchema,
   SessionCreatedPayloadSchema,
   type AgentListEntry,
+  type ProviderName,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
@@ -34,8 +35,8 @@ const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });
  */
 export function readAgentDriverNames(
   timeline: readonly ProjectedSessionEvent[],
-): ReadonlyMap<string, string> {
-  const driverNameByAgentId = new Map<string, string>();
+): ReadonlyMap<string, ProviderName> {
+  const driverNameByAgentId = new Map<string, ProviderName>();
   for (const entry of timeline) {
     const agent = agentBroughtInBy(entry);
     if (agent !== undefined) {
