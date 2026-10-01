@@ -21,7 +21,7 @@ PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so
 ## Session Events (Plan-001, extended by Plans 005, 013)
 
 ```sql
--- Owner: Plan-001 | Extended by: Plan-005 (event taxonomy + audit stub), Plan-028 (received-row provenance marker), Plan-013 (replay cursors)
+-- Owner: Plan-001 | Extended by: Plan-005 (event taxonomy), Plan-028 (received-row provenance marker), Plan-013 (replay cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-005 §Daemon-Scope Event Binding)
@@ -30,18 +30,15 @@ CREATE TABLE session_events (
   monotonic_ns           INTEGER NOT NULL,           -- process.hrtime.bigint() at emit; within-daemon ordering only (see Spec-013 §Clock Handling)
   category               TEXT NOT NULL,              -- e.g. 'run_lifecycle', 'assistant_output', 'tool_activity'
   type                   TEXT NOT NULL,              -- specific event type within category
-  actor                  TEXT,                       -- user_id or agent_id or NULL for system
+  actor                  TEXT,                       -- the device a connection sent the event from, or the agent_id, or NULL for system
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer_denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with raw deflate at level 6, and the encoding is recorded in the payload; a smaller body is stored as it is. NULL on every row whose event type carries no prose, event_maintenance rows among them. The session purge CLEARS it when it writes the row's audit stub. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Assistant- and tool-generated prose (Spec-005 §Assistant Output + §Tool Activity): the assistant message body, the reasoning-update body, tool-call arguments / result / error bodies, and the provider's own denial an `approval.reviewer_denied` row keeps for `Allow once` (Claude Code's action as its `PermissionDenied` hook received it, Codex's review as Codex sent it). Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with raw deflate at level 6, and the encoding is recorded in the payload; a smaller body is stored as it is. NULL on every row whose event type carries no prose, event_maintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
                          CHECK (version GLOB '[0-9]*.[0-9]*'), -- semver "MAJOR.MINOR" per ADR-018 §Decision #1
                                                                -- (never INTEGER; comparison must parse MAJOR/MINOR as ints —
                                                                -- lexical TEXT comparison is unsafe, e.g. "1.10" < "1.9")
-  -- Session purge: typed retention discriminator. Nothing in the background stubs a row;
-  -- only the whole-session purge (daemon.retentionPurge) writes this column
-  retention_class        TEXT CHECK (retention_class IS NULL OR retention_class = 'audit_stub'), -- NULL = live row; 'audit_stub' = purged
   UNIQUE(session_id, sequence)
 );
 
@@ -54,7 +51,7 @@ CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_
 -- schema work). A CHECK sees only the row being written, never the row an UPDATE replaces, so the guard is a
 -- trigger trio: abort any terminal run_lifecycle write whose runId/runVersion key is NULL
 -- OR the wrong storage class (json_type: runId 'text', runVersion 'integer' — a type-drifted "7"-vs-7 key bypasses the
--- UNIQUE index, which keys by storage class). The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal — enforcing stub-preservation against the session purge (key + category + type kept for the row's whole retention life). The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
+-- UNIQUE index, which keys by storage class). The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal. The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'run_lifecycle'
   AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
@@ -67,7 +64,7 @@ WHEN OLD.category = 'run_lifecycle'
   AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted')
   AND (json_extract(NEW.payload, '$.runId') IS NULL OR json_type(NEW.payload, '$.runId') <> 'text' OR json_extract(NEW.payload, '$.runVersion') IS NULL OR json_type(NEW.payload, '$.runVersion') <> 'integer' OR json_extract(NEW.payload, '$.runId') IS NOT json_extract(OLD.payload, '$.runId') OR json_extract(NEW.payload, '$.runVersion') IS NOT json_extract(OLD.payload, '$.runVersion') OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
-  SELECT RAISE(ABORT, 'terminal run_lifecycle stub must preserve runId + runVersion (value + storage class) + category + type');
+  SELECT RAISE(ABORT, 'terminal run_lifecycle row must preserve runId + runVersion (value + storage class) + category + type');
 END;
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
 WHEN NOT (OLD.category = 'run_lifecycle' AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted'))
@@ -78,13 +75,13 @@ BEGIN
 END;
 ```
 
-**Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-005): a duplicate terminal `run_lifecycle` row for the same `(runId, runVersion)` epoch fails loud with a `UNIQUE` violation; NULL `runId`/`runVersion` rows bypass it (SQLite NULL-distinctness), so the Plan-003 terminal emitter enforces the non-null-key precondition this index backstops. The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [expression indexes](https://sqlite.org/expridx.html) (the index keys on `json_extract(payload, …)` expressions), [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), and [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `runId` / `runVersion` key is NULL **or the wrong storage class** (`json_type` must be `'text'` for `runId` and `'integer'` for `runVersion`, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — a `"7"`-vs-`7` type-drifted key would otherwise bypass the storage-class-keyed UNIQUE index for exactly the malformed rows the backstop exists to catch). The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF payload, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — a purge bug rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape), enforcing stub-preservation against the purge across the row's whole retention life. The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-005 schema work).
+**Terminal-exactly-once backstop.** The `idx_session_events_run_terminal_once` partial unique index is the schema-level terminal-exactly-once backstop (Plan-005): a duplicate terminal `run_lifecycle` row for the same `(runId, runVersion)` epoch fails loud with a `UNIQUE` violation; NULL `runId`/`runVersion` rows bypass it (SQLite NULL-distinctness), so the Plan-003 terminal emitter enforces the non-null-key precondition this index backstops. The engine semantics this backstop relies on are load-bearing, and each is cited to the official SQLite documentation: [expression indexes](https://sqlite.org/expridx.html) (the index keys on `json_extract(payload, …)` expressions), [partial indexes](https://sqlite.org/partialindex.html) (the `WHERE category = 'run_lifecycle' AND type IN (…)` filter), [UNIQUE-index enforcement](https://sqlite.org/lang_createindex.html#unique_indexes), and [NULL-distinctness](https://sqlite.org/nulls.html) (two NULLs are distinct for UNIQUE purposes, so NULL-key rows bypass the constraint). Beside it the schema carries the `trg_run_terminal_key_insert` / `trg_run_terminal_key_update` / `trg_run_terminal_key_promote` trigger trio — the projection-level CHECK-equivalent Spec-005's at-most-once-terminal-emission rule assigns to this schema work — which aborts terminal `run_lifecycle` writes whose `runId` / `runVersion` key is NULL **or the wrong storage class** (`json_type` must be `'text'` for `runId` and `'integer'` for `runVersion`, per the `RunId` string / any-run-progression-counter payload contract in [Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — a `"7"`-vs-`7` type-drifted key would otherwise bypass the storage-class-keyed UNIQUE index for exactly the malformed rows the backstop exists to catch). The INSERT leg closes the NULL-distinctness bypass the UNIQUE index cannot catch; the UPDATE leg (`BEFORE UPDATE OF payload, category, type`, keyed off `OLD` so a row that WAS terminal cannot escape by mutation) additionally aborts a **value-changing key rewrite** (`NEW` key `IS NOT` `OLD`, null-safe — an UPDATE rewriting `(R,7)` to another non-null pair would otherwise free the index entry for a duplicate terminal) and a **`category`/`type` de-scope** (flipping a terminal row out of the guarded set is the same escape). The promote leg closes the inverse escape: an UPDATE re-typing a non-terminal row INTO the guarded set is rejected outright — terminal rows are INSERT-only — so a null-keyed promotion cannot slip past the OLD-keyed update leg and the NULL-distinct UNIQUE index (Plan-005 schema work).
 
 **Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the assistant message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-and-gdpr.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with raw deflate at level 6 before it is written, and the encoding is recorded in the payload so a reader inflates it; a smaller body is stored as it is.
 
-**Bound and truncation.** Unlike a person's message, whose size is bounded in practice by human typing, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. It is therefore bounded — `CONTENT_PAYLOAD_PLAINTEXT_MAX = 262144` bytes (256 KiB) of UTF-8 plaintext per row — and an over-bound body is **truncated at a codepoint boundary, never refused and never dropped**, because refusing the append would lose the turn entirely and dropping it would misreport that the turn never happened. Truncation is recorded, never silent: the `payload` carries `contentTruncated: true` and keeps `contentLength` at the **pre-truncation** byte length, so the size of what was dropped stays recoverable from the audit log, and no invisible or zero-width sentinel is written into the text ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)'s prohibition, applied unchanged). The full pre-truncation bytes remain reachable for `≤ 7` days in the bounded-retention diagnostic tier (`driver_raw_events` / `tool_traces`) and nowhere after that; the canonical prefix is what outlives them. The per-row bound governs one row only. Nothing removes a body in the background: a session's rows, bodies included, are kept until the person deletes the session with `Delete old data`, and that whole-session purge is the one act that clears this column ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)).
+**Long bodies.** Unlike a person's message, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. A body is kept whole, never truncated, refused or dropped, and a client fetches a long one on demand through the daemon's read rather than receiving it inside the event. Nothing removes a body in the background: a session's rows, bodies included, are kept until the person deletes the session with `Delete old data` ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)).
 
-**Purge.** The session purge CLEARS `content_payload` in the statement that replaces the row's `payload` with its audit stub: the stub carries no personal data and no content, and a surviving body would outlive the payload that describes it. The purge deletes with `secure_delete` on (§Pragmas), so the freed pages hold nothing readable. The stub preserves `contentLength` and `contentTruncated` verbatim whenever the source payload carries them: an audit stub exists to record _what_ was destroyed, so how much the machine said and whether the log ever held all of it are exactly its business. Without them the pre-truncation-length guarantee in the **Bound and truncation** paragraph would silently expire at the purge. They are payload-derived stub members, not durable columns.
+**Purge.** Deleting a session deletes its rows outright, `content_payload` with them, with `secure_delete` on (§Pragmas), so the freed pages hold nothing readable.
 
 **Relay disposition — the column is node-local.** `content_payload` is **never relayed**: the bytes stay on the node that wrote them, and a linked device reads a body only through the daemon's read, paired with the event and never merged into `payload` ([Spec-005 §Assistant Output](../../specs/005-session-event-taxonomy-and-audit-log.md#assistant-output-assistant_output)).
 
@@ -175,7 +172,7 @@ CREATE TABLE interventions (
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's directive text among them as plain text (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-003 D-003-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-003-4 / D-010-20): 'user' for a request admitted over an identity-carrying transport, 'system' for the in-process orchestration entrypoint below the wire authz boundary (CP-003-10's budget and idle interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
+  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-003-4): 'user' for a request admitted over the wire, 'system' for the in-process orchestration entrypoint (CP-003-10's budget interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
                          CHECK(origin IN ('user', 'system')),
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-003 T1.4/T3.12)
@@ -257,13 +254,13 @@ CREATE TABLE runtime_bindings (
   driver_name         TEXT NOT NULL,            -- e.g. 'claude', 'codex'
   contract_version    TEXT NOT NULL             -- canonical, identifying semver of driver contract (build metadata rejected by the T2.2 write-path Zod guard)
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
-  cli_version_raw     TEXT                      -- verbatim provider-reported CLI version captured at binding write (Spec-004 §Required Behavior `cliVersion` report); NULL only on rows written before the pair existed — the write path stores the pair or neither
-                      CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
-  cli_version_semver  TEXT                      -- parsed floor-compare form of the pair; the fail-closed floor gate (`driver.cli_version_unparseable`) runs before any binding write, so a stored pair is always parseable
-                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
+  cli_version_raw     TEXT NOT NULL             -- the provider-printed CLI version verbatim (`rawVersion`), captured at every binding write (Spec-004 §Required Behavior `cliVersion` report)
+                      CHECK (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0),
+  cli_version_semver  TEXT                      -- the parsed form (`parsedVersion`); NULL where the printed version does not parse, which never refuses the binding: the minimum-version check runs only on a parsed version
+                      CHECK (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0)),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
-  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema + the admitted cap, plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — each valued by Plan-004 T3.17 / T3.23 / T3.29); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — each valued by Plan-004 T3.17 / T3.23 / T3.29); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
@@ -328,10 +325,10 @@ CREATE TABLE driver_contract_meta (
   driver_name         TEXT PRIMARY KEY,
   contract_version    TEXT NOT NULL             -- canonical, identifying semver of the driver's advertised capability contract (build metadata rejected by the T2.4 write-path Zod guard)
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
-  cli_version_raw     TEXT                      -- cached `cliVersion.raw` from the last capability refresh (Spec-004 §Required Behavior); NULL only on rows written before the pair existed
+  cli_version_raw     TEXT                      -- cached `cliVersion.rawVersion` from the last capability refresh (Spec-004 §Required Behavior); NULL until the first refresh writes it
                       CHECK (cli_version_raw IS NULL OR (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
-  cli_version_semver  TEXT                      -- cached parsed form; cold-start hydration MUST treat a NULL pair as a cache miss and refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated from cache
-                      CHECK ((cli_version_semver IS NULL) = (cli_version_raw IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
+  cli_version_semver  TEXT                      -- cached `cliVersion.parsedVersion`; NULL where the printed version does not parse. Cold-start hydration MUST treat a NULL `cli_version_raw` as a cache miss and refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated from cache
+                      CHECK ((cli_version_raw IS NOT NULL OR cli_version_semver IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   refreshed_at        TEXT NOT NULL             -- last contract-meta write: every capability-refresh write, plus the eventless cli_version pair-only currency refresh, so it may lead driver_capabilities.refreshed_at
 );
 ```
@@ -506,7 +503,7 @@ CREATE TABLE artifact_manifests (
   id                 TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,
   run_id             TEXT,
-  created_by         TEXT,                       -- user_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller
+  created_by         TEXT,                       -- the device the publishing request came from; NULL for a daemon-produced artifact
   artifact_type      TEXT NOT NULL              -- Spec-012 §Interfaces And Contracts discriminator (D-012-4)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
   subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-012-2, Spec-012 §State And Data Implications)
@@ -557,7 +554,7 @@ CREATE TABLE approval_requests (
   session_id            TEXT NOT NULL,        -- owning session (Spec-010 §Required Behavior; Spec-005 §Approval Flow payload; projection key);
                                               -- event-sourced session id (no FK, matching session_id columns elsewhere)
   run_id                TEXT NOT NULL,        -- no REFERENCES: run state is event-sourced (ADR-017; interventions precedent)
-  requested_by          TEXT NOT NULL,        -- requester actor (user or agent actor id; Spec-010 §Required Behavior)
+  requested_by          TEXT NOT NULL,        -- requester actor (the agent's actor id, or the device a person's request came from; Spec-010 §Required Behavior)
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
@@ -596,20 +593,17 @@ CREATE TABLE approval_resolutions (
   request_id               TEXT PRIMARY KEY REFERENCES approval_requests(id),
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
                                               -- and keeps every column event-derivable for peer/replay rebuild (I-010-9).
-                                              -- A D-010-19 multi-principal conjunction spans one such row per member
-                                              -- request; the wait-for-all aggregate settles across rows, never as
-                                              -- multiple resolutions on one row
-  approver_id              TEXT NOT NULL,     -- user recorded as approver (D-010-12: node-owner binding on the
-                                              -- local socket; verified PASETO sub on authenticated surfaces; Spec-010 §Interfaces And Contracts)
+                                              -- The first answer from any device settles the request.
+                                              -- The row also records the answering device's id, which a card answered
+                                              -- elsewhere reads as `Answered on <device>` (Spec-028 §Required Behavior)
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
-  effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless approver narrowed it (Spec-010 §Required Behavior);
+  effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless the answer narrowed it (Spec-010 §Required Behavior);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
   remembered_scope_kind    TEXT               -- 'session' | 'project' when remembering was requested; NULL otherwise (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
-  resolved_at              TEXT NOT NULL,
-  audit_metadata           TEXT NOT NULL DEFAULT '{}' -- JSON: audit trail
+  resolved_at              TEXT NOT NULL
 );
 
 -- Owner: Plan-010
@@ -621,10 +615,8 @@ CREATE TABLE remembered_approval_rules (
   id                         TEXT PRIMARY KEY,
   session_id                 TEXT NOT NULL,   -- the session the rule was made in; a session rule matches there only (Spec-010 §Default Behavior)
   project_id                 TEXT,            -- the project record's id; NOT NULL iff scope_kind = 'project', so a project rule is found from every session on that project
-  mcp_binding_digest         TEXT             -- the governed tool-server binding whose tool the rule's subject names, as the path-free keyed digest: "b3:"-prefixed keyed BLAKE3 (key = the binding-identity subkey of the governance key, which is kept as its own item in the operating system's credential store, never in the database) over the RFC 8785 JCS canonicalization of its McpServerBindingRef, so the raw scopeRef path never lands here; NULL for any other subject, so removing that binding revokes its rules
-                             CHECK (mcp_binding_digest IS NULL OR mcp_binding_digest GLOB 'b3:*'),
-  user_id             TEXT NOT NULL,   -- the GRANTOR (the approver who opted in) and the audit key; the candidate set has
-                                              -- no user term, since one account owns the machine (D-010-10)
+  mcp_binding_ref            TEXT,            -- JSON: the tool-server binding whose tool the rule's subject names, as its plain McpServerBindingRef
+                                              -- (provider, scope, scope path, server name); NULL for any other subject, so removing that binding revokes its rules
   created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-010 §State And Data Implications, audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-010-9)
   category                   TEXT NOT NULL
                              CHECK(category IN (
@@ -664,40 +656,16 @@ CREATE TABLE remembered_approval_rules (
   CHECK((scope_kind = 'project') = (project_id IS NOT NULL))     -- project rules carry their project key
 );
 
-CREATE INDEX idx_remembered_rules_user ON remembered_approval_rules(user_id, category);
 CREATE INDEX idx_remembered_rules_session ON remembered_approval_rules(session_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_remembered_rules_project ON remembered_approval_rules(project_id) WHERE project_id IS NOT NULL AND revoked_at IS NULL;
-CREATE INDEX idx_remembered_rules_mcp_binding ON remembered_approval_rules(mcp_binding_digest) WHERE mcp_binding_digest IS NOT NULL AND revoked_at IS NULL;
+CREATE INDEX idx_remembered_rules_mcp_binding ON remembered_approval_rules(mcp_binding_ref) WHERE mcp_binding_ref IS NOT NULL AND revoked_at IS NULL;
 ```
 
 ---
 
-## Credential Policy Artifacts (Plan-010)
+## Credential Policy Reference (Plan-010)
 
-Content-addressed store for the credential-policy artifact documents that `executionPosture.credentialPolicyRef` cites ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) posture semantics). A row persists **write-ahead** — before the first `run.running` posture stamp citing its ref (the ADR-019 spawn-intent ordering discipline), so a stamped ref can never dangle — and is retained at least as long as any run event citing it (the audit-stub retention class governs the purge). Content addressing makes rows immutable and self-deduplicating by construction: identical policy ⇒ identical ref, so re-resolution INSERTs idempotently by primary key, and two runs carrying the same ref carried the same effective policy.
-
-```sql
--- Owner: Plan-010
-CREATE TABLE credential_policy_artifacts (
-  ref         TEXT PRIMARY KEY    -- content address: 'sha256:<hex>' over the RFC 8785 JCS-canonicalized
-              NOT NULL,           -- artifact document stored in `artifact` (Spec-010 §Required Behavior);
-                                  -- identical policy ⇒ identical ref — immutable, self-deduplicating.
-  artifact    TEXT NOT NULL,      -- the JCS-canonicalized document bytes verbatim:
-                                  -- {schemaVersion: 1, denyPaths: [...], denyEnvVars: [...], envNameMatch: ...}
-                                  -- (daemon-expanded canonical absolute denyPaths; denyEnvVars canonicalized to
-                                  -- the host's env-name case semantics with the match mode recorded as
-                                  -- envNameMatch; both arrays lexicographically sorted + deduped pre-hash) —
-                                  -- the ref re-verifies from these stored bytes
-  created_at  TEXT NOT NULL,
-  CHECK (                         -- the ref format is load-bearing: posture stamps cite it verbatim.
-    length(ref) = 71              -- 'sha256:' (7) + 64 hex chars; a LIKE prefix test would admit an
-    AND substr(ref, 1, 7) = 'sha256:'  -- empty/non-hex suffix and case variants (SQLite LIKE is
-    AND substr(ref, 8) NOT GLOB '*[^0-9a-f]*'  -- ASCII-case-insensitive); GLOB is case-sensitive,
-  )                               -- so uppercase hex and 'SHA256:' both reject (Plan-010 T2.9 tests)
-);
-```
-
-No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture stamps in `session_events`), so retention is enforced at the event-deletion boundary, never by an FK to a table that does not exist: the session purge never frees a ref (the audit stub preserves the posture object, ref included), `Erase all data` deletes this table with the whole store, and Plan-010 T2.9's `pruneUnreferencedArtifacts` — an idempotent maintenance entry invoked when `daemon.retentionPurge` completes; retention is otherwise bounded by the store's one-row-per-distinct-policy content addressing — deletes rows whose ref no remaining event row or stub cites.
+A run's `executionPosture.credentialPolicyRef` is a plain reference naming the credential deny list the daemon handed the provider for that run ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) posture semantics). It rides the `run.running` posture in `session_events` and needs no table of its own: deleting a session deletes it with the session's rows.
 
 ---
 
@@ -751,7 +719,7 @@ CREATE TABLE workflow_definitions (
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
   created_at           TEXT NOT NULL,
-  created_by           TEXT,                           -- user_id
+  created_by           TEXT,                           -- the device the save came from
   -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
   -- REQUIRE a ref. Mirrors the Spec-025 binding CHECK idiom as defense in depth
   -- behind the schema-layer validation.
@@ -785,7 +753,7 @@ CREATE TABLE workflow_versions (
   layout_json          TEXT,                           -- JSON: this version's layout section, snapshotted beside its immutable body and outside content_hash's preimage, so an export of any version reproduces the file form it was written as
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
-  created_by           TEXT,                           -- user_id
+  created_by           TEXT,                           -- the device the save came from
   UNIQUE(definition_id, version_number),
   UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-015 §Definition scope in the builder (SA-36))
 );
@@ -798,8 +766,8 @@ CREATE INDEX idx_workflow_versions_parent ON workflow_versions(parent_version_id
 -- 3. workflow_runs — one row per run: status, timings, trigger, chain
 -- ========================================================================
 -- Owner: Plan-015
--- A run's row is kept until the person deletes the run; its step data on workflow_steps is time-bound,
--- and past that bound the run still lists with its status, timings and summary. A run's time cap is the
+-- A run's row and its step data on workflow_steps are kept until the person deletes the run or its
+-- session; nothing drops them on a timer. A run's time cap is the
 -- one `Stop a run after` setting on Settings › Runtime, off by default, and time spent waiting on a person
 -- does not count against it; no run carries a cap, a step budget or a pool reservation of its own.
 CREATE TABLE workflow_runs (
@@ -828,7 +796,7 @@ CREATE TABLE workflow_runs (
   chain_run_count           INTEGER,                   -- first run only: runs the chain has started, the first included, incremented in the transaction that creates each run
   chain_kept_going          INTEGER                    -- first run only: 1 once the person answered `Keep going`
                             CHECK(chain_kept_going IS NULL OR chain_kept_going IN (0,1)),
-  kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: its step data is held past the step-data bound
+  kept                      INTEGER NOT NULL DEFAULT 0 -- the run's Keep mark: deleting old runs (workflow.runsDelete) leaves a kept run
                             CHECK(kept IN (0,1)),
   created_at                TEXT NOT NULL,
   CHECK((chain_root_run_id = id) = (chain_run_count IS NOT NULL)),
@@ -867,11 +835,8 @@ CREATE TABLE workflow_gate_resolutions (
   -- Resolution
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ('approved','rejected')),
-  approver_id                TEXT NOT NULL,             -- user_id
-  approver_capability        TEXT,                      -- Cedar capability string (C-14 typed capability)
+  -- the answering device's id is recorded with the outcome, as on approval_resolutions
   resolved_at                TEXT NOT NULL,
-  -- Policy-at-resolution-time (C-13: replays use at-execution-time policy, not current)
-  policy_snapshot_hash       TEXT NOT NULL,             -- BLAKE3 of the Plan-010 policy bundle active at resolved_at
   decision_context           TEXT NOT NULL DEFAULT '{}', -- JSON: scope, resource, reason text, etc.
   UNIQUE(workflow_run_id, sequence),
   CHECK((gate_kind = 'human.approval') = (node_id IS NOT NULL))
@@ -897,14 +862,13 @@ CREATE TABLE human_phase_form_state (
   id                      TEXT PRIMARY KEY,           -- ULID
   workflow_run_id         TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id                 TEXT NOT NULL,              -- the form node in the run's pinned definition
-  user_id                 TEXT NOT NULL,              -- who's drafting (implicit-claim on first open)
   draft_json              TEXT NOT NULL DEFAULT '{}', -- JSON: current form field values
   draft_version           INTEGER NOT NULL DEFAULT 1, -- bumps on each autosave tick; optimistic-concurrency token
   submitted               INTEGER NOT NULL DEFAULT 0  -- boolean; 1 terminal
                           CHECK(submitted IN (0,1)),
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL,
-  UNIQUE(workflow_run_id, node_id, user_id)           -- one draft row per (run, form node, user)
+  UNIQUE(workflow_run_id, node_id)                    -- one draft row per (run, form node)
 );
 
 CREATE INDEX idx_human_phase_form_state_step ON human_phase_form_state(workflow_run_id, node_id)
@@ -939,8 +903,7 @@ CREATE TABLE workflow_steps (
   -- The payload refs a step panel reads, each stored as the JSON WorkflowPayloadRef shape so a
   -- run read stays bounded whatever the step produced: under the 64 KiB inline bound the payload is
   -- items on this row, above it an artifact through the ordinary ingest pipeline and this row keeps the
-  -- reference, and past the retention bound the ref reads `expired` — an arm of its own, not an error, so a
-  -- run past that bound still lists with its status, timings and summary.
+  -- reference.
   input_ref         TEXT NOT NULL
                     CHECK(json_valid(input_ref)),
   output_ref        TEXT NOT NULL
@@ -1015,7 +978,8 @@ CREATE TABLE workflow_webhook_tokens (
 -- on the document, so the document stays hashable and safe to edit: a cursor written into the body
 -- would change the content hash on every fire and mint a version for nothing. It also holds the values a
 -- `Keep for later runs` step keeps: one entry per (workflow, name), with the value, the run that kept it and
--- when, each value at most 64 KiB. Kept values belong to the workflow, not to a version: saving, restoring or
+-- when. A value over 64 KiB is kept as a file and read back the same way, by the rule a step's payload over
+-- the inline bound follows. Kept values belong to the workflow, not to a version: saving, restoring or
 -- duplicating a version leaves them, a duplicate starts with none, and `workflow.keptVarsClear` or deleting
 -- the workflow removes them.
 CREATE TABLE workflow_node_state (
@@ -1139,15 +1103,10 @@ CREATE TABLE agents (
                                                         -- effort?, outputSpeed?}, replacedSwitchId?} -- shared with the mutation reply and
                                                         -- the `pendingSwitch` member agent.list returns, so what a client was told and what
                                                         -- a restart re-arms from are the same record. What is stored here is a SUPERSET of
-                                                        -- that shared shape: it additionally carries admittingPrincipalId and, on the
-                                                        -- immediate arm, interruptDispatch ('requested' | 'dispatched'), neither of which
-                                                        -- is ever returned to a caller or appended to a payload; both are members of THIS
-                                                        -- JSON blob, not columns of their own. The
-                                                        -- principal is recorded under the api-payload-contracts.md Authenticated
-                                                        -- Principal class rule -- a pending switch is an admitting write, both terminals
-                                                        -- require an actor, and a switch settling after a restart has no request left to
-                                                        -- resolve one from; the class binds a durable home, which a mutation reply is
-                                                        -- not. interruptDispatch is 'requested' | 'dispatched' rather than boolean because recovery must
+                                                        -- that shared shape: on the immediate arm it additionally carries
+                                                        -- interruptDispatch ('requested' | 'dispatched'), which is never returned to a
+                                                        -- caller or appended to a payload; it is a member of THIS JSON blob, not a column
+                                                        -- of its own. interruptDispatch is 'requested' | 'dispatched' rather than boolean because recovery must
                                                         -- separate 'crashed before the interrupt went out, so dispatch it' from 'crashed
                                                         -- after it landed, so reconcile' -- redispatching in the second case would fire a
                                                         -- second interrupt at a run that already took one -- and it advances by its own
@@ -1177,15 +1136,13 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
--- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with no limits set; mutated only via orchestration.budgetUpdate, session owner only — D-014-5)
+-- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with no limits set; mutated only via orchestration.budgetUpdate — D-014-5)
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
-  cost_limit_usd_micros         INTEGER,                        -- integer micro-dollars; NULL = no session cost limit; one exists only where the person set it (Spec-014 §Budget Policies)
-  turn_limit_per_agent          INTEGER,                        -- NULL = no turn limit; Spec-014 §Budget Policies (turn-limit row): max consecutive turns per agent, reset on interleave (D-014-8) — not a per-session total
+  cost_limit_usd_micros         INTEGER,                        -- integer micro-dollars; NULL = `Unlimited`, the default; the session's `Spend limit` across every provider and account it uses (Spec-014 §Budget Policies)
   updated_at                    TEXT NOT NULL,
   -- Each limit is NULL (no limit) or a non-negative integer; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative().nullable() (D-014-5)
-  CHECK (cost_limit_usd_micros IS NULL OR cost_limit_usd_micros >= 0),
-  CHECK (turn_limit_per_agent IS NULL OR turn_limit_per_agent >= 0)
+  CHECK (cost_limit_usd_micros IS NULL OR cost_limit_usd_micros >= 0)
 );
 
 -- The daemon's own agent tree: one row per agent a provider starts inside a run (a Claude Code task,
@@ -1240,7 +1197,7 @@ CREATE TABLE session_paused_message_queue (
 );
 ```
 
-Per-run token (`tokenLimit`) and idle-timeout (`idleTimeoutMs`) limits exist only where the person sets one on the run; neither carries a default, so with none set nothing interrupts the run for tokens or for being quiet. Both are per-run `OrchestrationRunConfig` values resolved at admission and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-014 D-014-5; api-payload `RunStateChangeEvent`) — they have no session-level column, and budget/idle enforcement rebuilds from that event field on replay, never by re-merging session values that may have changed mid-run. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-014-5). `provider_account_usage_turns` below is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-026 §State And Data Implications).
+A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-014 D-014-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field on replay, never by re-merging session values that may have changed mid-run. The service stops a run at the first usage report past its limit, so one request can overshoot slightly. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-014-5). `provider_account_usage_turns` below is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-026 §State And Data Implications).
 
 ---
 
@@ -1348,7 +1305,7 @@ CREATE TABLE mcp_server_bindings (
                      CHECK(provider IN ('claude', 'codex')),  -- the McpProvider contract union (driver id namespace); an unchecked value would hand inventory code an impossible row its exhaustive McpProvider handling cannot represent
   scope              TEXT NOT NULL
                      CHECK(scope IN ('user', 'project', 'local')),  -- scope axis of the binding identity (Spec-025 §Unified Inventory): writable at every scope on both providers; a Codex 'local' binding is the daemon's emulation and has a row like any other
-  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local); '' for user scope. Event payloads never carry the raw scope_ref path; only this table resolves a scopeRefDigest back to its path
+  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local); '' for user scope
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
                      CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings only in V1 — Claude user scope has no enabled field; Codex uses its native `enabled` config field); NULL = no overlay
@@ -1376,7 +1333,7 @@ CREATE TABLE mcp_tool_overrides (
                     CHECK(enabled IS NULL OR enabled IN (0, 1)),  -- allow/deny facet; NULL = provider default
   approval_mode     TEXT                   -- Codex-native vocabulary adopted as the normalized set (Spec-025 §Tool-Level Overrides)
                     CHECK(approval_mode IS NULL OR approval_mode IN ('auto', 'prompt', 'writes', 'approve')),
-  idempotency_class TEXT                   -- NULL = the Spec-004 manual_reconcile_only floor; assignment is Cedar-gated (Spec-025 §Tool-Level Overrides)
+  idempotency_class TEXT                   -- NULL = the Spec-004 manual_reconcile_only floor (Spec-025 §Tool-Level Overrides)
                     CHECK(idempotency_class IS NULL OR idempotency_class IN ('idempotent', 'compensable')),
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
@@ -1400,8 +1357,6 @@ The FK targets the binding table because first observation of any binding upsert
 CREATE TABLE mcp_mutation_receipts (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (the Spec-004/B3 clientIdempotencyKey discipline; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to node-scoped operations with no run axis)
   operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the governance mutations, mcp.oauthLogin and mcp.oauthLogout; mcp.reconnect is unreceipted)
-  request_digest          TEXT NOT NULL
-                          CHECK(request_digest GLOB 'b3:*'),  -- keyed BLAKE3 over the RFC 8785 JCS canonical full request INCLUDING secret values (a retry differing only in a secret value must NOT replay), idempotency-key field excluded; replay requires digest equality — key reuse with a differing digest refuses mcp.idempotency_conflict, original untouched. The key is the receipt-digest subkey of the governance key (BLAKE3 keyed mode takes exactly 32 bytes), which is kept as its own item in the operating system's credential store, never in this database, deliberately NOT the colocated client_idempotency_key: keying with a value stored in the adjacent column would let a database copy or backup verify low-entropy secret guesses offline, defeating the no-keyless-digest-of-secret-bearing-input discipline. A receipt that cannot be verified (key material lost) refuses as mcp.idempotency_conflict — fail closed; re-driving under a fresh key is safe by construction (sanctioned provider writes are upserts, full-set replacements, or version-guarded)
   status                  TEXT NOT NULL
                           CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-013 command_receipts discipline, Spec-025 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes — closing both crash windows around the external provider side effect (a durable provider write can never be left unfinalized: startup reconciliation completes any pending intent — verifying provider state, finishing store writes exactly once — or expires an intent whose provider leg never ran)
   response_json           TEXT,                       -- the acknowledged response, replayed verbatim on identical retry — no provider call or store write (Spec-025 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-025 I-025-1) — so its replay is a URL-free acknowledgment (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
@@ -1410,7 +1365,7 @@ CREATE TABLE mcp_mutation_receipts (
 );
 ```
 
-Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key, operation, digest) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making acknowledgment and replay evidence atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then replays the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values — the digest is a keyed canonical-request hash used solely for equality, never served back by any code path (the `mcp.idempotency_conflict` refusal names the key, not the digests).
+Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making acknowledgment and replay evidence atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then replays the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values.
 
 ```sql
 -- Owner: Plan-025
@@ -1532,7 +1487,7 @@ One row per turn, so the figures the person reads per account can be sliced by a
 ```sql
 -- Owner: Plan-026
 CREATE TABLE provider_account_usage_turns (
-  source_event_id TEXT NOT NULL PRIMARY KEY,  -- the id of the `usage.token_count` event this row projects. It is the key because a turn IS that event: keying on it makes the projector idempotent, so a replay of the log writes each turn exactly once and a rebuild is byte-equal to the original. Deliberately NO foreign key to `session_events`: a session purge reduces that log's rows to audit stubs, and tying the figures to those rows would let the purge reach an account's spend history — the figures outlive the rows they were derived from, and what a rebuild can no longer see it does not invent.
+  source_event_id TEXT NOT NULL PRIMARY KEY,  -- the id of the `usage.token_count` event this row projects. It is the key because a turn IS that event: keying on it makes the projector idempotent, so a replay of the log writes each turn exactly once and a rebuild is byte-equal to the original. Deliberately NO foreign key to `session_events`: a session purge deletes that log's rows, and tying the figures to those rows would let the purge reach an account's spend history — the figures outlive the rows they were derived from, and what a rebuild can no longer see it does not invent.
   account_id      TEXT NOT NULL
                   REFERENCES provider_accounts(account_id) ON DELETE CASCADE,  -- a turn's figures have no meaning without the account that paid for them; deregistering an account takes its usage rows with it, exactly as it takes its window readings
   provider        TEXT NOT NULL
@@ -1566,7 +1521,7 @@ Rows are appended and never rewritten. A provider's own usage history, where it 
 
 ## Agent Definition Tables (Plan-027)
 
-Node-local registry of saved agent configurations, for [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed, is never rebuilt from the event log, and never leaves the node (I-027-9).
+Node-local registry of saved agent configurations, for [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed and is never rebuilt from the event log, and it reaches linked devices like every other screen.
 
 **Where a definition lives.** A definition comes from one of four origins: ours (`~/.ai-sidekicks/agents/<name>.md` for a global one, `<project>/.ai-sidekicks/agents/` for a project's own, committed with the repository), Claude Code's own agent files, Codex's own agent files, or a plugin's, which is read-only and carries its plugin's name. A row holds the union of both providers' fields: a provider's file holds only the fields that provider reads, and every other field — the icon and accent, and on a Codex file the hooks and memory scope, which a Codex role file does not read — lives in this row, attached to the file by its name and location. A file renamed or deleted outside the app leaves its row `orphaned`, keeping the extras and the last path the file was known at, until it is reattached to a file or discarded; nothing is rewritten or dropped silently. Whether the provider switches an item off, and whether its file failed to load, are read from the file by the daemon's watch on every read and are not stored.
 
@@ -1578,7 +1533,7 @@ A `providerAccountId` inside a binding deliberately carries **no foreign key** t
 
 `tool_allowlist` is three-state and the three states are **not** interchangeable (I-027-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
 
-`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the agent is used in. A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` meaningful only against the session that composed it, so persisting one would let a stale definition re-grant a superseded trust decision, or dangle outright; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
+`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the agent is used in. A composed `ExecutionPosture` carries a `credentialPolicyRef` and writable roots meaningful only to the run that composed them, so persisting one would let a stale definition re-grant a superseded decision; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
 
 ```sql
 -- Owner: Plan-027
@@ -1591,7 +1546,7 @@ CREATE TABLE agent_definitions (
                                          -- this column is what the uniqueness index arbitrates, so the DATABASE enforces folded
                                          -- uniqueness and no concurrent pair of non-ASCII case variants can both commit.
   description            TEXT NOT NULL DEFAULT ''
-                         CHECK(length(description) <= 1024 AND instr(description, char(0)) = 0),
+                         CHECK(instr(description, char(0)) = 0),
   icon                   TEXT,  -- NULL = the generic agent glyph. A glyph key from the console's own icon set; icon and accent are two fields, not one theme, so either changes without the other
   accent_hue             TEXT,  -- NULL = no chosen hue, and the card draws the generic mark's own. One step of the console's twelve-step hue wheel
   origin                 TEXT NOT NULL DEFAULT 'ours'  -- which place the definition's file lives in
@@ -1619,9 +1574,9 @@ CREATE TABLE agent_definitions (
                            'readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'
                          )),
   instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the agent runs under; node-local configuration the person wrote, never emitted into an event payload
-                         CHECK(length(instructions) <= 32768 AND instr(instructions, char(0)) = 0),
+                         CHECK(instr(instructions, char(0)) = 0),
   goal                   TEXT
-                         CHECK(goal IS NULL OR (length(goal) > 0 AND length(goal) <= 4096 AND instr(goal, char(0)) = 0)),
+                         CHECK(goal IS NULL OR (length(goal) > 0 AND instr(goal, char(0)) = 0)),
   tool_allowlist         TEXT  -- three-state (I-027-4): NULL = driver defaults, '[]' = no tools, populated = exactly those. The array-shape CHECK admits '[]' and rejects a scalar or object
                          CHECK(tool_allowlist IS NULL OR (json_valid(tool_allowlist) AND json_type(tool_allowlist) = 'array')),
   created_at             TEXT NOT NULL,

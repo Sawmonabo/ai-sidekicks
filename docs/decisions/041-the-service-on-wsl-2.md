@@ -85,7 +85,7 @@ We will run one background service per Windows computer, on the side where Claud
 
 - **What:** Everything inside the distribution, with the app's main process holding WSL open while it runs and doing the Windows jobs itself.
 - **Steel man:** One less binary; the daemon is identical to a Linux machine's.
-- **Why rejected:** A quit would end WSL and the service with it, breaking the rule that a quit leaves the service running; keep-awake, the wake timer and banners owed while the app is quit need a live Windows process; and a Linux process cannot reach Credential Manager or AMSI.
+- **Why rejected:** A quit would end WSL and the service with it, breaking the rule that a quit leaves the service running; keep-awake, the wake timer and banners owed while the app is quit need a live Windows process; and a Linux process cannot reach Credential Manager.
 - **What would change the answer:** WSL keeping an instance alive on its own for a service inside it, with a supported way for a Linux process to reach those Windows facilities.
 
 ### Option G: Run the Windows copy of a provider from inside the distribution (Rejected)

@@ -64,7 +64,7 @@ sidekicks relay repin --force    # a relay without a publicly trusted certificat
 | --- | --- |
 | Machine shown `Not reachable` | 45 seconds without a frame on its relay connection |
 | Live connections per key | One; a new connection closes the one before it |
-| Key in two places | Three displacements within a minute; the relay refuses both connections for a minute |
+| Key in two places | Three displacements within a minute; the newest connection stays and the relay flags the key |
 | Channel rekey | A fresh handshake on every connection and every 10 minutes on a long one |
 
 ## Who Runs It And Where To Report

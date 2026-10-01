@@ -23,7 +23,7 @@ The IPC and control-plane specs require a concrete transport stance before imple
 
 ## Decision
 
-We will use OS-local IPC for client-to-daemon communication on the machine itself. Every other device reaches the machine over its own sealed channel through the person's own relay: one Noise channel per device and machine, which carries every method the local transport serves and every event stream, while the relay sees only ids, the channel profile, frame sizes and times. The control plane's authenticated network transport serves its own work only: sign-in, the account's statement chain, device linking, machine registration, each machine's signing keys and event-log anchors, and the push notices each machine has already sealed. The relay is never an execution path.
+We will use OS-local IPC for client-to-daemon communication on the machine itself. Every other device reaches the machine over its own sealed channel through the person's own relay: one Noise channel per device and machine, which carries every method the local transport serves and every event stream, while the relay sees only ids, the channel profile, frame sizes and times. The control plane's authenticated network transport serves its own work only: sign-in, the account's statement chain, device linking, machine registration, and the push notices each machine has already sealed. The relay is never an execution path.
 
 ## Alternatives Considered
 

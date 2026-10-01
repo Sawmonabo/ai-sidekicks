@@ -27,8 +27,6 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 A backup is a plain copy of what it lists — the service's database, copied online; the machine's settings file; each chat session's workspace; each kept session's file checkpoint copies; each kept session's conversation files in every account home it ran in; and the agent memory folder ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)) — and holds no credential. The daemon keeps each secret as its own item in the operating system's credential store, never in its database or in a backup.
 
-**Backups the person makes with other tools**: on macOS, exclude `~/Library/Keychains/` from Time Machine via `tmutil addexclusion`; on Linux with libsecret, exclude `~/.local/share/keyrings/` from home-directory backups. On Windows every item's `CRED_PERSIST_LOCAL_MACHINE` keeps it out of File History and OneDrive Folder Backup roaming.
-
 **Restore**:
 
 - Restore the app's own backup: `Restore…` on Settings › Runtime, or `sidekicks db restore <backup>` on a machine with no app, refused while the service holds the data folder. Restoring on the machine that wrote it needs nothing more.

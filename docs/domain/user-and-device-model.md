@@ -41,15 +41,13 @@ A **runtime node** is the machine where the work happens: provider processes, th
 - Every device belongs to exactly one user.
 - Every runtime node belongs to exactly one user.
 - A device's secret identity key never leaves the device.
-- A revoked device authenticates nothing further, and the events it already signed stay verifiable.
+- A revoked device authenticates nothing further, and the events it already sent stay in the log, recorded as sent from that device.
 - A key is trusted only through the account's statement chain, which every machine verifies itself. The control plane's own view of who may use the relay is for spam and cost only; a machine's refusal in the handshake is what protects the sessions.
 - Every linked device reads and acts on everything. There is no per-device permission and no view-only device; a device that should not act is revoked.
 
 ## Session Ownership
 
-Ownership is derived, not declared. The owner of a session is the actor on that session's first event — whoever started it owns it. The daemon of the machine that runs the session derives it from the log it already holds, and that is the only place the fact lives: the control plane keeps no session record, so there is no second copy to keep in step.
-
-Nothing else confers ownership, and ownership does not move. One account owns the machine, so the owner of every session on it is that account's user.
+Ownership is derived, not declared. One account owns the machine, so the owner of every session on it is that account's user. Nothing is stored or checked per session: an event records the device it came from, never a person, and the control plane keeps no session record, so there is no second copy to keep in step. Ownership does not move.
 
 ## Relationships To Adjacent Concepts
 
@@ -71,9 +69,9 @@ A device moves through three states and does not come back:
 
 ## Example Flows
 
-- `Example: A user starts a session on their laptop. The first event's actor makes that user the owner, and the laptop's daemon, which holds the session, is where that fact lives. The laptop is the runtime node, and its desktop app acts with the laptop's own key, so the laptop is one machine card and never also a device.`
+- `Example: A user starts a session on their laptop. The laptop's account is the user's, so the user owns the session, and the laptop's daemon holds it. The laptop is the runtime node, and its desktop app acts with the laptop's own key, so the laptop is one machine card and never also a device.`
 - `Example: The user links their phone. The phone mints an identity key, the laptop signs a device.linked statement for its public half, and the phone appears under Devices on the laptop's Settings › Devices. It opens the same session and drives it — the work still runs on the laptop.`
-- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the timeline and still verify.`
+- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the timeline, recorded as sent from the phone.`
 
 ## Edge Cases
 

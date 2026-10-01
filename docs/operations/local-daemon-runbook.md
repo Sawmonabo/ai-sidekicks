@@ -13,7 +13,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 
 ## Detection
 
-- Run `sidekicks daemon status` on the machine, or open Settings › Runtime. It says whether the service is up, since when, its version, its processor and memory use, and the approval rules in force. A service that is not answering says so, and on Windows the status names the reason the service cannot start.
+- Run `sidekicks daemon status` on the machine, or open Settings › Runtime. It says whether the service is up, since when, its version, its processor and memory use. A service that is not answering says so, and on Windows the status names the reason the service cannot start.
 - Check the most recent start or restart outcome on Settings › Runtime or from the CLI client.
 - Inspect Local Runtime Daemon logs for one of these categories before acting:
   - IPC bind failure
@@ -35,8 +35,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 4. If restart succeeds, run `sidekicks daemon status` again and resume writable work once it reads the service as running with its store open.
 5. If restart fails with SQLite, replay, or projection-rebuild errors, follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before trying another restart.
 6. If restart fails because of provider resume or runtime-binding recovery, follow [Provider Failure Runbook](./provider-failure-runbook.md).
-7. If the service will not start and `sidekicks daemon status` reads `Stopped: its approval rules did not pass their signature check. Reinstall the app to restore them.`, follow [Cedar Policy Signing And Rotation](./cedar-policy-signing-and-rotation.md).
-8. Reconnect one CLI client and one desktop client, then verify session read plus live subscribe before re-enabling normal writable work.
+7. Reconnect one CLI client and one desktop client, then verify session read plus live subscribe before re-enabling normal writable work.
 
 ## Validation
 

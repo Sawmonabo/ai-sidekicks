@@ -47,7 +47,7 @@ Remote Control gives every device the whole console on every machine the person 
    - **Profiles.** A channel profile is one full Noise protocol name, and today there is exactly one. The connection's first frame carries the channel version and the profiles the device runs; the machine answers with the first it also runs, or closes the connection when it runs none, with nothing to fall back to. Both ends put the offer and the answer into the handshake's prologue, so a relay that altered them makes the handshake fail on both ends. Nothing weaker is ever offered.
    - **Not post-quantum.** The handshake's X25519 exchange is not post-quantum: traffic recorded today could be opened once a large enough quantum computer exists, and nothing in today's channel protects against that. No reviewed hybrid profile of Noise exists yet; `Noise_XXhfs_25519+MLKEM768_ChaChaPoly_SHA256` is an open working draft with no formal analysis ([libp2p/specs#727](https://github.com/libp2p/specs/pull/727)). The channel ships no draft and no second, TLS-based connection. The hybrid `KK` profile joins once its specification is finished and reviewed for production use, as a second profile in the same first frame, ahead of today's, on the same channel keys and frames; that move is a `docs/backlog.md` entry blocked on the specification.
    - **The relay** sees the device id and machine id at connection, the channel version and the profile, frame sizes and times, and never a method, a name or a byte of a session. It holds at most one live connection per key.
-   - **The implementation** is a maintained Noise library whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-028](../plans/028-remote-control.md) Phase 3, and it gets an outside review before the first release that carries Remote Control.
+   - **The implementation** is a maintained Noise library whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-028](../plans/028-remote-control.md) Phase 3.
 
 5. **No other key classes.** There is no session-scoped ephemeral key, no signed key bundle, no first-claim store, no key package and no cap on recipients: a channel's keys belong to a connection. No token is minted for dispatching work to another machine, because a session never runs anywhere but the machine it was started on, and no separate artifact-encryption key exists, because a session's artifacts stay on its machine and devices read them through the channel.
 
@@ -96,17 +96,17 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 | --- | --- | --- | --- |
 | 1 | A maintained Noise implementation for TypeScript accepts a Diffie-Hellman supplied from WebCrypto, so the web client's X25519 channel key stays non-extractable. | Not yet validated: Plan-028 Phase 3 picks the library and records the choice under rule 15. | The web client's channel key would have to be extractable, or the channel package would carry more of the protocol itself; either is decided in Plan-028 before the web client ships. |
 | 2 | A hybrid post-quantum Noise profile will be specified and reviewed for production use. | [libp2p/specs#727](https://github.com/libp2p/specs/pull/727) is an open working draft. | The channel stays classical for longer, and the docs keep saying so; nothing else changes. |
-| 3 | PASETO v4 can be produced and verified by a small in-house library on audited primitives. | §PASETO v4 Implementation Library. | We would fork or migrate to another token format, re-issuing every token. |
+| 3 | PASETO v4 can be produced and verified by the maintained `paseto` package, with `v4.local` supplied through its extension interface on audited primitives. | §PASETO v4 Implementation Library. | We would fork or migrate to another token format, re-issuing every token. |
 | 4 | A machine can hold its DPoP key and refresh token unattended. | Each is its own item in the operating system's credential store, which opens unattended under the person's login ([ADR-021](./021-cli-identity-key-storage-custody.md)). | Sign-in would have to be repeated at each start where the store cannot be read. |
 
 ## Failure Mode Analysis [T2]
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| A flaw is found in the chosen Noise library | Low | High | Security advisories, dependency scanning in CI, the outside review | The shared channel package isolates the library; replace it with a fixed version or another implementation of the same profile. The protocol itself does not change. |
+| A flaw is found in the chosen Noise library | Low | High | Security advisories, dependency scanning in CI | The shared channel package isolates the library; replace it with a fixed version or another implementation of the same profile. The protocol itself does not change. |
 | A large enough quantum computer arrives before the hybrid profile is reviewed | Low | High | Public cryptanalysis news; the backlog entry's blocker | Recorded traffic is exposed; the docs already state it. Ship the hybrid profile the day it is reviewed. |
-| A PASETO library bug (key handling, `v4.local` decryption) | Low | High | Security review, fuzzing of token parsing | Pin audited primitive versions; the in-house library is small enough to review whole. |
-| A stolen device key is used from a second place | Med | Med | The relay holds one live connection per key and flags a key that keeps displacing itself | The device's card says so, and the person revokes it; every machine refuses it from the next chain head. |
+| A PASETO library bug (key handling, `v4.local` decryption) | Low | High | Security review, fuzzing of token parsing | Take the fixed release; the `v4.local` extension is small enough to review whole, and the official PASETO test vectors run against every token the package makes. |
+| A stolen device key is used from a second place | Med | Med | The relay holds one live connection per key: the newest wins, and the key seen on two connections is flagged | The device's card says so, and the person revokes it; every machine refuses it from the next chain head. |
 | A control plane withholds a revoke from one machine | Low | Med | Every channel open exchanges the chain head | The next connection of any honest device carries the newer head, and the revoking device sends its statement to every machine it reaches. |
 
 ## Reversibility Assessment
@@ -146,19 +146,13 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 | --- | --- | --- | --- |
 | Frames the relay can read | None | A test that holds the relay's whole view and fails to read a payload (Plan-028 Phase 3) | Before the first release carrying Remote Control |
 | An altered profile offer | Fails the handshake on both ends | Plan-028 Phase 3 test | Before the first release carrying Remote Control |
-| Outside review of the channel implementation | Completed, findings fixed | The review report, linked from Plan-028 | Before the first release carrying Remote Control |
 | Token-related vulnerabilities affecting our auth flows | 0 exploitable reports | Security review plus dependency scanning | At each release |
 
 ## PASETO v4 Implementation Library
 
-PASETO v4 tokens in §Decision item 2 are produced and verified by an in-house library at `packages/crypto-paseto/`, built on `@noble/curves` (Ed25519 for `v4.public`) and `@noble/ciphers` (XChaCha20 stream cipher) + `@noble/hashes` (BLAKE2b-MAC + BLAKE2b-KDF) for `v4.local`. `v4.local` is an **encrypt-then-MAC** construction (XChaCha20 stream encryption followed by BLAKE2b-MAC over the PAE), **not** XChaCha20-Poly1305 AEAD — this matches the PASETO v4 spec ([Version4.md §v4.local](https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md#v4local)), which deliberately replaces Poly1305 with keyed BLAKE2b.
+PASETO v4 tokens in §Decision item 2 are produced and verified in `packages/crypto-paseto/` with the maintained [`paseto`](https://www.npmjs.com/package/paseto) 4.x package, which carries the token framing, the claim checks and the encoding and builds in `v4.public` (Ed25519). `v4.local` goes through the package's documented extension interface, its encrypt and decrypt supplied on `@noble/ciphers` (XChaCha20 stream cipher) and `@noble/hashes` (BLAKE2b-MAC and BLAKE2b-KDF), crypto packages the project already uses. `v4.local` is an **encrypt-then-MAC** construction (XChaCha20 stream encryption followed by BLAKE2b-MAC over the PAE), **not** XChaCha20-Poly1305 AEAD — this matches the PASETO v4 spec ([Version4.md §v4.local](https://github.com/paseto-standard/paseto-spec/blob/master/docs/01-Protocol-Versions/Version4.md#v4local)), which deliberately replaces Poly1305 with keyed BLAKE2b.
 
-Two third-party TypeScript PASETO libraries were evaluated and rejected:
-
-- **`panva/paseto`** — archived by the maintainer ([GitHub archive banner](https://github.com/panva/paseto)); last npm publish `v3.1.4` ([npm](https://www.npmjs.com/package/paseto)). Its v4 support implements `v4.public` only — `v4.local` is **not implemented**, so it cannot serve the refresh token. An archived repository gets no further security patches, which puts an unpatched dependency on a security-critical path.
-- **`paseto-ts`** — active, but single-maintainer and unaudited ([npm](https://www.npmjs.com/package/paseto-ts)). Concentration risk on a security-critical dependency is incompatible with this record's Type 2 classification.
-
-The in-house path avoids both failure modes by standing on independently audited primitive libraries (`@noble/curves` — audited by Cure53, Kudelski Security and Trail of Bits; `@noble/ciphers` — audited by Cure53).
+The package is maintained, MIT-licensed, has no dependencies, runs on Node, Electron and Cloudflare Workers, and is tested against the official PASETO test vectors; its one gap, `v4.local`, which needs primitives Web Crypto lacks, is the extension above, written as the package's own documented example writes it.
 
 ## Identity Key Storage
 
@@ -182,5 +176,5 @@ The in-house path avoids both failure modes by standing on independently audited
 - [PASETO Specification](https://paseto.io/)
 - [RFC 8628 — OAuth 2.0 Device Authorization Grant](https://www.rfc-editor.org/rfc/rfc8628)
 - [RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP)](https://www.rfc-editor.org/rfc/rfc9449)
-- [@noble/curves audits](https://github.com/paulmillr/noble-curves#audit) — audited primitives under the PASETO library.
-- [@noble/ciphers audits](https://github.com/paulmillr/noble-ciphers#audit) — audited primitives under the PASETO library.
+- [`paseto` on npm](https://www.npmjs.com/package/paseto) — the token library.
+- [@noble/ciphers audits](https://github.com/paulmillr/noble-ciphers#audit) — audited primitives under the `v4.local` extension.

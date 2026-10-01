@@ -59,7 +59,7 @@ A session is the durable container that holds:
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
 | `purge_requested` | The person has pressed `Delete old data` and the session is among those it removes. The session is locked against further modification while purge processing is pending. |
-| `purged` | The session's rows have been deleted with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log has been checkpointed with `TRUNCATE` once the delete committed. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
+| `purged` | The session's rows have been deleted with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log has been checkpointed with `TRUNCATE` once the delete committed. Purge is irreversible. |
 
 Allowed transitions:
 
@@ -79,7 +79,7 @@ Every session is created and held by the daemon of the machine that runs it; the
 1. **Session IDs are daemon-assigned UUID v7** per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Standards Track, May 2024). UUID v7 is lexicographically sortable by creation timestamp, so sessions stay orderable by when they were created.
 2. **The daemon generates every session ID.** A session is fully functional with no control-plane contact, and its ID never changes.
 3. **`provisioning -> active` happens on the machine.** It runs once the session's initial storage on its machine is ready, and never waits on the control plane.
-4. **The owner is derived, not stored.** The owner is the actor on the session's first event ([User And Device Model §Session Ownership](./user-and-device-model.md#session-ownership)); one account owns the machine, so the owner is that account's user.
+4. **The owner is derived, not stored.** One account owns the machine, so the owner of every session on it is that account's user ([User And Device Model §Session Ownership](./user-and-device-model.md#session-ownership)).
 5. **Reaching the session from another device changes nothing about it.** While the machine has no relay connection the session is in `local-only` continuity; once the connection is up, the user's other devices open the same session on its machine. Nothing is promoted, copied or re-created.
 
 State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (`Pending -> Running`) and Amazon ECS (`PROVISIONING -> PENDING -> ACTIVATING -> RUNNING`) both treat creation-time resource allocation as a distinct pre-ready phase from steady-state operation.
@@ -104,7 +104,7 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 
 - [Session Core](../specs/001-session-core.md)
 - [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
-- [Data Retention And GDPR Compliance](../specs/020-data-retention-and-gdpr.md)
+- [Spec-020: deleting, erasing and exporting data](../specs/020-data-retention-and-gdpr.md)
 
 ## Related ADRs
 

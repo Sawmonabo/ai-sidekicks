@@ -16,7 +16,7 @@ Diagnose runs that appear active but are no longer making observable progress.
 - Check whether the session waits on the person: the bell counts it, the session reads `Waiting on you`, and an approval, a question or a plan card is open in the composer.
 - While any command runs, press the action words to open the running-commands list and read each command's live tail. A long command, such as a four-minute test run, is progress.
 - Claude Code retries a rate limit or an overload silently for up to about three minutes while the line reads `Retrying…`, then lands one row, `<Provider> did not answer · Try again`. Codex fails the turn at once with one row, `Limit reached · resets at <time> · Try again`.
-- On the machine, run `sidekicks daemon status`, and read the daemon's diagnostic logs and its loopback `/metrics` for the run's provider. With tracing on (Settings › Runtime), the traces for the run are there too.
+- On the machine, run `sidekicks daemon status`, and read the daemon's diagnostic logs for the run's provider. With tracing on (Settings › Runtime), the traces for the run are there too.
 
 ## Preconditions
 

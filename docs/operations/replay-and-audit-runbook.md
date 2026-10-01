@@ -15,7 +15,7 @@ Recover replay and audit projections when session history appears incomplete, st
 
 - Compare `ReplayReadAfterCursor` results with the latest canonical event sequence for the affected session.
 - Read `RecoveryStatusRead` plus projection lag signals for the affected node or session.
-- Verify whether missing history is an expected purge (a session removed by `Delete old data` keeps only its audit stubs), stale projection state, or true canonical-event loss.
+- Verify whether missing history is an expected purge (a session removed by `Delete old data` is deleted with its rows), stale projection state, or true canonical-event loss.
 
 ## Preconditions
 
@@ -48,7 +48,7 @@ Recover replay and audit projections when session history appears incomplete, st
 ```bash
 sidekicks daemon status          # the service and its store
 sidekicks daemon restart         # startup rebuilds every projection
-sidekicks export-data <folder>   # every session's events, decrypted, one per line
+sidekicks export-data <folder>   # every session's events, one per line
 ```
 
 ## SLOs and Thresholds

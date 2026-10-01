@@ -32,7 +32,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
 
 - **One list across the origins.** Every skill folder appears once, with the origin and scope it was found at, its folder path, how many files it holds, where it is available and what a person types to call it, and whether its provider switches it off or it fails to load.
 - **The folder is the unit.** The editor authors the folder, not one file: a Files list with the entry file first and every supporting file after it, with adding, renaming and deleting a file, and each file opening in the same editor. Availability, widening and the scan apply to the folder as a whole.
-- **Availability across providers.** A setting per folder with a default derived from origin, a one-click widening whose scan reports and never refuses, and controls that are held because the underlying change is not the console's to make or would leave the skill nowhere.
+- **Availability across providers.** A setting per folder with a default derived from origin, a one-click widening whose scan reports and never refuses, and one switch per provider with no lock, written through that provider's own per-session off switch.
 - **Authoring and editing.** A new skill is written under the console's own tree, global or project as chosen. A skill found in a provider's own tree is edited where it already is.
 
 ## Non-Goals
@@ -70,8 +70,8 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - The icon rail draws five destinations in one order — Sessions, Sidekicks, Skills, Workflows, Settings — and on this screen Skills is the current destination, marked current to assistive technology as well as drawn.
 - The Skills rail item draws an **open book**: a stroked outline at the same weight as every other rail glyph, in the same glyph box, which stands as drawn at every text size because a glyph is a drawing rather than a measure of content. It is not the robot. The robot is the only generic agent mark anywhere in the console, and it does not stand for a skill.
 - The destination has **no view switch and no tabs**, anywhere on the screen.
-- Four addresses, and no more: `#/skills` (the list), `#/skills/new` (the new-skill form), `#/skills/<name>` (a folder, opened at its entry file) and `#/skills/<name>/<file path>` (that folder with one other file open). The entry file has **no address of its own** — the folder's address means the folder opened at its entry file — so there is exactly one address per thing on screen.
-- `new` is the one folder name the destination reserves. A new skill whose typed name would produce the folder name `new` is written to `new-2` instead, so the form's address and a folder's address can never collide.
+- Four addresses, and no more: `#/skills` (the list), `#/skills?new` (the new-skill form), `#/skills/<name>` (a folder, opened at its entry file) and `#/skills/<name>/<file path>` (that folder with one other file open). The entry file has **no address of its own** — the folder's address means the folder opened at its entry file — so there is exactly one address per thing on screen.
+- A skill folder keeps its real name, `new` included: the form's address is a query on the list's, so it never collides with a folder's.
 
 ### The layout
 
@@ -88,7 +88,7 @@ The consequence this spec is built on: **a skill authored once can be made avail
   - **the name and the summary** — the folder name in the mono face, and the line an agent reads when it is deciding whether to use the skill;
   - **the origin mark** — `sidekicks · global`, `claude code · project`, `codex · global` and so on: the origin word with the scope beside it, the same origin words the session composer's skills list uses; a plugin's skill reads `plugin · <plugin name>`;
   - **the folder and its size** — the folder path, and how many files the folder holds;
-  - **the availability line** — `Available on: Claude Code · Codex`, each provider a control that reads as pressed or not pressed, to assistive technology as well as to the eye, and where held reads as unavailable and carries its reason;
+  - **the availability line** — `Available on: Claude Code · Codex`, each provider a control that reads as pressed or not pressed, to assistive technology as well as to the eye;
   - **the call form** — one line naming what a person types, per provider the skill reaches;
   - **the widen warning** — where the scan has something to say, the one line it writes, in place;
   - **the provider facts** — `Off in Claude Code` or `Off in Codex` while that provider's own configuration switches the skill off, and `Didn't load · <reason>` while its folder fails to load, each drawn only while it holds, each its own mark, and both drawn when both hold. Both are read from the daemon's own parse of the folder, never from a provider's list alone.
@@ -127,7 +127,8 @@ A skill a plugin installed opens the same folder with its fields and files drawn
 - **Nothing reaches disk until the folder is saved.**
 - The rename and delete controls on a file row are put away until they are wanted: on a desktop the pointer or the keyboard reaching the row brings them out; on a screen with no pointer to hover with they stand on the row from the start.
 - **Two editor faces, chosen by extension.** `.sh`, `.bash`, `.zsh`, `.yaml`, `.yml`, `.json`, `.js`, `.ts`, `.py`, `.rb`, `.toml` and `.sql` open in the **mono** face; everything else — the entry file, `.md`, `.txt` — opens in the **reading** face. Indentation is load-bearing in a script and in a metadata file, and a proportional face hides an alignment error the provider will not.
-- **A file the daemon cannot read** — a binary, or one too large to open — is **still listed**, with its size and no editor. A folder that lists nine of its ten files is lying about what travels with the skill.
+- **A file the daemon cannot read** — a binary — is **still listed**, with its size and no editor. A folder that lists nine of its ten files is lying about what travels with the skill.
+- **Any text file opens, whatever its size.** Past the memory budget the console works out from the machine it runs on, the editor shows the file read-only, drawing only part of it, and names the file's real size and how much is shown; there is no fixed figure. The read goes through the service (`skill.fileRead`), never a file path in the window.
 
 ### Availability across providers
 
@@ -139,10 +140,7 @@ A skill a plugin installed opens the same folder with its fields and files drawn
 - Tool names in the warning are **words in sentence case**, never their wire spelling.
 - A folder whose files name no other provider's tools widens with **no warning at all**.
 - **Narrowing a skill back takes the setting and the line together** and leaves no state behind, because the line is derived from the setting and is never stored.
-- **Two controls are held, and each says why.**
-  - **A provider's own skill cannot be switched off its home provider.** That provider loads the folder out of its own tree whatever the console says, so the control keeps reading as pressed, also reads as unavailable, and its reason says that availability there is not the console's to switch off.
-  - **The last provider a skill is on cannot be removed.** A skill available nowhere would never reach a session, so the control is held the same way and its reason names the other provider to widen to first.
-  - Both are **held rather than hidden**. Each hold is stated on the control and enforced again when the click is handled, so a forced click changes nothing.
+- **One switch per provider, with no lock.** A skill is switched off on a provider through that provider's own per-session off switch — Claude Code's `skillOverrides` in the session's settings, Codex's session config — which the daemon writes; nothing writes the person's own config files, and the window never touches a provider folder. A provider's own skill can be switched off its own provider the same way, and a skill may be off on every provider, its row saying so.
 - **A plugin's skill is available on the provider the plugin was installed for, and neither control can be pressed**, because the plugin, not the console, decides where the skill goes.
 - **A skill runs only on the providers it is available on.** A skill marked for one provider never runs under the other; widening it is the one way it reaches the other provider.
 
@@ -163,7 +161,7 @@ A skill a plugin installed opens the same folder with its fields and files drawn
 
 ### The scan, and when a saved skill is live
 
-- **Nothing stands between a project's own skill folders and a session.** Both providers read `<project>/.claude/skills`, `<project>/.codex/skills` and the project's `.agents/skills` out of the checkout on their own, so a hold in the console would not stop them loading and would only read as safety. The scan warns and never blocks, on a cloned project as on any other.
+- **Nothing stands between a project's own skill folders and a session.** Both providers read `<project>/.claude/skills`, `<project>/.codex/skills` and the project's `.agents/skills` out of the checkout on their own, and the console adds no gate over them: the scan warns and never blocks, on a cloned project as on any other, and a skill stays out of a session only when the person switches it off on that provider.
 - The scan is a daemon read over every file in the folder, matched against the tool names and call sigils each provider publishes. The console renders what the daemon returns and **stores nothing**.
 - **The daemon parses every `SKILL.md` itself**, because a provider's own report misses cases. Codex's `skills/list` reports a failed skill only in its `errors`, as `{path, message}`, which the daemon matches to its row by path. Codex flags missing or unclosed front matter, invalid YAML, a missing or empty `description` and a name over 64 characters; it loads without error a skill with no name (under its folder's name), a name that differs from its folder, a duplicate name and front matter it repairs (a broken name loads as `[unterminated`), and it never reports a system skill's error. The daemon's own parse is what sets a row's `Didn't load · <reason>`, and Codex's report is evidence beside it.
 - At launch the daemon builds each provider's session pack from every skill available to that provider, and hands it over through that provider's own loading path: on Claude Code in the plugin folder named `sidekicks`, passed with `--plugin-dir`; on Codex as skill folders through its configuration. It is the one session pack the agent definitions also travel in ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)).
@@ -194,8 +192,6 @@ A skill a plugin installed opens the same folder with its fields and files drawn
 - **A path typed as `SKILL.md`.** Answered the same way, with the reason that the folder always has exactly one entry file and it is never replaced.
 - **An empty path.** Answered with what a path looks like, including the folder-prefix form.
 - **A path that would walk out of the folder.** Leading slashes, `.` and `..` segments are dropped by normalization before the path is judged, so a file cannot land outside the folder it belongs to.
-- **Availability held on the home provider.** The control keeps reading as pressed and also reads as unavailable. Its reason is a tooltip: a small label beside the control that opens on pointer hover and on keyboard focus, closes when either leaves, and is tied to the control so a screen reader reads it with the control. The row itself carries none of those words. A forced click changes nothing, because the hold is enforced when the click is handled too.
-- **Availability held on the last provider.** The same shape and the same tooltip, with the reason naming the provider to widen to first.
 - **Leaving with changes.** One question, naming every changed field by its label and every changed file by its own path, with three ways out; saving is the only way out that keeps the changes. A file whose text changed is named by its own path; a file added to the folder or taken out of it is named once, as **Files**. The question is one small card at the top of the screen, over the folder and with no scrim behind it, so the folder it is asking about stays readable.
 - **A file the daemon cannot read.** Listed with its size and no editor, rather than hidden.
 - **A provider's skill folder renamed or deleted outside the console.** The availability and the icon the console's record holds for it are shown as orphaned in the `Folder gone` group, with the last path the folder was known at, until they are reattached to a folder or discarded, as an agent's record is ([Spec-027 §Fallback Behavior](027-agent-definitions-and-peer-invocation.md#fallback-behavior)). Nothing is silently rewritten and nothing is silently dropped. A reattach is accepted only while the record is orphaned.
@@ -209,12 +205,12 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 
 - **The daemon owns disk.** It watches the origins — the file origins at both scopes, and the plugin origin in its own plugin homes — parses each folder's `SKILL.md` itself, writes a folder, runs the scan the widening control renders, and builds each provider's session pack. **The console never writes a folder itself and never computes a pack**, so there is exactly one writer and exactly one place a pack is decided. The watch, the record beside a folder and the pack are the ones the agent definitions use ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)), extended for skills, never built a second time.
 - **The daemon's operations are nine**, none of them built yet; each is a build gap its plan phase delivers:
-  - `skill.list` — the read of the registry. It returns one entry per skill folder across the origins: its origin (and the plugin's name on a plugin's skill), its scope, its folder path, the name and description read from its front matter, the file list with each file's path and size and whether the daemon could read it, the availability record and the holds on it, the icon, the call form per provider the skill reaches, and the facts `orphaned`, `disabledInProvider` and `loadError` with its reason — each its own field, the same spellings the agent list uses. It is read when a screen opens.
+  - `skill.list` — the read of the registry. It returns one entry per skill folder across the origins: its origin (and the plugin's name on a plugin's skill), its scope, its folder path, the name and description read from its front matter, the file list with each file's path and size and whether the daemon could read it, the availability record, the icon, the call form per provider the skill reaches, and the facts `orphaned`, `disabledInProvider` and `loadError` with its reason — each its own field, the same spellings the agent list uses. It is read when a screen opens.
   - `skill.subscribe` — the whole list again each time a save from any window or the daemon's watch over the origins changes it, so this screen and the composer's Skills group stay current in every open window.
   - `skill.fileRead` — one file's body, read when that file opens; the list carries paths and sizes only.
   - `skill.create` — a new folder under the console's own tree, global or project, its name folded and a collision suffixed, available on both providers.
   - `skill.update` — a whole-folder save: the front-matter fields, each file's body, the files added, renamed and removed, and the icon, applied together, for a folder of the console's own and for a provider's own folder in place. A refused write leaves the folder on disk exactly as it was. A path it cannot take is refused as `skill.path_refused`, naming the path, with the reason `escapes_folder`, `duplicate_path` or `names_entry_file`.
-  - `skill.availabilityUpdate` — sets one provider on or off for a folder, with both holds enforced when the request is handled: a refused change is `skill.availability_held`, with the reason `home_provider` or `last_provider`.
+  - `skill.availabilityUpdate` — sets one provider on or off for a folder, with no lock, so a skill may be off on every provider; the daemon writes it through that provider's own per-session off switch.
   - `skill.scan` — takes a folder and the provider being widened onto and returns the files that named another provider's tools and the tool names as words. It is a read with no durable effect; nothing is stored and nothing is cached across widenings.
   - `skill.recordReattach` — attaches an orphaned record to a folder, taking the token the platform's folder chooser returned, accepted only while the record is orphaned and refused otherwise with `skill.write_refused` (`reason: not_orphaned`).
   - `skill.recordDiscard` — drops an orphaned record.
@@ -240,7 +236,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - `Example: A person opens a folder of their own, adds references/risk-classes.md from the Files panel, pastes a table into it, and saves. The save writes both files; a Codex session already running picks the skill up at once, and a Claude Code session already running picks it up after the daemon's reload request.`
 - `Example: A person widens a Codex-origin skill onto Claude Code. The control flips first. The scan then writes one amber line naming the entry file and the provider metadata file as the two places it read Codex tool names, says in words what will happen on Claude Code instead, and blocks nothing. Narrowing the skill back removes the line with the setting.`
 - `Example: A person opens a skill that lives in Claude Code's own tree. The name is read-only, there is no global-or-project choice, the path line reads "Edited in place at", and one sentence says the record kept beside the folder holds only where the skill is available and its icon.`
-- `Example: A person tries to switch Claude Code off a skill that lives in Claude Code's own tree. The control reads as unavailable, its tooltip says availability there is not the console's to switch off, and a forced click changes nothing.`
+- `Example: A person switches Claude Code off a skill that lives in Claude Code's own tree. The control reads as not pressed, the daemon writes Claude Code's own per-session skillOverrides switch for it, and nothing writes the folder or the person's own settings files.`
 - `Example: A person types SKILL.md into the Add file row. The row answers in place with the reason that the folder always has exactly one entry file, nothing is added, and nothing else on the screen moves.`
 
 ## Implementation Notes
@@ -254,7 +250,6 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 
 - **Do not let the scan block a widening.** The scan is advice about a folder's contents, not a validator; a widening it cannot vet is still the person's decision, and a blocking scan would make an honest report into a refusal.
 - **Do not scan the entry file alone.** A reference file is where a provider-specific instruction hides, and a scan that reads one file would report a clean folder that is not.
-- **Do not hide a held availability control.** A hidden control is an unexplained absence; a held one that says why is an answer.
 - **Do not store the widen warning.** It would then survive a narrowing, or survive an edit, and say something untrue about the folder as it is now.
 - **Do not write anything of the console's into a provider's own files.** Both providers drop unknown front-matter keys silently, so a field written there is lost with no signal; that is what the console's own record is for.
 - **Do not give the entry file its own address.** Two addresses for one screen state means two ways to be somewhere and one of them wrong after a rename.
@@ -275,8 +270,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - [ ] Tool names in the warning are words in sentence case, with no wire spelling.
 - [ ] A folder whose files name no other provider's tools widens with no warning.
 - [ ] Narrowing a skill back removes the setting and the warning together and leaves no state behind.
-- [ ] The home provider of a folder found in a provider's tree cannot be switched off it: the hold is stated on the control, and a forced click handled by the code changes nothing.
-- [ ] The last provider a skill is on cannot be removed, held the same way, with a reason naming the provider to widen to first.
+- [ ] Each provider's control switches a skill on or off with no lock, a provider's own skill off its own provider and a skill off on every provider included, written through that provider's own per-session off switch and never into a config file of the person's.
 - [ ] The `New skill` form opens on Global with the bolt icon picked.
 - [ ] Opening a row opens that folder at its entry file.
 - [ ] The Files list holds the entry file first and every other file after it ordered by whole path, and states how many files the folder holds.
@@ -303,7 +297,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - [ ] A row draws `Off in Claude Code` or `Off in Codex` while that provider switches the skill off and `Didn't load · <reason>` while its folder fails to load, each only while it holds and both when both hold, from the daemon's own parse.
 - [ ] A skill whose folder was renamed or deleted outside the console is drawn in a `Folder gone` group after the rows with its icon, where it was available and its last path; `Reattach…` attaches the record to a folder picked in the platform's chooser, `Discard` drops it after asking in place, and nothing is dropped silently.
 - [ ] A plugin's skill's call form reads `/<plugin name>:<skill name>` on Claude Code and `$sidekicks:<skill name>` on Codex, or `$sidekicks:<plugin name>-<skill name>` where a skill of the console's already packs under that name.
-- [ ] The daemon serves the skill operations, and a forced availability change or a refused path answers with its typed refusal and changes nothing.
+- [ ] The daemon serves the skill operations, and a write to a plugin's skill or a refused path answers with its typed refusal and changes nothing.
 - [ ] A save in one window, and a folder changed on disk, reach the list and the composer's Skills group in every open window without a re-read.
 - [ ] The composer's Skills group draws a skill not available on the session's provider grayed, and a skill Codex failed to load stays listed and grayed with its load error as the reason.
 

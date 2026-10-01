@@ -15,8 +15,8 @@ The product vision (`docs/vision.md`) positions this system as an agentic coding
 
 Two of the vision's claims bear directly on what V1 must contain:
 
-1. **Multi-agent orchestration (Spec-014)** — several agents working in one session, a lead running helpers as child runs under the person's budgets and a per-agent turn limit, is a signature feature of the vision, and the product positions itself against commodity single-agent CLI runners on exactly this axis; V1 must include it or the category-positioning claim does not match what ships.
-2. **Desktop GUI** — the vision build order lists desktop as step 6 of V1 delivery, and the product differentiates against CLI-only offerings (Claude Code, Codex CLI, Aider) in part through a richer desktop surface; V1 must include it for the same reason.
+1. **Multi-agent orchestration (Spec-014)** — several agents working in one session, a lead running helpers as child runs under the session's spend limit and each run's token limit (both unlimited unless the person sets them), is a signature feature of the vision and the work the person runs the product for; V1 must include it or V1 does not do what the product is for.
+2. **Desktop GUI** — the vision build order lists desktop as step 6 of V1 delivery, and the desktop is the surface the person works in beside the CLI; V1 must include it for the same reason.
 
 The implementation plans, the cross-cutting specs and `docs/architecture/cross-plan-dependencies.md` cite the one V1 scope this ADR records.
 
@@ -26,11 +26,11 @@ What features compose the V1 release of the product, and what is out of scope fo
 
 ### Trigger
 
-The plans and the cross-cutting specs cite one V1 scope, and that scope has to carry the vision's positioning claims.
+The plans and the cross-cutting specs cite one V1 scope, and that scope has to carry the vision's two claims above.
 
 ## Decision
 
-V1 consists of **21 features**, and nothing is deferred to a later release. What exists only to sell to or govern an organization of other people is out of scope for a product with one user (see §Out of Scope below).
+V1 consists of **21 features**, and nothing is deferred to a later release. V1 ships on one release channel, and a release ships when its checks pass. What exists only to sell to or govern an organization of other people is out of scope for a product with one user (see §Out of Scope below).
 
 ### V1 Features (21)
 
@@ -50,10 +50,10 @@ V1 consists of **21 features**, and nothing is deferred to a later release. What
 | 15 | Desktop GUI | [Spec-021](../specs/021-desktop-app-and-renderer.md) |
 | 16 | Multi-agent orchestration | [Spec-014](../specs/014-multi-agent-orchestration.md) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-015](../specs/015-workflow-authoring-and-execution.md): the V1 engine covers the DAG executor, the visual builder and its node catalog — whose agent and person kinds, `agent.run`, `agent.multi-agent`, `human.approval` and `human.form`, delegate to the existing run, orchestration, approval and form machinery — parallel steps admitted by a memory gate and joined through a `flow.merge` node, the entry node’s trigger kinds, and the `workflow.*` event taxonomy across its categories. The full contract is in Spec-015 and [Plan-015](../plans/015-workflow-authoring-and-execution.md). |
-| 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md): server-config CRUD with Cedar-gated per-tool overrides, zero-billed-turn status and health probing, and server OAuth |
+| 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md): server-config CRUD with per-tool approval overrides set on Settings › MCP servers, zero-billed-turn status and health probing, and server OAuth |
 | 19 | Undo to an earlier message | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the undo a person asks for — the conversation and the files, the conversation alone, or the files alone — as one request with one reported result, implemented by [Plan-003](../plans/003-queue-steer-pause-resume.md)), [Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior) (the daemon's own file checkpoint store), [ADR-017](./017-shared-event-sourcing-scope.md) (every undo is recorded forward, as `session.restore_finished`, with `run.rolled_back` for the conversation cut — the log never truncates). The conversation goes back through the provider's own cut, Claude Code's `rewind_conversation` and Codex's `thread/revert {threadId, beforeTurnId}` ([Spec-004](../specs/004-provider-driver-contract-and-capabilities.md)), and neither touches a file; the files go back through the daemon's checkpoints, never through the git snapshot. A point before Claude Code's last compaction is reached through the provider's own copy of the conversation, resumed in place, so the session keeps its identity and no point is refused. Codex has no `thread/rollback`. |
 | 20 | Session goals | [Spec-014](../specs/014-multi-agent-orchestration.md) (`/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet, through `session.goalUpdate` and `session.goalClear`; a session may have no goal, one or several over its life, and is never named or labeled by one), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (`session.goal_updated`, carrying the goal's status, and `session.goal_cleared`, each drawn only as a transcript system message) |
-| 21 | Session callback tools | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (the daemon-registered tool shape), [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (Cedar-governed identically to provider tools) |
+| 21 | Session callback tools | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (the daemon-registered tool shape), [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (the app's own tools, which its Cedar rules decide) |
 | 22 | Execution postures and sandbox profiles | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (`executionPosture` as an authorization input), [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (the posture shape) |
 | 23 | Voice (`/voice`) | [Spec-014 §Design Decisions](../specs/014-multi-agent-orchestration.md#design-decisions) (voice ships on both providers, with no reservation and no gate), [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (each provider's voice leg and the `voice.*` verbs), [Spec-021](../specs/021-desktop-app-and-renderer.md) (the composer's microphone capture and the voice mode kept in the machine settings file). On a Claude Code session `/voice` dictates into the composer through Anthropic's speech service, the daemon running its own socket to it for each recording; on a Codex session it runs Codex's own realtime voice call, the app window the call's WebRTC peer. On both, talking starts the same way, by holding Space or, after `/voice tap`, tapping it, and a hold on Codex reaches the call only once Space is let go. |
 | 24 | Remote Control | [Spec-028](../specs/028-remote-control.md) + [Plan-028](../plans/028-remote-control.md) — a session is driven from any of the person's linked devices with full parity, while it runs on its one owning machine. The desktop app, the web client and the phone apps run one front end through one bridge interface with an implementation for each, a member a host cannot serve being absent there. On the phone and browser clients every screen folds to one column, with one back control, when the window is too narrow for its list and its detail at once; a desktop window never folds. The iPhone app ([Spec-029](../specs/029-ios-remote-client.md)) is that front end in a Capacitor wrapper, native only for the Secure Enclave key, the push extension, the cover, the scan, the port view and front-end bundle staging; it runs on iOS 26 and later and is built and signed under the person's own Apple account. |
@@ -69,53 +69,53 @@ The product has one user, so what exists only to sell to or govern an organizati
 
 ### Thesis — Why This Option
 
-The product's category positioning rests on three claims: multi-agent sessions, a desktop-plus-CLI experience, and control of a live session from any linked device. Shipping V1 without Multi-agent orchestration or Desktop GUI launches into a crowded market (Claude Code, Codex CLI, Aider, Cursor, Windsurf) without the features that justify the product's existence. Landing V1 at the full surface above rather than a narrower alternative pays the implementation cost to preserve the differentiators.
+The product rests on three claims: multi-agent sessions, a desktop-plus-CLI experience, and control of a live session from any linked device. A V1 without Multi-agent orchestration or Desktop GUI lacks the features the person uses the product for. Landing V1 at the full surface above rather than a narrower alternative pays the implementation cost to ship those features.
 
-Treating Multi-agent orchestration as a V1 quality gate forces the team to harden Spec-014 — child runs and their linkage, budget defaults, the per-agent turn limit, stop conditions, goals — rather than leaving it as a spec with no build behind it. That quality work matters the moment a lead runs a helper in a session, which happens on day one of V1.
+Treating Multi-agent orchestration as a V1 quality bar hardens Spec-014 — child runs and their linkage, the session's spend limit and each run's token limit, stop conditions, goals — rather than leaving it as a spec with no build behind it. That quality work matters the moment a lead runs a helper in a session, which happens on day one of V1.
 
 ### Antithesis — The Strongest Case Against
 
-A staff engineer looking at a pre-code project with a V1 target this broad has legitimate concern: a broad V1 is the single most common cause of greenfield project slip. Every V1 feature is a concurrent dependency in the critical path. Multi-agent orchestration in particular carries child-run, budget and turn-limit complexity that single-agent runs do not. Desktop GUI carries Electron packaging, auto-update, code-signing, and cross-platform QA burden. A narrower V1 (Option B below) launches faster, validates the agent-runtime core under real load, and adds multi-agent sessions in a later release six months on with full production data to drive the quality bar. That is how most successful platforms have shipped.
+A staff engineer looking at a pre-code project with a V1 target this broad has legitimate concern: a broad V1 is the single most common cause of greenfield project slip. Every V1 feature is a concurrent dependency in the critical path. Multi-agent orchestration in particular carries child-run, spend-limit and token-limit complexity that single-agent runs do not. Desktop GUI carries Electron packaging, auto-update, code-signing, and cross-platform QA burden. A narrower V1 (Option B below) ships sooner, exercises the agent-runtime core in daily use, and adds multi-agent sessions in a later release with that use to drive the quality bar.
 
 ### Synthesis — Why It Still Holds
 
-The antithesis assumes V1 launch speed is the dominant cost. For this product, launch positioning is the dominant cost. A CLI-only single-agent V1 does not survive the first launch-day comparison thread — the product would be reviewed as "another CLI agent runner, but less mature than Aider or Claude Code." The scope-size risk is real but bounded by two factors: (1) AI implementation costs (Claude Opus 4.7 executing the plans) collapse engineering-week counts relative to human-labor estimates; (2) build-order discipline via [`docs/architecture/cross-plan-dependencies.md`](../architecture/cross-plan-dependencies.md) keeps work sequenced rather than parallel-fire. The quality risk on Multi-agent orchestration is the more serious concern; the mitigation is a V1-readiness review of Spec-014 before Plan-014 is built.
+The antithesis assumes time to the first release is the dominant cost. For this product, the dominant cost is a V1 that does not do what the person needs: a CLI-only single-agent V1 gives them what Claude Code and Codex already give them on their own. The scope-size risk is real but bounded by two factors: (1) AI implementation costs (Claude Opus 4.7 executing the plans) collapse engineering-week counts relative to human-labor estimates; (2) build-order discipline via [`docs/architecture/cross-plan-dependencies.md`](../architecture/cross-plan-dependencies.md) keeps work sequenced rather than parallel-fire. The quality risk on Multi-agent orchestration is the more serious concern; the mitigation is a V1-readiness review of Spec-014 before Plan-014 is built.
 
 ## Alternatives Considered
 
 ### Option A: The chosen V1 set
 
 - **What:** Ship the full feature list above as the V1 target.
-- **Steel man:** Aligns shipped scope with vision positioning; carries the two vision claims named in §Context into what ships; gives the plans and the cross-cutting specs one scope to cite; sets the Multi-agent orchestration quality bar at V1 where it belongs.
+- **Steel man:** Aligns shipped scope with the vision; carries the two vision claims named in §Context into what ships; gives the plans and the cross-cutting specs one scope to cite; sets the Multi-agent orchestration quality bar at V1 where it belongs.
 - **Weaknesses:** Larger V1 surface = more implementation work before first ship; Multi-agent orchestration quality bar adds hardening work that would otherwise defer; Desktop GUI adds a second client track in the critical path rather than strictly after CLI proves the contract.
 
 ### Option B: The smaller set (rejected)
 
 - **What:** Ship a narrower V1 with Desktop GUI and Multi-agent orchestration pushed to a later release.
-- **Steel man:** Faster time to first-ship. CLI-first validates the typed client SDK and daemon contract before desktop-specific UX adds complexity (which matches the vision build-order recommendation for CLI as step 3 and desktop as step 6). Single-agent V1 validates the run state machine, driver contract, and approval gates under real traffic before multi-agent adds the per-agent turn limit and budget enforcement. Solo / small-team reality check: even a narrower surface is a stretch for one engineering resource, even with AI implementation.
-- **Why rejected:** A CLI-only single-agent V1 launches into direct comparison with Claude Code, Codex CLI, Aider, Cursor, Windsurf, and the broader coding-agent field. Those products are mature on the CLI+single-agent axis. The category-defining claim for this product is explicitly _multi-agent, steerable, and reachable from any of the user's devices_ — vision Thesis and Product Goal both state this in the first ten lines. Shipping V1 without the category-defining features launches the product as a weaker commodity offering on the axis where it is strongest. The time-to-first-ship optimization is chasing the wrong metric for a greenfield product whose value is its positioning.
+- **Steel man:** Faster to the first release. CLI-first validates the typed client SDK and daemon contract before desktop-specific UX adds complexity (which matches the vision build-order recommendation for CLI as step 3 and desktop as step 6). Single-agent V1 validates the run state machine, driver contract, and approval gates under real traffic before multi-agent adds spend and token limits. Reality check: even a narrower surface is a stretch for one engineer, even with AI implementation.
+- **Why rejected:** A CLI-only single-agent V1 gives the person what Claude Code and Codex already give them on their own. What this product is for is explicitly _multi-agent, steerable, and reachable from any of the user's devices_ — vision Thesis and Product Goal both state this in the first ten lines. A V1 without those features does not do the work the product exists for, so shipping sooner optimizes the wrong thing.
 
 ### Option C: Tiered M1–M4 milestone track (Rejected)
 
-- **What:** Partition the V1 features into four sequential milestone releases, each a customer-facing release.
-- **Steel man:** Incremental customer feedback at each milestone; reduced risk of a big-bang launch; explicit cut points for scope adjustment between milestones; operational release-pipeline discipline earned incrementally rather than all at once; easier to message "we're shipping now, more next month" than "we're still building, launch TBD."
-- **Why rejected:** Adds PM overhead and customer-communication surface without reducing engineering risk for a greenfield pre-code project. Each milestone boundary requires release-pipeline investment (signing, auto-update, changelog cadence, deprecation windows) earlier than a single-target V1 requires it. The backlog already enforces build-order structure via `docs/architecture/cross-plan-dependencies.md`; that granularity is sufficient for engineering sequencing without making milestone boundaries customer-facing. Making them customer-facing is the cost; the benefit (incremental feedback) is available to any greenfield team via private beta without public M1/M2/M3 release mechanics. The milestone track also pushes the category-positioning launch to M2 or later, which re-raises the Option B problem.
+- **What:** Partition the V1 features into four sequential milestone releases.
+- **Steel man:** Feedback from use at each milestone; reduced risk of one large release; explicit cut points for scope adjustment between milestones; release-pipeline discipline earned incrementally rather than all at once.
+- **Why rejected:** Each milestone boundary requires release-pipeline investment (signing, auto-update, changelog cadence) earlier than a single-target V1 requires it, without reducing engineering risk for a greenfield pre-code project. The backlog already enforces build-order structure via `docs/architecture/cross-plan-dependencies.md`; that granularity is sufficient for engineering sequencing without turning milestone boundaries into releases. The milestone track also pushes multi-agent sessions and the desktop to M2 or later, which re-raises the Option B problem.
 
 ## Reversibility Assessment
 
 - **Reversal cost:** Low to Medium while pre-code. Adding a feature to V1 or removing one touches the feature list here, `docs/architecture/v1-feature-scope.md`, `docs/architecture/cross-plan-dependencies.md`, and the affected spec and plan. No code-migration cost before first ship; moderate doc-churn cost. Once V1 ships, removing a feature from it is higher cost.
 - **Blast radius:** `docs/architecture/v1-feature-scope.md`, `docs/architecture/cross-plan-dependencies.md`, every plan file, any ADR or spec referencing a V1 label.
 - **Migration path:** Edit the feature list, update every spec and plan whose scope changes, and realign `cross-plan-dependencies.md`.
-- **Point of no return:** First V1 ship to users. Until then, reversal is free. After, feature-set expectations carry.
+- **Point of no return:** The first V1 release. Until then, reversal is free; after it, removing a feature takes away something the person uses.
 
 ## Consequences
 
 ### Positive
 
 - One V1 scope that the plans and the cross-cutting specs cite.
-- Shipped scope matches vision positioning on the two claims named in §Context.
-- Multi-agent orchestration quality bar lands at V1 where it meets the category-positioning claim.
-- Desktop GUI lands at V1 so launch positioning includes both client tracks vision names.
+- Shipped scope matches the vision on the two claims named in §Context.
+- Multi-agent orchestration quality bar lands at V1, with the feature it serves.
+- Desktop GUI lands at V1, so V1 includes both client tracks the vision names.
 
 ### Negative (accepted trade-offs)
 
@@ -127,7 +127,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 ### Unknowns
 
 - V1 delivery timeline under the chosen scope — no fixed date commitment; the build order in `cross-plan-dependencies.md` drives sequencing.
-- Whether the Multi-agent orchestration V1 quality bar can be met without in-production traffic; the Spec-014 V1-readiness review is the primary gate.
+- Whether the Multi-agent orchestration V1 quality bar can be met before the person's daily use; the Spec-014 V1-readiness review is the primary gate.
 
 ## References
 
@@ -140,7 +140,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - [MCP Authorization (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) — the OAuth surface feature #18's `server OAuth` scope targets: OAuth 2.1 (IETF draft) with Authorization Server Metadata, Dynamic Client Registration, and Protected Resource Metadata (accessed 2026-07-02); Spec-025 pins its flow against this revision
 - Feature #23's Codex leg rides Codex's own realtime surface: the `thread/realtime/*` client requests (`start`, `appendAudio`, `appendText`, `appendSpeech`, `stop`, `listVoices`) and the `thread/realtime/*` server notifications reach a connection only when it sets `initialize.capabilities.experimentalApi`, because the app-server's runtime filter (`should_skip_notification_for_connection`) silently drops every experimental notification for any other connection, and generating the schema cannot show that gate. The daemon's connection to a Codex service sets it, starts a call with `thread/realtime/start` carrying the window's WebRTC offer, and routes those notifications by `threadId` while `/voice` is on — receipts in [`docs/reference/provider-wire/codex.md`](../reference/provider-wire/codex.md), regenerated from the pinned binary via `codex app-server generate-json-schema`, upstream [openai/codex](https://github.com/openai/codex). The Claude Code leg is dictation through Anthropic's speech service, done as Claude Code's own VS Code extension does it.
 
-Feature 17 (workflow authoring and execution) is grounded in primary sources on: parallel execution (DAG executor, resource pools, parallel join policy), multi-agent ownership and sub-workflow lifecycle, event taxonomy (CloudEvents / OpenTelemetry / Temporal — anchors SA-18/19/20), persistence patterns (SQLite WAL), test infrastructure (fast-check, Jazzer.js — anchors SA-29), freeze-regret evidence from other systems' later releases (the V1-shipping-pattern survey of Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo and CircleCI backing the full-engine-at-V1 thesis), and security invariants I1–I7 (a CVE corpus per invariant). A source that backs several of these is cited once. The sources on human-step UX, event-taxonomy detail, persistence-pattern detail and testing strategy are in [Spec-015 §References](../specs/015-workflow-authoring-and-execution.md#references) and [Plan-015 §References](../plans/015-workflow-authoring-and-execution.md#references).
+Feature 17 (workflow authoring and execution) is grounded in primary sources on: parallel execution (DAG executor, resource pools, parallel join policy), multi-agent ownership and sub-workflow lifecycle, event taxonomy (CloudEvents / OpenTelemetry / Temporal — anchors SA-18/19/20), persistence patterns (SQLite WAL), test infrastructure (fast-check, Jazzer.js — anchors SA-29), freeze-regret evidence from other systems' later releases (the V1-shipping-pattern survey of Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo and CircleCI backing the full-engine-at-V1 thesis), and the security invariants (a CVE corpus per invariant). A source that backs several of these is cited once. The sources on human-step UX, event-taxonomy detail, persistence-pattern detail and testing strategy are in [Spec-015 §References](../specs/015-workflow-authoring-and-execution.md#references) and [Plan-015 §References](../plans/015-workflow-authoring-and-execution.md#references).
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
@@ -184,9 +184,6 @@ Feature 17 (workflow authoring and execution) is grounded in primary sources on:
 | OWASP CI/CD Top 10 | Specification (OWASP) | Anchors C-12 (secrets-by-reference) / I1 (argv-only) / I3 (typed substitution) industry-minimum bar | <https://owasp.org/www-project-top-10-ci-cd-security-risks/> |
 | NVD CVE-2025-54550 (Airflow secret-masker bypass) | CVE record (NVD) | Anchors I2 (secrets-by-reference invariant) — proves need for cipher-pinned reference indirection | <https://nvd.nist.gov/vuln/detail/CVE-2025-54550> |
 | NVD CVE-2025-67895 (Airflow Edge3 RCE) | CVE record (NVD) | Anchors I1 (argv-only execution) — proves need to forbid in-template-string command construction | <https://nvd.nist.gov/vuln/detail/CVE-2025-67895> |
-| NVD CVE-2024-47827 (Argo Workflows) | CVE record (NVD) | Anchors I4 (content-addressed external refs) — proves need for content-hash pinning of external workflow refs | <https://nvd.nist.gov/vuln/detail/CVE-2024-47827> |
-| NVD CVE-2025-30066 (tj-actions supply-chain compromise) | CVE record (NVD) | Anchors I4 (content-addressed external refs) — supply-chain breach proving content-addressing rationale | <https://nvd.nist.gov/vuln/detail/CVE-2025-30066> |
-| CISA — tj-actions advisory | Government advisory (CISA) | Government-attested incident corroborating I4 (content-addressed external refs) for CVE-2025-30066 | <https://www.cisa.gov/news-events/alerts/2025/03/18/supply-chain-compromise-third-party-github-action-cve-2025-30066> |
 | GitHub Security Lab — script-injection research | Engineering research (post) | Anchors I3 (typed substitution) — categorizes untrusted-input handling failure modes | <https://securitylab.github.com/research/github-actions-untrusted-input/> |
 | GitHub Actions — Security hardening guide | Documentation | I3 industry-minimum bar (default-deny untrusted input) anchoring typed-substitution invariant | <https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions> |
 | NVD CVE-2026-33475 (Langflow GitHub Actions command injection) | CVE record (NVD) | Anchors I3 (typed substitution) — untrusted GitHub context values interpolated into `run:` shell commands motivate default-deny substitution | <https://nvd.nist.gov/vuln/detail/CVE-2026-33475> |
@@ -205,7 +202,7 @@ Feature 17 (workflow authoring and execution) is grounded in primary sources on:
 
 ### Related Docs
 
-- [Vision](../vision.md) — signature features, build order, category positioning.
+- [Vision](../vision.md) — signature features and build order.
 - [V1 Feature Scope](../architecture/v1-feature-scope.md) — the V1 feature list and what is out of scope, against this ADR.
 - [Cross-Plan Dependencies](../architecture/cross-plan-dependencies.md) — the forward build order, aligned against this ADR.
 - [Spec-014: Multi-Agent Orchestration](../specs/014-multi-agent-orchestration.md) — V1 per this ADR.

@@ -39,7 +39,7 @@ Local Runtime Daemon SQLite replay MUST order `session_events` by `sequence ASC`
 
 ### I-001-3 — Columns another plan owns carry no Plan-001 logic
 
-The columns and tables listed in §Cross-Plan Schema Ownership (Plan-001 creates them in the one schema; other plans own what they mean) carry no read or write logic from Plan-001. Plan-001 creates their types and nullability as the schema docs define them; the owners (Plan-005 events, Plan-020 GDPR, Plan-016 identity) author all read/write logic in their own plans.
+The columns and tables listed in §Cross-Plan Schema Ownership (Plan-001 creates them in the one schema; other plans own what they mean) carry no read or write logic from Plan-001. Plan-001 creates their types and nullability as the schema docs define them; the owners (Plan-005 events, Plan-020 data retention, Plan-016 identity) author all read/write logic in their own plans.
 
 **Why load-bearing.** Each of these columns has one owner, so what it means is written in one place.
 
@@ -67,7 +67,7 @@ Plan-001 owns the daemon-side session lifecycle and the `PtyHost.spawn` entry-po
 
 ## Preconditions
 
-- **Phase 1 CI surface**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit framework, commitlint 20.5.2, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 + actions/attest@v4 release skeleton, code-signing custody artifacts) is governed by that ADR.
+- **Phase 1 CI surface**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit framework, commitlint 20.5.2, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 release skeleton, code-signing custody artifacts) is governed by that ADR.
 
 Target paths below assume the implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -92,7 +92,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 - `.nvmrc` — pins Node 24.16, the floor the daemon and the command line run on because the memory gate reads `process.availableMemory()`, per [ADR-022](../decisions/022-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
-**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (its type set leaves out `style`), Renovate config (`renovate.json5` with `minimumReleaseAge: 14 days`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (Apple Developer Individual + Azure Artifact Signing OIDC + Sigstore keyless) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision).
+**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (its type set leaves out `style`), Renovate config (`renovate.json5`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (the self-signed macOS identity, then Apple Developer Individual, and SignPath Foundation for Windows) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision).
 
 ### Per-Package Scaffolding
 
@@ -192,7 +192,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Precondition:** none.
 
-**Goal:** All packages compile; one passing tooling test verifies the workspace is healthy; the daemon's native-binding rebuild path is exercised at bootstrap; the engineering CI surface (per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md)) is wired and gates subsequent PRs.
+**Goal:** All packages compile; one passing tooling test verifies the workspace is healthy; the daemon's native-binding rebuild path is exercised at bootstrap; the engineering CI surface (per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md)) is wired and reports on every PR.
 
 **Ship-gate:** [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The CI workflow files, lefthook + commitlint pre-commit framework, Renovate dependency-update config, Gitleaks secret scanner, `CODEOWNERS`, and code-signing custody scaffolding authored by ADR-023 land in this PR.
 
@@ -200,8 +200,8 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 - Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports). At Phase 1, `apps/desktop/` is scaffolded as a placeholder workspace package only (single `src/index.ts` with the forward-declaration comment "split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention"); the substrate split (`apps/desktop/src/{main,preload,renderer}/`) is owned by [Plan-021's partial](./021-desktop-app-and-renderer.md#partial-pr-sequence) and lands as a separate PR before Plan-001 Phase 5. The `apps/desktop/src/renderer/src/session-bootstrap/` extension at Phase 5 lands once Plan-021's partial repositions the placeholder.
 - Install `better-sqlite3` at exactly `13.0.3` ([Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)) as a workspace dep on `packages/runtime-daemon/` per [ADR-022](../decisions/022-v1-toolchain-selection.md). Even without imports, this exercises the postinstall native-binding rebuild path for the daemon target under `node-linker=isolated` at bootstrap time, surfacing native-rebuild integration risk before behavior PRs land.
 - Install `pg` 8.20+ as a workspace dep on `packages/control-plane/` per [ADR-022](../decisions/022-v1-toolchain-selection.md)
-- Wire engineering CI surface per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 + actions/attest@v4 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship). The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the three workflow files is the Phase 1 PR's authoring scope; [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision) pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
-- Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally; required-checks gate is enforced on subsequent PRs
+- Wire engineering CI surface per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship). The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the three workflow files is the Phase 1 PR's authoring scope; [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision) pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
+- Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally
 - Single passing test (in `packages/contracts/src/__tests__/sanity.test.ts`): trivial sanity check that Vitest is wired (test ID **W1** per § Test And Verification Plan)
 
 #### Tasks
@@ -224,7 +224,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.5 — Engineering CI surface (per ADR-023)
 
-**Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/gitleaks.yml`, `lefthook.yml`, `lint-staged.config.mjs`, `commitlint.config.mjs`, `renovate.json5`, `CODEOWNERS` **Acceptance:** `pnpm turbo build`, `pnpm turbo typecheck`, `pnpm turbo lint`, `pnpm turbo test` all green; CI workflow runs green on this PR; pre-commit hooks active locally; required-checks gate enforced on subsequent PRs. **Spec coverage:** none (engineering CI surface) **Verifies invariant:** none
+**Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/gitleaks.yml`, `lefthook.yml`, `lint-staged.config.mjs`, `commitlint.config.mjs`, `renovate.json5`, `CODEOWNERS` **Acceptance:** `pnpm turbo build`, `pnpm turbo typecheck`, `pnpm turbo lint`, `pnpm turbo test` all green; CI workflow runs green on this PR; pre-commit hooks active locally. **Spec coverage:** none (engineering CI surface) **Verifies invariant:** none
 
 ##### T1.6 — Vitest sanity test
 
@@ -315,7 +315,7 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 - `packages/client-sdk/src/session-client.ts` — `create`, `read`, `subscribe` methods over the daemon transport (local IPC): consumes the Plan-006 partial-deliverable substrate — JSON-RPC 2.0 + LSP-style Content-Length framing, the `session.*` JSON-RPC method namespace, and the SDK Zod layer (per [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format)). `subscribe` rides the JSON-RPC 2.0 streaming primitive (Plan-006 partial substrate's `LocalSubscriptionProducer<T>` shape).
 - The daemon's stop sequence — drains the sidecar per §Cross-Plan Obligations CP-001-1 before the daemon exits, whenever the service stops (Runtime `Stop` or `Restart`, or the operating system's service manager); the app's quit never reaches it. Delegates to the polymorphic `PtyHost.shutdown({ perSessionTimeoutMs: 2000, hostTimeoutMs: 2000 })` (defined on the `PtyHost` interface at `packages/runtime-daemon/src/pty/pty-host.ts`), which runs per-session SIGTERM→SIGKILL escalation (2 s per-session bounded timeout) AND sidecar-process stdin-close → child-exit await → `taskkill /T /F /PID` escalation (2 s host bounded timeout). The stop sequence never touches a backend-specific surface ([ADR-019 §Decision](../decisions/019-windows-v1-tier-and-pty-sidecar.md#decision): "Consumers never see the backend choice").
-- `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` — daemon-layer `PtyHost.spawn(spec)` wrapper per §Cross-Plan Obligations CP-001-2; substitutes a stable parent dir for `SpawnRequest.cwd` and prepends a `cd <worktree-path> && ` shell prefix (or sets `CWD=<worktree-path>` env per agent CLI conventions). Wraps both `RustSidecarPtyHost` and `NodePtyHost` because the constraint is OS-level. The per-driver dispatch is named per target in the implementing change, on the working assumption that shell sessions use the cd-prefix and agent CLIs that read `CWD` from the environment (`claude-driver`, `codex-driver`) use the env strategy. The cd-prefix strategy mutates the command string (visible to Plan-005 audit-log canonical hash); CWD-env mutates process environment (invisible to canonical bytes) — pick is consequential to integrity protocol but Plan-005 owns the integrity test that catches inconsistency.
+- `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` — daemon-layer `PtyHost.spawn(spec)` wrapper per §Cross-Plan Obligations CP-001-2; substitutes a stable parent dir for `SpawnRequest.cwd` and prepends a `cd <worktree-path> && ` shell prefix (or sets `CWD=<worktree-path>` env per agent CLI conventions). Wraps both `RustSidecarPtyHost` and `NodePtyHost` because the constraint is OS-level. The per-driver dispatch is named per target in the implementing change, on the working assumption that shell sessions use the cd-prefix and agent CLIs that read `CWD` from the environment (`claude-driver`, `codex-driver`) use the env strategy. The cd-prefix strategy mutates the command string; CWD-env mutates the process environment.
 
 #### Tasks
 

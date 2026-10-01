@@ -54,7 +54,7 @@ The platform selector enforces the defaults above; consumers of `PtyHost` never 
 ## Data Flow
 
 1. A local client submits a command through IPC.
-2. The local session engine validates the command against session ownership, the calling device's place on the account's statement chain, and policy state.
+2. The local session engine validates the command against the calling device's place on the account's statement chain and policy state, and records that device on what the command writes.
 3. The session engine invokes provider, git, workspace, or tool services as needed.
 4. Resulting state changes become canonical local events and projection updates.
 5. Live subscribers receive normalized updates, and recovery metadata is persisted for restart safety.

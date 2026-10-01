@@ -44,15 +44,15 @@ Supported topologies:
 
 ## Rate Limiting By Deployment
 
-Rate limiting uses a deployment-aware abstraction with identical limits across all topologies:
+The relay counts requests on its sign-in routes only — sign-in, token refresh and device linking — and answers a caller over the limit with 429 and a `Retry-After` ([Spec-019](../specs/019-rate-limiting-policy.md)). No route a credential reaches is counted, and neither is the channel.
 
-| Deployment | Edge Layer | Application Layer |
-| --- | --- | --- |
-| `Workers Relay` (Cloudflare) | CF Workers native `rate_limit` binding (sliding-window counters, zero added latency) | Per-identity `RateLimitIdentityDO` Durable Object — authoritative window state, consulted on every check (eager-DO, [Plan-019 D-019-3](../plans/019-rate-limiting-policy.md)) |
-| `Compose Relay` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend |
-| `Single-Device Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
+| Deployment | Where the sign-in routes are counted |
+| --- | --- |
+| `Workers Relay` (Cloudflare) | The per-identity `RateLimitIdentityDO` Durable Object, one global count per source address whichever edge location serves it ([Plan-019 D-019-3](../plans/019-rate-limiting-policy.md#design-decisions)) |
+| `Compose Relay` | The relay process's memory ([Plan-019 D-019-4](../plans/019-rate-limiting-policy.md#design-decisions)) |
+| `Single-Device Local` | Nowhere: the daemon is reached through its socket only |
 
-The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). The Compose relay uses `rate-limiter-flexible` (Postgres backend) to achieve the same semantics as the Cloudflare native binding; both run the same one-stage admission, the sliding-window counter (Plan-019 I-019-1): a trip is refused with the window's `Retry-After`, and the relay's channel carries no rate limit. Nothing is banned and nothing escalates.
+Both relays enforce the same limit through the same interface, chosen by deployment configuration. A counter error fails that one request like any backend error. Nothing is banned and nothing escalates.
 
 ## Relay Scaling Strategy
 
@@ -115,7 +115,6 @@ Frames either way, agent output and Preview's live picture included, are the ter
 | --- | --- |
 | Accounts per relay | 1, the person's own |
 | Relay connections | One per machine and one per linked device, at most one live connection per key |
-| Session event log size | 100,000 events/session lifetime |
 
 ## Infrastructure Requirements
 
@@ -131,9 +130,9 @@ The workload is one person, their machines and their devices, on one relay. The 
 
 The 256 MB local daemon budget above is an operating target derived from one user's session sizing on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable, so that a budget raise or a deeper change is decided from the numbers.
 
-**Instrumentation requirement.** The daemon MUST expose `process_resident_memory_bytes` via the default Prometheus `prom-client` collector ([default metrics](https://github.com/siimon/prom-client#default-metrics)). RSS (resident set size) is the authoritative metric for process footprint — distinct from V8 heap-used, which excludes native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers. Alert fires when RSS exceeds **80% of the budget (≥ 205 MB)** sustained for ≥ 5 minutes. Sustained (not instantaneous) reduces false positives from transient build-step allocations. The 80% threshold and 5-minute window are design choices, not external standards.
+**Instrumentation requirement.** The daemon reads its own resident set size (RSS) and reports it in `daemon.status.read`, which Settings › Runtime and `sidekicks daemon status` show with the time the reading was taken ([Spec-018 §Interfaces And Contracts](../specs/018-observability-and-failure-recovery.md#interfaces-and-contracts)). RSS is the authoritative figure for process footprint — distinct from V8 heap-used, which excludes native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers.
 
-**Decision trigger.** If real workloads consistently breach the 256 MB budget, **raise the budget to 384–512 MB before considering a runtime change.** Rationale: a budget raise is reversible and low-blast-radius (documentation + alert-threshold update); changing the runtime (e.g., replacing Node.js with a different language) carries much larger implementation cost and is reserved for breaches that persist after a budget raise. "Consistently breach" is defined as ≥ 20% of operating daemons observed over a rolling 7-day window exceeding 256 MB; these thresholds are internal and will be revisited once real deployment telemetry is available.
+**Decision trigger.** If measurements under the workload named above consistently exceed the 256 MB budget, **raise the budget to 384–512 MB before considering a runtime change.** Rationale: a budget raise is reversible and low-blast-radius (a documentation update); changing the runtime (e.g., replacing Node.js with a different language) carries much larger implementation cost and is reserved for breaches that persist after a budget raise.
 
 ### Budgets On A Windows Computer
 
@@ -166,7 +165,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **CI:** GitHub Actions — lint, typecheck, test, build on every PR.
 
-**CD:** control plane and relay deployed via container registry push + rolling update.
+**CD:** none run by the project. The person deploys their own relay: the Workers relay into their own Cloudflare account, the Compose relay with its `docker-compose.yml` on their own server ([ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md)).
 
 **Local artifacts:** daemon, CLI, and desktop app built on release tag and published to npm / GitHub Releases.
 

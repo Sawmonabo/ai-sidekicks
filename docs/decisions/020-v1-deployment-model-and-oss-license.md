@@ -23,7 +23,7 @@ This record takes the OSS developer-tool posture as the V1 deployment model.
 
 Related architectural choices already in place:
 
-- `deployment-topology.md` §Rate Limiting By Deployment already names an abstraction swap between Cloudflare-native `rate_limit` binding (the Workers relay) and `rate-limiter-flexible` Postgres-backed (the Compose relay).
+- `deployment-topology.md` §Rate Limiting By Deployment names where each relay counts its sign-in routes: the per-identity Durable Object on the Workers relay, memory on the Compose relay.
 - `deployment-topology.md` §Relay Scaling Strategy describes how the Workers relay uses Cloudflare Workers + Durable Objects for one person: one Durable Object for the account.
 - ADR-004 commits to SQLite for local state and Postgres for the control plane on the Compose relay.
 
@@ -71,14 +71,14 @@ Both backends implement the v2 relay protocol behind one shared contract so prot
 
 Both relays hold the same admission rules:
 
-- On the Workers relay, the credential routes (sign-in, token refresh, device linking) count in the per-identity Durable Object, one global counter that rotating edge locations does not reset. Frame traffic keeps the per-location binding.
-- On the WebSocket the relay sees only encrypted frames and counts only frames. A method inside a frame is the machine's to limit: the machine enforces `presence.heartbeat` at 10 a minute per device, inside the sealed connection, drops the excess and keeps the last heartbeat per device.
+- The relay counts requests on its credential routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. On the Workers relay they count in the per-identity Durable Object, one global counter that rotating edge locations does not reset; on the one-process Compose relay they count in memory. A counter error fails that one request like any backend error.
+- On the WebSocket the relay sees only encrypted frames and counts none of them. A method inside a frame is the machine's to limit: the machine enforces `presence.heartbeat` at 10 a minute per device, inside the sealed connection, drops the excess and keeps the last heartbeat per device.
 - The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds frames and bytes in both directions.
 
 ### Rate-Limiter Backends (Ships Both in V1)
 
-- Workers relay: Cloudflare-native `rate_limit` binding for the control plane's sliding-window rows; the per-identity Durable Object for the credential routes.
-- Compose relay: `rate-limiter-flexible` with Postgres backend.
+- Workers relay: the per-identity Durable Object for the credential routes.
+- Compose relay: an in-memory counter in the one relay process, for the same routes.
 
 Both ship in V1 under the deployment-aware abstraction already named in `deployment-topology.md` §Rate Limiting By Deployment.
 
@@ -98,7 +98,7 @@ Asking the person to deploy a relay before a phone can reach their machine is fr
 
 A public relay serves other people, and serving other people brings billing, bans, per-person credentials and witnessing that one user does not need. Linear / Notion / Figma / Warp are not counter-examples — they are hosted-only products whose value is the hosted surface (sync, collaboration UX, account-side features). This product's value is the agent runtime itself, which works identically on either relay. The Workers relay deploys into the person's own Cloudflare account with nothing to keep running, which keeps the setup cost to one deployment. Two relays cost some QA-matrix work (bounded, covered by the rate-limiter abstraction and the shared protocol contract). The community-support drag is real and is managed via the Tripwires below.
 
-The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The implementation of the Node.js self-hostable relay is mostly "here is the WebSocket server loop and here is the Postgres rate-limiter wiring" — one codebase, not two.
+The QA-matrix cost is structurally limited by the decision to put both relay backends behind one protocol contract. The implementation of the Node.js self-hostable relay is mostly "here is the WebSocket server loop and here is the in-memory sign-in counter" — one codebase, not two.
 
 ## Alternatives Considered
 
@@ -207,7 +207,6 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | tmate | Precedent | OSS terminal-sharing with free default relay + self-host option | <https://github.com/tmate-io/tmate> |
 | Mattermost | Precedent | OSS + paid-tier two-deployment model | <https://mattermost.com/> |
 | Cloudflare Workers + Durable Objects | Documentation | The platform the Workers relay runs on: one Durable Object for the account | <https://developers.cloudflare.com/durable-objects/> |
-| `rate-limiter-flexible` | Documentation | Postgres/Redis backends for self-host rate limiting | <https://github.com/animir/node-rate-limiter-flexible> |
 | Cursor Enterprise page | Vendor announcement | Direct quote: "we don't offer on-premises deployment today." Anchors the Antithesis/Synthesis claim that the modal greenfield collaborative dev tool ships hosted-only at V1 | <https://cursor.com/enterprise> |
 | The Agency Journal — Cursor March 2026 self-hosted agents | Vendor announcement | Cursor March 2026: agent runtime moves to customer network; control plane stays in Cursor cloud — matches our ADR-002 trust-boundary shape (local execution, shared control plane) | <https://theagencyjournal.com/cursors-march-2026-glow-up-self-hosted-agents-jetbrains-love-and-smarter-composer/> |
 | Superblocks — Cursor Enterprise Review 2026 | Engineering blog | Cursor Enterprise tier offers air-gapped agent-runtime deployment, not control-plane self-host; supports the "control plane stays hosted" pattern | <https://www.superblocks.com/blog/cursor-enterprise> |
@@ -239,7 +238,6 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 | Cloudflare miniflare / workerd | GitHub Issue | workerd DO storage caveat: not production-suitable in 2026; DOs always run on the same machine as requested — anchors why a CF-DO-as-self-host shortcut is not viable | <https://github.com/cloudflare/miniflare> |
 | Cloudflare PartyKit / PartyServer | GitHub Issue | PartyKit is open-source DO wrapper, NOT a DO replacement — anchors why a self-hostable PartyKit shortcut does not apply | <https://github.com/cloudflare/partykit> |
 | Ably — Scaling Pub/Sub with WebSockets and Redis | Engineering blog | Industry-standard Node.js + Redis pubsub + WebSocket hub pattern for self-hosted DO replacement — anchors the chosen Node-relay self-host implementation pattern | <https://ably.com/blog/scaling-pub-sub-with-websockets-and-redis> |
-| `rate-limiter-flexible` — PostgreSQL backend wiki | Documentation | RLF Postgres benchmark: ~995 req/sec average, p95 21.85ms — adequate for V1 500/sec write target; deepens the generic RLF row with the specific Postgres-backend benchmark URL | <https://github.com/animir/node-rate-limiter-flexible/wiki/PostgreSQL> |
 
 ### Related ADRs
 

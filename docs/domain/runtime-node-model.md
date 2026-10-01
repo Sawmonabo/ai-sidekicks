@@ -32,7 +32,7 @@ It is the "one machine executing" half of the product model. A session runs on e
 - Every runtime node belongs to exactly one user — the account holder whose devices drive it. There is no second owner, and no other account can register it or reach it.
 - Execution remains local to the runtime node; the control plane does not become the code-execution authority.
 - Machine reachability and run state are separate concerns.
-- A runtime node may host multiple agents and runs, subject to explicit capacity policy.
+- A runtime node may host multiple agents and runs; what it admits is decided by the memory gate, which starts work while the machine has the memory for it.
 - A runtime node is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start; the key is kept as its own item in the machine's credential store and never leaves the machine, and it is minted again only when a removed machine is linked again.
 
 ## Relationships To Adjacent Concepts

@@ -34,7 +34,7 @@ The run state machine defines the lifecycle semantics of execution.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
-- A run's pending blocking work — a pending question, a pending permission ask, a pending pipeline approval request or Claude Code's retry-or-edit choice on a refused turn — grants the run a liveness exemption from the idle sweep for as long as the block stands, and no deadline bounds it: a question, an ask, an approval and the refusal choice all wait until they are answered ([Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)). The exemption ends the moment the block resolves or is closed with the run that raised it — the answer, the cancellation that rides an interrupt, or the end of the provider process — and a closed block never counts as pending blocking work, so the run returns to the ordinary idle path the instant it is no longer waiting on a person. The startup-reconciliation divergence halt (`waiting_for_input` carrying `recovery-needed`) is a human-action halt rather than a pending question, ask or approval, and is outside this rule by design ([Spec-013 §Fallback Behavior](../specs/013-persistence-recovery-and-replay.md#fallback-behavior)).
+- A run's pending blocking work — a pending question, a pending permission ask, a pending pipeline approval request or Claude Code's retry-or-edit choice on a refused turn — has no deadline: a question, an ask, an approval and the refusal choice all wait until they are answered ([Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)). The block ends the moment it resolves or is closed with the run that raised it — the answer, the cancellation that rides an interrupt, or the end of the provider process. The startup-reconciliation divergence halt (`waiting_for_input` carrying `recovery-needed`) is a human-action halt rather than a pending question, ask or approval, and ends only by the person's recovery action ([Spec-013 §Fallback Behavior](../specs/013-persistence-recovery-and-replay.md#fallback-behavior)).
 
 ## Relationships To Adjacent Concepts
 
@@ -115,7 +115,7 @@ The following table lists every allowed run state transition. It includes primar
 
 | From | To | Trigger | Condition |
 | --- | --- | --- | --- |
-| `queued` | `starting` | Run admitted to execution | Queue slot available |
+| `queued` | `starting` | Run admitted to execution | The memory gate admits it |
 | `starting` | `running` | Initialization complete | Provider and workspace ready |
 | `starting` | `failed` | Initialization error | Provider or workspace setup cannot complete |
 | `starting` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while run setup is in progress or parked (e.g. blocked-in-setup per [Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior)) |
@@ -167,7 +167,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 
 | Signal Or Category | Meaning | Classification |
 | --- | --- | --- |
-| `recovery-needed` | Automatic recovery did not return the run to safe progress — or a driver-side integrity trip ended the run outright with the provider's client-side state possibly mutated ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior), the outbound-frame neutralization tripwire) — and the person must act. | Recovery condition, not `RunState` |
+| `recovery-needed` | Automatic recovery did not return the run to safe progress, and the person must act. | Recovery condition, not `RunState` |
 | `reauth-required` | Provider credentials or the provider session expired mid-run or during resume; re-authentication on the runtime node is required before recovery proceeds ([Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior) `RecoveryCondition`). | Recovery condition, not `RunState` |
 | `provider failure` | The provider or driver could not safely start, continue, or resume the run. | Failure category, not `RunState` |
 | `transport failure` | A required transport path failed independently of provider semantics. | Failure category, not `RunState` |

@@ -24,7 +24,7 @@ Every V1 feature has a governing spec; feature #24 (Remote Control) is governed 
 | 15 | Desktop GUI | [Spec-021: Desktop App And Renderer](../specs/021-desktop-app-and-renderer.md) |
 | 16 | Multi-agent orchestration | [Spec-014](../specs/014-multi-agent-orchestration.md) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-015](../specs/015-workflow-authoring-and-execution.md) |
-| 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md). Scope: server configuration at every scope, Cedar-gated per-tool overrides |
+| 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md). Scope: server configuration at every scope, per-tool approval overrides set on Settings › MCP servers |
 | 19 | Undo to an earlier message | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the undo: the conversation and the files, the conversation alone, or the files alone, one request with one reported result) + the daemon's own file checkpoint store ([Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior)) + the forward `session.restore_finished` event, with `run.rolled_back` for the conversation cut ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)). The conversation goes back through the provider's own cut, Claude Code's `rewind_conversation` and Codex's `thread/revert {threadId, beforeTurnId}`, neither of which touches a file; the files go back through the daemon's checkpoints, never through the git snapshot. A point before Claude Code's last compaction is reached through the provider's own copy of the conversation, resumed in place, so the session keeps its identity |
 | 20 | Session goals | [Spec-014 §Session Goals](../specs/014-multi-agent-orchestration.md#session-goals) (`/goal` gives one agent a condition to work toward; a session may have no goal, one or several, and is never named or labeled by one) + `session.goal_updated`, carrying the goal's status, and `session.goal_cleared` in [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md), each drawn only as a transcript system message |
 | 21 | Session callback tools | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (registry shape) + [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (Cedar governance) |
@@ -42,8 +42,8 @@ The product has one user, so what exists only to sell to or govern an organizati
 
 Per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), V1 is one open-source codebase whose relay is the person's own, deployed for themself in one of two ways:
 
-- **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects: nothing to keep running at home, and no open port. It limits frame traffic with Cloudflare's native `rate_limit` binding and counts the credential routes in its per-identity Durable Object.
-- **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It limits traffic with `rate-limiter-flexible` on Postgres.
+- **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects: nothing to keep running at home, and no open port. It counts requests on its sign-in routes in its per-identity Durable Object.
+- **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It counts requests on its sign-in routes in memory.
 
 The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-023](../specs/023-first-run-onboarding.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
 
@@ -70,7 +70,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | [Spec-017](../specs/017-notifications-and-attention-model.md) | Notifications and attention model |
 | [Spec-018](../specs/018-observability-and-failure-recovery.md) | Observability and failure recovery |
 | [Spec-019](../specs/019-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
-| [Spec-020](../specs/020-data-retention-and-gdpr.md) | Data retention and GDPR compliance |
+| [Spec-020](../specs/020-data-retention-and-gdpr.md) | Data retention, export and deletion |
 | [Spec-023: First Run](../specs/023-first-run-onboarding.md) | First run: nothing to answer, and when the daemon pins a relay's TLS key |
 
 ## Spec Coverage Assessment

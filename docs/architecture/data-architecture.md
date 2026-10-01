@@ -81,7 +81,7 @@ Key properties the rest of the architecture depends on:
 
 - **Wire version** is an envelope-level `EventEnvelope.version` field using semver string `"MAJOR.MINOR"`. Producer writes its own outgoing version at emit time.
 - **The app and the service agree a version range at the handshake.** Each app accepts its own service version and the previous one; outside that range the console is read-only and names the side that is behind. A session carries no version floor of its own.
-- **Audit log is never rewritten.** Receivers encountering unknown event types persist the original bytes as **version stubs** — a distinct artifact from the compaction stubs defined in [Spec-005 §Event Compaction Policy](../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy). A version stub retains all its fields verbatim; a compaction stub removes `payload`. Upgrade-time re-interpretation happens via an upcaster chain at read/dispatch time, never by rewriting committed rows.
+- **Audit log is never rewritten.** Receivers encountering unknown event types persist the original bytes as **version stubs**, each retaining all its fields verbatim. Upgrade-time re-interpretation happens via an upcaster chain at read/dispatch time, never by rewriting committed rows.
 - **MINOR bumps are additive-only.** New optional fields, new event types, new enum values. Any semantic or structural break requires a MAJOR bump.
 - **Version stubs are excluded from compaction** until re-interpreted at least once, so post-upgrade replay is lossless.
 

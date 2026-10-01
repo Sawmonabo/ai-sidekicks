@@ -57,7 +57,7 @@ The workflow model describes how reusable, multi-step execution templates are de
 | `waiting` | A step of the run is waiting — on a person (an approval, a form or a chat reply), on a child run held behind its chain's question, or on a spent provider account — and the run is neither progressing nor finished. The wait's cause, and the resume instant where one was armed, are per-step state ([Spec-015 §Park integrity and cancelability (SA-42)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-42)). A step held by the memory gate before it starts reads `waiting-memory` and leaves the run `running`. |
 | `succeeded` | Every step reached a terminal state and the run finished successfully. |
 | `failed` | A step failed and its node's `onError` is `stop` (after the retries its node allows), a `flow.stop-error` step ran, or a set run cap elapsed. |
-| `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.runCancel` ([Spec-015 §Operator run control (SA-45)](../specs/015-workflow-authoring-and-execution.md#operator-run-control-sa-45)). |
+| `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.runCancel` ([Spec-015 §Run control (SA-45)](../specs/015-workflow-authoring-and-execution.md#run-control-sa-45)). |
 | `crashed` | The daemon restarted while the run was `new` or `running`, or in a state the sweep does not recognize, so the run was swept to this state on the next start. A run in `waiting` is never swept and is never pruned. |
 
 Allowed transitions:

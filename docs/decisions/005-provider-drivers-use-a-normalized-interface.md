@@ -72,7 +72,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Driver abstraction becomes too generic and blocks useful provider features | Med | Med | Feature work repeatedly needs driver bypasses | Add capability extensions and diagnostic side channels without breaking core semantics |
-| Provider-native behavior leaks into session engine anyway | Med | High | Provider-name branches appear in core code and docs | Enforce adapter-only normalization boundary in review |
+| Provider-native behavior leaks into session engine anyway | Med | High | Provider-name branches appear in core code and docs | A provider's driver folder is imported only by the provider registry and the daemon's startup, held by one `no-restricted-imports` entry in the runtime daemon's ESLint config; shared code names no provider |
 | Capability declarations become stale or inaccurate | Med | Med | UI offers unsupported controls or hides valid ones | Re-read capabilities at daemon start, when a provider's command path changes, on `Check again`, when a provider process starts, and when a model catalog goes stale |
 
 ## Reversibility Assessment

@@ -29,14 +29,14 @@ This model defines how runs publish durable outputs and how gated decisions are 
 - Published artifacts are immutable. Later changes create new artifacts rather than mutating prior ones.
 - Every artifact has provenance that identifies the session and producing actor or run.
 - Every diff names the two states it compares.
-- Every approval records the requester, resolver, scope, and decision.
+- Every approval records the requester, the answering device, scope, and decision.
 - An approval must not grant more authority than the original request asked for.
 
 ## Relationships To Adjacent Concepts
 
 - `Run` produces artifacts and may request approvals.
 - `RepoMount`, `Workspace`, and `Worktree` provide the filesystem or git states that a diff compares.
-- Trust policy determines when an approval may be resolved. An approval is the user deciding what their agents are allowed to do, so the session's owning user is the resolver — reachable from any of their linked devices.
+- Trust policy determines when an approval may be resolved. An approval is the user deciding what their agents are allowed to do, answered from any of their linked devices; the record keeps which device answered, never a person.
 - `QueueItem` and `Intervention` may be blocked on approval before they take effect.
 
 ## State Model
@@ -72,7 +72,7 @@ Approval lifecycle:
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — approvals are signed by user identities. A `bound` identity can sign approvals; a `revoked` or `compromised` identity cannot.
+- [Trust And Identity](./trust-and-identity.md) — approvals are answered from devices whose keys are `bound`; a `revoked` or `compromised` device's channel is closed, so it answers nothing.
 
 ## Related Specs
 

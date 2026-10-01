@@ -16,7 +16,7 @@ An iPhone app that links as a device and drives a session on any of the person's
 
 ## Prerequisite
 
-[Plan-028](../plans/028-remote-control.md) complete through Phase 6, and three of Phase 7's pieces before it: the web client, the one-column fold on every screen and the Android app, whose bridge members and shell the iPhone app shares. The phone is a device like any other, so it needs the channel, the method proxy, the account's statement chain, push and attestation to already exist. Nothing in this spec re-specifies them. Two things only the outside world can supply gate parts of it: the person's Apple Developer Program membership, for the signing certificate, the registered-device profile and the APNs key; and the project's release signing key, for staged front-end bundles.
+[Plan-028](../plans/028-remote-control.md) complete through Phase 6, and three of Phase 7's pieces before it: the web client, the one-column fold on every screen and the Android app, whose bridge members and shell the iPhone app shares. The phone is a device like any other, so it needs the channel, the method proxy, the account's statement chain, push and attestation to already exist. Nothing in this spec re-specifies them. One thing only the outside world can supply gates part of it: the person's Apple Developer Program membership, for the signing certificate, the registered-device profile and the APNs key.
 
 ## Parity
 
@@ -47,12 +47,12 @@ It is native only where the phone must do something a page cannot. Each piece is
 | Links | `@capacitor/app`'s URL-open event for `sidekicks://session/<id>`, and its foreground and background events, which close and reopen the channel. |
 | Back | A left-edge swipe recognizer in the shell dispatches one marked dismissal; the web view's own back-and-forward gestures stay off. |
 | Shared ports | A plugin that presents a full-screen page view at `http://localhost:<port>`, backed by a Network framework listener on `127.0.0.1` that runs only while the view is shown. Each accepted connection becomes one `preview.portTunnelOpen` stream. |
-| Staged bundles | A new front end, verified against the project's release key, is written into the app's container and switched in at the next start with `WebView.setServerBasePath` and `persistServerBasePath`. Until that key exists, the app runs only the bundle it was built with. |
+| Staged bundles | Each linked machine serves its console bundle over the end-to-end channel. The app checks it file by file and writes it into the app's container, one bundle per machine, switched in at the next start with `WebView.setServerBasePath` and `persistServerBasePath`, so a phone linked to two machines at different versions opens each with its own. Only the shared console assets come from a machine; the app's native code and its platform bridge ship with the app and are never downloaded from a machine. |
 | Permissions text | `NSCameraUsageDescription` (the scan), `NSFaceIDUsageDescription` (the cover) and `NSMicrophoneUsageDescription` (voice). |
 
 It adds no background mode for keeping a connection, no background refresh, no location and no VoIP push. Its lowest iOS is 26, because the extension opens X-Wing natively and CryptoKit's X-Wing starts at iOS 26.0.
 
-The phone keeps the enclave key's handle, the push key and the pinned machine keys in the keychain (`ThisDeviceOnly`); the appearance record, keyboard map, notification switches and the machine in view in the app's preferences; each machine's count in the App Group; and a staged bundle until the next one replaces it. Nothing from a session is written to the phone.
+The phone keeps the enclave key's handle, the push key and the pinned machine keys in the keychain (`ThisDeviceOnly`); the appearance record, keyboard map, notification switches and the machine in view in the app's preferences; each machine's count in the App Group; and each machine's staged bundle until that machine's next one replaces it. Nothing from a session is written to the phone.
 
 Resource budget, the acceptance criteria measured on a real iPhone with the sessions list, one session streaming and Preview open: under 200 MB resident with one session and one pane open; the transcript scrolls at the display's rate; a return to the foreground shows the session within one second on a good connection, which covers one handshake and one resume; the extension opens a notice well inside Apple's time limit; and nothing runs in the background, so the app draws nothing between pushes.
 

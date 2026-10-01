@@ -14,12 +14,10 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 
 - **Principal identity.** The Cedar `principal` is the `sub` claim of the caller's PASETO v4.public access token (a `UserId`). This is the only identity Cedar evaluates. See [RFC 9068 §2.2 — `sub` claim](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) for the `sub`-as-principal pattern and [ADR-010 Tokens, Passkeys And The Remote Channel](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) for the V1 PASETO profile.
 - **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
-- **Informational body fields.** Any body field that names a user — `approver`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no user input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-011) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not an entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
-- **Run-control resource context.** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and user-triggered `driver.compactContext` identically — authorization evaluates against session ownership, never run authorship. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)) — the daemon binds the Cedar principal to its **node-owner user identity** — the daemon's standing control-plane-authentication posture ([daemon.md §Responsibilities](../daemon.md#responsibilities)) — resolved through the Plan-016-gated credential/identity provider seam (the CP-005-13 constructor-injected credential-provider and `resolveCurrentUserId` pattern), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — run control needs that provider registered first ([Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions)); a linked device reaches run-control only inside its encrypted channel to the machine, from a device key the account's statement chain trusts, and binds the same node-owner identity, since one account owns the machine; each event it originates carries its signature, which the machine verifies before it appends ([security-architecture.md §Relay Authentication And Encryption](../security-architecture.md#relay-authentication-and-encryption)). Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
-- **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the desktop app or the CLI client (see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the main process through the preload bridge. **Where a local handler reads that identity:** socket reachability authorizes the _connection_, and a handler adjudicating per-caller policy needs the _principal_ — so the gateway resolves the node-owner user identity through the same Plan-016-gated credential/identity provider seam the run-control bullet above names and stamps it on the dispatch context every handler already receives ([Plan-006](../../plans/006-local-ipc-and-daemon-control.md) I-006-21, its Phase 2B). It is daemon-resolved and never read from a body actor field, so the informational-body-fields rule applies to local handlers unchanged; while the identity provider is unwired the member is absent and a handler that requires one **refuses**, never substituting a default — a placeholder identity is indistinguishable from a real caller to a policy check, which would turn a fail-closed read into a fail-open one. First consumer: [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md)'s reasoning-surface read (CP-006-17), whose `policy_redacted` decision is exactly such an adjudication.
-- **Durable principal recording on admitting writes.** The bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-user path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the user arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the user arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under cross-plan-dependencies.md one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives, and **(5)** a member inside a durable JSON slot rather than a column of its own: **(1)** `approval_resolutions.approver_id` ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-010 D-010-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened turn executes under ([Spec-003 §Required Behavior](../../specs/003-queue-steer-pause-resume.md#required-behavior), Plan-003 D-003-4; consumed by Plan-010's turn-scoped resolution, CP-003-14 ⇄ CP-010-12); **(3)** the chat-borne workflow start's authoring user, adjudicated as `Action::"workflow::start"` ([Spec-015 §Start authorization (SA-39)](../../specs/015-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-015](../../plans/015-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry); produced by [Plan-003](../../plans/003-queue-steer-pause-resume.md) under CP-003-16 and consumed by [Spec-014 §Session Cost Receipt](../../specs/014-multi-agent-orchestration.md#session-cost-receipt)); **(5)** `agents.pending_switch.admittingPrincipalId` — the user who admitted a same-agent provider switch whose application can outlive both the request and the daemon that took it ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch)); it carries no `origin` discriminator because `agent.configUpdate` is its only producer, which that block states as a claim under this rule rather than leaving silent.
-
-  Instance (4) differs from the first three in **two** deliberate ways, and neither is an exception to the rule. First, it is not itself an admitting write: it is the **carrier by which an admitting write's principal reaches a downstream fold**, resolved daemon-side from instance (2)'s rows. The retention discipline binds it for the same reason it binds the others — a fold that had to find the principal by ordering a metered row against turn-boundary events would be "deriving it later from event history", which is precisely what this bullet forbids, and that derivation would additionally rest on an event type the corpus types as forward and non-state. Second, its durable home is a **canonical event payload rather than a projection column**, because the unit it must attach to is a metered turn and no per-turn table exists — minting one to hold a single derived identity would add a second record of boundaries the log already orders, which [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rejects on its own terms. The `session_events` row is durable and replay-stable, and a typed event's fields live in its payload, so the class's requirement — recorded on the row, never re-derived — is met exactly. The origin discriminator the paragraph above requires is carried by the value's own closed two-arm shape (`EffectivePrincipal`, §Plan-014): the user reference is required on the user arm and absent on the system arm, enforced by the union rather than by a table CHECK, since a wire payload has no table to constrain.
+- **No person in a request body.** A request carries no body field naming a person, and Cedar reads none: the control plane's caller is the verified `sub`, and on the machine a write records the device its connection came from.
+- **Run control.** Interventions, the orchestration-layer `run.pause` / `run.resume` verbs and a person's `driver.compactContext` are accepted from any connection the transport admits: the desktop app or the CLI on the daemon's local socket ([security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)), or a linked device inside its encrypted channel to the machine, from a device key the account's statement chain trusts. Nothing checks session ownership or run authorship. The event records the connection's device, which the channel's handshake proves ([security-architecture.md §Relay Authentication And Encryption](../security-architecture.md#relay-authentication-and-encryption)). Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
+- **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the desktop app or the CLI client (see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the main process through the preload bridge. The gateway stamps the connection's device on the dispatch context every handler receives; no handler checks who the caller is.
+- **A write records its device.** A write whose acceptance admits later work — a queued message, a steer, a remembered rule, a pending provider switch — records on its own row the device whose connection carried it, never a person, so the record outlives the request. An approval's resolution records the answering device's id, which a card answered elsewhere reads as `Answered on <device>` ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). Spend is counted per session, run and provider account, never per person.
 
 **See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix), [ADR-010 Tokens, Passkeys And The Remote Channel](../../decisions/010-tokens-passkeys-and-the-remote-channel.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
 
@@ -92,7 +90,6 @@ type ErrorNamespace =
   | "workflow" // workflow execution errors
   | "driver" // provider driver errors
   | "relay" // relay/transport errors
-  | "ratelimit" // rate-limit enforcement errors beyond the 429 envelope (Plan-019)
   | "system"; // internal system errors
 // Illustrative V1 subset; `error-contracts.md` is the canonical namespace registry.
 
@@ -256,9 +253,9 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `agent.configUpdate`, settling with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` | Switch a running agent's binding: model, effort or speed settles in place; a pick under the other provider switches provider at the run's end | [Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.1, T3.20, T2.16, T1.13 |
 | `agent.definitionCreate` | Save a new definition (`New sidekick`, `Duplicate`) with `bindings`, `icon`, `accentHue`, `turnCap` | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionDelete` | Delete a definition; discard an orphaned record | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
-| `agent.definitionExport`, writing to the path the save dialog picked | Export one or many definitions to one file: accounts cleared, schema marker, a note in the file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
-| `agent.definitionImport`, reading the file the open dialog picked | Import a file: creates only, never overwrites, suffixes a colliding name, refuses an unknown schema marker whole, applies nothing partially | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
-| `agent.definitionList`, with reply members `workflowUsage` and **`lastUsedAt`** | Read the agent registry: every definition from every origin, the plugin origin read-only, `plugin · <name>`, from the daemon's plugin homes, each with `origin`, `scope`, `sourcePath`, `orphaned`, `disabledInProvider` (the provider has it switched off) and `loadError` (it failed to load, with the reason), each its own field and not one exclusive state, plus the agent's own `hooks` and `memoryScope` on every origin, `workflowUsage` and `lastUsedAt` (both derived per reply). The agent card draws the orphaned state: set apart, the extras the record still holds, the last known path, `Reattach` and `Discard`. One read serves the library, the composer's Sidekicks group, the workflow node's chooser and the pane's name/icon/color labels. | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
+| `agent.definitionExport`, writing into the folder the dialog picked | Export one or many definitions, one Markdown file per definition, the account left out | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
+| `agent.definitionImport`, reading the folder the dialog picked | Import the folder's definition files: creates only, never overwrites, suffixes a colliding name, applies nothing partially | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
+| `agent.definitionList`, with reply members `workflowUsage` and **`lastUsedAt`** | Read the agent registry: every definition from every origin, the plugin origin read-only, `plugin · <name>`, from the daemon's plugin homes, each with `origin`, `scope`, `sourcePath`, `orphaned`, `disabledInProvider` (the provider has it switched off) and `loadError` (it failed to load, with the reason), each its own field and not one exclusive state, plus the agent's own `hooks` and `memoryScope` on every origin, `workflowUsage` and `lastUsedAt` (both derived per reply). A definition whose file names a provider this app doesn't run is listed, carrying that name apart from the binding's `ProviderName`; its provider chip reads `<name> · not supported here`. The agent card draws the orphaned state: set apart, the extras the record still holds, the last known path, `Reattach` and `Discard`. One read serves the library, the composer's Sidekicks group, the workflow node's chooser and the pane's name/icon/color labels. | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionUpdate` | Save edits: rename, replace `bindings` whole, every core field; also reattach an orphaned record to a file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.list` (a live list: the list, then each change, like `session.list`) | The session's agents, the lead and every child: binding, state, resolved-from definition, which provider runs it | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.1, T3.2 |
 | `agent.definitionSubscribe` | Follow the agent registry: the whole `agent.definitionList` reply again each time a definition changes (a save, delete or import from any window; a provider's file added, changed or removed on disk; a plugin landing or leaving), so every open window's library, composer group and workflow chooser stay current | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
@@ -342,7 +339,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | --- | --- | --- | --- |
 | `daemon.backupRead` → the last run, the folder, the total size, and each backup with its time, its size and the app version that wrote it | Read the backups: the last run, the folder, the total size and the list | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-16 |
 | `daemon.backupStart`; events `backup.completed`, `backup.failed` and `backup.restored` on the daemon's sentinel session | `Back up now`, and the daily backup | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-16 |
-| `daemon.configRead` | Read the machine-wide service settings: listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns`, a number of runs or `null` for `Never ask`, `Max steps per turn`, tool memory cap, the package cache limit, traces, replay log | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-13 |
+| `daemon.configRead` | Read the machine-wide service settings: listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns`, a number of runs or `null` for `Never ask`, `Max steps per turn`, `Spend limit`, `Tokens per run`, tool memory cap, the package cache limit, traces, replay log | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-13 |
 | `daemon.configUpdate` | Change one of those settings | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-13 |
 | `daemon.dataErase {}` | `Erase all data`: remove everything the app keeps on this machine, and the app's credential-store items | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) T22.4.2 |
 | `daemon.dataExport {destination}` → a job; `daemon.dataExportSubscribe` for its progress | `Export all data`: everything this machine keeps for the person, as a readable folder | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) T22.4.1 |
@@ -352,7 +349,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `daemon.packageCacheRead` | Read what each package cache holds: bun's, `uv`'s, and the time each was read | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.14 |
 | `daemon.restart` | Restart the service | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-2, T-006r-1-5, T-006r-1-7 |
 | `daemon.retentionPurge` | `Delete old data` | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
-| `daemon.retentionRead` | Read the three retention bounds, and the counts `Delete old data` would remove | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020 §Retention Policy](../../specs/020-data-retention-and-gdpr.md#retention-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
+| `daemon.retentionRead` | Read the two retention bounds, `Keep sessions for` and `Keep diagnostic logs for`, and the counts `Delete old data` would remove | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020 §Retention Policy](../../specs/020-data-retention-and-gdpr.md#retention-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
 | `daemon.retentionUpdate` | Change a retention bound | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
 | `daemon.status.read` | The service's facts: version, start time, processor and memory with the time each was read. `Check again` calls it again. | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-1, T-006r-1-4, T-006r-1-7 |
 | `daemon.stop` | Stop the service (the confirm counts the Codex sessions typed in a terminal) | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-2, T-006r-1-5, T-006r-1-7 |
@@ -542,7 +539,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `repo.attach` refused as `repo.folder_unreachable` | A folder picked in another distribution | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.1, T1.2, T2.3 |
 | `repo.attach` | Attach a project folder (new-session picker, Settings › Projects) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.1, T1.2, T2.3 |
 | `repo.branchList` | Ordered branch list for both base pickers, with ↑/↓ figures and the tree holding each branch | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.9 |
-| `repo.clone {url, parentFolder?, projectId?}` → `{projectId}`, ending in `repo.attached` | Clone a repository from a URL; the session is minted at once and the finished folder attaches as `Open folder…` attaches one. Refused before anything is fetched with `repo.clone_refused`, reason `unsupported_address` (neither https nor ssh) or `destination_not_empty` | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T2.2, T2.3 |
+| `repo.clone {url, parentFolder?, projectId?}` → `{projectId}`, ending in `repo.attached` | Clone a repository from the address or path the person typed, which goes to git as typed; the session is minted at once and the finished folder attaches as `Open folder…` attaches one. Refused before anything is fetched with `repo.clone_refused`, reason `destination_not_empty` | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T2.2, T2.3 |
 | `repo.cloneAnswer {projectId, questionId, answer}` | Answer git's question during a clone: a user name, a password or token, a key's passphrase, or whether to trust a host's key | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
 | `repo.cloneCancel {projectId}` | Cancel a clone | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
 | `repo.cloneFolderRead {}` → `{folder, source: setting \| lastProject \| home}` | Where a clone goes, and where that folder came from | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
@@ -550,7 +547,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `repo.detach` | Delete a project, from Projects' `Delete` or Runtime's `Remove` on the project's folder (sessions and folder stay) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.7, T1.2, T2.3 |
 | `repo.executionRootPrepare` (+ `carryUncommitted`) | New worktree from a base, optionally carrying uncommitted work | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.3, T1.2, T2.4 |
 | `repo.fileRead` | Read a working-tree file not in the diff, and the lines inside a collapsed gap | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.3 |
-| `repo.folderList {path?, filter?, showHidden?}` → the folder in view and up to 500 entries, each with its path, and `more: true` when the filter would narrow more | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.11 |
+| `repo.folderList {path?, filter?, showHidden?}` → the folder in view and every entry in it, each with its path, and `more: true` when the filter would narrow more; the service may page the entries or load them incrementally, and no folder is unreachable | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.11 |
 | `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
 | `repo.mountList` | Every folder the service can reach, each with what is using it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.2 |
 | `repo.mountRead` | One mount's facts: its origin (`attached`, a project's folder; `managed`, a chat's workspace; `worktree`, a worktree the app made, under its project) and what uses it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.2, T1.2, T2.3 |
@@ -653,13 +650,13 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.sideQuestionAsk` {question} | `/btw`: a side question on a throwaway copy | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.33 |
 | `session.snapshotList` | List snapshots in the inspector | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.6 |
 | `session.takeControl` {sessionId, terminalId, force?}, event `pty.control_changed` (with `holderRunId`) | Take one shell's lease, ordinary or forced; there is no release | [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-3 |
-| `session.terminalCodexList {}` | Name the Codex sessions typed in a terminal that are inside the shared Codex service, each working, idle or not reachable | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.2 |
+| `session.terminalProviderSessionList {}` | Name the provider sessions typed in a terminal that are inside a provider's shared service, each a `TerminalProviderSession` with `provider` as data, working, idle or not reachable | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.2 |
 
 ### `skill.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `skill.availabilityUpdate` | Set availability per provider, with both holds enforced when the click is handled | [Spec-030](../../specs/030-skills.md) | [Plan-030](../../plans/030-skills.md) Phases 2, 6 |
+| `skill.availabilityUpdate` | Set a skill's switch on each provider, written through that provider's own per-session off switch; a skill may be off everywhere | [Spec-030](../../specs/030-skills.md) | [Plan-030](../../plans/030-skills.md) Phases 2, 6 |
 | `skill.create` | Create a skill folder under `.ai-sidekicks/skills`, global or project, name folded, collision suffixed, on both providers | [Spec-030](../../specs/030-skills.md) | [Plan-030](../../plans/030-skills.md) Phase 2 |
 | `skill.fileRead` | Read one file's body | [Spec-030](../../specs/030-skills.md) | [Plan-030](../../plans/030-skills.md) Phase 5 |
 | `skill.list` | List every skill folder across every origin, the read-only plugin origin `plugin · <name>` among them: origin, scope, folder path, front-matter name and description, the file list (path, size, readable or not), availability, icon, call form per provider, and the facts it shares with `agent.definitionList` under the same spellings: `orphaned`, `disabledInProvider`, `loadError`. The skill row draws the orphaned state: set apart, the extras the record still holds, the last known path, `Reattach` and `Discard` | [Spec-030](../../specs/030-skills.md) | [Plan-030](../../plans/030-skills.md) Phases 1, 3, 4, 6 |
@@ -731,7 +728,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.runAttentionList` | The runs-needing-you section and Next waiting (N) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.22 |
 | `workflow.runCancel` | Cancel a run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.11, T5.14 |
 | `workflow.runDelete` | Delete one run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
-| `workflow.runKeepSet` | Keep a run's step data past the time limit | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
+| `workflow.runKeepSet` | Mark a run Keep, so deleting old runs leaves it | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
 | `workflow.runList` | List runs (table, count, latest run for `results <name>`) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.5 |
 | `workflow.runRead` | Read one run and its steps | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runResume` | Resume a parked run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.12, T5.14 |
@@ -827,7 +824,7 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  timelineCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest: the position immediately BEFORE the oldest surviving row (Plan-005 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest.
+  timelineCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest: the position immediately BEFORE the oldest surviving row (Plan-005 T4.3), a directly resumable cursor — constant encode(-1), because no row leaves a live session: compaction is lossless, and deleting a session deletes all of its rows. Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest.
 }
 
 // SessionSubscribe
@@ -1307,7 +1304,7 @@ The shared-terminal write lease ([Spec-002 §Required Behavior](../../specs/002-
 
 ```ts
 interface SessionTakeControlRequest {
-  sessionId: SessionId; // no caller-user field on the wire — the principal binds per the transport rule below
+  sessionId: SessionId; // no caller field on the wire — the caller is the connection's device, per the transport rule below
   // The shell this lease is for. The lease is one per shell, so every take names its shell.
   terminalId: string;
   // A forced take moves the lease off another of the account's devices. Absent or `false` is the
@@ -1325,7 +1322,7 @@ interface SessionTakeControlResponse {
 
 ```ts
 interface SessionSetTerminalFlowControlRequest {
-  sessionId: SessionId; // no caller-user field on the wire — the principal binds per the transport rule below
+  sessionId: SessionId; // no caller field on the wire — the caller is the connection's device, per the transport rule below
   // The shell this connection is declaring its state for; the daemon's own handle, as on the take.
   terminalId: string;
   // The state this connection is declaring for that shell: true while it is behind, false once it has
@@ -1338,7 +1335,7 @@ interface SessionSetTerminalFlowControlResponse {
 }
 ```
 
-Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): ownership authorization precedes lease state — `session.takeControl` is owner-only per the [Security Architecture permission matrix](../security-architecture.md#permission-matrix) row 'Take terminal control', refused `pty.permission_denied` (403) for a caller that does not own the session before any lease-state comparison — the refusal is ownership-determined and stable rather than varying with mutable lease state; holder identity itself is deliberately session-visible presence metadata (the `pty.control_changed` broadcast exposes it to the account's own devices), so the ordering guards the authorization boundary, not a secret; a take while another of the account's devices holds the lease returns `pty.control_held_by_other` with `data.fields.holderDeviceId`; a terminal write with no lease held returns `pty.control_not_held`. A take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-005 census](../../specs/005-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon; transitions include the two auto-release classes — holder disconnect and the agent-run write-burst release (the acquiring run's first lifecycle transition out of `running` after an agent-path take; the acquiring run and its agent are set by the daemon on the lease record, never taken from a request field, and move to the new run on an agent-path take from a different run on the same device, which broadcasts like any change of holder). A take broadcasts `reason: 'taken'`, a forced take `'taken_by_force'`, and the auto-release classes `'auto_released_disconnect' | 'auto_released_run_idle'` ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)); every broadcast carries `terminalId`. A client reads a broadcast carrying `released` or `auto_released_authorization_lost` as an unread transition. The take request carries no caller field — the principal binds per the V1 transport rule: a local daemon JSON-RPC caller binds to the **device co-located with the node**, which is the daemon's own recorded local device, the same absent-actor rule `ApprovalResolveRequest.approver` documents (absent on the local socket → the daemon's own binding; every runtime node has exactly one owning user per [runtime-node-model](../../domain/runtime-node-model.md), and that user's devices are what contend for a shell) — and the node's own agent runs take their write bursts through the daemon's in-process lease authority on that **same device** (no wire hop): the user authorized those runs on their node and their terminal bytes exercise that authority, but a run's hold is a holder of its own. The lease record keeps the run, and the `pty.control_changed` broadcast names it as `holderRunId`, absent while a device holds the shell, while `holderDeviceId` stays the machine's own device identity; the agent is read from the run, so every device reads that an agent's running command holds the shell and is offered the run's own stop rather than a take, and a take against a run's hold — from the node's own device included — is refused with `pty.control_held_by_other` rather than treated as the idempotent self-retake case. A future relay-borne remote leg binds the relay peer's PASETO-verified **device identity** ([§Authenticated Principal And Authorization Model](#authenticated-principal-and-authorization-model)) and rides the terminal-byte channel per Spec-002's forward constraint — so `controlHolder` and the idempotent self-retake comparison are well-defined on every path that can reach the lease authority.
+Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): holder identity is session-visible presence metadata (the `pty.control_changed` broadcast exposes it to the account's own devices); a take while another of the account's devices holds the lease returns `pty.control_held_by_other` with `data.fields.holderDeviceId`; a terminal write with no lease held returns `pty.control_not_held`. A take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-005 census](../../specs/005-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon; transitions include the two auto-release classes — holder disconnect and the agent-run write-burst release (the acquiring run's first lifecycle transition out of `running` after an agent-path take; the acquiring run and its agent are set by the daemon on the lease record, never taken from a request field, and move to the new run on an agent-path take from a different run on the same device, which broadcasts like any change of holder). A take broadcasts `reason: 'taken'`, a forced take `'taken_by_force'`, and the auto-release classes `'auto_released_disconnect' | 'auto_released_run_idle'` ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)); every broadcast carries `terminalId`. A client reads a broadcast carrying `released` or `auto_released_authorization_lost` as an unread transition. The take request carries no caller field: the caller is the connection's device. A local daemon JSON-RPC caller is the **device co-located with the node**, the daemon's own recorded local device, and the node's own agent runs take their write bursts through the daemon's in-process lease authority on that **same device** (no wire hop), but a run's hold is a holder of its own. The lease record keeps the run, and the `pty.control_changed` broadcast names it as `holderRunId`, absent while a device holds the shell, while `holderDeviceId` stays the machine's own device identity; the agent is read from the run, so every device reads that an agent's running command holds the shell and is offered the run's own stop rather than a take, and a take against a run's hold — from the node's own device included — is refused with `pty.control_held_by_other` rather than treated as the idempotent self-retake case. A linked device's take binds the **device identity** its channel's handshake proves ([§Authenticated Principal And Authorization Model](#authenticated-principal-and-authorization-model)) and rides the terminal-byte channel per Spec-002's forward constraint — so `controlHolder` and the idempotent self-retake comparison are well-defined on every path that can reach the lease authority.
 
 ---
 
@@ -1356,7 +1353,7 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): ownersh
 // raw provider output there) and returned to the daemon as already-trusted normalized values,
 // so they ship nominal by design and are not re-parsed at this contract layer. Their persisted
 // free-form fields (`DriverCapabilities.contractVersion`, `ProviderSessionHandle.resumeHandle`,
-// and `DriverCliVersionReport.raw` — the CLI-version string, parsed to `semver` fail-closed and
+// and `DriverCliVersionReport.rawVersion` — the CLI-version string as the provider printed it,
 // riding the nominal `GetCapabilitiesResult` return exactly like `contractVersion`) are bounded
 // at the Plan-004 Phase-2 write seam (semver / non-empty + length + NUL), not here.
 // Zod validates ONLY the surfaces that parse UNTRUSTED
@@ -1448,11 +1445,9 @@ interface ProviderDriver {
   // is a driver_command frame that only settles, so acceptance is evidence of delivery and of
   // nothing else. There is deliberately NO prompt-injected emulation arm; a driver that cannot
   // compact declares the flag false and the call refuses as driver.capability_unsupported.
-  // The wait for that evidence is BOUNDED and has TWO terminals: the driver's own
-  // declared per-binding compaction bound, and the run's provider binding ceasing to be live —
-  // whichever lands first ends the wait, so a provider that acknowledges and then produces no
-  // frame, or exits mid-compaction, cannot hold the operation open indefinitely. Expiry settles
-  // `failed`, never `applied`. Late evidence is NOT lost: a compaction frame arriving after the
+  // The wait for that evidence has no time limit of the driver's own: it ends at the frame, or
+  // `failed` when the run's provider binding stops being live (a provider that exits
+  // mid-compaction), never `applied`. Late evidence is NOT lost: a compaction frame arriving after the
   // wait ended normalizes into usage.context_compacted exactly as an unsolicited provider-initiated
   // compaction does, so no boundary escapes Spec-003's rewind classifier.
   compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
@@ -1472,24 +1467,9 @@ interface ProviderDriver {
 // AUTHORIZATION (both client-facing operations, `driver.compactContext` and
 // `session.providerCommandsSubscribe`, at the wire boundary — before the capability gate and before
 // any driver dispatch). Neither mints a Cedar action and neither mints an error code.
-//   * A caller the named session is not accessible to is refused the already-
-//     registered `session.not_found`, whose registered description is "does not exist or is not
-//     accessible" — an inaccessible session and an unknown one collapse into one byte-identical refusal,
-//     so neither operation is a session-existence oracle (the runtimenode family's no-info-leak rule).
-//   * `session.providerCommandsSubscribe` needs nothing beyond that: any caller that reaches the session reads.
-//   * `driver.compactContext` mutates the bound run's provider context, so it is adjudicated by
-//     the IDENTICAL `Action::"intervene"` evaluation the intervention path runs on the run that
-//     owns the named binding — the `run.pause` / `run.resume` precedent above (§Authenticated
-//     Principal And Authorization Model: that action covers interventions and those orchestration
-//     verbs identically), reading the same Security Architecture permission-matrix run-control
-//     row — whose subject names compaction, so this citation lands on a row that
-//     names the operation; the matrix gains NO row, which is the same claim as reusing the
-//     action. It is NOT an intervention and is not one of `Spec-003`'s run controls; it
-//     shares the adjudication, not the envelope.
-//   * A deny settles on the operation's own `refused` arm as `not_permitted`, never as a
-//     JSON-RPC error — the way an authorization-rejected intervention rides
-//     `InterventionResponseBase.rejectionReason`, and the way Spec-027 routes peer-invocation
-//     denials onto the callback-tool result arms.
+//   * A session that does not exist is refused the already-registered `session.not_found`.
+//   * Any connection that reaches the session may call either one; nothing checks who the caller
+//     is (§Authenticated Principal And Authorization Model, run control).
 //
 // WIRE ADDRESSING. Neither client-facing operation takes a `bindingId`, and the daemon resolves
 // the live provider binding at dispatch. This is not stylistic: no client-facing read publishes a
@@ -1498,9 +1478,8 @@ interface ProviderDriver {
 // daemon-internal lifecycle identifier whose liveness it cannot check.
 //
 // Each takes the identifier its own authorization and its own consumer already use:
-//   * `driver.compactContext` takes a RUN. It mutates that run's provider context and is adjudicated
-//     by the `Action::"intervene"` evaluation on the run that owns the binding, so the run is the
-//     subject of its authorization, not an addressing convenience.
+//   * `driver.compactContext` takes a RUN. It mutates that run's provider context, so the run is
+//     what it acts on.
 //   * `session.providerCommandsSubscribe` takes a SESSION. The `/` list is bound to the session's
 //     live provider process, so the daemon follows that process and a new process brings a new
 //     list; the client never names an agent, a run or a binding to get it. Every entry still carries
@@ -1508,8 +1487,7 @@ interface ProviderDriver {
 //     ([Spec-004 §The provider command and skill surface](../../specs/004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface)).
 //
 // `driver.compactContext` refuses in a FIXED ORDER, each on an ALREADY-REGISTERED code, so this
-// addressing mints none: `session.not_found` (unknown or inaccessible session — the collapsed
-// refusal above), then `run.not_found` (no such run, or not one of that session), then
+// addressing mints none: `session.not_found` (unknown session), then `run.not_found` (no such run, or not one of that session), then
 // `driver.unavailable` (no live provider binding: one was never started, or the process is gone).
 // A live binding whose driver lacks the flag still refuses at the capability gate with
 // `driver.capability_unsupported`. A caller therefore cannot name another leg's binding
@@ -1547,14 +1525,12 @@ interface CompactContextParams {
 type DriverCompactionResult =
   | { status: "applied"; boundaryPosition: number | null }
   // `command_absent`: the pre-dispatch presence check on the emulated leg did not find the
-  // command in the provider's own enumeration for this binding. `not_permitted`: the
-  // `Action::"intervene"` adjudication above denied the caller.
-  | { status: "refused"; reason: "command_absent" | "not_permitted" }
-  // `wait_expired`: the driver's declared per-binding compaction bound elapsed with no typed
-  // compaction frame. `binding_lost`: the run's provider binding stopped being live (process
+  // command in the provider's own enumeration for this binding.
+  | { status: "refused"; reason: "command_absent" }
+  // `binding_lost`: the run's provider binding stopped being live (process
   // exit or disposal) before one arrived. `provider_error`: the mechanism itself errored.
   // Every arm records a diagnostic; none is silent, and none can settle `applied`.
-  | { status: "failed"; reason: "wait_expired" | "binding_lost" | "provider_error" };
+  | { status: "failed"; reason: "binding_lost" | "provider_error" };
 
 interface ListProviderCommandsParams {
   sessionId: SessionId;
@@ -1592,17 +1568,20 @@ interface ListProviderCommandsParams {
 // `compactContext`, which checks presence against this same enumeration and settles on typed
 // evidence ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)).
 //
-// BOUNDED AT THE NORMALIZE BOUNDARY. Every entry is assembled from provider-, skill- and
+// CHECKED AT THE NORMALIZE BOUNDARY. Every entry is assembled from provider-, skill- and
 // tool-server-authored metadata — a local skill file's front matter is the person's to write, a provider
-// handshake enumeration is provider-writable, and a tool server's prompt list is the server's — and
-// the assembled list travels to a client, so an unbounded one is an arbitrarily large IPC response
-// and renderer workload rather than a merely ugly read. `name`, `description`, `scope`,
-// `argumentHint` and `server` are therefore `wireFreeFormString`-bounded (length + non-whitespace +
-// NUL-rejection) exactly as the other untrusted provider-output strings enumerated at the head of
-// this section are, and the ENTRY COUNT is capped by the same schema at 512. Truncation is NEVER
-// SILENT: the result is the envelope below, not a bare array, so a caller can always tell a
-// provider that published few commands from a provider whose list was cut — the rule that a
-// degraded outcome gets a representable shape rather than an indistinguishable one.
+// handshake enumeration is provider-writable, and a tool server's prompt list is the server's.
+// `name`, `description`, `scope`, `argumentHint` and `server` are therefore `wireFreeFormString`-checked
+// (length + non-whitespace + NUL-rejection) exactly as the other untrusted provider-output strings
+// enumerated at the head of this section are. The list carries every entry the provider publishes,
+// with no count of the driver's own; the palette draws only the rows in view.
+// The binding an enumeration belongs to: the driver, parsed as a `ProviderName`, and the account.
+// `providerAccountId` is null where the session has bound no account; absence is stated, never
+// synthesized.
+interface ProviderCommandBinding {
+  driverName: ProviderName;
+  providerAccountId: string | null;
+}
 interface ProviderCommandEntry {
   name: string;
   kind: "command" | "skill" | "prompt";
@@ -1613,22 +1592,15 @@ interface ProviderCommandEntry {
   // Absent = the provider draws no enabled/disabled distinction on this surface. `false` = the
   // provider published the entry AND declared it disabled: returned, never filtered, not offerable.
   enabled?: boolean;
-  // `providerAccountId` is null where the session has bound no account; absence is stated, never
-  // synthesized.
-  binding: { driverName: string; providerAccountId: string | null };
+  binding: ProviderCommandBinding;
 }
 
 // One binding's enumeration, WHOLE: the driver's read and every emission of the session's
 // subscription carry the complete list, never a patch, so a consumer is never handed a delta to
-// apply and a new provider process yields a new list rather than an amended one. `complete: false`
-// means more entries were published than the cap admits and the tail was dropped. The cap is a
-// WIRE-AND-RENDER bound only: `compactContext`'s pre-dispatch presence check reads the driver's OWN
-// HELD enumeration for the binding, never this capped result, so a truncated read can never
-// manufacture a `command_absent` refusal for a command the provider actually publishes.
+// apply and a new provider process yields a new list rather than an amended one.
 interface ProviderCommandListResult {
-  binding: { driverName: string; providerAccountId: string | null };
+  binding: ProviderCommandBinding;
   entries: ProviderCommandEntry[];
-  complete: boolean;
 }
 
 // One emission of `session.providerCommandsSubscribe` (§Running-Command Method Registry below): the
@@ -1637,9 +1609,8 @@ interface ProviderCommandListResult {
 // new process — with each working tool server's prompts.
 interface ProviderCommandsUpdate {
   sessionId: SessionId;
-  binding: { driverName: string; providerAccountId: string | null };
+  binding: ProviderCommandBinding;
   entries: ProviderCommandEntry[];
-  complete: boolean;
 }
 
 // Transcript export/replay shapes (ADR-029). The canonical transcript is a PROJECTION
@@ -1845,15 +1816,8 @@ type ApplyInterventionParams =
 // §Fallback Behavior). Neither property is a parse concern; what the untyped arm could not do at all
 // was carry an id a resolver could look up, so the rule had nothing to attach to and CP-012-7 made
 // the retyping a PREREQUISITE of the first change that wires delivery through this carrier.
-// TWO BOUNDS, DELIBERATELY DISTINCT: `DRIVER_WIRE_STEER_ATTACHMENTS_MAX`
-// (`packages/contracts/src/provider-driver-wire.ts#DRIVER_WIRE_STEER_ATTACHMENTS_MAX`) is the wire seam's
-// coarse frame-abuse COUNT ceiling, sized above the policy range; the policy bound is Spec-012's
-// `max_attachments_per_carrier`, which the person can tune (default 10, range 1-50), enforced by the daemon at
-// CARRIER ACCEPTANCE, which refuses the WHOLE carrier `artifact.too_many_attachments` (413,
-// [error-contracts.md §Artifact](./error-contracts.md#artifact)) before any element is bound or
-// delivered rather than truncating it to fit — a truncating carrier is the silent drop this typing
-// exists to prevent, wearing a success status code. A schema constant cannot read the person's
-// configuration, which is why the tunable bound is the daemon's and not this shape's. The brand is
+// The carrier sets no count bound of its own: how many files a message carries is what the daemon and the
+// provider accept, and a provider that will not take one refuses in its own words. The brand is
 // homed with its earliest-shipping consumer per Plan-004 CP-004-6 — this payload — and every later
 // consumer imports it (`packages/contracts/src/provider-driver.ts#ArtifactIdSchema`); Plan-012 Task 1
 // imports rather than restates, so no second definition of an artifact id exists.
@@ -1874,7 +1838,6 @@ interface CancelPayload {
 interface DriverInterventionResult {
   status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping)
   fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
-  refusalCode?: "driver.text_neutralization_failed"; // additive-optional, provider-bound text neutrality (Spec-004 §Required Behavior; authored by Plan-004 T3.18, consumed by Plan-003 T2.6 under CP-003-1). A CLOSED literal union, not a free-form string: the envelope parses untrusted provider output, and a daemon-selected code from a fixed set carries no provider-composed text, so this member is deliberately absent from the wireFreeFormString-bounded list above. `.strict()` is retained — it rejects UNKNOWN keys, and a declared optional key is not unknown. BEST-EFFORT by construction: the driver sets it only when the trip is classified before this call resolves — it never holds `applyIntervention` open waiting for its correlated frame to settle — so the run's `run.failed` terminal is the guarantee on both paths and an absent `refusalCode` is never evidence that no trip occurred.
 }
 
 // The conversation FORK: the provider leg of `session.fork`, which mints a new session of the same
@@ -1907,7 +1870,7 @@ type ForkConversationResult =
 // are daemon-internal ([Spec-004 §Interfaces And Contracts](../../specs/004-provider-driver-contract-and-capabilities.md#interfaces-and-contracts)).
 
 // Goal delivery. A goal is a command sent to one agent, never what the session is: `goalText` is the
-// condition the person typed after `/goal` (1 to 4,096 characters, not blank, no NUL), sent to the
+// condition the person typed after `/goal` (not blank, no NUL, no length cap of the app's own), sent to the
 // agent the command targets. Codex leg: `thread/goal/set` / `thread/goal/clear` (the `objective`
 // field), live. Claude Code leg: its own `/goal <condition>` and `/goal clear`, sent as user
 // messages. Neither leg writes goal text into a system prompt. The provider checks the goal each
@@ -1970,7 +1933,6 @@ type DriverResumeResult =
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
-      recoverySpanClassification: RecoverySpanClassification; // REQUIRED on this live driver return (named type below): a resume failure is produced fresh at resume time, never replayed, so a driver emits `unclassifiable` when it cannot classify — omission is a schema failure
       providerFailureDetail: string;
     };
 
@@ -1981,27 +1943,6 @@ type DriverResumeResult =
 // re-authenticating the provider CLI on the runtime node, after which recovery may retry
 // (Spec-004 §Fallback Behavior).
 type RecoveryCondition = "recovery-needed" | "reauth-required";
-
-// Sibling classification of the halted span's CONTENT:
-// orthogonal to `RecoveryCondition` above — that names why the run needs the person; this names
-// what the diverged/halted span contains, so policy can tier on blast radius. V1 consumes it as
-// audit metadata ONLY: every divergence still halts for human action (Spec-013 §Fallback
-// Behavior). Recording it makes tiered auto-resolution (auto-resolve `read_only` /
-// `idempotent_write` divergence, always halt `irreversible`) a future policy flip rather than a
-// schema change — a flip gated on the Plan-013 CI divergence-injection tests (with a firing
-// negative control) landing first. `unclassifiable` MUST be handled exactly as
-// `irreversible` — the fail-closed default. REQUIRED form on `DriverResumeResult.failed` above
-// (a live driver return, produced fresh at resume — never replayed — so a driver
-// emits `unclassifiable` rather than omit); optional form on the replay-visible carriers
-// (`RunStateChangeEvent`, `RecoveryStatusReadResponse.sessions[]`),
-// whose optionality admits older rows at replay only.
-// Deliberately NOT widening `RecoveryCondition`: the two axes answer different questions, and
-// conflating them would overload the routing of the person's remedy.
-type RecoverySpanClassification =
-  | "read_only"
-  | "idempotent_write"
-  | "irreversible"
-  | "unclassifiable";
 
 // Typed provider usage-limit signal (Plan-004 T3.16). A SIBLING AXIS beside `RecoveryCondition` above, never a member of it — that axis
 // names why a run needs the person; this one names a provider-stated allowance state, minted here
@@ -2135,7 +2076,7 @@ type ExecutionPosture = ExecutionPostureNetwork & {
   mode: ExecutionPostureMode; // the session's permission level (§Shared Enums) — the only posture vocabulary in the product (Spec-010 §Required Behavior)
   writableRoots: string[];
   profileName?: string;
-  credentialPolicyRef: string; // content-addressed "sha256:<hex>" over the RFC 8785 JCS-canonicalized credential-policy artifact {schemaVersion: 1, denyPaths: string[], denyEnvVars: string[], envNameMatch: 'case-sensitive' | 'case-insensitive'} (daemon canonicalizes denyEnvVars names to the host's env-name case semantics — case-insensitive-env hosts fold to one spelling, case-sensitive verbatim — and records the host's match mode as envNameMatch so hosts that strip differently never share a ref; then lexicographically sorts + dedupes both arrays before hashing — JCS canonicalizes object members, not array order) — REQUIRED on every run: it records the deny list the daemon handed the provider in the provider's own form, and the provider's own rule enforces it (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not), so auditors reconstruct exactly which credential paths and variables were handed over without embedding the raw installation-revealing list; the daemon persists the artifact row write-ahead (before the first citing posture stamp) so the ref never dangles (Spec-010 §Required Behavior).
+  credentialPolicyRef: string; // a plain reference naming the credential deny list the daemon handed the provider — REQUIRED on every run. The provider's own rule enforces the list (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not) (Spec-010 §Required Behavior).
 };
 
 // Daemon-curated callback tool exposed into a session (authorization semantics
@@ -2210,18 +2151,20 @@ type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 
 // Provider-native in-session subagent policy (orchestration semantics Spec-014). Single-supervisor invariant: the daemon is the only cross-session supervisor —
 // provider subagents run in-session only, their usage aggregates into the run's own budgets, and
-// their tool calls flow through the same approval pipeline. `maxConcurrent` is Codex's own
-// `agents.max_concurrent_threads_per_session` setting and is sent on the Codex leg alone: Claude
-// Code has no counterpart, so nothing is sent for it there and nothing is held back at the
-// daemon's own boundary (Spec-004 §Parity Capability Mechanism Grades; Spec-014 §Provider-Native
-// Subagents).
+// their tool calls flow through the same approval pipeline. `maxConcurrent` is the person's
+// `Helpers at once` for that provider: absent, the default, is no limit, and the daemon lifts the
+// provider's own built-in limit; `0` runs none, and the daemon withholds the provider's helper tool;
+// any other number is passed as the provider's limit (on Codex, `agents.max_concurrent_threads_per_session`).
+// There is no ceiling of the app's own (Spec-004 §Parity Capability Mechanism Grades; Spec-014
+// §Provider-Native Subagents).
 type SubagentPolicy =
   // Discriminated on `enabled`: a disabled policy carries no limits or definitions —
   // "off but configured" is unrepresentable; the daemon sends the full arm on enable.
   | { enabled: false }
   // Both limit members are OPTIONAL and neither is the daemon's own. The daemon sets no depth and
-  // no concurrency of its own: each member carries the person's own provider setting where they
-  // have set one and is absent where they have not. The provider's own nesting limit is what bounds
+  // no concurrency ceiling of its own: `maxDepth` carries the person's own provider setting where
+  // they have set one and is absent where they have not, and `maxConcurrent` reads as above. The
+  // provider's own nesting limit is what bounds
   // the tree, and where the provider refuses a level its refusal is shown in the provider's words.
   // A driver passes each member through as it stands and clamps nothing — a driver-side ceiling
   // would refuse what neither the person nor the provider bounded
@@ -2301,31 +2244,28 @@ interface NormalizedProviderToolMetadata {
   description?: string;
 }
 
-// CLI-version report. `raw` is the verbatim provider-reported version
-// string (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
-// the Plan-004 write seam like `contractVersion`, not the Zod trust boundary); `semver` is the
-// driver-parsed normalized MAJOR.MINOR.PATCH the daemon compares against its configured
-// per-driver floor (mechanical enforcement at every capability read; V1 floors: Claude Code 2.1.234,
-// codex-cli 0.141.0 — set by Spec-004 §Required Behavior, which is also where the raise from
-// 2.1.198 to 2.1.234 is recorded; a floor is stated by that spec, a pin is cited from the
-// provider-wire reference family, and neither is restated here). Both values are read from
-// the version the SPAWNED process reports in-band, not from a launcher symlink. `semver` is REQUIRED,
-// so an unparseable version is unrepresentable in this shape — the driver fails the report
-// fail-closed and the capability read refuses as `driver.cli_version_unparseable`; a parseable version
-// below the configured floor refuses as `driver.cli_version_below_floor` (Spec-004 §Required
-// Behavior).
+// CLI-version report: two facts. `rawVersion` is the verbatim provider-printed version string,
+// always present (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
+// the Plan-004 write seam like `contractVersion`, not the Zod trust boundary); `parsedVersion` is the
+// driver-parsed MAJOR.MINOR.PATCH, present only when the printed version parses. Nothing writes
+// `"unknown"` as a version. The minimum-version check runs only on a parsed version, against the
+// per-driver minimum Spec-004 §Required Behavior states (a pin is cited from the provider-wire
+// reference family, and neither is restated here): a parsed version below it refuses as
+// `driver.cli_version_below_floor`, and a provider whose printed version the parser cannot read
+// still runs. Both values are read from the version the SPAWNED process reports in-band, not from
+// a launcher symlink.
 interface DriverCliVersionReport {
-  raw: string;
-  semver: string;
+  rawVersion: string;
+  parsedVersion?: string;
 }
 
 // Zero-turn authentication probe result. Zod `.strict()` — a result
 // envelope rejecting unknown keys, correct for an internal owned contract paired with
-// contract versioning. `indeterminate` (probe surface unavailable or unparseable) is treated
-// as NOT authenticated for admission — fail closed — while staying distinguishable so
-// the person can tell probe health from credential state. Run admission against a driver not
-// probing `authenticated` refuses as `driver.not_authenticated` before any turn is spent
-// (Spec-004 §Required Behavior). Mid-run credential expiry is a different surface: the
+// contract versioning. The probe feeds the account's sign-in reading, never a check before a
+// session starts: a start runs, and a real sign-in failure arrives as the provider's own refusal.
+// `indeterminate` (probe surface unavailable or unparseable) stays distinguishable so the person
+// can tell probe health from credential state, and it never refuses a start (Spec-004 §Required
+// Behavior). Mid-run credential expiry is a different surface: the
 // provider's typed auth-failure signals map to RecoveryCondition 'reauth-required'.
 interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
@@ -2337,8 +2277,8 @@ interface DriverAuthProbeResult {
 // `DriverCapabilities` pure (flags + contractVersion only) while still carrying both
 // surfaces in a single round-trip. Precedent: MCP separates `initialize`
 // server capabilities from `tools/list`; LSP separates `ServerCapabilities` from
-// registered tool surfaces. `cliVersion` is REQUIRED: a report without a
-// parseable provider version never reaches the daemon (fail-closed by construction).
+// registered tool surfaces. `cliVersion` is REQUIRED and always carries the printed version;
+// its parsed form is present only where the version parses.
 interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
@@ -2699,8 +2639,8 @@ interface EventEnvelope {
 // fabricated at read time. The pair rides INSIDE payload, so it sits in the RFC 8785
 // canonical bytes with no envelope-level field
 // added — the canonical set above is unchanged — and it is part of the v1.0
-// baseline payload contract. The audit-stub projection preserves the sourceEpoch + sourcePosition
-// + runId triple at compaction, on accepted run.rolled_back boundary rows the
+// baseline payload contract. Compaction preserves the sourceEpoch + sourcePosition
+// + runId triple, on accepted run.rolled_back boundary rows the
 // runId/runVersion/targetPosition rewind cutoff, and on every run-scoped row its runId
 // (Spec-005 §Compacted Event Format), so Plan-003 T3.14's supersede projection keys cross-epoch rows durably even after
 // both the boundary and the stale rows compact. Execution-epoch semantics are
@@ -2722,7 +2662,7 @@ type EventCategory =
   | "approval_flow"
   | "usage_telemetry"
   // Extended per Spec-005 §Runtime Node Lifecycle, §Recovery Events,
-  // §Security Events, §Event Maintenance, §Policy Events,
+  // §Security Events, §Event Maintenance,
   // §Orchestration Admission, §MCP Governance and the
   // workflow families (§Workflow Lifecycle through §Workflow Gate Resolution). The
   // category list and its event types are Spec-005 §Event Type Summary's, which
@@ -2731,7 +2671,6 @@ type EventCategory =
   | "recovery_events"
   | "security_events"
   | "event_maintenance"
-  | "policy_events"
   | "orchestration_admission"
   | "mcp_governance"
   // The workflow families are separate categories rather than one, so a reader can query a
@@ -2801,7 +2740,7 @@ interface EventCompactedPayload {
   nodeId: NodeId;
   operationId: string;
   occurredAt: string; // ISO 8601
-  removedSessions: Array<{ sessionId: SessionId; fromSeq: number; toSeq: number }>; // each session the deletion removed, with the range it stubbed
+  removedSessions: Array<{ sessionId: SessionId; fromSeq: number; toSeq: number }>; // each session the deletion removed, with the range of rows it deleted
 }
 
 // EventReadAfterCursor
@@ -2877,10 +2816,6 @@ interface DaemonStatusReadResult {
   startedAt: string; // ISO 8601
   processor: { percent: number; readAt: string } | null;
   memory: { residentBytes: number; readAt: string } | null;
-  // The approval rules in force: the bundle's version, when it was built, and whether it is the one
-  // built into the service or one an update delivered. Printed `Approval rules: bundle <n> · built
-  // <date>`.
-  approvalRules: { version: number; builtAt: string; source: "built_in" | "update" };
   // The data directory this daemon holds. A second daemon cannot hold it, which is why the sign-in and
   // sign-out verbs refuse while this one is up and name what to stop — so the status read has to say
   // which directory is held, not merely that something is.
@@ -2903,10 +2838,10 @@ interface DaemonStatusReadResult {
 
 // DaemonStop / DaemonRestart (no DaemonStart: a service that is not running answers no method, so starting it is never an IPC method. The command line starts it with `sidekicks daemon start` (Plan-006 T-006r-3-4); the desktop app's main process starts it through the preload bridge's `daemon.requestStart()`, and quitting the app leaves the service and every run running)
 // Separate per-method request schemas (NOT a shared `action` discriminator): each carries the idle-drain
-// deadline that I-006-12 self-swap refusal + I-006-15 quiesce depend on. The 5000ms default is applied by
-// the Zod schema (Plan-006 T-006r-1-2), so the field is input-optional but always present post-parse.
-// Refusal is the canonical JSON-RPC error envelope (data.type: "daemon.lifecycle_conflict"), never a
-// success-shape discriminator — so both success results are the uniform { accepted: true }.
+// deadline that I-006-15 quiesce depends on. The 5000ms default is applied by the Zod schema (Plan-006
+// T-006r-1-2), so the field is input-optional but always present post-parse. A confirmed stop or
+// restart wins: another connected client never refuses it, so both results are the uniform
+// { accepted: true }.
 interface DaemonStopParams {
   idleDrainDeadlineMs?: number; // default 5000
 }
@@ -2972,15 +2907,22 @@ interface DaemonPackageCacheClearParams {
 }
 type DaemonPackageCacheClearResult = DaemonPackageCacheReadResult;
 
-// SessionTerminalCodexList — `session.terminalCodexList`: the Codex sessions a person typed in a
-// terminal that are inside the shared Codex service, each working, idle or not reachable, read off
+// SessionTerminalProviderSessionList — `session.terminalProviderSessionList`: the provider sessions a
+// person typed in a terminal that are inside a provider's shared service, each working, idle or not
+// reachable, with `provider` as data, read off
 // the same directory entries the agents' session listing names, so Runtime and the agents read one
 // fact. `Stop`'s confirm counts them and the service update's waiting step counts the working ones;
 // read when a confirm opens and while an update waits, never on a timer. Empty while `Reach Codex
 // sessions started in a terminal` is off.
-interface SessionTerminalCodexListParams {}
-interface SessionTerminalCodexListResult {
-  sessions: Array<{ name: string; threadId: string; state: "working" | "idle" | "unreachable" }>;
+interface SessionTerminalProviderSessionListParams {}
+interface TerminalProviderSession {
+  provider: ProviderName;
+  name: string;
+  threadId: string;
+  state: "working" | "idle" | "unreachable";
+}
+interface SessionTerminalProviderSessionListResult {
+  sessions: TerminalProviderSession[];
 }
 
 // LocalSubscription
@@ -3210,7 +3152,7 @@ type InterventionRequestResponse = InterventionResponseBase & {
 // `providerFailureDetail` surface that mirrors the `failed`-variant `providerFailureDetail` of `DriverResumeResult`
 // (§Plan-004 above) — Spec-004 §Fallback Behavior requires resume-failure detail to reach the canonical audit
 // log so Plan-013's recovery dispatcher and Plan-011's timeline can render the actionable
-// reason for the failure without re-querying the driver. Plan-004 CP-004-5; Plan-005 Phase 3. TWO PRODUCERS, ONE FIELD: the resume failure writes FREE-FORM prose. The Spec-004 outbound-frame neutralization tripwire writes ONE fixed daemon-composed machine-readable form instead — the registered error code, one space byte (0x20), then `origin=` followed by one of `human_text` / `system_narration` / `unknown`, so `driver.text_neutralization_failed origin=human_text` is an entire value. Parse rule: read the cause as the substring before the first space and the origin as the substring after `origin=`; a value whose leading token is not a registered error code is the prose producer, and no consumer may assume the whole value is prose (Spec-004 §Required Behavior).
+// reason for the failure without re-querying the driver. Plan-004 CP-004-5; Plan-005 Phase 3. The field holds prose only; a typed cause rides `failureCause`, never this text.
 interface RunStateChangeEvent {
   runId: RunId;
   runVersion: number; // run-progression counter (D-003-1): the optimistic-concurrency comparand clients read via run.subscribeState and pass back as `expectedRunVersion`. Advances on every run progression, applied interventions included. A no-state-change advance with no per-type event of its own (e.g. native steer) is NOT emitted as a discrete run.subscribeState event (no transition to record, [Spec-003 §Driver-Level Steer Mechanics](../../specs/003-queue-steer-pause-resume.md#driver-level-steer-mechanics)); the carve-out is an undo's conversation cut — it transitions no state, but its per-type RunRolledBackEvent below rides the same stream carrying the fresh runVersion, so subscribers are never blind to a rewind. A non-intervening subscriber may still hold a stale comparand after a steer-like advance until its next guarded request is correctly rejected `expired`, whereupon it re-reads run-state and retries (reject→re-read→retry; V1 adds no broadcast push for such no-per-type-event bumps — Spec-005 §Security Events / Run Lifecycle). Distinct from the immutable EventEnvelope `.version` (Spec-005 §EventEnvelope Version Semantics) — that is the wire-contract semver; this is the run aggregate's concurrency token.
@@ -3218,18 +3160,23 @@ interface RunStateChangeEvent {
   newState: RunState;
   failureCategory?: RunFailureCategory;
   recoveryCondition?: RecoveryCondition; // named type in §Plan-004 above: 'recovery-needed' | 'reauth-required'
-  recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition
-  // The refusal's members, present only on a `run.failed` whose failureCategory is "refused"
-  // (Spec-005 §Run Lifecycle): the refusing model and the provider's words.
-  model?: string;
-  sentence?: string; // the provider's own sentence, absent when it sent none
-  explanation?: string; // the provider's explanation, shown verbatim
-  safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
-  providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'; two producers, one field — free-form prose from the resume-failure producer, one fixed `<registered code> origin=<arm>` form from the Spec-004 neutralization tripwire (parse rule in the comment block above)
+  // The run's typed failure cause, present only on a `run.failed` (Spec-005 §Run Lifecycle):
+  // `failureCause: { cause, origin }`, a named, closed failure-cause union in `packages/contracts` whose
+  // first member is the refusal cause below; each provider's own causes are normalized into it by its
+  // driver. The refusal member carries the refusing model and the provider's words.
+  failureCause?: {
+    cause: "refused";
+    origin: string; // where the cause arose; the closed vocabulary lives with the union in packages/contracts
+    model: string;
+    sentence?: string; // the provider's own sentence, absent when it sent none
+    explanation?: string; // the provider's explanation, shown verbatim
+    safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
+  };
+  providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider': the provider's free-form failure prose, in its own field
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-005 §Run Lifecycle run-state payload)
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
   executionPosture?: ExecutionPosture; // named type in §Plan-004 above (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-003 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
-  trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-014 D-014-8 — the value CP-003-10 adds to Plan-003's trigger set); the InterruptReason values ride run.interrupted on system interrupts (D-014-7). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
+  trigger?: "budget_exhausted"; // stop-condition provenance (additive per ADR-018): rides run.interrupted when the service stops a run at a spend or token limit (D-014-7). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
   // A run's linkage and its admission stamps ride the run.queued row alone (RunQueuedPayload, §Plan-014),
   // never this stream.
   timestamp: string;
@@ -3406,10 +3353,9 @@ interface RelayNegotiationResponse {
 // UserProjectionRead
 interface UserProjectionReadRequest {
   sessionId: SessionId;
-  userId?: UserId; // omit for all users
 }
 interface UserProjectionReadResponse {
-  users: UserProjection[];
+  user: UserProjection;
 }
 
 interface UserProjection {
@@ -3454,7 +3400,7 @@ These are **control-plane tRPC procedures on the control plane's tRPC router** (
 
 Both issue legs are `mutation` rather than `query` because each one **writes** — it records a challenge row, which is the fence the whole ceremony rests on.
 
-**The authentication pair is deliberately unauthenticated.** Sign-in is pre-authentication by construction: the ceremony is what produces the credential, so a new phone or browser holds nothing to present, and gating it would make the flow unreachable exactly when it is needed ([Spec-016 §Required Behavior](../../specs/016-identity-and-user-state.md#required-behavior)). What bounds that caller instead is the **ceremony transaction id** — server-minted on the options reply, quoted back on the verify request, single-use, and expiring on the challenge's own clock, so the caller is bound to one transaction rather than to a session. Throttling is the existing [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row (anonymous tier, per source address); **no registry row is minted**, because a per-token budget beside the per-source one would have nothing to bound here, single-use consumption already capping attempts per transaction at exactly one. The registration pair stays authenticated: enrollment binds an authenticator to an existing user, and an unauthenticated enrollment would let anyone bind a key to someone else's account. **Account creation is the one exception.** `Create an account` on the device-code page makes a new account and adds nothing to one that exists, so it needs no sign-in: its registration is bound to the device-code transaction the page was opened with, good once, and limited per source address under the same `auth.endpoint` row as the passkey sign-in. Adding a passkey to an account that exists stays signed in. **`WebAuthnCredentialRevoke` is authenticated for the same reason and one more:** it resolves the credential row under the **caller's own** user id, which there is no way to know without a session. That resolution is also what makes the operation safe to expose — a request naming another user's credential id deletes nothing and returns success, exactly as a request naming an id that does not exist does, so the reply enumerates no one's authenticators. Revocation is a hard `DELETE` rather than a `revoked_at` tombstone: a tombstone would let the verify leg tell _revoked_ from _unknown_, the one distinction every refusal arm of this registry is written to withhold, and it would mint a column to obtain it. Removing the user's **last** credential is permitted — a new device still links through a link from a device already in use, and refusing would keep a compromised authenticator enrolled precisely when the user is trying to retire it.
+**The authentication pair is deliberately unauthenticated.** Sign-in is pre-authentication by construction: the ceremony is what produces the credential, so a new phone or browser holds nothing to present, and gating it would make the flow unreachable exactly when it is needed ([Spec-016 §Required Behavior](../../specs/016-identity-and-user-state.md#required-behavior)). What bounds that caller instead is the **ceremony transaction id** — server-minted on the options reply, quoted back on the verify request, single-use, and expiring on the challenge's own clock, so the caller is bound to one transaction rather than to a session. Throttling is the existing [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row (per source address); **no registry row is minted**, because a per-token budget beside the per-source one would have nothing to bound here, single-use consumption already capping attempts per transaction at exactly one. The registration pair stays authenticated: enrollment binds an authenticator to an existing user, and an unauthenticated enrollment would let anyone bind a key to someone else's account. **Account creation is the one exception.** `Create an account` on the device-code page makes a new account and adds nothing to one that exists, so it needs no sign-in: its registration is bound to the device-code transaction the page was opened with, good once, and limited per source address under the same `auth.endpoint` row as the passkey sign-in. Adding a passkey to an account that exists stays signed in. **`WebAuthnCredentialRevoke` is authenticated for the same reason and one more:** it resolves the credential row under the **caller's own** user id, which there is no way to know without a session. That resolution is also what makes the operation safe to expose — a request naming another user's credential id deletes nothing and returns success, exactly as a request naming an id that does not exist does, so the reply enumerates no one's authenticators. Revocation is a hard `DELETE` rather than a `revoked_at` tombstone: a tombstone would let the verify leg tell _revoked_ from _unknown_, the one distinction every refusal arm of this registry is written to withhold, and it would mint a column to obtain it. Removing the user's **last** credential is permitted — a new device still links through a link from a device already in use, and refusing would keep a compromised authenticator enrolled precisely when the user is trying to retire it.
 
 **What the replies carry, and why the split is where it is.** The authentication-**options** reply carries the `rpId`, the origin, the challenge, and the transaction id. The authentication-**verify** reply carries the verdict and a **freshly issued PASETO access/refresh pair**. The token pair rides the verdict because that is the moment the user is known, and it is issued rather than merely unlocked because a new device holds no refresh token to unwrap — a sign-in that only unlocks a stored one is unreachable exactly on the device that needs it. It is sender-constrained per [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) to the DPoP key the caller proves possession of on the verify request; that proof binds a key and establishes no identity, so it does not make this pair a credentialed one and the `Authentication` column above stays **none**.
 
@@ -3475,7 +3421,7 @@ The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out
 | Trade | the service, through its credential provider | the refresh token, with a DPoP proof under the same key | the refresh token | a short-lived PASETO v4.public access token and a new refresh token of the same family, the presented one marked spent; a spent refresh token presented again revokes the whole family (T5.9) |
 | Sign-out | `sidekicks sign-out` | the signed-in machine's tokens | none | revokes the refresh-token family; the refresh token has no expiry of its own and lasts until sign-out or revocation (T5.9) |
 | `account.delete` | `sidekicks delete-account` | the signed-in account | none | revokes every refresh-token family of the account, hard-deletes the account's rows through [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 2, and returns; a second call returns the same result and deletes nothing more; the command line then signs this machine out (T5.10) |
-| `account.export` | the data export ([Plan-020](../../plans/020-data-retention-and-gdpr.md)) | the signed-in account | none | the account record, its device list and its `account_audit` rows, written as `hosted-account.json`; changes nothing (T5.10) |
+| `account.export` | the data export ([Plan-020](../../plans/020-data-retention-and-gdpr.md)) | the signed-in account | none | the account record and its device list, written as `hosted-account.json`; changes nothing (T5.10) |
 
 ---
 
@@ -3624,7 +3570,7 @@ Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree.t
 - **The environment rows** are two lists. The machine-wide list is passed to every process the app starts and belongs to the machine's settings file; a project's own list, written through `repo.projectEnvironmentUpdate`, is passed to every process that project's sessions start and belongs to the project record. A name in a project's list WINS over the same name machine-wide. The daemon reads both lists when it starts a project's process. A credential-shaped name is refused at save, in the list it was typed into, and nothing is written — credentials live in the account's credential home, never in an environment row — and so is a name the app sets itself on the processes it starts.
 - **The branch-name pattern** is written through `repo.projectBranchPatternUpdate {projectId, pattern | null}`, `null` returning the project to the machine's own pattern.
 
-**Cloning from a URL.** `Clone repository…` in the new-session picker clones a repository and attaches the finished folder as `Open folder…` attaches one; the session is minted at once. `repo.cloneFolderRead {}` → `{folder, source: setting | lastProject | home}` is the one answer to where a clone goes: the folder `Clone new repositories into` on Settings › Projects names (a key in the machine's settings file), else the folder holding the most recently attached project, else the home folder. `repo.clone {url, parentFolder?, projectId?}` → `{projectId}` creates the project record at once, marked as cloning, and a `projectId` reruns a failed or canceled clone of that project. Only https and ssh URLs are cloned, submodules included, and a destination that exists and is not empty is refused before anything is fetched. The daemon runs git as an argument list with the person's own git config and credentials, stores no credential, and routes git's questions — a user name, a password or token, a key's passphrase, whether to trust a host's key — through its own askpass program to the clone card in the composer. `repo.cloneSubscribe {projectId}` streams the card's state — the phase, the percent, a question waiting, the failure line in git's own words, and done — at most four updates a second, the latest winning; `repo.cloneAnswer {projectId, questionId, answer}` answers git's question, and the answer goes to git and nowhere else; `repo.cloneCancel {projectId}` stops git and removes the folder the clone made before the card offers `Clone` again. Where the cloned repository keeps large files in Git LFS and Git LFS is not installed, `repo.largeFilesPull {projectId}` fetches them once it is. A finished clone ends in the daemon's ordinary attach, `repo.attached`, which the sessions list reads through `repo.projectList`.
+**Cloning from a URL.** `Clone repository…` in the new-session picker clones a repository and attaches the finished folder as `Open folder…` attaches one; the session is minted at once. `repo.cloneFolderRead {}` → `{folder, source: setting | lastProject | home}` is the one answer to where a clone goes: the folder `Clone new repositories into` on Settings › Projects names (a key in the machine's settings file), else the folder holding the most recently attached project, else the home folder. `repo.clone {url, parentFolder?, projectId?}` → `{projectId}` creates the project record at once, marked as cloning, and a `projectId` reruns a failed or canceled clone of that project. The address or path the person typed goes to git as typed, and git's own transport rules decide; submodules are included, and a destination that exists and is not empty is refused before anything is fetched. The daemon runs git as an argument list with the person's own git config and credentials, stores no credential, and routes git's questions — a user name, a password or token, a key's passphrase, whether to trust a host's key — through its own askpass program to the clone card in the composer. `repo.cloneSubscribe {projectId}` streams the card's state — the phase, the percent, a question waiting, the failure line in git's own words, and done — at most four updates a second, the latest winning; `repo.cloneAnswer {projectId, questionId, answer}` answers git's question, and the answer goes to git and nowhere else; `repo.cloneCancel {projectId}` stops git and removes the folder the clone made before the card offers `Clone` again. Where the cloned repository keeps large files in Git LFS and Git LFS is not installed, `repo.largeFilesPull {projectId}` fetches them once it is. A finished clone ends in the daemon's ordinary attach, `repo.attached`, which the sessions list reads through `repo.projectList`.
 
 ### Plan-008 — Worktree Lifecycle And Execution Modes
 
@@ -3768,9 +3714,9 @@ type InvalidationTrigger =
 // `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the canonical
 // Zod schema). The variants carry the projection-rebuild fields (D-010-6 replay
 // rebuild; D-010-7 events-canonical): `requested` carries the request fields; the
-// resolution events carry the recorded approver + effective scope; `remembered`
-// carries the full rule projection (grantor = `approver`, binding =
-// `rememberedScope`, origin resolution via `approvalRequestId`) so
+// resolution events carry the answering device + effective scope; `remembered`
+// carries the full rule projection (binding = `rememberedScope`, origin resolution
+// via `approvalRequestId`) so
 // `remembered_approval_rules` rebuilds byte-equal (I-010-9); decision and state ride
 // the event type; envelope timestamps supply the created/updated instants. The other
 // members of the same category have payloads of their own and are not this shape:
@@ -3779,8 +3725,8 @@ type InvalidationTrigger =
 // Variant-required fields are enforced at the EMISSION seam via the exported per-type
 // refinement (Plan-010 T1.1 `approvalFlowPayloadRefinementFor`): requested ⇒ runId /
 // approvalRequestId / requestedBy / resourceDescriptor; approved / rejected ⇒
-// approvalRequestId / approver / effectiveScope; canceled ⇒ approvalRequestId;
-// remembered ⇒ approvalRequestId / approver / rememberedScope / ruleId / madeAtLevel;
+// approvalRequestId / deviceId / effectiveScope; canceled ⇒ approvalRequestId;
+// remembered ⇒ approvalRequestId / rememberedScope / ruleId / madeAtLevel;
 // rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at restart projection (I-010-9).
 // Requested rows a provider permission ask originates additionally carry `askId` — its PRESENCE is
@@ -3794,12 +3740,11 @@ interface ApprovalFlowEventPayload {
   askId?: string; // present on approval.requested when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the daemon's own id for the ask, a ULID (the provider's request id is delivery routing state, never this id), persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; required at the CP-010-6 normalizer emission seam (T2.8 — the sole requester a provider ask originates), set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
   category: ApprovalCategory;
   scope: string;
-  requestedBy?: string; // present on approval.requested — recorded requester actor (user or agent actor id, Spec-010 §Required Behavior)
+  requestedBy?: string; // present on approval.requested — recorded requester actor (the agent's actor id, or the device a person's request came from, Spec-010 §Required Behavior)
   resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
-  approver?: UserId; // present on approval.approved / approval.rejected — the recorded resolver (D-010-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-010-6)
   clientResolutionId?: string; // present on approval.approved / approval.rejected — the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did
-  deviceId?: string; // present on approval.approved / approval.rejected — the answering device's id, verified at append against the device's signature
+  deviceId?: string; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
   // Present on approval.remembered: the permission level the session stood at when the rule was made.
@@ -3873,10 +3818,6 @@ interface ApprovalDenialOverriddenPayload {
 // ApprovalResolve
 interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
-  approver?: UserId; // informational/routing (Spec-010 §Interfaces And Contracts; D-010-12). Absent on the
-  // local socket → the daemon records its node-owner user binding; present → cross-checked
-  // (local: vs the owner binding; PASETO surfaces: vs the verified `sub`) — mismatch is rejected
-  // with `auth.principal_mismatch`. Never authoritative.
   decision: ApprovalDecision;
   effectiveScope?: string; // granted scope; defaults server-side to the request's scope; never broader than requested
   // The remembered rule this resolution mints, absent for a one-time answer. Its `sense` must agree
@@ -3897,13 +3838,11 @@ interface ApprovalResolveRequest {
   // Minted by the answering client and echoed on the `approval.approved` / `approval.rejected` event, so
   // the device whose answer landed knows it did and only the others read that it was answered elsewhere.
   clientResolutionId: string;
-  auditMetadata?: Record<string, unknown>;
 }
 interface ApprovalResolveResponse {
   approvalRequestId: ApprovalRequestId;
   state: ApprovalState;
   effectiveScope: string; // the recorded grant (Spec-010 §Required Behavior)
-  approverId: UserId; // the RECORDED approver (server truth; AC-3 observable)
   resolvedAt: string;
 }
 
@@ -3925,12 +3864,8 @@ interface PermissionCheckResponse {
   // resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
   // error additionally surfaces on fail-closed paths so audit can distinguish them).
   // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
-  approvalRequestIds?: ApprovalRequestId[]; // present + non-empty iff reason = 'pending_approval':
-  // one request per contributing principal whose evaluation required approval (D-010-19),
-  // each addressed to its own principal per D-010-12. A single-principal turn yields a
-  // one-element set; a mixed-input turn (unanimous conjunction per Spec-010 §Required
-  // Behavior) blocks until the FULL set resolves — wait-for-all barrier, aggregate
-  // approved iff every member approves (the first rejection refuses the whole set).
+  approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval': the one request
+  // the ask opened, which the first answer from any device settles.
 }
 
 // ApprovalProjectionRead
@@ -3943,7 +3878,7 @@ interface ApprovalProjectionReadResponse {
   approvals: Array<{
     id: ApprovalRequestId;
     runId: RunId;
-    requestedBy: string; // recorded requester actor — user or agent actor id (Spec-010 §Required Behavior)
+    requestedBy: string; // recorded requester actor — the agent's actor id, or the device a person's request came from (Spec-010 §Required Behavior)
     category: ApprovalCategory;
     scope: string;
     resourceDescriptor: Record<string, unknown>; // requested resource (Spec-010 §Interfaces And Contracts)
@@ -3952,7 +3887,7 @@ interface ApprovalProjectionReadResponse {
     updatedAt: string; // last state-transition instant (a canceled row settles here; no resolution row)
     resolvedAt?: string; // resolved quad present iff state ∈ {approved, rejected}
     decision?: ApprovalDecision;
-    approverId?: UserId; // AC-3: who granted
+    deviceId?: string; // AC-3: the answering device, which a card answered elsewhere reads as `Answered on <device>`
     effectiveScope?: string; // AC-3: what scope
     rememberedScope?: RememberedScope; // present iff the resolution minted a remembered rule
   }>;
@@ -3967,7 +3902,6 @@ interface RememberedRuleListResponse {
   rules: Array<{
     ruleId: RememberedRuleId;
     sessionId: SessionId;
-    userId: UserId; // the GRANTOR (audit key, not a match key — D-010-10)
     category: ApprovalCategory;
     scope: RememberedScope;
     // The permission level the session stood at when the rule was made — one of the three careful
@@ -4215,7 +4149,6 @@ interface GitActionExecuteRequest {
   action: GitAct;
   formValues: GitActFormValues;
   retryFromCommand?: number; // the index of the command to resume at
-  causationUserId?: UserId;
 }
 interface GitActionExecuteResponse {
   actId: string;
@@ -4523,7 +4456,7 @@ interface ArtifactManifest {
   id: ArtifactId;
   sessionId: SessionId;
   runId?: RunId;
-  createdBy?: UserId; // = SQLite `created_by` — the publishing caller; absent when the daemon itself produced the artifact with no attributable caller
+  createdBy?: string; // = SQLite `created_by` — the device the publishing request came from; absent when the daemon itself produced the artifact
   artifactType: ArtifactType; // discriminator — Spec-012 §Interfaces And Contracts (D-012-4: file|diff|summary|log|design|workflow_output)
   digest: string; // OCI `digest` (SHA-256) = SQLite content_hash — required: a content-addressed manifest always has one (I-012-1)
   size: number; // OCI manifest-descriptor `size` (payload byte length) = SQLite size_bytes — server-derived, always present
@@ -4545,7 +4478,7 @@ interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
   artifactType: ArtifactType; // discriminator — see ArtifactManifest.artifactType (Spec-012 §Interfaces And Contracts; D-012-4)
-  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-006 local wire is JSON-only. The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call and the 1 MB frame ceiling binds the SERIALIZED frame: base64's fixed 4/3 expansion gives the predictable ≈700 KiB raw ceiling, while a utf8 payload's JSON-escaped size is content-dependent (quotes/backslashes/control characters expand 2–6× under JSON.stringify), so near-ceiling callers publish base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
+  payload: string; // the artifact bytes — UTF-8 text verbatim, or base64 (RFC 4648 §4) under payloadEncoding "base64"; never a binary field, because the Spec-006 local wire is JSON-only. The daemon decodes per the discriminator BEFORE hashing: content_hash and size_bytes bind the DECODED bytes, so an encoded and an unencoded publish of identical content share one CAS entry. A boundary-crossing publish is single-call and the 4 MB frame ceiling binds the SERIALIZED frame: base64's fixed 4/3 expansion gives the predictable ≈3 MB raw ceiling, while a utf8 payload's JSON-escaped size is content-dependent (quotes/backslashes/control characters expand 2–6× under JSON.stringify), so near-ceiling callers publish base64; larger file bytes take the AttachmentIngest trio, and daemon-internal publishes never cross the wire (Spec-012 §Ingest Validation And Payload Bounds (V1))
   payloadEncoding?: "utf8" | "base64"; // default "utf8" — the request-side encoding discriminator
   mediaType: string; // MIME type
   // --- producer-supplied OCI envelope inputs (D-012-3). `size`/`digest` are NOT here:
@@ -4573,7 +4506,7 @@ interface ArtifactReadResponse {
   versionCount: number; // how many versions exist, which the file pane's stepper reads
   writtenAt: string; // when the version in view was written
   payloadHandle?: string; // CAS key or URL for deferred retrieval
-  payload?: string; // only if includePayload=true and size permits — where "permits" includes the base64 expansion: the encoded member plus envelope must fit the Spec-006 1 MB frame; UTF-8 text verbatim or base64 per payloadEncoding
+  payload?: string; // only if includePayload=true and size permits — where "permits" includes the base64 expansion: the encoded member plus envelope must fit the Spec-006 4 MB frame; UTF-8 text verbatim or base64 per payloadEncoding
   payloadEncoding?: "utf8" | "base64"; // present when payload is — "utf8" only for byte-exact valid UTF-8 payloads (which JSON round-trips losslessly), "base64" otherwise; callers switch on it, never sniff
 }
 
@@ -4597,17 +4530,16 @@ interface ArtifactListResponse {
 // boundary-crossing publish arm). The other artifactType families are daemon- or engine-produced
 // in the common case and carry no untrusted-upload surface. Ingest is a THREE-CALL STREAM, not a
 // single payload-bearing call (Spec-012 §Ingest Validation And Payload Bounds (V1),
-// transport binding): the local IPC transport enforces a hard 1 MB per-frame ceiling on the declared
+// transport binding): the local IPC transport enforces a hard 4 MB per-frame ceiling on the declared
 // Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES, declared in
 // packages/contracts/src/jsonrpc.ts and enforced by
-// packages/runtime-daemon/src/ipc/local-ipc-gateway.ts, Spec-006 §Wire Format), so a payload anywhere
-// near max_attachment_ingest_bytes cannot cross one frame and a single-call shape would be
+// packages/runtime-daemon/src/ipc/local-ipc-gateway.ts, Spec-006 §Wire Format), so a payload
+// larger than one frame cannot cross it and a single-call shape would be
 // un-implementable on this wire. Chunks spool to a daemon-held temporary file OUTSIDE the CAS until
 // Complete; the byte bound binds three times — the transport frame ceiling, Init's declared total, and
 // the spooled running count at every Chunk, whose first breach terminates the stream and deletes the
-// spool (an over-cap stream is refused garbage, not a classified threat — quarantine is reserved for
-// content refusals at pipeline steps 3-8). An abandoned stream's spool is reaped by the same
-// mtime-clocked reaper that owns quarantine expiry. The stream is a PROTOCOL, not a loose call
+// spool. An abandoned stream's spool is reaped by a daemon-local mtime-clocked reaper 48 h after
+// its last write. The stream is a PROTOCOL, not a loose call
 // sequence (Spec-012 stream protocol): Init is refused
 // artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream state created) at
 // max_active_ingest_streams or when the aggregate of open streams' declared totals would breach
@@ -4617,16 +4549,13 @@ interface ArtifactListResponse {
 // trickle that keeps its spool young. `mediaType` and `declaredSizeBytes` are ADVISORY
 // INPUT, never trusted facts: the daemon derives both from the spooled bytes at Complete and
 // reconciles — with per-field consequences that are deliberately NOT the same.
-// A declared TYPE that contradicts the derived type is
-// refused with artifact.unsupported_media_type (415) and quarantined — never silently corrected
-// (Spec-012 pipeline step 4). A declared SIZE below the cap is never refused at Init and a below-cap
-// mismatch resolves to the derived value in the response — but the declaration is also the stream's
+// A declared TYPE never refuses anything: the type read from the bytes is recorded and the
+// declaration is dropped (Spec-012 pipeline step 1). A smaller actual SIZE resolves to the derived
+// value in the response — but the declaration is also the stream's
 // spool RESERVATION and per-stream ceiling: the running decoded count exceeding it
 // refuses artifact.too_large (413) and deletes the spool, because the aggregate admission budget
 // counts declared bytes and an unenforced declaration would make it gameable. The derived
-// values are what reach the manifest, the CAS key, and every downstream consumer. No call in the trio
-// carries a count to cap: max_attachments_per_carrier binds the ArtifactId[] carrier (see the
-// attachment-reference note below).
+// values are what reach the manifest, the CAS key, and every downstream consumer.
 // EVERY call of the trio is retry-safe against a lost response, and no member of these shapes carries
 // idempotency state: a replayed Chunk is acknowledged
 // without re-appending, and a replayed Complete replays its original response verbatim from a
@@ -4643,8 +4572,8 @@ interface AttachmentIngestInitRequest {
   sessionId: SessionId;
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
-  mediaType?: string; // ADVISORY and OPTIONAL — a hint used only to narrow the expected signature, never to widen acceptance; absent is a first-class state (Spec-012 pipeline step 4: "a declared type absent altogether is fine; the derived value stands"). One consequence is normative: an undetermined-signature payload with NO declaration has nothing to admit under the step-6 signature-exempt branch and is refused
-  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: refused with artifact.too_large (413) up front when it exceeds max_attachment_ingest_bytes, counted against ingest_spool_max_bytes at admission, and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, and no declaration refuses anything (Spec-012 pipeline step 1)
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: counted against ingest_spool_max_bytes at admission (a declaration larger than the whole budget is refused artifact.too_large (413) up front, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
 }
 interface AttachmentIngestInitResponse {
   ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a replayed Complete on a completed stream whose completion record still lives replays the original response verbatim — see AttachmentIngestCompleteRequest
@@ -4652,20 +4581,20 @@ interface AttachmentIngestInitResponse {
 interface AttachmentIngestChunkRequest {
   ingestId: string;
   sequenceNumber: number; // 0-based, strictly consecutive. The daemon retains the last acknowledged sequence + the last appended chunk's SHA-256: an exact replay — same sequence, same bytes, the ordinary retry after a lost Chunk response — is acknowledged idempotently WITHOUT re-appending, so client retries are always safe; a same-sequence chunk with different bytes, a gap, or a regression terminates the stream (spool deleted) and refuses artifact.ingest_stream_invalid (409) — restart from Init
-  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-012 §Bounds) — the Spec-006 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the 1 MB frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
+  chunk: string; // base64 (RFC 4648 §4) of at most max_attachment_chunk_bytes = 512 KiB raw payload (Spec-012 §Bounds) — the Spec-006 wire is JSON with no binary serialization, so bytes ride encoded, sized so the 4/3 expansion plus envelope fits the frame ceiling by arithmetic; the spool append decodes, and every byte bound counts the DECODED bytes
 }
 interface AttachmentIngestChunkResponse {
   ingestId: string;
-  receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding max_attachment_ingest_bytes refuses with artifact.too_large (413) and deletes the spool
+  receivedBytes: number; // spooled running total of DECODED bytes after this chunk — the enforced byte bound; exceeding the Init-declared total refuses with artifact.too_large (413) and deletes the spool
 }
 interface AttachmentIngestCompleteRequest {
-  ingestId: string; // the request's ONLY member — Complete runs pipeline steps 3-8 over the spooled bytes (signature detection reads a bounded leading prefix); step 8's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 8). IDEMPOTENT within the stream's lifetime: the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response replays that response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defense-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record shares the entry's in-memory lifetime, so past max_ingest_stream_lifetime the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload, never duplicated bytes
+  ingestId: string; // the request's ONLY member — Complete runs the pipeline over the spooled bytes (type detection reads a bounded leading prefix); step 3's admitting CAS rename commits the payload — admission is the pipeline's final successful act (Spec-012 pipeline step 3). IDEMPOTENT within the stream's lifetime: the response is recorded on the stream's registry entry, stamped with the committed digest, so a retry after a lost response replays that response VERBATIM — same artifactId, same contentHash — re-running no gate and inserting no second manifest row. Because this request carries no member beyond the ingestId, a "divergent" Complete has no wire form; the digest stamp is a fail-closed defense-in-depth check against a state a daemon-minted single-use handle makes unreachable, not a caller-supplied discriminator. The record shares the entry's in-memory lifetime, so past max_ingest_stream_lifetime the retry receives artifact.ingest_stream_invalid (409) and a re-ingest costs a second manifest row over one deduplicated CAS payload, never duplicated bytes
 }
 interface AttachmentIngestCompleteResponse {
   artifactId: ArtifactId;
   contentHash: string;
   normalizedName: string;
-  derivedMediaType: string; // server-derived from the payload signature — this, not Init's `mediaType`, is what the manifest records (for a signature-exempt type: the DECLARED subtype, admitted under the exemption after the UTF-8 well-formedness check — never a subtype invented from the bytes); returned so a caller that guessed wrong learns the reconciled truth
+  derivedMediaType: string; // read from the payload's bytes — this, not Init's `mediaType`, is what the manifest records; returned so a caller that guessed wrong learns the reconciled truth
   derivedSizeBytes: number; // server-derived byte length of the spooled payload — likewise authoritative over Init's declared bound
 }
 
@@ -4677,9 +4606,8 @@ interface AttachmentIngestCompleteResponse {
 //     Spec-012 validation pipeline before anything is admitted. Caller-declared order
 //     is preserved end to end, and an element the turn cannot resolve or deliver surfaces as an explicit
 //     unresolved marker in its declared position naming its cause, `deleted` — silently dropping it
-//     is prohibited (Spec-012 §Fallback Behavior). The count bound is
-//     max_attachments_per_carrier, enforced here rather than on AttachmentIngest, whose Init/Chunk/Complete
-//     stream carries exactly one payload and has no count to cap.
+//     is prohibited (Spec-012 §Fallback Behavior). A carrier holds as many attachments as the daemon
+//     and the provider accept, with no count of the app's own.
 //     The driver-boundary
 //     steer and intervention arms were typed `unknown[]` and DELIBERATELY NOT edited from the Plan-012
 //     side, because those wire arms belong to the plans that own the driver boundary and retyping them
@@ -4717,20 +4645,15 @@ interface RecoveryStatusReadResponse {
     lastReplayedSequence?: number;
     failureCategory?: RunFailureCategory;
     recoveryCondition?: RecoveryCondition; // named type in §Plan-004
-    recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition
     // Per-run identities behind a blocked/degraded session entry: names which
     // runs need reconciliation in a multi-run session — a Plan-013 T15.5 divergence halt or a
     // failed resume each land one entry. Optional and additive: absent when no run-level
-    // recovery condition exists. Entry contract: a divergence-halt entry is
-    // SELF-SUFFICIENT — recoverySpanClassification REQUIRED (the daemon always derives one; the
-    // audit-metadata recording is the T15.5 deliverable), failureCategory absent (the run did
-    // not fail), and there is no failure to drill into; a failed-resume entry carries
-    // failureCategory REQUIRED plus the driver-provided classification (REQUIRED on
-    // DriverResumeResult.failed).
+    // recovery condition exists. Entry contract: a divergence-halt entry carries no
+    // failureCategory (the run did not fail), and there is no failure to drill into; a
+    // failed-resume entry carries failureCategory REQUIRED.
     haltedRuns?: Array<{
       runId: RunId;
       recoveryCondition: RecoveryCondition;
-      recoverySpanClassification?: RecoverySpanClassification; // REQUIRED on a divergence-halt entry (daemon-derived); driver-provided on a failed-resume entry
       failureCategory?: RunFailureCategory; // REQUIRED on a failed-resume entry; absent on a divergence halt
     }>;
   }>;
@@ -4938,24 +4861,15 @@ interface ChildRunSummary {
 }
 
 // ReasoningSurfaceRead
-// No principal member, by design (Plan-011 Phase 1): the absence is an explicit no-member decision, not an omission.
-// The caller is resolved from the transport per the Authenticated Principal And Authorization Model
-// section above: its opening rule scopes every endpoint in this document to the authenticated caller
-// implicitly, and its informational-body-fields rule makes any user-naming body field routing
-// and audit metadata that Cedar does not read. A principal member here would therefore be inert at
-// best, and at worst the second source of identity truth that rule exists to forbid. So the request
-// declares none, and its Zod arm is strict: a caller that sends one is refused, not silently stripped.
-// This is deliberately NOT an instance of that section's numbered admitting-write list. Those
-// instances each name where a resolved principal is RETAINED on a durable carrier; this read admits
-// nothing and writes no row, so it has nothing to retain and belongs to the resolution rules, not
-// the retention class.
+// No member names a person (§Authenticated Principal And Authorization Model: no person in a request
+// body), and the Zod arm is strict: a caller that sends one is refused, not silently stripped.
 interface ReasoningSurfaceReadRequest {
   runId: RunId;
   afterCursor?: EventCursor; // continuation position, the same opaque cursor the sibling reads take (Plan-011 Phase 1) — a reasoning entry is projected from the run's events, so its resume position is an event position, and one namespace spelling its cursor two ways would make a client hold two kinds of bookmark for one surface
 }
 type ReasoningSurfaceReadResponse =
   // Availability is a discriminated union: an open shape — available: boolean with free optionals —
-  // would serialize the available / unavailable / policy-redacted cases identically, leaving Spec-011
+  // would serialize the available / unavailable cases identically, leaving Spec-011
   // §Acceptance Criteria's distinguish-the-cases requirement unrepresentable.
   // The available state is the one that PAGES, so it is the one that splits on hasMore (
   // Plan-011 Phase 1) — the same continuation rule TimelineReadResponse carries, nested inside the
@@ -4964,12 +4878,12 @@ type ReasoningSurfaceReadResponse =
   // A zero-entry available page claims a reasoning surface exists and then shows nothing, which renders
   // identically to unavailable while asserting the opposite — true of a FIRST read, and false of a
   // continuation whose afterCursor already sat at the end of the surface, which unavailable
-  // and policy_redacted would each misstate. The schema cannot separate the two, because only the
+  // would misstate. The schema cannot separate the two, because only the
   // request separates them: it carries the half it can see (the continuing arm, which is the arm that
   // can loop a client on a repeated cursor) and the daemon binder carries the first-page half, beside
   // the request-scope checks, under Plan-011 I-011-13.
   | {
-      availability: "available"; // normalized reasoning present and permitted
+      availability: "available"; // normalized reasoning present
       reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // required on this arm only, non-empty (continuing arm), bounded by TIMELINE_PAGE_MAX_BYTES
       hasMore: true;
       nextCursor: EventCursor;
@@ -4980,11 +4894,9 @@ type ReasoningSurfaceReadResponse =
       hasMore: false;
       nextCursor?: EventCursor;
     }
-  | { availability: "unavailable" } // the run surfaced no reasoning; no entries, no policyReason — the client renders the unavailability placeholder from the state itself (I-011-7: absence never renders as nothing)
-  | { availability: "policy_redacted"; policyReason: string }; // withheld by policy; policyReason required, no entries — renders as an explicit redaction surface, never as absence (I-011-7)
-// The contracts Zod schema (T1.3) is a discriminatedUnion on availability with strict arms: entries on a
-// non-available arm, a missing policyReason on policy_redacted, or an `available: boolean` member all
-// fail parse — no tolerant fallback arm.
+  | { availability: "unavailable" }; // the run surfaced no reasoning; no entries — the client renders the unavailability placeholder from the state itself (I-011-7: absence never renders as nothing)
+// The contracts Zod schema (T1.3) is a discriminatedUnion on availability with strict arms: entries on the
+// unavailable arm or an `available: boolean` member fail parse — no tolerant fallback arm.
 
 // ChildRunExpand
 interface ChildRunExpandRequest {
@@ -5282,7 +5194,7 @@ Plan-017's attention surface is exposed as the `attention.*` methods below, all 
 
 The Preview pane and the machine-wide Browser page are served by two daemon JSON-RPC roots, `preview` and `browser`. Both register against the Plan-006 `MethodRegistry` in that plan's remainder, which owns them along with the daemon-side pieces they answer from ([Plan-006 CP-006-18](../../plans/006-local-ipc-and-daemon-control.md#cp-006-18--the-daemons-page-host-namespaces-preview-and-browser-owed-to-plan-021-cp-021-11)).
 
-**Why the daemon and not the main process.** There are TWO page hosts and ONE endpoint: the desktop's own native page view, and — where no desktop runs — the daemon's headless browser, launched over Playwright's own pipe with no listening port and with `acceptDownloads: false`. One resolver in the daemon returns the live host and nothing above it branches, so an agent never knows which host it is talking to: the daemon reaches the desktop's pages through the relay's debugger link on the connection the app dials to the service, never a debug port, and the headless browser directly. Putting the verbs on the daemon is what makes that true; putting them on the main process would give the no-desktop case no surface at all. A download a page starts is refused on both hosts with one line in the pane — `will-download` with its documented cancel on the desktop, Playwright's `download` event on the headless host — and nothing is written. The renderer owns no page: it publishes the rectangle a page is positioned to and renders the outcomes, through the preload bridge's own page-host namespace — a **bridge namespace canonical in the `PlatformBridge` interface in the front end's `services/platform/`** per the §Source-of-Truth Policy, which shares the word `browser` with the root below and is a different surface: the bridge positions and captures a page, the root below manages pages and site data. The bridge's `daemon`, `native` and `window` namespaces are canonical in that same file and are not mirrored here; what the design fixes about them is one rule each — every address the console hands outward goes through the bridge's external-open except a loopback address printed in a reply, a tool row or a shell, which opens in the Preview pane instead; the composer's attach picker takes files only and several at a time, never a folder, and hands back tokens, never a path; and any side pane can move into its own window.
+**Why the daemon and not the main process.** There are TWO page hosts and ONE endpoint: the desktop's own native page view, and — where no desktop runs — the daemon's headless browser, launched over Playwright's own pipe with no listening port and with `acceptDownloads: false`. One resolver in the daemon returns the live host and nothing above it branches, so an agent never knows which host it is talking to: the daemon reaches the desktop's pages through the relay's debugger link on the connection the app dials to the service, never a debug port, and the headless browser directly. Putting the verbs on the daemon is what makes that true; putting them on the main process would give the no-desktop case no surface at all. A file a page saves, in the Preview pane of the machine's own desktop window, opens the system save dialog: the Preview feature asks for it through the platform bridge, and the main process owns the dialog and the file write, so the window gains no file access. On another device, on the headless host, or anywhere no person at that machine can choose, the download is refused with one line in the pane — `will-download` with its documented cancel on the desktop host, Playwright's `download` event on the headless host — and nothing is written. The renderer owns no page: it publishes the rectangle a page is positioned to and renders the outcomes, through the preload bridge's own page-host namespace — a **bridge namespace canonical in the `PlatformBridge` interface in the front end's `services/platform/`** per the §Source-of-Truth Policy, which shares the word `browser` with the root below and is a different surface: the bridge positions and captures a page, the root below manages pages and site data. The bridge's `daemon`, `native` and `window` namespaces are canonical in that same file and are not mirrored here; what the design fixes about them is one rule each — every address the console hands outward goes through the bridge's external-open except a loopback address printed in a reply, a tool row or a shell, which opens in the Preview pane instead; the composer's attach picker takes files only and several at a time, never a folder, and hands back tokens, never a path; and any side pane can move into its own window.
 
 | Method | Procedure type | Request → Response | What it carries |
 | --- | --- | --- | --- |
@@ -5603,7 +5515,7 @@ interface PreviewPageSiteDataClearResponse {
 - **Keyboard** goes through nothing on the daemon's wire: the chord map is its own file on this install, `userData/keyboard-map.json`, holding only the overridden rows, read and written by the main process through `keyboardMap.read()` and `keyboardMap.write()`, which returns the map as stored. There is no change feed: one renderer drives every window, so one reader holds the map.
 - **Appearance** goes through one bridge member rather than the daemon's wire: the theme, the color scheme, the text size and the transcript's width go to the main process through `window.setAppearance`, which writes its appearance record, and come back to every open console window, the one that made the change included, through `window.subscribeAppearance`, with the root token the session screen reads the transcript column's width from, so the two screens can never disagree about it. The screen-reader switch is the settings file's, because the background service reads it when it starts a Terminal pane's shell.
 - **Notifications** goes through the machine's settings file — the switches, the kinds, the web address's switch and `Send` kinds, and the email digest's switch, `Send to`, `Mail server`, `Port`, `User name` and `After`, all under `notifications` and written by the background service — through `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()`; the operating system's notification permission, read by the main process through `native.getNotificationPermission()` (on macOS through `node-mac-permissions`, off the main thread: `authorized` and `provisional` read as allowed, `denied` as refused, `not determined` as not asked yet); and the delivery verbs of §Attention Method-Name Registry above — `attention.deliveryRead`, `attention.deliveryTest`, `attention.mailPasswordSave`, `attention.mailPasswordRemove`, `attention.webAddressSave`, `attention.webAddressSecretRotate` and `attention.webAddressRemove`. The daemon keeps no notification preference of its own: it reads the settings file each time it writes an entry, and keeps a session's mute on the session.
-- **Runtime** goes through the service's own surface, the supervisor in the main process, and the folders the service can reach. The service's own supervision surface is [Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior)'s and the main process's supervision sequence is [Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)'s. The service: `daemon.status.read` (its version, start time, processor and memory with their read times; `Check again` calls it again), `daemon.stop`, `daemon.restart`, and `session.terminalCodexList`, the Codex sessions typed in a terminal, which `Stop`'s confirm and the update's waiting line count. The supervisor: `daemon.requestStart()`, `daemon.requestUpdate()`, `daemon.cancelUpdate()`, `daemon.subscribeUpdate()` and the `daemon.status` topic, which on Windows carries `cannotStart {reason}` when the service has written down why it cannot start and `whileSignedOut: on | off | passwordOutOfDate | notOffered`. The folders: `repo.mountList` (each folder with its origin — attached, managed or worktree — what uses it, and `onOtherSideDisk`), `repo.detach` for a project's folder, `repo.worktreeRetire {worktreeId, discard}` for a worktree the app made, and `repo.removedWorktreeList {projectId?}`, `repo.worktreeRestore {removedWorktreeId}` (`Put back`) and `repo.removedWorktreeDelete {removedWorktreeId}` (`Delete now`) for a discarded worktree the app kept. Retention: `daemon.retentionRead`, `daemon.retentionUpdate` and `daemon.retentionPurge`. The machine-wide configuration: `daemon.configRead` and `daemon.configUpdate` — the listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns` (a number of runs, or `null` for `Never ask`), `Max steps per turn`, the memory cap for tool processes, the package cache limit, traces and the replay log. `Max steps per turn` here is the machine's own value every session starts from; its **per-session override** is registered as `session.maxStepsUpdate` in §Session Method-Name Registry above, so the two sides of one number have separate homes rather than one verb writing both. The package caches: `daemon.packageCacheRead` and `daemon.packageCacheClear {cache: bun | uv | all}`. Backup: `daemon.backupRead` and `daemon.backupStart` (`Back up now`), with the backup switch and folder in the machine's settings file; a restore is the supervisor's `daemon.requestRestore(backupId)`, because the service cannot replace its own store while it runs, and `backup.completed`, `backup.failed` and `backup.restored` land on the service's own session. The person's data: `daemon.dataExport {destination}`, which returns a job whose progress `daemon.dataExportSubscribe` carries, `destination` being the path the save dialog hands back; and `daemon.dataErase {}`. The webhook listener's state: `workflow.webhookListenerRead`.
+- **Runtime** goes through the service's own surface, the supervisor in the main process, and the folders the service can reach. The service's own supervision surface is [Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior)'s and the main process's supervision sequence is [Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)'s. The service: `daemon.status.read` (its version, start time, processor and memory with their read times; `Check again` calls it again), `daemon.stop`, `daemon.restart`, and `session.terminalProviderSessionList`, the Codex sessions typed in a terminal, which `Stop`'s confirm and the update's waiting line count. The supervisor: `daemon.requestStart()`, `daemon.requestUpdate()`, `daemon.cancelUpdate()`, `daemon.subscribeUpdate()` and the `daemon.status` topic, which on Windows carries `cannotStart {reason}` when the service has written down why it cannot start and `whileSignedOut: on | off | passwordOutOfDate | notOffered`. The folders: `repo.mountList` (each folder with its origin — attached, managed or worktree — what uses it, and `onOtherSideDisk`), `repo.detach` for a project's folder, `repo.worktreeRetire {worktreeId, discard}` for a worktree the app made, and `repo.removedWorktreeList {projectId?}`, `repo.worktreeRestore {removedWorktreeId}` (`Put back`) and `repo.removedWorktreeDelete {removedWorktreeId}` (`Delete now`) for a discarded worktree the app kept. Retention: `daemon.retentionRead`, `daemon.retentionUpdate` and `daemon.retentionPurge`. The machine-wide configuration: `daemon.configRead` and `daemon.configUpdate` — the listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns` (a number of runs, or `null` for `Never ask`), `Max steps per turn`, the memory cap for tool processes, the package cache limit, traces and the replay log. `Max steps per turn` here is the machine's own value every session starts from; its **per-session override** is registered as `session.maxStepsUpdate` in §Session Method-Name Registry above, so the two sides of one number have separate homes rather than one verb writing both. The package caches: `daemon.packageCacheRead` and `daemon.packageCacheClear {cache: bun | uv | all}`. Backup: `daemon.backupRead` and `daemon.backupStart` (`Back up now`), with the backup switch and folder in the machine's settings file; a restore is the supervisor's `daemon.requestRestore(backupId)`, because the service cannot replace its own store while it runs, and `backup.completed`, `backup.failed` and `backup.restored` land on the service's own session. The person's data: `daemon.dataExport {destination}`, which returns a job whose progress `daemon.dataExportSubscribe` carries, `destination` being the path the save dialog hands back; and `daemon.dataErase {}`. The webhook listener's state: `workflow.webhookListenerRead`.
 - **Devices** goes, on the control plane, through `device.list`, `device.linkStart`, `device.linkRedeem`, `device.link`, `device.linkCancel`, `device.rename`, `device.revoke`, `device.forget`, `runtimenode.rename` and `runtimenode.remove`, from the desktop app through the service's `controlPlane.call` ([Spec-028 §Interfaces And Contracts](../../specs/028-remote-control.md#interfaces-and-contracts)); on each machine through `presence.read {}` and `presence.subscribe {}`; and through the shared-ports list, `preview.portShareList`, `preview.portShareAdd {port}` and `preview.portShareRemove {port}`; Settings' own stores hold nothing of it.
 
 **The machine's settings file** is `<home>/.ai-sidekicks/machine-settings.json`, a place both the main process and a background service started from the command line can find without the app. It holds the auto-update preference, the crash-report switch, the editor preference, the default checkout, the new-session switch, the keep-awake switch, the notification preferences (the switches, the kinds, and the web address's and the email digest's settings other than their secrets), the browser's two switches, the screen-reader switch, the environment rows for every project, the backup switch and the backup folder, the `Branch names` pattern, the folder new clones go into (absent until the person sets one), and voice's two settings (the mode, and the call voice). The folders this machine can reach are not in it: they are the background service's, because only it knows which sessions use a folder. The background service is its one writer, so a change made on another device reaches it as surely as one made at the machine, and a machine running the service with no desktop app can still be changed: the service serves the file through `daemon.machineSettingsRead`, writes a change through `daemon.machineSettingsUpdate {change}`, answered with the file as written, and delivers each written change through `daemon.machineSettingsSubscribe`, the first delivery being the current file. The main process's `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()` carry them; the main process alone may read the file directly, and only before the service first answers, for the values it needs at start (the auto-update preference and the crash-report switch); the renderer never reads the file. The service reads it each time it starts the headless browser, a provider process, a project session, a project's process, a Terminal pane's shell, a clone or a Codex voice call, and keeps no copy; a missing or broken file reads as the defaults there, and the service repairs it. One schema, `MachineSettings` in `packages/contracts/src/machine-settings.ts` beside `daemon.machineSettingsRead`, `daemon.machineSettingsUpdate` and `daemon.machineSettingsSubscribe`, describes the file for both readers. It is written by an ATOMIC RENAME over a schema-checked parse with fail-closed defaults, so a half-written file is never read and a malformed one falls back rather than crashing the screen. A small value may additionally be sealed through the platform's own one-blob encryption. Credential material — a token, a key, the web address's signing secret, the mail password — is never in this file and never in the app's own durable store: it lives in the operating system's keystore, which is why no payload above carries one.
@@ -5620,17 +5532,16 @@ Contracts per D-014-1..20. Canonical TypeScript source once shipped: `packages/c
 
 ```ts
 interface OrchestrationRunConfig {
-  tokenLimit?: number; // per-run token budget; none unless the person sets one (Spec-014 §Budget Policies)
-  idleTimeoutMs?: number; // idle stop condition; none unless the person sets one (Spec-014 §Stop Conditions)
+  tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
 type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step"; // D-014-17: how a child was reached — the provider's own subagent, a bridge `run` call, or a workflow's `agent.run` step (§Plan-027). A `provider_subagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
-type InterruptReason = "budget_exhausted" | "idle_timeout"; // D-014-8: the reasons carried on system-initiated interrupts
+type InterruptReason = "budget_exhausted"; // D-014-8: the reason carried on a system-initiated interrupt at a spend or token limit
 
 // OrchestrationRunCreate — wire: orchestration.runCreate (admission pipeline D-014-13:
-// agent resolution -> budget block -> turn gate -> Plan-003 queue admission; zero-residue typed
+// agent resolution -> spend-limit block -> Plan-003 queue admission; zero-residue typed
 // refusal + durable orchestration.rejected on deny). No count bounds admission: the runtime sets no
 // limit on runs, agents, children, nesting depth or queued messages, so a refusal here is
-// the provider's own, a budget the session owner set, or a target that does not resolve. No console
+// the provider's own, a reached spend limit the person set, or a target that does not resolve. No console
 // control calls it: its callers are the daemon's own paths (the bridge's `run` verb, §Plan-027, and a
 // workflow's run-an-agent node) and the SDK.
 // The target is EITHER an agent already in the session's agents projection, or a saved
@@ -5715,7 +5626,7 @@ interface ChildRunLinkReadResponse {
 }
 
 // BudgetRead / BudgetUpdate — wire: orchestration.budgetRead / orchestration.budgetUpdate (D-014-5;
-// session_budgets row-canonical; budgetUpdate is authorized as the session's user). Every amount is
+// session_budgets row-canonical). Every amount is
 // integer micro-dollars (millionths of a US dollar), the unit both providers report their own figures
 // in, so small requests add up exactly; a figure is rounded once, where it is drawn.
 interface OrchestrationBudgetReadRequest {
@@ -5723,18 +5634,18 @@ interface OrchestrationBudgetReadRequest {
 }
 interface OrchestrationBudgetState {
   sessionId: SessionId;
-  costLimitUsdMicros: number | null; // null = no session cost limit; one exists only where the person set it
-  turnLimitPerAgent: number | null; // null = no turn limit; one exists only where the person set it
+  costLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
   // The ENFORCED number: what admission compares against costLimitUsdMicros wherever a limit is set
   // (with costLimitUsdMicros null nothing is compared and admission is never refused on cost), and the one
   // session cost figure a surface shows — never a sum over a visible run list (Spec-014 §Cost Figure
   // Display Consistency; Plan-014 I-014-24). The budget accountant folds it from the persisted
   // usage.cost_update rows alone: each request is priced once, at completion, from the live price table
-  // and never repriced, so a replay rebuilds the same figure. A model or speed the price table cannot
-  // price is never offered and never runs, so every row carries a price. Plan-014 T2.5 asserts the
+  // and never repriced, so a replay rebuilds the same figure. A request on a model or speed the price
+  // table does not price yet is held with its exact tokens and joins this figure when a later fetch
+  // prices it (Spec-014 §Cost Derivation And Absent-Cost Semantics). Plan-014 T2.5 asserts the
   // equality with the observedValue the daemon stamps on a session-cost usage.budget_warning at the same
-  // fold state (budgetType: 'session_cost' only; the run_tokens and agent_turns members of that union
-  // carry token and turn counts, not money).
+  // fold state (budgetType: 'session_cost' only; the run_tokens member of that union carries a token
+  // count, not money).
   committedSpendUsdMicros: number;
   // Spend per agent in the session's tree, the lead included, routed up the parent chain at any depth:
   // `ownUsdMicros` is what the agent's own requests cost, `subtreeUsdMicros` that plus every descendant's.
@@ -5744,13 +5655,13 @@ interface OrchestrationBudgetState {
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
 interface OrchestrationBudgetUpdateRequest {
-  // each limit is a non-negative integer or null — Zod .int().nonnegative().nullable(),
+  // the limit is a non-negative integer or null — Zod .int().nonnegative().nullable(),
   // mirroring the session_budgets CHECK constraints (local-sqlite-schema.md §Orchestration Tables).
-  // An omitted member leaves that limit as it stands; null clears it, after which nothing warns,
-  // interrupts or refuses on it.
+  // An omitted member leaves the limit as it stands; null clears it to `Unlimited`, after which nothing
+  // warns, interrupts or refuses on it. Saving a higher limit carries a turn the limit stopped on, as
+  // `Raise limit` does (Spec-014 §Budget Policies).
   sessionId: SessionId;
   costLimitUsdMicros?: number | null;
-  turnLimitPerAgent?: number | null;
 }
 // Same state type as the read response, served from the one budget-accountant accessor exactly as the
 // read is: a budgetUpdate reply reports the new limits alongside committed spend at that post-write
@@ -5763,7 +5674,7 @@ type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 // condition as the provider's own goal command and reads each ending back from what the provider
 // writes. It never emulates a goal by injecting text into prompts (Spec-014 §Session Goals).
 interface SessionGoal {
-  text: string; // 1–4096 chars, non-blank, NUL-rejected (standard bounded free-form guards — persisted to the event log and handed to the provider's own goal command)
+  text: string; // non-blank, NUL-rejected, no length cap of the app's own: the provider refuses in its own words (persisted to the event log and handed to the provider's own goal command)
 }
 // The goal's status, carried on session.goal_updated. `complete` and `impossible` are terminal: a goal's
 // last status is what its row draws. Only Claude Code sends `impossible`, carrying the judge's reason.
@@ -5907,20 +5818,11 @@ interface AgentBindingSwitchPending {
 // `AgentBindingSwitchPending` record above PLUS members that are never returned to a caller
 // and never appended to an event payload:
 //
-//   admittingPrincipalId — the daemon-resolved, transport-authenticated principal that admitted
-//     this switch, recorded under the §Authenticated Principal And Authorization Model class rule
-//     above. A pending switch IS an admitting write: its acceptance authorizes work the original
-//     request no longer accompanies — the application itself, and every turn the new binding then
-//     executes. Both terminals require an `actor`, and a switch settling after a restart has no
-//     request left to resolve one from. No `origin` discriminator accompanies it: the class rule
-//     makes that member conditional on a row having a non-user writer, and this slot has none. Its
-//     two writers — `agent.configUpdate`, and `providerAccount.setCurrent` (§Plan-026) for a session
-//     it moves by the resume path — are both the person's own acts, so every pending switch is a user
-//     admission and the principal is unconditionally required. The absence is recorded here rather
-//     than left silent because under that rule it is a claim, not an omission. Were a system-
-//     initiated switch ever specified, the rule would oblige the discriminator AND oblige that it
-//     be enforced by the recorded value's own shape: this carrier is a JSON blob, which no
-//     table-level CHECK constrains.
+//   the admitting device — the device whose connection carried the switch (§Authenticated Principal
+//     And Authorization Model: a write records its device). Both terminals require an `actor`, and a
+//     switch settling after a restart has no request left to read one from. Its two writers —
+//     `agent.configUpdate`, and `providerAccount.setCurrent` (§Plan-026) for a session it moves by
+//     the resume path — are both the person's own acts.
 //   interruptDispatch — "requested" | "dispatched", present exactly when `interruptRequested` is
 //     true. Deliberately NOT a boolean and not folded into `interruptRequested`, because recovery
 //     must separate "crashed before the interrupt went out, so dispatch it" from "crashed after it
@@ -5929,11 +5831,9 @@ interface AgentBindingSwitchPending {
 //     interrupt is accepted; a crash between the two costs one idempotent redispatch, never a lost
 //     switch.
 //
-// Both are recovery inputs rather than session-observable facts, and the class rule binds a
-// DURABLE HOME — a projection column or a canonical event payload — never a mutation reply.
-// Echoing a resolved principal back to its own caller would invite a client to read it as
-// authority; keeping the slot a superset is what lets the wire shape stay exactly the intent a
-// client is entitled to see.
+// Both are recovery inputs rather than session-observable facts, so they live in the durable slot
+// and never in a mutation reply; keeping the slot a superset is what lets the wire shape stay
+// exactly the intent a client is entitled to see.
 
 // The immediate arm's failure settlement, carrying the SAME vocabulary as the
 // `agent.provider_binding_change_failed` event below — one vocabulary across two surfaces, so a
@@ -6055,8 +5955,7 @@ type DeclaredLossKind =
   | "tool_output_bodies" // earlier steps travel as one-line notes, so the bodies of their output do not. Files touched on disk are unchanged
   | "live_tool_calls" // tool calls arrive as history and never as work in flight; a call that was about to run does not run
   | "provider_skill_and_command_names" // the old provider's own skills and commands name nothing on the new one
-  | "turn_content_unavailable" // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The first member produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentBindingSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
-  | "turn_content_truncated"; // a logged turn's body exceeded CONTENT_PAYLOAD_PLAINTEXT_MAX at append and is stored as a codepoint-boundary prefix in session_events.content_payload; the fold carries the prefix and names the loss rather than replaying a silently shortened turn. The second member produced at pipeline step 1 (Fold), reaching AgentBindingSwitchOutcome.declaredLosses through the canonical projection like its sibling above and never through DriverTranscriptExportResult. Deliberately NOT folded into "context_truncated", whose scope is the brief's verbatim budget evicting whole exchanges and never halves, and NOT reported as "turn_content_unavailable", which would overstate a turn that is available as a prefix (Spec-005 §Assistant Output)
+  | "turn_content_unavailable"; // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The one member produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentBindingSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
 
 // agent.provider_binding_changed — a switch landed (Spec-005 §Agent Lifecycle). A change
 // of model, effort or speed alone settles `in_place` with no declared losses and draws no transcript
@@ -6066,7 +5965,7 @@ type DeclaredLossKind =
 interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   sessionId: SessionId;
   agentId: AgentId;
-  actor: string; // the admitting principal recorded on the pending switch
+  actor: string; // the admitting device recorded on the pending switch
   from: AgentProviderBinding; // the binding the agent left, its account included
   to: AgentProviderBinding; // the binding it is on now; `providerAccountId` null where it follows the provider's current account
   // The account the run actually landed on, separate from `to.providerAccountId`, so an agent that
@@ -6161,8 +6060,8 @@ interface AgentListEntry {
 // workflow created, on this row only and never on the run's state stream; an orchestration-created child's
 // run_links row and its per-run limits rebuild from this event alone, while a provider's own subagent's row
 // is written by the provider driver from that provider's subagent notifications. `effectiveRunConfig` is
-// the admission-resolved OrchestrationRunConfig (request override else session default), kept so budget
-// and idle enforcement rebuild the same even if session defaults change mid-run (D-014-5, I-014-14).
+// the admission-resolved OrchestrationRunConfig (request override else session default), kept so the
+// token-limit enforcement rebuilds the same even if session defaults change mid-run (D-014-5, I-014-14).
 //
 // The run's agent is named ONE way, never both: `agentId` for an agent already in the projection, or
 // `resolvedAgent` where the request that created the run named a saved definition instead — a peer
@@ -6185,12 +6084,10 @@ type RunQueuedPayload = {
   // their values through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at the queue
   // write — CP-003-10 owns the stamps either way). Never client-suppliable, and never on the run's state
   // stream.
-  // The unpriced cap, in micro-dollars, on a native-cap admission only.
-  admittedUnpricedCapUsdMicros?: number;
   // As-of-admission model family, frozen here for every admitted provider run: orchestration-
   // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from
-  // the admission-resolved provider model. Derived pricing, family caps, and warnings all key
-  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
+  // the admission-resolved provider model. Derived pricing keys off it; a later
+  // agent.configUpdate model change never re-keys an admitted run, and replay
   // reads this field, never the current agents projection. Derived pricing resolves per usage
   // row: a row wire-attributed to another model (e.g. a differently-modeled subagent) keys off
   // that model's family; this field is the fallback when the wire carries no attribution.
@@ -6217,7 +6114,7 @@ interface OrchestrationRunLinkCarrier {
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
   internalHelper: boolean;
   agentId: AgentId; // the resolved target (CP-003-10): the wire's targetAgentId, written to run.queued as `agentId`, or the agent minted from its targetDefinitionId, written as `resolvedAgent`
-  effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so budget/idle enforcement rebuilds replay-stable (D-014-5, I-014-14)
+  effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so the token-limit enforcement rebuilds replay-stable (D-014-5, I-014-14)
 }
 ```
 
@@ -6229,12 +6126,12 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | A read of the daemon's parent-to-child index for the whole session: both kinds of child, their head facts, the badge counts, and event-folded `rejectedCreates` (zero-residue refusals, I-014-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` | Committed spend and the per-agent spend, in micro-dollars |
 | `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-014-25 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
-| `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Session-owner-only (wire-boundary authorization) |
-| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | Owner-only, per the Security Architecture permission matrix ([Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals)); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
-| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | Owner-only; an accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
+| `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Sets or clears the session's `Spend limit` |
+| `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
+| `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, effort, speed and provider; never the account, which is `providerAccount.setCurrent` (§Plan-026). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
 | `agent.list` | subscription | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
-| `session.terminalCodexList` | RPC | `SessionTerminalCodexListParams` → `SessionTerminalCodexListResult` | The Codex sessions typed in a terminal; shapes in §Plan-006; empty while `Reach Codex sessions started in a terminal` is off |
+| `session.terminalProviderSessionList` | RPC | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The Codex sessions typed in a terminal; shapes in §Plan-006; empty while `Reach Codex sessions started in a terminal` is off |
 
 `session.maxStepsUpdate`, the session's own `Max steps per turn` override, is registered with its shapes in §Session Method-Name Registry.
 
@@ -6263,27 +6160,6 @@ interface SessionCostReceipt {
   providers: SessionCostReceiptProvider[];
 }
 
-// Spend no user caused — scheduled sweeps, idle-timeout settlements, daemon-initiated
-// recovery turns — lands on the `system` arm rather than being distributed across users
-// or silently dropped. An unattributable turn is NOT guessed.
-//
-// The turn-scoped effective principal: the party whose causation a unit of work is attributed to.
-// Daemon-resolved and NEVER wire- or driver-supplied — the run engine maintains it from the
-// `interventions` admitting-principal rows (the intervener for a steered or edited-and-resent
-// turn; for a run created by a peer-invocation tool call, the effective principal of the
-// invoking TURN — the one that issued the call, already resolved and stamped at that moment,
-// so a later steer of the asking run never re-attributes an already-created child — chained
-// through the parent/child run link; otherwise the user who started the run), and the driver's usage normalizer stamps
-// it at emission. Registered as instance (4) of the §Authenticated Principal class rule, whose
-// two shape deviations that section states explicitly.
-//
-// The user reference is required on the user arm and
-// ABSENT on the system arm — the same discriminator discipline the `interventions.origin` CHECK
-// enforces in storage, expressed here by the union's shape because a wire payload has no table to
-// constrain. A single nullable user id is not used, for the reason the column does not use one:
-// an unstamped value and a deliberately-unattributed one would be indistinguishable.
-type EffectivePrincipal = { kind: "user"; userId: UserId } | { kind: "system" };
-
 // One provider the session spent on.
 interface SessionCostReceiptProvider {
   provider: string; // the provider driver key, as on an agent's binding
@@ -6302,7 +6178,7 @@ interface SessionCostReceiptAccountRow {
 }
 ```
 
-The receipt mints no event type, no error code and no table: it is a decomposition of the budget accountant's in-memory fold over the `usage.cost_update` rows, whose `effectivePrincipal` member is the turn-scoped effective-principal carrier (instance (4) of §Authenticated Principal And Authorization Model). The account each row names comes from the per-turn usage rows, keyed on the account each request ran on, and its name and billing mode as Plan-026 supplies them ([Plan-026](../../plans/026-provider-accounts-and-credential-homes.md), CP-026-3); a turn split across two accounts by an account switch lands as two rows, so the rows still sum to the session total.
+The receipt mints no event type, no error code and no table: it is a decomposition of the budget accountant's in-memory fold over the `usage.cost_update` rows, including the rows written for requests priced from a provider's own telemetry export. The account each row names comes from the per-turn usage rows, keyed on the account each request ran on, and its name and billing mode as Plan-026 supplies them ([Plan-026](../../plans/026-provider-accounts-and-credential-homes.md), CP-026-3); a turn split across two accounts by an account switch lands as two rows, so the rows still sum to the session total.
 
 ### Plan-015 — Workflow Authoring And Execution
 
@@ -6341,14 +6217,8 @@ interface WorkflowDefinitionCreateRequest {
   // scope ref to derive, so it is refused as below.
   sessionId?: SessionId;
   name: string;
-  // A create whose target scope is `shared` — a save from the Save panel, a Duplicate, or
-  // a file import, which all ride this one operation — adjudicates the daemon's
-  // operator-scope authorization through the Plan-010 Cedar evaluation surface
-  // (`PermissionCheckService`) against the daemon-resolved node-owner user identity
-  // before any row is written, and fails closed where that identity cannot be resolved.
-  // A non-operator principal is refused with `workflow.operator_required`, never
-  // silently downgraded to a narrower scope (Spec-015 §Core SDK and persistence
-  // contracts; the Spec-025 §Authorization governance-mutation boundary). A document the
+  // A save from the Save panel, a Duplicate, and a file import all ride this one operation,
+  // at any scope, with no role check. A document the
   // daemon's re-check refuses answers `workflow.definition_refused`, carrying every
   // finding with the rule it breaks and the nodes it names.
   scope: WorkflowDefinitionScope;
@@ -6473,13 +6343,11 @@ interface WorkflowStepError {
 
 // A reference to a step payload the run record does not inline. Under the inline bound the payload is
 // carried as items; above it the payload is an artifact, and the panel that renders it says which — a
-// reader must never be left guessing whether it is seeing the whole thing. `expired` is the third arm and
-// not an error: step data is kept for a bounded time and a run past that bound still lists, still carries
-// its status, timings and summary, and reads that its data expired in place of its panels.
+// reader must never be left guessing whether it is seeing the whole thing. Step data is kept until the
+// person deletes the run or its session.
 type WorkflowPayloadRef =
   | { kind: "inline"; items: WorkflowItem[] }
-  | { kind: "artifact"; artifactId: ArtifactId; sizeBytes: number }
-  | { kind: "expired" };
+  | { kind: "artifact"; artifactId: ArtifactId; sizeBytes: number };
 
 // Run statuses are the list below, and nothing else is displayed. `waiting` is never swept to `crashed` on
 // a daemon start and is never pruned, so a run parked on a person survives a restart and rehydrates.
@@ -6602,12 +6470,10 @@ interface WorkflowStep {
 }
 
 // The value of a node's `tool` param: a reference, and only a reference. Carries NO `enabled`,
-// `approvalMode`, or `idempotencyClass` facet —
-// those are set by this machine's own client or any linked device, and no session, under Spec-025 §Tool-Level Overrides
-// under Cedar authorization, resolved live at step launch through the Spec-004
-// tool-metadata layer. A definition carrying one is rejected at parse, not ignored at
-// launch, so an imported or hand-edited definition cannot smuggle a weakened posture
-// onto a machine (Spec-015 §Tool bindings are references, never inline policy (SA-34)).
+// `approvalMode`, or `idempotencyClass` facet — a tool's approval lives only in Settings › MCP
+// servers (Spec-025 §Tool-Level Overrides), resolved live at step launch through the Spec-004
+// tool-metadata layer. A definition carrying one is refused as an ordinary parse error naming
+// the field (Spec-015 §Tool bindings are references, never inline policy (SA-34)).
 // Identity COMPOSES the Plan-025-owned `McpServerBindingRef` discriminated union declared
 // in §Plan-025 below rather than restating its members: Plan-015 consumes that identity and
 // authors none of it (CP-015-6), and re-declaring it flat would drop the scope rules the union
@@ -6745,8 +6611,9 @@ interface WorkflowVersionReadResponse {
 
 // WorkflowRunStart. Callers: CLI, desktop, the intercepted `/workflow run` verb, and the
 // `workflow_run` callback tool — all one operation;
-// no chat caller mints a start mode (Spec-015 SA-37/SA-38). The handler adjudicates the
-// SA-39 named Cedar operation action per start and refuses `workflow.start_denied`.
+// no chat caller mints a start mode (Spec-015 SA-37/SA-38). An agent's start, and each run a
+// trigger fires, is judged under the SA-39 named Cedar operation action `workflow::start` and
+// refused with `workflow.start_denied`; the person's own start passes no policy check.
 interface WorkflowRunStartRequest {
   // The opaque server-minted version reference — the immutable version row's
   // primary key, returned verbatim by workflow.versionRead,
@@ -6830,7 +6697,7 @@ interface WorkflowRunReadResponse {
   // at each approval pause and at the end. True for a run in a project session; false for a run in a
   // chat session, which has no Review. It decides whether `Open in Review` opens what the run changed.
   executionContextCaptured: boolean;
-  // Whether the person marked the run Keep, which holds its step data past the retention bound.
+  // Whether the person marked the run Keep, which `workflow.runsDelete` leaves untouched.
   keep: boolean;
   // The session a failed step's `Fix in a fresh session` opened, which the header links to for the life
   // of the run.
@@ -7058,11 +6925,11 @@ interface WorkflowDefinitionExportResponse {
 
 // WorkflowDefinitionImport — workflow.definitionImport. Reads the file the person picked with the platform's
 // own open dialog — its `FilePathRef` token, turned into a path by main's relay — parses it, and submits it
-// through the ORDINARY create path with the ordinary validation, all or nothing, so an import can never
-// carry governance state: a tool binding with an inline policy facet, an unknown top-level key, or a scope
-// the caller may not author are each refused at parse rather than ignored at launch. A file whose schema
-// version the daemon does not know is refused with `workflow.import_schema_unknown`. A Code node keeps the
-// package lock the file carries, and one without a lock is locked on import. A document with no layout
+// through the ORDINARY create path with the ordinary validation, all or nothing: a tool binding with an
+// approval setting and an unknown top-level key are each refused as parse errors naming the field. A file
+// whose schema version the daemon does not know is refused with `workflow.import_schema_unknown`. A Code
+// node keeps the package lock the file carries, and one without a lock is locked on import, or kept with
+// `Packages not locked` where the lock cannot be made. A document with no layout
 // section is laid out deterministically on open, so an imported file is never unopenable.
 interface WorkflowDefinitionImportRequest {
   sessionId?: SessionId; // omitted from the Workflows screen, as on workflow.definitionCreate
@@ -7192,9 +7059,8 @@ interface WorkflowStepReadResponse {
 // WorkflowRunRetry — workflow.runRetry. Re-runs from a NAMED STEP: that step and its descendants run
 // again, with the prior run's data pinned upstream so the retry feeds on exactly what the original fed on.
 // It mints a new run in `retry` mode rather than mutating the original, which stays readable. It is
-// refused with `workflow.retry_unavailable` — `reason: "step_data_expired"` where the upstream step data
-// has passed the retention bound, `"source_running"` while the source run is still going — and with
-// `workflow.invalid_transition` for a step that did not fail.
+// refused with `workflow.retry_unavailable` — `reason: "source_running"` while the source run is still
+// going — and with `workflow.invalid_transition` for a step that did not fail.
 interface WorkflowRunRetryRequest {
   workflowRunId: WorkflowRunId;
   fromNodeId: WorkflowNodeId;
@@ -7436,9 +7302,9 @@ interface WorkflowDraftReadResponse {
 
 // WorkflowExpressionPreview — workflow.expressionPreview. An expression's value against the current item of
 // the last run that executed the node, shown live under the field. Expressions are evaluated in the daemon
-// only, on the same engine and budget a run uses. The preview never resolves a secret: a sensitive field
-// previews the secret's name, never its value. An evaluation over its budget is refused with
-// `workflow.expression_over_budget`.
+// only, on the same engine a run uses, with no time limit; the engine's cooperative yielding and
+// cancellation stay. The preview never resolves a secret: a sensitive field previews the secret's name,
+// never its value.
 interface WorkflowExpressionPreviewRequest {
   // The unsaved draft the expression sits in, or the saved definition where the builder holds no edits.
   workflowDraftId?: string;
@@ -7502,8 +7368,8 @@ interface WorkflowRunsDeleteResponse {
   deletedCount: number;
 }
 
-// WorkflowRunKeepSet — workflow.runKeepSet. Marks a run Keep, which holds its step data past the
-// retention bound, or clears the mark. The change rides workflow.subscribe.
+// WorkflowRunKeepSet — workflow.runKeepSet. Marks a run Keep, which `workflow.runsDelete` leaves
+// untouched, or clears the mark. The change rides workflow.subscribe.
 interface WorkflowRunKeepSetRequest {
   workflowRunId: WorkflowRunId;
   keep: boolean;
@@ -7783,14 +7649,14 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
-| `workflow.definitionCreate` | `mutation` | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; the daemon re-checks the whole document and refuses `workflow.definition_refused` with every finding; a `shared`-target create clears the daemon's operator-scope authorization first and refuses `workflow.operator_required` (Spec-015 §Core SDK and persistence contracts) |
+| `workflow.definitionCreate` | `mutation` | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; the daemon re-checks the whole document and refuses `workflow.definition_refused` with every finding |
 | `workflow.definitionRead` | `query` | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied; carries a webhook workflow's token dates and last fire, never the token |
 | `workflow.definitionList` | `query` | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | Every saved workflow with the facts its catalog row shows, and the total; from a session, that session's resolved scope set, most-specific-first; with no session, every definition on this machine |
 | `workflow.versionRead` | `query` | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
-| `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own; emits `workflow.started`; adjudicates the SA-39 named action per start and refuses `workflow.start_denied` (ADR-027) |
+| `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own; emits `workflow.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.start_denied` (ADR-027) |
 | `workflow.runRead` | `query` | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the step array with each waiting step's cause, the chain's first run, whether the run's execution context was captured, the Keep mark and the fix session; the live park members ride each parked `WorkflowStep`, so a parked run renders from this one call (Spec-015 §Park surfacing on the read model) |
-| `workflow.runCancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.canceled` in the same unit of work as the status write (I-015-25); adjudicates `Action::"workflow::cancel"` and refuses `workflow.control_denied`, or `workflow.run_not_cancelable` against a run that ended `succeeded`, `failed` or `crashed` (an already-`canceled` run replays idempotently) |
-| `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | The person's resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
+| `workflow.runCancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.canceled` in the same unit of work as the status write (I-015-25); refuses `workflow.run_not_cancelable` against a run that ended `succeeded`, `failed` or `crashed` (an already-`canceled` run replays idempotently) |
+| `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | The person's resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the re-pin member on an accepted repair); refuses `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
 | `workflow.stepOutputList` | `query` | `WorkflowStepOutputListRequest` → `WorkflowStepOutputListResponse` | The agent and human steps' output summaries and artifact references, for the CLI and an SDK; one step's full input, output or log comes only from `workflow.stepRead`; a retry adds entries, never changes one (SA-16) |
 | `workflow.gateResolve` | `mutation` | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Answers an approval step, or a chain's question (`approved` keeps going, `rejected` stops them all); appends one `workflow_gate_resolutions` row; emits `workflow.gate_resolved`; refuses `workflow.step_not_waiting` on a step no longer waiting |
 | `workflow.humanFormDraftSave` | `mutation` | `WorkflowHumanFormDraftSaveRequest` → `WorkflowHumanFormDraftSaveResponse` | Writes the daemon-held draft of a form step as it is typed; each save bumps the draft's own revision, and a stale one refuses `workflow.revision_stale` (SA-28) |
@@ -7798,7 +7664,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.definitionUpdate` | `mutation` | `WorkflowDefinitionUpdateRequest` → `WorkflowDefinitionUpdateResponse` | A new immutable version of an existing definition, optimistic on the expected version (`workflow.version_stale` when it is stale); an edit to a `shared` definition branches instead of touching the original |
 | `workflow.definitionDelete` | `mutation` | `WorkflowDefinitionDeleteRequest` → `WorkflowDefinitionDeleteResponse` | Soft delete; the runs that pinned its versions stay readable, and the response states how many |
 | `workflow.definitionExport` | `mutation` | `WorkflowDefinitionExportRequest` → `WorkflowDefinitionExportResponse` | Writes the canonical file form of one version, layout section and package locks included, to the file the platform's save dialog picked |
-| `workflow.definitionImport` | `mutation` | `WorkflowDefinitionImportRequest` → `WorkflowDefinitionImportResponse` | Reads the file the platform's open dialog picked and submits it through the create path, all or nothing, so an import carries no governance state; refuses `workflow.import_schema_unknown` for an unknown schema version |
+| `workflow.definitionImport` | `mutation` | `WorkflowDefinitionImportRequest` → `WorkflowDefinitionImportResponse` | Reads the file the platform's open dialog picked and submits it through the create path, all or nothing; refuses `workflow.import_schema_unknown` for an unknown schema version |
 | `workflow.enabledSet` | `mutation` | `WorkflowEnabledSetRequest` → `WorkflowEnabledSetResponse` | Arms or disarms every trigger of one workflow; refuses `workflow.trigger_unarmable` where a trigger cannot arm |
 | `workflow.runList` | `query` | `WorkflowRunListRequest` → `WorkflowRunListResponse` | The runs enumeration, with the filters the table narrows on, the version scope Show runs hands in, the total and paging |
 | `workflow.versionChainRead` | `query` | `WorkflowVersionChainReadRequest` → `WorkflowVersionChainReadResponse` | The chain one run's pinned version belongs to, addressed by that version id |
@@ -7813,12 +7679,12 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.pinDataSet` | `mutation` | `WorkflowPinDataSetRequest` → `WorkflowPinDataSetResponse` | Pins or unpins a node's test data without a new version; honored only in manual runs |
 | `workflow.draftUpdate` | `mutation` | `WorkflowDraftUpdateRequest` → `WorkflowDraftUpdateResponse` | The builder's unsaved draft, held by the daemon so it survives a reload; the first call mints the draft's id |
 | `workflow.draftRead` | `query` | `WorkflowDraftReadRequest` → `WorkflowDraftReadResponse` | The draft read back after a reload, by the id the builder's address carries |
-| `workflow.expressionPreview` | `query` | `WorkflowExpressionPreviewRequest` → `WorkflowExpressionPreviewResponse` | An expression's value against the last run, evaluated in the daemon; never resolves a secret; refuses `workflow.expression_over_budget` |
+| `workflow.expressionPreview` | `query` | `WorkflowExpressionPreviewRequest` → `WorkflowExpressionPreviewResponse` | An expression's value against the last run, evaluated in the daemon; never resolves a secret |
 | `workflow.versionDiffRead` | `query` | `WorkflowVersionDiffReadRequest` → `WorkflowVersionDiffReadResponse` | The structural difference between two versions, over the hashed body only |
 | `workflow.runDelete` | `mutation` | `WorkflowRunDeleteRequest` → `WorkflowRunDeleteResponse` | Deletes one run with its step data and snapshots; refuses `workflow.run_not_deletable` on a `new`, `running` or `waiting` run |
 | `workflow.runsDeletePreview` | `query` | `WorkflowRunsDeletePreviewRequest` → `WorkflowRunsDeletePreviewResponse` | What "Delete runs older than…" would remove, counted before it runs |
 | `workflow.runsDelete` | `mutation` | `WorkflowRunsDeleteRequest` → `WorkflowRunsDeleteResponse` | Deletes the runs older than an instant; runs marked Keep and runs in `waiting` are untouched |
-| `workflow.runKeepSet` | `mutation` | `WorkflowRunKeepSetRequest` → `WorkflowRunKeepSetResponse` | Keeps a run's step data past the retention bound, or clears the mark |
+| `workflow.runKeepSet` | `mutation` | `WorkflowRunKeepSetRequest` → `WorkflowRunKeepSetResponse` | Marks a run Keep, which deleting old runs leaves, or clears the mark |
 | `workflow.fixSessionCreate` | `mutation` | `WorkflowFixSessionCreateRequest` → `WorkflowFixSessionCreateResponse` | Opens a fresh session to fix a failed step, which the run links to; refuses `workflow.invalid_transition` on a step that did not fail |
 | `workflow.humanFormRead` | `query` | `WorkflowHumanFormReadRequest` → `WorkflowHumanFormReadResponse` | A waiting form: prompt, fields, the saved draft and the submit revision; refuses `workflow.step_not_waiting` |
 | `workflow.runAttentionList` | `query` | `WorkflowRunAttentionListRequest` → `WorkflowRunAttentionListResponse` | The runs waiting on a person, oldest first, under the spent-account parks folded by attention key; no filter narrows it |
@@ -7847,49 +7713,38 @@ The session's workflow callback tools (ADR-027; [Spec-015 §Interfaces And Contr
 
 No tool in the set takes the session it acts on as an argument, per [Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts): the daemon derives it from the invoking turn's own context, validates the derived value, and refuses a smuggled one, so a forged target cannot be reached. `workflow_run` and `workflow_node_execute` take a definition by name and resolve it most-specific-first (session → project → shared), issuing the same start path as `workflow.runStart`; a Cedar denial answers `denied` carrying `workflow.start_denied`. None of these tools is a JSON-RPC method: the chat-start surface adds no registry row of its own.
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.gate_closed`; `workflow.start_denied` for a denied or unresolvable start; `workflow.control_denied`, `workflow.run_not_cancelable` and `workflow.resume_not_parked` for the operator controls; the [Spec-015 §Frozen-definition repair (SA-41)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-41) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from the list in `packages/contracts/src/workflow/methods.ts`, and `detail` set only on `code_packages_unresolved`, where it is the package tool's own error naming the package; `workflow.operator_required` (403) for a `shared` save by a non-operator; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: step_data_expired | source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; `workflow.expression_over_budget` for an expression evaluation over its budget; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude-code | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.kept_value_too_large`, `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-015: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.gate_closed`; `workflow.start_denied` for a denied or unresolvable start; `workflow.run_not_cancelable` and `workflow.resume_not_parked` for cancel and resume; the [Spec-015 §Frozen-definition repair (SA-41)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-41) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from the list in `packages/contracts/src/workflow/methods.ts`; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude-code | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-015: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
 
 ---
 
-## GDPR And Rate Limiting
+## Rate Limiting And Data Retention
 
 ### Spec-019 — Rate Limiting
 
-Shapes below are canonical per [Plan-019](../../plans/019-rate-limiting-policy.md) (D-019-6/D-019-14/D-019-17); code home is the control plane's `packages/control-plane/src/rate-limit/` for the limiter and its check types, and `packages/contracts/src/rate-limiter.ts` for the 429 envelope `RateLimitResponse` alone (Plan-019 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
+Shapes below are canonical per [Plan-019](../../plans/019-rate-limiting-policy.md) (D-019-6/D-019-14/D-019-17). The relay counts requests on its sign-in routes only; code home is the control plane's `packages/control-plane/src/rate-limit/` for the limiter and its check types, and `packages/contracts/src/rate-limiter.ts` for the 429 envelope `RateLimitResponse` alone (Plan-019 Phase 1). Endpoint-group keys come from [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry).
 
 ```ts
-// RateLimitCheck (internal operation, both backends)
-type RateLimitIdentityType = "user" | "ip"; // D-019-17
-type RateLimitTier = "anonymous" | "authenticated";
-
+// RateLimitCheck (internal operation, both backends). A counter error fails that one request like
+// any backend error.
 interface RateLimitCheckRequest {
-  identity: string; // canonical form (D-019-14): user = UserId UUID; ip = IPv4 exact dotted-quad / IPv6 normalized to its /64 prefix; session = SessionId UUID
-  identityType: RateLimitIdentityType;
-  endpoint: RateLimitEndpointGroup; // registry-key union (Spec-019 registry)
-  tier?: RateLimitTier; // resolved server-side; never caller-supplied
-  context?: Record<string, unknown>;
+  identity: string; // the caller's source address, canonical form (D-019-14): IPv4 exact dotted-quad / IPv6 normalized to its /64 prefix (D-019-17)
+  endpoint: RateLimitEndpointGroup; // registry-key union (Spec-019 registry): the sign-in routes' one group
 }
-// Two-arm union (Plan-019): the degraded arm is minted only by the
-// fail-open wrapper during grace and carries no window fields — nothing authoritative
-// exists while the backend is unreachable; `graceEndsAt` = grace expiry (503 boundary).
-type RateLimitCheckResponse =
-  | {
-      allowed: boolean;
-      remaining: number;
-      resetAt: string; // ISO 8601
-      limit: number; // total threshold for this window
-      degraded?: never;
-    }
-  | { allowed: true; degraded: true; graceEndsAt: string };
+interface RateLimitCheckResponse {
+  allowed: boolean;
+  remaining: number;
+  resetAt: string; // ISO 8601
+  limit: number; // total threshold for this window
+}
 ```
 
-### Spec-020 — Data Retention And GDPR
+### Spec-020 — Data Retention, Export And Deletion
 
-The data acts are daemon JSON-RPC verbs on the `daemon` root, registered by Plan-020 on Plan-006's `MethodRegistry`, with their params and result schemas in `packages/contracts/src/daemon-data.ts`: `daemon.dataExport {destination}` with `daemon.dataExportSubscribe` for its progress (`Export all data`), and `daemon.dataErase {}` (`Erase all data`) (§Operations Not Yet Built, `daemon.*`). They are daemon verbs rather than control-plane routes because the handlers read the daemon's own database and the machine's credential store, which a Cloudflare-Workers control plane cannot reach (Plan-020 D-020-3). A session's purge is `daemon.retentionPurge` (`Delete old data`). Deleting the hosted account is the control plane's `account.delete`, and `account.export` answers the export's `hosted-account.json` (§Operations Not Yet Built, `account.*`). No `gdpr.*` method exists.
+The data acts are daemon JSON-RPC verbs on the `daemon` root, registered by Plan-020 on Plan-006's `MethodRegistry`, with their params and result schemas in `packages/contracts/src/daemon-data.ts`: `daemon.dataExport {destination}` with `daemon.dataExportSubscribe` for its progress (`Export all data`), and `daemon.dataErase {}` (`Erase all data`) (§Operations Not Yet Built, `daemon.*`). They are daemon verbs rather than control-plane routes because the handlers read the daemon's own database and the machine's credential store, which a Cloudflare-Workers control plane cannot reach (Plan-020 D-020-3). A session's purge is `daemon.retentionPurge` (`Delete old data`). Deleting the hosted account is the control plane's `account.delete`, and `account.export` answers the export's `hosted-account.json` (§Operations Not Yet Built, `account.*`).
 
 ## Plan-025 — MCP Governance Contract Surfaces
 
-Governed by [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md). The `mcp.*` operations register against the Plan-006 `MethodRegistry` when Plan-025 lands (the CP-006-3 late-namespace pattern; `mcp.subscribe` rides the Plan-006 streaming primitive, the `session.subscribe` consumer shape); the event payloads mirror [Spec-005 §MCP Governance (`mcp_governance`)](../../specs/005-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-005 T1.10; payloads authored by Plan-025 — the emitter-authors-payload precedent); the status read model consumes the Plan-004 `McpServerStatusUpdate` seam (§Plans 004, 005 And 006 above). Authorization: every mutating operation evaluates the Cedar `mcp` actions through Plan-010's `PermissionCheckService` before any provider call or store write; the V1 principal is this machine's own client or any linked device, and no session — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational commands `mcp.oauthLogin` and `mcp.oauthLogout` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-004/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-025 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Plan-025 I-025-1: credential custody is exactly what ADR-040 records) — raw `scopeRef` filesystem paths included: durable event payloads identify project/local bindings by the keyed `scopeRefDigest` of the audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the trust-boundary header's free-form-string rule, classified as non-PII infrastructure identifiers per Spec-025 §Status Observation and Events. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-025 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, or a missing `scopeRef` on `project`/`local`) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Every scope exists on both providers: Codex has no private per-project layer, so its `local` scope is the daemon's emulation described with the operations below. Two grains share this section deliberately: the config **binding** above and the Plan-004 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
+Governed by [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md). The `mcp.*` operations register against the Plan-006 `MethodRegistry` when Plan-025 lands (the CP-006-3 late-namespace pattern; `mcp.subscribe` rides the Plan-006 streaming primitive, the `session.subscribe` consumer shape); the event payloads mirror [Spec-005 §MCP Governance (`mcp_governance`)](../../specs/005-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-005 T1.10; payloads authored by Plan-025 — the emitter-authors-payload precedent); the status read model consumes the Plan-004 `McpServerStatusUpdate` seam (§Plans 004, 005 And 006 above). Authorization: every mutating operation is open to this machine's own client or any linked device, and no session, with no policy check and no ownership refusal — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational commands `mcp.oauthLogin` and `mcp.oauthLogout` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-004/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-025 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Plan-025 I-025-1: credential custody is exactly what ADR-040 records) — raw `scopeRef` filesystem paths included: durable event payloads identify a binding by the path-free audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the trust-boundary header's free-form-string rule, classified as non-PII infrastructure identifiers per Spec-025 §Status Observation and Events. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-025 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, or a missing `scopeRef` on `project`/`local`) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Every scope exists on both providers: Codex has no private per-project layer, so its `local` scope is the daemon's emulation described with the operations below. Two grains share this section deliberately: the config **binding** above and the Plan-004 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
 
 ```ts
 // ---- Primitives (Spec-025) ----
@@ -7912,21 +7767,17 @@ type McpServerBindingRef =
   | { provider: McpProvider; scope: "project"; scopeRef: string; serverName: string }
   | { provider: McpProvider; scope: "local"; scopeRef: string; serverName: string };
 
-// Event-side binding identity (Spec-025 §Status Observation and Events): the same discriminated
-// union with the filesystem path replaced by its keyed digest. scopeRef (canonical project root /
-// keying directory) is a user-specific filesystem path — a Spec-020 durable-tier PII class — and
-// event payloads are durable and replayable, so the raw path never enters them:
-// project/local variants carry scopeRefDigest — "b3:"-prefixed keyed BLAKE3 (key = the binding's
-// scope-ref subkey, derived from the governance key, which the operating system's credential store
-// holds as its own item: computable before any event fires) over the canonical scopeRef — a database
-// copy without the governance key reproduces no digest, stable for the binding's life, and
-// joinable to inventory entries (which serve the same digest).
+// Event-side binding identity (Spec-025 §Status Observation and Events): path-free. scopeRef
+// (canonical project root / keying directory) is a user-specific filesystem path — a Spec-020
+// durable-tier PII class — and event payloads are durable and replayable, so the raw path never
+// enters them: an event names the provider, the scope and the server, and nothing else.
 // Requests and inventory reads keep the full McpServerBindingRef (transient wire / the person's read,
-// not durable audit rows); only the local binding store resolves a digest back to its path.
-type McpServerBindingAuditRef =
-  | { provider: McpProvider; scope: "user"; serverName: string }
-  | { provider: McpProvider; scope: "project"; scopeRefDigest: string; serverName: string }
-  | { provider: McpProvider; scope: "local"; scopeRefDigest: string; serverName: string };
+// not durable audit rows).
+interface McpServerBindingAuditRef {
+  provider: McpProvider;
+  scope: McpConfigScope;
+  serverName: string;
+}
 
 // Effective-binding derivation output (Plan-025 T28.4.11). NOT a carrier threaded in from another plan — Plan-025 derives this
 // in-plan from the session sets it builds (T28.3.3, T28.3.9). `null` is a first-class answer meaning the tool
@@ -7937,16 +7788,6 @@ type McpServerBindingAuditRef =
 // prefixing and collision-suffixing are provider defaults rather than wire invariants, so the
 // mapping runs off the daemon's own registration identity.
 type McpEffectiveBinding = McpServerBindingRef | null;
-
-// Binding-identity digest, stamped onto a remembered approval rule whose subject is one of the
-// binding's tools (`remembered_approval_rules.mcp_binding_digest`), so removing the binding finds and
-// revokes those rules in the removal's own transaction (Spec-025 §Configuration Mutation).
-// "b3:"-prefixed keyed BLAKE3 — key = the binding-identity subkey of the governance key, which the
-// operating system's credential store holds as its own item, the same derivation family as scopeRefDigest
-// — over the RFC 8785 JCS canonicalization of the full McpServerBindingRef tuple: the scopeRefDigest
-// discipline widened from the scopeRef alone to the whole tuple, so no raw filesystem path reaches a
-// durable row and the digest is not brute-forceable from a database copy. Stable for the binding's life.
-type McpBindingIdentityDigest = string; // `b3:${string}`
 
 // mcp.upsertServer config input — the normalized governed surface, discriminated on transport.
 // Env-var and header VALUES are write-only credential-adjacent material: accepted here, passed only
@@ -8039,8 +7880,7 @@ interface McpServerLegStatus {
 // rows. A DISCRIMINATED PAIR on trustUnavailable (Spec-025 §Fallback Behavior): the normal arm serves
 // all four sources; the degraded arm (binding store unreachable) serves the provider-observed sources
 // only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (toolOverrides and
-// the Claude enabled overlay live in the unreachable store). scopeRefDigest stays served in BOTH arms:
-// it derives from the governance key, not from any binding row.
+// the Claude enabled overlay live in the unreachable store).
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
   config: McpServerConfigView; // the redacted normalized declaration (see above)
@@ -8049,7 +7889,6 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
-  scopeRefDigest?: string; // present for project/local bindings in BOTH arms — the McpServerBindingAuditRef digest, served so clients can join mcp.subscribe / sentinel-bound event payloads to inventory entries without recomputing; derived from the governance key (the scope-ref subkey), so it needs no binding row and the key never leaves the daemon
 } & (
     | {
         trustUnavailable?: never; // the normal (binding-store-available) arm
@@ -8069,7 +7908,7 @@ interface McpToolOverride {
   toolName: string;
   enabled?: boolean; // absent = inherit provider config (for Codex-materialized facets, "provider config" means the preserved native baseline — a clear restores it; Spec-025 §Tool-Level Overrides)
   approvalMode?: McpApprovalMode; // absent = provider default
-  idempotencyClass?: "idempotent" | "compensable"; // absent = the Spec-004 §Tool Metadata manual_reconcile_only floor; assignment is Cedar-gated
+  idempotencyClass?: "idempotent" | "compensable"; // absent = the Spec-004 §Tool Metadata manual_reconcile_only floor
 }
 
 // Per-facet application grades for override mutations (Spec-025 §Tool-Level Overrides): Codex
@@ -8097,20 +7936,20 @@ interface McpLiveApplicationResult {
 }
 
 // ---- Operations (12; JSON-RPC per ADR-009) ----
-// Reads (readable by the person, no Cedar mutation check):
+// Reads:
 //   mcp.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[]}
 //   mcp.get       McpServerBindingRef → {server: McpServerInventoryEntry}
-//   mcp.subscribe {} → AsyncIterable<EventEnvelope> // live-tail of every mcp_governance envelope as appended (sentinel- and session-bound alike; Plan-006 streaming primitive, session.subscribe consumer shape). Gap-free by ORDERING, not by cursor: a (re)connecting client opens mcp.subscribe FIRST, then reads mcp.list — the subscribe acknowledgment precedes the stream's first delivery (the Plan-006 I-006-10 wire-ordering invariant), so registration is live before the snapshot read and an event concurrent with the snapshot arrives on the stream instead of falling between snapshot and subscription (re-observation is harmless — governance envelopes are re-entrant state updates; omission is impossible). History via the locally-verified sentinel chain (Spec-025 §Status Observation and Events)
+//   mcp.subscribe {} → AsyncIterable<EventEnvelope> // live-tail of every mcp_governance envelope as appended (sentinel- and session-bound alike; Plan-006 streaming primitive, session.subscribe consumer shape). Gap-free by ORDERING, not by cursor: a (re)connecting client opens mcp.subscribe FIRST, then reads mcp.list — the subscribe acknowledgment precedes the stream's first delivery (the Plan-006 I-006-10 wire-ordering invariant), so registration is live before the snapshot read and an event concurrent with the snapshot arrives on the stream instead of falling between snapshot and subscription (re-observation is harmless — governance envelopes are re-entrant state updates; omission is impossible). History remains the sentinel session's log (Spec-025 §Status Observation and Events)
 //   mcp.registrySearch {query: string, cursor?: string} → {servers: McpRegistryServer[], nextCursor?: string} // `Browse servers`: a search of the public MCP Registry (`GET /v0/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the daemon only when the person types and caching nothing past the page. Each result carries its title or name, description and version, whether it runs as a package (its `runtimeHint` and `runtimeArguments`) or at an address (its `remotes`), and each environment variable's name, description and whether it is required — never a value. A pick fills the add form; the person still adds the server and types every secret
-// Cedar-gated non-reads (all deny-before-effect; every operation except mcp.reconnect carries the
-// MANDATORY clientIdempotencyKey: string — requester-generated UUID, durable receipt replay on
-// identical retry, mcp.idempotency_conflict on key reuse with a differing request digest, Spec-025
-// §Authorization. The governance mutations below finalize their receipt with their store writes and
+// Non-reads (open to this machine's own client or any linked device, with no policy check; every
+// operation except mcp.reconnect carries the MANDATORY clientIdempotencyKey: string —
+// requester-generated UUID, durable receipt replay on a retry under the same key, Spec-025
+// §Authorization). The governance mutations below finalize their receipt with their store writes and
 // emit no governance event; mcp.oauthLogin, mcp.oauthLogout and mcp.reconnect are operational
 // commands — oauthLogin is receipted but its durable trace
 // is the asynchronous mcp.server_oauth_completed, emitted exactly once per completed sign-in (an
 // abandoned sign-in, or one ended by a newer attempt, leaves only its expiring receipt); oauthLogout is receipted and, like
-// reconnect, audits through the status transitions it induces; reconnect is unreceipted):
+// reconnect, audits through the status transitions it induces; reconnect is unreceipted:
 //   mcp.upsertServer      McpServerBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
 //   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server revokes every remembered approval rule over its tools in the same transaction
 //   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
@@ -8154,9 +7993,9 @@ interface McpRegistryServer {
 }
 
 // ---- Event payload mirrors (Spec-005 §MCP Governance) ----
-// Every payload embeds the PATH-FREE binding identity via intersection with the
-// McpServerBindingAuditRef union (provider, scope, scopeRefDigest per the scope variant,
-// serverName) — never the raw scopeRef (see the audit-ref comment above): these payloads are
+// Every payload embeds the PATH-FREE binding identity via intersection with
+// McpServerBindingAuditRef (provider, scope, serverName) — never the raw scopeRef (see the
+// audit-ref comment above): these payloads are
 // durable rows, and Spec-025 forbids filesystem paths in them.
 type McpServerStatusChangedPayload = McpServerBindingAuditRef & {
   previousStatus: McpServerStatus;
@@ -8178,7 +8017,7 @@ Wire surfaces for [Spec-026](../../specs/026-provider-accounts-and-credential-ho
 
 Each of the namespace's verbs carries the payload pair named below: the reads `providerAccount.list`, `providerAccount.subscribe` and `providerAccount.usageRead`, and the mutating verbs `providerAccount.register`, `providerAccount.update`, `providerAccount.remove`, `providerAccount.setCurrent`, `providerAccount.probe`, `providerAccount.resetCredentialHome`, `providerAccount.login`, `providerAccount.loginCancel` and `providerAccount.memoryImport`. `providerAccount.subscribe` and `providerAccount.usageRead` are grouped with the reads: they mutate nothing and take the same device gate `providerAccount.list` does, for the same disclosure reason. `providerAccount.probe` is grouped with the mutating verbs for two reasons, and the weaker one is the row write: it writes back the observed health state and its observation timestamp to the probed account's row, and — **atomically with that write** — applies I-026-2's generation rule, which names "a transition of the account's probe result into or out of `authenticated`" as a lifecycle transition. So a probe that observes the same authenticated-ness as the stored row leaves `credentialGeneration` untouched, while one that observes a **crossing** of the authenticated boundary bumps it in the same transaction as the health write. Both directions bump: a repaired credential must end the old attention epoch ([Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) keys on `(accountId, credentialGeneration)`, so parked work resumes against a generation that is genuinely new), and a destroyed one must not leave consumers holding a generation that still reads as usable. The verb mints and removes no account. The load-bearing reason for the gate is that it reaches into a credential home and drives provider-side credential I/O. That is account-administration work, so it takes the device gate — this machine's own client or any linked device, and no session — rather than the laxer read gate.
 
-**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, the fail-closed validation the spawn path performs (Spec-026 §Validation at spawn — fail-closed), and the **background health observer** (Spec-026 §Credential-home health observation), which is the third writer and joins the set rather than replacing it. **The generation-bump authority is deliberately NOT widened with it.** `credentialGeneration` still bumps only on I-026-2's credential-home lifecycle transitions, and a background observation is not one: [Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) keys parked work on `(accountId, credentialGeneration)`, so an observer that bumped on a transient fault would end a parked-work attention epoch for nothing — the precise harm the both-directions bump rule above exists to produce **only** when the boundary is genuinely crossed by an act that changed the home. The observer is constrained in what the DAEMON may do to take its reading, not in what the provider may do inside its own home: the daemon never reads, writes or copies credential material, never speaks a provider token endpoint itself, and never puts a provider into external-authentication mode. What it does is ask a provider its own limits question inside that provider's own per-account home, which on one pinned leg renews that login as a side effect — the provider's own rotation, taken by the provider, under the provider's own re-read-before-refresh guard. That is the keep-alive, and it is safe only because the home is daemon-owned and is never the person's own; a renewal of that kind is NOT a credential-home lifecycle transition and moves no `credentialGeneration`. Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims: a node whose first run succeeded would otherwise keep serving `indeterminate` indefinitely while every run started fine. Spawn validation is a read-path caller in every other respect — it asks the person for nothing and mints nothing — but its observation is an observation, and the row records observations.
+**The probe verb is not the only writer of the stored pair.** Every validation that actually observes an account's authentication state writes it back under the same rule — the deliberate probe above, the registration-time status invocation (Spec-026 §Non-interactive token registration), and the **background health observer** (Spec-026 §Credential-home health observation), which is the third writer and joins the set rather than replacing it. **The generation-bump authority is deliberately NOT widened with it.** `credentialGeneration` still bumps only on I-026-2's credential-home lifecycle transitions, and a background observation is not one: [Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40) keys parked work on `(accountId, credentialGeneration)`, so an observer that bumped on a transient fault would end a parked-work attention epoch for nothing — the precise harm the both-directions bump rule above exists to produce **only** when the boundary is genuinely crossed by an act that changed the home. The observer is constrained in what the DAEMON may do to take its reading, not in what the provider may do inside its own home: the daemon never reads, writes or copies credential material, never speaks a provider token endpoint itself, and never puts a provider into external-authentication mode. What it does is ask a provider its own limits question inside that provider's own per-account home, which on one pinned leg renews that login as a side effect — the provider's own rotation, taken by the provider, under the provider's own re-read-before-refresh guard. That is the keep-alive, and it is safe only because the home is daemon-owned and is never the person's own; a renewal of that kind is NOT a credential-home lifecycle transition and moves no `credentialGeneration`. Anything else would make the stored reading a record of _explicit probes_ rather than of _the last validation_, which is what the readiness derivation reads and what `observedAt` claims, and the row records observations.
 
 **The identifier is opaque everywhere.** `ProviderAccountId` is daemon-minted and immutable. No client, driver, or renderer parses it, decomposes it, or uses it to locate credential material — it selects a credential environment and nothing else. It is deliberately not derived from an email, a provider subject id, or any credential value, because those rotate and an identity that rotates cannot key historical spend.
 
@@ -8280,7 +8119,7 @@ type ProviderAccountHealthState =
   | "authenticated"
   | "reauth_required"
   | "home_missing"
-  | "indeterminate"; // probe could not decide — treated as NOT authenticated (fail-closed, I-026-3)
+  | "indeterminate"; // probe could not decide — not authenticated, and never a refusal: a session starts and the provider signs in on its own (I-026-3)
 
 // NOTE: no credential-home path appears on `ProviderAccount`. The one wire member that carries a
 // home is `ProviderSignInRemedy.credentialHomePath` below — the sign-in arm alone, the two
@@ -8296,7 +8135,8 @@ type ProviderAccountHealthState =
 // resolution the daemon performs at spawn (Spec-026 §Validation at spawn — fail-closed) and served
 // from the account row's STORED last-probe result — a list call spawns no provider process, so a
 // surface may poll it; `providerAccount.probe` is the deliberate refresh. It AUTHORIZES NOTHING:
-// admission re-validates unconditionally and refuses on its own reading. Enumerated in full rather
+// a session starts whatever readiness last reported, and the spawn path re-validates registration
+// and the home (I-026-3). Enumerated in full rather
 // than aliased off `ProviderAccountHealthState` so a later health arm cannot silently widen this
 // client-facing union: it widens ONLY in lockstep with that union, and a new health arm requires an
 // explicit readiness arm added here.
@@ -8304,7 +8144,7 @@ type ProviderReadinessState =
   // The first four arms are the resolved account's STORED health state, verbatim. That stored
   // value is the outcome of the last validation — probe reading plus home observation taken at the
   // same moment — so `home_missing` is a recorded observation, never a live stat() at read time.
-  | "authenticated" // last validation said so — necessary, NOT sufficient (see I-026-9)
+  | "authenticated" // last validation said so — advisory (I-026-9)
   | "reauth_required" // home was present but held no usable credential
   | "home_missing" // credential home was absent or unreadable when last observed
   | "indeterminate" // probe could not decide, or none taken yet — NOT authenticated, NOT a failure
@@ -8448,13 +8288,8 @@ interface ProviderAccountRegisterRequest {
   // argument vector (an argv is readable by any process running as the same user). A transport
   // that logs request bodies MUST redact this member by name.
   //
-  // Admitted only under ADR-028's FOUR CONJUNCTIVE conditions, and refused with
-  // `provideraccount.token_class_refused` on any failure: (1) minted by the provider's own tooling
-  // through a subcommand the provider documents for non-interactive use — the daemon never mints,
-  // exchanges, refreshes, or derives credential material and never speaks a provider token
-  // endpoint; (2) consumed through a variable the provider documents; (3) carrying no refresh
-  // token, so possession mints no successors and a leak expires on the provider's own fixed
-  // horizon; (4) supplied deliberately on this member, which exists for this and nothing else.
+  // A token the provider's own tooling minted: the daemon never mints, exchanges, refreshes, or
+  // derives credential material and never speaks a provider token endpoint.
   //
   // Kept as its own item in the operating system's credential store, verified by
   // write-probe-read-delete, and nowhere else. Every entry opens its store explicitly — the Secret
@@ -8468,11 +8303,8 @@ interface ProviderAccountRegisterRequest {
   // process of a run bound to this account — and on Claude Code never in an environment variable: the
   // variable the provider documents for it, `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, names a pipe the
   // daemon writes once per start, so no command the model issues can read the token from its
-  // process's environment (ADR-028 CONDITION 5). A provider leg with no RECORDED first-party
-  // observation that the token is unreadable from its tool, shell, and subagent subprocesses does not
-  // admit the class at all: `register` refuses there rather than sealing an account that would store
-  // `authenticated`, report READY, and then refuse every run. Documentation asserting it is not an
-  // observation. A pasted OpenAI API key on a Codex account is kept the same way, in the credential store and
+  // process's environment. The project's own probe re-runs that observation when the project moves
+  // to a new Claude Code version. A pasted OpenAI API key on a Codex account is kept the same way, in the credential store and
   // the daemon's memory only, never in Codex's plaintext file mode.
   nonInteractiveToken?: string;
 }
@@ -8834,13 +8666,10 @@ interface ProviderStandingRuleListResponse {
   }>;
 }
 
-// provider.standingRuleRevoke — removes the rule where the provider keeps it, and applies from the
-// next tool call on both providers. Claude Code applies it itself. A loaded Codex conversation keeps
-// the rules it loaded with, so the daemon records the rules each conversation loaded with, marks a
-// revoked rule revoked for every loaded conversation in its scope, and while such a rule exists its
-// pre-tool hook holds any command that rule would have allowed — Codex's own policy check decides
-// which — raises the ordinary approval card, and passes the command on `Allow` or refuses it on `Deny`
-// with the reason to the model.
+// provider.standingRuleRevoke — removes the rule where the provider keeps it, and the provider follows
+// the change as it does on its own: Claude Code from its next tool call, and Codex in each conversation
+// it loads after the change, a loaded Codex conversation keeping the rules it loaded with, which is
+// Codex's own behavior. The daemon adds nothing over the provider's rules: no copy, no hash, no check.
 interface ProviderStandingRuleRevokeRequest {
   ruleId: string;
 }
@@ -8854,7 +8683,7 @@ interface ProviderStandingRuleRevokeResponse {
 
 ## Plan-027 — Agent Definitions And Peer Invocation
 
-Governed by [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) and, for plugins, [Spec-030](../../specs/030-skills.md). Saved agents are managed through six `agent.*` verbs — `agent.definitionList`, `agent.definitionCreate`, `agent.definitionUpdate`, `agent.definitionDelete`, `agent.definitionExport` and `agent.definitionImport` — plus the live `agent.definitionSubscribe`, and the tool allowlist's catalog read `callbackTool.list`; the `agent.*` verbs register against the Plan-006 `MethodRegistry` when Plan-027 lands, inside the `agent` root Plan-014 registers — the CP-006-3 late-registration pattern. Authorization is the one named Cedar operation action of [Spec-010 §Implementation Notes](../../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes): `Action::"agent::manage"` for every definition mutation, export and import included. It names a **node-scoped** resource descriptor, because definition mutation is node-global — the definition verbs carry no `sessionId`, and none is invented for authorization. A peer-invocation call is no named action at all: a call on the bridge is an ordinary tool call, so it rides the existing `tool_execution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added, and the manage action mints no `remembered_approval_rules` row: that table closes `category` over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which a named-operation action produces, so a grant row for it is not merely unnecessary but unrepresentable. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. A definition leaves the machine only in an export file the person picks, with every binding's account cleared; no relay or control-plane surface carries one.
+Governed by [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) and, for plugins, [Spec-030](../../specs/030-skills.md). Saved agents are managed through six `agent.*` verbs — `agent.definitionList`, `agent.definitionCreate`, `agent.definitionUpdate`, `agent.definitionDelete`, `agent.definitionExport` and `agent.definitionImport` — plus the live `agent.definitionSubscribe`, and the tool allowlist's catalog read `callbackTool.list`; the `agent.*` verbs register against the Plan-006 `MethodRegistry` when Plan-027 lands, inside the `agent` root Plan-014 registers — the CP-006-3 late-registration pattern. The person's own edits to definitions, export and import included, pass no policy check and no ownership refusal; the definition verbs carry no `sessionId`. A peer-invocation call is an ordinary tool call on the bridge, so it rides the existing `tool_execution` approval category through the approval pipeline at the session's own permission level. No `ApprovalCategory` value is added. Refusals: [error-contracts.md §Agent Definitions](./error-contracts.md#agent-definitions). **No event type is minted**: definition mutation is node-local configuration rather than session history, and every session-visible consequence of a peer invocation is already carried by the existing tool-activity and run-lifecycle events. A definition reaches the person's linked devices like every other screen, and otherwise leaves the machine only in the export files the person writes, with every binding's account left out.
 
 ```ts
 // A daemon-minted opaque immutable identifier. NEVER the definition's name: the name is a mutable
@@ -8873,7 +8702,7 @@ type AgentDefinitionId = string & { readonly __brand: "AgentDefinitionId" };
 // running agent's binding: `agent.configUpdate` moves its members, and the binding events
 // (§Plan-014) carry it from and to.
 interface AgentProviderBinding {
-  driverName: string; // provider driver key, matching the agent surface's driver axis
+  driverName: ProviderName; // provider driver key, matching the agent surface's driver axis; a live agent's driver is parsed as a ProviderName where agent.provider_binding_changed writes it
   modelId: string;
   providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `providerAccount.setCurrent` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
@@ -8962,6 +8791,10 @@ type AgentDefinitionListEntry = AgentDefinition & {
   orphaned: boolean; // a provider's file was renamed or deleted outside the app: the record keeps its extras until it is reattached or discarded
   disabledInProvider: boolean; // the provider's own configuration switches the agent off
   loadError: string | null; // its file failed to load: the reason, from the daemon's own parse
+  // A definition whose file names a provider this app doesn't run is listed too, its chip reading
+  // `<name> · not supported here`. The read carries that name apart from the binding's ProviderName,
+  // and starting the definition is refused with `agent.resolution_refused`, reason
+  // `provider_unsupported`, until another provider is picked.
 };
 interface AgentDefinitionListResponse {
   definitions: AgentDefinitionListEntry[];
@@ -9056,31 +8889,31 @@ interface AgentDefinitionDeleteResponse {
   deleted: true;
 }
 
-// agent.definitionExport — writes the chosen definitions to the file the person picked with
-// `native.showSaveDialog`, as one JSON document: each definition's record, icon, accent, hooks and
-// memory scope, and every binding with `providerAccountId` cleared, plus a schema marker and a
-// top-level note saying the accounts were cleared. The notes in an agent's memory folder are never read
-// into it. The daemon clears the accounts itself and never relies on the caller to. The request carries
-// the picked file's token; main's relay turns it into the path the daemon writes, so no path string
-// crosses the bridge (Spec-021 §Preload Bridge Contract). An unknown id refuses the whole export; a
-// failed write refuses with `agent.export_write_failed`, carrying the operating system's cause.
+// agent.definitionExport — writes the chosen definitions into the folder the person picked with the
+// platform's own dialog, one Markdown file per definition: each definition's record, icon, accent,
+// hooks and memory scope, and every binding with the account left out. The notes in an agent's memory
+// folder are never read into a file. The daemon leaves the accounts out itself and never relies on the
+// caller to. The request carries the picked folder's token; main's relay turns it into the path the
+// daemon writes, so no path string crosses the bridge (Spec-021 §Preload Bridge Contract). An unknown
+// id refuses the whole export; a failed write refuses with `agent.export_write_failed`, carrying the
+// operating system's cause.
 interface AgentDefinitionExportRequest {
   definitionIds: AgentDefinitionId[]; // one or more
-  file: FilePathRef;
+  folder: FilePathRef;
 }
 interface AgentDefinitionExportResponse {
   exportedCount: number;
 }
 
-// agent.definitionImport — reads the file the person picked with `native.showOpenDialog` and creates
-// every definition in it or none, in one daemon transaction. It only ever creates and never
-// overwrites, suffixes a colliding name as `Duplicate` does (checked against the store's unique name
-// index), lands every definition in the global scope, because the file carries nothing tied to one
-// machine, and keeps each definition's hooks and memory scope. The accounts arrive cleared, so an
-// import never binds an account. An unknown schema marker or any invalid entry refuses the whole file
-// with `agent.import_refused`, reason `unknown_format` | `invalid_entry`.
+// agent.definitionImport — reads the definition files in the folder the person picked with the
+// platform's own dialog and creates every definition in them or none, in one daemon transaction. It
+// only ever creates and never overwrites, suffixes a colliding name as `Duplicate` does (checked
+// against the store's unique name index), lands every definition in the global scope, because the
+// files carry nothing tied to one machine, and keeps each definition's hooks and memory scope. The
+// files carry no account, so an import never binds one. A file that does not parse refuses the whole
+// import with `agent.import_refused`, reason `invalid_entry`.
 interface AgentDefinitionImportRequest {
-  file: FilePathRef;
+  folder: FilePathRef;
 }
 interface AgentDefinitionImportResponse {
   definitions: AgentDefinitionListEntry[]; // the created rows, under their final, possibly suffixed, names
