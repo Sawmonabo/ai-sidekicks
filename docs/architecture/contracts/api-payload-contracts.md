@@ -254,7 +254,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `agent.definitionCreate` | Save a new definition (`New sidekick`, `Duplicate`) with `bindings`, `icon`, `accentHue`, `turnCap` | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionDelete` | Delete a definition; discard an orphaned record | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionExport`, writing into the folder the dialog picked | Export one or many definitions, one Markdown file per definition, the account left out | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
-| `agent.definitionImport`, reading the folder the dialog picked | Import the folder's definition files: creates only, never overwrites, suffixes a colliding name, applies nothing partially | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
+| `agent.definitionImport`, reading the folder the dialog picked | Import the folder's definition files: creates only, never overwrites, suffixes a colliding name, skips and lists every file that is not a definition | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
 | `agent.definitionList`, with reply members `workflowUsage` and **`lastUsedAt`** | Read the agent registry: every definition from every origin, the plugin origin read-only, `plugin · <name>`, from the daemon's plugin homes, each with `origin`, `scope`, `sourcePath`, `orphaned`, `disabledInProvider` (the provider has it switched off) and `loadError` (it failed to load, with the reason), each its own field and not one exclusive state, plus the agent's own `hooks` and `memoryScope` on every origin, `workflowUsage` and `lastUsedAt` (both derived per reply). A definition whose file names a provider this app doesn't run is listed, carrying that name apart from the binding's `ProviderName`; its provider chip reads `<name> · not supported here`. The agent card draws the orphaned state: set apart, the extras the record still holds, the last known path, `Reattach` and `Discard`. One read serves the library, the composer's Sidekicks group, the workflow node's chooser and the pane's name/icon/color labels. | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionUpdate` | Save edits: rename, replace `bindings` whole, every core field; also reattach an orphaned record to a file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.list` (a live list: the list, then each change, like `session.list`) | The session's agents, the lead and every child: binding, state, resolved-from definition, which provider runs it | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.1, T3.2 |
@@ -8880,17 +8880,19 @@ interface AgentDefinitionExportResponse {
 }
 
 // agent.definitionImport — reads the definition files in the folder the person picked with the
-// platform's own dialog and creates every definition in them or none, in one daemon transaction. It
+// platform's own dialog and creates every definition in them in one daemon transaction. It
 // only ever creates and never overwrites, suffixes a colliding name as `Duplicate` does (checked
 // against the store's unique name index), lands every definition in the global scope, because the
 // files carry nothing tied to one machine, and keeps each definition's hooks and memory scope. The
-// files carry no account, so an import never binds one. A file that does not parse refuses the whole
-// import with `agent.import_refused`, reason `invalid_entry`.
+// files carry no account, so an import never binds one. Every other file in the folder is skipped and
+// listed once with its reason, as Claude Code treats its own agents folder; no import is refused whole
+// for a file that is not a definition.
 interface AgentDefinitionImportRequest {
   folder: FilePathRef;
 }
 interface AgentDefinitionImportResponse {
   definitions: AgentDefinitionListEntry[]; // the created rows, under their final, possibly suffixed, names
+  skipped: Array<{ fileName: string; reason: "not_an_agent_definition" }>; // drawn `README.md · not an agent definition`
 }
 
 // agent.definitionSubscribe — the whole agent.definitionList reply again each time a definition
