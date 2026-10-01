@@ -28,8 +28,8 @@ This model defines how the system stores follow-up work, prioritizes it, and rec
 
 - Queue items are persisted by the runtime, not only by the client.
 - Every queue item belongs to exactly one session and targets a defined execution context.
-- Every intervention has an initiator, a target, a timestamp, and an outcome.
-- Every intervention records the **origin** it was admitted through — `user` or `system` — and, on the `user` arm only, the device it came from: the machine's own screen or a linked device's channel, as the daemon finds it from the connection at acceptance. The initiator is routing and audit metadata supplied by the caller and never an authorization input ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). The two arms are exhaustive and mutually exclusive, so a system-originated intervention carries no device and can never be mistaken for a user's act.
+- Every intervention has an origin, a target, a timestamp, and an outcome.
+- Every intervention records the **origin** it was admitted through — `user` or `system` — and, on the `user` arm only, the device it came from: the machine's own screen or a linked device's channel, as the daemon finds it from the connection at acceptance. No request names a person, and the device is never an authorization input ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). A queued message records its device the same way, and an orchestration-authored queue item records none. The two arms are exhaustive and mutually exclusive, so a system-originated intervention carries no device and can never be mistaken for a user's act.
 - Queue admission and intervention effects must be visible in the session timeline.
 - A failed or downgraded intervention must still be recorded as an outcome.
 

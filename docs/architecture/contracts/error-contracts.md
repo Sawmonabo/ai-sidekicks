@@ -114,10 +114,11 @@ Every namespace below follows the same rules:
 
 ### Session
 
-| Code                     | Description                                            | HTTP Status |
-| ------------------------ | ------------------------------------------------------ | ----------- |
-| `session.not_found`      | Session does not exist or is not accessible            | 404         |
-| `session.already_closed` | Session has already been closed and cannot be modified | 409         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `session.not_found` | Session does not exist or is not accessible | 404 |
+| `session.already_closed` | Session has already been closed and cannot be modified | 409 |
+| `session.permission_level_unavailable` | A permission level the session's provider, its account or its model cannot run, sent on `session.permissionLevelUpdate` or as `plan.resolve`'s `fresh.level`. The screen never offers such a level, so only a stale or raced client sends one; nothing changes and no session is minted ([Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts); `data.fields`: `level`) | 400 |
 
 ### Auth
 
@@ -155,11 +156,7 @@ Intervention request-admission codes ([Spec-004 §Required Behavior](../../specs
 
 ### Orchestration
 
-Orchestration admission-refusal codes (Plan-014 D-014-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-014-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event ([Spec-014 §Example Flows](../../specs/014-multi-agent-orchestration.md#example-flows) "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-014-16).
-
-| Code | Description | HTTP Status |
-| --- | --- | --- |
-| `orchestration.budget_exhausted` | The session's spend limit is reached — no turn starts until the person raises the limit; `observedValue` carries the session's spend from the service's own spend count ([Spec-014 §Budget Policies](../../specs/014-multi-agent-orchestration.md#budget-policies); `data.fields`: `budgetType`, `limitValue`, `observedValue`) | 429 |
+Orchestration registers no code of its own (Plan-014 D-014-16). An orchestration run-create refused at admission answers with a reused code: §Agent `agent.not_found`, or §Run `run.not_found` where the parent run is missing. Every such refusal is zero-residue — no run row, no queue item, no partial state survives it (I-014-8) — and the daemon records it durably as the `orchestration.rejected` event ([Spec-014 §Example Flows](../../specs/014-multi-agent-orchestration.md#example-flows) "records the refusal visibly"). A reached spend limit is not a refusal: a message sent while it stands lands with the `Spend limit reached` row under it and starts no turn ([Spec-014 §Budget Policies](../../specs/014-multi-agent-orchestration.md#budget-policies)).
 
 ### Agent
 
@@ -272,7 +269,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.gate_closed` | Workflow gate has not been resolved and blocks progression | 409 |
 | `workflow.invalid_transition` | A run or step move its state does not allow, such as retrying a step that did not fail or reading results from an unfinished run | 409 |
 | `workflow.start_denied` | Workflow run start refused by Cedar under `Action::"workflow::start"`: an agent's start, or a run a trigger fires, judged when it fires with the person recorded as its starter | 403 |
-| `workflow.definition_refused` | A saved or imported document the daemon's own re-check refuses. `data.fields.findings` is the whole list, `[{rule, nodeIds, detail?}]`, `detail` set only on `code_packages_unresolved`, where it names the package; `rule` is one of the values — `cycle`, `orphan`, `empty_document`, `trigger_missing`, `trigger_duplicate`, `edge_into_trigger`, `edge_out_of_terminal`, `param_missing`, `expression_unparsable`, `expression_unknown_node`, `expression_regex_unsupported`, `tool_edge_without_tool_input`, `handle_type_unknown`, `scope_ref_invalid`, `governance_inline`, `unknown_key`, `secret_outside_sensitive_field` and `code_packages_unresolved` (two imports in one Code step naming one package at different versions). A Code step whose packages cannot be locked is not a finding: the save is kept, the node reads `Packages not locked` with the tool's own words, and a start of that version is refused with `workflow.code_packages_not_locked` until a later save locks it | 422 |
+| `workflow.definition_refused` | A saved or imported document the daemon's own re-check refuses. `data.fields.findings` is the whole list, `[{rule, nodeIds, detail?}]`, `detail` set only on `code_packages_unresolved`, where it names the package; `rule` is one of the values — `cycle`, `orphan`, `empty_document`, `trigger_missing`, `trigger_duplicate`, `edge_into_trigger`, `edge_out_of_terminal`, `param_missing`, `expression_unparsable`, `expression_unknown_node`, `expression_regex_unsupported`, `tool_edge_without_tool_input`, `handle_type_unknown`, `scope_ref_invalid`, `unknown_key`, `secret_outside_sensitive_field` and `code_packages_unresolved` (two imports in one Code step naming one package at different versions). A Code step whose packages cannot be locked is not a finding: the save is kept, the node reads `Packages not locked` with the tool's own words, and a start of that version is refused with `workflow.code_packages_not_locked` until a later save locks it | 422 |
 | `workflow.revision_stale` | A form submitted against a stale form revision | 409 |
 | `workflow.version_stale` | A save against a stale definition version | 409 |
 | `workflow.step_not_waiting` | A form submitted, an approval answered or a form read on a step that is no longer waiting | 409 |
