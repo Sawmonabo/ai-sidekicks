@@ -1,5 +1,5 @@
-// A session's spend: the committed figure and each agent's share of it, the cost receipt the
-// inspector reads by provider and account, and who a unit of work is attributed to.
+// A session's spend: the committed figure and each agent's share of it, and the cost receipt the
+// inspector reads by provider and account.
 //
 // Every amount is integer micro-dollars. Each request is priced once, when it completes, and
 // never repriced, so small requests add up exactly and a figure is rounded once, where it is
@@ -16,24 +16,10 @@ import {
   type ProviderAccountId,
   type ProviderName,
 } from "./provider-account.js";
-import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "./session.js";
+import { SessionIdSchema, type SessionId } from "./session.js";
 
 /** A cost in whole micro-dollars, the one money unit on the wire. */
 export const UsdMicrosSchema: z.ZodType<number, number> = z.number().int().nonnegative();
-
-/**
- * The party a unit of work is attributed to, resolved by the daemon for each turn and never
- * supplied by a client or a driver. Two arms rather than one nullable id, so an unstamped value
- * and a deliberately unattributed one differ in shape. Spend no user caused, such as a sweep, an
- * idle settlement or a recovery turn, lands on the `system` arm.
- */
-export type EffectivePrincipal = { kind: "user"; userId: UserId } | { kind: "system" };
-/** Parses an {@link EffectivePrincipal}; a `system` arm carrying a user is refused. */
-export const EffectivePrincipalSchema: z.ZodType<EffectivePrincipal, EffectivePrincipal> =
-  z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("user"), userId: UserIdSchema }).strict(),
-    z.object({ kind: z.literal("system") }).strict(),
-  ]);
 
 // orchestration.budgetRead
 
