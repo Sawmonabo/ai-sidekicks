@@ -70,7 +70,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 ## Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Remote Control](../specs/028-remote-control.md)
+- [Remote Control](../specs/027-remote-control.md)
 - [Identity And User State](../specs/016-identity-and-user-state.md)
 
 ## Related ADRs

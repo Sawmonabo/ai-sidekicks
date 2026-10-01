@@ -87,5 +87,5 @@ A backup is taken with `Back up now` on Settings › Runtime; the service's heal
 ## Related Plans
 
 - [Session Core](../plans/001-session-core.md)
-- [Persistence Recovery And Replay](../plans/013-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md)
+- [Persistence Recovery And Replay](../plans/012-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/017-observability-and-failure-recovery.md)

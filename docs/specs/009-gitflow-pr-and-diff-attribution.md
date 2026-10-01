@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md), [Artifact Diff And Approval Model](../domain/artifact-diff-and-approval-model.md), [Worktree Lifecycle And Execution Modes](../specs/008-worktree-lifecycle-and-execution-modes.md) |
-| **Implementation Plan** | [Plan-009: Gitflow PR And Diff Attribution](../plans/009-gitflow-pr-and-diff-attribution.md) |
+| **Implementation Plan** | [Plan-008: Gitflow PR And Diff Attribution](../plans/008-gitflow-pr-and-diff-attribution.md) |
 
 ## Purpose
 

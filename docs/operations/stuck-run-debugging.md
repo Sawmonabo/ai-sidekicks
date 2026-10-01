@@ -74,5 +74,5 @@ A run is read and interrupted from its session; the command line has no `run` co
 
 ## Related Plans
 
-- [Queue Steer Pause Resume](../plans/003-queue-steer-pause-resume.md)
-- [Provider Driver Contract And Capabilities](../plans/004-provider-driver-contract-and-capabilities.md)
+- [Queue Steer Pause Resume](../plans/002-queue-steer-pause-resume.md)
+- [Provider Driver Contract And Capabilities](../plans/003-provider-driver-contract-and-capabilities.md)

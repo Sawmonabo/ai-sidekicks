@@ -8,7 +8,7 @@
 | **Date** | `2026-04-15` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Deployment Topology](../architecture/deployment-topology.md), [Security Architecture](../architecture/security-architecture.md) |
-| **Implementation Plan** | [Plan-019: Rate Limiting Policy](../plans/019-rate-limiting-policy.md) |
+| **Implementation Plan** | [Plan-018: Rate Limiting Policy](../plans/018-rate-limiting-policy.md) |
 
 ## Purpose
 
@@ -18,7 +18,7 @@ Define how the person's own relay bounds the requests that reach it without a cr
 
 This spec covers the relay's sign-in routes: sign-in, token refresh and device linking.
 
-The relay is the person's own, in both deployments [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md) describes: the Workers relay in the person's own Cloudflare account, or the self-hosted relay they run with Docker Compose (Node, Caddy, Postgres). Only the person's own machines and devices call it with credentials, each authenticating as the person.
+The relay is the person's own, in both deployments [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md) describes: the Workers relay in the person's own Cloudflare account, or the self-hosted relay they run with Docker Compose (Node, Caddy, Postgres). Only the person's own machines and devices call it with credentials, each authenticating as the person.
 
 The local daemon is explicitly excluded. It is trusted by socket reachability and does not require rate limiting.
 

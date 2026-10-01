@@ -203,7 +203,7 @@ An event-sourced engine where everything important is an event:
 
 This gives replay, auditability, and determinism.
 
-V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and events reach the user's other devices via the relay per [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md). See [ADR-017: Shared Event-Sourcing Scope](./decisions/017-shared-event-sourcing-scope.md).
+V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and events reach the user's other devices via the relay per [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md). See [ADR-016: Shared Event-Sourcing Scope](./decisions/016-shared-event-sourcing-scope.md).
 
 ### 6. Provider Drivers
 
@@ -304,20 +304,20 @@ If these are modeled cleanly, most major features become straightforward instead
 
 ### Add
 
-Every technology below ships in V1; the feature list is [ADR-015: V1 Feature Scope Definition](./decisions/015-v1-feature-scope-definition.md).
+Every technology below ships in V1; the feature list is [ADR-014: V1 Feature Scope Definition](./decisions/014-v1-feature-scope-definition.md).
 
 | Technology | Package | Purpose |
 | --- | --- | --- |
 | PASETO v4 | `paseto` 4.x in `packages/crypto-paseto/`, with `v4.local` on `@noble/ciphers` + `@noble/hashes` | Internal auth tokens — see [ADR-010 §PASETO v4 Implementation Library](./decisions/010-tokens-passkeys-and-the-remote-channel.md#paseto-v4-implementation-library) |
 | WebAuthn | `@simplewebauthn/server` (relying-party verification, control-plane side) | Passkeys: the web client and the phone apps create them and sign in with them, the device-code page signs a machine in with one, and a passkey lets a new phone or browser link itself. The desktop app carries no WebAuthn; the machine signs in to the hosted account by `sidekicks sign-in`'s device code, and each device's own key is kept as [ADR-010 §Identity Key Storage](./decisions/010-tokens-passkeys-and-the-remote-channel.md#identity-key-storage) records. |
-| Relay channel | A maintained Noise implementation whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-028](./plans/028-remote-control.md) Phase 3 | One channel per device and machine on `Noise_KK_25519_ChaChaPoly_SHA256`, with a fresh handshake on every connection and every 10 minutes; the relay forwards ciphertext only ([ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
-| XState v5 | `xstate` | Internal state machine logic — supports ADR-015 V1 Feature 6 (queue, steer, pause, resume) |
+| Relay channel | A maintained Noise implementation whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](./plans/025-remote-control.md) Phase 3 | One channel per device and machine on `Noise_KK_25519_ChaChaPoly_SHA256`, with a fresh handshake on every connection and every 10 minutes; the relay forwards ciphertext only ([ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
+| XState v5 | `xstate` | Internal state machine logic — supports ADR-014 V1 Feature 4 (queue, steer, pause, resume) |
 | tRPC v11 | `@trpc/server`, `@trpc/client` | Control plane API framework |
 | Cedar | `@cedar-policy/cedar-wasm` | Approval policy engine. The built-in rules are `.cedar` files in the service's own source, compiled into the service with it, changed only by an app update and evaluated in-process by the resident WASM authorizer, per [ADR-012](./decisions/012-cedar-approval-policy-engine.md). |
-| Terminal | `node-pty`, `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Spec-021 §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-015 V1 Feature 15); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
+| Terminal | `node-pty`, `@xterm/xterm` (own React wrapper — no published wrapper is adopted, per Spec-021 §Console Libraries) | Terminal multiplexing inside Desktop GUI (ADR-014 V1 Feature 12); which of the person's devices may type into a shell is Spec-002's per-shell device control lease |
 | Push notifications | `web-push` (Web Push encryption and VAPID headers), `apns2`, FCM's HTTP v1 API through `google-auth-library`, `@hpke/core` with `@hpke/hybridkem-x-wing` | A push to a device with no live connection: the machine decides per device and seals the notice to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push), and the relay adds only the person's own APNs, FCM or VAPID credentials, per [Spec-017 §Cross-Device Delivery](./specs/017-notifications-and-attention-model.md#cross-device-delivery). |
 | OpenTelemetry | `@opentelemetry/*` | Observability (traces + metrics) |
-| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-019](./decisions/019-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
+| Rust PTY sidecar | `portable-pty` (wezterm) via child-process sidecar | Windows-primary PTY backend per [ADR-018](./decisions/018-windows-v1-tier-and-pty-sidecar.md); `node-pty` remains the macOS/Linux primary and the Windows fallback |
 
 ## Signature Features And Their Correct Implementation
 

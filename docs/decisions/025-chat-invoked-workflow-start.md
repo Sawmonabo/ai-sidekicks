@@ -1,0 +1,153 @@
+# ADR-025: Chat-Invoked Workflow Start and Start Authorization
+
+| Field         | Value                                      |
+| ------------- | ------------------------------------------ |
+| **Status**    | `accepted`                                 |
+| **Type**      | `Type 2 (one-way door)`                    |
+| **Domain**    | `Workflow / Invocation UX + Authorization` |
+| **Date**      | `2026-08-11`                               |
+| **Author(s)** | `Claude (AI-assisted)`                     |
+| **Reviewers** | `Codex; User`                              |
+
+## Context
+
+[Spec-015](../specs/015-workflow-authoring-and-execution.md) ships a full workflow engine whose triggers are its entry node's own kinds ([Spec-015 §Entry node and the V1 trigger surface (SA-36)](../specs/015-workflow-authoring-and-execution.md#entry-node-and-the-v1-trigger-surface-sa-36)), one of which is a message in a session. The V1 product direction makes the conversation a first-class place workflows are reached from in both directions — the user and their agents already work there — without minting a new wire contract or a second authorization model, and without workflow text ever reaching a provider's own command layer.
+
+Three existing constraints shape any answer. First, [Spec-014 §Addressing](../specs/014-multi-agent-orchestration.md#addressing) fixes that activation is addressing-gated and that an addressing act typed in the composer rides an existing typed operation, introducing no new wire contract — the repo's established shape for acts typed in a chat. `@` mentions a file, matching both provider CLIs, or another session, and an agent is named from its row in the `/` list. Second, [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) provides exactly two authorization shapes: approval categories (an enum whose requests traverse the approval pipeline and whose grants are remember-able) and named Cedar operation actions (adjudicated per call, no pipeline traversal, never remembered — the `Action::"intervene"` precedent). Third, the daemon-curated session callback-tool registry ([api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md)) already defines how an agent invokes a daemon capability under Cedar adjudication — fail-closed while the daemon's approval service is not running — and the workflow tools are the first concrete tools on it.
+
+One external fact forces part of the design rather than merely informing it: the reference provider CLIs dispatch leading-`/` user input as their own commands. Text beginning with a slash that reaches a provider turn is interpreted by the provider's command layer, outside this system's governance — so a chat command surface that forwards its text to agents is not merely awkward but structurally unsafe.
+
+## Problem Statement
+
+How do the user and their agents reach a workflow from inside a session conversation — starting one, reading one, and having one built or fixed — and who is authorized to do so, without a new wire contract (the Spec-014 addressing precedent), without a new approval category (Spec-010's category enum), and without slash text ever reaching a provider's own command dispatch?
+
+### Trigger
+
+The V1 product direction puts workflows in the conversation, which forces two decisions at once: the command grammar and the authorization shape. The command grammar is user-visible surface whose shape users build habits on — the Airflow rename precedent [Spec-015 §Terminology discipline (SA-17 / C-12)](../specs/015-workflow-authoring-and-execution.md#terminology-discipline-sa-17--c-12) already records what late grammar changes cost — and the authorization shape determines whether starts are remembered, so both are one-way enough to need a recorded decision before the surface ships.
+
+## Decision
+
+Two coordinated decisions, normatively specified in [Spec-015 §Chat-Invoked Start and Start Authorization](../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization) (SA-37, SA-38, C-18), implemented by Plan-014 T5.7–T5.9 under invariants I-014-14 and I-014-15.
+
+1. **Chat-start surface — two callers, in both directions.** Workflows are reachable from a conversation through two kinds of caller, both resolving to the typed operations Spec-015 already registers:
+   - one registered command root, **`/workflow`**, carrying the verbs `run`, `list`, `runs`, `results`, `open`, `create`, `edit`, `fix`, `schedule`, `cancel`, `resume`, `enable`, `disable`, shown with one line of help each in the composer's `/` list, where a person finds them, completed over `workflow.definitionList`, intercepted and executed by the client composer, and never forwarded to an agent's context or a provider turn. One root is what keeps the command namespace collision-free, and verbs are additive under it; most of them are direct calls to typed operations, while `create`, `edit` and `fix` hand the instruction to the session's own agent with a structured intent hint;
+   - an **agent leg**: the daemon-curated session callback tools, the first concrete tools on that registry, each Cedar-adjudicated per invocation and landing as an ordinary `tool_activity` row. An agent that builds or fixes a workflow needs to read the catalog, read a definition, validate one, read a run and read a step, so a starter subset would make it guess; `workflow_run` is the one that starts a run.
+
+   The reserved-`/` rule (C-18) makes interception structural for the words the console owns: a console word — `/workflow` and its verbs among them — is executed by the client and never composes into a session message, an agent's context or a provider turn, on any path. What the console does not own is not the runtime's to refuse: a word the bound provider's own enumeration carries is forwarded to that provider exactly as typed, and anything else goes to the provider as typed ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). There is no literal-slash escape and no unknown-command refusal of the product's own invention; what makes a chat-borne start collision-proof is that `/workflow` is a console word, not that the prefix is closed. A run's progress and its results return to **the session that asked for it and to no other** — as ordinary transcript rows, a progress row updating in place while the run is live and a results row when it ends — so a start binds its progress to the session it was issued from, which the daemon checks exists, and no node and no method posts into a session that did not ask. `@` mentions a file, matching both provider CLIs, or another session, and an agent is named from its row in the `/` list ([Spec-014 §Addressing](../specs/014-multi-agent-orchestration.md#addressing)).
+
+2. **Start authorization — a named Cedar operation action.** Starting a workflow run adjudicates `Action::"workflow::start"` per start, in the Spec-010 named-operation-action shape — deliberately not a new approval category. Defaults: the session's user Yes; an agent only through its governed `workflow_run` callback tool, adjudicated per invocation — mirrored as one row in the security-architecture Permission Matrix. That call is an ordinary tool call under the chat's own permission level, so a chat at a level that asks raises the ordinary approval card before it starts a run, and a chat at `Sandboxed` or `YOLO` asks nothing; the run itself then runs at the workflow's own level. The other capabilities the tool set reaches — authoring a definition, canceling a run, resuming one — adjudicate named actions of their own on the same shape, so "may start a workflow" never silently means "may rewrite one". One rule governs the user and their agents: CLI, desktop, chat, and the callback tool all adjudicate the same action. The product has one user, and every start carries that person as a **daemon-resolved value, never a client-supplied body field**: the node-owner user the local socket binds for the desktop app, the `/workflow` verbs its composer intercepts, and the CLI; the same user for a start from any linked device; and, on the agent leg, that same user. A start whose principal the transport cannot resolve fails closed, refusing with the registered `workflow.start_denied` code, and never runs under a default identity.
+
+### Thesis — Why This Option
+
+The interception model is forced by the provider-collision fact: the only collision-proof-by-construction design is the one where the runtime owns its command namespace and slash text never reaches a provider — the model the registered-command platforms converged on after abandoning text-parsing bots ([Discord — Application Commands](https://discord.com/developers/docs/interactions/application-commands), accessed 2026-08-11). The `/` list is the discoverable surface: typing `/` shows every console word with one line of help, `/workflow` among them, typing `/workflow ` shows its verbs, and a verb's name argument completes over the definitions the person can see, so a person who does not know the grammar learns it where they type, a person who does types it, and every verb collapses onto one typed operation so there is exactly one start semantics to test and govern ([Slack — Slash commands](https://api.slack.com/interactivity/slash-commands), accessed 2026-08-11). The agent leg as a governed tool call puts agents under the same Cedar adjudication as the user and reuses contracts that already exist: the callback-tool registry, its Cedar route, and its fail-closed withholding, with the workflow tools the first to ride them.
+
+The named action wins on width and on cost. A remembered grant keys on its approval category, so a category-shaped "workflow start" grant would silently cover **every** definition on the daemon — the wrong width for an operation whose blast radius is per-definition. A named action is adjudicated fresh per start by construction, matches the static matrix answer, asks nothing beyond the ordinary card the chat's own level raises for any tool call, and adds no governance vehicle this surface does not already need: every start needs its principal resolved by the daemon whichever authorization shape is chosen, and the named action is an additive registration in the open set of named operation actions Spec-010 already sanctions — whereas a new category would additionally widen the category enum, the remember-pipeline semantics, and the approval UI surfaces.
+
+### Antithesis — The Strongest Case Against
+
+**A new approval category buys the whole approvals apparatus for free.** Categories get the approval pipeline, the pending-approval UI, audit rows, and remembered grants — all shipped, all tested. A named action gets none of that: a denied start is just a refusal, with no escalation path. Under the category model an agent's start could be approval-mediated (`Yes (with approval)`) rather than flatly denied, which is arguably the safer default for an operation that can spawn a multi-step run.
+
+**Prose intent beats grammar.** A user who types "kick off the release workflow" gets nothing from a command grammar; a model-mediated runtime could interpret intent and skip the grammar entirely. Committing to a verb grammar freezes a 1970s-shaped surface into a product whose differentiator is model mediation.
+
+**A word the console does not own simply leaves.** The rule keeps no net under the composer. A slash word this product does not own — a mistyped console word, a provider word the bound process did not enumerate, a Unix path pasted as a message's first character (`/etc/hosts — what does this line do?`) — is sent onward as typed, and what answers is the provider rather than the console: one provider's client replies that the command does not exist and spends a paid turn doing so, the other reads the words as prose. The same rule lets the console's own words shadow provider words of the same spelling, so a user who knows that provider's terminal gets the console's act rather than the one they typed. A closed prefix — an unknown-command refusal, with an escape for literal slash text — would stop the first two before anything left the machine.
+
+### Synthesis — Why It Still Holds
+
+The category's apparatus is exactly what a start should not have. Remembered grants are category-wide, so the apparatus's convenience feature is a per-definition-width authorization bug here; and an approval-mediated start ("Yes (with approval)") would put a second card of its own beside the ordinary one the chat's level already raises for the tool call. Nothing is lost by dropping the escalation path: the only principal who could approve a start is the user, who is already permitted. Risk-graded starts, for a workflow whose steps carry destructive tools, need no vehicle at the doorway: the tool-execution categories those steps already traverse at execution time grade them — governance where the risk is.
+
+Prose intent is not forgone — it is exactly what the agent leg is. A user can say "kick off the release workflow" **to an agent**, and the agent resolves intent and invokes `workflow_run`, Cedar-adjudicated, visible as `tool_activity`; "build me a workflow that …" reaches the authoring tools the same way. The grammar is the deterministic path; the model-mediated path composes on top of it rather than replacing it — richer than either alone, which is why the command root and the agent's tools together are the shape this decision takes.
+
+The three classes are not a net with holes; they are a boundary drawn where the values live. A word belongs to the console exactly when a console control holds the value it would change, which is what makes the console's words shadow provider words of the same spelling: forwarding the provider's own word for a value a chip owns would move the provider's state and leave the chip reading the old one, so shadowing is the requirement rather than the price. What the console does not own is not the runtime's to answer — a word the bound provider's own enumeration carries is that provider's to dispatch, and a word on nobody's list is the user's own prose, which is why the command list closes on a word no row matches instead of refusing it. A product-invented refusal would have to guess, and would guess wrong in both directions: it would block every provider word the live process's enumeration did not carry and every legitimate message that opens with a slash, and it would have to be taught before it helped anyone. A literal-slash escape is a second grammar for the same purpose that buys nothing the fall-through does not already give, since the provider answers slash prose in its own words either way; neither of the registered-command platforms this design took interception from ships one. The fall-through's cost is bounded and lands where it can be read — an error reply and a spent turn on one provider, prose on the other — and the one case where the runtime does answer for itself is the case it owns: a console word given an argument its control cannot take answers with one flow row saying what the word accepts and presses nothing, never forwarded as text instead.
+
+## Alternatives Considered
+
+### Option A: Command root and agent tools + named Cedar operation action (Chosen)
+
+Registered intercepted command, shown in the `/` list, + the governed `workflow_run` callback tool among the agent's tools, each start resolving to `workflow.runStart`; authorization as `Action::"workflow::start"` with its matrix row — the session's user Yes, an agent only through the governed callback tool. Chosen for the reasons above: collision-proof by construction, one start semantics across every path (CLI, desktop, chat and the agent's tool), one authorization rule for the user and their agents.
+
+### Option B: A composer button listing startable workflows (Rejected)
+
+A button at the composer that opens a picker of startable definitions and issues the same start. Rejected because the `/` list already is that surface: typing `/` shows `/workflow` with its verbs and completes definitions by name, so a button would be a second place to find the same words, and the composer draws none: its toolbar's right-hand cluster is Attach, then the context ring. A person discovers workflows in the list they already open to find any console word or any agent.
+
+### Option C: Workflows as @-mentionable pseudo-users (Rejected)
+
+`@release-workflow go` — put workflows in the `@` list. Rejected: `@` mentions a file, matching both provider CLIs, or another session, and an agent is named from its row in the `/` list ([Spec-014 §Addressing](../specs/014-multi-agent-orchestration.md#addressing)). A workflow in the `@` list would put a non-file among files and sessions, and a workflow sharing a name with a file or a session would be ambiguous. Workflows hold no agent identity and take no turns; they are reached by the `/workflow` word.
+
+### Option D: A new approval category for starting a workflow (Rejected)
+
+Authorization through the Spec-010 category enum and approval pipeline. Rejected per the Antithesis/Synthesis exchange: remembered grants have category width (wrong for per-definition blast radius), the pipeline adds latency and modality to a statically answerable question, and the surface is wider — both shapes need the same daemon-resolved principal, but a new category would additionally change the category enum, the remember-pipeline semantics, and the approval UI, where the named action is an additive registration in a set Spec-010 already sanctions as open.
+
+### Option E: Agent-mediated start via an appended provider-payload context block (Rejected)
+
+No start surface of the runtime's own — append a context block to the provider payload announcing that a workflow CLI exists, and let the model decide when to invoke it. Rejected because it relocates the start decision into model prose: the model, not the daemon, decides whether a run starts, and the daemon learns of the start only as an already-executed side effect, with no typed call for `Action::"workflow::start"` to adjudicate against — no principal, no definition id, no pre-start refusal point — and no audit row attributing the start to an actor, so Option A's matrix row would bind nothing on the agent path. Discoverability is not the trade here either: a context block is prompt text the model may ignore or paraphrase, where the `/` list's completion enumerates real definitions. This is exactly the gap the `workflow_run` callback tool closes — it makes the agent path a typed caller of `workflow.runStart` like the user-driven paths, adjudicated by the same named action over all callers and recorded with the same attribution, rather than an unpoliced consequence of what the model was told.
+
+## Assumptions Audit
+
+- **Provider CLIs dispatch leading-`/` user input as commands.** Live-verified against the reference provider CLI on 2026-08-11 (forwarded slash text errors as an unknown command rather than reaching the model as prose); the headless second provider ignores slash commands entirely, so degrade-honestly parity holds. If a future provider treats slash text as prose, interception remains correct — it is a superset defense.
+- **The callback-tool registry's fail-closed contract holds as documented:** spawn withholds the registry while the daemon's approval service is not running, and a stray invocation answers `denied`. The agent leg is withheld while that service is not running and offered once it runs (CP-003-6), with no code change on the workflow side. Every workflow callback tool registers only through that contract, with no bypass and no direct dispatch (Plan-014 T5.9).
+- **One user, resolved from the transport on every start path:** every local JSON-RPC caller — the desktop app, the `/workflow` verbs its composer intercepts, and the CLI — binds to the node-owner user, who is the product's one user; a linked device is a client of that same user's account and acts as that user; and an agent's start runs under that same user. The matrix row therefore tells apart how a start arrives, the person directly or an agent through its tool, and never one person from another. This decision treats a principal the transport cannot resolve as a named fail-closed refusal, not a footnote.
+- **`workflow.definitionList` scope filtering (I-014-10) is the enumeration the `/` list's completion rides** — no new disclosure surface is created by listing.
+- **The set of named operation actions is open.** Per [Spec-010 §Implementation Notes](../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes) (the Cedar principal-action-resource-context mapping bullet): the set is presented as prose with per-owning-spec attributions (`Action::"intervene"` per Spec-003), so `Action::"workflow::start"` is an additive registration whose attribution joins that same enumeration, and the Spec-010 sentence and the Cedar schema carry it together. If the set were ever closed into a table, the action would be a row of that table, carried the same way.
+
+## Failure Mode Analysis
+
+- **A start arrives whose principal the transport cannot resolve.** Refused with `workflow.start_denied` before any run is created, on every start path — CLI, desktop, chat and the agent's tool alike. The daemon never substitutes a default identity, because a placeholder would read as a real caller to the policy check. Bounded and honest: the matrix row never claims enforcement it lacks (the fail-closed refusal _is_ the enforcement).
+- **The daemon's approval service is not running.** No workflow callback tool is exposed; a stray invocation is answered `denied` with a diagnostic record — never `completed` without Cedar, never silent. Shipped-state honesty is written into the spec text.
+- **An agent writes `/workflow run x` in its own reply.** Inert by two independent rules: the command grammar exists only at the user's composer (C-18), and an agent's reply is not an addressing act and starts nothing (Spec-014 addressing-gated activation). Defense in depth, not coincidence.
+- **A start names a session that does not exist.** Refused: after the authorization adjudication admits the start, the daemon validates that the session the start binds to exists (`workflow.start_denied`), so a start's progress lands only in the session that asked. The agent leg names no session at all: the daemon derives it from the invoking turn.
+- **Steer/queue text beginning with `/` reaches a provider.** Text on no list goes to the provider as typed on every path, and the provider answers it in its own words ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)). A console word never reaches a provider on any path, and a word the bound provider's own enumeration carries is dispatched through that provider's own client rather than composed into a text frame.
+- **Grammar regret (a second verb or command root is needed).** Additive: the registry admits new commands and verbs without breaking `run`; what cannot be cheaply changed is the interception rule itself, which is the part the collision fact forces anyway.
+
+## Reversibility Assessment
+
+The interception rule is the one-way part: once users rely on how leading-slash text behaves, flipping it is a breaking UX change (the Airflow-rename cost class). The verb set and command roster are additive and reversible. The named action is additive to the Cedar schema; migrating to a category later would be additive too (categories and named actions coexist by design), though remembered grants issued after such a migration could not be retro-narrowed — a reason to be right now rather than migrate later. The callback tool is registry-curated and removable per session with no contract break.
+
+## Consequences
+
+### Positive
+
+- Workflows become startable where the work happens, by the user and by their agents, under one typed operation and one authorization rule — no new wire method, no new start mode, no governance-enum amendment.
+- The corpus gains its first concrete `SessionCallbackTool`s, exercising the shipped registry, Cedar route, and fail-closed withholding end to end.
+- The provider-collision class is closed by construction on the composer path, and the residual (steer/queue) is named and tracked rather than latent.
+- `error-contracts.md §Workflow` carries the surface's one authorization refusal code, `workflow.start_denied`, registered before any handler mints it.
+
+### Negative (accepted trade-offs)
+
+- A word the console owns cannot be sent to a provider at all, so where a provider's own command names something a console control already holds, the console's control wins and the provider's version is unreachable from the composer (accepted: forwarding it would move the provider's state and leave the control reading the old value). Leading-`/` prose goes to the provider as the user's own text, and one provider's client spends a turn replying that the command does not exist.
+- A denied agent has no in-product approval escalation for starts (accepted: risk-graded governance belongs at step execution time).
+
+### Unknowns
+
+- Whether a definition needs a start policy of its own (e.g., startable only from its authoring project). The named action composes with resource-scoped Cedar policies, so nothing here forecloses one.
+- The exact module inside the desktop's `features/composer/` feature that holds the interception hook — named by Plan-014 T5.7 from the composer's own structure, not invented here.
+
+## Decision Validation
+
+### Success Criteria
+
+- A `/workflow run <name>` composer input starts the named definition's run and renders its progress in the session that asked, as a transcript row that updates in place and becomes the results row when the run ends; the text never appears in any provider turn, and no other session receives anything.
+- A leading-`/` word the console owns executes and is never forwarded, on every path including the provider-bound composer surfaces; a word the bound provider's own enumeration carries is forwarded to that provider exactly as typed and only through the binding it was read under; anything else is sent to the provider as typed, with no escape sequence to type and no refusal of the product's own invention. A console word given an argument its control cannot take answers with one flow row saying what the word accepts — user-facing copy carrying no internal tracking id — and presses nothing.
+- Every start path adjudicates `Action::"workflow::start"`; a principal the matrix denies, a principal the transport cannot resolve on any path, or a session that does not exist refuses with `workflow.start_denied` — the authorization arm first with an authorization-level message, the session check second (only for a matrix-admitted start) — surfaced verbatim to the caller.
+- An agent's `workflow_run` invocation lands as `tool_activity`, Cedar-adjudicated, and is answered `denied` (never silently dropped, never `completed`) while the daemon's approval service is not running.
+
+## References
+
+### Research Conducted
+
+- Live provider-CLI collision verification (2026-08-11): forwarded leading-slash text errors as unknown-command in the reference interactive CLI; the headless provider CLI does not dispatch slash commands. Conducted against the installed CLIs; behavior is the design-forcing fact recorded in §Context.
+- [Discord — Application Commands](https://discord.com/developers/docs/interactions/application-commands) (accessed 2026-08-11) — the registered, typed, autocompleted, per-command-permission model; platform-owned interception.
+- [Slack — Slash commands](https://api.slack.com/interactivity/slash-commands) (accessed 2026-08-11) — command payloads are delivered to the app, never echoed as channel text; workflows surfaced by name in the composer menu.
+
+### Related ADRs
+
+- [ADR-012 — Cedar Approval Policy Engine](./012-cedar-approval-policy-engine.md) — the adjudication substrate; named operation actions.
+- [ADR-024 — Visual Node-Graph Workflow Authoring](./024-visual-node-graph-workflow-authoring.md) — the sibling authoring-surface decision.
+- [ADR-014 — V1 Feature Scope Definition](./014-v1-feature-scope-definition.md) — feature #14 scope.
+
+### Related Docs
+
+- [Spec-015 §Chat-Invoked Start and Start Authorization](../specs/015-workflow-authoring-and-execution.md#chat-invoked-start-and-start-authorization) (SA-37, SA-38, C-18) — the normative surface this ADR governs.
+- [Spec-014 §Addressing](../specs/014-multi-agent-orchestration.md#addressing) — addressing-gated activation, an addressing act that rides an existing operation, and an agent named from its row in the `/` list.
+- [Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior) (the approval-category enum this decision deliberately does not extend) and [Spec-010 §Implementation Notes](../specs/010-approvals-permissions-and-trust-boundaries.md#implementation-notes) (the set of named operation actions `Action::"workflow::start"` joins).
+- [security-architecture.md §Permission Matrix](../architecture/security-architecture.md#permission-matrix) — the mirrored permission row.
+- [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) — text on no list goes to the provider as typed, on every path.

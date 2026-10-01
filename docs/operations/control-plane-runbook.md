@@ -81,10 +81,10 @@ sidekicks relay repin --force    # a relay without a publicly trusted certificat
 ## Related Specs
 
 - [Identity And User State](../specs/016-identity-and-user-state.md)
-- [Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md)
-- [Remote Control](../specs/028-remote-control.md)
+- [Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md)
+- [Remote Control](../specs/027-remote-control.md)
 
 ## Related Plans
 
 - [Session Core](../plans/001-session-core.md)
-- [Remote Control](../plans/028-remote-control.md)
+- [Remote Control](../plans/025-remote-control.md)
