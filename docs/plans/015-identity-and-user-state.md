@@ -32,14 +32,14 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Target Areas
 
-- `packages/contracts/src/users/`
-- `packages/control-plane/src/users/user-account-service.ts`
-- `packages/control-plane/src/users/user-projection-service.ts`
-- `packages/control-plane/src/users/user-state-update-service.ts`
+- `packages/contracts/src/users/` (CREATE — T1.1, T1.2)
+- `packages/control-plane/src/users/user-account-service.ts` (CREATE — T2.1)
+- `packages/control-plane/src/users/user-projection-service.ts` (CREATE — T3.1)
+- `packages/control-plane/src/users/user-state-update-service.ts` (CREATE — T3.2)
 - `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE — Plan-015-owned relay connection-token custody, T4.4)
-- `packages/client-sdk/src/userClient.ts`
-- `apps/desktop/src/renderer/src/users/`
-- `apps/cli/src/users/`
+- `packages/client-sdk/src/userClient.ts` (CREATE — T4.1)
+- `apps/desktop/src/renderer/src/store/user/` (CREATE — T4.2, the user projection)
+- `apps/cli/src/users/` (CREATE — T4.3)
 - `packages/control-plane/src/account/` (CREATE — T5.4 hosted-account sign-in and token family, T5.5 `account.delete` and `account.export`)
 - `packages/contracts/src/account.ts` (CREATE — T5.4 and T5.5: the hosted-account routes' request and response shapes, which the command line and the daemon read) and `packages/contracts/src/error.ts` (EXTEND — their refusal codes)
 - `packages/runtime-daemon/src/identity/paseto-daemon-credential-provider.ts` (CREATE — T5.1/T5.2 real credential provider; new Plan-015-owned `identity/` daemon subdirectory)
@@ -184,7 +184,7 @@ User projection assembly and stable-authorship display updates.
 
 **Precondition:** Phase 3 merged.
 
-Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-layer authz binding. The CLI commands build on the `apps/cli` scaffold of Plan-005 Phase R3 (T-005r-3-1).
+Typed SDK (daemon-as-gateway), the renderer's user projection, CLI commands, and the service-layer authz binding. The CLI commands build on the `apps/cli` scaffold of Plan-005 Phase R3 (T-005r-3-1).
 
 #### Tasks
 
@@ -194,12 +194,12 @@ Typed SDK (daemon-as-gateway), renderer subtree, CLI commands, and the service-l
   - **Verifies invariant:** I-015-4
   - Consumes: the T1.1 and T1.2 contracts; `JsonRpcClient` (shipped Plan-005 substrate); `user.*` method strings (CP-015-3)
   - Note: the transport is daemon-as-gateway (ADR-008 transport boundary; the control plane holds user state, and clients reach it through the daemon).
-- **T4.2 — `users/` renderer subtree.**
-  - Files: `apps/desktop/src/renderer/src/users/` (CREATE) + `apps/desktop/src/renderer/src/users/__tests__/*.test.tsx`
+- **T4.2 — The renderer's user projection.**
+  - Files: `apps/desktop/src/renderer/src/store/user/` (CREATE), with its tests beside it
   - **Spec coverage:** Spec-016 §Required Behavior (display state, partial)
   - **Verifies invariant:** I-015-5
   - Consumes: `window.desktopBridge` daemon bridge (Spec-021); `user.*` methods (CP-015-3)
-  - Note: RTL component tests ship with the subtree (`@testing-library/react` `render`/`screen` + `installMockBridge` `{ daemon: { call, subscribe } }` + bridge-projection assertion). Live user-state E2E defers to the Playwright harness (Plan-020).
+  - Note: RTL component tests ship beside the projection (`@testing-library/react` `render`/`screen` + `installMockBridge` `{ daemon: { call, subscribe } }` + bridge-projection assertion). Live user-state E2E defers to the Playwright harness (Plan-020).
 - **T4.3 — `users/` CLI commands.**
   - Files: `apps/cli/src/users/` (CREATE)
   - **Spec coverage:** Spec-016 §Required Behavior (partial), Spec-016 §Default Behavior
