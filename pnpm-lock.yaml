@@ -23,6 +23,11 @@ catalogs:
       specifier: 4.1.11
       version: 4.1.11
 
+patchedDependencies:
+  react-resizable-panels@4.14.1:
+    hash: b18a70ac19bd4cd2f2bada22ae1264103145b161444c346ca36bf3a1d92fe36e
+    path: patches/react-resizable-panels@4.14.1.patch
+
 importers:
 
   .:
@@ -154,8 +159,8 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0(react@19.3.0)
       react-resizable-panels:
-        specifier: 4.13.0
-        version: 4.13.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 4.14.1
+        version: 4.14.1(patch_hash=b18a70ac19bd4cd2f2bada22ae1264103145b161444c346ca36bf3a1d92fe36e)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       remend:
         specifier: 1.4.0
         version: 1.4.0
@@ -4528,8 +4533,8 @@ packages:
   react-is@17.0.2:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
 
-  react-resizable-panels@4.13.0:
-    resolution: {integrity: sha512-ytzgDJveIsxiJjLGyQBxOItAyafYyu0BlHm5pm2wxTl93ij/CYHjabxaQdki/egejDvjuJIM6hZ9Zq+ONsumYw==}
+  react-resizable-panels@4.14.1:
+    resolution: {integrity: sha512-OB1bXDNTLcGgTTbaX6Dn5efZhlMboSnkfr1w4xpsJTHPEbRJpACBhXpgRCXozgPO1ztgFeZRUe5J3mFNCVKm5g==}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
@@ -9829,7 +9834,7 @@ snapshots:
 
   react-is@17.0.2: {}
 
-  react-resizable-panels@4.13.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  react-resizable-panels@4.14.1(patch_hash=b18a70ac19bd4cd2f2bada22ae1264103145b161444c346ca36bf3a1d92fe36e)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     dependencies:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
