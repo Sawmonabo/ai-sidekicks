@@ -44,7 +44,7 @@ allowBuilds:
   # cannot hold a `.node` if no build ever runs.
   better-sqlite3: false
   lefthook: true
-  # Cloudflare Workers tooling (wrangler@^4.86.0):
+  # Cloudflare Workers tooling (wrangler@^4.145.0):
   # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.
   # - esbuild: Worker-bundle compiler invoked by wrangler. Approve: required.
   # - sharp: Cloudflare Images binding emulation pulled in via miniflare. The control plane does not
@@ -106,25 +106,25 @@ allowBuilds:
 catalog:
   # One version across every package: the contracts build their schemas with it and every other
   # package parses with those schemas, so two versions would be two schema runtimes.
-  zod: 4.3.6
+  zod: 4.6.5
 catalogs:
   testing:
     # Exact pins, moved in lockstep. `@vitest/coverage-v8` declares an exact peer on its runner
-    # (`peerDependencies: { vitest: "4.1.5" }`) rather than a range, so a caret on either entry lets
-    # the two drift apart on the next resolution and the install fails with an unmet peer. The
+    # (`peerDependencies: { vitest: "4.1.11" }`) rather than a range, so a caret on either entry
+    # lets the two drift apart on the next resolution and the install fails with an unmet peer. The
     # catalog is the one place they move together; a runner bump is its own PR that edits both
     # lines.
-    vitest: 4.1.5
-    "@vitest/coverage-v8": 4.1.5
+    vitest: 4.1.11
+    "@vitest/coverage-v8": 4.1.11
     # The browser tier. `@vitest/browser-playwright` declares the same exact peer on its runner
-    # (`peerDependencies: { vitest: "4.1.5" }`) that `@vitest/coverage-v8` does, so it belongs in
+    # (`peerDependencies: { vitest: "4.1.11" }`) that `@vitest/coverage-v8` does, so it belongs in
     # the lockstep set rather than carrying its own caret in `apps/desktop`. Its second peer,
     # `playwright`, is `*` and is satisfied by that package's own `@playwright/test` pin.
-    "@vitest/browser-playwright": 4.1.5
+    "@vitest/browser-playwright": 4.1.11
     # `@vitest/browser` is a transitive dependency of the provider above, but `apps/desktop` also
     # declares it directly, because the screenshot tier's `toMatchScreenshot` matcher is typed in
     # `@vitest/browser/matchers` and a `types` entry must resolve against a package the consumer can
     # see. Under pnpm's strict layout a transitive dependency is not visible, so without the direct
     # declaration the tier runs and does not compile. Same exact peer on the runner, so the same
     # lockstep set.
-    "@vitest/browser": 4.1.5
+    "@vitest/browser": 4.1.11

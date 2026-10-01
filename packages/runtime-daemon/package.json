@@ -30,22 +30,22 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "@napi-rs/keyring": "2.1.0",
-    "@noble/hashes": "^2",
+    "@noble/hashes": "^2.4.0",
     "better-sqlite3": "13.0.3",
     "canonicalize": "3.0.0",
-    "lru-cache": "^11.5.0",
-    "node-pty": "^1.2.0-beta.12",
-    "semver": "^7.7.4",
+    "lru-cache": "^11.5.3",
+    "node-pty": "^1.2.0-beta.15",
+    "semver": "^7.8.5",
     "shiki": "4.4.3",
     "zod": "catalog:"
   },
   "optionalDependencies": {
-    "koffi": "^2.14.1"
+    "koffi": "^2.16.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.6.0",
-    "@types/semver": "^7.7.1",
+    "@types/node": "^25.9.8",
+    "@types/semver": "^7.8.0",
     "@vitest/coverage-v8": "catalog:testing",
     "vitest": "catalog:testing"
   }

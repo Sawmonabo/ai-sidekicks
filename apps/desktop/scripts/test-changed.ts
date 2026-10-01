@@ -153,7 +153,7 @@ async function unitProjectsClaiming(
 
 /**
  * The spellings vitest's parser answers by printing. `--help` and `-h` make cac write the option
- * list (9383 bytes on vitest 4.1.5) to this process's stdout and return an empty filter, which
+ * list (9917 bytes on vitest 4.1.11) to this process's stdout and return an empty filter, which
  * would put a second copy of vitest's help above the child's. `--version` prints nothing, so it is
  * absent.
  */

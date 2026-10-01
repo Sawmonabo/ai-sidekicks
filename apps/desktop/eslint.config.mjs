@@ -436,7 +436,7 @@ function rendererFiles(subtree, patterns) {
  * Only the exported forms are ranked. A non-exported declaration matches no listed group and
  * becomes `unknown`, one bucket held last and left unsorted, which keeps the module-shape exception
  * (a private type that exactly one helper uses may sit directly above that helper) followable.
- * Verified against `eslint-plugin-perfectionist` 5.11.0: it emits `export-function` and `function`
+ * Verified against `eslint-plugin-perfectionist` 5.12.1: it emits `export-function` and `function`
  * for an exported declaration and only `function` for a private one, and ranks an unmatched group
  * last.
  *

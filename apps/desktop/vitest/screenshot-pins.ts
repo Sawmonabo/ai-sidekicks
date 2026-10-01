@@ -70,7 +70,7 @@ export const SCREENSHOT_TIER_MATCH_OPTIONS = {
  * Everything one capture spends that is not the stability wait, in milliseconds: the mount, the
  * sizing passes and settles, the pending-marker reads, the stability comparison against its retry,
  * and the restore. Vitest resolves browser-mode `testTimeout` to 15 000 ms rather than 5 000
- * (`resolved.testTimeout ??= resolved.browser.enabled ? 15e3 : 5e3`, in the vitest 4.1.5 that
+ * (`resolved.testTimeout ??= resolved.browser.enabled ? 15e3 : 5e3`, in the vitest 4.1.11 that
  * `@vitest/browser` peers on), and every capture has done all of that plus a wait of up to
  * 5 000 ms inside it, so this is the figure the tier has shown is enough for the work.
  */

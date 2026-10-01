@@ -16,7 +16,7 @@
 // only the touched kind's partition plus an outer record. Every count below is read off
 // `ENTITY_KINDS` (`lib/entity-kinds.ts`), so a new kind moves the arithmetic.
 //
-// A plain `test` with its own sampler is used rather than Vitest's `bench` (vitest 4.1.5):
+// A plain `test` with its own sampler is used rather than Vitest's `bench` (vitest 4.1.11):
 // `bench` runs only under `vitest bench`, a separate mode from every other tier's project, and
 // its tinybench 2.9.0 statistics publish p75, p99, p995 and p999 but no p95, which the ledger
 // row needs. Samples come from `performance.now()` and `summarizeBenchmarkSamples`; the arm runs
