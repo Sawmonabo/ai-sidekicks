@@ -1,15 +1,12 @@
-// The `mcp.*` method table, the five governance event payloads and the refusal codes.
-// An event payload names a project or local binding by the keyed digest of its folder,
-// never the folder itself, because events are kept and signed.
+// The `mcp.*` method table, the two governance event payloads and the refusal codes. An event
+// payload names a binding by its provider, scope and server name, never its folder.
 import { z } from "zod";
 
 import {
-  McpApplicationGradeSchema,
-  McpApprovalModeSchema,
   McpClearToolOverrideRequestSchema,
+  McpConfigScopeSchema,
   McpGetResponseSchema,
   McpKeyedBindingRequestSchema,
-  McpKeyedDigestSchema,
   McpListRequestSchema,
   McpListResponseSchema,
   McpMutationResultSchema,
@@ -26,13 +23,10 @@ import {
   McpServerStatusSchema,
   McpSetEnabledRequestSchema,
   McpSetToolOverrideRequestSchema,
-  McpSetTrustRequestSchema,
-  McpToolNameSchema,
   McpToolOverrideMutationResultSchema,
   McpUpsertServerRequestSchema,
-  type McpApplicationGrade,
-  type McpApprovalMode,
   type McpClearToolOverrideRequest,
+  type McpConfigScope,
   type McpGetResponse,
   type McpKeyedBindingRequest,
   type McpListRequest,
@@ -49,7 +43,6 @@ import {
   type McpServerBindingRef,
   type McpSetEnabledRequest,
   type McpSetToolOverrideRequest,
-  type McpSetTrustRequest,
   type McpToolOverrideMutationResult,
   type McpUpsertServerRequest,
 } from "./mcp.js";
@@ -61,45 +54,25 @@ import { SessionIdSchema, type SessionId } from "./session.js";
 // Governance event payloads
 
 /**
- * A binding's identity inside a kept event: the folder is replaced by its keyed
- * digest, stable for the binding's life and joinable to the inventory entry that
- * serves the same digest.
+ * A binding's identity inside a kept event: its provider, scope and server name. The folder a
+ * project or local binding lives in is a path on this machine and never enters an event.
  */
-export type McpServerBindingAuditRef =
-  | { provider: ProviderName; scope: "user"; serverName: string }
-  | { provider: ProviderName; scope: "project"; scopeRefDigest: string; serverName: string }
-  | { provider: ProviderName; scope: "local"; scopeRefDigest: string; serverName: string };
+export interface McpServerBindingAuditRef {
+  provider: ProviderName;
+  scope: McpConfigScope;
+  serverName: string;
+}
 
-/** The audit-ref union with `extra` members added to each arm, every arm strict. */
+/** The audit ref with `extra` members added, strict. */
 const auditAddressed = <Extra extends z.ZodRawShape>(extra: Extra) =>
-  z.discriminatedUnion("scope", [
-    z
-      .object({
-        provider: ProviderNameSchema,
-        scope: z.literal("user"),
-        serverName: McpServerNameSchema,
-        ...extra,
-      })
-      .strict(),
-    z
-      .object({
-        provider: ProviderNameSchema,
-        scope: z.literal("project"),
-        scopeRefDigest: McpKeyedDigestSchema,
-        serverName: McpServerNameSchema,
-        ...extra,
-      })
-      .strict(),
-    z
-      .object({
-        provider: ProviderNameSchema,
-        scope: z.literal("local"),
-        scopeRefDigest: McpKeyedDigestSchema,
-        serverName: McpServerNameSchema,
-        ...extra,
-      })
-      .strict(),
-  ]);
+  z
+    .object({
+      provider: ProviderNameSchema,
+      scope: McpConfigScopeSchema,
+      serverName: McpServerNameSchema,
+      ...extra,
+    })
+    .strict();
 
 const initiatingSessionShape = { initiatingSessionId: SessionIdSchema.optional() };
 
@@ -129,90 +102,6 @@ export const McpServerStatusChangedPayloadSchema: z.ZodType<McpServerStatusChang
       path: ["bindingId"],
     },
   );
-
-const MCP_CONFIG_CHANGE_KIND_VALUES = [
-  "added",
-  "updated",
-  "removed",
-  "enabled",
-  "disabled",
-] as const;
-
-/** What a configuration change did to a binding. */
-export type McpConfigChangeKind = (typeof MCP_CONFIG_CHANGE_KIND_VALUES)[number];
-
-/**
- * `mcp.server_config_changed`. A removal has no configuration left to hash, so it
- * carries the hash it had and no new one; an update carries both; every other
- * change carries the new hash.
- */
-export type McpServerConfigChangedPayload = McpServerBindingAuditRef & {
-  changeKind: McpConfigChangeKind;
-  appliedVia: McpApplicationGrade;
-  configHash?: string | undefined;
-  previousConfigHash?: string | undefined;
-  initiatingSessionId?: SessionId | undefined;
-};
-/** Parses an {@link McpServerConfigChangedPayload}. */
-export const McpServerConfigChangedPayloadSchema: z.ZodType<McpServerConfigChangedPayload> =
-  auditAddressed({
-    changeKind: z.enum(MCP_CONFIG_CHANGE_KIND_VALUES),
-    appliedVia: McpApplicationGradeSchema,
-    configHash: McpKeyedDigestSchema.optional(),
-    previousConfigHash: McpKeyedDigestSchema.optional(),
-    ...initiatingSessionShape,
-  })
-    .refine(
-      (payload) => (payload.changeKind === "removed") === (payload.configHash === undefined),
-      { message: "configHash is absent on a removal and present on every other change." },
-    )
-    .refine(
-      (payload) =>
-        (payload.changeKind !== "removed" && payload.changeKind !== "updated") ||
-        payload.previousConfigHash !== undefined,
-      { message: "A removal or an update carries previousConfigHash." },
-    );
-
-const MCP_TRUST_REASON_VALUES = ["operator_grant", "operator_revoke", "config_drift"] as const;
-
-/** Why trust changed: the person granted or withdrew it, or the configuration drifted. */
-export type McpTrustReason = (typeof MCP_TRUST_REASON_VALUES)[number];
-
-/** `mcp.server_trust_changed`. `configHash` is the hash the grant binds to, or the drifted one. */
-export type McpServerTrustChangedPayload = McpServerBindingAuditRef & {
-  trusted: boolean;
-  reason: McpTrustReason;
-  configHash: string;
-  initiatingSessionId?: SessionId | undefined;
-};
-/** Parses an {@link McpServerTrustChangedPayload}. */
-export const McpServerTrustChangedPayloadSchema: z.ZodType<McpServerTrustChangedPayload> =
-  auditAddressed({
-    trusted: z.boolean(),
-    reason: z.enum(MCP_TRUST_REASON_VALUES),
-    configHash: McpKeyedDigestSchema,
-    ...initiatingSessionShape,
-  });
-
-/** `mcp.tool_override_changed`. A clear by withdrawn trust has no initiating session. */
-export type McpToolOverrideChangedPayload = McpServerBindingAuditRef & {
-  toolName: string;
-  changeKind: "set" | "cleared";
-  enabled?: boolean | undefined;
-  approvalMode?: McpApprovalMode | undefined;
-  idempotencyClass?: "idempotent" | "compensable" | undefined;
-  initiatingSessionId?: SessionId | undefined;
-};
-/** Parses an {@link McpToolOverrideChangedPayload}. */
-export const McpToolOverrideChangedPayloadSchema: z.ZodType<McpToolOverrideChangedPayload> =
-  auditAddressed({
-    toolName: McpToolNameSchema,
-    changeKind: z.enum(["set", "cleared"]),
-    enabled: z.boolean().optional(),
-    approvalMode: McpApprovalModeSchema.optional(),
-    idempotencyClass: z.enum(["idempotent", "compensable"]).optional(),
-    ...initiatingSessionShape,
-  });
 
 /**
  * `mcp.server_oauth_completed`: how a sign-in ended. A sign-in that fails after
@@ -252,24 +141,10 @@ export type McpConfigWriteConflictCode = "mcp.config_write_conflict";
 export const MCP_CONFIG_WRITE_CONFLICT_CODE: McpConfigWriteConflictCode =
   "mcp.config_write_conflict";
 
-/**
- * No mechanism reaches what was asked at this scope: a Codex `enabled` or
- * `approvalMode` tool override on a `project` binding.
- */
-export type McpConfigScopeUnsupportedCode = "mcp.config_scope_unsupported";
-/** The value of {@link McpConfigScopeUnsupportedCode}. */
-export const MCP_CONFIG_SCOPE_UNSUPPORTED_CODE: McpConfigScopeUnsupportedCode =
-  "mcp.config_scope_unsupported";
-
 /** The policy denied the governance change, checked before whether the binding exists. */
 export type McpGovernanceDeniedCode = "mcp.governance_denied";
 /** The value of {@link McpGovernanceDeniedCode}. */
 export const MCP_GOVERNANCE_DENIED_CODE: McpGovernanceDeniedCode = "mcp.governance_denied";
-
-/** A tool override would loosen what an untrusted server may do. */
-export type McpTrustRequiredCode = "mcp.trust_required";
-/** The value of {@link McpTrustRequiredCode}. */
-export const MCP_TRUST_REQUIRED_CODE: McpTrustRequiredCode = "mcp.trust_required";
 
 /** The sign-in could not be started. A failure after it started arrives as an event. */
 export type McpOauthFlowFailedCode = "mcp.oauth_flow_failed";
@@ -305,7 +180,6 @@ export interface McpMethodDescriptors {
     McpSetEnabledRequest,
     McpMutationResult
   >;
-  readonly "mcp.setTrust": MethodDescriptor<"mcp.setTrust", McpSetTrustRequest, McpMutationResult>;
   readonly "mcp.setToolOverride": MethodDescriptor<
     "mcp.setToolOverride",
     McpSetToolOverrideRequest,
@@ -375,13 +249,6 @@ export const MCP_METHOD_DESCRIPTORS: McpMethodDescriptors = defineMethodDescript
     procedureType: "mutation",
     mutating: true,
     requestSchema: McpSetEnabledRequestSchema,
-    responseSchema: McpMutationResultSchema,
-  },
-  "mcp.setTrust": {
-    method: "mcp.setTrust",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: McpSetTrustRequestSchema,
     responseSchema: McpMutationResultSchema,
   },
   "mcp.setToolOverride": {

@@ -47,11 +47,8 @@ import type {
 import { GitSettledPayloadSchema } from "./gitflow/local.js";
 import { uuidTextFormSchema } from "./internal/branded.js";
 import {
-  McpServerConfigChangedPayloadSchema,
   McpServerOauthCompletedPayloadSchema,
   McpServerStatusChangedPayloadSchema,
-  McpServerTrustChangedPayloadSchema,
-  McpToolOverrideChangedPayloadSchema,
 } from "./mcp-governance.js";
 import {
   PlanAcceptedPayloadSchema,
@@ -243,9 +240,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "orchestration.rejected": "orchestration_admission",
   // mcp_governance
   "mcp.server_status_changed": "mcp_governance",
-  "mcp.server_config_changed": "mcp_governance",
-  "mcp.server_trust_changed": "mcp_governance",
-  "mcp.tool_override_changed": "mcp_governance",
   "mcp.server_oauth_completed": "mcp_governance",
   // workflow_lifecycle
   "workflow.created": "workflow_lifecycle",
@@ -400,21 +394,6 @@ const mcpServerStatusChangedVariantSchema = buildSessionEventVariantSchema(
   "mcp.server_status_changed",
   "mcp_governance",
   McpServerStatusChangedPayloadSchema,
-);
-const mcpServerConfigChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.server_config_changed",
-  "mcp_governance",
-  McpServerConfigChangedPayloadSchema,
-);
-const mcpServerTrustChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.server_trust_changed",
-  "mcp_governance",
-  McpServerTrustChangedPayloadSchema,
-);
-const mcpToolOverrideChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.tool_override_changed",
-  "mcp_governance",
-  McpToolOverrideChangedPayloadSchema,
 );
 const mcpServerOauthCompletedVariantSchema = buildSessionEventVariantSchema(
   "mcp.server_oauth_completed",
@@ -828,9 +807,6 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   planHandedOffVariantSchema,
   questionAskedVariantSchema,
   mcpServerStatusChangedVariantSchema,
-  mcpServerConfigChangedVariantSchema,
-  mcpServerTrustChangedVariantSchema,
-  mcpToolOverrideChangedVariantSchema,
   mcpServerOauthCompletedVariantSchema,
   cloudTaskUpdatedVariantSchema,
   sessionRestoreFinishedVariantSchema,

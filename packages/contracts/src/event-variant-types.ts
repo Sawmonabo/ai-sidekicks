@@ -49,11 +49,8 @@ import type {
 import type { SessionEventType } from "./event-registry.js";
 import type { GitSettledPayload } from "./gitflow/local.js";
 import type {
-  McpServerConfigChangedPayload,
   McpServerOauthCompletedPayload,
   McpServerStatusChangedPayload,
-  McpServerTrustChangedPayload,
-  McpToolOverrideChangedPayload,
 } from "./mcp-governance.js";
 import type { PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload } from "./plan.js";
 import type { RunId } from "./provider-driver.js";
@@ -187,24 +184,6 @@ export type McpServerStatusChangedEvent = SessionEventVariant<
   "mcp.server_status_changed",
   "mcp_governance",
   McpServerStatusChangedPayload
->;
-/** Emitted when an MCP server's configuration changes. */
-export type McpServerConfigChangedEvent = SessionEventVariant<
-  "mcp.server_config_changed",
-  "mcp_governance",
-  McpServerConfigChangedPayload
->;
-/** Emitted when trust in an MCP server is granted, withdrawn or lost to drift. */
-export type McpServerTrustChangedEvent = SessionEventVariant<
-  "mcp.server_trust_changed",
-  "mcp_governance",
-  McpServerTrustChangedPayload
->;
-/** Emitted when an MCP tool override changes. */
-export type McpToolOverrideChangedEvent = SessionEventVariant<
-  "mcp.tool_override_changed",
-  "mcp_governance",
-  McpToolOverrideChangedPayload
 >;
 /** Emitted when an MCP server sign-in ends, in success or failure. */
 export type McpServerOauthCompletedEvent = SessionEventVariant<
@@ -555,9 +534,6 @@ export type SessionEvent =
   | PlanHandedOffEvent
   | QuestionAskedEvent
   | McpServerStatusChangedEvent
-  | McpServerConfigChangedEvent
-  | McpServerTrustChangedEvent
-  | McpToolOverrideChangedEvent
   | McpServerOauthCompletedEvent
   | CloudTaskUpdatedEvent
   | SessionRestoreFinishedEvent

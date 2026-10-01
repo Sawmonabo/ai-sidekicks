@@ -47,12 +47,9 @@ const SERVER_ROW: McpServerInventoryEntry = {
   provider: "claude",
   scope: "user",
   serverName: "filesystem",
-  effectiveInRuns: true,
   config: { transport: "stdio", command: "npx" },
   status: "connected",
   enabled: true,
-  trusted: true,
-  configHash: "b3:2f9c41d8ae07b5",
   toolOverrides: [],
 };
 

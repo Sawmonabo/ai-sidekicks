@@ -8,7 +8,7 @@
 // still cannot render an environment-variable value, a header value or a token.
 //
 // Every governance mutation carries a `clientIdempotencyKey` that the caller mints: a retry of
-// one operator press must reuse it, and a key minted per call would make every retry a new
+// one press must reuse it, and a key minted per call would make every retry a new
 // operation. `mcp.reconnect` alone carries none, because it is unreceipted and there is no
 // replay for a key to describe.
 import { z } from "zod";
@@ -85,6 +85,9 @@ const MCP_CONFIG_SCOPE_VALUES = ["user", "project", "local"] as const;
 export type McpConfigScope = (typeof MCP_CONFIG_SCOPE_VALUES)[number];
 /** Every {@link McpConfigScope}, in the order above. */
 export const MCP_CONFIG_SCOPES: readonly McpConfigScope[] = MCP_CONFIG_SCOPE_VALUES;
+/** Parses an {@link McpConfigScope}. */
+export const McpConfigScopeSchema: z.ZodType<McpConfigScope, McpConfigScope> =
+  z.enum(MCP_CONFIG_SCOPE_VALUES);
 
 /**
  * The scope-qualified identity of one server binding: provider, scope, scope
@@ -140,18 +143,6 @@ export type McpSetEnabledRequest = McpServerBindingRef & {
 /** Parses an {@link McpSetEnabledRequest}; a request without a UUID key is refused. */
 export const McpSetEnabledRequestSchema: z.ZodType<McpSetEnabledRequest, McpSetEnabledRequest> =
   bindingAddressed({ clientIdempotencyKey: z.uuid(), enabled: z.boolean() });
-
-/**
- * Grants or withdraws trust in one binding. The grant binds to the binding's
- * current configuration, so a changed configuration needs a new grant.
- */
-export type McpSetTrustRequest = McpServerBindingRef & {
-  clientIdempotencyKey: string;
-  trusted: boolean;
-};
-/** Parses an {@link McpSetTrustRequest}; a request without a UUID key is refused. */
-export const McpSetTrustRequestSchema: z.ZodType<McpSetTrustRequest, McpSetTrustRequest> =
-  bindingAddressed({ clientIdempotencyKey: z.uuid(), trusted: z.boolean() });
 
 /**
  * The redacted read-back of a binding's declaration, by transport.
@@ -224,20 +215,15 @@ export interface McpToolOverride {
 }
 
 /**
- * What an inventory entry carries whether or not the trust store answered.
- * `effectiveInRuns` says whether the binding reaches provider runs, which every
- * scope does except a server that came with a repository and is not yet trusted;
- * `status` is the daemon's aggregate over `legs`.
+ * What an inventory entry carries whether or not the binding store answered. `status` is the
+ * daemon's aggregate over `legs`.
  */
 interface McpServerInventoryFacts {
-  effectiveInRuns: boolean;
   config: McpServerConfigView;
   status: McpServerStatus;
   legs?: McpServerLegStatus[] | undefined;
   observedAt?: string | undefined;
   requiredServer?: boolean | undefined;
-  /** The keyed digest of `scopeRef`, served on project and local bindings in both arms. */
-  scopeRefDigest?: string | undefined;
   /**
    * Why a `failed` server failed, where the daemon knows a reason the person can
    * act on. `commandNotRunnable`: after the service moved between Windows and a WSL
@@ -248,11 +234,11 @@ interface McpServerInventoryFacts {
 }
 
 /**
- * One inventory row: the binding, what is known about it, and the trust arm.
+ * One inventory row: the binding and what is known about it.
  *
- * A pair on `trustUnavailable`. When the trust store is unreachable the trust- and
- * override-dependent members are absent, not `false`, `unknown` or an empty list, so no made-up
- * verdict exists. A client renders the absence and withholds the trust controls on that row.
+ * A pair on `trustUnavailable`. When the binding store is unreachable the members that depend on
+ * it are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists. A client
+ * renders the absence.
  */
 export type McpServerInventoryEntry = McpServerBindingRef &
   McpServerInventoryFacts &
@@ -260,8 +246,6 @@ export type McpServerInventoryEntry = McpServerBindingRef &
     | {
         trustUnavailable?: undefined;
         enabled: boolean;
-        trusted: boolean;
-        configHash: string;
         toolOverrides: McpToolOverride[];
       }
     | {
@@ -290,10 +274,7 @@ export interface McpLiveApplicationResult {
  * took effect, and what happened on each live session.
  *
  * `liveResults` is absent where the mutation touched no live session, which is a
- * different fact from an empty list and is carried as one. The trust mutation always
- * answers `daemon_enforced`, because a trust grant binds at the daemon and reaches no
- * provider config; it shares this shape so a client reads `applied` the same way
- * whichever mutation it sent.
+ * different fact from an empty list and is carried as one.
  */
 export interface McpMutationResult {
   server: McpServerInventoryEntry;
@@ -421,12 +402,6 @@ const McpServerConfigInputSchema: z.ZodType<McpServerConfigInput, McpServerConfi
       .strict(),
   ]);
 
-/** Whether a submitted declaration holds an environment or header value. */
-function carriesSecretValues(config: McpServerConfigInput): boolean {
-  const values = config.transport === "stdio" ? config.env : config.headers;
-  return values !== undefined && Object.keys(values).length > 0;
-}
-
 // ---- Requests ----
 
 /** Reads the whole inventory; `refresh` asks the daemon to probe before answering. */
@@ -446,11 +421,8 @@ export const McpSubscribeRequestSchema: z.ZodType<McpSubscribeRequest, McpSubscr
   .strict();
 
 /**
- * Adds a binding or changes its declaration, at any scope on either provider.
- *
- * A `project` binding is saved in a file that travels with the repository, so it
- * takes environment-variable and header names only: a request carrying a value
- * there is refused before anything is written.
+ * Adds a binding or changes its declaration, at any scope on either provider. Every scope takes
+ * what the person typed, values included, written in that provider's own file format.
  */
 export type McpUpsertServerRequest = McpServerBindingRef & {
   clientIdempotencyKey: string;
@@ -463,10 +435,6 @@ export const McpUpsertServerRequestSchema: z.ZodType<
 > = bindingAddressed({
   clientIdempotencyKey: z.uuid(),
   config: McpServerConfigInputSchema,
-}).refine((request) => request.scope !== "project" || !carriesSecretValues(request.config), {
-  message:
-    "A project binding is saved with the repository, so it takes names, never environment or header values.",
-  path: ["config"],
 });
 
 /**
@@ -586,9 +554,6 @@ export const McpServerStatusSchema: z.ZodType<McpServerStatus> = z.enum([
   "connected",
 ]);
 
-/** A keyed BLAKE3 digest the daemon serves in place of a folder or a configuration. */
-export const McpKeyedDigestSchema: z.ZodString = z.string().startsWith("b3:").min(4);
-
 const viewCommonShape = {
   enabled: z.boolean().optional(),
   required: z.boolean().optional(),
@@ -634,19 +599,15 @@ const McpServerLegStatusSchema: z.ZodType<McpServerLegStatus> = z
   .strict();
 
 const inventoryFactsShape = {
-  effectiveInRuns: z.boolean(),
   config: McpServerConfigViewSchema,
   status: McpServerStatusSchema,
   legs: z.array(McpServerLegStatusSchema).optional(),
   observedAt: z.iso.datetime({ offset: true }).optional(),
   requiredServer: z.boolean().optional(),
-  scopeRefDigest: McpKeyedDigestSchema.optional(),
   failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
 };
-const trustedEntryShape = {
+const storeAnsweredEntryShape = {
   enabled: z.boolean(),
-  trusted: z.boolean(),
-  configHash: McpKeyedDigestSchema,
   toolOverrides: z.array(McpToolOverrideSchema),
 };
 const trustUnavailableEntryShape = {
@@ -654,10 +615,10 @@ const trustUnavailableEntryShape = {
   enabled: z.boolean().optional(),
 };
 
-/** One binding arm's two inventory arms: the trust store answered, or it did not. */
+/** One binding arm's two inventory arms: the binding store answered, or it did not. */
 const inventoryEntryArms = <Binding extends z.ZodRawShape>(binding: Binding) =>
   [
-    z.object({ ...binding, ...inventoryFactsShape, ...trustedEntryShape }).strict(),
+    z.object({ ...binding, ...inventoryFactsShape, ...storeAnsweredEntryShape }).strict(),
     z.object({ ...binding, ...inventoryFactsShape, ...trustUnavailableEntryShape }).strict(),
   ] as const;
 

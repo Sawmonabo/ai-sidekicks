@@ -12,7 +12,7 @@ import type { McpMutationOutcome } from "../mcp-mutation.js";
  * live leg.
  *
  * A partial outcome renders as one: a mutation can commit durably and fail on one session's
- * leg, and one aggregate verdict would leave a session running against a binding the operator
+ * leg, and one aggregate verdict would leave a session running against a binding the person
  * believes is off. `applied` renders verbatim, never as "done": `live_reconcile` reached
  * running sessions, `user_config_write` reached a file, `next_run` reaches nothing until a run
  * starts, and `daemon_enforced` binds at the daemon and touches no provider configuration. Absent

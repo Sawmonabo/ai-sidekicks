@@ -144,9 +144,6 @@ export type SessionEventType =
   | "orchestration.rejected"
   // mcp_governance
   | "mcp.server_status_changed"
-  | "mcp.server_config_changed"
-  | "mcp.server_trust_changed"
-  | "mcp.tool_override_changed"
   | "mcp.server_oauth_completed"
   // workflow_lifecycle
   | "workflow.created"
@@ -216,9 +213,6 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "plan.handed_off",
   "question.asked",
   "mcp.server_status_changed",
-  "mcp.server_config_changed",
-  "mcp.server_trust_changed",
-  "mcp.tool_override_changed",
   "mcp.server_oauth_completed",
   "cloud.task_updated",
   "session.restore_finished",
@@ -441,14 +435,11 @@ export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] = 
 ] as const;
 
 /**
- * The event types of the `mcp_governance` category. Four of the five bind to the daemon-scope
- * sentinel session; `mcp.server_status_changed` binds per event.
+ * The event types of the `mcp_governance` category. `mcp.server_oauth_completed` binds to the
+ * daemon-scope sentinel session; `mcp.server_status_changed` binds per event.
  */
 export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
   "mcp.server_status_changed",
-  "mcp.server_config_changed",
-  "mcp.server_trust_changed",
-  "mcp.tool_override_changed",
   "mcp.server_oauth_completed",
 ] as const;
 

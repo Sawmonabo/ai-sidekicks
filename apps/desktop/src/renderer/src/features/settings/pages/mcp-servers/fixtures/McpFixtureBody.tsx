@@ -31,11 +31,9 @@ import {
   IDLE_MCP_MUTATION,
   mintIdempotencyKey,
   setBindingEnabled,
-  setBindingTrust,
   type IdempotencyKeyMinter,
   type McpMutationOutcome,
   type SendMcpEnabled,
-  type SendMcpTrust,
 } from "./mcp-mutation.js";
 import { ServerRow } from "./components/ServerRow.js";
 
@@ -44,7 +42,6 @@ export interface McpServerOperations {
   readonly listInventory: ListMcpInventory;
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
   readonly sendEnabled: SendMcpEnabled;
-  readonly sendTrust: SendMcpTrust;
 }
 
 /** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
@@ -179,11 +176,6 @@ export function McpFixtureBody(props: {
                   enabled,
                   idempotencyKey,
                 }),
-              );
-            }}
-            onSetTrust={(binding, trusted) => {
-              dispatch(binding, (idempotencyKey) =>
-                setBindingTrust({ send: operations.sendTrust, binding, trusted, idempotencyKey }),
               );
             }}
           />
