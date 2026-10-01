@@ -366,7 +366,7 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 
 ### Gitflow
 
-The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md)) are the codes `packages/contracts/src/gitflow.ts` registers with its verbs, each with its reason list, under the rules in [§Error Codes](#error-codes). A failed Generate, `gitflow.commitMessageGenerate` or `gitflow.changeRequestTextGenerate`, is refused with the provider's own words and never falls back to the other provider.
+The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md)) are the codes `packages/contracts/src/gitflow/` registers with its verbs, each with its reason list, under the rules in [§Error Codes](#error-codes). A failed Generate, `gitflow.commitMessageGenerate` or `gitflow.changeRequestTextGenerate`, is refused with the provider's own words and never falls back to the other provider.
 
 ### Attention
 

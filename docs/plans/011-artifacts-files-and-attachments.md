@@ -35,9 +35,9 @@ Target paths below assume the implementation topology defined in [Container Arch
 
 - `packages/contracts/src/artifacts/`
 - `packages/runtime-daemon/src/artifacts/artifact-id.ts` (the single `mintArtifactId()` artifact-id minter both producers consume, which itself consumes the daemon-wide `mintUuidV7`; CREATEd by Task 2, consumed by Task 3)
-- `packages/runtime-daemon/src/artifacts/artifact-publish-service.ts`
-- `packages/runtime-daemon/src/artifacts/attachment-ingest-service.ts`
-- `packages/runtime-daemon/src/artifacts/payload-store.ts`
+- `packages/runtime-daemon/src/artifacts/artifact-publish-service.ts` (T14.3)
+- `packages/runtime-daemon/src/artifacts/attachment-ingest-service.ts` (T14.2)
+- `packages/runtime-daemon/src/artifacts/payload-store.ts` (T14.2; its reclaim half, T14.8)
 - `packages/runtime-daemon/src/artifacts/ingest-worker/` (the ingest worker's entry, its first-page step and its cover step, Tasks 16 and 18)
 - `packages/runtime-daemon/src/artifacts/ingest-validation.ts` (the ordered ingest pipeline, Task 11; the worker hand-off of step 2, Task 16)
 - `packages/runtime-daemon/src/artifacts/artifact-deletion.ts` (the session-keyed artifact sweep the purge calls and the one-manifest removal the cover uses, each with derived-refcount CAS reclaim, Task 12)
