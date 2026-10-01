@@ -56,7 +56,7 @@ The console design has Preview in it, and wiring the `browser` pane kind fixes h
 
 The three objections are not idle.
 
-1. **The alpha pin.** `@playwright/mcp` 0.0.80 depends on a `1.63.0-alpha` Playwright pair, ahead of the repository's 1.62.1, and every one of its published versions pins a pre-release pair. A shipped desktop application would carry an alpha dependency in a privileged process.
+1. **The alpha pin.** `@playwright/mcp` 0.0.80 depends on a `1.63.0-alpha` Playwright pair, a pre-release, and every one of its published versions pins a pre-release pair. A shipped desktop application would carry an alpha dependency in a privileged process.
 2. **Electron is not supported.** The published server expects to launch or own a browser, and Electron is not a target it supports.
 3. **Whole-application debug exposure.** Playwright's server attaches over the Chrome debug protocol, and the usual way to expose that protocol from Electron is the application-wide `remote-debugging-port` switch: a plain loopback port with no authentication. Chromium refuses a debug connection that carries a web `Origin` header unless that origin was allowed at launch, which stops a web page from reaching it, but a local process sends no `Origin` and is let in. Any process running on the machine, under any local user, could list the application's targets, including the console's own renderer, drive them and read Preview's cookies. The hand-built alternative, tool handlers on the in-process debugger, opens no port at all.
 

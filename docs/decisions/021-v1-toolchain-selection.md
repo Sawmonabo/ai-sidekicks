@@ -47,7 +47,7 @@ We will adopt the following V1 toolchain. Every choice is forward-declared as th
 | SQLite binding | **better-sqlite3** with WAL at boot, prepared-statement caching for hot paths | 13.0.3 exact (Node-API; no 12.x ships an ABI-149 prebuild for Electron 44, and 13.0.0 / 13.0.1 abort under the daemon's worker-terminate shape, so the pin is exact rather than a caret) |
 | Postgres client | **pg** (`node-postgres`); `pg-listen` wrapper for LISTEN/NOTIFY | 8.20+ |
 | Node target | Node 24.16 or later for the daemon (the background service) and the CLI, and each package's `engines.node` floor is `>=24.16.0`: the memory gate reads `process.availableMemory()`, which on macOS sums free, inactive and purgeable pages only from 24.16.0 (workflows D-60); the Electron app runs the Node its Electron pin bundles | 24.16+ |
-| TS settings | strict, ESM-first (`"type": "module"`), `module: nodenext`, `moduleResolution: nodenext`, `verbatimModuleSyntax: true`; `target: es2024` (Node 24) | TypeScript 5.8+ |
+| TS settings | strict, ESM-first (`"type": "module"`), `module: nodenext`, `moduleResolution: nodenext`, `verbatimModuleSyntax: true`; `target: es2024` (Node 24) | TypeScript 7 for the typecheck; 6 for the tools that import it |
 
 Each package's `engines.node: ">=24.16.0"` states the Node floor, and the root's `packageManager` pin, `.nvmrc` and CI's Node version say which versions the repository runs on; the root carries no `engines` install gate.
 
