@@ -12,7 +12,7 @@ import type {
   NodePtySpawnFn,
   TaskkillResult,
 } from "../node-pty-host.js";
-import { makeFakeChild } from "./_fakes.js";
+import { makeFakeChild } from "./pty-host.test-support.js";
 import type { SpawnRequest } from "../pty-host-protocol.js";
 
 // Distinctive, so a failing assertion names the fixture.
@@ -304,8 +304,8 @@ describe("NodePtyHost — close() on Windows routes through taskkill", () => {
   it("close() on Windows invokes taskkill (not record.child.kill); descendants are reaped via /T /F", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-    // Clear the spy (the fake child's `kill` is a `vi.fn()` from `_fakes.ts`); close() must not
-    // call it on Windows.
+    // Clear the spy (the fake child's `kill` is a `vi.fn()` from `pty-host.test-support.ts`);
+    // close() must not call it on Windows.
     const childKillSpy: Mock = ctx.child.kill as unknown as Mock;
     childKillSpy.mockClear();
 

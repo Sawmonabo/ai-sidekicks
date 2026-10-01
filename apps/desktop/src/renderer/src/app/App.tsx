@@ -2,7 +2,7 @@
 
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { composeFixtureLaunch } from "./fixture-composition.js";
-import { AppProviders } from "./providers.js";
+import { AppProviders } from "./AppProviders.js";
 
 /**
  * The fixture composition this window's launch asks for, or `undefined` for a normal launch.

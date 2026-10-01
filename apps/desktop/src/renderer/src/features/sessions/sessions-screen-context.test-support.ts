@@ -5,7 +5,7 @@ import type { ScreenContext } from "@renderer/registries/screens/screen-context.
 
 /**
  * The fields the acts read, and nothing else. Cast rather than constructed, as in
- * `app/router.test.tsx`: a real context opens a database on construction.
+ * `app/AppRouter.test.tsx`: a real context opens a database on construction.
  */
 export function contextWith(options: {
   /** The session each `registry.open` call named, in call order; opening has no visible result. */

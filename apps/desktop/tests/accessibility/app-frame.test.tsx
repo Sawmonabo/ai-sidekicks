@@ -14,7 +14,7 @@ import {
 } from "./axe-run.js";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { AppProviders } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/AppProviders.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";

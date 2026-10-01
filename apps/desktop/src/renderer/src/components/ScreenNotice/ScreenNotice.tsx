@@ -3,7 +3,7 @@
 // paint. This wrapper centers the copy on a measure and pairs it with the one control that always
 // works, the command palette chord.
 //
-// Shared because `app/router.tsx` and `registries/screens/PendingScreenBody.tsx` both draw
+// Shared because `app/AppRouter.tsx` and `registries/screens/PendingScreenBody.tsx` both draw
 // through it; a feature cannot import `app/`, so it sits with `Nothing` and `InlineRefusal`.
 
 import "./ScreenNotice.css";

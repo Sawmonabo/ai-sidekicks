@@ -24,7 +24,7 @@ import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
 import { useWindowCommands } from "./hooks/useWindowCommands.js";
-import { AppRouter } from "./router.js";
+import { AppRouter } from "./AppRouter.js";
 import { applyColorScheme } from "./token-installation.js";
 
 /** What the bootstrap hands the window once the bridge has resolved. */

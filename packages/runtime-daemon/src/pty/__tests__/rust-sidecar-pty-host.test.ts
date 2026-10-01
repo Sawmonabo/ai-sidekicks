@@ -26,7 +26,7 @@ import {
   makeFakeSidecarChild,
   parseFramesFromStdin,
   spawnReturning,
-} from "./_fakes.js";
+} from "./pty-host.test-support.js";
 
 import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
 

@@ -3,7 +3,7 @@
 // Each feature owns what it registers and publishes its registrar through its `index.ts`; this
 // file holds no table, so a registry stays the one place its entries live. A feature may not
 // import another, so where one feature's screen mounts another's component, this file names the
-// pair. Nothing here runs on import: `providers.tsx` calls it once with the window's
+// pair. Nothing here runs on import: `AppProviders.tsx` calls it once with the window's
 // registries, and a test calls it with registries of its own.
 
 import type { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
