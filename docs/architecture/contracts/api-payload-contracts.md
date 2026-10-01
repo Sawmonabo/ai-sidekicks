@@ -1260,8 +1260,7 @@ The machine's own record on the control plane: the daemon registers it, and the 
 ```ts
 interface RuntimeNodeRegisterRequest {
   nodeId: NodeId;
-  publicKey: string; // the machine's public identity key, lowercase hex; stored as runtime_nodes.public_key
-  keyAlgorithm: "p256" | "ed25519"; // the algorithm tag stored with the key (runtime_nodes.key_algorithm)
+  identityKey: MachineIdentityKey; // the service's Ed25519 key, the one key a machine has: `{algorithm: "ed25519", publicKey}`, the public half in base64; stored as runtime_nodes.public_key and key_algorithm
   name: string; // the machine's name as the person sees it
   platform: string; // the operating system the service runs on, as the service reports it
   serviceVersion: string; // the service's semver version
@@ -2819,7 +2818,7 @@ interface DaemonHelloAck {
   // The connecting device's own id: the one a terminal lease names as its holder (`holderDeviceId`
   // on `pty.control_changed`), so a client tells this device holding a shell apart from another
   // device holding it, and, by `holderRunId`, from an agent's run holding it.
-  deviceId: string;
+  deviceId: DeviceId;
 }
 
 // DaemonStatusRead
@@ -3768,7 +3767,7 @@ interface ApprovalFlowEventPayload {
   resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-010-6)
   clientResolutionId?: string; // present on approval.approved / approval.rejected — the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did
-  deviceId?: string; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
+  deviceId?: DeviceId; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
   invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
@@ -3906,7 +3905,7 @@ interface ApprovalProjectionReadResponse {
     updatedAt: string; // last state-transition instant (a canceled row settles here; no resolution row)
     resolvedAt?: string; // resolved quad present iff state ∈ {approved, rejected}
     decision?: ApprovalDecision;
-    deviceId?: string; // AC-3: the answering device, which a card answered elsewhere reads as `Answered on <device>`
+    deviceId?: DeviceId; // AC-3: the answering device, which a card answered elsewhere reads as `Answered on <device>`
     effectiveScope?: string; // AC-3: what scope
     rememberedScope?: RememberedScope; // present iff the resolution handed a rule to the provider
   }>;
@@ -7628,7 +7627,7 @@ interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
 interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
   nodeId?: WorkflowNodeId; // the human.approval node answered; absent for a chain's question
   outcome: "approved" | "rejected";
-  deviceId: string; // the answering device's id
+  deviceId: DeviceId; // the answering device's id
   gateResolutionId: string; // the answer's row id in workflow_gate_resolutions
 }
 ```

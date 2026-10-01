@@ -174,10 +174,12 @@ CREATE TABLE interventions (
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-003-4): 'user' for a request admitted over the wire, 'system' for the in-process orchestration entrypoint (CP-003-10's budget interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
                          CHECK(origin IN ('user', 'system')),
+  device_id              TEXT,                       -- the device a 'user' intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL on 'system' (Queue And Intervention Model)
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-003 T1.4/T3.12)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
+  CHECK((origin = 'user') = (device_id IS NOT NULL)),
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
@@ -594,8 +596,8 @@ CREATE TABLE approval_resolutions (
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
                                               -- and keeps every column event-derivable for peer/replay rebuild (I-010-9).
                                               -- The first answer from any device settles the request.
-                                              -- The row also records the answering device's id, which a card answered
-                                              -- elsewhere reads as `Answered on <device>` (Spec-028 §Required Behavior)
+  device_id                TEXT NOT NULL,     -- the answering device, the one whose connection carried the answer; a card
+                                              -- answered elsewhere reads it as `Answered on <device>` (Spec-028 §Required Behavior)
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless the answer narrowed it (Spec-010 §Required Behavior);
@@ -788,7 +790,7 @@ CREATE TABLE workflow_gate_resolutions (
   -- Resolution
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ('approved','rejected')),
-  -- the answering device's id is recorded with the outcome, as on approval_resolutions
+  device_id                  TEXT NOT NULL,             -- the answering device, as on approval_resolutions
   resolved_at                TEXT NOT NULL,
   decision_context           TEXT NOT NULL DEFAULT '{}', -- JSON: scope, resource, reason text, etc.
   UNIQUE(workflow_run_id, sequence),

@@ -174,7 +174,7 @@ CREATE TABLE runtime_nodes (
   node_id            TEXT PRIMARY KEY,            -- the machine's id
   user_id            UUID NOT NULL REFERENCES users(id),
   public_key         BYTEA NOT NULL,              -- the service's identity key, PUBLIC half only; replaced only by a new runtimenode.added when a removed machine is linked again
-  key_algorithm      TEXT NOT NULL CHECK(key_algorithm IN ('p256', 'ed25519')),
+  key_algorithm      TEXT NOT NULL CHECK(key_algorithm = 'ed25519'), -- a machine's key is the service's Ed25519 key
   name               TEXT NOT NULL,               -- the machine's friendly name
   platform           TEXT NOT NULL,               -- the operating system the service runs on, as registered
   service_version    TEXT NOT NULL,               -- the service's semver version, as registered
