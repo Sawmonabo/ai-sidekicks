@@ -1,5 +1,6 @@
 // ESLint flat config. It uses only non-type-aware rules, so lint-staged feedback stays sub-second.
 import js from "@eslint/js";
+import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 /**
@@ -24,7 +25,7 @@ export const ENUM_DECLARATION = {
     "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
 };
 
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: [
       "**/dist/**",
@@ -45,7 +46,7 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  tseslint.configs.recommended,
   {
     languageOptions: {
       ecmaVersion: "latest",
@@ -277,7 +278,7 @@ export default tseslint.config(
   // import ban it displaces, and the `no-restricted-properties` half of that guard still applies.
   //
   // Known gap: `no-restricted-imports` does not see a dynamic `import("node:fs")` (measured on
-  // ESLint 10.2.1), and the `no-restricted-syntax` rule that could is already configured for this
+  // ESLint 10.11.0), and the `no-restricted-syntax` rule that could is already configured for this
   // scope by the append guard; a second invocation would drop that guard here and a hand-synced
   // copy is worse. A lazy import into a pure fold is a review finding.
   {

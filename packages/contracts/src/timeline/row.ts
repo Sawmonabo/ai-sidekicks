@@ -451,7 +451,7 @@ const timelineRollbackBoundaryArmSchema = z
   // The three-way agreement. `.superRefine()` returns the same ZodObject, so this stays a valid
   // `z.discriminatedUnion` option.
   //
-  // Zod 4.3.6 skips a schema's checks once the shape parse has failed (probed), so the payload
+  // Zod 4.6.5 skips a schema's checks once the shape parse has failed (probed), so the payload
   // guard is unreachable today. It stays because if that ordering changed, an unguarded
   // `payload.runId` would throw a TypeError out of `.parse()` instead of returning a failure.
   .superRefine((boundaryRow, issueContext) => {

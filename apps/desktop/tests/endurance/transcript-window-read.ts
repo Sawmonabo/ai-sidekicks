@@ -43,7 +43,7 @@ export async function readTranscriptWindow(
       timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
     });
   } catch (waitFailure: unknown) {
-    // `name` is playwright-core's own discriminator: at the pinned 1.62.1 its
+    // `name` is playwright-core's own discriminator: at the pinned 1.63.0 its
     // `TimeoutError extends PlaywrightError extends Error` sets exactly this string.
     if (!(waitFailure instanceof Error) || waitFailure.name !== "TimeoutError") {
       throw waitFailure;

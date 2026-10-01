@@ -44,3 +44,8 @@ declare module "*.woff2?url" {
   const assetUrl: string;
   export default assetUrl;
 }
+
+// Side-effect stylesheet imports (`import "./Chip.css"`), which Vite bundles. TypeScript checks
+// that a side-effect import resolves, and a stylesheet has no declarations, so the wildcard says
+// every `.css` specifier is a module with no exports.
+declare module "*.css" {}

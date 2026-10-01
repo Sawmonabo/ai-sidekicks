@@ -366,10 +366,8 @@ jobs:
       #     packages with no CJS export, so node10 and node16-cjs are ignored (a CJS consumer must
       #     dynamic-import) while node16-from-ESM and bundler stay enforced.
       #
-      # attw's dependency fflate is pinned to 0.8.2 by a pnpm override (see `pnpm-workspace.yaml`)
-      # because 0.8.3 broke its tarball extraction. Libraries are found from
-      # `packages/*/package.json`, so a new package needs no list edit; `apps/*` are applications
-      # and out of scope.
+      # Libraries are found from `packages/*/package.json`, so a new package needs no list edit;
+      # `apps/*` are applications and out of scope.
       - name: Validate package public surface (publint + attw)
         run: |
           fail=0

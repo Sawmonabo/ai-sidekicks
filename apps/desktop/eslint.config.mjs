@@ -32,6 +32,7 @@ import {
   TIME_READING_EXEMPT_FILES,
   TIME_READING_SELECTORS,
 } from "./eslint.restricted-syntax.mjs";
+import { defineConfig } from "eslint/config";
 import perfectionist from "eslint-plugin-perfectionist";
 import root, { ENUM_DECLARATION } from "../../eslint.config.mjs";
 
@@ -436,7 +437,7 @@ function rendererFiles(subtree, patterns) {
  * Only the exported forms are ranked. A non-exported declaration matches no listed group and
  * becomes `unknown`, one bucket held last and left unsorted, which keeps the module-shape exception
  * (a private type that exactly one helper uses may sit directly above that helper) followable.
- * Verified against `eslint-plugin-perfectionist` 5.11.0: it emits `export-function` and `function`
+ * Verified against `eslint-plugin-perfectionist` 5.12.1: it emits `export-function` and `function`
  * for an exported declaration and only `function` for a private one, and ranks an unmatched group
  * last.
  *
@@ -473,8 +474,8 @@ const CLASS_SECTION_GROUPS = [
   "unknown",
 ];
 
-export default [
-  ...root,
+export default defineConfig(
+  root,
   // `src/shared/**` is imported by both processes, so all of it is bundled into the renderer. The
   // renderer ban below is scoped to `src/renderer/src/**`, so without this block a `node:fs` import
   // could reach the renderer bundle through a shared module and pass lint. It restates the
@@ -882,4 +883,4 @@ export default [
       "perfectionist/sort-classes": ["error", { type: "unsorted", groups: CLASS_SECTION_GROUPS }],
     },
   },
-];
+);
