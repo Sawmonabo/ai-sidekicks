@@ -1080,13 +1080,15 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
--- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with no limits set; mutated only via orchestration.budgetUpdate — D-014-5)
+-- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, written when the session is created from the Runtime settings' Spend limit and Tokens per run; mutated only via session.spendLimitUpdate and session.tokensPerRunUpdate — D-014-5)
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_usd_micros         INTEGER,                        -- integer micro-dollars; NULL = `Unlimited`, the default; the session's `Spend limit` across every provider and account it uses (Spec-014 §Budget Policies)
+  tokens_per_run                INTEGER,                        -- input and output tokens together for one run; NULL = `Unlimited`, the default; the session's `Tokens per run`
   updated_at                    TEXT NOT NULL,
-  -- Each limit is NULL (no limit) or a non-negative integer; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative().nullable() (D-014-5)
-  CHECK (cost_limit_usd_micros IS NULL OR cost_limit_usd_micros >= 0)
+  -- Each limit is NULL (no limit) or an integer the wire's limit verbs also check (D-014-5)
+  CHECK (cost_limit_usd_micros IS NULL OR cost_limit_usd_micros >= 0),
+  CHECK (tokens_per_run IS NULL OR tokens_per_run >= 1)
 );
 
 -- The daemon's own agent tree: one row per agent a provider starts inside a run (a Claude Code task,

@@ -213,7 +213,7 @@ An index, not a second contract: each region of the session screen, what it need
 | The sessions list and the palette | Every session grouped by shape, each with its name or first message, its state, its pin and mute marks and the exchange line while it trades messages; the project headers; a session's seen dot; a search across every session; the acts on a row | `session.list`, served live; `repo.projectList`, served live, for the project headers; `attention.seenUpdate` for the seen dot; `session.search`; `session.create`, `session.rename`, `session.pin`, `session.unpin`, `session.mute`, `session.unmute`, `session.archive`, `session.reactivate`, `session.close`, `session.convert` and `session.fork` for the acts |
 | Session | Its id, name, shape, state, mute and goal; its project, worktree and base; the pending worktree move; its elapsed time and its ahead count; the unsent draft and the staged files; the spend rows by account; the snapshot count | `session.read` for the session's own facts — its shape, its mute, the pending move, the draft and the staged files among them — and `session.subscribe` for every change after it; `session.setWorkingFolder` to move it; `session.restart` for a provider process that ended; `repo.mountRead` and `repo.worktreeStatusRead` for the project, the worktree, the base and the ahead count; `orchestration.costReceiptRead`'s per-account axis for the spend rows; `session.snapshotList` for the snapshot count |
 | The composer | The draft and its staged files, pictures, marks and resources; the `/` list; the `@` file search; the model, effort, speed, level, mode, goal, step-bound and auto-compact controls and the context figure; the tool-servers list with its switches; the side question, `/review` and `/reload` | `session.draftUpdate`, `session.attachmentAdd` and `session.attachmentRemove`, with `preview.marksSend` for the marks chip; `session.providerCommandsSubscribe` for the `/` list; `session.fileSearch`; `session.mcpResourceList` for a server's resources; `session.mcpServerList` and `session.mcpServerUpdate` for the tool-servers list; `agent.configUpdate` for the model, effort, speed or provider, never the account, which is `providerAccount.setCurrent`; `session.permissionLevelUpdate`, `session.modeUpdate`, `session.goalUpdate`, `session.goalClear`, `session.maxStepsUpdate`, `session.autoCompactUpdate` and `session.contextSubscribe`; `session.sideQuestionAsk`, `session.reviewStart` and `session.definitionsReload`; `driver.listModes`, `driver.listModels`, `driver.listCapabilities` and `driver.compactContext` for what the provider offers and its compaction |
-| The inspector | The session's memory, hooks, the rules in force, its artifacts, its cost and budget, and its snapshots | `session.memoryRead` and `session.autoMemoryUpdate`; `session.hookList`; `approval.ruleList` and `approval.ruleRevoke`; `artifact.list` and `artifact.read`; `orchestration.costReceiptRead` and `orchestration.budgetRead`; `session.snapshotList` |
+| The inspector | The session's memory, hooks, the rules in force, its artifacts, its cost and budget, and its snapshots | `session.memoryRead` and `session.autoMemoryUpdate`; `session.hookList`; `approval.ruleList` and `approval.ruleRevoke`; `artifact.list` and `artifact.read`; `orchestration.costReceiptRead` and `orchestration.budgetRead`; `session.spendLimitUpdate` and `session.tokensPerRunUpdate`; `session.snapshotList` |
 | Undo | The dry run's files, lines and skipped files, the commands still running and the agents that would stop; the undo itself, in one of its three ways or to a named snapshot | `session.restorePreview`, then `session.restore` |
 | Turns | The person's turns, the agent's prose, its reasoning, and the state-changing rows the console itself appends; a row's large body; a patch a call did not carry; the find box over history not yet loaded; code colors | `timeline.read`, and live rows on `session.subscribe`; `timeline.reasoningSurfaceRead`; `timeline.bodyRead`; `timeline.patchRead`; `timeline.search`; `highlight.read` |
 | Tool runs | The verb, its target, its duration or live elapsed, a result summary, diff hunks, a failure mark, a held mark; a block by the provider's own reviewer, with its reason line and whether it can be allowed once | The same timeline rows, with the `approval.reviewer_denied` and `approval.denial_overridden` records on the blocked call's row; `command.list` for the ones still running |
@@ -620,6 +620,8 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.importSubscribe` | Follow an import's progress | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
 | `session.list` | The sessions list: rows grouped by shape, each a title and a state, with archived and closed sessions in the `Archived` group; live. Each entry carries `activity` (`running`, `waiting`, `done`, `failed` or `idle`) and `activityRenewedAt`: the daemon republishes a quiet run's entry every 15 s, and a reader treats a `running` or `waiting` reading older than 45 s as `idle` and never ages a `failed` one | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.2 |
 | `session.maxStepsUpdate` | This session's own `Max steps per turn` override | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.20, T3.1 |
+| `session.spendLimitUpdate` | This session's own `Spend limit` | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.5, T3.1 |
+| `session.tokensPerRunUpdate` | This session's own `Tokens per run` | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.5, T3.1 |
 | `session.mcpResourceList {sessionId, serverName}` → `{serverName, resources, complete}` | A server's resources for `Attach a resource…`; the pick stages through `session.attachmentAdd` | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
 | `session.mcpServerList {sessionId}` (a live list) | This session's tool servers, live, grouped by state | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
 | `session.mcpServerUpdate {sessionId, serverName, enabled}` | A per-session on/off switch for one server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
@@ -938,6 +940,24 @@ interface SessionMaxStepsUpdateResponse {
   maxStepsPerTurn?: number; // absent after a clear, which is the same shape the snapshot carries
 }
 
+// SessionSpendLimitUpdate / SessionTokensPerRunUpdate — session.spendLimitUpdate /
+// session.tokensPerRunUpdate. Set or clear THIS session's own `Spend limit` and `Tokens per run`,
+// which start at the Runtime settings page's values when the session is created. `null` is
+// `Unlimited`, after which nothing stops or refuses on that limit. A spend limit is a non-negative
+// integer of micro-dollars and a token limit a positive integer; anything else is refused, as is a
+// session id the daemon does not hold (`session.not_found`), and nothing is appended. Saving a higher
+// limit carries on the turn or run that limit stopped, as `Raise limit` does (Spec-014 §Budget
+// Policies). Both answer with the budget state, served from the one budget-accountant accessor as the
+// read is, so a reply and an immediately following `orchestration.budgetRead` carry the same figures.
+interface SessionSpendLimitUpdateRequest {
+  sessionId: SessionId;
+  costLimitUsdMicros: number | null;
+}
+interface SessionTokensPerRunUpdateRequest {
+  sessionId: SessionId;
+  tokensPerRun: number | null;
+}
+
 // SessionFork — session.fork. Mints a session of the SAME shape from a message anchor, carrying the
 // transcript prefix up to and including that message with live timers settled and streams stopped in
 // the copy, and carrying the parent's execution posture and tool set. A `project` fork lands on a
@@ -1116,6 +1136,8 @@ The console's `session.*` operations beyond the [Plan-006](../../plans/006-local
 | `session.fork` | `mutation` | `SessionForkRequest` | `SessionForkResponse` |
 | `session.setWorkingFolder` | `mutation` | `SessionSetWorkingFolderRequest` | `SessionSetWorkingFolderResponse` |
 | `session.maxStepsUpdate` | `mutation` | `SessionMaxStepsUpdateRequest` | `SessionMaxStepsUpdateResponse` |
+| `session.spendLimitUpdate` | `mutation` | `SessionSpendLimitUpdateRequest` | `OrchestrationBudgetState` |
+| `session.tokensPerRunUpdate` | `mutation` | `SessionTokensPerRunUpdateRequest` | `OrchestrationBudgetState` |
 | `session.draftUpdate` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
 | `session.attachmentAdd` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
 | `session.attachmentRemove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
@@ -2864,7 +2886,8 @@ interface DaemonPingResult {}
 
 // DaemonConfigRead / DaemonConfigUpdate — `daemon.configRead` / `daemon.configUpdate`, the
 // machine-wide service settings Settings › Runtime edits, one configuration surface (Spec-006).
-// Separate from the per-session `session.maxStepsUpdate`, and from the command line's
+// Separate from the per-session `session.maxStepsUpdate`, `session.spendLimitUpdate` and
+// `session.tokensPerRunUpdate`, and from the command line's
 // `settings.effectiveRead`, with which it shares no field.
 interface DaemonConfigReadParams {}
 interface DaemonConfig {
@@ -2873,6 +2896,8 @@ interface DaemonConfig {
   runTimeLimit: "none" | "30m" | "1h" | "4h" | "12h" | "24h"; // `Stop a run after`
   workflowChainAskAfterRuns: number | null; // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never ask`
   maxStepsPerTurn: number | null; // null is `Unlimited`: each provider does what it does on its own
+  costLimitUsdMicros: number | null; // `Spend limit`, what each new session starts from; null is `Unlimited`
+  tokensPerRun: number | null; // `Tokens per run`, what each new session starts from; null is `Unlimited`
   toolMemoryCapBytes: number | null;
   toolMemoryCapEnforceable: boolean;
   packageCacheLimitBytes: number | null; // the package caches' `Cache limit`; null is `Unlimited`, and then the service never clears a cache on its own. With a size set, after each successful install the service reads that tool's cache and clears it when it is larger, leaving the other tool's cache alone
@@ -5612,8 +5637,8 @@ interface ChildRunLinkReadResponse {
   }>;
 }
 
-// BudgetRead / BudgetUpdate — wire: orchestration.budgetRead / orchestration.budgetUpdate (D-014-5;
-// session_budgets row-canonical). Every amount is
+// BudgetRead — wire: orchestration.budgetRead, and the reply of session.spendLimitUpdate and
+// session.tokensPerRunUpdate (D-014-5; session_budgets row-canonical). Every amount is
 // integer micro-dollars (millionths of a US dollar), the unit both providers report their own figures
 // in, so small requests add up exactly; a figure is rounded once, where it is drawn.
 interface OrchestrationBudgetReadRequest {
@@ -5622,6 +5647,7 @@ interface OrchestrationBudgetReadRequest {
 interface OrchestrationBudgetState {
   sessionId: SessionId;
   costLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
+  tokensPerRun: number | null; // the session's `Tokens per run`, input and output together for one run; null = `Unlimited`, the default
   // The ENFORCED number: what admission compares against costLimitUsdMicros wherever a limit is set
   // (with costLimitUsdMicros null nothing is compared and admission is never refused on cost), and the one
   // session cost figure a surface shows — never a sum over a visible run list (Spec-014 §Cost Figure
@@ -5630,9 +5656,8 @@ interface OrchestrationBudgetState {
   // and never repriced, so a replay rebuilds the same figure. A request on a model or speed the price
   // table does not price yet is held with its exact tokens and joins this figure when a later fetch
   // prices it (Spec-014 §Cost Derivation And Absent-Cost Semantics). Plan-014 T2.5 asserts the
-  // equality with the observedValue the daemon stamps on a session-cost usage.budget_warning at the same
-  // fold state (budgetType: 'session_cost' only; the run_tokens member of that union carries a token
-  // count, not money).
+  // equality with the observedValue a session-cost orchestration.budget_exhausted refusal stamps at the
+  // same fold state.
   committedSpendUsdMicros: number;
   // Spend per agent in the session's tree, the lead included, routed up the parent chain at any depth:
   // `ownUsdMicros` is what the agent's own requests cost, `subtreeUsdMicros` that plus every descendant's.
@@ -5641,21 +5666,6 @@ interface OrchestrationBudgetState {
   agentSpend: Array<{ agent: AgentTreeMember; ownUsdMicros: number; subtreeUsdMicros: number }>;
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
-interface OrchestrationBudgetUpdateRequest {
-  // the limit is a non-negative integer or null — Zod .int().nonnegative().nullable(),
-  // mirroring the session_budgets CHECK constraints (local-sqlite-schema.md §Orchestration Tables).
-  // An omitted member leaves the limit as it stands; null clears it to `Unlimited`, after which nothing
-  // warns, interrupts or refuses on it. Saving a higher limit carries a turn the limit stopped on, as
-  // `Raise limit` does (Spec-014 §Budget Policies).
-  sessionId: SessionId;
-  costLimitUsdMicros?: number | null;
-}
-// Same state type as the read response, served from the one budget-accountant accessor exactly as the
-// read is: a budgetUpdate reply reports the new limits alongside committed spend at that post-write
-// fold state, never a binder-assembled total (Spec-014 §Cost Figure Display Consistency; Plan-014
-// I-014-24, T3.1 serving, T2.5 accessor). An update reply and an immediately following read carry the
-// same figures.
-type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
 // A goal belongs to one agent in the session and is that provider's own goal: the daemon sends the
 // condition as the provider's own goal command and reads each ending back from what the provider
@@ -6090,20 +6100,19 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | A read of the daemon's parent-to-child index for the whole session: both kinds of child, their head facts, the badge counts, and event-folded `rejectedCreates` (zero-residue refusals, I-014-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` | Committed spend and the per-agent spend, in micro-dollars |
 | `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-014-25 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
-| `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Sets or clears the session's `Spend limit` |
 | `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
 | `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, effort, speed and provider; never the account, which is `providerAccount.setCurrent` (§Plan-026). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
 | `agent.list` | subscription | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
 | `session.terminalProviderSessionList` | RPC | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The Codex sessions typed in a terminal; shapes in §Plan-006; empty while `Reach Codex sessions started in a terminal` is off |
 
-`session.maxStepsUpdate`, the session's own `Max steps per turn` override, is registered with its shapes in §Session Method-Name Registry.
+`session.maxStepsUpdate`, `session.spendLimitUpdate` and `session.tokensPerRunUpdate`, the session's own `Max steps per turn`, `Spend limit` and `Tokens per run`, are registered with their shapes in §Session Method-Name Registry.
 
 **The session-to-session tool mints no method here, and that is the point.** Two sessions talk through operations the daemon serves to the **providers** — `SendToSession {to, message, files}` and `ListSessions {}` — served on the daemon's one MCP `url` entry per session, on the daemon's own tool route — never a tool server inside Claude Code's `initialize` request and never a Codex dynamic tool — so a call arrives at the daemon as that provider's own MCP tool call and is answered there ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)). A send is an ordinary tool call under the sending session's own permission level — the levels that ask raise the ordinary approval card, `Sandboxed` and `YOLO` ask nothing, and no switch, setting or cap of the app's gates it — and what the message causes follows the receiving session's own level. The server and the namespace are both `sessions`, so the name a model reads is that prefix plus the tool — `mcp__sessions__SendToSession` on the one leg, the namespace plus the tool on the other. `to` is the other session's name and the daemon resolves the address from its own directory, so no caller spells one; `files` is an optional list of paths the sending session can read, which the daemon stages into the receiving session as attachments through [Spec-012](../../specs/012-artifacts-files-and-attachments.md)'s ingest pipeline, so they arrive as paths the receiving model reads with its own file tools on either provider rather than as bytes on this tool's own wire — both `Message` rows carry the file chips a sent turn's attachments already carry, and the only bound on them is that pipeline's. The daemon reads each of those paths **as the person's own user, at send time**, and a path that does not exist or cannot be read **fails the call with that path named in the tool result** rather than being dropped from the list while the rest arrive; there is no second gate on top of that read, since the receiving session runs as the same person on the same machine and could open the path itself. No client calls them, so no wire method is registered, no error code is minted, and no event type is added: a send's result carries one state at a time — `sent`, then `delivered`, `queued`, `held`, `refused` with the provider's own reason, or `not delivered` — and a refusal is the provider's own words rather than this corpus's error envelope. What the screen draws rides documented surfaces. The two rows are the ordinary tool events of the two sessions' logs, and a sent row's later states come over the run-state subscription. The exchange line on a session's row is the `exchange` member (`{peerSessionId, peerName, messageCount}`) of that session's `session.list` entry ([§Plan-001](#plan-001--session-core)), present while the session trades messages, so one feed serves every row and the list opens no stream per session. The messages waiting for a paused session are items of that session's own queue, held in arrival order with the sending session as their origin and read through `run.queueList` ([§Run-Control Method-Name Registry](#run-control-method-name-registry)). The daemon's phone book of sessions and addresses and its exchange table are daemon-interior and reach no wire; beside the exchange line, the one member a client reads is the address on `SessionSnapshot` (§Plan-001 above), which the inspector's `Copy address` lifts.
 
 **The daemon's own agent tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on one provider, the child's turn-started frame on the other — and persists it, because neither provider lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither provider's lead can stop a subtree — one provider's own stop tool refuses a grandchild as another agent's, and the other has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Orchestration / §Agent (D-014-16), plus `driver.capability_unsupported` for a switch axis the target driver does not have, and for the goal RPCs `session.not_found` for a session id the daemon does not hold, appending nothing, and `driver.capability_unsupported` where the agent's provider cannot carry a goal. Durable events owned by Plan-014 (Spec-005 registrations): `agent.provider_binding_changed` / `agent.provider_binding_change_failed` (payloads above), `orchestration.rejected`, `usage.budget_warning`, `session.goal_updated` / `session.goal_cleared` (emitted by the goal RPCs above) — see [Spec-005 §Event Type Registry](../../specs/005-session-event-taxonomy-and-audit-log.md). `moderation.review_flagged` is not Plan-014's: the Codex normalizer emits it ([Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.39).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Orchestration / §Agent (D-014-16), plus `driver.capability_unsupported` for a switch axis the target driver does not have, and for the goal RPCs `session.not_found` for a session id the daemon does not hold, appending nothing, and `driver.capability_unsupported` where the agent's provider cannot carry a goal. Durable events owned by Plan-014 (Spec-005 registrations): `agent.provider_binding_changed` / `agent.provider_binding_change_failed` (payloads above), `orchestration.rejected`, `session.spend_limit_reached` and `run.token_limit_reached` (a limit the person set, reached), `session.goal_updated` / `session.goal_cleared` (emitted by the goal RPCs above) — see [Spec-005 §Event Type Registry](../../specs/005-session-event-taxonomy-and-audit-log.md). `moderation.review_flagged` is not Plan-014's: the Codex normalizer emits it ([Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.39).
 
 **Session cost receipt (Plan-014 D-014-25).** One read pair, `orchestration.costReceiptRead {sessionId}`, which refuses a session id the daemon does not hold with `session.not_found` and appends nothing. The reply is a **decomposition of the committed-spend fold**, not a second computation: every figure is served from the same accountant accessor that answers `orchestration.budgetRead`, so a divergence between the two is a bug in exactly one place. It answers the providers in the order the session first spent on them, the session's own provider first, each with one row per account that provider spent on, its `Voice` row where the session made voice calls, and a subtotal the daemon computes, then the session total. Every amount is integer micro-dollars. Read-only — no receipt member is accepted on any request, so a caller can never assert an attribution or a total.
 
