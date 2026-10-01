@@ -12,7 +12,7 @@ Diagnose runs that appear active but are no longer making observable progress.
 
 ## Detection
 
-- Read the working line left to right. The action words say what the agent is doing (`Waiting for approval`, `Compacting…`, `Retrying…`, `Running pnpm test`), and the state word after the clock says `Paused`, `Interrupted` or `switching to account <name>`. Each of these is a valid wait, not a stuck run.
+- Read the working line left to right. The action words say what the agent is doing (`Waiting for approval`, `Compacting…`, `Retrying…`, `Running pnpm test`), and the state word after the clock says `Paused`, `Interrupted`, `switching to Claude` or `switching to Codex`. Each of these is a valid wait, not a stuck run.
 - Check whether the session waits on the person: the bell counts it, the session reads `Waiting on you`, and an approval, a question or a plan card is open in the composer.
 - While any command runs, press the action words to open the running-commands list and read each command's live tail. A long command, such as a four-minute test run, is progress.
 - Claude Code retries a rate limit or an overload silently for up to about three minutes while the line reads `Retrying…`, then lands one row, `<Provider> did not answer · Try again`. Codex fails the turn at once with one row, `Limit reached · resets at <time> · Try again`.

@@ -66,7 +66,7 @@ Reachability is read from the machine's relay connection and from nothing else, 
 ## Related Domain Docs
 
 - [User And Device Model](./user-and-device-model.md) — the user who owns the node, and the devices that drive it without executing anything themselves.
-- [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `runtimenode.added` statement it signs itself, and every later machine joins by linking, which records its `runtimenode.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, remembered rules, and the trust given per project and per tool server, never by the machine.
+- [Trust And Identity](./trust-and-identity.md) — a machine joins the account through the account's statement chain: the first machine opens the chain with a `runtimenode.added` statement it signs itself, and every later machine joins by linking, which records its `runtimenode.added` signed by the device or machine that links it. That is the whole of a machine's identity. What its agents may do is decided by the session's permission level, the approval rules the providers keep, and the trust given per project and per tool server, never by the machine.
 
 ## Related Specs
 

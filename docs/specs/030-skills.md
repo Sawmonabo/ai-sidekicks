@@ -140,7 +140,7 @@ A skill a plugin installed opens the same folder with its fields and files drawn
 - Tool names in the warning are **words in sentence case**, never their wire spelling.
 - A folder whose files name no other provider's tools widens with **no warning at all**.
 - **Narrowing a skill back takes the setting and the line together** and leaves no state behind, because the line is derived from the setting and is never stored.
-- **One switch per provider, with no lock.** A skill is switched off on a provider through that provider's own per-session off switch — Claude Code's `skillOverrides` in the session's settings, Codex's session config — which the daemon writes; nothing writes the person's own config files, and the window never touches a provider folder. A provider's own skill can be switched off its own provider the same way, and a skill may be off on every provider, its row saying so.
+- **One switch per provider, with no lock.** A skill is switched off on a provider through that provider's own per-session off switch — Claude Code's `skillOverrides` in the session's settings, Codex's session config — which the daemon writes; nothing writes the person's own config files, and the window never touches a provider folder. A provider's own skill can be switched off its own provider the same way, and a skill may be off everywhere, its row showing neither provider pressed and no call line.
 - **A plugin's skill is available on the provider the plugin was installed for, and neither control can be pressed**, because the plugin, not the console, decides where the skill goes.
 - **A skill runs only on the providers it is available on.** A skill marked for one provider never runs under the other; widening it is the one way it reaches the other provider.
 
@@ -210,7 +210,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
   - `skill.fileRead` — one file's body, read when that file opens; the list carries paths and sizes only.
   - `skill.create` — a new folder under the console's own tree, global or project, its name folded and a collision suffixed, available on both providers.
   - `skill.update` — a whole-folder save: the front-matter fields, each file's body, the files added, renamed and removed, and the icon, applied together, for a folder of the console's own and for a provider's own folder in place. A refused write leaves the folder on disk exactly as it was. A path it cannot take is refused as `skill.path_refused`, naming the path, with the reason `escapes_folder`, `duplicate_path` or `names_entry_file`.
-  - `skill.availabilityUpdate` — sets one provider on or off for a folder, with no lock, so a skill may be off on every provider; the daemon writes it through that provider's own per-session off switch.
+  - `skill.availabilityUpdate` — sets one provider on or off for a folder, with no lock, so a skill may be off everywhere; the daemon writes it through that provider's own per-session off switch.
   - `skill.scan` — takes a folder and the provider being widened onto and returns the files that named another provider's tools and the tool names as words. It is a read with no durable effect; nothing is stored and nothing is cached across widenings.
   - `skill.recordReattach` — attaches an orphaned record to a folder, taking the token the platform's folder chooser returned, accepted only while the record is orphaned and refused otherwise with `skill.write_refused` (`reason: not_orphaned`).
   - `skill.recordDiscard` — drops an orphaned record.
@@ -270,7 +270,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - [ ] Tool names in the warning are words in sentence case, with no wire spelling.
 - [ ] A folder whose files name no other provider's tools widens with no warning.
 - [ ] Narrowing a skill back removes the setting and the warning together and leaves no state behind.
-- [ ] Each provider's control switches a skill on or off with no lock, a provider's own skill off its own provider and a skill off on every provider included, written through that provider's own per-session off switch and never into a config file of the person's.
+- [ ] Each provider's control switches a skill on or off with no lock, a provider's own skill off its own provider and a skill off everywhere included, written through that provider's own per-session off switch and never into a config file of the person's.
 - [ ] The `New skill` form opens on Global with the bolt icon picked.
 - [ ] Opening a row opens that folder at its entry file.
 - [ ] The Files list holds the entry file first and every other file after it ordered by whole path, and states how many files the folder holds.

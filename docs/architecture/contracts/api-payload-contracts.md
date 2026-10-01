@@ -17,7 +17,7 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 - **No person in a request body.** A request carries no body field naming a person, and Cedar reads none: the control plane's caller is the verified `sub`, and on the machine a write records the device its connection came from.
 - **Run control.** Interventions, the orchestration-layer `run.pause` / `run.resume` verbs and a person's `driver.compactContext` are accepted from any connection the transport admits: the desktop app or the CLI on the daemon's local socket ([security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)), or a linked device inside its encrypted channel to the machine, from a device key the account's statement chain trusts. Nothing checks session ownership or run authorship. The event records the connection's device, which the channel's handshake proves ([security-architecture.md §Relay Authentication And Encryption](../security-architecture.md#relay-authentication-and-encryption)). Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
 - **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the desktop app or the CLI client (see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the main process through the preload bridge. The gateway stamps the connection's device on the dispatch context every handler receives; no handler checks who the caller is.
-- **A write records its device.** A write whose acceptance admits later work — a queued message, a steer, a remembered rule, a pending provider switch — records on its own row the device whose connection carried it, never a person, so the record outlives the request. An approval's resolution records the answering device's id, which a card answered elsewhere reads as `Answered on <device>` ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). Spend is counted per session, run and provider account, never per person.
+- **A write records its device.** A write whose acceptance admits later work — a queued message, a steer, an approval rule, a pending provider switch — records on its own row the device whose connection carried it, never a person, so the record outlives the request. An approval's resolution records the answering device's id, which a card answered elsewhere reads as `Answered on <device>` ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). Spend is counted per session, run and provider account, never per person.
 
 **See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix), [ADR-010 Tokens, Passkeys And The Remote Channel](../../decisions/010-tokens-passkeys-and-the-remote-channel.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
 
@@ -212,8 +212,8 @@ An index, not a second contract: each region of the session screen, what it need
 | --- | --- | --- |
 | The sessions list and the palette | Every session grouped by shape, each with its name or first message, its state, its pin and mute marks and the exchange line while it trades messages; the project headers; a session's seen dot; a search across every session; the acts on a row | `session.list`, served live; `repo.projectList`, served live, for the project headers; `attention.seenUpdate` for the seen dot; `session.search`; `session.create`, `session.rename`, `session.pin`, `session.unpin`, `session.mute`, `session.unmute`, `session.archive`, `session.reactivate`, `session.close`, `session.convert` and `session.fork` for the acts |
 | Session | Its id, name, shape, state, mute and goal; its project, worktree and base; the pending worktree move; its elapsed time and its ahead count; the unsent draft and the staged files; the spend rows by account; the snapshot count | `session.read` for the session's own facts — its shape, its mute, the pending move, the draft and the staged files among them — and `session.subscribe` for every change after it; `session.setWorkingFolder` to move it; `session.restart` for a provider process that ended; `repo.mountRead` and `repo.worktreeStatusRead` for the project, the worktree, the base and the ahead count; `orchestration.costReceiptRead`'s per-account axis for the spend rows; `session.snapshotList` for the snapshot count |
-| The composer | The draft and its staged files, pictures, marks and resources; the `/` list; the `@` file search; the model, effort, speed, level, mode, goal, step-bound and auto-compact controls and the context figure; the tool-servers list with its switches; the side question, `/review` and `/reload` | `session.draftUpdate`, `session.attachmentAdd` and `session.attachmentRemove`, with `preview.marksSend` for the marks chip; `session.providerCommandsSubscribe` for the `/` list; `session.fileSearch`; `session.mcpResourceList` for a server's resources; `session.mcpServerList` and `session.mcpServerUpdate` for the tool-servers list; `agent.configUpdate` for the model, effort, speed or provider, never the account, which is `providerAccount.setCurrent`; `session.permissionLevelUpdate`, `session.modeUpdate`, `session.goalUpdate`, `session.goalClear`, `session.maxStepsUpdate`, `session.autoCompactUpdate` and `session.contextSubscribe`; `session.sideQuestionAsk`, `session.reviewStart` and `session.definitionsReload`; `driver.listModes`, `driver.listModels`, `driver.listCapabilities` and `driver.compactContext` for what the provider offers and its compaction |
-| The inspector | The session's memory, hooks, the rules in force, its artifacts, its cost and budget, and its snapshots | `session.memoryRead` and `session.autoMemoryUpdate`; `session.hookList`; `approval.ruleList` and `approval.ruleRevoke`; `artifact.list` and `artifact.read`; `orchestration.costReceiptRead` and `orchestration.budgetRead`; `session.snapshotList` |
+| The composer | The draft and its staged files, pictures, marks and resources; the `/` list; the `@` file search; the model, effort, speed, level, mode, goal and auto-compact controls and the context figure; the tool-servers list with its switches; the side question, `/review` and `/reload` | `session.draftUpdate`, `session.attachmentAdd` and `session.attachmentRemove`, with `preview.marksSend` for the marks chip; `session.providerCommandsSubscribe` for the `/` list; `session.fileSearch`; `session.mcpResourceList` for a server's resources; `session.mcpServerList` and `session.mcpServerUpdate` for the tool-servers list; `agent.configUpdate` for the model, effort, speed or provider, never the account, which is `providerAccount.setCurrent`; `session.permissionLevelUpdate`, `session.modeUpdate`, `session.goalUpdate`, `session.goalClear`, `session.autoCompactUpdate` and `session.contextSubscribe`; `session.sideQuestionAsk`, `session.reviewStart` and `session.definitionsReload`; `driver.listModes`, `driver.listModels`, `driver.listCapabilities` and `driver.compactContext` for what the provider offers and its compaction |
+| The inspector | The session's memory, hooks, the rules in force, its artifacts, its cost and budget, and its snapshots | `session.memoryRead` and `session.autoMemoryUpdate`; `session.hookList`; `approval.ruleList` and `approval.ruleRevoke`; `artifact.list` and `artifact.read`; `orchestration.costReceiptRead` and `orchestration.budgetRead`; `session.maxStepsUpdate`, `session.spendLimitUpdate` and `session.tokensPerRunUpdate`; `session.snapshotList` |
 | Undo | The dry run's files, lines and skipped files, the commands still running and the agents that would stop; the undo itself, in one of its three ways or to a named snapshot | `session.restorePreview`, then `session.restore` |
 | Turns | The person's turns, the agent's prose, its reasoning, and the state-changing rows the console itself appends; a row's large body; a patch a call did not carry; the find box over history not yet loaded; code colors | `timeline.read`, and live rows on `session.subscribe`; `timeline.reasoningSurfaceRead`; `timeline.bodyRead`; `timeline.patchRead`; `timeline.search`; `highlight.read` |
 | Tool runs | The verb, its target, its duration or live elapsed, a result summary, diff hunks, a failure mark, a held mark; a block by the provider's own reviewer, with its reason line and whether it can be allowed once | The same timeline rows, with the `approval.reviewer_denied` and `approval.denial_overridden` records on the blocked call's row; `command.list` for the ones still running |
@@ -254,7 +254,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `agent.definitionCreate` | Save a new definition (`New sidekick`, `Duplicate`) with `bindings`, `icon`, `accentHue`, `turnCap` | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionDelete` | Delete a definition; discard an orphaned record | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionExport`, writing into the folder the dialog picked | Export one or many definitions, one Markdown file per definition, the account left out | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
-| `agent.definitionImport`, reading the folder the dialog picked | Import the folder's definition files: creates only, never overwrites, suffixes a colliding name, applies nothing partially | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
+| `agent.definitionImport`, reading the folder the dialog picked | Import the folder's definition files: creates only, never overwrites, suffixes a colliding name, skips and lists every file that is not a definition | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
 | `agent.definitionList`, with reply members `workflowUsage` and **`lastUsedAt`** | Read the agent registry: every definition from every origin, the plugin origin read-only, `plugin · <name>`, from the daemon's plugin homes, each with `origin`, `scope`, `sourcePath`, `orphaned`, `disabledInProvider` (the provider has it switched off) and `loadError` (it failed to load, with the reason), each its own field and not one exclusive state, plus the agent's own `hooks` and `memoryScope` on every origin, `workflowUsage` and `lastUsedAt` (both derived per reply). A definition whose file names a provider this app doesn't run is listed, carrying that name apart from the binding's `ProviderName`; its provider chip reads `<name> · not supported here`. The agent card draws the orphaned state: set apart, the extras the record still holds, the last known path, `Reattach` and `Discard`. One read serves the library, the composer's Sidekicks group, the workflow node's chooser and the pane's name/icon/color labels. | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionUpdate` | Save edits: rename, replace `bindings` whole, every core field; also reattach an orphaned record to a file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.list` (a live list: the list, then each change, like `session.list`) | The session's agents, the lead and every child: binding, state, resolved-from definition, which provider runs it | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.1, T3.2 |
@@ -286,7 +286,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `attention.projectionRead`, served live: the whole projection, then every change; `attention.bannerSettle {entryId, state}`, main-only, a no-op once the entry is past `pending` | The bell's count and its list, one stable id per moment; main mirrors the count to the app icon and posts and withdraws the OS notification from the same projection, and while no main is connected the daemon's attention service starts the app windowless to post it | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T2.4, T1.2 |
 | one entry on `attention.projectionRead` with trigger `workflow_notify`, its `momentId` from the run, node and execution index and its `stepId`, posted by main | The Notify node posts a notification | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.24 |
 | `attention.seenUpdate` {sessionId} | Mark a session seen (its done dot filled or hollow) | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T2.4 |
-| `attention.webAddressSave {address}` → `{host, signingSecret?}`, `attention.webAddressSecretRotate {}` → `{signingSecret}`, `attention.webAddressRemove {}` → `{}`; the channel's switch and kinds are keys in the machine settings file, which the service writes; `web_address_state` (`pending \| delivered \| undelivered`) and an attempt count on each attention entry | The web address: `Send to a web address`, one signed message per moment of the kinds picked for it, the address and its signing secret each kept as its own item in the operating system's credential store | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.4 |
+| `attention.webAddressSave {address}` → `{host?, signingSecret?}`, `attention.webAddressSecretRotate {}` → `{signingSecret}`, `attention.webAddressRemove {}` → `{}`; the channel's switch and kinds are keys in the machine settings file, which the service writes; `web_address_state` (`pending \| delivered \| undelivered`) and an attempt count on each attention entry | The web address: `Send to a web address`, one signed message per moment of the kinds picked for it, the address and its signing secret each kept as its own item in the operating system's credential store | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.4 |
 
 ### `browser.*`
 
@@ -455,7 +455,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | --- | --- | --- | --- |
 | `presence.read {}` | Read the devices connected to this machine: each one's `deviceId`, `deviceType`, whether an app window is in front on it (`appVisible`) and its liveness `state` (`PresenceState`). It carries no last-seen time: a device card's `Connected now` and `Last seen` are `device.list`'s alone | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 5 |
 | `presence.subscribe {}` | Follow the devices connected to this machine as they come and go | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 5 |
-| `presence.heartbeat`, carrying `PresenceHeartbeat` (`deviceId`, its liveness state, and its `deviceType`, `focusedSessionId`, `lastActivityAt` and `appVisible`) | A device tells the machine whether an app window is in front on it, a locked or sleeping screen counting as not in front, when that changes and otherwise every 15 seconds; the machine keeps the last one per device and admits at most 10 a minute from each | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phases 4 and 5 |
+| `presence.heartbeat`, carrying `PresenceHeartbeat` (`deviceId`, its liveness state, and its `deviceType`, `focusedSessionId`, `lastActivityAt` and `appVisible`) | A device tells the machine whether an app window is in front on it, a locked or sleeping screen counting as not in front, when that changes and otherwise every 15 seconds; the machine keeps the last one per device | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phases 4 and 5 |
 
 ### `preview.*`
 
@@ -620,6 +620,8 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.importSubscribe` | Follow an import's progress | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
 | `session.list` | The sessions list: rows grouped by shape, each a title and a state, with archived and closed sessions in the `Archived` group; live. Each entry carries `activity` (`running`, `waiting`, `done`, `failed` or `idle`) and `activityRenewedAt`: the daemon republishes a quiet run's entry every 15 s, and a reader treats a `running` or `waiting` reading older than 45 s as `idle` and never ages a `failed` one | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.2 |
 | `session.maxStepsUpdate` | This session's own `Max steps per turn` override | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.20, T3.1 |
+| `session.spendLimitUpdate` | This session's own `Spend limit` | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.5, T3.1 |
+| `session.tokensPerRunUpdate` | This session's own `Tokens per run` | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.5, T3.1 |
 | `session.mcpResourceList {sessionId, serverName}` → `{serverName, resources, complete}` | A server's resources for `Attach a resource…`; the pick stages through `session.attachmentAdd` | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
 | `session.mcpServerList {sessionId}` (a live list) | This session's tool servers, live, grouped by state | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
 | `session.mcpServerUpdate {sessionId, serverName, enabled}` | A per-session on/off switch for one server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
@@ -721,6 +723,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.keptVarsClear` | Clear the values `Keep for later runs` kept for one workflow | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.11 |
 | `workflow.kindList` | Node catalog | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.19 |
 | `workflow.layoutSet` | Save the canvas layout without a new version | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
+| `workflow.permissionLevelUpdate` | Set the workflow's own permission level from the builder's level pill | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
 | `workflow.nodeExecute` with scope `"node"` or `"fromHere"` | Run this node, and Run from here | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.9 |
 | `workflow.pinDataSet` | Pin or unpin a node's test data: inspector, step panel Pin, Copy this run into the builder | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
 | the `workflow.results_posted` and `workflow.step_*` events, drawn as transcript row kind `workflow_run` | The progress row, then the results row, in the session that asked | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.3, T5.8 |
@@ -937,6 +940,24 @@ interface SessionMaxStepsUpdateResponse {
   maxStepsPerTurn?: number; // absent after a clear, which is the same shape the snapshot carries
 }
 
+// SessionSpendLimitUpdate / SessionTokensPerRunUpdate — session.spendLimitUpdate /
+// session.tokensPerRunUpdate. Set or clear THIS session's own `Spend limit` and `Tokens per run`,
+// which start at the Runtime settings page's values when the session is created. `null` is
+// `Unlimited`, after which nothing stops or refuses on that limit. A spend limit is a non-negative
+// integer of micro-dollars and a token limit a positive integer; anything else is refused, as is a
+// session id the daemon does not hold (`session.not_found`), and nothing is appended. Saving a higher
+// limit carries on the turn or run that limit stopped, as `Raise limit` does (Spec-014 §Budget
+// Policies). Both answer with the budget state, served from the one budget-accountant accessor as the
+// read is, so a reply and an immediately following `orchestration.budgetRead` carry the same figures.
+interface SessionSpendLimitUpdateRequest {
+  sessionId: SessionId;
+  costLimitUsdMicros: number | null;
+}
+interface SessionTokensPerRunUpdateRequest {
+  sessionId: SessionId;
+  tokensPerRun: number | null;
+}
+
 // SessionFork — session.fork. Mints a session of the SAME shape from a message anchor, carrying the
 // transcript prefix up to and including that message with live timers settled and streams stopped in
 // the copy, and carrying the parent's execution posture and tool set. A `project` fork lands on a
@@ -1115,6 +1136,8 @@ The console's `session.*` operations beyond the [Plan-006](../../plans/006-local
 | `session.fork` | `mutation` | `SessionForkRequest` | `SessionForkResponse` |
 | `session.setWorkingFolder` | `mutation` | `SessionSetWorkingFolderRequest` | `SessionSetWorkingFolderResponse` |
 | `session.maxStepsUpdate` | `mutation` | `SessionMaxStepsUpdateRequest` | `SessionMaxStepsUpdateResponse` |
+| `session.spendLimitUpdate` | `mutation` | `SessionSpendLimitUpdateRequest` | `OrchestrationBudgetState` |
+| `session.tokensPerRunUpdate` | `mutation` | `SessionTokensPerRunUpdateRequest` | `OrchestrationBudgetState` |
 | `session.draftUpdate` | `mutation` | `SessionDraftUpdateRequest` | `SessionDraftUpdateResponse` |
 | `session.attachmentAdd` | `mutation` | `SessionAttachmentAddRequest` | `SessionAttachmentAddResponse` |
 | `session.attachmentRemove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
@@ -1237,8 +1260,7 @@ The machine's own record on the control plane: the daemon registers it, and the 
 ```ts
 interface RuntimeNodeRegisterRequest {
   nodeId: NodeId;
-  publicKey: string; // the machine's public identity key, lowercase hex; stored as runtime_nodes.public_key
-  keyAlgorithm: "p256" | "ed25519"; // the algorithm tag stored with the key (runtime_nodes.key_algorithm)
+  identityKey: MachineIdentityKey; // the service's Ed25519 key, the one key a machine has: `{algorithm: "ed25519", publicKey}`, the public half in base64; stored as runtime_nodes.public_key and key_algorithm
   name: string; // the machine's name as the person sees it
   platform: string; // the operating system the service runs on, as the service reports it
   serviceVersion: string; // the service's semver version
@@ -1735,13 +1757,10 @@ interface ResumeSessionParams {
   // rather than a capability one: a resume that re-resolved "whichever account is current now"
   // would move a live run's spend onto an account it was never admitted against, mid-run, with the
   // receipt's per-paying-account key still claiming the original. Moving the current account moves a
-  // live SESSION, and it does so by ENDING the run at the next tool boundary and continuing the work
-  // in a new run — never by re-resolving this stamp under a run that is already admitted. The
-  // session's own total keeps counting across that move: the runs before it stay under the account
-  // they were admitted against, the runs after it under the new one, and the receipt carries both as
-  // account rows summing to one total. The accountant RE-BASELINES on the new process's own counters
-  // at the resume, because a provider's cumulative figure restarts with its process; that
-  // per-process figure is an input to the baseline and reaches no client payload.
+  // live SESSION in place at its next request, the cost splitting at the provider's acknowledgment —
+  // never by re-resolving this stamp at a resume. The session's own total keeps counting across that
+  // move: the requests before it stay under the account they ran on, the requests after it under the
+  // new one, and the receipt carries both as account rows summing to one total.
   // Read back from the durable
   // `runtime_bindings.spawn_config` record written at the original spawn — never re-resolved, and
   // never re-supplied: no wire request carries an account, and recovery holds none to take one from.
@@ -2154,8 +2173,9 @@ type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 // their tool calls flow through the same approval pipeline. `maxConcurrent` is the person's
 // `Helpers at once` for that provider: absent, the default, is no limit, and the daemon lifts the
 // provider's own built-in limit; `0` runs none, and the daemon withholds the provider's helper tool;
-// any other number is passed as Codex's own limit, `agents.max_concurrent_threads_per_session`, and on Claude
-// Code, which has no such setting, the daemon's pre-tool hook on the Agent tool holds a new helper's start
+// any other number N is passed as Codex's own limit, `features.multi_agent_v2.max_concurrent_threads_per_session` set to N + 1,
+// because Codex counts the lead among those threads (its helper limit is that setting minus one), and
+// on Claude Code, which has no such setting, the daemon's pre-tool hook on the Agent tool holds a new helper's start
 // until one of that session's running helpers finishes.
 // There is no ceiling of the app's own (Spec-004 §Parity Capability Mechanism Grades; Spec-014
 // §Provider-Native Subagents).
@@ -2186,7 +2206,6 @@ interface SubagentDefinition {
   description?: string;
   model?: string;
   tools?: string[];
-  permissionMode?: string;
   effort?: string;
   maxTurns?: number;
 }
@@ -2457,7 +2476,7 @@ interface CommandWriteResponse {
 
 **Two records the flow folds.** A command's output arrives as `command.output` and streams into that command's own row as it prints; the row is the one home for the whole output, and the live view above it is a window onto the same rows rather than a second copy. A command settles as `command.ended`, carrying which of the three endings it was — it finished, it failed, or the person ended it — because a row that cannot say which of the three happened cannot be read. The taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
-**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process: on Claude Code it is the process's first frame, replaced whole by each `commands_changed` push, and a new process — a new session, a switch of provider or worktree at its boundary, or an account switch on the resume path — brings a new frame and a new list; on Codex, whose wire parses no slash text, it is the console's words and the skills the daemon lists (`skill.list`), the other provider's skills grayed beside them; Codex's own `skills/list` is read only for what Codex loaded, so a skill Codex failed to load stays listed and grayed with its load error, matched to its row by its `SKILL.md` path. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `ProviderCommandsSubscribeRequest` and emits `ProviderCommandsUpdate`, the whole list on every emission (§Plan-004 above), over the daemon JSON-RPC transport only.
+**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process: on Claude Code it is the process's first frame, replaced whole by each `commands_changed` push, and a new process — a new session, a switch of provider or worktree at its boundary — brings a new frame and a new list; on Codex, whose wire parses no slash text, it is the console's words and the skills the daemon lists (`skill.list`), the other provider's skills grayed beside them; Codex's own `skills/list` is read only for what Codex loaded, so a skill Codex failed to load stays listed and grayed with its load error, matched to its row by its `SKILL.md` path. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `ProviderCommandsSubscribeRequest` and emits `ProviderCommandsUpdate`, the whole list on every emission (§Plan-004 above), over the daemon JSON-RPC transport only.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -2799,7 +2818,7 @@ interface DaemonHelloAck {
   // The connecting device's own id: the one a terminal lease names as its holder (`holderDeviceId`
   // on `pty.control_changed`), so a client tells this device holding a shell apart from another
   // device holding it, and, by `holderRunId`, from an agent's run holding it.
-  deviceId: string;
+  deviceId: DeviceId;
 }
 
 // DaemonStatusRead
@@ -2866,7 +2885,8 @@ interface DaemonPingResult {}
 
 // DaemonConfigRead / DaemonConfigUpdate — `daemon.configRead` / `daemon.configUpdate`, the
 // machine-wide service settings Settings › Runtime edits, one configuration surface (Spec-006).
-// Separate from the per-session `session.maxStepsUpdate`, and from the command line's
+// Separate from the per-session `session.maxStepsUpdate`, `session.spendLimitUpdate` and
+// `session.tokensPerRunUpdate`, and from the command line's
 // `settings.effectiveRead`, with which it shares no field.
 interface DaemonConfigReadParams {}
 interface DaemonConfig {
@@ -2875,6 +2895,8 @@ interface DaemonConfig {
   runTimeLimit: "none" | "30m" | "1h" | "4h" | "12h" | "24h"; // `Stop a run after`
   workflowChainAskAfterRuns: number | null; // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never ask`
   maxStepsPerTurn: number | null; // null is `Unlimited`: each provider does what it does on its own
+  costLimitUsdMicros: number | null; // `Spend limit`, what each new session starts from; null is `Unlimited`
+  tokensPerRun: number | null; // `Tokens per run`, what each new session starts from; null is `Unlimited`
   toolMemoryCapBytes: number | null;
   toolMemoryCapEnforceable: boolean;
   packageCacheLimitBytes: number | null; // the package caches' `Cache limit`; null is `Unlimited`, and then the service never clears a cache on its own. With a size set, after each successful install the service reads that tool's cache and clears it when it is larger, leaving the other tool's cache alone
@@ -3419,7 +3441,7 @@ The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out
 | Device authorization | `sidekicks sign-in` | none | the RFC 8628 device authorization request | a device code, a user code and the verification address; the command line prints the code and the address, opens the address where a browser exists, and polls the token route (T5.9) |
 | Approval | the device-code page at the verification address | a passkey assertion; for `Create an account`, none: the new account's first passkey registration, bound to this device-code transaction, good once, and limited per source address under `auth.endpoint` like the passkey sign-in | `{userCode, transactionId, assertion}`, the assertion answering `WebAuthnAuthenticationOptionsIssue`; for `Create an account`, `{userCode, transactionId, attestation}`, the attestation answering `WebAuthnRegistrationOptionsIssue`'s creation options, and the user record, its first passkey and the approval commit in one transaction | approves the code for the account the passkey belongs to, or for the account `Create an account` made, and carries no token, so the page keeps nothing in the browser; refuses with `user.webauthn_challenge_invalid` or `user.webauthn_verification_failed` as the verify leg does, and an unknown or expired user code with the unit's own code (T5.9) |
 | Token | `sidekicks sign-in`, polling | the device code, with a DPoP proof under this machine's key | the device code | a refresh token bound to the proved key (`cnf.jkt`, that key's JWK SHA-256 thumbprint); `authorization_pending` until the code is approved or expires (T5.9) |
-| Enrollment | `sidekicks sign-in` once the refresh token is issued, and a removed machine linked again once its new key's statement is on the chain | an access token with a DPoP proof | the machine's id, the identity key's public half, its name, its platform and the installed service's version | writes the machine's `runtime_nodes` row under the account; refuses a different key for a machine already enrolled unless a `runtimenode.key_rotated` or a later `runtimenode.added` for that id is on the chain (T5.9) |
+| Enrollment | `sidekicks sign-in` once the refresh token is issued, and a removed machine linked again once its new key's statement is on the chain | an access token with a DPoP proof | the machine's id, the identity key's public half, its name, its platform and the installed service's version | writes the machine's `runtime_nodes` row under the account; refuses a different key for a machine already enrolled unless a later `runtimenode.added` for that id is on the chain (T5.9) |
 | Trade | the service, through its credential provider | the refresh token, with a DPoP proof under the same key | the refresh token | a short-lived PASETO v4.public access token and a new refresh token of the same family, the presented one marked spent; a spent refresh token presented again revokes the whole family (T5.9) |
 | Sign-out | `sidekicks sign-out` | the signed-in machine's tokens | none | revokes the refresh-token family; the refresh token has no expiry of its own and lasts until sign-out or revocation (T5.9) |
 | `account.delete` | `sidekicks delete-account` | the signed-in account | none | revokes every refresh-token family of the account, hard-deletes the account's rows through [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 2, and returns; a second call returns the same result and deletes nothing more; the command line then signs this machine out (T5.10) |
@@ -3568,7 +3590,7 @@ Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree.t
 - **Open in editor** is the bridge's `native.openInEditor`, which opens the project's folder in the editor Settings › General names.
 - **Archive** is `repo.projectArchive`: it takes the project out of the session list's grouping and into an archived group carrying one action, unarchive; its sessions are kept and come back with it. **Unarchive** is `repo.projectReactivate`, the inverse, which restores the grouping.
 - **Delete** is `repo.detach`, the project's one removal act and the same act as Runtime's `Remove` on the project's folder. It is refused only while an agent runs anywhere in the project. It takes the project out of the projects page and out of the session list, forgets its setup steps and its branch-name pattern, and ARCHIVES its sessions, which stay readable. Nothing on disk is touched and it is not undoable, which is why the confirm states all three facts before it acts.
-- **The setup steps** are written through `repo.projectSetupUpdate`: a per-project recipe — files to copy, commands to run in order, and a time limit — read and written from the projects page. They run with the repository's own git config, its hooks included, raise no approval card at any permission level, and mint no remembered rule. They are the person's own list on this machine rather than a file inside the repository.
+- **The setup steps** are written through `repo.projectSetupUpdate`: a per-project recipe — files to copy, commands to run in order, and a time limit — read and written from the projects page. They run with the repository's own git config, its hooks included, raise no approval card at any permission level, and make no approval rule. They are the person's own list on this machine rather than a file inside the repository.
 - **The environment rows** are two lists. The machine-wide list is passed to every process the app starts and belongs to the machine's settings file; a project's own list, written through `repo.projectEnvironmentUpdate`, is passed to every process that project's sessions start and belongs to the project record. A name in a project's list WINS over the same name machine-wide. The daemon reads both lists when it starts a project's process. A credential-shaped name is refused at save, in the list it was typed into, and nothing is written — credentials live in the account's credential home, never in an environment row — and so is a name the app sets itself on the processes it starts.
 - **The branch-name pattern** is written through `repo.projectBranchPatternUpdate {projectId, pattern | null}`, `null` returning the project to the machine's own pattern.
 
@@ -3684,42 +3706,41 @@ interface SessionSweptToRepoRootPayload {
 
 type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
 
-// Remembered-grant scope — explicit enum, not free-form (Spec-010 §Interfaces And Contracts).
-// `request_only` (Spec-010 §Default Behavior) is expressed by OMITTING rememberedScope,
+// The rule an approval hands to the provider — explicit enum, not free-form (Spec-010 §Interfaces And
+// Contracts). `request_only` (Spec-010 §Default Behavior) is expressed by OMITTING rememberedScope,
 // never by an enum member. The subject is the one the daemon derived from the ask and the card
-// displayed (D-010-10): a command matches its program and first subcommand; network_access = exact
-// host equality, with no wildcards; file_write = that one file, as its normalized absolute path;
-// all other categories = exact subject equality. A rule matches within its session, or within every
-// session on its project; the candidate set has no user term, since one account owns the machine.
+// displayed (D-010-10): a command's program and first subcommand; a network request's host; a written
+// file's name. The provider keeps the rule and answers by it, at every level that asks; the daemon keeps
+// no rule store, and the session's own answers are its record.
 interface RememberedScope {
-  // 'session' = session-wide, which the card's middle button makes by being pressed; 'project' = every
-  // session on that project, which the same button's own arm makes. Both are the daemon's own rules: the
-  // daemon evaluates them, the inspector's `Rules` lists and revokes them, and they are never written into
-  // the provider's own files, so there is one pipeline and one place to revoke.
+  // 'session' = the provider's session rule, which the card's middle button makes by being pressed:
+  // Claude Code's session flag settings (`apply_flag_settings {permissions}`), Codex's `acceptForSession`.
+  // 'project' = the provider's project rule file, which the same button's own arm writes: Claude Code's
+  // `.claude/settings.local.json` through the answer's `destination: "localSettings"`, Codex's
+  // `.codex/rules/sidekicks.rules`, written by the daemon and listed in the repository's `.git/info/exclude`.
   kind: "session" | "project";
   pattern: string; // the subject the daemon derived from the ask and the card displayed; re-derived at resolve, and an echoed pattern that differs is refused
-  // Allow or block. A block is the `network_access` decline's own remembered form — the host is
-  // refused with NO card raised until the rule is replaced — so the remembered set is two-sided and
+  // Allow or block. A block is the `network_access` decline's own rule — the host is refused with NO
+  // card raised until the rule is replaced — so the rule set is two-sided and
   // a decline is not merely the absence of a grant. REQUIRED rather than defaulted: a missing sense
   // would have to read as `allow`, and a silently-widened block is the one reading a permission rule
   // must never take.
   sense: "allow" | "block";
 }
 
-type InvalidationTrigger =
-  | "explicit"
-  | "session_end"
-  | "project_detached"
-  | "server_trust_withdrawn";
+// Why a rule ended: the person revoked it, its session (the provider's own session) ended, or the tool
+// server whose tool it covers was removed. A project's rules live in the project's own folder and stay
+// with it.
+type InvalidationTrigger = "explicit" | "session_end" | "server_removed";
 
 // approval_flow event payload for six of the `approval.*` variants — `requested`, `approved`, `rejected`,
 // `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the canonical
 // Zod schema). The variants carry the projection-rebuild fields (D-010-6 replay
 // rebuild; D-010-7 events-canonical): `requested` carries the request fields; the
 // resolution events carry the answering device + effective scope; `remembered`
-// carries the full rule projection (binding = `rememberedScope`, origin resolution
-// via `approvalRequestId`) so
-// `remembered_approval_rules` rebuilds byte-equal (I-010-9); decision and state ride
+// carries the rule the answer handed to the provider (binding = `rememberedScope`, origin
+// resolution via `approvalRequestId`), the session's own record of it, which the daemon lists and
+// carries across a restart of the provider's process; decision and state ride
 // the event type; envelope timestamps supply the created/updated instants. The other
 // members of the same category have payloads of their own and are not this shape:
 // `moderation.review_flagged`, `approval.reviewer_denied` and `approval.denial_overridden`,
@@ -3728,7 +3749,7 @@ type InvalidationTrigger =
 // refinement (Plan-010 T1.1 `approvalFlowPayloadRefinementFor`): requested ⇒ runId /
 // approvalRequestId / requestedBy / resourceDescriptor; approved / rejected ⇒
 // approvalRequestId / deviceId / effectiveScope; canceled ⇒ approvalRequestId;
-// remembered ⇒ approvalRequestId / rememberedScope / ruleId / madeAtLevel;
+// remembered ⇒ approvalRequestId / rememberedScope / ruleId;
 // rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at restart projection (I-010-9).
 // Requested rows a provider permission ask originates additionally carry `askId` — its PRESENCE is
@@ -3746,16 +3767,9 @@ interface ApprovalFlowEventPayload {
   resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-010-6)
   clientResolutionId?: string; // present on approval.approved / approval.rejected — the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did
-  deviceId?: string; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
+  deviceId?: DeviceId; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
-  // Present on approval.remembered: the permission level the session stood at when the rule was made.
-  // It is what lets the rule rebuild byte-equal from the log alone, and what the matcher compares a
-  // later ask's level against — a rule never answers below the level it was made at. Typed to the
-  // level vocabulary it is compared against, but only the careful levels can ever appear
-  // here: the other levels raise no card, so no rule can be made under them (the stored rule row's CHECK
-  // admits only the careful levels).
-  madeAtLevel?: ExecutionPostureMode;
   invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
 }
 
@@ -3822,10 +3836,10 @@ interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
   decision: ApprovalDecision;
   effectiveScope?: string; // granted scope; defaults server-side to the request's scope; never broader than requested
-  // The remembered rule this resolution mints, absent for a one-time answer. Its `sense` must agree
+  // The rule this resolution hands to the provider, absent for a one-time answer. Its `sense` must agree
   // with `decision` — an `approved` resolution mints an `allow`, a `rejected` one a `block` — and the
   // pair is schema-refined, so a decline cannot mint a grant. A block is reachable only from the
-  // `network_access` category, which is the one ask whose decline has a subject worth remembering.
+  // `network_access` category, which is the one ask whose decline has a subject worth blocking.
   // `pattern` carries the DERIVED SUBJECT the card's own button displayed: for a command, the program
   // and its first subcommand; for a network request, the host; for a file write, the file's name.
   // The daemon derives it from the ask and the client echoes what it showed, so the rule can never
@@ -3860,10 +3874,12 @@ interface PermissionCheckResponse {
   allowed: boolean;
   reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
   // D-010-17 semantics: policy_allow = Cedar/own-node-envelope permit with no human approval
-  // artifact (Spec-010 §Required Behavior); remembered_rule = matched an unrevoked rule that passed
-  // at-use re-validation; approved = a recorded approved resolution covers this exact request;
+  // artifact (Spec-010 §Required Behavior); remembered_rule = the session's own answers carry an allow
+  // on this subject that the daemon answers for a provider with no verb of its own (a Codex session
+  // allow after a restart); approved = a recorded approved resolution covers this exact request;
   // pending_approval = request created/open (allowed=false); denied = Cedar forbid, a rejected
-  // resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
+  // resolution, a host the session blocked on Codex, which has no session block of its own, or
+  // fail-closed refusal (the typed `approval.persistence_unavailable`
   // error additionally surfaces on fail-closed paths so audit can distinguish them).
   // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
   approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval': the one request
@@ -3889,35 +3905,30 @@ interface ApprovalProjectionReadResponse {
     updatedAt: string; // last state-transition instant (a canceled row settles here; no resolution row)
     resolvedAt?: string; // resolved quad present iff state ∈ {approved, rejected}
     decision?: ApprovalDecision;
-    deviceId?: string; // AC-3: the answering device, which a card answered elsewhere reads as `Answered on <device>`
+    deviceId?: DeviceId; // AC-3: the answering device, which a card answered elsewhere reads as `Answered on <device>`
     effectiveScope?: string; // AC-3: what scope
-    rememberedScope?: RememberedScope; // present iff the resolution minted a remembered rule
+    rememberedScope?: RememberedScope; // present iff the resolution handed a rule to the provider
   }>;
 }
 
-// RememberedRuleList
+// RememberedRuleList — the rules in force on the session, the session's own and its project's alike,
+// read from where the providers keep them: Claude Code's `list_permission_rules`, Codex's project rule
+// files and the session's own answers (Spec-010 §Interfaces And Contracts). A revoked rule is gone
+// from the list; its revocation stays on the session's record as `approval.rule_revoked`.
 interface RememberedRuleListRequest {
   sessionId: SessionId;
-  includeRevoked?: boolean; // default false; true = audit-history view (Spec-010 §State And Data Implications)
 }
 interface RememberedRuleListResponse {
   rules: Array<{
-    ruleId: RememberedRuleId;
-    sessionId: SessionId;
-    category: ApprovalCategory;
-    scope: RememberedScope;
-    // The permission level the session stood at when the rule was made — one of the three careful
-    // levels, the only ones that raise a card. A rule never answers below it: at a more careful level
-    // the card asks again with the same words, and pressing it re-scopes the rule to that level.
-    madeAtLevel: ExecutionPostureMode;
-    grantedAt: string;
-    revokedAt?: string;
-    invalidationTrigger?: InvalidationTrigger;
+    ruleId: RememberedRuleId; // daemon-minted, stable while the rule's place and text are unchanged
+    scope: RememberedScope; // the scope, the derived subject and the sense
   }>;
 }
 
-// RememberedRuleRevoke — the explicit revocation path (Spec-010 §State And Data Implications);
-// writes revoked_at + 'explicit' and emits `approval.rule_revoked`
+// RememberedRuleRevoke — the explicit revocation path (Spec-010 §State And Data Implications): removes
+// the rule where the provider keeps it — a Claude Code session rule from the session's flag settings, a
+// Codex session allow by the daemon's hook holding the next call on its subject, a project rule from the
+// provider's project file — and emits `approval.rule_revoked`
 interface RememberedRuleRevokeRequest {
   ruleId: RememberedRuleId;
 }
@@ -3951,7 +3962,7 @@ interface ApprovalDenialOverrideResponse {
 }
 ```
 
-**A remembered rule carries the level it was made at.** The session's permission level decides whether anything asks at all: only the careful levels raise a card, and at the levels that never ask no card exists and no rule can be made — moving a session's level to one of those while a card is open ANSWERS that card and the blocked row runs. A rule therefore records the level it was made at and never reaches below it: at a more careful level than the one it was made at the card asks again, with the same words, and pressing it re-scopes the rule to that level; at that level or any less careful one the daemon answers the ask itself. The member carrying it is `madeAtLevel`, typed to the `ExecutionPostureMode` vocabulary of §Shared Enums, which is [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md)'s; it rides the rule list, the `approval.remembered` payload the rule rebuilds from, and the stored rule row alike, so one fact has one spelling. What is fixed either way is the ordering: the daemon evaluates a matching remembered rule BEFORE the level's own default, on every provider ask it answers — Claude Code's permission prompt and Codex's approval request alike — and never hands a provider its own rule shape, so there is one pipeline, one trust boundary and one place to revoke. Two stores exist and never mix: the daemon's remembered rules, session and project alike, are listed and revoked through `approval.ruleList` and `approval.ruleRevoke` in the inspector's `Rules` and are never written into a provider's files; the provider's own standing rules stay in the provider's own files, read and revoked through `provider.standingRuleList` and `provider.standingRuleRevoke` on Settings › Providers.
+**The providers keep the card's rules.** The session's permission level decides whether anything asks at all: only the careful levels raise a card, and at the levels that never ask no card exists and no rule can be made — moving a session's level to one of those while a card is open ANSWERS that card and the blocked row runs. A rule the card makes is handed to the provider, which answers by it at every level that asks; the daemon keeps no rule store, and each rule is one provider's. On Claude Code a session rule is the session's flag settings, set by `apply_flag_settings {permissions}` with the whole allow and deny lists on each call and carried at launch by `--settings`, and a project allow rides the answer's `destination: "localSettings"` into `.claude/settings.local.json`, where the daemon writes a project block itself, since a decline drops any rule it carries. On Codex a session allow is `acceptForSession`; the daemon writes a project rule as a `prefix_rule` or `network_rule` into the project's `.codex/rules/sidekicks.rules`, adds that one path to the repository's `.git/info/exclude`, and answers the ask `acceptForSession`; where Codex has no verb — a session allow taken back, a session block, a session allow after a restart — the daemon's own tool hook and its answers to Codex's asks carry it from the session's own answers. The inspector's `Rules` lists and revokes the rules in force on one session through `approval.ruleList` and `approval.ruleRevoke`; Settings › Providers lists and revokes every standing rule on the machine through `provider.standingRuleList` and `provider.standingRuleRevoke`, from the same files.
 
 **The plan verdict.** A plan turn ends with a held provider request on Claude Code and a plan item on Codex; the daemon turns either into ONE plan record the screen renders and ONE call answers. The record is `plan.proposed`; the call is `plan.resolve`; the outcome is recorded by `plan.accepted` and `plan.handed_off`, so the system messages that tell it survive a reload. Each rides the `approval_flow` category ([Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), which owns the names and the census), because a plan card is an attention entry on exactly the terms an approval is, which is why the verdict lives beside the approval surface rather than in a namespace of its own.
 
@@ -3997,17 +4008,15 @@ interface PlanProposedPayload {
 interface PlanResolveRequest {
   planId: PlanId;
   verdict: "keep" | "build" | "fresh";
-  // The session to mint, present exactly on `fresh`. The two members are the axes a fresh session
-  // does not inherit by construction: the provider it runs and the permission level it starts at.
-  // The account is not one of them and no client names one — a minted session runs on its provider's
-  // current account, the way every session does (§Plan-026 — Provider Accounts And Credential
-  // Homes). Everything else is the planning session's — same project, same worktree, and the plan as
-  // the seed. The level is validated against what that provider, its account and the model can
-  // actually run and is applied ONE STEP MORE CAREFUL where it cannot, never looser than asked.
+  // The session to mint, present exactly on `fresh`: the provider it runs and the level it starts
+  // at. The account is not one and no client names one — a minted session runs on its provider's
+  // current account, the way every session does (§Plan-026 — Provider Accounts And Credential Homes).
+  // Everything else is the planning session's — same project, same worktree, and the plan as the seed.
   fresh?: {
     driverName: string;
-    // The permission level the minted session starts at, in the one five-level vocabulary of
-    // §Shared Enums. Plan is not among them: planning is the session's own mode, not a level.
+    // The planning session's level, or the level the person picked in the `Fresh session with` list
+    // where that provider cannot give it. A level that provider, its account or the model cannot run
+    // is refused and no session is minted.
     level: ExecutionPostureMode;
   };
 }
@@ -4544,8 +4553,8 @@ interface ArtifactListResponse {
 // its last write. The stream is a PROTOCOL, not a loose call
 // sequence (Spec-012 stream protocol): Init is refused
 // artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream state created) at
-// max_active_ingest_streams or when the aggregate of open streams' declared totals would breach
-// ingest_spool_max_bytes; sequencing is replay-idempotent with violations terminal
+// max_active_ingest_streams or when the spool's volume, its free space read at admission, has no room
+// for the declaration beside the open streams' reservations; sequencing is replay-idempotent with violations terminal
 // (artifact.ingest_stream_invalid, 409 — restart from Init); and a stream's tenure is wall-clock-
 // bounded by max_ingest_stream_lifetime from Init, because the mtime reaper cannot see a hostile
 // trickle that keeps its spool young. `mediaType` and `declaredSizeBytes` are ADVISORY
@@ -4555,7 +4564,7 @@ interface ArtifactListResponse {
 // declaration is dropped (Spec-012 pipeline step 1). A smaller actual SIZE resolves to the derived
 // value in the response — but the declaration is also the stream's
 // spool RESERVATION and per-stream ceiling: the running decoded count exceeding it
-// refuses artifact.too_large (413) and deletes the spool, because the aggregate admission budget
+// refuses artifact.too_large (413) and deletes the spool, because admission against the disk's room
 // counts declared bytes and an unenforced declaration would make it gameable. The derived
 // values are what reach the manifest, the CAS key, and every downstream consumer.
 // EVERY call of the trio is retry-safe against a lost response, and no member of these shapes carries
@@ -4566,7 +4575,8 @@ interface ArtifactListResponse {
 // and acknowledgment run as one critical section per stream — so an original racing its own retry
 // takes the replay path rather than double-appending; concurrent calls on DIFFERENT streams never
 // contend. Admission is likewise a serialized reserve-then-install ledger over the open-stream count
-// and the reservation total, so two concurrent Inits cannot both pass one remaining slot's bound.
+// and the reservation total against the disk's free space, so two concurrent Inits cannot both pass
+// one remaining slot's bound.
 // The trio's request shapes live in `packages/contracts/src/artifacts/`, beside `ArtifactListRequest`
 // and `ArtifactReadRequest`. The trio has no abort call: Spec-012 names none, and an abandoned
 // stream's spool is reaped as above.
@@ -4575,7 +4585,7 @@ interface AttachmentIngestInitRequest {
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, and no declaration refuses anything (Spec-012 pipeline step 1)
-  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: counted against ingest_spool_max_bytes at admission (a declaration larger than the whole budget is refused artifact.too_large (413) up front, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.too_large (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
 }
 interface AttachmentIngestInitResponse {
   ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a replayed Complete on a completed stream whose completion record still lives replays the original response verbatim — see AttachmentIngestCompleteRequest
@@ -4757,7 +4767,7 @@ The dry run and the undo are `session.restorePreview` and `session.restore`, ses
 
 ### Plan-011 — Live Timeline Visibility And Reasoning Surfaces
 
-Every paged timeline reply is bounded by the frame it becomes (Plan-011 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TimelineRow` carries free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-011 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-011 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-011 page budget may make on their behalf.
+Every paged timeline reply is bounded by the frame it becomes (Plan-011 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TimelineRow` carries free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES`, the page's own constant — a 1,000,000-byte reply less a reserve for the envelope and the reply's non-paged members — declared apart from the 4 MB `MAX_MESSAGE_BYTES` and under it), a producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-011 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-011 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-011 page budget may make on their behalf.
 
 ```ts
 // TimelineRead
@@ -5154,7 +5164,7 @@ interface AttentionWebAddressSaveRequest {
   address: string;
 }
 interface AttentionWebAddressSaveResponse {
-  host: string;
+  host?: string; // absent for saved text with no scheme and host, which reads masked
   signingSecret?: string; // present only on the first save, which mints it
 }
 interface AttentionWebAddressSecretRotateRequest {}
@@ -5190,7 +5200,7 @@ Plan-017's attention surface is exposed as the `attention.*` methods below, all 
 
 **The preferences are the machine's settings file's.** No `attention.*` verb carries a notification preference, and the daemon keeps none of its own. `Notify me outside the app`, the four kinds beneath it (`Waiting on you`, `Finished`, `Failed`, `Notify steps`, each on by default), the web address's switch and kinds, and the email digest's settings other than its password are this device's, kept in the machine's settings file (§Settings Surface Reads And Writes below); the daemon reads them, with the session's mute, each time it writes an entry, and no preference gates a withdrawal.
 
-**Delivery off this screen is the machine's own.** `Email me what I have not seen` is off by default. When on, the service sends at most one email per period — an hour, four hours or a day, a day by default — through the person's own mail account, sent by Nodemailer over TLS only (on 465 from the start, on 587 with a required STARTTLS, so a server that will not encrypt is refused before the password is written). It lists each `Waiting on you` still unresolved and each `Finished`, `Failed` or Notify-step moment whose session or run has not been opened since, each once, never a muted session's `Finished` or `Failed`, and names each session or run, its state, its time and its `sidekicks://` address, never what was said. `Send to a web address` is off by default. When on, the service sends one Standard Webhooks-signed JSON `POST` per moment of the kinds picked for it (`text`, `kind`, `state`, `subject`, `momentId`, `at`, `machine`, `link`; never what was said), never for a muted session's `Finished` or `Failed` and nothing for a withdrawal, and only while no console window is in front on any device, except that a workflow's Notify step always sends. The address is whatever the person typed; success is a 2xx answer within 15 s and a redirect is a failure; a failed send is retried at 5 s, 5 min and 30 min, with at most 100 waiting, the oldest dropped and counted past that. The mail password, the address and its signing secret are sealed in the operating system's keychain; the address is shown back as its host only. A push to another of the person's devices is sealed on this machine and sent through `push.send` ([Spec-028](../../specs/028-remote-control.md)); the control plane keeps no notification queue, filter or preference. Canonical Zod schemas live in `packages/contracts/src/attention.ts` per the §Source-of-Truth Policy.
+**Delivery off this screen is the machine's own.** `Email me what I have not seen` is off by default. When on, the service sends at most one email per period — an hour, four hours or a day, a day by default — through the person's own mail account, sent by Nodemailer over TLS only (on 465 from the start, on 587 with a required STARTTLS, so a server that will not encrypt is refused before the password is written). It lists each `Waiting on you` still unresolved and each `Finished`, `Failed` or Notify-step moment whose session or run has not been opened since, each once, never a muted session's `Finished` or `Failed`, and names each session or run, its state, its time and its `sidekicks://` address, never what was said. `Send to a web address` is off by default. When on, the service sends one Standard Webhooks-signed JSON `POST` per moment of the kinds picked for it (`text`, `kind`, `state`, `subject`, `momentId`, `at`, `machine`, `link`; never what was said), never for a muted session's `Finished` or `Failed` and nothing for a withdrawal, and only while no console window is in front on any device, except that a workflow's Notify step always sends. The address is whatever the person typed; success is a 2xx answer within 15 s and a redirect is a failure; a failed send is retried at 5 s, 5 min and 30 min, with at most 100 waiting, the oldest dropped and counted past that. The mail password, the address and its signing secret are sealed in the operating system's keychain; the address is shown back as its host only, and text with no scheme and host, saved as typed like any other, reads masked with no host while each message to it fails and counts as undelivered. A push to another of the person's devices is sealed on this machine and sent through `push.send` ([Spec-028](../../specs/028-remote-control.md)); the control plane keeps no notification queue, filter or preference. Canonical Zod schemas live in `packages/contracts/src/attention.ts` per the §Source-of-Truth Policy.
 
 ### Page-Host Method Registry
 
@@ -5510,7 +5520,7 @@ interface PreviewPageSiteDataClearResponse {
 **No `settings.*` method is registered.** The Settings screen is ten pages, and every page reads and writes through a named surface: the daemon's own verbs, the main process's bridge members, or the machine's settings file. This section says which each page uses; the build status of each daemon verb is in [§Operations Not Yet Built](#operations-not-yet-built).
 
 - **General** goes through the main process's own update channel — `update.getState`, `update.subscribe`, `update.requestCheck`, `update.requestDownload` and `update.requestRestart` — and the app's reported facts (`app.version`, `app.platform`, `app.arch`, `app.locale`), with `native.listEditors()` for the editor list. The editor preference, the default checkout for a new project session, the new-session switch, the keep-awake switch and the crash-report switch are the machine's settings file's, read and written through `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()`; the background service reads the keep-awake switch and holds the machine and its screen awake itself while any agent works.
-- **Providers** is one section per provider, and its two halves read through different surfaces. **The accounts half** goes through the `providerAccount.*` namespace of §Plan-026: `providerAccount.list` and `providerAccount.subscribe`, `.register`, `.update`, `.remove`, `.setCurrent` (which moves the `Default` mark; a session on that provider moves to the new account in place at its next request), `.probe` (`Check now`, and the five-minute read), `.resetCredentialHome` (the page's `Sign out`), `.login` and `.loginCancel` (the brokered sign-in), `.memoryImport` (the one-time copy of the person's own provider memories into an account's home) and `.usageRead`. An account is named by the identity its provider reports — the address, the plan in the provider's own word, and the organization where the plan carries one — so no payload on this page carries a label the person typed, and the only field the person authors that the update mutation corrects is the billing mode. **The provider's half** goes through the `provider.*` root: `provider.list` (each provider's status and its own knobs), `provider.update` (one knob per press: the command path, whether the provider is available for new sessions, the helper processes at once, the automatic-compaction bound, the output style, and Codex's `Reach Codex sessions started in a terminal`), `provider.probe {provider}` (the command's `Check again`: the executable resolved again and its version re-read), `provider.protectedPathList` (each protected path with the source it came from), `provider.install {provider}`, `provider.installSubscribe` and `provider.installStop` (`Install`), and `provider.terminalPluginUpdate {provider, enabled}` (the terminal plugin switch, which writes only its own key in the person's Claude Code settings). The standing rules the provider itself holds on this machine are read and revoked in the provider's own files through `provider.standingRuleList` and `provider.standingRuleRevoke`, each rule with its scope and source file. The console's remembered rules, session and project alike, are a different store: the daemon's, listed and revoked in the session inspector's `Rules` section through `approval.ruleList` and `approval.ruleRevoke` of §Plan-010, and never written into the provider's files. The import of the provider's own existing conversations is `session.importPreview`, `session.import`, `session.importSubscribe` (its first message each provider's last outcome) and `session.importStop`. On a Windows computer with WSL, the supervisor's `daemon.listPlaces()` and `daemon.subscribePlaces()` draw the place row and `Change…`'s list, and `daemon.requestMove(place)`, `daemon.cancelMove()` and `daemon.subscribeMove()` carry the move.
+- **Providers** is one section per provider, and its two halves read through different surfaces. **The accounts half** goes through the `providerAccount.*` namespace of §Plan-026: `providerAccount.list` and `providerAccount.subscribe`, `.register`, `.update`, `.remove`, `.setCurrent` (which moves the `Default` mark; a session on that provider moves to the new account in place at its next request), `.probe` (`Check now`, and the five-minute read), `.resetCredentialHome` (the page's `Sign out`), `.login` and `.loginCancel` (the brokered sign-in), `.memoryImport` (the one-time copy of the person's own provider memories into an account's home) and `.usageRead`. An account is named by the identity its provider reports — the address, the plan in the provider's own word, and the organization where the plan carries one — so no payload on this page carries a label the person typed, and the only field the person authors that the update mutation corrects is the billing mode. **The provider's half** goes through the `provider.*` root: `provider.list` (each provider's status and its own knobs), `provider.update` (one knob per press: the command path, whether the provider is available for new sessions, the helper processes at once, the automatic-compaction bound, the output style, and Codex's `Reach Codex sessions started in a terminal`), `provider.probe {provider}` (the command's `Check again`: the executable resolved again and its version re-read), `provider.protectedPathList` (each protected path with the source it came from), `provider.install {provider}`, `provider.installSubscribe` and `provider.installStop` (`Install`), and `provider.terminalPluginUpdate {provider, enabled}` (the terminal plugin switch, which writes only its own key in the person's Claude Code settings). Claude Code's `Advisor` row is the advisor default for sessions created later, a key of the machine's settings file written through `machineSettings.write(change)` and never a write to Claude Code's own settings; a session takes it when it is created and keeps its own value from then on. The standing rules the provider itself holds on this machine are read and revoked in the provider's own files through `provider.standingRuleList` and `provider.standingRuleRevoke`, each rule with its scope and source file. The session inspector's `Rules` section reads the same files, with the session's own answers, for one session through `approval.ruleList` and `approval.ruleRevoke` of §Plan-010; the daemon keeps no rule store of its own. The import of the provider's own existing conversations is `session.importPreview`, `session.import`, `session.importSubscribe` (its first message each provider's last outcome) and `session.importStop`. On a Windows computer with WSL, the supervisor's `daemon.listPlaces()` and `daemon.subscribePlaces()` draw the place row and `Change…`'s list, and `daemon.requestMove(place)`, `daemon.cancelMove()` and `daemon.subscribeMove()` carry the move.
 - **MCP servers** goes through the operations §Plan-025 registers, with the live stream among them, and one registry search: `mcp.list`, `mcp.get`, `mcp.subscribe`, `mcp.upsertServer` and `mcp.removeServer`, each carrying `scope` and `scopeRef`, `mcp.registrySearch {query, cursor?}` answering `{servers, nextCursor?}`, `mcp.setEnabled`, `mcp.setToolOverride`, `mcp.clearToolOverride`, `mcp.oauthLogin` (the service's own sign-in), `mcp.oauthLogout {serverId}` and `mcp.reconnect`. A sign-in page opens through `native.openExternal`, and a server whose command cannot run after a move reads `failed` with `failedReason: commandNotRunnable` on its entry.
 - **Projects** goes through the repository surface of §Repo Method-Name Registry above, with a project record beside its mount: `repo.projectList` (each row with `onOtherSideDisk`), `repo.projectRename`, `repo.projectArchive`, `repo.projectReactivate`, `repo.projectSetupUpdate`, `repo.projectEnvironmentUpdate` and `repo.detach`, which is the row's `Delete` (the sessions and the folder stay), with `native.openInEditor` for opening the project. The machine-wide environment rows and `Clone new repositories into` are the settings file's; the background service reads the environment rows when it starts a project's process and the clone folder at each clone. `repo.cloneFolderRead {}` → `{folder, source: setting | lastProject | home}`, served by the background service, is the one answer to where a clone goes, which this page's row and the session picker's `Clones into` line both draw.
 - **Browser** goes through the `browser.*` root of §Page-Host Method Registry above — `browser.siteDataList`, `browser.siteDataForget`, `browser.siteDataClear`, `browser.siteCookiesClear {origin}`, `browser.siteSignIn {origin}`, `browser.chromiumRead` and `browser.chromiumFetch` — and through `gitflow.hostList`, `gitflow.hostAdd {host}` and `gitflow.hostRemove` of §Plan-009 for the self-hosted git hosts. Its two switches, `Remember site data` and `Browser tools for sidekicks`, are no verb: they are the machine's settings file's, and the background service reads them each time it launches the headless browser or a provider.
@@ -5520,7 +5530,7 @@ interface PreviewPageSiteDataClearResponse {
 - **Runtime** goes through the service's own surface, the supervisor in the main process, and the folders the service can reach. The service's own supervision surface is [Spec-006 §Required Behavior](../../specs/006-local-ipc-and-daemon-control.md#required-behavior)'s and the main process's supervision sequence is [Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)'s. The service: `daemon.status.read` (its version, start time, processor and memory with their read times; `Check again` calls it again), `daemon.stop`, `daemon.restart`, and `session.terminalProviderSessionList`, the Codex sessions typed in a terminal, which `Stop`'s confirm and the update's waiting line count. The supervisor: `daemon.requestStart()`, `daemon.requestUpdate()`, `daemon.cancelUpdate()`, `daemon.subscribeUpdate()` and the `daemon.status` topic, which on Windows carries `cannotStart {reason}` when the service has written down why it cannot start and `whileSignedOut: on | off | passwordOutOfDate | notOffered`. The folders: `repo.mountList` (each folder with its origin — attached, managed or worktree — what uses it, and `onOtherSideDisk`), `repo.detach` for a project's folder, `repo.worktreeRetire {worktreeId, discard}` for a worktree the app made, and `repo.removedWorktreeList {projectId?}`, `repo.worktreeRestore {removedWorktreeId}` (`Put back`) and `repo.removedWorktreeDelete {removedWorktreeId}` (`Delete now`) for a discarded worktree the app kept. Retention: `daemon.retentionRead`, `daemon.retentionUpdate` and `daemon.retentionPurge`. The machine-wide configuration: `daemon.configRead` and `daemon.configUpdate` — the listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns` (a number of runs, or `null` for `Never ask`), `Max steps per turn`, the memory cap for tool processes, the package cache limit, traces and the replay log. `Max steps per turn` here is the machine's own value every session starts from; its **per-session override** is registered as `session.maxStepsUpdate` in §Session Method-Name Registry above, so the two sides of one number have separate homes rather than one verb writing both. The package caches: `daemon.packageCacheRead` and `daemon.packageCacheClear {cache: bun | uv | all}`. Backup: `daemon.backupRead` and `daemon.backupStart` (`Back up now`), with the backup switch and folder in the machine's settings file; a restore is the supervisor's `daemon.requestRestore(backupId)`, because the service cannot replace its own store while it runs, and `backup.completed`, `backup.failed` and `backup.restored` land on the service's own session. The person's data: `daemon.dataExport {destination}`, which returns a job whose progress `daemon.dataExportSubscribe` carries, `destination` being the path the save dialog hands back; and `daemon.dataErase {}`. The webhook listener's state: `workflow.webhookListenerRead`.
 - **Devices** goes, on the control plane, through `device.list`, `device.linkStart`, `device.linkRedeem`, `device.link`, `device.linkCancel`, `device.rename`, `device.revoke`, `device.forget`, `runtimenode.rename` and `runtimenode.remove`, from the desktop app through the service's `controlPlane.call` ([Spec-028 §Interfaces And Contracts](../../specs/028-remote-control.md#interfaces-and-contracts)); on each machine through `presence.read {}` and `presence.subscribe {}`; and through the shared-ports list, `preview.portShareList`, `preview.portShareAdd {port}` and `preview.portShareRemove {port}`; Settings' own stores hold nothing of it.
 
-**The machine's settings file** is `<home>/.ai-sidekicks/machine-settings.json`, a place both the main process and a background service started from the command line can find without the app. It holds the auto-update preference, the crash-report switch, the editor preference, the default checkout, the new-session switch, the keep-awake switch, the notification preferences (the switches, the kinds, and the web address's and the email digest's settings other than their secrets), the browser's two switches, the screen-reader switch, the environment rows for every project, the backup switch and the backup folder, the `Branch names` pattern, the folder new clones go into (absent until the person sets one), and voice's two settings (the mode, and the call voice). The folders this machine can reach are not in it: they are the background service's, because only it knows which sessions use a folder. The background service is its one writer, so a change made on another device reaches it as surely as one made at the machine, and a machine running the service with no desktop app can still be changed: the service serves the file through `daemon.machineSettingsRead`, writes a change through `daemon.machineSettingsUpdate {change}`, answered with the file as written, and delivers each written change through `daemon.machineSettingsSubscribe`, the first delivery being the current file. The main process's `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()` carry them; the main process alone may read the file directly, and only before the service first answers, for the values it needs at start (the auto-update preference and the crash-report switch); the renderer never reads the file. The service reads it each time it starts the headless browser, a provider process, a project session, a project's process, a Terminal pane's shell, a clone or a Codex voice call, and keeps no copy; a missing or broken file reads as the defaults there, and the service repairs it. One schema, `MachineSettings` in `packages/contracts/src/machine-settings.ts` beside `daemon.machineSettingsRead`, `daemon.machineSettingsUpdate` and `daemon.machineSettingsSubscribe`, describes the file for both readers. It is written by an ATOMIC RENAME over a schema-checked parse with fail-closed defaults, so a half-written file is never read and a malformed one falls back rather than crashing the screen. A small value may additionally be sealed through the platform's own one-blob encryption. Credential material — a token, a key, the web address's signing secret, the mail password — is never in this file and never in the app's own durable store: it lives in the operating system's keystore, which is why no payload above carries one.
+**The machine's settings file** is `<home>/.ai-sidekicks/machine-settings.json`, a place both the main process and a background service started from the command line can find without the app. It holds the auto-update preference, the crash-report switch, the editor preference, Claude Code's advisor default for new sessions, the default checkout, the new-session switch, the keep-awake switch, the notification preferences (the switches, the kinds, and the web address's and the email digest's settings other than their secrets), the browser's two switches, the screen-reader switch, the environment rows for every project, the backup switch and the backup folder, the `Branch names` pattern, the folder new clones go into (absent until the person sets one), and voice's two settings (the mode, and the call voice). The folders this machine can reach are not in it: they are the background service's, because only it knows which sessions use a folder. The background service is its one writer, so a change made on another device reaches it as surely as one made at the machine, and a machine running the service with no desktop app can still be changed: the service serves the file through `daemon.machineSettingsRead`, writes a change through `daemon.machineSettingsUpdate {change}`, answered with the file as written, and delivers each written change through `daemon.machineSettingsSubscribe`, the first delivery being the current file. The main process's `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()` carry them; the main process alone may read the file directly, and only before the service first answers, for the values it needs at start (the auto-update preference and the crash-report switch); the renderer never reads the file. The service reads it each time it starts the headless browser, a provider process, a project session, a project's process, a Terminal pane's shell, a clone or a Codex voice call, and keeps no copy; a missing or broken file reads as the defaults there, and the service repairs it. One schema, `MachineSettings` in `packages/contracts/src/machine-settings.ts` beside `daemon.machineSettingsRead`, `daemon.machineSettingsUpdate` and `daemon.machineSettingsSubscribe`, describes the file for both readers. It is written by an ATOMIC RENAME over a schema-checked parse with fail-closed defaults, so a half-written file is never read and a malformed one falls back rather than crashing the screen. A small value may additionally be sealed through the platform's own one-blob encryption. Credential material — a token, a key, the web address's signing secret, the mail password — is never in this file and never in the app's own durable store: it lives in the operating system's keystore, which is why no payload above carries one.
 
 **Settings appends no session event.** Its values are machine-local configuration, so nothing on the screen writes to a session's event log. The one stream the screen reads is the tool-server status and sign-in stream of §Plan-025, `mcp.subscribe`, which it reads and never writes.
 
@@ -5627,8 +5637,8 @@ interface ChildRunLinkReadResponse {
   }>;
 }
 
-// BudgetRead / BudgetUpdate — wire: orchestration.budgetRead / orchestration.budgetUpdate (D-014-5;
-// session_budgets row-canonical). Every amount is
+// BudgetRead — wire: orchestration.budgetRead, and the reply of session.spendLimitUpdate and
+// session.tokensPerRunUpdate (D-014-5; session_budgets row-canonical). Every amount is
 // integer micro-dollars (millionths of a US dollar), the unit both providers report their own figures
 // in, so small requests add up exactly; a figure is rounded once, where it is drawn.
 interface OrchestrationBudgetReadRequest {
@@ -5637,6 +5647,7 @@ interface OrchestrationBudgetReadRequest {
 interface OrchestrationBudgetState {
   sessionId: SessionId;
   costLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
+  tokensPerRun: number | null; // the session's `Tokens per run`, input and output together for one run; null = `Unlimited`, the default
   // The ENFORCED number: what admission compares against costLimitUsdMicros wherever a limit is set
   // (with costLimitUsdMicros null nothing is compared and admission is never refused on cost), and the one
   // session cost figure a surface shows — never a sum over a visible run list (Spec-014 §Cost Figure
@@ -5645,9 +5656,8 @@ interface OrchestrationBudgetState {
   // and never repriced, so a replay rebuilds the same figure. A request on a model or speed the price
   // table does not price yet is held with its exact tokens and joins this figure when a later fetch
   // prices it (Spec-014 §Cost Derivation And Absent-Cost Semantics). Plan-014 T2.5 asserts the
-  // equality with the observedValue the daemon stamps on a session-cost usage.budget_warning at the same
-  // fold state (budgetType: 'session_cost' only; the run_tokens member of that union carries a token
-  // count, not money).
+  // equality with the observedValue a session-cost orchestration.budget_exhausted refusal stamps at the
+  // same fold state.
   committedSpendUsdMicros: number;
   // Spend per agent in the session's tree, the lead included, routed up the parent chain at any depth:
   // `ownUsdMicros` is what the agent's own requests cost, `subtreeUsdMicros` that plus every descendant's.
@@ -5656,21 +5666,6 @@ interface OrchestrationBudgetState {
   agentSpend: Array<{ agent: AgentTreeMember; ownUsdMicros: number; subtreeUsdMicros: number }>;
 }
 type OrchestrationBudgetReadResponse = OrchestrationBudgetState;
-interface OrchestrationBudgetUpdateRequest {
-  // the limit is a non-negative integer or null — Zod .int().nonnegative().nullable(),
-  // mirroring the session_budgets CHECK constraints (local-sqlite-schema.md §Orchestration Tables).
-  // An omitted member leaves the limit as it stands; null clears it to `Unlimited`, after which nothing
-  // warns, interrupts or refuses on it. Saving a higher limit carries a turn the limit stopped on, as
-  // `Raise limit` does (Spec-014 §Budget Policies).
-  sessionId: SessionId;
-  costLimitUsdMicros?: number | null;
-}
-// Same state type as the read response, served from the one budget-accountant accessor exactly as the
-// read is: a budgetUpdate reply reports the new limits alongside committed spend at that post-write
-// fold state, never a binder-assembled total (Spec-014 §Cost Figure Display Consistency; Plan-014
-// I-014-24, T3.1 serving, T2.5 accessor). An update reply and an immediately following read carry the
-// same figures.
-type OrchestrationBudgetUpdateResponse = OrchestrationBudgetState;
 
 // A goal belongs to one agent in the session and is that provider's own goal: the daemon sends the
 // condition as the provider's own goal command and reads each ending back from what the provider
@@ -5771,7 +5766,7 @@ interface AgentConfigUpdateResponse {
 // The disposition has the arms below because holding a request open until settlement means every settlement the boundary
 // can reach must be expressible to a caller still waiting for one. "applied" and "degraded" split
 // the outcome by a TOTAL and stated mapping — `applied` iff the conversation arrived whole
-// (`continuity` "in_place" or "resumed"), `degraded` iff it did not ("brief" or "replayed") — so the
+// (`continuity` "in_place"), `degraded` iff it did not ("brief") — so the
 // honest-degrade rule is carried by the wire's own discriminator rather than left to each client to
 // re-derive from `continuity`. "failed" is the immediate arm's share of the
 // `agent.provider_binding_change_failed` terminal: an accepted switch that cannot be applied settles
@@ -5791,9 +5786,7 @@ interface AgentBindingSwitchPending {
   switchId: string;
   // The boundary this switch will apply at — resolved against the TARGET driver's declared
   // vocabulary, never assumed, and the widest of the moved members' individual boundaries.
-  // `next_tool_call` is written only by `providerAccount.setCurrent` (§Plan-026) for a busy session it
-  // moves by the resume path.
-  appliesAt: "turn_boundary" | "run_boundary" | "next_tool_call";
+  appliesAt: "turn_boundary" | "run_boundary";
   // TRUE on the interruptAndSwitch arm, FALSE on the deferred one. The boundary above says WHEN
   // the switch applies; this says whether REACHING that boundary requires an interrupt the daemon
   // must dispatch. They are independent — a deferred switch and an interrupted one can both
@@ -5822,9 +5815,8 @@ interface AgentBindingSwitchPending {
 //
 //   the admitting device — the device whose connection carried the switch (§Authenticated Principal
 //     And Authorization Model: a write records its device). Both terminals require an `actor`, and a
-//     switch settling after a restart has no request left to read one from. Its two writers —
-//     `agent.configUpdate`, and `providerAccount.setCurrent` (§Plan-026) for a session it moves by
-//     the resume path — are both the person's own acts.
+//     switch settling after a restart has no request left to read one from. Its one writer,
+//     `agent.configUpdate`, is the person's own act.
 //   interruptDispatch — "requested" | "dispatched", present exactly when `interruptRequested` is
 //     true. Deliberately NOT a boolean and not folded into `interruptRequested`, because recovery
 //     must separate "crashed before the interrupt went out, so dispatch it" from "crashed after it
@@ -5876,10 +5868,9 @@ type AgentBindingSwitchAccountState =
   | "not_registered";
 
 // The binding members a switch moves, as a partial record: an omitted key is a member this switch
-// does not move. `agent.configUpdate` never sets `providerAccountId` — the account moves on the
-// provider surface (`providerAccount.setCurrent`, §Plan-026) — and `providerAccount.setCurrent` sets
-// only it, for a session it moves by the resume path; so one record holds either kind of switch. One
-// shape serves three surfaces — the wire acknowledgment above, the durable `agents.pending_switch`
+// does not move. It holds no account: the account moves on the provider surface
+// (`providerAccount.setCurrent`, §Plan-026), in place at the next request, and writes no pending
+// switch. One shape serves three surfaces — the wire acknowledgment above, the durable `agents.pending_switch`
 // slot, and `agent.list`'s `pendingSwitch` member — so a client, a projector, and a restarted daemon
 // all read the same record of the same intent.
 // The record deliberately has no reset: no operation clears a binding member back to a driver
@@ -5893,7 +5884,6 @@ type AgentBindingSwitchAccountState =
 interface AgentBindingSwitchTarget {
   driverName?: string;
   modelId?: string;
-  providerAccountId?: ProviderAccountId; // written only by providerAccount.setCurrent's resume path
   effort?: string;
   outputSpeed?: string;
 }
@@ -5903,14 +5893,10 @@ type AgentProviderAxis = keyof AgentBindingSwitchTarget;
 // The settlement of a switch, carried by the `agent.provider_binding_changed` payload below.
 interface AgentBindingSwitchOutcome {
   switchId: string; // correlates with the pending acknowledgment above
-  // WHICH MECHANISM CARRIED THE CONVERSATION. Four different acts, not degrees of one.
+  // WHICH MECHANISM CARRIED THE CONVERSATION. Two different acts, not degrees of one.
   // "in_place" = a member carried on the RUNNING process — a per-turn override, a run-bound setting
   // the provider takes without a restart, or an account moved at the next request: nothing was
   // respawned and nothing was reconstituted.
-  // "resumed" = a fresh process of the SAME provider reopened its OWN conversation by its own
-  // identifier — in the same credential home, or, on an account move's resume path, in the new
-  // account's home after the daemon copied the provider's own conversation file there. The
-  // conversation arrived whole.
   // "brief" = a DIFFERENT provider was started from a hand-over brief: the old provider's own
   // summary taken on a throwaway copy of the session, then the current diffs and branch read from
   // disk, then every earlier step as a one-line note, then the last exchanges verbatim, then a
@@ -5918,26 +5904,16 @@ interface AgentBindingSwitchOutcome {
   // brief for the new provider to read on demand with its own file tools. Replaying the whole
   // conversation as text is deliberately NOT what a provider switch does: the expensive thing is
   // not pushed into the message, and it is still reachable. The file is not a transcript row.
-  // This arm also carries a SAME-provider target that could be neither reopened nor replayed
-  // into — the reopen did not load and `transcript_replay` is false, the target refused the
-  // frames, or the transcript exceeds its context window — the brief being that case's floor
-  // and the mechanism identical (Spec-004 §The hand-over brief is the floor, and it is visibly
-  // a floor).
-  // "replayed" = the FALLBACK: a same-provider reopen did not load, so the canonical transcript was
-  // sent as text instead, which restarts the conversation rather than continuing it.
-  // "in_place" and "resumed" are `applied`; "brief" and "replayed" are `degraded` and are never
+  // "in_place" is `applied`; "brief" is `degraded` and is never
   // presented as an ordinary success. On the held-open arm that mapping is carried by the
   // disposition's own `status` discriminator above, so a client never re-derives it; on the terminal
   // event it is carried by this member alone, the event having no status.
-  continuity: "in_place" | "resumed" | "brief" | "replayed";
+  continuity: "in_place" | "brief";
   // REQUIRED, and an EMPTY ARRAY IS A CLAIM: it asserts that nothing was dropped. A driver that
   // does not know what it lost may not emit one. A loss is a `DeclaredLossKind`,
-  // never a free string. Requiredness is scoped to the continuity arm: "in_place" and
-  // "resumed" MUST carry the empty array (nothing was reconstituted, so no loss could occur),
-  // "brief" MUST be non-empty and MUST include "conversation_history_summarized" together with
-  // "provider_private_reasoning", and "replayed" MUST be non-empty and MUST include
-  // "conversation_history_restarted" — a fallback that restarts the conversation and claimed no
-  // loss would be claiming the restart was free.
+  // never a free string. Requiredness is scoped to the continuity arm: "in_place" MUST carry the
+  // empty array (nothing was reconstituted, so no loss could occur), and "brief" MUST be non-empty
+  // and MUST include "conversation_history_summarized" together with "provider_private_reasoning".
   // The claim is scoped to TRANSCRIPT CONTENT and to nothing else. An empty array
   // asserts that the conversation arrived intact; it asserts nothing about whether a requested
   // provider SETTING took effect on the new binding. Those are different facts with different
@@ -5952,7 +5928,6 @@ type DeclaredLossKind =
   | "context_truncated" // only the last exchanges travel verbatim, so older ones did not (whole exchanges only, never halves)
   | "tool_call_history_repaired" // an unpaired call took a synthetic error result rather than being dropped
   | "conversation_history_summarized" // the brief's own summary stood in for the conversation the new provider cannot read
-  | "conversation_history_restarted" // the fallback arm: a same-provider reopen did not load, so the transcript was sent as text and the conversation restarted rather than continued. REQUIRED on a "replayed" settlement
   | "helper_conversations" // the old provider's helper conversations under this session; their conclusions survive in the transcript, the conversations themselves do not
   | "tool_output_bodies" // earlier steps travel as one-line notes, so the bodies of their output do not. Files touched on disk are unchanged
   | "live_tool_calls" // tool calls arrive as history and never as work in flight; a call that was about to run does not run
@@ -5962,8 +5937,8 @@ type DeclaredLossKind =
 // agent.provider_binding_changed — a switch landed (Spec-005 §Agent Lifecycle). A change
 // of model, effort or speed alone settles `in_place` with no declared losses and draws no transcript
 // row; a provider switch or an account switch draws the switch row: the binding it left and the one
-// it is on, the account the run landed on, how the conversation continued, what did not carry over,
-// and whether the turn continued.
+// it is on, the account the run landed on, how the conversation continued, and what did not carry
+// over.
 interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   sessionId: SessionId;
   agentId: AgentId;
@@ -5973,9 +5948,6 @@ interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   // The account the run actually landed on, separate from `to.providerAccountId`, so an agent that
   // follows the current account is never silently pinned to the account it happened to land on.
   landedProviderAccountId: ProviderAccountId;
-  // True only on an account move's resume path, where the turn in flight was interrupted at a tool
-  // call and `continue` was sent so it went on; an in-place switch interrupts nothing.
-  turnContinued: boolean;
 }
 
 // agent.provider_binding_change_failed — a switch accepted as pending could not be applied, and the
@@ -6128,20 +6100,19 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.childRunLinkRead` | RPC | `ChildRunLinkReadRequest` → `ChildRunLinkReadResponse` | A read of the daemon's parent-to-child index for the whole session: both kinds of child, their head facts, the badge counts, and event-folded `rejectedCreates` (zero-residue refusals, I-014-8) |
 | `orchestration.budgetRead` | RPC | `OrchestrationBudgetReadRequest` → `OrchestrationBudgetReadResponse` | Committed spend and the per-agent spend, in micro-dollars |
 | `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-014-25 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
-| `orchestration.budgetUpdate` | RPC | `OrchestrationBudgetUpdateRequest` → `OrchestrationBudgetUpdateResponse` | Sets or clears the session's `Spend limit` |
 | `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
 | `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
 | `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, effort, speed and provider; never the account, which is `providerAccount.setCurrent` (§Plan-026). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
 | `agent.list` | subscription | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
 | `session.terminalProviderSessionList` | RPC | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The Codex sessions typed in a terminal; shapes in §Plan-006; empty while `Reach Codex sessions started in a terminal` is off |
 
-`session.maxStepsUpdate`, the session's own `Max steps per turn` override, is registered with its shapes in §Session Method-Name Registry.
+`session.maxStepsUpdate`, `session.spendLimitUpdate` and `session.tokensPerRunUpdate`, the session's own `Max steps per turn`, `Spend limit` and `Tokens per run`, are registered with their shapes in §Session Method-Name Registry.
 
 **The session-to-session tool mints no method here, and that is the point.** Two sessions talk through operations the daemon serves to the **providers** — `SendToSession {to, message, files}` and `ListSessions {}` — served on the daemon's one MCP `url` entry per session, on the daemon's own tool route — never a tool server inside Claude Code's `initialize` request and never a Codex dynamic tool — so a call arrives at the daemon as that provider's own MCP tool call and is answered there ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)). A send is an ordinary tool call under the sending session's own permission level — the levels that ask raise the ordinary approval card, `Sandboxed` and `YOLO` ask nothing, and no switch, setting or cap of the app's gates it — and what the message causes follows the receiving session's own level. The server and the namespace are both `sessions`, so the name a model reads is that prefix plus the tool — `mcp__sessions__SendToSession` on the one leg, the namespace plus the tool on the other. `to` is the other session's name and the daemon resolves the address from its own directory, so no caller spells one; `files` is an optional list of paths the sending session can read, which the daemon stages into the receiving session as attachments through [Spec-012](../../specs/012-artifacts-files-and-attachments.md)'s ingest pipeline, so they arrive as paths the receiving model reads with its own file tools on either provider rather than as bytes on this tool's own wire — both `Message` rows carry the file chips a sent turn's attachments already carry, and the only bound on them is that pipeline's. The daemon reads each of those paths **as the person's own user, at send time**, and a path that does not exist or cannot be read **fails the call with that path named in the tool result** rather than being dropped from the list while the rest arrive; there is no second gate on top of that read, since the receiving session runs as the same person on the same machine and could open the path itself. No client calls them, so no wire method is registered, no error code is minted, and no event type is added: a send's result carries one state at a time — `sent`, then `delivered`, `queued`, `held`, `refused` with the provider's own reason, or `not delivered` — and a refusal is the provider's own words rather than this corpus's error envelope. What the screen draws rides documented surfaces. The two rows are the ordinary tool events of the two sessions' logs, and a sent row's later states come over the run-state subscription. The exchange line on a session's row is the `exchange` member (`{peerSessionId, peerName, messageCount}`) of that session's `session.list` entry ([§Plan-001](#plan-001--session-core)), present while the session trades messages, so one feed serves every row and the list opens no stream per session. The messages waiting for a paused session are items of that session's own queue, held in arrival order with the sending session as their origin and read through `run.queueList` ([§Run-Control Method-Name Registry](#run-control-method-name-registry)). The daemon's phone book of sessions and addresses and its exchange table are daemon-interior and reach no wire; beside the exchange line, the one member a client reads is the address on `SessionSnapshot` (§Plan-001 above), which the inspector's `Copy address` lifts.
 
 **The daemon's own agent tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on one provider, the child's turn-started frame on the other — and persists it, because neither provider lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither provider's lead can stop a subtree — one provider's own stop tool refuses a grandchild as another agent's, and the other has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Orchestration / §Agent (D-014-16), plus `driver.capability_unsupported` for a switch axis the target driver does not have, and for the goal RPCs `session.not_found` for a session id the daemon does not hold, appending nothing, and `driver.capability_unsupported` where the agent's provider cannot carry a goal. Durable events owned by Plan-014 (Spec-005 registrations): `agent.provider_binding_changed` / `agent.provider_binding_change_failed` (payloads above), `orchestration.rejected`, `usage.budget_warning`, `session.goal_updated` / `session.goal_cleared` (emitted by the goal RPCs above) — see [Spec-005 §Event Type Registry](../../specs/005-session-event-taxonomy-and-audit-log.md). `moderation.review_flagged` is not Plan-014's: the Codex normalizer emits it ([Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.39).
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Orchestration / §Agent (D-014-16), plus `driver.capability_unsupported` for a switch axis the target driver does not have, and for the goal RPCs `session.not_found` for a session id the daemon does not hold, appending nothing, and `driver.capability_unsupported` where the agent's provider cannot carry a goal. Durable events owned by Plan-014 (Spec-005 registrations): `agent.provider_binding_changed` / `agent.provider_binding_change_failed` (payloads above), `orchestration.rejected`, `session.spend_limit_reached` and `run.token_limit_reached` (a limit the person set, reached), `session.goal_updated` / `session.goal_cleared` (emitted by the goal RPCs above) — see [Spec-005 §Event Type Registry](../../specs/005-session-event-taxonomy-and-audit-log.md). `moderation.review_flagged` is not Plan-014's: the Codex normalizer emits it ([Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.39).
 
 **Session cost receipt (Plan-014 D-014-25).** One read pair, `orchestration.costReceiptRead {sessionId}`, which refuses a session id the daemon does not hold with `session.not_found` and appends nothing. The reply is a **decomposition of the committed-spend fold**, not a second computation: every figure is served from the same accountant accessor that answers `orchestration.budgetRead`, so a divergence between the two is a bug in exactly one place. It answers the providers in the order the session first spent on them, the session's own provider first, each with one row per account that provider spent on, its `Voice` row where the session made voice calls, and a subtotal the daemon computes, then the session total. Every amount is integer micro-dollars. Read-only — no receipt member is accepted on any request, so a caller can never assert an attribution or a total.
 
@@ -6501,6 +6472,7 @@ interface WorkflowDefinitionReadResponse {
   // workflow.runStart accepts as `workflowVersionId`.
   workflowVersionId: string;
   document: WorkflowDocument;
+  permissionLevel: ExecutionPostureMode; // the workflow's own level, which every run of it uses
   // The webhook token's dates, present only where the document's trigger is a webhook and a token
   // exists. The token itself is never read back — only its hash is kept, and
   // workflow.webhookTokenRotate shows a new one once — so the trigger's Address section reads
@@ -7255,6 +7227,19 @@ interface WorkflowLayoutSetResponse {
   updatedAt: string;
 }
 
+// WorkflowPermissionLevelUpdate — workflow.permissionLevelUpdate. Sets the workflow's own permission level from
+// the builder's level pill; a new workflow starts at `yolo`. Every run of the workflow uses that level
+// wherever the run lives, a chat's session or the workflow's own, and a live run takes a change from
+// its next step. The level sits outside the hashed body, so a change mints no version.
+interface WorkflowPermissionLevelUpdateRequest {
+  workflowId: WorkflowDefinitionId;
+  level: ExecutionPostureMode;
+}
+interface WorkflowPermissionLevelUpdateResponse {
+  workflowId: WorkflowDefinitionId;
+  level: ExecutionPostureMode;
+}
+
 // WorkflowPinDataSet — workflow.pinDataSet. Pins test data onto one node, or unpins it with `items: null`,
 // from the inspector's Output panel, a run's step panel, or Copy this run into the builder — without a new
 // version, because pinned data sits outside the hashed body. Pinned data is honored only in manual runs and
@@ -7642,7 +7627,7 @@ interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
 interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
   nodeId?: WorkflowNodeId; // the human.approval node answered; absent for a chain's question
   outcome: "approved" | "rejected";
-  deviceId: string; // the answering device's id
+  deviceId: DeviceId; // the answering device's id
   gateResolutionId: string; // the answer's row id in workflow_gate_resolutions
 }
 ```
@@ -7678,6 +7663,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.kindList` | `query` | `WorkflowKindListRequest` → `WorkflowKindListResponse` | The node catalog with its param specs, so the palette, the inspector and an agent read one list |
 | `workflow.runsPauseSet` | `mutation` | `WorkflowRunsPauseSetRequest` → `WorkflowRunsPauseSetResponse` | The scheduler-wide hold on starting new runs; takes no run id and answers with how many starts are waiting |
 | `workflow.layoutSet` | `mutation` | `WorkflowLayoutSetRequest` → `WorkflowLayoutSetResponse` | The canvas layout, saved beside the definition without a new version |
+| `workflow.permissionLevelUpdate` | `mutation` | `WorkflowPermissionLevelUpdateRequest` → `WorkflowPermissionLevelUpdateResponse` | The workflow's own permission level, saved beside the definition without a new version |
 | `workflow.pinDataSet` | `mutation` | `WorkflowPinDataSetRequest` → `WorkflowPinDataSetResponse` | Pins or unpins a node's test data without a new version; honored only in manual runs |
 | `workflow.draftUpdate` | `mutation` | `WorkflowDraftUpdateRequest` → `WorkflowDraftUpdateResponse` | The builder's unsaved draft, held by the daemon so it survives a reload; the first call mints the draft's id |
 | `workflow.draftRead` | `query` | `WorkflowDraftReadRequest` → `WorkflowDraftReadResponse` | The draft read back after a reload, by the id the builder's address carries |
@@ -7953,7 +7939,7 @@ interface McpLiveApplicationResult {
 // abandoned sign-in, or one ended by a newer attempt, leaves only its expiring receipt); oauthLogout is receipted and, like
 // reconnect, audits through the status transitions it induces; reconnect is unreceipted:
 //   mcp.upsertServer      McpServerBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
-//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server revokes every remembered approval rule over its tools in the same transaction
+//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server removes every approval rule over its tools from the provider's file that holds it, in the same transaction
 //   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
@@ -8382,33 +8368,23 @@ interface ProviderAccountRemoveResponse {
 // service with the new account's tokens, which the daemon holds only in its own memory and never
 // stores, logs, shows or hands to a renderer. Each session's cost splits at the switch's
 // acknowledgment: requests before it stay on the old account, requests after it go to the new one.
+// Every supported version moves in place, and no version is checked: there is no second way to move a
+// session's account. The move lands at the acknowledgment and writes no pending switch, so the
+// working line shows no waiting words for it.
 //
-// THE RESUME PATH is the fallback where a provider version's pin check refuses the in-place switch,
-// and it is reported as a version fault: an idle session moves at once and a busy one at its next tool
-// call, held there by the pause boundary, its turn interrupted at that hold, the provider's own
-// conversation file copied into the new account's credential home, the conversation reopened there by
-// the provider's own resume, and `continue` sent so the turn goes on. Only this path writes a PENDING
-// SWITCH: one per moved agent in `agents.pending_switch` (§Plan-014), its target carrying only
-// `providerAccountId`, served on `agent.list`, so the session's working line reads
-// `switching to account <name>` across a reload and on every device. An in-place switch lands at the
-// acknowledgment and writes no pending switch.
-//
-// Each move settles on its own session with `agent.provider_binding_changed` (§Plan-014): one faint
-// collapsed row at the point of the move, `Switched to account <name>` (the account as the Providers
-// page lists it), opening to the account it came from, the account it went to and the time, with
-// `turn continued` only where a `continue` was sent — or, where the resume path's reopen did not load
-// and the transcript was replayed as text instead, `Conversation restarted on account <name>`. A move
-// that fails settles with
+// Each move settles on its own session with `agent.provider_binding_changed` (§Plan-014),
+// `continuity: "in_place"`: one faint collapsed row at the point of the move,
+// `Switched to account <name>` (the account as the Providers page lists it), opening to the account
+// it came from, the account it went to and the time. A move that fails settles with
 // `agent.provider_binding_change_failed`, reason `account_unavailable`: the session stays on the
-// account it had — where an in-place switch's new login fails at the next request, the daemon hands
-// the previous account back — and the transcript gains one system message naming the switch and the
-// reason. Those events are the settlement; this reply is not.
+// account it had — where the new login fails at the next request, the daemon hands the previous
+// account back — and the transcript gains one system message naming the switch and the reason.
+// Those events are the settlement; this reply is not.
 //
 // NO PER-SESSION SWITCH VERB EXISTS. `agent.configUpdate` carries no account member (§Plan-014): one
 // control setting one fact is what stops a session sitting on an account the provider surface says
-// it is not on. Nothing here copies a credential between homes: the resume path copies one
-// conversation file between two directories the daemon owns, and the provider's own login in each
-// home is left exactly as it is.
+// it is not on. Nothing here copies a credential or a conversation between homes, and the provider's
+// own login in each home is left exactly as it is.
 //
 // REFUSES IN PLACE where the named account fails the fail-closed spawn validation, or where its last
 // limits read showed a dead login (Claude Code's read answering `rate_limits_available: false`): the
@@ -8418,15 +8394,12 @@ interface ProviderAccountSetCurrentRequest {
 }
 interface ProviderAccountSetCurrentResponse {
   account: ProviderAccount; // the account now current for its provider
-  // The sessions the daemon is moving, so the caller knows the press reached live work rather than
-  // only the registry. Each entry says whether the move already happened — every in-place move, and
-  // an idle session on the resume path — or is held for that session's next tool call on the resume
-  // path. It is NOT a settlement: each move settles on its own session's timeline. A press that
-  // reached no running session carries an empty array, which is a claim that nothing was live rather
-  // than an absence of information.
+  // The sessions the daemon is moving, each at its next request, so the caller knows the press
+  // reached live work rather than only the registry. It is NOT a settlement: each move settles on its
+  // own session's timeline. A press that reached no running session carries an empty array, which is
+  // a claim that nothing was live rather than an absence of information.
   movingSessions: Array<{
     sessionId: SessionId;
-    appliesAt: "immediately" | "next_tool_call";
   }>;
 }
 
@@ -8640,11 +8613,11 @@ interface ProviderAccountUsageWindow {
 
 **Run-start selection.** Which account a run pays from is **resolved by the daemon and never supplied by a client**: the account pinned by the run's saved agent definition or workflow step where one pins, and otherwise the provider's current account. The resolved value rides the driver's session-creation and resume parameter shapes as `providerAccountId` ([Spec-004 §Interfaces And Contracts](../../specs/004-provider-driver-contract-and-capabilities.md#interfaces-and-contracts)) and is stamped server-side as `admittedProviderAccountId` on the run's admission record. No wire request carries an account per session or per run, so there is no per-run override to authorize and a client-supplied stamp is ignored. Resume rebinds to the account the session was last on rather than re-resolving whichever account is current now, so a restart never moves billing. Moving the current account DOES move a live session, in place at its next request (`providerAccount.setCurrent` above): the usage rows before the switch's acknowledgment name the old account and the rows after it the new one, so the receipt's per-paying-account key stays exact and a session that moved mid-way yields two account rows summing to the same total.
 
-**Switching a live session's account is `providerAccount.setCurrent` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: in place at its next request, and a session pinned to an account not at all. The verb's own comment above states the mechanism and its resume-path fallback. `agent.configUpdate` carries no account member (§Plan-014), so there is no per-session account switch and nothing for a client to reconcile between two controls; the only pending switch an account move writes is the resume path's, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
+**Switching a live session's account is `providerAccount.setCurrent` and nothing else.** A session starts on its provider's current account — the one marked current at the moment the session is minted — and moves when that mark moves: in place at its next request, and a session pinned to an account not at all. The verb's own comment above states the mechanism. `agent.configUpdate` carries no account member (§Plan-014), so there is no per-session account switch and nothing for a client to reconcile between two controls; an account move writes no pending switch, and it settles with the same binding events as every other switch. The console's account word on the provider surface presses this verb; the session inspector's account fact reads which account the session is on and carries no control.
 
 **The one-time memory import is `providerAccount.memoryImport`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its payload pair is `ProviderAccountMemoryImportRequest` / `ProviderAccountMemoryImportResponse` above, and the outcome it records is `ProviderAccount.memoryImport`.
 
-**The provider's own standing rules are `provider.standingRuleList` and `provider.standingRuleRevoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, never from the daemon's remembered rules, which are `approval.ruleList` and `approval.ruleRevoke` in the session inspector, so one rule has one store and the daemon never writes a rule into a provider's file. The `provider` root sits beside `providerAccount`, because a machine-wide page cannot use the `driver.*` reads, which need an active session.
+**The provider's own standing rules are `provider.standingRuleList` and `provider.standingRuleRevoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, the same files the session inspector's `approval.ruleList` and `approval.ruleRevoke` read for one session, so one rule has one place: the provider's. The `provider` root sits beside `providerAccount`, because a machine-wide page cannot use the `driver.*` reads, which need an active session.
 
 ```ts
 // provider.standingRuleList — one row per rule, in the provider's own words, read from every account
@@ -8728,7 +8701,6 @@ interface AgentDefinition {
     default: AgentProviderBinding;
     overrides: AgentProviderBinding[];
   };
-  executionPostureMode: ExecutionPostureMode | null; // one of the permission levels (§Shared Enums), or null = the posture of the session or run this agent is used in. A LEVEL only, never a composed ExecutionPosture: writableRoots and credentialPolicyRef are properties of a live run's workspace, so storing them here would freeze a path set that outlives the workspace it described, and a stored credentialPolicyRef could re-grant a trust decision the session has since narrowed. The daemon composes the full posture from this level when the run starts
   instructions: string; // may be empty; system-prompt content the person writes
   goal: string | null;
   toolAllowlist: string[] | null; // null = the driver's defaults, [] = no tools at all, populated = exactly these. Collapsing null and [] would make "I did not choose" indistinguishable from "I chose nothing"
@@ -8772,7 +8744,7 @@ type AgentHooks = Record<
 type AgentResolvedConfiguration = {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
-} & Pick<AgentDefinition, "executionPostureMode" | "toolAllowlist" | "instructions" | "goal">;
+} & Pick<AgentDefinition, "toolAllowlist" | "instructions" | "goal">;
 
 // agent.definitionList — node-local and unfiltered: every definition from the four origins — ours
 // (`.ai-sidekicks/agents/`, global or in a project), Claude Code's own agent files, Codex's own, and a
@@ -8828,7 +8800,6 @@ interface AgentDefinitionCreateRequest {
     default: AgentProviderBinding;
     overrides?: AgentProviderBinding[];
   };
-  executionPostureMode?: AgentDefinition["executionPostureMode"];
   instructions?: string;
   goal?: string | null;
   toolAllowlist?: string[] | null;
@@ -8862,7 +8833,6 @@ interface AgentDefinitionUpdateRequest {
     default: AgentProviderBinding;
     overrides?: AgentProviderBinding[];
   };
-  executionPostureMode?: AgentDefinition["executionPostureMode"];
   instructions?: string;
   goal?: string | null;
   toolAllowlist?: string[] | null;
@@ -8909,17 +8879,19 @@ interface AgentDefinitionExportResponse {
 }
 
 // agent.definitionImport — reads the definition files in the folder the person picked with the
-// platform's own dialog and creates every definition in them or none, in one daemon transaction. It
+// platform's own dialog and creates every definition in them in one daemon transaction. It
 // only ever creates and never overwrites, suffixes a colliding name as `Duplicate` does (checked
 // against the store's unique name index), lands every definition in the global scope, because the
 // files carry nothing tied to one machine, and keeps each definition's hooks and memory scope. The
-// files carry no account, so an import never binds one. A file that does not parse refuses the whole
-// import with `agent.import_refused`, reason `invalid_entry`.
+// files carry no account, so an import never binds one. Every other file in the folder is skipped and
+// listed once with its reason, as Claude Code treats its own agents folder; no import is refused whole
+// for a file that is not a definition.
 interface AgentDefinitionImportRequest {
   folder: FilePathRef;
 }
 interface AgentDefinitionImportResponse {
   definitions: AgentDefinitionListEntry[]; // the created rows, under their final, possibly suffixed, names
+  skipped: Array<{ fileName: string; reason: "not_an_agent_definition" }>; // drawn `README.md · not an agent definition`
 }
 
 // agent.definitionSubscribe — the whole agent.definitionList reply again each time a definition
@@ -9052,7 +9024,7 @@ interface PluginAppListResponse {
 // All six are registered at spawn UNCONDITIONALLY and adjudicated per invocation, exactly as every
 // other daemon-registered tool is: the call rides the `tool_execution` approval category through the
 // approval pipeline under the session's own permission level — an asking level raises the same
-// approval card any tool call raises, a remembered rule can answer it, and a level that never asks
+// approval card any tool call raises, an approval rule can answer it, and a level that never asks
 // never asks for this either — and a decline answers `denied` rather than hiding the tool.
 // State-gated registration is refused — it would make any change invisible until the
 // next spawn, because `callbackTools` rides only CreateSessionParams / ResumeSessionParams and no
@@ -9193,4 +9165,4 @@ interface AgentBridgeListResult {
 
 **Two library readings are derived on the list reply.** How many workflows bind a definition is `workflowUsage`, a fold over the workflow definitions on the node, and when a definition was last used is `lastUsedAt`, a fold over the session runs and workflow runs that record their resolved-from definition. Both are computed per reply and never stored, so the card, the library's last-used order and the delete confirmation read figures that are true when they are drawn; where a source cannot be read, its reading is absent rather than zero.
 
-**How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, permission mode, tool servers, hooks, turn cap and memory — because Claude Code drops `hooks`, `mcpServers` and `permissionMode` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversation_reloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run filled by the daemon's command hook; a save reaches a running Codex session by forking the lead's conversation on the running service.
+**How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, tool servers, hooks, turn cap and memory, and no permission mode, so every agent runs at the session's level — because Claude Code drops `hooks` and `mcpServers` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversation_reloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run filled by the daemon's command hook; a save reaches a running Codex session by forking the lead's conversation on the running service.

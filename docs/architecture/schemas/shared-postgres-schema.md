@@ -147,7 +147,7 @@ CREATE INDEX idx_refresh_token_families_user ON refresh_token_families(user_id);
 
 ## Devices, Machines And The Statement Chain (Plan-028)
 
-Who may drive the person's sessions is decided by an append-only chain of signed statements, which the control plane keeps and every machine verifies itself ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). The control plane holds each device's and each machine's public key and the chain; it never holds a private key or a linking secret, and it trusts nothing on its own: every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked`, `passkey.added` and `runtimenode.key_rotated` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed`, `passkey.removed` or `runtimenode.key_rotated` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every public key carries its algorithm, because a phone's hardware key is P-256 and a machine's key is Ed25519.
+Who may drive the person's sessions is decided by an append-only chain of signed statements, which the control plane keeps and every machine verifies itself ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). The control plane holds each device's and each machine's public key and the chain; it never holds a private key or a linking secret, and it trusts nothing on its own: every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every public key carries its algorithm, because a phone's hardware key is P-256 and a machine's key is Ed25519.
 
 ```sql
 -- Owner: Plan-028 (Phase 2; kept until the device is forgotten)
@@ -173,8 +173,8 @@ CREATE INDEX idx_devices_user ON devices(user_id);
 CREATE TABLE runtime_nodes (
   node_id            TEXT PRIMARY KEY,            -- the machine's id
   user_id            UUID NOT NULL REFERENCES users(id),
-  public_key         BYTEA NOT NULL,              -- the service's identity key, PUBLIC half only; replaced only by a runtimenode.key_rotated statement, or by a new runtimenode.added when a removed machine is linked again
-  key_algorithm      TEXT NOT NULL CHECK(key_algorithm IN ('p256', 'ed25519')),
+  public_key         BYTEA NOT NULL,              -- the service's identity key, PUBLIC half only; replaced only by a new runtimenode.added when a removed machine is linked again
+  key_algorithm      TEXT NOT NULL CHECK(key_algorithm = 'ed25519'), -- a machine's key is the service's Ed25519 key
   name               TEXT NOT NULL,               -- the machine's friendly name
   platform           TEXT NOT NULL,               -- the operating system the service runs on, as registered
   service_version    TEXT NOT NULL,               -- the service's semver version, as registered
@@ -192,8 +192,7 @@ CREATE TABLE trust_statements (
   kind             TEXT NOT NULL
                    CHECK(kind IN ('device.linked', 'device.renamed', 'device.revoked',
                                   'passkey.added', 'passkey.removed',
-                                  'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed',
-                                  'runtimenode.key_rotated')),
+                                  'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
   statement        BYTEA NOT NULL,                -- the signed statement as its signer wrote it: a machine key, a device key or a passkey
   received_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(user_id, previous_hash)                  -- one chain per account: no statement has two successors

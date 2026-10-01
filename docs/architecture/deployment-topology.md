@@ -157,7 +157,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the same Windows half runs as the daemon's child, so every Windows-only job has one implementation ([ADR-041](../decisions/041-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
 
-**CLI:** npm-distributed package that connects to the local daemon.
+**CLI:** `sidekicks`, carried in the standalone Node.js bundle beside the daemon, and connecting to the local daemon.
 
 ## CI/CD and Release
 
@@ -167,7 +167,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **CD:** none run by the project. The person deploys their own relay: the Workers relay into their own Cloudflare account, the Compose relay with its `docker-compose.yml` on their own server ([ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md)).
 
-**Local artifacts:** daemon, CLI, and desktop app built on release tag and published to npm / GitHub Releases.
+**Local artifacts:** the desktop app's installers and the standalone Node.js bundle, built on a release tag by the release workflow (`.github/workflows/release.yml`) and published to GitHub Releases. Only the terminal helper's npm platform packages publish to npm ([ADR-023 §Axis 3](../decisions/023-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
 
 **Versioning:** semver for packages; control-plane API versioned via tRPC router namespacing.
 

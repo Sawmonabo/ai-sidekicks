@@ -71,14 +71,14 @@ Both backends implement the v2 relay protocol behind one shared contract so prot
 
 Both relays hold the same admission rules:
 
-- The relay counts requests on its credential routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. On the Workers relay they count in the per-identity Durable Object, one global counter that rotating edge locations does not reset; on the one-process Compose relay they count in memory. A counter error fails that one request like any backend error.
-- On the WebSocket the relay sees only encrypted frames and counts none of them. A method inside a frame is the machine's to limit: the machine enforces `presence.heartbeat` at 10 a minute per device, inside the sealed connection, drops the excess and keeps the last heartbeat per device.
+- The relay counts requests on its sign-in routes (sign-in, token refresh, device linking) only, and answers one past the limit with 429 and a retry time. On the Workers relay they count in the per-identity Durable Object, one global counter that rotating edge locations does not reset; on the one-process Compose relay they count in memory. A counter error fails that one request like any backend error.
+- On the WebSocket the relay sees only encrypted frames and counts none of them. The machine reads each method inside the sealed connection and keeps the last `presence.heartbeat` per device.
 - The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds frames and bytes in both directions.
 
 ### Rate-Limiter Backends (Ships Both in V1)
 
-- Workers relay: the per-identity Durable Object for the credential routes.
-- Compose relay: an in-memory counter in the one relay process, for the same routes.
+- Workers relay: the per-identity Durable Object for the sign-in routes.
+- Compose relay: `InMemoryRateLimiter`, a sliding window per source address in the one relay process, for the same routes. No library: `rate-limiter-flexible`'s memory limiter counts a fixed window, and both relays answer one sliding-window `RateLimiter` contract whose retry time is when the oldest counted request ages out.
 
 Both ship in V1 under the deployment-aware abstraction already named in `deployment-topology.md` §Rate Limiting By Deployment.
 

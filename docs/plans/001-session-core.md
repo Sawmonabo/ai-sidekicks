@@ -84,7 +84,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 
 ### Root Scaffolding
 
-- `package.json` — workspace root with `"private": true`, `packageManager` and `engines.node` constraints per [ADR-022](../decisions/022-v1-toolchain-selection.md)
+- `package.json` — workspace root with `"private": true` and the `packageManager` pin per [ADR-022](../decisions/022-v1-toolchain-selection.md), and no `engines` install gate
 - `pnpm-workspace.yaml` — declares `packages/*` and `apps/*`
 - `turbo.json` — `build`, `test`, `lint`, `typecheck`, and `dev` task pipelines at scaffold time; later tasks (`test:coverage`, for one) are added by the work that owns them
 - `tsconfig.base.json` — strict + `isolatedDeclarations: true` + ESM-only; per-package `tsconfig.json` extends base
@@ -96,7 +96,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 
 ### Per-Package Scaffolding
 
-Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the workspace floor `>=24.16.0` per [ADR-022](../decisions/022-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory.
+Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the packages' floor `>=24.16.0` per [ADR-022](../decisions/022-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory.
 
 The daemon and the command line run on Node 24.16 or later, because the memory gate that decides when a step starts reads `process.availableMemory()`; every package shares that one floor, and the desktop app runs the Node its Electron pin bundles.
 
@@ -243,7 +243,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 **Goal:** Tests C1–C3 from § Test And Verification Plan go green.
 
 - `packages/contracts/src/session.ts` — `SessionId`, `SessionCreate`, `SessionRead`, `SessionSubscribe` payload schemas. `SessionCreate` names the one main agent on the request — a saved definition id, or the axes spelled out — and its response echoes the resolved binding (driver, model, effort, provider account) beside the session id and state. Plan-001 also exports `SessionSubscribeStream = AsyncIterable<EventEnvelope>` typed against an opaque `EventEnvelope` placeholder per **C-6** (forward-stub for Plan-005); the stub is narrowed when Plan-005 ships.
-- `packages/contracts/src/event.ts` (`SessionEventSchema`) and `packages/contracts/src/event-variant-types.ts` (the `SessionEvent` type) — `SessionEvent` discriminated union (V1 subset: `SessionCreated`, declared in `packages/contracts/src/event-declared-variants.ts`). `SessionCreated` carries a per-type payload rather than the shared state-transition shape: `{sessionId, mainAgent, actor?}`, where `mainAgent` holds every value the daemon resolved when it started the session — the agent id it minted, the definition id where one was named, the name, driver, model, provider account and effort, the four axes the daemon reads for itself (posture mode, tool allowlist, instructions, goal) and the resolved agent state — the same values the create reply echoes, so wire and durable record serialize identically ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)). The discriminator surface in `api-payload-contracts.md` (per C-6) lands the same Phase as this file.
+- `packages/contracts/src/event.ts` (`SessionEventSchema`) and `packages/contracts/src/event-variant-types.ts` (the `SessionEvent` type) — `SessionEvent` discriminated union (V1 subset: `SessionCreated`, declared in `packages/contracts/src/event-declared-variants.ts`). `SessionCreated` carries a per-type payload rather than the shared state-transition shape: `{sessionId, mainAgent, actor?}`, where `mainAgent` holds every value the daemon resolved when it started the session — the agent id it minted, the definition id where one was named, the name, driver, model, provider account and effort, the three axes the daemon reads for itself (tool allowlist, instructions, goal) and the resolved agent state — the same values the create reply echoes, so wire and durable record serialize identically ([Spec-005 §Event Type Enumeration](../specs/005-session-event-taxonomy-and-audit-log.md#event-type-enumeration)). The discriminator surface in `api-payload-contracts.md` (per C-6) lands the same Phase as this file.
 
 #### Tasks
 

@@ -174,10 +174,12 @@ CREATE TABLE interventions (
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-003-4): 'user' for a request admitted over the wire, 'system' for the in-process orchestration entrypoint (CP-003-10's budget interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
                          CHECK(origin IN ('user', 'system')),
+  device_id              TEXT,                       -- the device a 'user' intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL on 'system' (Queue And Intervention Model)
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-003 T1.4/T3.12)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
+  CHECK((origin = 'user') = (device_id IS NOT NULL)),
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
@@ -490,7 +492,7 @@ CREATE TABLE run_execution_contexts (
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 ```
 
-**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The remembered approval rules, the removed-worktree records, the workflow definitions, the agent definitions and the workflow secrets key a project by this record's id.
+**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the workflow definitions, the agent definitions and the workflow secrets key a project by this record's id.
 
 ---
 
@@ -594,72 +596,20 @@ CREATE TABLE approval_resolutions (
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
                                               -- and keeps every column event-derivable for peer/replay rebuild (I-010-9).
                                               -- The first answer from any device settles the request.
-                                              -- The row also records the answering device's id, which a card answered
-                                              -- elsewhere reads as `Answered on <device>` (Spec-028 §Required Behavior)
+  device_id                TEXT NOT NULL,     -- the answering device, the one whose connection carried the answer; a card
+                                              -- answered elsewhere reads it as `Answered on <device>` (Spec-028 §Required Behavior)
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless the answer narrowed it (Spec-010 §Required Behavior);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
-  remembered_scope_kind    TEXT               -- 'session' | 'project' when remembering was requested; NULL otherwise (Spec-010 §Interfaces And Contracts)
+  remembered_scope_kind    TEXT               -- 'session' | 'project' when the answer handed a rule to the provider; NULL otherwise (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
-  remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
+  remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
   resolved_at              TEXT NOT NULL
 );
-
--- Owner: Plan-010
--- The console's remembered rules, session and project alike. They live in the daemon's store only and are
--- never written into a provider's own rule files; the provider's own rules are read and revoked on
--- Settings › Providers (`provider.standingRuleList`, `provider.standingRuleRevoke`), and these rows are read
--- and revoked through `approval.ruleList` and `approval.ruleRevoke`.
-CREATE TABLE remembered_approval_rules (
-  id                         TEXT PRIMARY KEY,
-  session_id                 TEXT NOT NULL,   -- the session the rule was made in; a session rule matches there only (Spec-010 §Default Behavior)
-  project_id                 TEXT,            -- the project record's id; NOT NULL iff scope_kind = 'project', so a project rule is found from every session on that project
-  mcp_binding_ref            TEXT,            -- JSON: the tool-server binding whose tool the rule's subject names, as its plain McpServerBindingRef
-                                              -- (provider, scope, scope path, server name); NULL for any other subject, so removing that binding revokes its rules
-  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-010 §State And Data Implications, audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-010-9)
-  category                   TEXT NOT NULL
-                             CHECK(category IN (
-                               'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                               'plan_approval', 'gate',
-                               'human_step_contribution'                               -- SA-12 addition; mirrors Spec-010 canonical enum
-                             )),
-  scope_kind                 TEXT NOT NULL
-                             CHECK(scope_kind IN ('session', 'project')),  -- explicit enum, not free-form (Spec-010 §Interfaces And Contracts).
-                                              -- 'project' is every session on that project, which the card's own arm makes
-  scope_pattern              TEXT NOT NULL,   -- the subject the daemon derived from the ask: a command's program and its first
-                                              -- subcommand, a network request's host, a written file's normalized absolute path; any
-                                              -- other category's exact subject (D-010-10)
-  sense                      TEXT NOT NULL    -- allow or block: the remembered set is two-sided, because a decline on a network
-                             CHECK(sense IN ('allow', 'block')),
-                                              -- ask has a subject worth remembering too, and the host is then refused with no
-                                              -- card raised until the rule is replaced. NOT NULL rather than defaulted: a
-                                              -- missing sense would have to read as 'allow', and a silently-widened block is
-                                              -- the one reading a permission rule must never take. It agrees with the
-                                              -- originating decision by construction -- an approval mints an allow, a decline
-                                              -- a block -- which is what the emission refinement on approval.remembered pins
-  made_at_level              TEXT NOT NULL    -- the permission level the session stood at when the rule was made. A rule
-                             CHECK(made_at_level IN ('readonly', 'ask', 'reviewed')),
-                                              -- never answers BELOW it: at a more careful level the card asks again with the
-                                              -- same words and the press re-scopes the rule to that level, and at that level
-                                              -- or any looser one the daemon answers the ask itself. The comparand is the
-                                              -- five-level vocabulary, but only the three careful levels can MAKE a rule --
-                                              -- the other two raise no card -- so a row carrying 'sandboxed' or 'yolo' would
-                                              -- name a rule nothing could have made, and the CHECK leaves it unrepresentable
-                                              -- rather than trusting the writer. The matcher's comparand, not a display field
-  granted_at                 TEXT NOT NULL,
-  revoked_at                 TEXT,            -- nullable; set when rule is invalidated
-  invalidation_trigger       TEXT
-                             CHECK(invalidation_trigger IS NULL OR invalidation_trigger IN
-                               ('explicit', 'session_end', 'project_detached', 'server_trust_withdrawn')),
-  CHECK((revoked_at IS NULL) = (invalidation_trigger IS NULL)),  -- co-presence: a revocation always records its trigger
-  CHECK((scope_kind = 'project') = (project_id IS NOT NULL))     -- project rules carry their project key
-);
-
-CREATE INDEX idx_remembered_rules_session ON remembered_approval_rules(session_id) WHERE revoked_at IS NULL;
-CREATE INDEX idx_remembered_rules_project ON remembered_approval_rules(project_id) WHERE project_id IS NOT NULL AND revoked_at IS NULL;
-CREATE INDEX idx_remembered_rules_mcp_binding ON remembered_approval_rules(mcp_binding_ref) WHERE mcp_binding_ref IS NOT NULL AND revoked_at IS NULL;
 ```
+
+The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
 
 ---
 
@@ -718,6 +668,11 @@ CREATE TABLE workflow_definitions (
                        CHECK(schema_version GLOB '[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
+  -- The workflow's own permission level, set from the builder's level pill and starting at 'yolo':
+  -- every run of the workflow uses it wherever the run lives, and a live run takes a change from its
+  -- next step. OUTSIDE the content_hash preimage, so a change mints no version.
+  permission_level     TEXT NOT NULL DEFAULT 'yolo'
+                       CHECK(permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
   -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
@@ -835,7 +790,7 @@ CREATE TABLE workflow_gate_resolutions (
   -- Resolution
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ('approved','rejected')),
-  -- the answering device's id is recorded with the outcome, as on approval_resolutions
+  device_id                  TEXT NOT NULL,             -- the answering device, as on approval_resolutions
   resolved_at                TEXT NOT NULL,
   decision_context           TEXT NOT NULL DEFAULT '{}', -- JSON: scope, resource, reason text, etc.
   UNIQUE(workflow_run_id, sequence),
@@ -1075,15 +1030,6 @@ CREATE TABLE agents (
                                                         -- `pending_switch` below: a spawn-bound axis with a durable pending column and no
                                                         -- durable effective column would apply once and silently revert at the next
                                                         -- restart
-  execution_posture_mode TEXT
-                  CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
-                        ('readonly','ask','reviewed','sandboxed','yolo')),
-                                                        -- CP-027-7: the permission level resolved when the run started,
-                                                        -- one of the five. NULL = the session default. A level only, never a composed
-                                                        -- ExecutionPosture: writableRoots and credentialPolicyRef belong to a live
-                                                        -- run's workspace and would freeze a path set that outlives it. CHECKable
-                                                        -- here, unlike `effort` above, because this vocabulary is corpus-owned
-                                                        -- rather than provider-reported, so it cannot go stale behind a vendor
   tool_allowlist  TEXT,                                 -- CP-027-7: JSON array, THREE-state like its wire axis —
                                                         -- SQL NULL = driver defaults, '[]' = no tools, populated = exactly these.
                                                         -- The daemon composes the callback registry from it (I-027-10)
@@ -1136,13 +1082,15 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_session ON agents(session_id);
 
--- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, created on first read/update with no limits set; mutated only via orchestration.budgetUpdate — D-014-5)
+-- Owner: Plan-014 (row-canonical daemon configuration — queue_items posture, NOT evented; one row per session, written when the session is created from the Runtime settings' Spend limit and Tokens per run; mutated only via session.spendLimitUpdate and session.tokensPerRunUpdate — D-014-5)
 CREATE TABLE session_budgets (
   session_id                    TEXT PRIMARY KEY,
   cost_limit_usd_micros         INTEGER,                        -- integer micro-dollars; NULL = `Unlimited`, the default; the session's `Spend limit` across every provider and account it uses (Spec-014 §Budget Policies)
+  tokens_per_run                INTEGER,                        -- input and output tokens together for one run; NULL = `Unlimited`, the default; the session's `Tokens per run`
   updated_at                    TEXT NOT NULL,
-  -- Each limit is NULL (no limit) or a non-negative integer; wire mirror = orchestration.budgetUpdate Zod .int().nonnegative().nullable() (D-014-5)
-  CHECK (cost_limit_usd_micros IS NULL OR cost_limit_usd_micros >= 0)
+  -- Each limit is NULL (no limit) or an integer the wire's limit verbs also check (D-014-5)
+  CHECK (cost_limit_usd_micros IS NULL OR cost_limit_usd_micros >= 0),
+  CHECK (tokens_per_run IS NULL OR tokens_per_run >= 1)
 );
 
 -- The daemon's own agent tree: one row per agent a provider starts inside a run (a Claude Code task,
@@ -1359,7 +1307,7 @@ CREATE TABLE mcp_mutation_receipts (
   operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the governance mutations, mcp.oauthLogin and mcp.oauthLogout; mcp.reconnect is unreceipted)
   status                  TEXT NOT NULL
                           CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-013 command_receipts discipline, Spec-025 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes — closing both crash windows around the external provider side effect (a durable provider write can never be left unfinalized: startup reconciliation completes any pending intent — verifying provider state, finishing store writes exactly once — or expires an intent whose provider leg never ran)
-  response_json           TEXT,                       -- the acknowledged response, replayed verbatim on identical retry — no provider call or store write (Spec-025 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-025 I-025-1) — so its replay is a URL-free acknowledgment (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
+  response_json           TEXT,                       -- the acknowledged response, replayed verbatim on any retry with the same key, whatever the second request carries — no provider call or store write (Spec-025 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-025 I-025-1) — so its replay is a URL-free acknowledgment (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
   created_at              TEXT NOT NULL,              -- RFC 3339 UTC; 'committed' rows older than 24 h are pruned opportunistically on later mutation writes ('pending' intents resolve at startup reconciliation, never silently pruned)
   CHECK((status = 'committed') = (response_json IS NOT NULL))
 );
@@ -1533,7 +1481,7 @@ A `providerAccountId` inside a binding deliberately carries **no foreign key** t
 
 `tool_allowlist` is three-state and the three states are **not** interchangeable (I-027-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
 
-`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the agent is used in. A composed `ExecutionPosture` carries a `credentialPolicyRef` and writable roots meaningful only to the run that composed them, so persisting one would let a stale definition re-grant a superseded decision; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
+The table has no level column (I-027-8): every agent runs at the level of the session or workflow run it works in.
 
 ```sql
 -- Owner: Plan-027
@@ -1569,10 +1517,6 @@ CREATE TABLE agent_definitions (
                                AND json_type(bindings, '$.overrides') = 'array'),
   turn_cap               INTEGER  -- NULL = no cap, and the daemon adds none of its own. The number of turns this agent may take before it is stopped; not a budget
                          CHECK(turn_cap IS NULL OR turn_cap > 0),
-  execution_posture_mode TEXT  -- NULL = the posture of the session or run the agent is used in. One of the five permission levels and nothing composed — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
-                         CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN (
-                           'readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'
-                         )),
   instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the agent runs under; node-local configuration the person wrote, never emitted into an event payload
                          CHECK(instr(instructions, char(0)) = 0),
   goal                   TEXT
@@ -1606,7 +1550,7 @@ The attention service's entries carry the state its two deliveries beyond the ap
 
 ## Remote Control Tables (Plan-028)
 
-Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, the pushes it has sent them, and the ports it shares with them ([Spec-028](../../specs/028-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked`, `passkey.added` and `runtimenode.key_rotated` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed`, `passkey.removed` or `runtimenode.key_rotated` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
+Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, the pushes it has sent them, and the ports it shares with them ([Spec-028](../../specs/028-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
 
 ```sql
 -- Owner: Plan-028
@@ -1618,8 +1562,7 @@ CREATE TABLE trust_statements (
   kind              TEXT NOT NULL
                     CHECK(kind IN ('device.linked', 'device.renamed', 'device.revoked',
                                    'passkey.added', 'passkey.removed',
-                                   'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed',
-                                   'runtimenode.key_rotated')),
+                                   'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
   statement         BLOB NOT NULL                 -- the signed statement as verified, signed by a machine key, a device key or a passkey
 );
 
