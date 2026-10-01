@@ -100,8 +100,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
           newState: "running",
           executionPosture: {
             mode: "workspace-sandboxed",
-            credentialPolicyRef:
-              "sha256:7c4e1b93a52f6d08e14b7c93a52f6d08e14b7c93a52f6d08e14b7c93a52f6d08",
+            credentialPolicyRef: "policy://workspace",
             networkAccess: "allowed-domains",
             allowedDomains: ["registry.npmjs.org", "github.com"],
             writableRoots: ["/Users/dev/code/ai-sidekicks"],
