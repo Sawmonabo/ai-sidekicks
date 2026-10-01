@@ -34,7 +34,7 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.4.6",
+    "@electric-sql/pglite": "^0.5.8",
     "@types/pg": "^8.23.1",
     "@vitest/coverage-v8": "catalog:testing",
     "eslint": "^10.11.0",
