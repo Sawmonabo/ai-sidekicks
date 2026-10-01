@@ -23,7 +23,6 @@ export const DAEMON_STATUS_TEXT_MAX_LEN = 4_096;
 const StatusTextSchema = z.string().min(1).max(DAEMON_STATUS_TEXT_MAX_LEN);
 const StatusPathSchema = z.string().min(1).max(FILE_PATH_MAX_LEN);
 const TimestampSchema = z.iso.datetime({ offset: true });
-const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 /** How much of the machine's processor the service and every process it started use. */
 export interface DaemonProcessorReading {
@@ -45,16 +44,6 @@ export const DAEMON_FILE_SCANNING_KINDS: readonly DaemonFileScanning[] = Object.
   "amsi",
   "none",
 ]);
-
-/**
- * The terminal's sidecar binary refused at spawn because its hash did not match
- * the release manifest's entry.
- */
-export interface DaemonSidecarHashMismatch {
-  path: string;
-  expectedSha256: string;
-  actualSha256: string;
-}
 
 /** One linked device as the relay last saw it, counted since the service started. */
 export interface DaemonRelayDevice {
@@ -98,8 +87,6 @@ export interface DaemonStatusReadResponse {
   processor: DaemonProcessorReading;
   memory: DaemonMemoryReading;
   fileScanning: DaemonFileScanning;
-  /** The sidecar refused at its last spawn, or `null` when none was. */
-  sidecarHashMismatch: DaemonSidecarHashMismatch | null;
   relay?: DaemonRelayStatus | undefined;
 }
 
@@ -118,14 +105,6 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
       .object({ residentBytes: z.number().int().nonnegative(), readAt: TimestampSchema })
       .strict(),
     fileScanning: z.enum(DAEMON_FILE_SCANNING_KINDS),
-    sidecarHashMismatch: z
-      .object({
-        path: StatusPathSchema,
-        expectedSha256: Sha256HexSchema,
-        actualSha256: Sha256HexSchema,
-      })
-      .strict()
-      .nullable(),
     relay: z
       .object({
         devices: z.array(
