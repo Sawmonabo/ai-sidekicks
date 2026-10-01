@@ -4544,8 +4544,8 @@ interface ArtifactListResponse {
 // its last write. The stream is a PROTOCOL, not a loose call
 // sequence (Spec-012 stream protocol): Init is refused
 // artifact.ingest_capacity_exhausted (429 — transient, retry later, no stream state created) at
-// max_active_ingest_streams or when the aggregate of open streams' declared totals would breach
-// ingest_spool_max_bytes; sequencing is replay-idempotent with violations terminal
+// max_active_ingest_streams or when the spool's volume, its free space read at admission, has no room
+// for the declaration beside the open streams' reservations; sequencing is replay-idempotent with violations terminal
 // (artifact.ingest_stream_invalid, 409 — restart from Init); and a stream's tenure is wall-clock-
 // bounded by max_ingest_stream_lifetime from Init, because the mtime reaper cannot see a hostile
 // trickle that keeps its spool young. `mediaType` and `declaredSizeBytes` are ADVISORY
@@ -4555,7 +4555,7 @@ interface ArtifactListResponse {
 // declaration is dropped (Spec-012 pipeline step 1). A smaller actual SIZE resolves to the derived
 // value in the response — but the declaration is also the stream's
 // spool RESERVATION and per-stream ceiling: the running decoded count exceeding it
-// refuses artifact.too_large (413) and deletes the spool, because the aggregate admission budget
+// refuses artifact.too_large (413) and deletes the spool, because admission against the disk's room
 // counts declared bytes and an unenforced declaration would make it gameable. The derived
 // values are what reach the manifest, the CAS key, and every downstream consumer.
 // EVERY call of the trio is retry-safe against a lost response, and no member of these shapes carries
@@ -4566,7 +4566,8 @@ interface ArtifactListResponse {
 // and acknowledgment run as one critical section per stream — so an original racing its own retry
 // takes the replay path rather than double-appending; concurrent calls on DIFFERENT streams never
 // contend. Admission is likewise a serialized reserve-then-install ledger over the open-stream count
-// and the reservation total, so two concurrent Inits cannot both pass one remaining slot's bound.
+// and the reservation total against the disk's free space, so two concurrent Inits cannot both pass
+// one remaining slot's bound.
 // The trio's request shapes live in `packages/contracts/src/artifacts/`, beside `ArtifactListRequest`
 // and `ArtifactReadRequest`. The trio has no abort call: Spec-012 names none, and an abandoned
 // stream's spool is reaped as above.
@@ -4575,7 +4576,7 @@ interface AttachmentIngestInitRequest {
   runId?: RunId;
   fileName: string; // caller-supplied; length/character-bounded before it is recorded, and NEVER a storage path component — CAS addressing keys the payload by its SHA-256 (Spec-012 §Implementation Notes)
   mediaType?: string; // ADVISORY and OPTIONAL — absent is a first-class state; the type read from the bytes is what the manifest records, and no declaration refuses anything (Spec-012 pipeline step 1)
-  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: counted against ingest_spool_max_bytes at admission (a declaration larger than the whole budget is refused artifact.too_large (413) up front, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
+  declaredSizeBytes: number; // ADVISORY as metadata, BINDING as a reservation: reserved against the spool volume's free space, read at admission (a declaration the free disk cannot hold even with no other stream open is refused artifact.too_large (413) up front, naming the file and the room the disk has, since waiting can never admit it), and enforced as the stream's per-stream spool ceiling — the running decoded count may not exceed it; a smaller actual size reconciles downward at Complete without refusal
 }
 interface AttachmentIngestInitResponse {
   ingestId: string; // opaque single-use stream handle, session-bound and wall-clock-bounded by max_ingest_stream_lifetime from Init; scopes every subsequent Chunk/Complete call — each refused artifact.ingest_stream_invalid (409) once the stream is terminated, expired, or unknown, and every Chunk once it is completed. ONE carved exception: a replayed Complete on a completed stream whose completion record still lives replays the original response verbatim — see AttachmentIngestCompleteRequest
