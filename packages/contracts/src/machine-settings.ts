@@ -37,7 +37,7 @@ export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
  * characters, the tightest limit of the three platforms.
  */
 export const ENVIRONMENT_ROW_MAX_LEN = 32_767;
-/** The longest editor id or Codex voice name. */
+/** The longest editor id or call voice name. */
 export const MACHINE_SETTINGS_NAME_MAX_LEN = 256;
 /** The longest branch-name pattern. */
 export const BRANCH_NAME_PATTERN_MAX_LEN = 256;
@@ -243,17 +243,17 @@ export type VoiceMode = "hold" | "tap";
 /** Every {@link VoiceMode}. */
 export const VOICE_MODES: readonly VoiceMode[] = Object.freeze(["hold", "tap"]);
 
-/** Voice's two settings. `codexVoice` unset reads as Codex's own default voice. */
+/** Voice's two settings. `callVoice`, the voice a spoken call answers in, unset reads as the call's own default voice. */
 export interface VoiceSettings {
   mode: VoiceMode;
-  codexVoice: string | null;
+  callVoice: string | null;
 }
 const VoiceSettingsSchema: z.ZodType<VoiceSettings, VoiceSettings> = z
   .object({
     mode: z.enum(VOICE_MODES),
-    codexVoice: wireFreeFormString(
+    callVoice: wireFreeFormString(
       MACHINE_SETTINGS_NAME_MAX_LEN,
-      "VoiceSettings.codexVoice",
+      "VoiceSettings.callVoice",
     ).nullable(),
   })
   .strict();
@@ -360,7 +360,7 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   backup: { automatic: false, folder: null },
   branchNamePattern: "sidekicks/{session}/{title}",
   cloneFolder: null,
-  voice: { mode: "hold", codexVoice: null },
+  voice: { mode: "hold", callVoice: null },
 });
 
 // `ExecutionModeSchema` is single-T, so an object composing it infers an

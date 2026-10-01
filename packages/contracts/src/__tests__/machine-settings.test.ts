@@ -30,7 +30,7 @@ describe("the settings file", () => {
       notifyStep: true,
     });
     expect(parsed.data.notifications.emailDigest.after).toBe("day");
-    expect(parsed.data.voice).toStrictEqual({ mode: "tap", codexVoice: null });
+    expect(parsed.data.voice).toStrictEqual({ mode: "tap", callVoice: null });
   });
 
   it("refuses the whole file for an unknown key, even inside a group", () => {
@@ -59,7 +59,7 @@ describe("daemon.machineSettingsUpdate", () => {
     ).toBe(true);
     expect(
       MachineSettingsUpdateRequestSchema.safeParse({
-        change: { voice: { mode: "tap", codexVoice: "cove" } },
+        change: { voice: { mode: "tap", callVoice: "cove" } },
       }).success,
     ).toBe(true);
   });

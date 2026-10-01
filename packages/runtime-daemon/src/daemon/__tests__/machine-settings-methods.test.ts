@@ -188,14 +188,14 @@ describe("daemon.machineSettingsSubscribe", () => {
 
     await registry.dispatch(
       "daemon.machineSettingsUpdate",
-      { change: { voice: { mode: "tap", codexVoice: null } } },
+      { change: { voice: { mode: "tap", callVoice: null } } },
       {},
     );
     expect(notifiedReadings()[1]).toStrictEqual({
       settings: {
         ...MACHINE_SETTINGS_DEFAULTS,
         rememberSiteData: false,
-        voice: { mode: "tap", codexVoice: null },
+        voice: { mode: "tap", callVoice: null },
       },
     });
   });
