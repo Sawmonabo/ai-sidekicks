@@ -1,7 +1,7 @@
-// A phase's tool bindings in the definition file: the reference a definition may carry, and
-// the policy it may not. A binding with `enabled`, `approvalMode` or `idempotencyClass` is
-// refused at parse, so an exported definition cannot import a weakened posture onto another
-// machine. `user` bindings carry no `scopeRef`; `project` and `local` require one.
+// A phase's tool bindings in the definition file: the reference a definition may carry. A tool's
+// approval lives only in the MCP server settings, so a binding member such as `approvalMode` is
+// an ordinary parse error naming the field. `user` bindings carry no `scopeRef`; `project` and
+// `local` require one.
 
 import {
   MCP_CONFIG_SCOPES,
@@ -28,13 +28,6 @@ const USER_SCOPED_BINDING_KEYS = ["provider", "scope", "serverName"] as const;
 
 /** The members it carries on the two arms that do, which is the same set plus one. */
 const REF_SCOPED_BINDING_KEYS = ["provider", "scope", "scopeRef", "serverName"] as const;
-
-/**
- * The facets a definition may never carry, named so a refusal can say which. The admitted-key
- * check already refuses them; this exists for the sentence, so a person reads that the facet
- * is the node operator's rather than that a key was unrecognized.
- */
-const GOVERNANCE_FACET_KEYS = ["enabled", "approvalMode", "idempotencyClass"] as const;
 
 /** One phase's bindings as a file writes them, in each arm's own member order. */
 export function toolBindingFileRecords(
@@ -105,12 +98,6 @@ function readToolBinding(value: unknown, bindingProse: string): WorkflowToolBind
 function readBindingReference(value: unknown, bindingProse: string): McpServerBindingRef | string {
   if (!isWireRecord(value)) {
     return `${bindingProse} names no server in \`binding\`.`;
-  }
-  const facet = GOVERNANCE_FACET_KEYS.find((key) => key in value);
-  if (facet !== undefined) {
-    // The rule in the sentence: these three are set through the node's governance settings and
-    // resolved live at phase launch, so a definition carrying one is refused, not ignored.
-    return `${bindingProse} carries \`${facet}\`, which is the node operator's setting and never a definition's.`;
   }
   const provider = readVocabularyMember(value["provider"], PROVIDER_NAMES);
   if (provider === undefined) {

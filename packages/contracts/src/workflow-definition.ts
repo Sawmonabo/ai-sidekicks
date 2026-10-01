@@ -412,10 +412,10 @@ export const WorkflowDraftDocumentSchema: z.ZodType<WorkflowDraftDocument, Workf
     .strict();
 
 /**
- * A node's tool parameter: which server's tool, and nothing about its policy. It never
- * carries `enabled`, `approvalMode` or `idempotencyClass`; those are the node
- * operator's settings, read live when the step starts, so a definition that carries one
- * is refused rather than imported with a weaker posture.
+ * A node's tool parameter: which server's tool, and nothing about its policy. A tool's
+ * approval lives only in Settings › MCP servers, read live when the step starts, so
+ * `enabled`, `approvalMode` or `idempotencyClass` on a binding is an unknown member and
+ * fails the parse.
  */
 export interface WorkflowToolBinding {
   binding: McpServerBindingRef;

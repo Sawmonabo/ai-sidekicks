@@ -1,6 +1,6 @@
 // Tool bindings in the file form, checked on the rule that is not a shape rule: a definition
-// carries a reference to a configured server and never the governance posture it runs under, and
-// a member its arm has no place for is refused rather than dropped. The three arms are checked as
+// carries a reference to a configured server and never the policy it runs under, and a member
+// its arm has no place for is refused rather than dropped. The three arms are checked as
 // three, since the identity is a union on scope.
 
 import { describe, expect, it } from "vitest";
@@ -48,9 +48,8 @@ describe("tool bindings in the file form", () => {
     expect(readToolBindings(writtenBindings(), PHASE_PROSE)).toStrictEqual(EVERY_ARM);
   });
 
-  it("refuses a binding carrying a governance facet, and says whose setting it is", () => {
-    // `enabled`, `approvalMode` and `idempotencyClass` are node-operator settings; an exported
-    // definition must not import a weakened posture.
+  it("refuses a binding carrying a policy member, naming the field", () => {
+    // A tool's approval lives in the MCP server settings; a definition never carries it.
     for (const facet of ["enabled", "approvalMode", "idempotencyClass"]) {
       const reading = readToolBindings(
         bindingDocumentWith({
@@ -63,7 +62,6 @@ describe("tool bindings in the file form", () => {
       );
 
       expect(reading).toContain(facet);
-      expect(reading).toContain("node operator");
     }
   });
 

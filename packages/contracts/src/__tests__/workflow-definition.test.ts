@@ -91,8 +91,8 @@ describe("WorkflowToolBindingSchema", () => {
     expect(WorkflowToolBindingSchema.safeParse(BINDING).success).toBe(true);
   });
 
-  // A policy on the binding would travel with the definition and weaken the operator's setting,
-  // so each facet is refused at parse rather than ignored at launch.
+  // A tool's policy lives in the MCP server settings, so a facet on the binding fails the parse
+  // rather than being ignored at launch.
   it("refuses a policy on the binding or inside its server reference", () => {
     expect(WorkflowToolBindingSchema.safeParse({ ...BINDING, approvalMode: "never" }).success).toBe(
       false,
