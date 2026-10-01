@@ -13,17 +13,16 @@ import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "./provider-driver.js";
 import { SessionAcknowledgementSchema, type SessionAcknowledgement } from "./session-controls.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  wireUncappedFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 /**
- * The longest goal accepted. An over-long goal is refused, not cut, because the goal sent is the
- * text the person wrote. The shortest is one character that is not whitespace.
- */
-export const SESSION_GOAL_MAX_LENGTH = 4096;
-
-/**
- * A goal's condition, as the person wrote it. `text` is 1 to {@link SESSION_GOAL_MAX_LENGTH}
- * characters, not blank and free of NUL, checked as written and never trimmed. Clearing is its
+ * A goal's condition, as the person wrote it. `text` has no length cap of the app's own; it is
+ * not blank and free of NUL, checked as written and never trimmed. Clearing is its
  * own operation, so an update with empty text is refused rather than read as a clear.
  */
 export interface SessionGoal {
@@ -31,7 +30,7 @@ export interface SessionGoal {
 }
 /** Parses a {@link SessionGoal}. */
 export const SessionGoalSchema: z.ZodType<SessionGoal, SessionGoal> = z
-  .object({ text: wireFreeFormString(SESSION_GOAL_MAX_LENGTH, "SessionGoal.text") })
+  .object({ text: wireUncappedFreeFormString("SessionGoal.text") })
   .strict();
 
 const SESSION_GOAL_STATUS_VALUES = [

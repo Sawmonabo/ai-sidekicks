@@ -10,15 +10,12 @@ import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
-import {
-  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-} from "./provider-driver-wire.js";
+import { DRIVER_WIRE_STEER_ATTACHMENTS_MAX } from "./provider-driver-wire.js";
 import {
   EventCursorSchema,
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
-  wireFreeFormString,
+  wireUncappedFreeFormString,
   type EventCursor,
   type SessionId,
 } from "./session.js";
@@ -222,7 +219,7 @@ export const SessionRestoreRequestSchema: z.ZodType<SessionRestoreRequest, Sessi
       includeAlsoChanged: z.boolean(),
       resend: z
         .object({
-          content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "resend.content"),
+          content: wireUncappedFreeFormString("resend.content"),
           attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
         })
         .strict()

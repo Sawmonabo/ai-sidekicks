@@ -26,7 +26,12 @@ import {
   type ProviderModel,
   type RunId,
 } from "./provider-driver.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  wireUncappedFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 // ---- Client-facing SDK-seam wire schemas ----
 
@@ -81,14 +86,6 @@ export const DRIVER_WIRE_HANDLE_MAX_LEN = 256;
  * expressible without it.
  */
 export const DRIVER_WIRE_REASON_MAX_LEN = 512;
-/**
- * Max length of a message the person sends: a queued message (`run.queueCreate`, a child's
- * `run.childSteer`), the steer that delivers it (`SteerPayload.content`), an undo's resend and a
- * side question. Generous because an over-long payload is rejected whole, not truncated. Declared
- * here because the steer schema below applies it and this file cannot import a module that
- * imports it.
- */
-export const DRIVER_WIRE_STEER_CONTENT_MAX_LEN = 16384;
 /**
  * Max entries in a per-driver model or mode list and in the token arrays inside a model. Unlike
  * `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX` it rejects rather than truncates: these replies carry no
@@ -326,7 +323,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
-          content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "SteerPayload.content"),
+          content: wireUncappedFreeFormString("SteerPayload.content"),
           // `ArtifactId` elements, so a non-id element is refused outright; the `.max()` is the
           // coarse frame-abuse count ceiling. The policy count is the daemon's at carrier
           // acceptance (see `SteerPayload`).

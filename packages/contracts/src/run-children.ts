@@ -11,13 +11,10 @@ import {
   type ChildHandle,
 } from "./agent.js";
 import { countSchema } from "./internal/wire-scalars.js";
-import {
-  DRIVER_WIRE_REASON_MAX_LEN,
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-} from "./provider-driver-wire.js";
+import { DRIVER_WIRE_REASON_MAX_LEN } from "./provider-driver-wire.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, wireUncappedFreeFormString } from "./session.js";
 
 /**
  * Sends a message onto one child's own queue, where it waits for the child's next
@@ -36,7 +33,7 @@ export const ChildSteerRequestSchema: z.ZodType<ChildSteerRequest, ChildSteerReq
   .object({
     targetRunId: RunIdSchema,
     childHandle: ChildHandleSchema,
-    content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "ChildSteerRequest.content"),
+    content: wireUncappedFreeFormString("ChildSteerRequest.content"),
     expectedRunVersion: countSchema,
     clientIdempotencyKey: z.uuid(),
   })

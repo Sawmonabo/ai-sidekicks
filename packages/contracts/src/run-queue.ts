@@ -9,10 +9,14 @@ import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
 } from "./provider-driver-wire.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  wireUncappedFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 /** Identifies one queued message. */
 export type QueueItemId = string & { readonly __brand: "QueueItemId" };
@@ -35,7 +39,7 @@ export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z
 // the count ceiling here only guards the wire frame, and the per-message file limit is checked by
 // the daemon when it accepts the message.
 const messageContentSchema = (fieldLabel: string): z.ZodString =>
-  wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, fieldLabel);
+  wireUncappedFreeFormString(fieldLabel);
 const messageAttachmentsSchema: z.ZodType<ArtifactId[], ArtifactId[]> = z
   .array(ArtifactIdSchema)
   .max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX);

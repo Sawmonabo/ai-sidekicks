@@ -24,16 +24,17 @@ import {
   type McpServerStatus,
   type RunId,
 } from "./provider-driver.js";
-import {
-  DRIVER_WIRE_HANDLE_MAX_LEN,
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  DRIVER_WIRE_TOKEN_MAX_LEN,
-} from "./provider-driver-wire.js";
+import { DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
 } from "./provider-driver-transcript.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  wireUncappedFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 // The unbranded UUID text form, since the `agentId` brand belongs to the live agent contract.
 const agentIdSchema = uuidTextFormSchema;
@@ -311,11 +312,8 @@ export type SideQuestionId = string & { readonly __brand: "SideQuestionId" };
 export const SideQuestionIdSchema: z.ZodType<SideQuestionId, SideQuestionId> =
   brandedUuidIdSchema<SideQuestionId>("SideQuestionId");
 
-// A side question is a message sent into a provider turn, bounded like steer content.
-const sideQuestionTextSchema = wireFreeFormString(
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  "SessionSideQuestionAskRequest.question",
-);
+// A side question is a message sent into a provider turn, uncapped like any other message.
+const sideQuestionTextSchema = wireUncappedFreeFormString("SessionSideQuestionAskRequest.question");
 
 /** Asks a side question in a throwaway copy of the conversation. */
 export interface SessionSideQuestionAskRequest {

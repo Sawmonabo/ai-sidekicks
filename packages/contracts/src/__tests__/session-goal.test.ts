@@ -5,7 +5,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  SESSION_GOAL_MAX_LENGTH,
   SessionGoalUpdateRequestSchema,
   SessionGoalUpdatedPayloadSchema,
 } from "../session-goal.js";
@@ -20,8 +19,8 @@ const goalUpdate = (text: string) => ({
 });
 
 describe("session.goalUpdate request", () => {
-  it("refuses empty, blank, over-long and NUL-bearing text", () => {
-    for (const text of ["", "   ", "g".repeat(SESSION_GOAL_MAX_LENGTH + 1), "ship\u0000it"]) {
+  it("refuses empty, blank and NUL-bearing text", () => {
+    for (const text of ["", "   ", "ship\u0000it"]) {
       expect(SessionGoalUpdateRequestSchema.safeParse(goalUpdate(text)).success).toBe(false);
     }
   });
