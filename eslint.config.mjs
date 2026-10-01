@@ -1,5 +1,6 @@
 // ESLint flat config. It uses only non-type-aware rules, so lint-staged feedback stays sub-second.
 import js from "@eslint/js";
+import checkFile from "eslint-plugin-check-file";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
@@ -24,6 +25,23 @@ export const ENUM_DECLARATION = {
   message:
     "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
 };
+
+/*
+ * File and folder name shapes, as micromatch extglobs (the syntax `eslint-plugin-check-file`
+ * matches with). A name is checked without its extensions, so `AppRouter.test.tsx` is checked as
+ * `AppRouter`, which is how a test keeps its subject's name.
+ */
+const KEBAB_NAME = "+([a-z])*([a-z0-9])*(-+([a-z0-9]))";
+const PASCAL_NAME = "+([A-Z]*([a-z0-9]))";
+const HOOK_NAME = `use${PASCAL_NAME}`;
+
+/** Every script file ESLint reads, so the naming rules reach tools and configs as well. */
+const SCRIPT_FILES = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"];
+
+/** The desktop renderer, the one tree that holds React components and hooks. */
+const RENDERER_FILES = ["**/src/renderer/src/**/*.{ts,tsx}"];
+
+const NAMING_RULES_SOURCE = "the file and folder names in .claude/rules/coding-standards.md";
 
 export default defineConfig(
   {
@@ -77,6 +95,135 @@ export default defineConfig(
           selector: "interface",
           format: null,
           custom: { regex: "^I[A-Z][a-z]", match: false },
+        },
+      ],
+    },
+  },
+  // File and folder names. The plugin matches a rule's patterns against the path relative to the
+  // directory ESLint runs in, which is the repository root in CI and lint-staged and each package
+  // in `pnpm lint`, so no pattern is anchored to the root: a file pattern starts with `**/`, and a
+  // folder pattern is tested against every run of consecutive folders in the path. Rust is outside
+  // by construction: ESLint never reads a `.rs` file.
+  //
+  // Outside the desktop renderer nothing is a React component or hook, so every file and folder
+  // is kebab-case.
+  {
+    files: SCRIPT_FILES,
+    plugins: { "check-file": checkFile },
+    rules: {
+      "check-file/filename-naming-convention": [
+        "error",
+        { "**/*": "KEBAB_CASE" },
+        {
+          ignoreMiddleExtensions: true,
+          errorMessage: `"{{ target }}" is not kebab-case; see ${NAMING_RULES_SOURCE}`,
+        },
+      ],
+      "check-file/folder-naming-convention": [
+        "error",
+        { "**/": "KEBAB_CASE" },
+        { errorMessage: `Folder "{{ target }}" is not kebab-case; see ${NAMING_RULES_SOURCE}` },
+      ],
+      // A test is `<subject>.test.ts(x)`; Vitest runs Playwright too, so nothing is a spec file.
+      "check-file/filename-blocklist": [
+        "error",
+        {
+          "**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}": "*.test.ts",
+          ".claude/**/*.spec.{ts,mts,js,mjs}": "*.test.mjs",
+        },
+      ],
+    },
+  },
+  // The packages keep their tests in `__tests__/` and their test fixtures in `__fixtures__/`; the
+  // desktop places tests beside their source, so it gets neither.
+  {
+    files: ["packages/**"],
+    rules: {
+      "check-file/folder-naming-convention": [
+        "error",
+        { "**/": "KEBAB_CASE" },
+        {
+          ignoreWords: ["__tests__", "__fixtures__"],
+          errorMessage: `Folder "{{ target }}" is not kebab-case; see ${NAMING_RULES_SOURCE}`,
+        },
+      ],
+    },
+  },
+  // The repository's own tooling keeps its tests in `__tests__/` too.
+  {
+    files: ["tools/**"],
+    rules: {
+      "check-file/folder-naming-convention": [
+        "error",
+        { "**/": "KEBAB_CASE" },
+        {
+          ignoreWords: ["__tests__"],
+          errorMessage: `Folder "{{ target }}" is not kebab-case; see ${NAMING_RULES_SOURCE}`,
+        },
+      ],
+    },
+  },
+  // A `**` never matches a name that starts with a dot, so the patterns above pass over the
+  // dotted names tools fix (`.dependency-cruiser.mjs`). Claude Code reads its hooks and skills
+  // from `.claude/`, so the files under it are named from there down.
+  {
+    files: [".claude/**"],
+    rules: {
+      "check-file/filename-naming-convention": [
+        "error",
+        { ".claude/**/*": "KEBAB_CASE" },
+        {
+          ignoreMiddleExtensions: true,
+          errorMessage: `"{{ target }}" is not kebab-case; see ${NAMING_RULES_SOURCE}`,
+        },
+      ],
+      "check-file/folder-naming-convention": [
+        "error",
+        { ".claude/**/": "KEBAB_CASE" },
+        {
+          ignoreWords: ["__tests__"],
+          errorMessage: `Folder "{{ target }}" is not kebab-case; see ${NAMING_RULES_SOURCE}`,
+        },
+      ],
+    },
+  },
+  // The desktop renderer. Every entry that matches a file applies, so a file passes only when it
+  // satisfies all of them:
+  // - any file is kebab-case, a PascalCase component or page, or a `useThing` hook; a test or
+  //   test-support file is checked by its subject's name;
+  // - a `.tsx` in `app/`, `components/`, `features/` or `layout/` is a component or page, so its
+  //   name is PascalCase; a hook, a test and test support there keep their own shapes;
+  // - a file in a `hooks/` folder is a hook, except test support named for what it supports.
+  //
+  // A folder is kebab-case, except a shared component or group owner folder, which sits directly
+  // under a `components/` or `layout/` folder and is PascalCase; a PascalCase folder anywhere else
+  // is refused.
+  {
+    files: RENDERER_FILES,
+    rules: {
+      "check-file/filename-naming-convention": [
+        "error",
+        {
+          "**/*": `@(${KEBAB_NAME}|${PASCAL_NAME}|${HOOK_NAME})`,
+          "**/src/renderer/src/@(app|components|features|layout)/**/!(use[A-Z]*|*.test|*.test-support).tsx":
+            "PASCAL_CASE",
+          "**/hooks/**/!(*.test-support).{ts,tsx}": HOOK_NAME,
+        },
+        {
+          ignoreMiddleExtensions: true,
+          errorMessage: `"{{ target }}" breaks the renderer's file names: a component or page is PascalCase, a hook useThing, any other module kebab-case, and a test keeps its subject's name; see ${NAMING_RULES_SOURCE}`,
+        },
+      ],
+      "check-file/folder-naming-convention": [
+        "error",
+        {
+          "**/": `@(${KEBAB_NAME}|${PASCAL_NAME})`,
+          "!(components|layout)/+([A-Z])*/": "KEBAB_CASE",
+          "components/*/": "PASCAL_CASE",
+          "layout/*/": "PASCAL_CASE",
+        },
+        {
+          errorMessage: `Folder "{{ target }}" breaks the renderer's folder names: a shared component or group owner directly under components/ or layout/ is PascalCase, every other folder kebab-case; see ${NAMING_RULES_SOURCE}`,
         },
       ],
     },
