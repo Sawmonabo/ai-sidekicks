@@ -112,10 +112,42 @@ export const DriverCompactionResultSchema: z.ZodType<
 ]);
 
 /**
+ * The binding a provider-command enumeration was read under: the `(driverName, providerAccountId)`
+ * routing pair a group and each of its entries carry. `providerAccountId` is `null` when the
+ * session bound no account.
+ */
+export interface ProviderCommandBinding {
+  driverName: ProviderName;
+  providerAccountId: string | null;
+}
+
+/** Validates a {@link ProviderCommandBinding}. Strict: an unknown key is a driver bug. */
+export const ProviderCommandBindingSchema: z.ZodType<
+  ProviderCommandBinding,
+  ProviderCommandBinding
+> = z
+  .object({
+    driverName: ProviderNameSchema,
+    // Nullable, not `.optional()`: an account-less session is real (the account registry is a
+    // spawn-time binding not every leg carries) and `null` states that none was bound. An absent
+    // key would look like a driver that forgot to report one, and a placeholder (`""`, "unknown",
+    // the driver name) would make the routing invariant unenforceable while looking enforced,
+    // since two account-less bindings on different providers would compare equal on the half of
+    // the pair meant to separate them.
+    //
+    // `null` matches nothing, never a wildcard: an account-less enumeration can be read but never
+    // used to route a dispatch onto another binding. That is the consumer's obligation, not
+    // something this schema enforces. A driver also reports `null` when it has no reader for the
+    // account registry (neither establishment params object carries an account id); the
+    // obligation reads the same on both, so neither authorizes a dispatch onto another binding.
+    providerAccountId: z.string().min(1).nullable(),
+  })
+  .strict();
+
+/**
  * One enumerated provider command or skill. `binding` is the routing key, carried with the data so
- * a consumer cannot lose it by filtering a held list instead of re-reading; its
- * `providerAccountId` is nullable because a session need not have bound an account. The driver does
- * not filter: a disabled entry is returned, since dropping it would stop the result being the
+ * a consumer cannot lose it by filtering a held list instead of re-reading. The driver does not
+ * filter: a disabled entry is returned, since dropping it would stop the result being the
  * provider's enumeration as observed and hide the difference between a disabled command and one
  * that does not exist. `enabled` governs offerability, not presence. This is enumeration and
  * discovery, not a dispatch channel: the only entry the driver sends is the compaction command,
@@ -137,7 +169,7 @@ export interface ProviderCommandEntry {
   // Claude handshake enumeration draws no such distinction). Absent means no distinction on this
   // surface, never an unknown state, and never a driver-synthesized `true`.
   enabled?: boolean | undefined;
-  binding: { driverName: ProviderName; providerAccountId: string | null };
+  binding: ProviderCommandBinding;
 }
 
 /**
@@ -159,25 +191,7 @@ export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, Provide
       "ProviderCommandEntry.scope",
     ).optional(),
     enabled: z.boolean().optional(),
-    binding: z
-      .object({
-        driverName: ProviderNameSchema,
-        // Nullable, not `.optional()`: an account-less session is real (the account registry is a
-        // spawn-time binding not every leg carries) and `null` states that none was bound. An
-        // absent key would look like a driver that forgot to report one, and a placeholder (`""`,
-        // "unknown", the driver name) would make the routing invariant unenforceable while looking
-        // enforced, since two account-less bindings on different providers would compare equal on
-        // the half of the pair meant to separate them.
-        //
-        // `null` matches nothing, never a wildcard: an account-less enumeration can be read but
-        // never used to route a dispatch onto another binding. That is the consumer's obligation,
-        // not something this schema enforces. A driver also reports `null` when it has no reader
-        // for the account registry (neither establishment params object carries an account id);
-        // the obligation reads the same on both, so neither authorizes a dispatch onto another
-        // binding.
-        providerAccountId: z.string().min(1).nullable(),
-      })
-      .strict(),
+    binding: ProviderCommandBindingSchema,
   })
   .strict();
 
@@ -197,7 +211,7 @@ export interface ProviderCommandBindingGroup {
   // fallback is rejected: a never-cleared id naming a retired run is false provenance, worse than
   // the honest `null`.
   runId: RunId | null;
-  binding: { driverName: ProviderName; providerAccountId: string | null };
+  binding: ProviderCommandBinding;
   entries: ProviderCommandEntry[];
   complete: boolean;
 }

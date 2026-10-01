@@ -5,6 +5,7 @@ import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   ProviderCommandEntrySchema,
   ProviderOutputSpeedStateSchema,
+  type ProviderCommandBinding,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
   type ProviderOutputSpeedState,
@@ -178,7 +179,7 @@ export class ClaudeHandshakeRegister {
   #composeProviderCommandEntries(
     sessionId: SessionId,
     declaration: ClaudeHandshakeDeclaration,
-    binding: ProviderCommandEntry["binding"],
+    binding: ProviderCommandBinding,
   ): ProviderCommandEntry[] {
     const entries: ProviderCommandEntry[] = [];
     const admit = (candidate: ProviderCommandEntry): void => {

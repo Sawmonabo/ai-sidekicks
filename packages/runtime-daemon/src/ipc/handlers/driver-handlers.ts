@@ -29,6 +29,7 @@ import type {
   ListModesResult,
   ListProviderCommandsRequest,
   MethodRegistry,
+  ProviderCommandBinding,
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
   ProviderName,
@@ -445,10 +446,7 @@ function verifyDriverStampedRoutingPair(
   group: ProviderCommandBindingGroup,
   expected: ResolvedAgentBinding,
 ): void {
-  const pairMatches = (stamped: {
-    driverName: string;
-    providerAccountId: string | null;
-  }): boolean =>
+  const pairMatches = (stamped: ProviderCommandBinding): boolean =>
     stamped.driverName === expected.driverName &&
     stamped.providerAccountId === expected.providerAccountId;
 
