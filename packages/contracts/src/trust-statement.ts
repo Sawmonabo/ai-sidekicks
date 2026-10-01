@@ -202,7 +202,6 @@ export const TRUST_STATEMENT_KINDS = [
   "runtimenode.added",
   "runtimenode.renamed",
   "runtimenode.removed",
-  "runtimenode.key_rotated",
 ] as const;
 /** One statement kind. */
 export type TrustStatementKind = (typeof TRUST_STATEMENT_KINDS)[number];
@@ -274,16 +273,6 @@ export interface RuntimeNodeRemovedStatement extends TrustStatementBase {
   kind: "runtimenode.removed";
   nodeId: NodeId;
 }
-/**
- * A machine's new identity and channel keys replace its old ones. Signed by the old
- * key and the new one, so every device moves its pin without linking again.
- */
-export interface RuntimeNodeKeyRotatedStatement extends TrustStatementBase {
-  kind: "runtimenode.key_rotated";
-  nodeId: NodeId;
-  identityKey: MachineIdentityKey;
-  channelKey: ChannelPublicKey;
-}
 
 /** One statement of the account's chain. */
 export type TrustStatement =
@@ -294,8 +283,7 @@ export type TrustStatement =
   | PasskeyRemovedStatement
   | RuntimeNodeAddedStatement
   | RuntimeNodeRenamedStatement
-  | RuntimeNodeRemovedStatement
-  | RuntimeNodeKeyRotatedStatement;
+  | RuntimeNodeRemovedStatement;
 
 const NameSchema = wireFreeFormString(MACHINE_OR_DEVICE_NAME_MAX_LEN, "name");
 const PlatformSchema = wireFreeFormString(PLATFORM_DESCRIPTION_MAX_LEN, "platform");
@@ -362,18 +350,6 @@ const runtimeNodeRenamedStatementObject = z
 const runtimeNodeRemovedStatementObject = z
   .object({ kind: z.literal("runtimenode.removed"), ...statementBase, nodeId: NodeIdSchema })
   .strict();
-const runtimeNodeKeyRotatedStatementObject = z
-  .object({
-    kind: z.literal("runtimenode.key_rotated"),
-    ...statementBase,
-    // Signed by the machine's old key and its new one: a rotation one key signs alone
-    // would let a stolen key move every device's pin.
-    signatures: z.array(TrustStatementSignatureSchema).min(2),
-    nodeId: NodeIdSchema,
-    identityKey: MachineIdentityKeySchema,
-    channelKey: ChannelPublicKeySchema,
-  })
-  .strict();
 
 /** Parses a {@link DeviceLinkedStatement}. */
 export const DeviceLinkedStatementSchema: z.ZodType<DeviceLinkedStatement, DeviceLinkedStatement> =
@@ -411,6 +387,5 @@ export const TrustStatementSchema: z.ZodType<TrustStatement, TrustStatement> = z
     runtimeNodeAddedStatementObject,
     runtimeNodeRenamedStatementObject,
     runtimeNodeRemovedStatementObject,
-    runtimeNodeKeyRotatedStatementObject,
   ],
 );
