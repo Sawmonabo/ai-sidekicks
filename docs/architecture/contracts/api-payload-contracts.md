@@ -40,7 +40,7 @@ This file does **NOT** maintain doc-side mirrors of those types. A consumer sear
 
 Cross-cutting shapes (procedure-type tables, method-name regexes, brand-type catalogs) are declared in this file; package-local interface shapes are not.
 
-**Three spellings for a member that may have no value, one per situation.** A state row that reports a fact spells it required and nullable (`costLimitUsdMicros: number | null`): the member is always present, and `null` is the fact that no limit is set, never a member the writer forgot. A patch that can clear a value spells it optional and nullable (`costLimitUsdMicros?: number | null`): an omitted member leaves the stored value as it stands, and an explicit `null` clears it, the merge-patch reading (RFC 7386). A create-time request that is never patched spells it plain optional (`tokenLimit?: number`): omitted means the default, and there is no stored value to clear. Every schema mirrors the spelling of the shape it validates, and a reader that cannot tell "absent" from "cleared" is a defect in the schema, not a case to handle in the caller.
+**Three spellings for a member that may have no value, one per situation.** A state row that reports a fact spells it required and nullable (`spendLimitUsdMicros: number | null`): the member is always present, and `null` is the fact that no limit is set, never a member the writer forgot. A patch that can clear a value spells it optional and nullable (`spendLimitUsdMicros?: number | null`): an omitted member leaves the stored value as it stands, and an explicit `null` clears it, the merge-patch reading (RFC 7386). A create-time request that is never patched spells it plain optional (`tokenLimit?: number`): omitted means the default, and there is no stored value to clear. Every schema mirrors the spelling of the shape it validates, and a reader that cannot tell "absent" from "cleared" is a defect in the schema, not a case to handle in the caller.
 
 ---
 
@@ -951,7 +951,7 @@ interface SessionMaxStepsUpdateResponse {
 // read is, so a reply and an immediately following `orchestration.budgetRead` carry the same figures.
 interface SessionSpendLimitUpdateRequest {
   sessionId: SessionId;
-  costLimitUsdMicros: number | null;
+  spendLimitUsdMicros: number | null;
 }
 interface SessionTokensPerRunUpdateRequest {
   sessionId: SessionId;
@@ -2895,7 +2895,7 @@ interface DaemonConfig {
   runTimeLimit: "none" | "30m" | "1h" | "4h" | "12h" | "24h"; // `Stop a run after`
   workflowChainAskAfterRuns: number | null; // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never ask`
   maxStepsPerTurn: number | null; // null is `Unlimited`: each provider does what it does on its own
-  costLimitUsdMicros: number | null; // `Spend limit`, what each new session starts from; null is `Unlimited`
+  spendLimitUsdMicros: number | null; // `Spend limit`, what each new session starts from; null is `Unlimited`
   tokensPerRun: number | null; // `Tokens per run`, what each new session starts from; null is `Unlimited`
   toolMemoryCapBytes: number | null;
   toolMemoryCapEnforceable: boolean;
@@ -5648,10 +5648,10 @@ interface OrchestrationBudgetReadRequest {
 }
 interface OrchestrationBudgetState {
   sessionId: SessionId;
-  costLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
+  spendLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
   tokensPerRun: number | null; // the session's `Tokens per run`, input and output together for one run; null = `Unlimited`, the default
-  // The ENFORCED number: what admission compares against costLimitUsdMicros wherever a limit is set
-  // (with costLimitUsdMicros null nothing is compared and admission is never refused on cost), and the one
+  // The ENFORCED number: what admission compares against spendLimitUsdMicros wherever a limit is set
+  // (with spendLimitUsdMicros null nothing is compared and admission is never refused on cost), and the one
   // session cost figure a surface shows — never a sum over a visible run list (Spec-014 §Cost Figure
   // Display Consistency; Plan-014 I-014-24). The budget accountant folds it from the persisted
   // usage.cost_update rows alone: each request is priced once, at completion, from the live price table
