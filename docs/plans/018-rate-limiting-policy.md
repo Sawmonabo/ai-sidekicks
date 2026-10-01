@@ -294,7 +294,7 @@ The phase builds on the shipped contracts package.
 
 #### Tasks
 
-- **T21.4-1 — AC-anchored integration verification (`packages/control-plane/integration/`).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 + every rate-limit header, `Retry-After` per formula, and the first request after the window frees → allowed; (2) on the Cloudflare runner, 21 `auth.endpoint` requests from one address split across two simulated edge locations → the 21st refused; (3) a counter error fails that one request, and the next request is counted.
+- **T21.4-1 — AC-anchored integration verification (`packages/control-plane/src/rate-limit/__tests__/`).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 + every rate-limit header, `Retry-After` per formula, and the first request after the window frees → allowed; (2) on the Cloudflare runner, 21 `auth.endpoint` requests from one address split across two simulated edge locations → the 21st refused; (3) a counter error fails that one request, and the next request is counted.
   - **Spec coverage:** Spec-019 §Acceptance Criteria, Spec-019 §Fallback Behavior, Spec-019 §Example Flows (the auth-endpoint example)
   - **Verifies invariant:** I-018-1
   - **Consumes:** all prior phases.
@@ -310,10 +310,10 @@ The phase builds on the shipped contracts package.
 
 The per-task test obligations live in each `#### Tasks` row above. Summary by layer:
 
-- **Unit (`packages/control-plane/src/rate-limit/*.test.ts`, `src/middleware/*.test.ts`):** factory rows; DO single-alarm re-arm, restart persistence, full-expiry eviction and the counter; the in-memory counter's window expiry; pipeline rows; middleware address and header rows.
+- **Unit (`packages/control-plane/src/rate-limit/__tests__/`, `src/middleware/__tests__/`):** factory rows; DO single-alarm re-arm, restart persistence, full-expiry eviction and the counter; the in-memory counter's window expiry; pipeline rows; middleware address and header rows.
 - **Contracts (`packages/contracts/src/__tests__/`):** full envelope acceptance / rejection of an envelope missing a field or half-timed (T21.1-4). The registry-key union snapshot runs with the control plane's rate-limit tests (T21.1-4).
 - **Contract parity suite (`rate-limiter-contract-suite.ts`):** the I-018-2 proof, run against both implementations in CI and re-run by the self-host relay node (T21.2-6; CP-018-2).
-- **Integration (`packages/control-plane/integration/`):** the AC-anchored rows of T21.4-1.
+- **Integration (`packages/control-plane/src/rate-limit/__tests__/`):** the AC-anchored rows of T21.4-1.
 - **Structural:** the daemon's import boundary is an ESLint `no-restricted-imports` rule (T21.3-3), checked by `pnpm lint`; no test parses sources for it.
 
 ## Rollout Order
