@@ -277,33 +277,15 @@ describe("resolveCostUpdateProvenance", () => {
     grossDivergenceFactor: 10,
   };
 
-  it("the native-cap path emits an unpriced update with no costUsdMicros", () => {
-    const resolved = resolveCostUpdateProvenance({
-      ...ladderDefaults,
-      providerReportedCostUsdMicros: null,
-      derivedQuote: null,
-      nativeCapAdmitted: true,
-      diagnostics: makeDiagnostics(),
-    });
-    expect(resolved).toEqual({
-      resolution: "cost-update",
-      costStatus: "unpriced",
-      costSource: "unpriced_native_cap",
-    });
-    expect("costUsdMicros" in resolved).toBe(false);
-  });
-
   it("a sane provider-emitted cost resolves provider_reported", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
       providerReportedCostUsdMicros: 42,
       derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
-      nativeCapAdmitted: false,
       diagnostics: makeDiagnostics(),
     });
     expect(resolved).toEqual({
       resolution: "cost-update",
-      costStatus: "priced",
       costSource: "provider_reported",
       costUsdMicros: 42,
     });
@@ -315,12 +297,10 @@ describe("resolveCostUpdateProvenance", () => {
         ...ladderDefaults,
         providerReportedCostUsdMicros: badReportedUsdMicros,
         derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
-        nativeCapAdmitted: false,
         diagnostics: makeDiagnostics(),
       });
       expect(resolved).toEqual({
         resolution: "cost-update",
-        costStatus: "priced",
         costSource: "derived_exact",
         costUsdMicros: 40,
       });
@@ -332,26 +312,23 @@ describe("resolveCostUpdateProvenance", () => {
       ...ladderDefaults,
       providerReportedCostUsdMicros: null,
       derivedQuote: { costUsdMicros: 33, familyMatch: "prefix" },
-      nativeCapAdmitted: false,
       diagnostics: makeDiagnostics(),
     });
     expect(resolved).toEqual({
       resolution: "cost-update",
-      costStatus: "priced",
       costSource: "derived_family_prefix",
       costUsdMicros: 33,
     });
   });
 
-  it("a genuinely unpriceable model without native-cap admission fails closed to the budget-warning arm", () => {
+  it("holds a request on a model the price list does not price, with no made-up cost", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
       providerReportedCostUsdMicros: null,
       derivedQuote: null,
-      nativeCapAdmitted: false,
       diagnostics: makeDiagnostics(),
     });
-    expect(resolved).toEqual({ resolution: "budget-warning", reason: "unpriced-model" });
+    expect(resolved).toEqual({ resolution: "held-until-priced" });
   });
 });
 

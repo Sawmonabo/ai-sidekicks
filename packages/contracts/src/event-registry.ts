@@ -125,7 +125,6 @@ export type SessionEventType =
   | "usage.token_count"
   | "usage.cost_update"
   | "usage.context_window_update"
-  | "usage.budget_warning"
   | "usage.rate_limit_update"
   | "usage.api_retry"
   | "usage.context_compacted"
@@ -417,7 +416,6 @@ export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] = [
   "usage.token_count",
   "usage.cost_update",
   "usage.context_window_update",
-  "usage.budget_warning",
   "usage.rate_limit_update",
   "usage.api_retry",
   "usage.context_compacted",

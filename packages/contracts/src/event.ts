@@ -222,7 +222,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "usage.token_count": "usage_telemetry",
   "usage.cost_update": "usage_telemetry",
   "usage.context_window_update": "usage_telemetry",
-  "usage.budget_warning": "usage_telemetry",
   "usage.rate_limit_update": "usage_telemetry",
   "usage.api_retry": "usage_telemetry",
   "usage.context_compacted": "usage_telemetry",

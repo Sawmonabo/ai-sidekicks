@@ -65,13 +65,4 @@ describe("run.queued", () => {
     const { resolvedAgent: _agent, ...leadRun } = CHILD_FROM_DEFINITION;
     expect(RunQueuedPayloadSchema.safeParse(leadRun).success).toBe(true);
   });
-
-  it("stamps the admitted cap in whole micro-dollars", () => {
-    expect(
-      RunQueuedPayloadSchema.safeParse({
-        ...CHILD_FROM_DEFINITION,
-        admittedUnpricedCapUsdMicros: 2.5,
-      }).success,
-    ).toBe(false);
-  });
 });

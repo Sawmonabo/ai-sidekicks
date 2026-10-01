@@ -371,18 +371,11 @@ export class UsageDeltaAccountant {
 }
 
 // --------------------------------------------------------------------------
-// Cost-update provenance: three-tier cost resolution and native-cap provenance.
+// Cost-update provenance: the provider's figure, else the price table's.
 // --------------------------------------------------------------------------
 
-/** The cost-status values of a cost update. */
-type UsageCostStatus = "priced" | "unpriced";
-
-/** The four cost-provenance values of a cost update. */
-type UsageCostSource =
-  | "provider_reported"
-  | "derived_exact"
-  | "derived_family_prefix"
-  | "unpriced_native_cap";
+/** The cost-provenance values of a cost update. */
+type UsageCostSource = "provider_reported" | "derived_exact" | "derived_family_prefix";
 
 /**
  * A pricing-table answer: whole micro-dollars derived from the provider's full breakdown, and
@@ -395,37 +388,25 @@ export interface DerivedCostQuote {
 }
 
 /**
- * The resolved outcome for one usage frame's cost. A genuinely unpriceable model is not a
- * `usage.cost_update`: it emits `usage.budget_warning { reason: 'unpriced-model' }`, so the
- * union keeps the two emissions apart. `costUsdMicros` is absent on the unpriced arm because no
- * per-update value is derivable; the USD bound lives on the run's `admittedUnpricedCapUsdMicros`.
- * The arms partition the two enums above, so widening an enum without placing the new value on
- * an arm is a compile error.
+ * The resolved outcome for one usage frame's cost. A model the price list does not yet price is
+ * not a `usage.cost_update`: its request is held with its exact tokens until the list prices it,
+ * never given a made-up or zero cost.
  */
 export type CostUpdateResolution =
   | {
       readonly resolution: "cost-update";
-      readonly costStatus: Extract<UsageCostStatus, "priced">;
-      readonly costSource: Exclude<UsageCostSource, "unpriced_native_cap">;
+      readonly costSource: UsageCostSource;
       readonly costUsdMicros: number;
     }
-  | {
-      readonly resolution: "cost-update";
-      readonly costStatus: Extract<UsageCostStatus, "unpriced">;
-      readonly costSource: Extract<UsageCostSource, "unpriced_native_cap">;
-      readonly costUsdMicros?: never;
-    }
-  | { readonly resolution: "budget-warning"; readonly reason: "unpriced-model" };
+  | { readonly resolution: "held-until-priced" };
 
 /**
  * Resolve one `usage.cost_update`'s provenance ladder: (a) a sanity-bounded provider-reported
  * cost (finite, non-negative, below the absurdity ceiling) is `provider_reported`, and gross
  * divergence from a derivable estimate is a diagnostic, never a halt; (b) else a cost derived
  * from the provider's full breakdown and the per-model-family pricing table is `derived_exact`
- * or `derived_family_prefix`; (c) a native-cap run is unpriced by provenance
- * (`unpriced_native_cap`, no `costUsdMicros`); (d) else a genuinely unpriceable model gets the
- * budget-warning arm, never a fabricated price or a zero cost. This never halts and never
- * branches on `costSource`.
+ * or `derived_family_prefix`; (c) else the request is held until the price list prices it. This
+ * never halts and never branches on `costSource`.
  */
 export function resolveCostUpdateProvenance(options: {
   readonly provider: ProviderName;
@@ -433,8 +414,6 @@ export function resolveCostUpdateProvenance(options: {
   readonly providerReportedCostUsdMicros: number | null;
   /** The pricing-table derivation, or null for an unpriceable model. */
   readonly derivedQuote: DerivedCostQuote | null;
-  /** Whether this run was owner-admitted under a native cap. */
-  readonly nativeCapAdmitted: boolean;
   readonly absurdityCeilingUsdMicros: number;
   /** Reported-vs-derived ratio beyond which divergence is diagnosed. */
   readonly grossDivergenceFactor: number;
@@ -469,7 +448,6 @@ export function resolveCostUpdateProvenance(options: {
       }
       return {
         resolution: "cost-update",
-        costStatus: "priced",
         costSource: "provider_reported",
         costUsdMicros: reportedUsdMicros,
       };
@@ -494,16 +472,12 @@ export function resolveCostUpdateProvenance(options: {
   if (options.derivedQuote !== null) {
     return {
       resolution: "cost-update",
-      costStatus: "priced",
       costSource:
         options.derivedQuote.familyMatch === "exact" ? "derived_exact" : "derived_family_prefix",
       costUsdMicros: options.derivedQuote.costUsdMicros,
     };
   }
-  if (options.nativeCapAdmitted) {
-    return { resolution: "cost-update", costStatus: "unpriced", costSource: "unpriced_native_cap" };
-  }
-  return { resolution: "budget-warning", reason: "unpriced-model" };
+  return { resolution: "held-until-priced" };
 }
 
 // --------------------------------------------------------------------------

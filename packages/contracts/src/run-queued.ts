@@ -7,7 +7,6 @@ import { AgentListEntrySchema, type AgentListEntry } from "./agent.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
 import { DRIVER_WIRE_HANDLE_MAX_LEN } from "./provider-driver-wire.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 /**
@@ -45,8 +44,7 @@ const EffectiveRunConfigSchema: z.ZodType<EffectiveRunConfig> = z
  * `agentId` names an agent already in the session; `resolvedAgent` is one the daemon minted from
  * a saved definition with this run, with the configuration it was resolved from. A payload
  * carries one or the other, never both, and neither for the lead's run. The `admitted*` stamps
- * (unpriced cap of a native-cap admission, model family, account) are set by the daemon, never a
- * client. A type rather than an interface so it meets the envelope's open payload record.
+ * (model family, account) are set by the daemon, never a client. A type rather than an interface so it meets the envelope's open payload record.
  */
 export type RunQueuedPayload = {
   sessionId: SessionId;
@@ -59,7 +57,6 @@ export type RunQueuedPayload = {
   internalHelper?: boolean | undefined;
   effectiveRunConfig?: EffectiveRunConfig | undefined;
   resolvedAgent?: AgentListEntry | undefined;
-  admittedUnpricedCapUsdMicros?: number | undefined;
   admittedModelFamily?: string | undefined;
   admittedProviderAccountId?: ProviderAccountId | undefined;
 };
@@ -76,7 +73,6 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     internalHelper: z.boolean().optional(),
     effectiveRunConfig: EffectiveRunConfigSchema.optional(),
     resolvedAgent: AgentListEntrySchema.optional(),
-    admittedUnpricedCapUsdMicros: UsdMicrosSchema.optional(),
     admittedModelFamily: wireFreeFormString(
       DRIVER_WIRE_HANDLE_MAX_LEN,
       "RunQueuedPayload.admittedModelFamily",
