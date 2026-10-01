@@ -1,7 +1,8 @@
 // EventLogService: the only durable append path for `session_events`. Three obligations are only
 // jointly satisfiable in `append()` under one lock:
-// - Serialization: `withSessionAppendLock` keeps two appends from allocating the same `sequence`
-//   across the awaits between reading the head and writing the row.
+// - Serialization: `append()` reads the head and writes the row with no await between, and takes
+//   `withSessionAppendLock` so it waits behind a caller holding the session across its own
+//   read-decide-write instead of landing between that caller's read and its write.
 // - Content: machine-authored prose is kept in `content_payload` beside the event, and the payload
 //   gains the members that describe it; both are written as a unit.
 // Dual-write: `options.transactionalPrelude` is a synchronous closure run in the same transaction

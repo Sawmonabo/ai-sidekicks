@@ -1,12 +1,13 @@
-// Per-session append mutex: serializes the read-head-then-write-successor step of every event
-// append. Imports only contracts, never its consumers, so the module graph stays a tree and the
+// Per-session append mutex: lets a caller read, decide and append as one step on a session.
+// Imports only contracts, never its consumers, so the module graph stays a tree and the
 // module-level state below cannot be read before it is initialized.
 //
-// - `session_events.sequence` is the previous row's plus one, and the append path awaits between
-//   reading the head and writing the row. Two concurrent appends
-//   on one session would derive the same sequence and one would fail on
-//   `UNIQUE(session_id, sequence)`. A better-sqlite3 transaction cannot span an `await`.
-// - The scope is one session, so a slow key ceremony on one session never blocks another.
+// - `append()` reads the head and writes the row with no await between, so two appends alone
+//   cannot derive one `sequence`. The lock is for a caller whose decision spans awaits, such as
+//   a terminal run event's check, state swap and append: a better-sqlite3 transaction cannot span
+//   an `await`, so the hold keeps any other append on that session waiting until the caller has
+//   written. The purge takes it too, so it never deletes between such a caller's read and write.
+// - The scope is one session, so a long hold on one session never blocks another.
 // - The lock is process-local. Two daemon processes on one database file are caught only by the
 //   unique constraint, which fails loudly instead of duplicating a sequence.
 // - Callers nest: a producer holds the lock across its read-decide-write and calls `append()`
