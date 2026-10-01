@@ -1,5 +1,6 @@
 // ESLint flat config. It uses only non-type-aware rules, so lint-staged feedback stays sub-second.
 import js from "@eslint/js";
+import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 /**
@@ -24,7 +25,7 @@ export const ENUM_DECLARATION = {
     "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
 };
 
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: [
       "**/dist/**",
@@ -45,7 +46,7 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  tseslint.configs.recommended,
   {
     languageOptions: {
       ecmaVersion: "latest",

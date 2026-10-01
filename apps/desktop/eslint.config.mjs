@@ -32,6 +32,7 @@ import {
   TIME_READING_EXEMPT_FILES,
   TIME_READING_SELECTORS,
 } from "./eslint.restricted-syntax.mjs";
+import { defineConfig } from "eslint/config";
 import perfectionist from "eslint-plugin-perfectionist";
 import root, { ENUM_DECLARATION } from "../../eslint.config.mjs";
 
@@ -473,8 +474,8 @@ const CLASS_SECTION_GROUPS = [
   "unknown",
 ];
 
-export default [
-  ...root,
+export default defineConfig(
+  root,
   // `src/shared/**` is imported by both processes, so all of it is bundled into the renderer. The
   // renderer ban below is scoped to `src/renderer/src/**`, so without this block a `node:fs` import
   // could reach the renderer bundle through a shared module and pass lint. It restates the
@@ -882,4 +883,4 @@ export default [
       "perfectionist/sort-classes": ["error", { type: "unsorted", groups: CLASS_SECTION_GROUPS }],
     },
   },
-];
+);
