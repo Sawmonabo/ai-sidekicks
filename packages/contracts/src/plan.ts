@@ -99,10 +99,10 @@ export const PlanHandedOffPayloadSchema: z.ZodType<PlanHandedOffPayload> = z
   .strict();
 
 /**
- * The session a `fresh` verdict mints: the provider it runs. Everything else is the planning
- * session's: its level, the same project and worktree, the provider's current account, and the
- * plan as the seed. Where that provider cannot give the planning session's level, the hand-off is
- * refused naming the level.
+ * The session a `fresh` verdict mints: the provider it runs. It starts at the planning session's
+ * level or, where that provider cannot give it, at one of that provider's levels the person picks;
+ * the rest is the planning session's: the same project and worktree, the provider's current
+ * account, and the plan as the seed.
  */
 export interface PlanFreshSession {
   driverName: ProviderName;
