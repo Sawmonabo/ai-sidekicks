@@ -44,7 +44,8 @@ const EffectiveRunConfigSchema: z.ZodType<EffectiveRunConfig> = z
  * `agentId` names an agent already in the session; `resolvedAgent` is one the daemon minted from
  * a saved definition with this run, with the configuration it was resolved from. A payload
  * carries one or the other, never both, and neither for the lead's run. The `admitted*` stamps
- * (model family, account) are set by the daemon, never a client. A type rather than an interface so it meets the envelope's open payload record.
+ * (model family, account) are set by the daemon, never a client. A type rather than an interface
+ * so it meets the envelope's open payload record.
  */
 export type RunQueuedPayload = {
   sessionId: SessionId;
