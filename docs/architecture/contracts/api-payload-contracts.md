@@ -8346,7 +8346,10 @@ interface ProviderAccountRemoveResponse {
 // `agent.provider_binding_change_failed`, reason `account_unavailable`: the session stays on the
 // account it had — where the new login fails at the next request, the daemon hands the previous
 // account back — and the transcript gains one system message naming the switch and the reason.
-// Those events are the settlement; this reply is not.
+// Those events are the settlement; this reply is not. A session at a level its new account cannot run
+// (`Reviewed` on a Claude Code account whose plan lacks auto mode) moves with the rest and runs at
+// `Ask`; it gains one `session.notice` of kind `level_unavailable` naming the level it left, whose
+// flow row reads "Reviewed isn't available on this Claude Code account". Nothing is blocked.
 //
 // NO PER-SESSION SWITCH VERB EXISTS. `agent.configUpdate` carries no account member (§Plan-014): one
 // control setting one fact is what stops a session sitting on an account the provider surface says
