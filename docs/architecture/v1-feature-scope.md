@@ -6,7 +6,7 @@ This document records the V1 feature scope for the product: the features V1 ship
 
 ## V1 Features (21)
 
-Every V1 feature has a governing spec; feature #24 (Remote Control) is governed by [Spec-028](../specs/028-remote-control.md). Feature numbers are stable identifiers cited from other documents, so the list is never renumbered and some numbers are unused. Cross-cutting V1 specs (identity, observability, rate limiting, data retention) are listed separately in §Supporting V1 Specs below.
+Every V1 feature has a governing spec; feature #24 (Remote Control) is governed by [Spec-028](../specs/028-remote-control.md). Feature numbers run with no gaps; removing a feature renumbers the ones after it and every reference to them. Cross-cutting V1 specs (identity, observability, rate limiting, data retention) are listed separately in §Supporting V1 Specs below.
 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
