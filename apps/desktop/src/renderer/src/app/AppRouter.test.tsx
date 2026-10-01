@@ -15,7 +15,7 @@ import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { PaneHarnessScreen } from "./pane-harness/PaneHarnessScreen.js";
-import { AppRouter } from "./router.js";
+import { AppRouter } from "./AppRouter.js";
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 

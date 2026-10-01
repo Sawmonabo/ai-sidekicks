@@ -5,7 +5,7 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { AppProviders } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/AppProviders.js";
 import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 

@@ -24,7 +24,7 @@ import {
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { AppProviders } from "@renderer/app/providers.js";
+import { AppProviders } from "@renderer/app/AppProviders.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";

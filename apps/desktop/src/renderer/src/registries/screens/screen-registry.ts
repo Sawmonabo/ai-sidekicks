@@ -126,7 +126,7 @@ interface ScreenRegistrationBase {
   readonly owner: string;
 }
 
-/** The window's registry, which `app/providers.tsx` fills through `app/registrations.ts`. */
+/** The window's registry, which `app/AppProviders.tsx` fills through `app/registrations.ts`. */
 export const screenRegistry: ScreenRegistry = new ScreenRegistry();
 
 /** Which screen a route mounts. `undefined` for routes that mount no screen. */

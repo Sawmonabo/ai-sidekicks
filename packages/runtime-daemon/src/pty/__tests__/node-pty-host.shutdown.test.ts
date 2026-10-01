@@ -12,7 +12,7 @@ import type {
   TaskkillResult,
 } from "../node-pty-host.js";
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
-import { makeFakeChild } from "./_fakes.js";
+import { makeFakeChild } from "./pty-host.test-support.js";
 import type { SpawnRequest } from "../pty-host-protocol.js";
 import type { DrainResult } from "../pty-host.js";
 

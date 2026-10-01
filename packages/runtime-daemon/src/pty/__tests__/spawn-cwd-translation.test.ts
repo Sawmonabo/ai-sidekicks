@@ -11,7 +11,7 @@ import {
   makeFakeSidecarChild,
   parseFramesFromStdin,
   spawnReturning,
-} from "./_fakes.js";
+} from "./pty-host.test-support.js";
 import type { Envelope, SpawnRequest } from "../pty-host-protocol.js";
 
 interface PathFixture {

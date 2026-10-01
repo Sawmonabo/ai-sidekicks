@@ -14,7 +14,7 @@ import {
   makeFakeSidecarChild,
   parseFramesFromStdin,
   spawnReturning,
-} from "./_fakes.js";
+} from "./pty-host.test-support.js";
 
 // Distinctive, so a taskkill assertion names the sidecar's pid.
 const SIDECAR_PID = 67890;

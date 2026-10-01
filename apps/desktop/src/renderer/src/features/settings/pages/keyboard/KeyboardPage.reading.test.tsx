@@ -1,5 +1,5 @@
 // What the keyboard page draws when the set it reads moves: rows appear and vanish as the frame
-// registers and unregisters commands. Changes are in `KeyboardPage.rebinding.test.tsx`.
+// registers and unregisters commands. Changes are in `KeyboardPage.rebinding.test.ts`.
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { useEffect, useState } from "react";

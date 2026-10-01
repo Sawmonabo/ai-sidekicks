@@ -4,7 +4,7 @@
 // box change, the two triggers that would publish another sample; on screen that looks like a
 // session with no rows. The rect reaches the library only through the geometry chokepoint, so
 // this drives the shape the real tree uses: the hook in one component, the scroll container's
-// ref in a child, no scroll, resize or extra frame. `useTranscriptViewport.test.tsx` attaches
+// ref in a child, no scroll, resize or extra frame. `useTranscriptViewport.test.ts` attaches
 // by hand after the mount, which cannot answer the ref-callback versus layout-effect ordering.
 
 import { render } from "@testing-library/react";
