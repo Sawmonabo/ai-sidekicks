@@ -1,14 +1,18 @@
 // A capability readout, built the way the fixture's own scenario builds one. Shared so the
 // gating and command-contribution suites cannot disagree on what "declared nothing" looks like.
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+  type ProviderName,
+} from "@ai-sidekicks/contracts";
 import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import type { DeclaredDriverFlags } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
 /** A readout over the named reports, with the named run bindings. */
 export function capabilityReadout(
-  reports: readonly (readonly [string, readonly DriverCapabilityFlag[]])[],
-  bindings: readonly (readonly [string, string])[] = [],
+  reports: readonly (readonly [ProviderName, readonly DriverCapabilityFlag[]])[],
+  bindings: readonly (readonly [string, ProviderName])[] = [],
 ): DriverCapabilityReadout {
   return {
     flagsByDriverName: new Map(

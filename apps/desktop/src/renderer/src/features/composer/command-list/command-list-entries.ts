@@ -5,7 +5,7 @@
 // binding's group reaches the list, because a command enumerated under one binding is never
 // offered under another.
 
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
+import type { ProviderCommandBindingGroup, ProviderName } from "@ai-sidekicks/contracts";
 
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { ComposerTarget } from "../composer-target.js";
@@ -31,7 +31,7 @@ export interface ProviderCommandEntry {
   readonly scope: string | undefined;
   readonly enabled: boolean | undefined;
   /** The binding this entry was read under, carried with the entry rather than beside it. */
-  readonly driverName: string;
+  readonly driverName: ProviderName;
   /** `null` is the wire's positive statement that no account was bound. */
   readonly providerAccountId: string | null;
 }

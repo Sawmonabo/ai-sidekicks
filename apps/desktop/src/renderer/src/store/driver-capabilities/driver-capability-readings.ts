@@ -3,7 +3,7 @@
 // `services/driver-capabilities/driver-capability-read.ts`); each takes the readout it answers
 // about, and `undefined` is admitted because the read may not have answered yet.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag, ProviderName } from "@ai-sidekicks/contracts";
 
 import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-readout.js";
 
@@ -17,7 +17,7 @@ import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capa
  */
 export function withRunDriverBindings(
   readout: DriverCapabilityReadout | undefined,
-  driverNameByRunId: ReadonlyMap<string, string>,
+  driverNameByRunId: ReadonlyMap<string, ProviderName>,
 ): DriverCapabilityReadout | undefined {
   if (readout === undefined || driverNameByRunId.size === 0) {
     return readout;
@@ -31,7 +31,7 @@ export function withRunDriverBindings(
  */
 export function declaredFlagsForDriver(
   readout: DriverCapabilityReadout | undefined,
-  driverName: string | undefined,
+  driverName: ProviderName | undefined,
 ): DeclaredDriverFlags | undefined {
   if (readout === undefined || driverName === undefined) {
     return undefined;
@@ -63,7 +63,7 @@ export type DriverCapabilityReading = (typeof DRIVER_CAPABILITY_READINGS)[number
 export function boundDriverNameForRun(
   readout: DriverCapabilityReadout | undefined,
   runId: string,
-): string | undefined {
+): ProviderName | undefined {
   if (readout === undefined) {
     return undefined;
   }
@@ -78,7 +78,7 @@ export function boundDriverNameForRun(
  */
 export function readingForDriver(
   readout: DriverCapabilityReadout | undefined,
-  driverName: string | undefined,
+  driverName: ProviderName | undefined,
   flag: DriverCapabilityFlag,
 ): DriverCapabilityReading {
   const resolved =
@@ -110,7 +110,7 @@ export function readingForRun(
  * on a one-driver installation would take every capability-gated control off every run. With
  * two drivers reported the question really is unanswered.
  */
-function soleReportedDriverName(readout: DriverCapabilityReadout): string | undefined {
+function soleReportedDriverName(readout: DriverCapabilityReadout): ProviderName | undefined {
   if (readout.flagsByDriverName.size !== 1) {
     return undefined;
   }

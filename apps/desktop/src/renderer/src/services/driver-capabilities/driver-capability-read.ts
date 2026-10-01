@@ -9,6 +9,8 @@
 // reasons with no interval or retry loop, and a settled readout stays on screen during the next
 // read so a control does not vanish on every window focus.
 
+import type { ProviderName } from "@ai-sidekicks/contracts";
+
 import type { Refusal } from "@renderer/lib/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -25,11 +27,11 @@ import { type Clock } from "@renderer/lib/clock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /** No run has a named binding yet. */
-const NO_RUN_BINDINGS: ReadonlyMap<string, string> = new Map<string, string>();
+const NO_RUN_BINDINGS: ReadonlyMap<string, ProviderName> = new Map<string, ProviderName>();
 
 /** The declarations a failed read carries: none. */
-const NO_DECLARATIONS: ReadonlyMap<string, DeclaredDriverFlags> = new Map<
-  string,
+const NO_DECLARATIONS: ReadonlyMap<ProviderName, DeclaredDriverFlags> = new Map<
+  ProviderName,
   DeclaredDriverFlags
 >();
 
@@ -106,7 +108,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
       });
       return;
     }
-    const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
+    const flagsByDriverName = new Map<ProviderName, DeclaredDriverFlags>();
     for (const report of reply.value.drivers) {
       flagsByDriverName.set(report.driverName, report.capabilities.flags);
     }
