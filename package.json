@@ -19,7 +19,7 @@
     "test:mutation": "pnpm --filter './packages/*' --workspace-concurrency=1 --no-bail exec stryker run ../../stryker.config.json"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "0.18.2",
+    "@arethetypeswrong/cli": "0.18.5",
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
     "@eslint/js": "^10.0.1",
