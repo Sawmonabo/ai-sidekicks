@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
-| **Implementation Plan** | [Plan-018: Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md) |
+| **Implementation Plan** | [Plan-017: Observability And Failure Recovery](../plans/017-observability-and-failure-recovery.md) |
 
 ## Purpose
 
@@ -76,7 +76,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 ## Interfaces And Contracts
 
-- No `health.*` method exists. What a runtime surface prints about the service — whether it is answering, since when, its version, and how much of the machine's processor and memory it uses, each reading with the time it was taken — is `daemon.status.read` ([Plan-006 §Phase R1 — Namespace Handlers](../plans/006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)), which Settings › Runtime and `sidekicks daemon status` read, backed by the supervisor's own status.
+- No `health.*` method exists. What a runtime surface prints about the service — whether it is answering, since when, its version, and how much of the machine's processor and memory it uses, each reading with the time it was taken — is `daemon.status.read` ([Plan-005 §Phase R1 — Namespace Handlers](../plans/005-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)), which Settings › Runtime and `sidekicks daemon status` read, backed by the supervisor's own status.
 - A run's failure carries its machine-readable failure category on the run's state-transition event, with the recovery condition where one applies. For a provider process that exited, the session's record carries the exit code or signal the daemon observed and the last output the process produced, so the one-line statement is not the only evidence of why it went.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
@@ -94,7 +94,7 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 ### Required Behavior (policy)
 
 - **Nothing leaves the machine.** The daemon runs no telemetry exporter and sends no diagnostic content to any sink off the machine. The providers' own telemetry is pointed at the daemon on this machine and written to the service's own diagnostic logs, which drop it past `Keep diagnostic logs for`; none of it is forwarded to a telemetry destination the person set. Each request the daemon prices from it becomes an event on its session, the same spend event stream-priced requests write, so the inspector's `Cost` section counts it; it is never a transcript row. A crash report is built on the machine that crashed, stripped of personal data there, and kept there under `Keep crash reports`.
-- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-43)](015-workflow-authoring-and-execution.md#engine-event-record-sa-43) writes, per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) MUST apply a ≤ 7-day TTL by default. `Keep diagnostic logs for` sets the TTL and takes any period.
+- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-42)](015-workflow-authoring-and-execution.md#engine-event-record-sa-42) writes, per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) MUST apply a ≤ 7-day TTL by default. `Keep diagnostic logs for` sets the TTL and takes any period.
 - **Bound and erase.** Every diagnostic bucket that stores PII MUST drop its rows past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes it with the data folder. A diagnostic pipeline that keeps PII-carrying records outside both is a spec violation. There is no per-person flush.
 - **Summary-only retention.** Where high-volume tool traces are compacted, the summary form MUST be constructed from non-PII signals (counts, categories, durations) by construction. A summary derived by truncation of free-text input is NOT compliant because truncated PII is still PII.
 

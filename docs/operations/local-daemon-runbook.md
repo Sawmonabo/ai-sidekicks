@@ -86,6 +86,6 @@ sidekicks daemon start
 ## Related Plans
 
 - [Session Core](../plans/001-session-core.md)
-- [Queue Steer Pause Resume](../plans/003-queue-steer-pause-resume.md)
-- [Persistence Recovery And Replay](../plans/013-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md)
+- [Queue Steer Pause Resume](../plans/002-queue-steer-pause-resume.md)
+- [Persistence Recovery And Replay](../plans/012-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/017-observability-and-failure-recovery.md)

@@ -185,31 +185,31 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 
 ## V1 Scope
 
-V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Scope Definition](docs/decisions/015-v1-feature-scope-definition.md).
+V1 ships 21 core features across CLI and Desktop GUI per [ADR-014: V1 Feature Scope Definition](docs/decisions/014-v1-feature-scope-definition.md).
 
 | # | Feature | Description |
 | --- | --- | --- |
 | 1 | Session creation | Foundational session primitive; any of your linked devices can drive a session you own |
-| 4 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached through the relay |
-| 5 | Single-agent runs | Claude and Codex via provider drivers |
-| 6 | Queue, steer, pause, resume | Real runtime control and interventions |
-| 7 | Approval gates | 7 categories of human-in-the-loop safety |
-| 8 | Repo attach | Bind sessions to git repositories |
-| 9 | Worktree execution | Isolated branches per agent run |
-| 10 | Session timeline | Event-sourced session history, replayable |
-| 11 | Local daemon + CLI | First client over the typed SDK |
-| 13 | Event audit log | Event-sourced persistence backbone |
-| 14 | Artifacts | Diffs, files, and attachments; a session's artifacts stay on the machine that runs it, and every linked device reads them through Remote Control |
-| 15 | Desktop GUI | Electron main process + React/Vite renderer over the same typed SDK |
-| 16 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session timeline, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
-| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
-| 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-025](docs/specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](docs/plans/025-mcp-server-configuration-and-governance.md) |
-| 19 | Undo to an earlier message | Put back the conversation and the files, the conversation alone, or the files alone, as one request with one reported result; the conversation goes back through the provider's own cut and the files through the daemon's checkpoints, and every undo is recorded forward, so the log never truncates |
-| 20 | Session goals | `/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet; a session is never named by its goal |
-| 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |
-| 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets |
-| 23 | Voice (`/voice`) | Dictation into the composer on a Claude Code session; Codex's own realtime voice call on a Codex session |
-| 24 | Remote Control | Drive any session from any of your linked devices with full parity per [Spec-028](docs/specs/028-remote-control.md) + [Plan-028](docs/plans/028-remote-control.md) |
+| 2 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached through the relay |
+| 3 | Single-agent runs | Claude and Codex via provider drivers |
+| 4 | Queue, steer, pause, resume | Real runtime control and interventions |
+| 5 | Approval gates | 7 categories of human-in-the-loop safety |
+| 6 | Repo attach | Bind sessions to git repositories |
+| 7 | Worktree execution | Isolated branches per agent run |
+| 8 | Session timeline | Event-sourced session history, replayable |
+| 9 | Local daemon + CLI | First client over the typed SDK |
+| 10 | Event audit log | Event-sourced persistence backbone |
+| 11 | Artifacts | Diffs, files, and attachments; a session's artifacts stay on the machine that runs it, and every linked device reads them through Remote Control |
+| 12 | Desktop GUI | Electron main process + React/Vite renderer over the same typed SDK |
+| 13 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session timeline, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
+| 14 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-025](docs/decisions/025-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-024](docs/decisions/024-visual-node-graph-workflow-authoring.md) |
+| 15 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-024](docs/specs/024-mcp-server-configuration-and-governance.md) + [Plan-022](docs/plans/022-mcp-server-configuration-and-governance.md) |
+| 16 | Undo to an earlier message | Put back the conversation and the files, the conversation alone, or the files alone, as one request with one reported result; the conversation goes back through the provider's own cut and the files through the daemon's checkpoints, and every undo is recorded forward, so the log never truncates |
+| 17 | Session goals | `/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet; a session is never named by its goal |
+| 18 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |
+| 19 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets |
+| 20 | Voice (`/voice`) | Dictation into the composer on a Claude Code session; Codex's own realtime voice call on a Codex session |
+| 21 | Remote Control | Drive any session from any of your linked devices with full parity per [Spec-027](docs/specs/027-remote-control.md) + [Plan-025](docs/plans/025-remote-control.md) |
 
 ---
 
@@ -221,7 +221,7 @@ Phases still to build, and the order between them, live in [`docs/architecture/c
 
 ## Project Status
 
-Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-022](docs/plans/022-rust-pty-sidecar.md) Phases 4-5 wait on hardware and certificate procurement.
+Code execution is under way. What is left to build, and the order between the pieces, is [`docs/architecture/cross-plan-dependencies.md`](docs/architecture/cross-plan-dependencies.md). [Plan-021](docs/plans/021-rust-pty-sidecar.md) Phases 4-5 wait on hardware and certificate procurement.
 
 ---
 
@@ -244,4 +244,4 @@ Code execution is under way. What is left to build, and the order between the pi
 
 ## License
 
-AI Sidekicks is licensed under the [Apache License, Version 2.0](./LICENSE) — see [ADR-020](docs/decisions/020-v1-deployment-model-and-oss-license.md) for the deployment-model and license commitment.
+AI Sidekicks is licensed under the [Apache License, Version 2.0](./LICENSE) — see [ADR-019](docs/decisions/019-v1-deployment-model-and-oss-license.md) for the deployment-model and license commitment.

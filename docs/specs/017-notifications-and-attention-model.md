@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Desktop Architecture](../architecture/desktop.md), [Observability Architecture](../architecture/observability-architecture.md) |
-| **Implementation Plan** | [Plan-017: Notifications And Attention Model](../plans/017-notifications-and-attention-model.md) |
+| **Implementation Plan** | [Plan-016: Notifications And Attention Model](../plans/016-notifications-and-attention-model.md) |
 
 ## Purpose
 
@@ -20,7 +20,7 @@ This spec covers in-app attention state, the operating system's notification on 
 
 ## Non-Goals
 
-- The phone apps, the web client's service worker and the push senders themselves ([Spec-028](028-remote-control.md), [Spec-029](029-ios-remote-client.md)); this spec decides which moment reaches which device and when
+- The phone apps, the web client's service worker and the push senders themselves ([Spec-027](027-remote-control.md), [Spec-028](028-ios-remote-client.md)); this spec decides which moment reaches which device and when
 - Marketing or email campaigns; the email digest is a notification channel to the person's own address, never a campaign
 - A full on-call paging policy for the person
 
@@ -94,9 +94,9 @@ This spec covers in-app attention state, the operating system's notification on 
 
   Refusals: `attention.delivery_store_unavailable` (`cause: locked | unavailable`) and `attention.delivery_not_configured` (`missing: address | password`). Apart from the signing secret, returned once when it is made so the receiver can be set up, no secret is on any reply, event, log or error.
 
-- A push to another device is the daemon's `push.send` to the control plane, carrying a notice the machine has already sealed to that device's push key ([Spec-028](028-remote-control.md) owns the senders).
+- A push to another device is the daemon's `push.send` to the control plane, carrying a notice the machine has already sealed to that device's push key ([Spec-027](027-remote-control.md) owns the senders).
 - A notification click reaches the renderer through the main process's navigation member, `window.subscribeToNavigationRequest`, the same path a `sidekicks://` link takes ([Spec-021](021-desktop-app-and-renderer.md) owns the member).
-- None of these operations is built yet; [Plan-017 §Implementation Phase Sequence](../plans/017-notifications-and-attention-model.md#implementation-phase-sequence) names the task that builds each.
+- None of these operations is built yet; [Plan-016 §Implementation Phase Sequence](../plans/016-notifications-and-attention-model.md#implementation-phase-sequence) names the task that builds each.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
@@ -107,7 +107,7 @@ This spec covers in-app attention state, the operating system's notification on 
 - The notification switches are kept per machine and per device, in each one's own settings file. A device hands its own switches and kinds to every machine it links with, on every connection and whenever one changes; the machine keeps the copy it was last handed only to decide before it sends a push, and never edits it.
 - A session's mute is the session's own fact: `muted_at` on the session row, rebuilt from the `session.muted` and `session.unmuted` events and gone with the session.
 - Each entry keeps its own delivery facts: `bannerState`, `digested_at` once a digest has carried it, and `web_address_state` (`pending | delivered | undelivered`) with an attempt count. Each outside channel keeps one outcome row, overwritten on every attempt and removed with the channel's secret.
-- The web address, its signing secret and the mail password are sealed in the operating system's keychain by the daemon, beside the workflow secrets ([ADR-038](../decisions/038-workflow-secrets-in-the-os-keychain.md)); none is ever in the settings file or the app's own store.
+- The web address, its signing secret and the mail password are sealed in the operating system's keychain by the daemon, beside the workflow secrets ([ADR-036](../decisions/036-workflow-secrets-in-the-os-keychain.md)); none is ever in the settings file or the app's own store.
 - A push is a delivery, not a fact of the session: nothing is written to any session log, and the control plane keeps no notification queue, filter or preference table.
 - Notification delivery attempts may be ephemeral, but actionable attention state must remain durable until resolved.
 
@@ -181,8 +181,8 @@ The kinds, the text, the stable id, the replacement in place and the withdrawal 
 
 - [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
 - [Desktop Architecture](../architecture/desktop.md)
-- [Spec-028: Remote Control](028-remote-control.md)
-- [ADR-038: Workflow secrets in the OS keychain](../decisions/038-workflow-secrets-in-the-os-keychain.md)
+- [Spec-027: Remote Control](027-remote-control.md)
+- [ADR-036: Workflow secrets in the OS keychain](../decisions/036-workflow-secrets-in-the-os-keychain.md)
 - [Standard Webhooks specification](https://github.com/standard-webhooks/standard-webhooks)
 - [Nodemailer SMTP transport](https://nodemailer.com/smtp/)
 - [RFC 8291: Message Encryption for Web Push](https://www.rfc-editor.org/rfc/rfc8291)

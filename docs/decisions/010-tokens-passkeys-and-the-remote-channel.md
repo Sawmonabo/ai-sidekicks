@@ -42,12 +42,12 @@ Remote Control gives every device the whole console on every machine the person 
 4. **Remote channel: `Noise_KK_25519_ChaChaPoly_SHA256`, per connection.**
    - A channel joins one device and one machine and carries every session and screen on that machine. It is the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256` handshake and transport ([The Noise Protocol Framework](https://noiseprotocol.org/noise.html)), with no construction of the product's own: nothing is designed here beyond choosing the pattern and the rekey schedule.
    - **`KK`**, because after linking each end already knows the other's static key: the device holds the machine's from the account's statement chain, and the machine holds the device's. A handshake from a key the chain does not hold fails, with nothing to click past.
-   - **Identity keys and channel keys.** Each machine's identity key is the service's Ed25519 key, kept as its own credential-store item and pinned by every device; a device's identity key is P-256 in its hardware, or a non-extractable WebCrypto key in the web client; every public key carries its algorithm. Because Noise's curves are 25519 and 448 and phone hardware holds only P-256, every device and machine also keeps an X25519 channel key, whose public half is certified by its identity key in the same `device.linked` or `runtimenode.added` statement that trusts it. The chain stays the one record of trust ([Spec-028 §The encryption envelope](../specs/028-remote-control.md#the-encryption-envelope)).
+   - **Identity keys and channel keys.** Each machine's identity key is the service's Ed25519 key, kept as its own credential-store item and pinned by every device; a device's identity key is P-256 in its hardware, or a non-extractable WebCrypto key in the web client; every public key carries its algorithm. Because Noise's curves are 25519 and 448 and phone hardware holds only P-256, every device and machine also keeps an X25519 channel key, whose public half is certified by its identity key in the same `device.linked` or `runtimenode.added` statement that trusts it. The chain stays the one record of trust ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope)).
    - **Rekeying.** A fresh handshake runs on every connection and every 10 minutes on a long one, and the old keys are erased.
    - **Profiles.** A channel profile is one full Noise protocol name, and today there is exactly one. The connection's first frame carries the channel version and the profiles the device runs; the machine answers with the first it also runs, or closes the connection when it runs none, with nothing to fall back to. Both ends put the offer and the answer into the handshake's prologue, so a relay that altered them makes the handshake fail on both ends. Nothing weaker is ever offered.
    - **Not post-quantum.** The handshake's X25519 exchange is not post-quantum: traffic recorded today could be opened once a large enough quantum computer exists, and nothing in today's channel protects against that. No reviewed hybrid profile of Noise exists yet; `Noise_XXhfs_25519+MLKEM768_ChaChaPoly_SHA256` is an open working draft with no formal analysis ([libp2p/specs#727](https://github.com/libp2p/specs/pull/727)). The channel ships no draft and no second, TLS-based connection. The hybrid `KK` profile joins once its specification is finished and reviewed for production use, as a second profile in the same first frame, ahead of today's, on the same channel keys and frames; that move is a `docs/backlog.md` entry blocked on the specification.
    - **The relay** sees the device id and machine id at connection, the channel version and the profile, frame sizes and times, and never a method, a name or a byte of a session. It holds at most one live connection per key.
-   - **The implementation** is a maintained Noise library whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-028](../plans/028-remote-control.md) Phase 3.
+   - **The implementation** is a maintained Noise library whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](../plans/025-remote-control.md) Phase 3.
 
 5. **No other key classes.** There is no session-scoped ephemeral key, no signed key bundle, no first-claim store, no key package and no cap on recipients: a channel's keys belong to a connection. No token is minted for dispatching work to another machine, because a session never runs anywhere but the machine it was started on, and no separate artifact-encryption key exists, because a session's artifacts stay on its machine and devices read them through the channel.
 
@@ -61,7 +61,7 @@ The channel is classical: a party recording traffic today gets it all once a qua
 
 ### Synthesis — Why It Still Holds [T2]
 
-An unreviewed hybrid draft is a construction no one has analyzed, which is what this decision refuses; a second, TLS-based connection doubles the surface and splits the trust record. The profile negotiation is built in from the first release, so the hybrid profile arrives as one more offered profile on the same keys and frames the day its specification is reviewed, and the docs state the classical limit plainly until then. The library constraint is a selection criterion, recorded in Plan-028 under rule 15. A reinstalled machine being refused is the property a pin exists for; the refusal names the fix.
+An unreviewed hybrid draft is a construction no one has analyzed, which is what this decision refuses; a second, TLS-based connection doubles the surface and splits the trust record. The profile negotiation is built in from the first release, so the hybrid profile arrives as one more offered profile on the same keys and frames the day its specification is reviewed, and the docs state the classical limit plainly until then. The library constraint is a selection criterion, recorded in Plan-025 under rule 15. A reinstalled machine being refused is the property a pin exists for; the refusal names the fix.
 
 ## Alternatives Considered
 
@@ -94,10 +94,10 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | A maintained Noise implementation for TypeScript accepts a Diffie-Hellman supplied from WebCrypto, so the web client's X25519 channel key stays non-extractable. | Not yet validated: Plan-028 Phase 3 picks the library and records the choice under rule 15. | The web client's channel key would have to be extractable, or the channel package would carry more of the protocol itself; either is decided in Plan-028 before the web client ships. |
+| 1 | A maintained Noise implementation for TypeScript accepts a Diffie-Hellman supplied from WebCrypto, so the web client's X25519 channel key stays non-extractable. | Not yet validated: Plan-025 Phase 3 picks the library and records the choice under rule 15. | The web client's channel key would have to be extractable, or the channel package would carry more of the protocol itself; either is decided in Plan-025 before the web client ships. |
 | 2 | A hybrid post-quantum Noise profile will be specified and reviewed for production use. | [libp2p/specs#727](https://github.com/libp2p/specs/pull/727) is an open working draft. | The channel stays classical for longer, and the docs keep saying so; nothing else changes. |
 | 3 | PASETO v4 can be produced and verified by the maintained `paseto` package, with `v4.local` supplied through its extension interface on audited primitives. | §PASETO v4 Implementation Library. | We would fork or migrate to another token format, re-issuing every token. |
-| 4 | A machine can hold its DPoP key and refresh token unattended. | Each is its own item in the operating system's credential store, which opens unattended under the person's login ([ADR-021](./021-cli-identity-key-storage-custody.md)). | Sign-in would have to be repeated at each start where the store cannot be read. |
+| 4 | A machine can hold its DPoP key and refresh token unattended. | Each is its own item in the operating system's credential store, which opens unattended under the person's login ([ADR-020](./020-cli-identity-key-storage-custody.md)). | Sign-in would have to be repeated at each start where the store cannot be read. |
 
 ## Failure Mode Analysis [T2]
 
@@ -135,7 +135,7 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 ### Unknowns
 
-- Which Noise library meets assumption 1; Plan-028 Phase 3 finds out and records it.
+- Which Noise library meets assumption 1; Plan-025 Phase 3 finds out and records it.
 - When the hybrid profile's specification is finished and reviewed; the backlog entry tracks it.
 
 ## Decision Validation [T2]
@@ -144,8 +144,8 @@ An unreviewed hybrid draft is a construction no one has analyzed, which is what 
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Frames the relay can read | None | A test that holds the relay's whole view and fails to read a payload (Plan-028 Phase 3) | Before the first release carrying Remote Control |
-| An altered profile offer | Fails the handshake on both ends | Plan-028 Phase 3 test | Before the first release carrying Remote Control |
+| Frames the relay can read | None | A test that holds the relay's whole view and fails to read a payload (Plan-025 Phase 3) | Before the first release carrying Remote Control |
+| An altered profile offer | Fails the handshake on both ends | Plan-025 Phase 3 test | Before the first release carrying Remote Control |
 | Token-related vulnerabilities affecting our auth flows | 0 exploitable reports | Security review plus dependency scanning | At each release |
 
 ## PASETO v4 Implementation Library
@@ -156,8 +156,8 @@ The package is maintained, MIT-licensed, has no dependencies, runs on Node, Elec
 
 ## Identity Key Storage
 
-- **A machine** keeps its identity key, its channel key, its DPoP key and every other daemon secret each as its own item in the operating system's credential store, which opens unattended under the person's login: the login keychain on macOS, Credential Manager on Windows, the Secret Service on Linux, and one file readable only by the person where no Secret Service answers, as [ADR-021](./021-cli-identity-key-storage-custody.md) records. The CLI never holds a private key: it asks the daemon over the local socket. A key is never replaced silently: the machine's key changes only when a removed machine is linked again under its same machine id, and every device moves its pin only on the new `runtimenode.added` of that rejoin; from then on a statement the old key signs is refused, and the old key is never trusted again.
-- **A device** makes its identity key on the device and never exports it: P-256 in the iPhone's Secure Enclave, in the Android Keystore, and a non-extractable WebCrypto key in the web client ([Spec-028 §The encryption envelope](../specs/028-remote-control.md#the-encryption-envelope), [Spec-029](../specs/029-ios-remote-client.md)).
+- **A machine** keeps its identity key, its channel key, its DPoP key and every other daemon secret each as its own item in the operating system's credential store, which opens unattended under the person's login: the login keychain on macOS, Credential Manager on Windows, the Secret Service on Linux, and one file readable only by the person where no Secret Service answers, as [ADR-020](./020-cli-identity-key-storage-custody.md) records. The CLI never holds a private key: it asks the daemon over the local socket. A key is never replaced silently: the machine's key changes only when a removed machine is linked again under its same machine id, and every device moves its pin only on the new `runtimenode.added` of that rejoin; from then on a statement the old key signs is refused, and the old key is never trusted again.
+- **A device** makes its identity key on the device and never exports it: P-256 in the iPhone's Secure Enclave, in the Android Keystore, and a non-extractable WebCrypto key in the web client ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope), [Spec-028](../specs/028-ios-remote-client.md)).
 - No key is derived from a passkey.
 
 ## Related Domain Docs
@@ -167,8 +167,8 @@ The package is maintained, MIT-licensed, has no dependencies, runs on Node, Elec
 ## References
 
 - [ADR-007: Device Trust and Permission Model](./007-device-trust-and-permission-model.md)
-- [ADR-021: Machine Identity Key Custody](./021-cli-identity-key-storage-custody.md)
-- [Spec-028: Remote Control](../specs/028-remote-control.md)
+- [ADR-020: Machine Identity Key Custody](./020-cli-identity-key-storage-custody.md)
+- [Spec-027: Remote Control](../specs/027-remote-control.md)
 - [The Noise Protocol Framework](https://noiseprotocol.org/noise.html) — the `KK` pattern, the prologue (§6) and the transport.
 - [Noise Explorer](https://noiseexplorer.com/) — formal models of the Noise handshake patterns.
 - [WireGuard protocol](https://www.wireguard.com/protocol/) — production precedent for a Noise handshake (`IK`).

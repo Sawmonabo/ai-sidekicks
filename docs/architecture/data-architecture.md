@@ -23,7 +23,7 @@ The product requires durable replay and recovery while keeping local execution p
 
 | Store | Responsibility |
 | --- | --- |
-| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-022](../decisions/022-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)) — on a single-writer worker thread (see [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency)). |
+| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)) — on a single-writer worker thread (see [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency)). |
 | `Shared Postgres Store` | The device registry, the signed statement chain and each machine's registration. No session record: a machine's service is its sessions' one store. |
 | `Artifact Storage` | Durable artifact payloads and manifests, held on the machine that runs the session. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |
@@ -42,7 +42,7 @@ Liveness data is ephemeral. A device or a machine is reachable while its relay c
 
 ## Event-Sourcing Scope
 
-Governed by [ADR-017: Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md).
+Governed by [ADR-016: Shared Event-Sourcing Scope](../decisions/016-shared-event-sourcing-scope.md).
 
 V1 scopes event-sourcing to per-machine local event logs. Each session runs on one owning machine for its whole life, and that machine's daemon owns the session's authoritative `session_events` table in its Local SQLite (Plan-001 owner; see [local-sqlite-schema.md](./schemas/local-sqlite-schema.md)). There is no shared session event log in Postgres; shared-postgres-schema.md contains coordination records only.
 
@@ -75,7 +75,7 @@ Each database has one schema, created whole when it is first opened: the daemon'
 
 The schema (above) is distinct from **wire-format** compatibility between a user's own devices and the machine when they run different versions. The schema answers "what does one database hold?" Wire-format compatibility answers "how do a phone, a laptop app, and the machine's service at different versions interoperate during a session?"
 
-A user updates each device and each machine on its own schedule, and a self-hosted deployment updates on yet another per [ADR-020: V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md), so a session driven from a stale device against a freshly updated runtime node is the normal case, not an edge case. The wire format carried between a user's endpoints — `EventEnvelope` defined in [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) — is therefore evolved under a versioning contract specified in [ADR-018: Cross-Version Compatibility](../decisions/018-cross-version-compatibility.md).
+A user updates each device and each machine on its own schedule, and a self-hosted deployment updates on yet another per [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md), so a session driven from a stale device against a freshly updated runtime node is the normal case, not an edge case. The wire format carried between a user's endpoints — `EventEnvelope` defined in [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) — is therefore evolved under a versioning contract specified in [ADR-017: Cross-Version Compatibility](../decisions/017-cross-version-compatibility.md).
 
 Key properties the rest of the architecture depends on:
 
@@ -85,7 +85,7 @@ Key properties the rest of the architecture depends on:
 - **MINOR bumps are additive-only.** New optional fields, new event types, new enum values. Any semantic or structural break requires a MAJOR bump.
 - **Version stubs are excluded from compaction** until re-interpreted at least once, so post-upgrade replay is lossless.
 
-See [ADR-018 §Decision](../decisions/018-cross-version-compatibility.md#decision) for the full semantics and [ADR-018 §Reviewer Checklist for MINOR Bumps](../decisions/018-cross-version-compatibility.md#reviewer-checklist-for-minor-bumps) for the author discipline that governs each additive bump.
+See [ADR-017 §Decision](../decisions/017-cross-version-compatibility.md#decision) for the full semantics and [ADR-017 §Reviewer Checklist for MINOR Bumps](../decisions/017-cross-version-compatibility.md#reviewer-checklist-for-minor-bumps) for the author discipline that governs each additive bump.
 
 ## Failure Modes
 
@@ -112,4 +112,4 @@ See [ADR-018 §Decision](../decisions/018-cross-version-compatibility.md#decisio
 ## Related ADRs
 
 - [SQLite Local State And Postgres Control Plane](../decisions/004-sqlite-local-state-and-postgres-control-plane.md)
-- [Shared Event-Sourcing Scope](../decisions/017-shared-event-sourcing-scope.md) — V1 per-machine local event logs; no shared log
+- [Shared Event-Sourcing Scope](../decisions/016-shared-event-sourcing-scope.md) — V1 per-machine local event logs; no shared log

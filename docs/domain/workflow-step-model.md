@@ -29,7 +29,7 @@ The workflow step model describes how each node of a workflow executes within a 
 
 - A step is not an independent run. An agent step creates runs — `agent.run` through the run admission, `agent.multi-agent` through `orchestration.runCreate` — and each of those runs has its own lifecycle per the run state machine.
 - A step status is not a run status. Step statuses track one node attempt; the workflow run's statuses are in the [Workflow Model](./workflow-model.md).
-- An approval is not a gate between steps. It is a `human.approval` node with `approved` and `rejected` outputs, whose request goes through the Plan-010 approval pipeline and Cedar, and whose resolution is recorded in `workflow_gate_resolutions`.
+- An approval is not a gate between steps. It is a `human.approval` node with `approved` and `rejected` outputs, whose request goes through the Plan-009 approval pipeline and Cedar, and whose resolution is recorded in `workflow_gate_resolutions`.
 - A retry is not unbounded. A node's `retry` is clamped by the engine and never trusted from the document; across runs, the chain's count and its one question bound runs that start runs.
 - A step is not a conversation of its own. `agent.multi-agent` runs a lead and the helpers it starts in the run's own session.
 
@@ -123,7 +123,7 @@ Error handling lives on the node that failed, inside the document body stored on
 - `Run` (from the run state machine) is the execution primitive an agent step uses. Each `agent.run` attempt creates at least one run; each `agent.multi-agent` attempt creates one orchestration run in the workflow run's session.
 - `Agent` executes agent steps. The agent definition is named in the node's own `definition` param.
 - `Artifact` holds a step's payload over 64 KiB as a `workflow_output` artifact, and a step's output can be opened as an artifact.
-- `Approval` (from Plan-010) is what a `human.approval` step raises; its resolution is recorded in `workflow_gate_resolutions` and emitted as `workflow.gate_resolved`.
+- `Approval` (from Plan-009) is what a `human.approval` step raises; its resolution is recorded in `workflow_gate_resolutions` and emitted as `workflow.gate_resolved`.
 - `SessionEvent` timeline captures step events: `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `workflow.step_canceled`, `workflow.step_skipped`, `workflow.gate_resolved`. The list is illustrative; the full set of `workflow.*` types is in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
 
 ## Example Flows
@@ -137,7 +137,7 @@ Error handling lives on the node that failed, inside the document body stored on
 
 - A node whose input carries no items is `skipped` unless it sets `alwaysOutputData`; a disabled node passes its input straight to its output.
 - A loop node re-executes under a new run index each time its body's last node feeds back into it, so one node can leave many step records in a run; `$runIndex` and `source` tell them apart.
-- If a run is canceled while a step is parked, there is nothing to interrupt — a parked step holds no live process and no reservation — so the cancel completes immediately, preserving the step's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work ([Spec-015 §Park integrity and cancelability (SA-42)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-42)).
+- If a run is canceled while a step is parked, there is nothing to interrupt — a parked step holds no live process and no reservation — so the cancel completes immediately, preserving the step's recorded park reason and cause while clearing its live resume schedule and attention key in the same unit of work ([Spec-015 §Park integrity and cancelability (SA-41)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-41)).
 - A canceled branch counts as settled only after its last edit has reported and the daemon has read the checkout from disk, because an interrupt does not stop an edit already under way.
 - One step is always admitted, so the memory gate never deadlocks; when nothing is running, the step at the head of the line is admitted whatever its size.
 - A full-tier Code step or a shell step whose sandbox cannot start at the Sandboxed level refuses with `workflow.sandbox_unavailable` and takes its node's `onError` from there; it never runs unprotected.
@@ -152,4 +152,4 @@ Error handling lives on the node that failed, inside the document body stored on
 ## Related ADRs
 
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
-- [Visual Node-Graph Workflow Authoring](../decisions/026-visual-node-graph-workflow-authoring.md)
+- [Visual Node-Graph Workflow Authoring](../decisions/024-visual-node-graph-workflow-authoring.md)

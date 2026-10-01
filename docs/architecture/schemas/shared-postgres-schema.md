@@ -6,14 +6,14 @@ Canonical schema for the control plane's shared Postgres database. It is one sch
 
 ---
 
-## Invariant — No Shared Session-Event Table in V1 (ADR-017)
+## Invariant — No Shared Session-Event Table in V1 (ADR-016)
 
-Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
+Per [ADR-016: Shared Event-Sourcing Scope](../../decisions/016-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
 
 1. **Coordination records only.** Shared Postgres stores each device's last-seen time, written from its relay connection at most once a minute, device and machine rows (each one PUBLIC key with its algorithm — the private halves stay on the device or the machine and never reach the control plane), and the account's append-only signed statement chain. It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's service is the session's one store. It stores no notification preference and queues no notification: each machine decides and seals every push itself. It holds no attachment of a machine to a session and no heartbeat record, no terminal lease, which is the machine's alone, and no artifact, which stays on the machine that runs the session. It does **not** store event payloads.
 2. **No `session_events_shared`, `session_events_global`, or equivalent cross-user event table exists in V1.** The absence is intentional, not an oversight.
-3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; an audit across the person's machines reads each machine's own log, per [Data Architecture §Event-Sourcing Scope](../data-architecture.md#event-sourcing-scope).
-4. **No shared session-event table.** Session events live in each machine's local log ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md)).
+3. **Per-daemon local `session_events` is authoritative** per ADR-016 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; an audit across the person's machines reads each machine's own log, per [Data Architecture §Event-Sourcing Scope](../data-architecture.md#event-sourcing-scope).
+4. **No shared session-event table.** Session events live in each machine's local log ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md)).
 
 These invariants hold for every table in this schema: no table's name or meaning reads as a shared event log.
 
@@ -21,44 +21,44 @@ These invariants hold for every table in this schema: no table's name or meaning
 
 ## Users Identity Anchor (Plan-001)
 
-**Order within the one schema:** the `users` table below is created before every table that references it, because `runtime_nodes.user_id`, `devices.user_id` and the other user-bearing tables `REFERENCES users(id)`. Plan-016's identity columns are part of the same schema — see [Users and Identity (Plan-016)](#users-and-identity-plan-016) below.
+**Order within the one schema:** the `users` table below is created before every table that references it, because `runtime_nodes.user_id`, `devices.user_id` and the other user-bearing tables `REFERENCES users(id)`. Plan-015's identity columns are part of the same schema — see [Users and Identity (Plan-015)](#users-and-identity-plan-015) below.
 
 ```sql
 -- Owner: Plan-001 (minimal identity anchor for FK resolution)
--- Identity columns: Plan-016
+-- Identity columns: Plan-015
 CREATE TABLE users (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  display_name    TEXT NOT NULL,                 -- Owner: Plan-016
-  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-016; the account's random WebAuthn user handle as unpadded base64url, carried by every passkey it holds — Plan-016 D-016-2
-  metadata        JSONB NOT NULL DEFAULT '{}'    -- Owner: Plan-016
+  display_name    TEXT NOT NULL,                 -- Owner: Plan-015
+  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-015; the account's random WebAuthn user handle as unpadded base64url, carried by every passkey it holds — Plan-015 D-015-2
+  metadata        JSONB NOT NULL DEFAULT '{}'    -- Owner: Plan-015
 );
 ```
 
-Plan-001 owns `id` and `created_at`, the fields every referencing table needs; Plan-016 owns the identity columns (`display_name`, `identity_ref`, `metadata`), declared in the same `CREATE TABLE users`. No user rows exist before `Create an account` on Plan-016's device-code page writes the account's one row.
+Plan-001 owns `id` and `created_at`, the fields every referencing table needs; Plan-015 owns the identity columns (`display_name`, `identity_ref`, `metadata`), declared in the same `CREATE TABLE users`. No user rows exist before `Create an account` on Plan-015's device-code page writes the account's one row.
 
 ---
 
-## Users and Identity (Plan-016)
+## Users and Identity (Plan-015)
 
-Plan-016 owns the identity columns of the [Plan-001 Users Identity Anchor](#users-identity-anchor-plan-001), declared in `CREATE TABLE users` above. The person's devices are [Plan-028's](#devices-machines-and-the-statement-chain-plan-028).
+Plan-015 owns the identity columns of the [Plan-001 Users Identity Anchor](#users-identity-anchor-plan-001), declared in `CREATE TABLE users` above. The person's devices are [Plan-025's](#devices-machines-and-the-statement-chain-plan-025).
 
 ```sql
--- Owner: Plan-016 (the index on the users anchor's identity column)
+-- Owner: Plan-015 (the index on the users anchor's identity column)
 
 CREATE INDEX idx_users_identity ON users(identity_ref);
 ```
 
-**`identity_ref` is the account's WebAuthn user handle (Plan-016 D-016-2).** The account is keyed by its own id: `identity_ref` is random bytes minted when the account is created, at most 64 of them and carrying no personal data ([WebAuthn Level 3 §5.4.3](https://www.w3.org/TR/webauthn-3/#dictionary-user-credential-params)), and every passkey the account holds carries it as its user handle. The column holds the handle's bytes as unpadded base64url, WebAuthn's own JSON form for the user id; `users.id` stays the key. A passkey resolves to its one user through its [`webauthn_credentials`](#webauthn-ceremony-plan-016) row, whose `credential_id UNIQUE` keeps one passkey from naming two users; no outside sign-in makes or finds the account.
+**`identity_ref` is the account's WebAuthn user handle (Plan-015 D-015-2).** The account is keyed by its own id: `identity_ref` is random bytes minted when the account is created, at most 64 of them and carrying no personal data ([WebAuthn Level 3 §5.4.3](https://www.w3.org/TR/webauthn-3/#dictionary-user-credential-params)), and every passkey the account holds carries it as its user handle. The column holds the handle's bytes as unpadded base64url, WebAuthn's own JSON form for the user id; `users.id` stays the key. A passkey resolves to its one user through its [`webauthn_credentials`](#webauthn-ceremony-plan-015) row, whose `credential_id UNIQUE` keeps one passkey from naming two users; no outside sign-in makes or finds the account.
 
 ---
 
-## WebAuthn Ceremony (Plan-016)
+## WebAuthn Ceremony (Plan-015)
 
-Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) requires, owned by Plan-016 Phase 6 (T6.1 — CP-016-14). The web client and the phone apps call these routes over their authenticated control-plane channel, and the device-code page `sidekicks sign-in` opens calls the authentication-options route and hands the assertion to the device-code grant's approval route; the desktop app carries no WebAuthn, and no JSON-RPC method string is involved.
+Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) requires, owned by Plan-015 Phase 6 (T6.1 — CP-015-8). The web client and the phone apps call these routes over their authenticated control-plane channel, and the device-code page `sidekicks sign-in` opens calls the authentication-options route and hands the assertion to the device-code grant's approval route; the desktop app carries no WebAuthn, and no JSON-RPC method string is involved.
 
 ```sql
--- Owner: Plan-016 (T6.1)
+-- Owner: Plan-015 (T6.1)
 CREATE TABLE webauthn_credentials (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    UUID NOT NULL REFERENCES users(id),
@@ -72,7 +72,7 @@ CREATE TABLE webauthn_credentials (
 
 CREATE INDEX idx_webauthn_credentials_user ON webauthn_credentials(user_id);
 
--- Owner: Plan-016 (T6.1) — the single-use ceremony fence
+-- Owner: Plan-015 (T6.1) — the single-use ceremony fence
 CREATE TABLE webauthn_challenges (
   challenge       TEXT PRIMARY KEY,         -- the challenge IS the selector a verification presents
   transaction_id  UUID NOT NULL UNIQUE,     -- the correlator an unauthenticated caller quotes back
@@ -85,9 +85,9 @@ CREATE TABLE webauthn_challenges (
 CREATE INDEX idx_webauthn_challenges_expires ON webauthn_challenges(expires_at);
 ```
 
-**`webauthn_challenges` is the single-use fence, and consuming a challenge is deleting its row (Plan-016 T6.4 / I-016-15).** Consumption is one statement — `DELETE FROM webauthn_challenges WHERE challenge = $1 AND transaction_id = $2 AND expires_at > now() RETURNING *` — so two concurrent verifications of one challenge cannot both find a row, and an expired row is never returned even before the periodic sweep reaches it. The sweep is hygiene, not the correctness mechanism. A sealed stateless challenge was considered and rejected: single-use is the property that matters, and a self-contained token stays replayable until it expires unless a durable fence records its consumption, so the stateless design does not remove the write — it adds a second signing secret to rotate beside a write it still has to perform.
+**`webauthn_challenges` is the single-use fence, and consuming a challenge is deleting its row (Plan-015 T6.4 / I-015-8).** Consumption is one statement — `DELETE FROM webauthn_challenges WHERE challenge = $1 AND transaction_id = $2 AND expires_at > now() RETURNING *` — so two concurrent verifications of one challenge cannot both find a row, and an expired row is never returned even before the periodic sweep reaches it. The sweep is hygiene, not the correctness mechanism. A sealed stateless challenge was considered and rejected: single-use is the property that matters, and a self-contained token stays replayable until it expires unless a durable fence records its consumption, so the stateless design does not remove the write — it adds a second signing secret to rotate beside a write it still has to perform.
 
-**The verification transaction takes this table `FOR UPDATE` (Plan-016 I-016-19).** The signature-counter advance is a locked read and a conditional write inside the same transaction that consumed the challenge, so the ceremony's lock order is `webauthn_challenges` → `webauthn_credentials`, registered below at [§Lock Ordering Across Shared Tables](#lock-ordering-across-shared-tables). An unlocked read-then-write is defeated by the exact adversary the counter exists to detect: two concurrent replays of a cloned authenticator each read the pre-existing value and each find the presented counter greater.
+**The verification transaction takes this table `FOR UPDATE` (Plan-015 I-015-10).** The signature-counter advance is a locked read and a conditional write inside the same transaction that consumed the challenge, so the ceremony's lock order is `webauthn_challenges` → `webauthn_credentials`, registered below at [§Lock Ordering Across Shared Tables](#lock-ordering-across-shared-tables). An unlocked read-then-write is defeated by the exact adversary the counter exists to detect: two concurrent replays of a cloned authenticator each read the pre-existing value and each find the presented counter greater.
 
 Both tables carry `REFERENCES users(id)` for the same reason `devices` does — it places them inside the [Spec-020 §Path 2](../../specs/020-data-retention-and-gdpr.md#erasure-paths) exhaustive inbound-FK erasure closure, and the closure costs nothing because a WebAuthn credential is verified live and no retained row re-verifies one post-erasure.
 
@@ -95,13 +95,13 @@ Both tables carry `REFERENCES users(id)` for the same reason `devices` does — 
 
 ## Token Revocation
 
-Backs the hosted account's refresh tokens: `refresh_token_families` holds one row per signed-in machine, its live sign-in, and the denylist tables hold what was revoked. Every revocation — a sign-out, a spent refresh token presented again, a device revoked through the statement chain, the account's deletion — writes the token's `jti` or its whole family to the denylist. A trade is one compare-and-swap on the family's row, `UPDATE refresh_token_families SET current_jti = <new>, last_traded_at = now() WHERE family_id = <presented family> AND current_jti = <presented jti>`: one row updated is a good trade; no row updated while the family's row exists means the presented `jti` was already spent, which is reuse, so the same transaction deletes the family's row and writes its `revoked_token_families` row; a family with neither a live row nor a revoked row is refused. The swap also settles two trades racing with one token: only one updates the row. Built by Plan-016 Phase 5 with the account work.
+Backs the hosted account's refresh tokens: `refresh_token_families` holds one row per signed-in machine, its live sign-in, and the denylist tables hold what was revoked. Every revocation — a sign-out, a spent refresh token presented again, a device revoked through the statement chain, the account's deletion — writes the token's `jti` or its whole family to the denylist. A trade is one compare-and-swap on the family's row, `UPDATE refresh_token_families SET current_jti = <new>, last_traded_at = now() WHERE family_id = <presented family> AND current_jti = <presented jti>`: one row updated is a good trade; no row updated while the family's row exists means the presented `jti` was already spent, which is reuse, so the same transaction deletes the family's row and writes its `revoked_token_families` row; a family with neither a live row nor a revoked row is refused. The swap also settles two trades racing with one token: only one updates the row. Built by Plan-015 Phase 5 with the account work.
 
 ```sql
--- Owner: Plan-016 (Phase 5, the control plane's account work)
+-- Owner: Plan-015 (Phase 5, the control plane's account work)
 CREATE TABLE revoked_jtis (
   jti              TEXT PRIMARY KEY,
-  user_id   UUID REFERENCES users(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-020 D-020-7)
+  user_id   UUID REFERENCES users(id) ON DELETE SET NULL,  -- nullable + SET NULL on erasure (Plan-019 D-019-3)
   family_id        UUID NOT NULL,                 -- refresh-token rotation family
   revoked_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   reason           TEXT NOT NULL
@@ -113,7 +113,7 @@ CREATE INDEX idx_revoked_jtis_user ON revoked_jtis(user_id);
 CREATE INDEX idx_revoked_jtis_family ON revoked_jtis(family_id);
 CREATE INDEX idx_revoked_jtis_expires ON revoked_jtis(expires_at);
 
--- Owner: Plan-016 (Phase 5, the control plane's account work)
+-- Owner: Plan-015 (Phase 5, the control plane's account work)
 CREATE TABLE revoked_token_families (
   family_id        UUID PRIMARY KEY,
   user_id   UUID NOT NULL REFERENCES users(id),  -- the family's account: a refresh token has no lifetime of its own, so the row stays for the account's life and is deleted with the account
@@ -124,7 +124,7 @@ CREATE TABLE revoked_token_families (
 
 CREATE INDEX idx_revoked_families_user ON revoked_token_families(user_id);
 
--- Owner: Plan-016 (Phase 5, the control plane's account work)
+-- Owner: Plan-015 (Phase 5, the control plane's account work)
 -- One row per live sign-in, that is per signed-in machine. A trade is one compare-and-swap on
 -- current_jti; a presented jti of a live family that is not current is spent, which is reuse.
 CREATE TABLE refresh_token_families (
@@ -139,18 +139,18 @@ CREATE TABLE refresh_token_families (
 CREATE INDEX idx_refresh_token_families_user ON refresh_token_families(user_id);
 ```
 
-**Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-020 CP-020-6): no refresh token of a deleted account can be traded, so nothing is left for the row to block. Canonical: [Plan-020 D-020-7](../../plans/020-data-retention-and-gdpr.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths); `sidekicks delete-account` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
+**Account deletion.** On `revoked_jtis`, `user_id` is nullable + `ON DELETE SET NULL` by design: a user hard-DELETE severs the data-subject link, while the denylist key (`jti`, the PRIMARY KEY — **not** `user_id`) survives to its `expires_at + 24h` reap, so erasure cannot resurrect a revoked access token within its validity window. A `revoked_token_families` row is hard-deleted with its account, in `account.delete`'s inbound-foreign-key closure (Plan-019 CP-019-3): no refresh token of a deleted account can be traded, so nothing is left for the row to block. Canonical: [Plan-019 D-019-3](../../plans/019-data-retention-and-gdpr.md), [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths); `sidekicks delete-account` is the one deletion path; the [Hosted Account Deletion Runbook](../../operations/hosted-account-deletion-runbook.md) is the person's break-glass procedure, run only when they can no longer sign in.
 
 **Retention:** A `revoked_jtis` row is reaped 24 hours past its `expires_at`, the access token's own 15-minute expiry, so the table holds only tokens that could still verify. A `revoked_token_families` row has no expiry: the refresh token lasts until sign-out or revocation (see [security-architecture.md §Token revocation](../security-architecture.md#token-revocation)), so a revoked family stays on the denylist for its account's life and goes with the account (`account.delete`). The table grows by one row per sign-out or revocation. `refresh_token_families` holds one row per signed-in machine: a trade updates that row in place, so nothing grows per trade, and the row goes at sign-out or revocation (to the denylist) and with the account (`ON DELETE CASCADE`).
 
 ---
 
-## Devices, Machines And The Statement Chain (Plan-028)
+## Devices, Machines And The Statement Chain (Plan-025)
 
-Who may drive the person's sessions is decided by an append-only chain of signed statements, which the control plane keeps and every machine verifies itself ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). The control plane holds each device's and each machine's public key and the chain; it never holds a private key or a linking secret, and it trusts nothing on its own: every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every public key carries its algorithm, because a phone's hardware key is P-256 and a machine's key is Ed25519.
+Who may drive the person's sessions is decided by an append-only chain of signed statements, which the control plane keeps and every machine verifies itself ([Spec-027 §Required Behavior](../../specs/027-remote-control.md#required-behavior)). The control plane holds each device's and each machine's public key and the chain; it never holds a private key or a linking secret, and it trusts nothing on its own: every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every public key carries its algorithm, because a phone's hardware key is P-256 and a machine's key is Ed25519.
 
 ```sql
--- Owner: Plan-028 (Phase 2; kept until the device is forgotten)
+-- Owner: Plan-025 (Phase 2; kept until the device is forgotten)
 CREATE TABLE devices (
   device_id        TEXT PRIMARY KEY,
   user_id          UUID NOT NULL REFERENCES users(id),
@@ -169,7 +169,7 @@ CREATE TABLE devices (
 
 CREATE INDEX idx_devices_user ON devices(user_id);
 
--- Owner: Plan-028 (Phase 3: the executing machine's registration, keyed by machine and owning user)
+-- Owner: Plan-025 (Phase 3: the executing machine's registration, keyed by machine and owning user)
 CREATE TABLE runtime_nodes (
   node_id            TEXT PRIMARY KEY,            -- the machine's id
   user_id            UUID NOT NULL REFERENCES users(id),
@@ -184,7 +184,7 @@ CREATE TABLE runtime_nodes (
 
 CREATE INDEX idx_runtime_nodes_user ON runtime_nodes(user_id);
 
--- Owner: Plan-028 (Phase 2; append-only for the account's life)
+-- Owner: Plan-025 (Phase 2; append-only for the account's life)
 CREATE TABLE trust_statements (
   statement_hash   TEXT PRIMARY KEY,
   user_id          UUID NOT NULL REFERENCES users(id),
@@ -217,7 +217,7 @@ Row-lock ordering over the tables above is recorded here. Every control-plane tr
 
 | Registrant | Lock order | Per-transaction detail |
 | --- | --- | --- |
-| WebAuthn ceremony verification (Plan-016 I-016-19) | `webauthn_challenges` → `webauthn_credentials` | A plan's own uncontested pair, registered here rather than in that plan alone. The challenge is consumed by a single `DELETE … RETURNING` (the single-use fence); the same transaction then takes `webauthn_credentials` `FOR UPDATE` before reading the stored signature counter and commits the advance conditionally on the presented value exceeding it. An unlocked read-then-write is defeated by exactly the cloned-authenticator replay the counter exists to detect: two concurrent replays each read the pre-existing value and each find the presented counter greater |
+| WebAuthn ceremony verification (Plan-015 I-015-10) | `webauthn_challenges` → `webauthn_credentials` | A plan's own uncontested pair, registered here rather than in that plan alone. The challenge is consumed by a single `DELETE … RETURNING` (the single-use fence); the same transaction then takes `webauthn_credentials` `FOR UPDATE` before reading the stored signature counter and commits the advance conditionally on the presented value exceeding it. An unlocked read-then-write is defeated by exactly the cloned-authenticator replay the counter exists to detect: two concurrent replays each read the pre-existing value and each find the presented counter greater |
 
 ### Tables that deliberately register nothing
 

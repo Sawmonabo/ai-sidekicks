@@ -25,8 +25,8 @@ Supported topologies:
 | Topology | Boundary Summary |
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
-| `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
-| `Compose Relay` | The same control plane and relay on the person's own server: Node, Caddy and Postgres from one `docker-compose.yml`, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-024 Acceptance Criterion). |
+| `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). |
+| `Compose Relay` | The same control plane and relay on the person's own server: Node, Caddy and Postgres from one `docker-compose.yml`, per [ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-023: Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-023 Acceptance Criterion). |
 | `Relay-Assisted Remote Access` | A device reaches the person's machines through their relay, one channel per device and machine, without moving execution into the control plane. |
 
 ## Data Flow
@@ -48,15 +48,15 @@ The relay counts requests on its sign-in routes only — sign-in, token refresh 
 
 | Deployment | Where the sign-in routes are counted |
 | --- | --- |
-| `Workers Relay` (Cloudflare) | The per-identity `RateLimitIdentityDO` Durable Object, one global count per source address whichever edge location serves it ([Plan-019 D-019-3](../plans/019-rate-limiting-policy.md#design-decisions)) |
-| `Compose Relay` | The relay process's memory ([Plan-019 D-019-4](../plans/019-rate-limiting-policy.md#design-decisions)) |
+| `Workers Relay` (Cloudflare) | The per-identity `RateLimitIdentityDO` Durable Object, one global count per source address whichever edge location serves it ([Plan-018 D-018-1](../plans/018-rate-limiting-policy.md#design-decisions)) |
+| `Compose Relay` | The relay process's memory ([Plan-018 D-018-2](../plans/018-rate-limiting-policy.md#design-decisions)) |
 | `Single-Device Local` | Nowhere: the daemon is reached through its socket only |
 
 Both relays enforce the same limit through the same interface, chosen by deployment configuration. A counter error fails that one request like any backend error. Nothing is banned and nothing escalates.
 
 ## Relay Scaling Strategy
 
-The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per key, and every channel joins one device to one machine ([Spec-028 §The encryption envelope](../specs/028-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them.
+The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per key, and every channel joins one device to one machine ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them.
 
 **Cloudflare Durable Object platform limits:**
 
@@ -69,8 +69,8 @@ The relay serves one person: their machines and the devices they link. Each mach
 
 | Input | Value | Source |
 | --- | --- | --- |
-| Device-sent frames | Bounded by each channel's backpressure; no quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
-| Machine-sent frames | Bounded by each channel's backpressure; no quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
+| Device-sent frames | Bounded by each channel's backpressure; no quota | [Plan-025](../plans/025-remote-control.md) Phase 3 |
+| Machine-sent frames | Bounded by each channel's backpressure; no quota | [Plan-025](../plans/025-remote-control.md) Phase 3 |
 | Sustained budget for the object | 400 requests a second, 2.5× under the 1,000 rps soft cap | Intentional: CF guidance places complex operations in the 200–500 rps band ([Rules of DO][do-rules]) |
 
 Frames either way, agent output and Preview's live picture included, are the term no quota fixes, so they are measured rather than assumed.
@@ -99,7 +99,7 @@ Frames either way, agent output and Preview's live picture included, are the ter
 
 **Control plane and relay:** one person's relay needs no horizontal scale. The Compose relay is one Node process beside Caddy and Postgres, and its durable state lives in Postgres; the relay holds only live connections. The Workers relay scales on Cloudflare as §Relay Scaling Strategy lays out.
 
-**Local daemon:** runs on each of the user's machines, any number of them. No scaling needed — it is per-machine by design. Each session has exactly one owning machine and is never silently migrated; a new session starts on the machine in view, and a device finds a session by asking each machine it can reach ([Spec-028 §One user, many devices, any number of machines](../specs/028-remote-control.md#one-user-many-devices-any-number-of-machines)).
+**Local daemon:** runs on each of the user's machines, any number of them. No scaling needed — it is per-machine by design. Each session has exactly one owning machine and is never silently migrated; a new session starts on the machine in view, and a device finds a session by asking each machine it can reach ([Spec-027 §One user, many devices, any number of machines](../specs/027-remote-control.md#one-user-many-devices-any-number-of-machines)).
 
 ## Postgres Strategy
 
@@ -155,7 +155,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **Desktop app:** Electron app bundling the daemon. The daemon is the person's own background service on every platform, spawned detached or run by the operating system's service manager, never a child of the desktop app. A quit flushes and leaves the service, every run and every shell running; only Runtime's `Stop` and `Restart` end work ([Spec-006](../specs/006-local-ipc-and-daemon-control.md)).
 
-**Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the same Windows half runs as the daemon's child, so every Windows-only job has one implementation ([ADR-041](../decisions/041-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
+**Background service on a Windows computer:** the service runs on the side where Claude Code and Codex are installed, Windows or one WSL 2 distribution, one service per computer. In a distribution it is the daemon plus the service's Windows half, a small native Windows program started at logon by a per-user task; the Windows half keeps one attached `wsl.exe` running the daemon for the service's whole life, inside a Job that lets Windows programs started through interop outlive it. Windows clients reach the daemon through one per-user named pipe, the same on both kinds of Windows computer, carried to a daemon in a distribution as streams of one HTTP/2 channel over that `wsl.exe`'s standard input and output. Key custody stays on Windows for both sides. On native Windows the same Windows half runs as the daemon's child, so every Windows-only job has one implementation ([ADR-039](../decisions/039-the-service-on-wsl-2.md), [Spec-006 §The service on a Windows computer](../specs/006-local-ipc-and-daemon-control.md#the-service-on-a-windows-computer)).
 
 **CLI:** `sidekicks`, carried in the standalone Node.js bundle beside the daemon, and connecting to the local daemon.
 
@@ -165,9 +165,9 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **CI:** GitHub Actions — lint, typecheck, test, build on every PR.
 
-**CD:** none run by the project. The person deploys their own relay: the Workers relay into their own Cloudflare account, the Compose relay with its `docker-compose.yml` on their own server ([ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md)).
+**CD:** none run by the project. The person deploys their own relay: the Workers relay into their own Cloudflare account, the Compose relay with its `docker-compose.yml` on their own server ([ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md)).
 
-**Local artifacts:** the desktop app's installers and the standalone Node.js bundle, built on a release tag by the release workflow (`.github/workflows/release.yml`) and published to GitHub Releases. Only the terminal helper's npm platform packages publish to npm ([ADR-023 §Axis 3](../decisions/023-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
+**Local artifacts:** the desktop app's installers and the standalone Node.js bundle, built on a release tag by the release workflow (`.github/workflows/release.yml`) and published to GitHub Releases. Only the terminal helper's npm platform packages publish to npm ([ADR-022 §Axis 3](../decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
 
 **Versioning:** semver for packages; control-plane API versioned via tRPC router namespacing.
 
@@ -181,12 +181,12 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 - [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
-- [Remote Control](../specs/028-remote-control.md)
+- [Remote Control](../specs/027-remote-control.md)
 
 ## Related ADRs
 
 - [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
 - [Default Transports And Relay Boundaries](../decisions/008-default-transports-and-relay-boundaries.md)
-- [V1 Deployment Model and OSS License](../decisions/020-v1-deployment-model-and-oss-license.md)
-- [Machine Identity Key Custody](../decisions/021-cli-identity-key-storage-custody.md)
-- [The Service On WSL 2](../decisions/041-the-service-on-wsl-2.md)
+- [V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md)
+- [Machine Identity Key Custody](../decisions/020-cli-identity-key-storage-custody.md)
+- [The Service On WSL 2](../decisions/039-the-service-on-wsl-2.md)

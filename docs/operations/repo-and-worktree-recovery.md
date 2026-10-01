@@ -75,6 +75,6 @@ The command line has no `workspace` or `worktree` command. A worktree the app ma
 
 ## Related Plans
 
-- [Repo Attachment And Workspace Binding](../plans/007-repo-attachment-and-workspace-binding.md)
-- [Worktree Lifecycle And Execution Modes](../plans/008-worktree-lifecycle-and-execution-modes.md)
-- [Gitflow PR And Diff Attribution](../plans/009-gitflow-pr-and-diff-attribution.md)
+- [Repo Attachment And Workspace Binding](../plans/006-repo-attachment-and-workspace-binding.md)
+- [Worktree Lifecycle And Execution Modes](../plans/007-worktree-lifecycle-and-execution-modes.md)
+- [Gitflow PR And Diff Attribution](../plans/008-gitflow-pr-and-diff-attribution.md)
