@@ -114,10 +114,11 @@ Every namespace below follows the same rules:
 
 ### Session
 
-| Code                     | Description                                            | HTTP Status |
-| ------------------------ | ------------------------------------------------------ | ----------- |
-| `session.not_found`      | Session does not exist or is not accessible            | 404         |
-| `session.already_closed` | Session has already been closed and cannot be modified | 409         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `session.not_found` | Session does not exist or is not accessible | 404 |
+| `session.already_closed` | Session has already been closed and cannot be modified | 409 |
+| `session.level_unavailable` | A session made from another — `session.fork`, or `plan.resolve`'s `fresh` verdict — cannot start at its source session's permission level, because the new session's provider, account or model cannot run it. `data.fields.level` names the level; no session is minted | 409 |
 
 ### Auth
 

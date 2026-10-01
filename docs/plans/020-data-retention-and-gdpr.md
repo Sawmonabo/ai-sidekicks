@@ -77,7 +77,7 @@ Per [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-m
 Per [Spec-020 §Daemon Secrets](../specs/020-data-retention-and-gdpr.md#daemon-secrets), each daemon secret is its own item in the operating system's credential store, and nothing in the daemon's database is encrypted by the app. The store is the production `DaemonKeyStore` at `bootstrap/daemon-key-store.ts`, composing `keychain-entry.ts` and `WindowsCredentialStore` in `crypto/`.
 
 - **macOS and Linux.** One item per secret through `@napi-rs/keyring`: the login keychain on macOS; on Linux the Secret Service, every item opened with `{linux: {store: "secret-service"}}`, because the binding falls back on its own to the kernel keyring, which is cleared at every restart, when no Secret Service answers.
-- **Linux with no Secret Service.** The daemon keeps its items in one file in its own data folder, readable only by the person (mode `0600`), as `gh` and Codex do; never the kernel keyring, and never silently: the person can see where secrets are kept.
+- **Linux with no Secret Service.** The daemon keeps its items in one file in its own data folder, readable only by the person (mode `0600`), as `gh` and Codex do; never the kernel keyring, and never silently: Settings › Runtime then shows `Secrets are kept in <path>, readable only by you, because no Secret Service is running.`, `<path>` being that file, `secrets.json`.
 - **Windows, native and WSL alike.** One Credential Manager generic credential per item at `CRED_PERSIST_LOCAL_MACHINE`, written and read by the service's Windows half through `windows-native-keyring-store` 1.1.0 with `persistence=local`, because the `@napi-rs/keyring` 2.1.0 binding's Windows path writes Enterprise (CP-020-8). A daemon inside a WSL 2 distribution keeps its items there too, so a Windows computer has one place for secrets on either side.
 - **A locked store** refuses with its cause, `locked` or `unavailable`, and the secret is stored nowhere else.
 - **Erase** deletes every credential-store item the app made (T22.4.2).
@@ -224,7 +224,7 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 
 ## Risks And Blockers
 
-- **Risk**: no Secret Service on a headless Linux host. **Mitigation**: the items go into the one file at mode `0600`, never the kernel keyring, and the person can see where secrets are kept.
+- **Risk**: no Secret Service on a headless Linux host. **Mitigation**: the items go into the one file at mode `0600`, never the kernel keyring, and Settings › Runtime says where secrets are kept.
 - **A deleted row's bytes stay in its freed page.** Measured on SQLite 3.53.4, the version the pinned `better-sqlite3` embeds, in write-ahead-log mode: ten rows removed by `DELETE` alone stayed byte-for-byte in the database file after a `TRUNCATE` checkpoint. The purge therefore deletes with `secure_delete` on and checkpoints with `TRUNCATE` after commit, and the purge's byte-scan test proves on every SQLite the build pins that no deleted session's text stays in the database file or the log.
 
 ## Done Checklist
