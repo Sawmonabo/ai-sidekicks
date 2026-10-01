@@ -2852,6 +2852,8 @@ interface DaemonStatusReadResult {
       lastFrameOutAgeMs?: number;
       lastFrameInAgeMs?: number;
       reconnectCount: number;
+      // Counts each frame the relay refuses as malformed or unauthenticated; there is no per-device quota.
+      rejectedFrameCount: number;
     }>;
   };
 }
