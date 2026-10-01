@@ -178,8 +178,8 @@ Agent-surface codes (Plan-014 D-014-16; the provider axis, D-014-26).
 | `approval.already_resolved` | Approval request has already been resolved | 409 |
 | `approval.request_canceled` | Approval request was canceled (its run ended — an interrupt among the ways it can — its session closed, the provider process ended, or its originating provider ask was retracted before resolution — Plan-010 T2.8's live-leg cancel ingress) and can no longer be resolved; also the late-CREATE refusal — a create arriving for an already-ended run or already-closed session (Plan-010 T2.12). The **late-CREATE refusal shape** carries a typed `reason` extension member — `'run_ended' \| 'session_closed'` — per RFC 9457 §3.2 extension-member practice, derived from live terminal state at refusal time (a retraction can never cause a late CREATE — the request already exists when a retraction settles it); the resolve-path 409 for an already-canceled request carries no `reason` (the cancellation cause is not persisted on `approval.canceled` — audit reconstructs it from the adjacent run/session terminal rows on the timeline) | 409 |
 | `approval.persistence_unavailable` | A permission check or approval mutation was rejected fail-closed because the daemon's approval-persistence layer is unavailable ([Spec-010 §Fallback Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#fallback-behavior) — the sensitive action must not proceed) | 503 |
-| `approval.rule_not_found` | Remembered approval rule does not exist | 404 |
-| `approval.rule_already_revoked` | Remembered approval rule has already been revoked | 409 |
+| `approval.rule_not_found` | Approval rule does not exist where the provider keeps it | 404 |
+| `approval.rule_already_revoked` | Approval rule has already been revoked | 409 |
 | `approval.denial_not_found` | `approval.denialOverride` names a `denialId` the daemon holds no block for | 404 |
 | `approval.denial_not_overridable` | `approval.denialOverride` names a block the provider's own reviewer marked not overridable (`overridable: false`), so no person can overrule it | 409 |
 

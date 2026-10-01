@@ -48,7 +48,7 @@ The product combines one account, several of that account's devices, one or more
 ## Failure Modes
 
 - A linked device is over-trusted and gains unintended execution capability.
-- Remembered approvals outlive their intended scope and create hidden privilege drift.
+- Approval rules outlive their intended scope and create hidden privilege drift.
 - Transport authentication succeeds while local authorization policy is misapplied.
 - Relay or remote-path compromise exposes data that should have remained end-to-end protected.
 
@@ -212,7 +212,7 @@ A session has exactly one owner and no other people, so the matrix is not a grid
 | **Read access** |  |
 | Read the timeline, artifacts, and device presence | Owner |
 
-**Actions that ask at the asking levels:** at the session's permission levels that ask, these ask before they run unless a remembered rule answers them; at Sandboxed and at YOLO nothing asks, as the person chose ([Spec-010 §Default Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)):
+**Actions that ask at the asking levels:** at the session's permission levels that ask, these ask before they run unless an approval rule answers them; at Sandboxed and at YOLO nothing asks, as the person chose ([Spec-010 §Default Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)):
 
 - `file_write` outside the bound workspace
 - `network_access` unless the active policy explicitly allows it

@@ -83,7 +83,7 @@ Real runtime control — not UI illusions. The queue is daemon-backed. Steer is 
 
 ### Approval Gates
 
-7 categories of approval gates (tool execution, file write, network access, destructive git, plan approval, workflow gate, and human step contribution) ensure agents never take unsupervised action on anything that matters. Approve, deny, or set remembered rules.
+7 categories of approval gates (tool execution, file write, network access, destructive git, plan approval, workflow gate, and human step contribution) ensure agents never take unsupervised action on anything that matters. Approve, deny, or make a rule the provider keeps.
 
 ### Worktree-First Git Flow
 

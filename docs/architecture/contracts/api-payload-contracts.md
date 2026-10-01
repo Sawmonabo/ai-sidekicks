@@ -17,7 +17,7 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 - **No person in a request body.** A request carries no body field naming a person, and Cedar reads none: the control plane's caller is the verified `sub`, and on the machine a write records the device its connection came from.
 - **Run control.** Interventions, the orchestration-layer `run.pause` / `run.resume` verbs and a person's `driver.compactContext` are accepted from any connection the transport admits: the desktop app or the CLI on the daemon's local socket ([security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)), or a linked device inside its encrypted channel to the machine, from a device key the account's statement chain trusts. Nothing checks session ownership or run authorship. The event records the connection's device, which the channel's handshake proves ([security-architecture.md §Relay Authentication And Encryption](../security-architecture.md#relay-authentication-and-encryption)). Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
 - **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the desktop app or the CLI client (see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the main process through the preload bridge. The gateway stamps the connection's device on the dispatch context every handler receives; no handler checks who the caller is.
-- **A write records its device.** A write whose acceptance admits later work — a queued message, a steer, a remembered rule, a pending provider switch — records on its own row the device whose connection carried it, never a person, so the record outlives the request. An approval's resolution records the answering device's id, which a card answered elsewhere reads as `Answered on <device>` ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). Spend is counted per session, run and provider account, never per person.
+- **A write records its device.** A write whose acceptance admits later work — a queued message, a steer, an approval rule, a pending provider switch — records on its own row the device whose connection carried it, never a person, so the record outlives the request. An approval's resolution records the answering device's id, which a card answered elsewhere reads as `Answered on <device>` ([Spec-028 §Required Behavior](../../specs/028-remote-control.md#required-behavior)). Spend is counted per session, run and provider account, never per person.
 
 **See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix), [ADR-010 Tokens, Passkeys And The Remote Channel](../../decisions/010-tokens-passkeys-and-the-remote-channel.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
 
@@ -3567,7 +3567,7 @@ Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree.t
 - **Open in editor** is the bridge's `native.openInEditor`, which opens the project's folder in the editor Settings › General names.
 - **Archive** is `repo.projectArchive`: it takes the project out of the session list's grouping and into an archived group carrying one action, unarchive; its sessions are kept and come back with it. **Unarchive** is `repo.projectReactivate`, the inverse, which restores the grouping.
 - **Delete** is `repo.detach`, the project's one removal act and the same act as Runtime's `Remove` on the project's folder. It is refused only while an agent runs anywhere in the project. It takes the project out of the projects page and out of the session list, forgets its setup steps and its branch-name pattern, and ARCHIVES its sessions, which stay readable. Nothing on disk is touched and it is not undoable, which is why the confirm states all three facts before it acts.
-- **The setup steps** are written through `repo.projectSetupUpdate`: a per-project recipe — files to copy, commands to run in order, and a time limit — read and written from the projects page. They run with the repository's own git config, its hooks included, raise no approval card at any permission level, and mint no remembered rule. They are the person's own list on this machine rather than a file inside the repository.
+- **The setup steps** are written through `repo.projectSetupUpdate`: a per-project recipe — files to copy, commands to run in order, and a time limit — read and written from the projects page. They run with the repository's own git config, its hooks included, raise no approval card at any permission level, and make no approval rule. They are the person's own list on this machine rather than a file inside the repository.
 - **The environment rows** are two lists. The machine-wide list is passed to every process the app starts and belongs to the machine's settings file; a project's own list, written through `repo.projectEnvironmentUpdate`, is passed to every process that project's sessions start and belongs to the project record. A name in a project's list WINS over the same name machine-wide. The daemon reads both lists when it starts a project's process. A credential-shaped name is refused at save, in the list it was typed into, and nothing is written — credentials live in the account's credential home, never in an environment row — and so is a name the app sets itself on the processes it starts.
 - **The branch-name pattern** is written through `repo.projectBranchPatternUpdate {projectId, pattern | null}`, `null` returning the project to the machine's own pattern.
 
@@ -3683,42 +3683,41 @@ interface SessionSweptToRepoRootPayload {
 
 type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" }; // → §Branded ID Types
 
-// Remembered-grant scope — explicit enum, not free-form (Spec-010 §Interfaces And Contracts).
-// `request_only` (Spec-010 §Default Behavior) is expressed by OMITTING rememberedScope,
+// The rule an approval hands to the provider — explicit enum, not free-form (Spec-010 §Interfaces And
+// Contracts). `request_only` (Spec-010 §Default Behavior) is expressed by OMITTING rememberedScope,
 // never by an enum member. The subject is the one the daemon derived from the ask and the card
-// displayed (D-010-10): a command matches its program and first subcommand; network_access = exact
-// host equality, with no wildcards; file_write = that one file, as its normalized absolute path;
-// all other categories = exact subject equality. A rule matches within its session, or within every
-// session on its project; the candidate set has no user term, since one account owns the machine.
+// displayed (D-010-10): a command's program and first subcommand; a network request's host; a written
+// file's name. The provider keeps the rule and answers by it, at every level that asks; the daemon keeps
+// no rule store, and the session's own answers are its record.
 interface RememberedScope {
-  // 'session' = session-wide, which the card's middle button makes by being pressed; 'project' = every
-  // session on that project, which the same button's own arm makes. Both are the daemon's own rules: the
-  // daemon evaluates them, the inspector's `Rules` lists and revokes them, and they are never written into
-  // the provider's own files, so there is one pipeline and one place to revoke.
+  // 'session' = the provider's session rule, which the card's middle button makes by being pressed:
+  // Claude Code's session flag settings (`apply_flag_settings {permissions}`), Codex's `acceptForSession`.
+  // 'project' = the provider's project rule file, which the same button's own arm writes: Claude Code's
+  // `.claude/settings.local.json` through the answer's `destination: "localSettings"`, Codex's
+  // `.codex/rules/sidekicks.rules`, written by the daemon and listed in the repository's `.git/info/exclude`.
   kind: "session" | "project";
   pattern: string; // the subject the daemon derived from the ask and the card displayed; re-derived at resolve, and an echoed pattern that differs is refused
-  // Allow or block. A block is the `network_access` decline's own remembered form — the host is
-  // refused with NO card raised until the rule is replaced — so the remembered set is two-sided and
+  // Allow or block. A block is the `network_access` decline's own rule — the host is refused with NO
+  // card raised until the rule is replaced — so the rule set is two-sided and
   // a decline is not merely the absence of a grant. REQUIRED rather than defaulted: a missing sense
   // would have to read as `allow`, and a silently-widened block is the one reading a permission rule
   // must never take.
   sense: "allow" | "block";
 }
 
-type InvalidationTrigger =
-  | "explicit"
-  | "session_end"
-  | "project_detached"
-  | "server_trust_withdrawn";
+// Why a rule ended: the person revoked it, its session (the provider's own session) ended, or the tool
+// server whose tool it covers was removed. A project's rules live in the project's own folder and stay
+// with it.
+type InvalidationTrigger = "explicit" | "session_end" | "server_removed";
 
 // approval_flow event payload for six of the `approval.*` variants — `requested`, `approved`, `rejected`,
 // `canceled`, `remembered`, `rule_revoked` (Spec-005 §Approval Flow; mirror of the canonical
 // Zod schema). The variants carry the projection-rebuild fields (D-010-6 replay
 // rebuild; D-010-7 events-canonical): `requested` carries the request fields; the
 // resolution events carry the answering device + effective scope; `remembered`
-// carries the full rule projection (binding = `rememberedScope`, origin resolution
-// via `approvalRequestId`) so
-// `remembered_approval_rules` rebuilds byte-equal (I-010-9); decision and state ride
+// carries the rule the answer handed to the provider (binding = `rememberedScope`, origin
+// resolution via `approvalRequestId`), the session's own record of it, which the daemon lists and
+// carries across a restart of the provider's process; decision and state ride
 // the event type; envelope timestamps supply the created/updated instants. The other
 // members of the same category have payloads of their own and are not this shape:
 // `moderation.review_flagged`, `approval.reviewer_denied` and `approval.denial_overridden`,
@@ -3727,7 +3726,7 @@ type InvalidationTrigger =
 // refinement (Plan-010 T1.1 `approvalFlowPayloadRefinementFor`): requested ⇒ runId /
 // approvalRequestId / requestedBy / resourceDescriptor; approved / rejected ⇒
 // approvalRequestId / deviceId / effectiveScope; canceled ⇒ approvalRequestId;
-// remembered ⇒ approvalRequestId / rememberedScope / ruleId / madeAtLevel;
+// remembered ⇒ approvalRequestId / rememberedScope / ruleId;
 // rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at restart projection (I-010-9).
 // Requested rows a provider permission ask originates additionally carry `askId` — its PRESENCE is
@@ -3748,13 +3747,6 @@ interface ApprovalFlowEventPayload {
   deviceId?: string; // present on approval.approved / approval.rejected — the answering device's id, the device whose connection carried the answer; a card answered elsewhere reads it as `Answered on <device>`
   rememberedScope?: RememberedScope;
   ruleId?: RememberedRuleId; // present on approval.remembered / approval.rule_revoked
-  // Present on approval.remembered: the permission level the session stood at when the rule was made.
-  // It is what lets the rule rebuild byte-equal from the log alone, and what the matcher compares a
-  // later ask's level against — a rule never answers below the level it was made at. Typed to the
-  // level vocabulary it is compared against, but only the careful levels can ever appear
-  // here: the other levels raise no card, so no rule can be made under them (the stored rule row's CHECK
-  // admits only the careful levels).
-  madeAtLevel?: ExecutionPostureMode;
   invalidationTrigger?: InvalidationTrigger; // present on approval.rule_revoked
 }
 
@@ -3821,10 +3813,10 @@ interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
   decision: ApprovalDecision;
   effectiveScope?: string; // granted scope; defaults server-side to the request's scope; never broader than requested
-  // The remembered rule this resolution mints, absent for a one-time answer. Its `sense` must agree
+  // The rule this resolution hands to the provider, absent for a one-time answer. Its `sense` must agree
   // with `decision` — an `approved` resolution mints an `allow`, a `rejected` one a `block` — and the
   // pair is schema-refined, so a decline cannot mint a grant. A block is reachable only from the
-  // `network_access` category, which is the one ask whose decline has a subject worth remembering.
+  // `network_access` category, which is the one ask whose decline has a subject worth blocking.
   // `pattern` carries the DERIVED SUBJECT the card's own button displayed: for a command, the program
   // and its first subcommand; for a network request, the host; for a file write, the file's name.
   // The daemon derives it from the ask and the client echoes what it showed, so the rule can never
@@ -3859,8 +3851,9 @@ interface PermissionCheckResponse {
   allowed: boolean;
   reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
   // D-010-17 semantics: policy_allow = Cedar/own-node-envelope permit with no human approval
-  // artifact (Spec-010 §Required Behavior); remembered_rule = matched an unrevoked rule that passed
-  // at-use re-validation; approved = a recorded approved resolution covers this exact request;
+  // artifact (Spec-010 §Required Behavior); remembered_rule = the session's own answers carry a rule
+  // on this subject that the daemon answers for a provider with no verb of its own (a Codex session
+  // allow after a restart, a host blocked for a Codex session); approved = a recorded approved resolution covers this exact request;
   // pending_approval = request created/open (allowed=false); denied = Cedar forbid, a rejected
   // resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
   // error additionally surfaces on fail-closed paths so audit can distinguish them).
@@ -3890,33 +3883,28 @@ interface ApprovalProjectionReadResponse {
     decision?: ApprovalDecision;
     deviceId?: string; // AC-3: the answering device, which a card answered elsewhere reads as `Answered on <device>`
     effectiveScope?: string; // AC-3: what scope
-    rememberedScope?: RememberedScope; // present iff the resolution minted a remembered rule
+    rememberedScope?: RememberedScope; // present iff the resolution handed a rule to the provider
   }>;
 }
 
-// RememberedRuleList
+// RememberedRuleList — the rules in force on the session, the session's own and its project's alike,
+// read from where the providers keep them: Claude Code's `list_permission_rules`, Codex's project rule
+// files and the session's own answers (Spec-010 §Interfaces And Contracts). A revoked rule is gone
+// from the list; its revocation stays on the session's record as `approval.rule_revoked`.
 interface RememberedRuleListRequest {
   sessionId: SessionId;
-  includeRevoked?: boolean; // default false; true = audit-history view (Spec-010 §State And Data Implications)
 }
 interface RememberedRuleListResponse {
   rules: Array<{
-    ruleId: RememberedRuleId;
-    sessionId: SessionId;
-    category: ApprovalCategory;
-    scope: RememberedScope;
-    // The permission level the session stood at when the rule was made — one of the three careful
-    // levels, the only ones that raise a card. A rule never answers below it: at a more careful level
-    // the card asks again with the same words, and pressing it re-scopes the rule to that level.
-    madeAtLevel: ExecutionPostureMode;
-    grantedAt: string;
-    revokedAt?: string;
-    invalidationTrigger?: InvalidationTrigger;
+    ruleId: RememberedRuleId; // daemon-minted, stable while the rule's place and text are unchanged
+    scope: RememberedScope; // the scope, the derived subject and the sense
   }>;
 }
 
-// RememberedRuleRevoke — the explicit revocation path (Spec-010 §State And Data Implications);
-// writes revoked_at + 'explicit' and emits `approval.rule_revoked`
+// RememberedRuleRevoke — the explicit revocation path (Spec-010 §State And Data Implications): removes
+// the rule where the provider keeps it — a Claude Code session rule from the session's flag settings, a
+// Codex session allow by the daemon's hook holding the next call on its subject, a project rule from the
+// provider's project file — and emits `approval.rule_revoked`
 interface RememberedRuleRevokeRequest {
   ruleId: RememberedRuleId;
 }
@@ -3950,7 +3938,7 @@ interface ApprovalDenialOverrideResponse {
 }
 ```
 
-**A remembered rule carries the level it was made at.** The session's permission level decides whether anything asks at all: only the careful levels raise a card, and at the levels that never ask no card exists and no rule can be made — moving a session's level to one of those while a card is open ANSWERS that card and the blocked row runs. A rule therefore records the level it was made at and never reaches below it: at a more careful level than the one it was made at the card asks again, with the same words, and pressing it re-scopes the rule to that level; at that level or any less careful one the daemon answers the ask itself. The member carrying it is `madeAtLevel`, typed to the `ExecutionPostureMode` vocabulary of §Shared Enums, which is [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md)'s; it rides the rule list, the `approval.remembered` payload the rule rebuilds from, and the stored rule row alike, so one fact has one spelling. What is fixed either way is the ordering: the daemon evaluates a matching remembered rule BEFORE the level's own default, on every provider ask it answers — Claude Code's permission prompt and Codex's approval request alike — and never hands a provider its own rule shape, so there is one pipeline, one trust boundary and one place to revoke. Two stores exist and never mix: the daemon's remembered rules, session and project alike, are listed and revoked through `approval.ruleList` and `approval.ruleRevoke` in the inspector's `Rules` and are never written into a provider's files; the provider's own standing rules stay in the provider's own files, read and revoked through `provider.standingRuleList` and `provider.standingRuleRevoke` on Settings › Providers.
+**The providers keep the card's rules.** The session's permission level decides whether anything asks at all: only the careful levels raise a card, and at the levels that never ask no card exists and no rule can be made — moving a session's level to one of those while a card is open ANSWERS that card and the blocked row runs. A rule the card makes is handed to the provider, which answers by it at every level that asks; the daemon keeps no rule store, and each rule is one provider's. On Claude Code a session rule is the session's flag settings, set by `apply_flag_settings {permissions}` with the whole allow and deny lists on each call and carried at launch by `--settings`, and a project allow rides the answer's `destination: "localSettings"` into `.claude/settings.local.json`, where the daemon writes a project block itself, since a decline drops any rule it carries. On Codex a session allow is `acceptForSession`; the daemon writes a project rule as a `prefix_rule` or `network_rule` into the project's `.codex/rules/sidekicks.rules`, adds that one path to the repository's `.git/info/exclude`, and answers the ask `acceptForSession`; where Codex has no verb — a session allow taken back, a session block, a session allow after a restart — the daemon's own tool hook and its answers to Codex's asks carry it from the session's own answers. The inspector's `Rules` lists and revokes the rules in force on one session through `approval.ruleList` and `approval.ruleRevoke`; Settings › Providers lists and revokes every standing rule on the machine through `provider.standingRuleList` and `provider.standingRuleRevoke`, from the same files.
 
 **The plan verdict.** A plan turn ends with a held provider request on Claude Code and a plan item on Codex; the daemon turns either into ONE plan record the screen renders and ONE call answers. The record is `plan.proposed`; the call is `plan.resolve`; the outcome is recorded by `plan.accepted` and `plan.handed_off`, so the system messages that tell it survive a reload. Each rides the `approval_flow` category ([Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), which owns the names and the census), because a plan card is an attention entry on exactly the terms an approval is, which is why the verdict lives beside the approval surface rather than in a namespace of its own.
 
@@ -5510,7 +5498,7 @@ interface PreviewPageSiteDataClearResponse {
 **No `settings.*` method is registered.** The Settings screen is ten pages, and every page reads and writes through a named surface: the daemon's own verbs, the main process's bridge members, or the machine's settings file. This section says which each page uses; the build status of each daemon verb is in [§Operations Not Yet Built](#operations-not-yet-built).
 
 - **General** goes through the main process's own update channel — `update.getState`, `update.subscribe`, `update.requestCheck`, `update.requestDownload` and `update.requestRestart` — and the app's reported facts (`app.version`, `app.platform`, `app.arch`, `app.locale`), with `native.listEditors()` for the editor list. The editor preference, the default checkout for a new project session, the new-session switch, the keep-awake switch and the crash-report switch are the machine's settings file's, read and written through `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()`; the background service reads the keep-awake switch and holds the machine and its screen awake itself while any agent works.
-- **Providers** is one section per provider, and its two halves read through different surfaces. **The accounts half** goes through the `providerAccount.*` namespace of §Plan-026: `providerAccount.list` and `providerAccount.subscribe`, `.register`, `.update`, `.remove`, `.setCurrent` (which moves the `Default` mark; a session on that provider moves to the new account in place at its next request), `.probe` (`Check now`, and the five-minute read), `.resetCredentialHome` (the page's `Sign out`), `.login` and `.loginCancel` (the brokered sign-in), `.memoryImport` (the one-time copy of the person's own provider memories into an account's home) and `.usageRead`. An account is named by the identity its provider reports — the address, the plan in the provider's own word, and the organization where the plan carries one — so no payload on this page carries a label the person typed, and the only field the person authors that the update mutation corrects is the billing mode. **The provider's half** goes through the `provider.*` root: `provider.list` (each provider's status and its own knobs), `provider.update` (one knob per press: the command path, whether the provider is available for new sessions, the helper processes at once, the automatic-compaction bound, the output style, and Codex's `Reach Codex sessions started in a terminal`), `provider.probe {provider}` (the command's `Check again`: the executable resolved again and its version re-read), `provider.protectedPathList` (each protected path with the source it came from), `provider.install {provider}`, `provider.installSubscribe` and `provider.installStop` (`Install`), and `provider.terminalPluginUpdate {provider, enabled}` (the terminal plugin switch, which writes only its own key in the person's Claude Code settings). The standing rules the provider itself holds on this machine are read and revoked in the provider's own files through `provider.standingRuleList` and `provider.standingRuleRevoke`, each rule with its scope and source file. The console's remembered rules, session and project alike, are a different store: the daemon's, listed and revoked in the session inspector's `Rules` section through `approval.ruleList` and `approval.ruleRevoke` of §Plan-010, and never written into the provider's files. The import of the provider's own existing conversations is `session.importPreview`, `session.import`, `session.importSubscribe` (its first message each provider's last outcome) and `session.importStop`. On a Windows computer with WSL, the supervisor's `daemon.listPlaces()` and `daemon.subscribePlaces()` draw the place row and `Change…`'s list, and `daemon.requestMove(place)`, `daemon.cancelMove()` and `daemon.subscribeMove()` carry the move.
+- **Providers** is one section per provider, and its two halves read through different surfaces. **The accounts half** goes through the `providerAccount.*` namespace of §Plan-026: `providerAccount.list` and `providerAccount.subscribe`, `.register`, `.update`, `.remove`, `.setCurrent` (which moves the `Default` mark; a session on that provider moves to the new account in place at its next request), `.probe` (`Check now`, and the five-minute read), `.resetCredentialHome` (the page's `Sign out`), `.login` and `.loginCancel` (the brokered sign-in), `.memoryImport` (the one-time copy of the person's own provider memories into an account's home) and `.usageRead`. An account is named by the identity its provider reports — the address, the plan in the provider's own word, and the organization where the plan carries one — so no payload on this page carries a label the person typed, and the only field the person authors that the update mutation corrects is the billing mode. **The provider's half** goes through the `provider.*` root: `provider.list` (each provider's status and its own knobs), `provider.update` (one knob per press: the command path, whether the provider is available for new sessions, the helper processes at once, the automatic-compaction bound, the output style, and Codex's `Reach Codex sessions started in a terminal`), `provider.probe {provider}` (the command's `Check again`: the executable resolved again and its version re-read), `provider.protectedPathList` (each protected path with the source it came from), `provider.install {provider}`, `provider.installSubscribe` and `provider.installStop` (`Install`), and `provider.terminalPluginUpdate {provider, enabled}` (the terminal plugin switch, which writes only its own key in the person's Claude Code settings). The standing rules the provider itself holds on this machine are read and revoked in the provider's own files through `provider.standingRuleList` and `provider.standingRuleRevoke`, each rule with its scope and source file. The session inspector's `Rules` section reads the same files for one session through `approval.ruleList` and `approval.ruleRevoke` of §Plan-010; the daemon keeps no rule store of its own. The import of the provider's own existing conversations is `session.importPreview`, `session.import`, `session.importSubscribe` (its first message each provider's last outcome) and `session.importStop`. On a Windows computer with WSL, the supervisor's `daemon.listPlaces()` and `daemon.subscribePlaces()` draw the place row and `Change…`'s list, and `daemon.requestMove(place)`, `daemon.cancelMove()` and `daemon.subscribeMove()` carry the move.
 - **MCP servers** goes through the operations §Plan-025 registers, with the live stream among them, and one registry search: `mcp.list`, `mcp.get`, `mcp.subscribe`, `mcp.upsertServer` and `mcp.removeServer`, each carrying `scope` and `scopeRef`, `mcp.registrySearch {query, cursor?}` answering `{servers, nextCursor?}`, `mcp.setEnabled`, `mcp.setToolOverride`, `mcp.clearToolOverride`, `mcp.oauthLogin` (the service's own sign-in), `mcp.oauthLogout {serverId}` and `mcp.reconnect`. A sign-in page opens through `native.openExternal`, and a server whose command cannot run after a move reads `failed` with `failedReason: commandNotRunnable` on its entry.
 - **Projects** goes through the repository surface of §Repo Method-Name Registry above, with a project record beside its mount: `repo.projectList` (each row with `onOtherSideDisk`), `repo.projectRename`, `repo.projectArchive`, `repo.projectReactivate`, `repo.projectSetupUpdate`, `repo.projectEnvironmentUpdate` and `repo.detach`, which is the row's `Delete` (the sessions and the folder stay), with `native.openInEditor` for opening the project. The machine-wide environment rows and `Clone new repositories into` are the settings file's; the background service reads the environment rows when it starts a project's process and the clone folder at each clone. `repo.cloneFolderRead {}` → `{folder, source: setting | lastProject | home}`, served by the background service, is the one answer to where a clone goes, which this page's row and the session picker's `Clones into` line both draw.
 - **Browser** goes through the `browser.*` root of §Page-Host Method Registry above — `browser.siteDataList`, `browser.siteDataForget`, `browser.siteDataClear`, `browser.siteCookiesClear {origin}`, `browser.siteSignIn {origin}`, `browser.chromiumRead` and `browser.chromiumFetch` — and through `gitflow.hostList`, `gitflow.hostAdd {host}` and `gitflow.hostRemove` of §Plan-009 for the self-hosted git hosts. Its two switches, `Remember site data` and `Browser tools for sidekicks`, are no verb: they are the machine's settings file's, and the background service reads them each time it launches the headless browser or a provider.
@@ -7953,7 +7941,7 @@ interface McpLiveApplicationResult {
 // abandoned sign-in, or one ended by a newer attempt, leaves only its expiring receipt); oauthLogout is receipted and, like
 // reconnect, audits through the status transitions it induces; reconnect is unreceipted:
 //   mcp.upsertServer      McpServerBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
-//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server revokes every remembered approval rule over its tools in the same transaction
+//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server removes every approval rule over its tools from the provider's file that holds it, in the same transaction
 //   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
@@ -8644,7 +8632,7 @@ interface ProviderAccountUsageWindow {
 
 **The one-time memory import is `providerAccount.memoryImport`.** Each account row offers to copy the person's own ambient memory store into THAT account's credential home, once, on a press: after it the row reads how many were copied and when, and an account with nothing to copy settles into saying so and offers the press no more. The two homes are never joined, and the copy is the person's act rather than a background sweep. Its payload pair is `ProviderAccountMemoryImportRequest` / `ProviderAccountMemoryImportResponse` above, and the outcome it records is `ProviderAccount.memoryImport`.
 
-**The provider's own standing rules are `provider.standingRuleList` and `provider.standingRuleRevoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, never from the daemon's remembered rules, which are `approval.ruleList` and `approval.ruleRevoke` in the session inspector, so one rule has one store and the daemon never writes a rule into a provider's file. The `provider` root sits beside `providerAccount`, because a machine-wide page cannot use the `driver.*` reads, which need an active session.
+**The provider's own standing rules are `provider.standingRuleList` and `provider.standingRuleRevoke`.** Each provider keeps rules of its own that allow or refuse a command on this machine; they are read from and revoked in the provider's own files, the same files the session inspector's `approval.ruleList` and `approval.ruleRevoke` read for one session, so one rule has one place: the provider's. The `provider` root sits beside `providerAccount`, because a machine-wide page cannot use the `driver.*` reads, which need an active session.
 
 ```ts
 // provider.standingRuleList — one row per rule, in the provider's own words, read from every account
@@ -9049,7 +9037,7 @@ interface PluginAppListResponse {
 // All six are registered at spawn UNCONDITIONALLY and adjudicated per invocation, exactly as every
 // other daemon-registered tool is: the call rides the `tool_execution` approval category through the
 // approval pipeline under the session's own permission level — an asking level raises the same
-// approval card any tool call raises, a remembered rule can answer it, and a level that never asks
+// approval card any tool call raises, an approval rule can answer it, and a level that never asks
 // never asks for this either — and a decline answers `denied` rather than hiding the tool.
 // State-gated registration is refused — it would make any change invisible until the
 // next spawn, because `callbackTools` rides only CreateSessionParams / ResumeSessionParams and no

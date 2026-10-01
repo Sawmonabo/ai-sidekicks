@@ -23,7 +23,7 @@ Approval logic spread through application code has no single rule set to read or
 
 ## Decision
 
-Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval rules are `.cedar` files in the service's own source, compiled into the service with it, and changed and shipped only by an app update, like any other code. The service evaluates them in-process with the resident `@cedar-policy/cedar-wasm` authorizer: the policy set and schema are parsed once at start and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale against a changed remembered rule, project trust or posture. A decision cache buys nothing at in-process latency for this local authorizer.
+Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval rules are `.cedar` files in the service's own source, compiled into the service with it, and changed and shipped only by an app update, like any other code. The service evaluates them in-process with the resident `@cedar-policy/cedar-wasm` authorizer: the policy set and schema are parsed once at start and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale against a changed approval rule, project trust or posture. A decision cache buys nothing at in-process latency for this local authorizer.
 
 ## Alternatives Considered
 

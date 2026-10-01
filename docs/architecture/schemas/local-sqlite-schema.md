@@ -490,7 +490,7 @@ CREATE TABLE run_execution_contexts (
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 ```
 
-**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The remembered approval rules, the removed-worktree records, the workflow definitions, the agent definitions and the workflow secrets key a project by this record's id.
+**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the workflow definitions, the agent definitions and the workflow secrets key a project by this record's id.
 
 ---
 
@@ -600,66 +600,14 @@ CREATE TABLE approval_resolutions (
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless the answer narrowed it (Spec-010 §Required Behavior);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
-  remembered_scope_kind    TEXT               -- 'session' | 'project' when remembering was requested; NULL otherwise (Spec-010 §Interfaces And Contracts)
+  remembered_scope_kind    TEXT               -- 'session' | 'project' when the answer handed a rule to the provider; NULL otherwise (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
-  remembered_scope_pattern TEXT,              -- resource-matching pattern for the remembered rule, nullable
+  remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
   resolved_at              TEXT NOT NULL
 );
-
--- Owner: Plan-010
--- The console's remembered rules, session and project alike. They live in the daemon's store only and are
--- never written into a provider's own rule files; the provider's own rules are read and revoked on
--- Settings › Providers (`provider.standingRuleList`, `provider.standingRuleRevoke`), and these rows are read
--- and revoked through `approval.ruleList` and `approval.ruleRevoke`.
-CREATE TABLE remembered_approval_rules (
-  id                         TEXT PRIMARY KEY,
-  session_id                 TEXT NOT NULL,   -- the session the rule was made in; a session rule matches there only (Spec-010 §Default Behavior)
-  project_id                 TEXT,            -- the project record's id; NOT NULL iff scope_kind = 'project', so a project rule is found from every session on that project
-  mcp_binding_ref            TEXT,            -- JSON: the tool-server binding whose tool the rule's subject names, as its plain McpServerBindingRef
-                                              -- (provider, scope, scope path, server name); NULL for any other subject, so removing that binding revokes its rules
-  created_from_request_id    TEXT NOT NULL REFERENCES approval_resolutions(request_id), -- origin decision (Spec-010 §State And Data Implications, audit history); the durable wire id carried on approval.remembered, so the FK rebuilds byte-equal from events alone (I-010-9)
-  category                   TEXT NOT NULL
-                             CHECK(category IN (
-                               'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                               'plan_approval', 'gate',
-                               'human_step_contribution'                               -- SA-12 addition; mirrors Spec-010 canonical enum
-                             )),
-  scope_kind                 TEXT NOT NULL
-                             CHECK(scope_kind IN ('session', 'project')),  -- explicit enum, not free-form (Spec-010 §Interfaces And Contracts).
-                                              -- 'project' is every session on that project, which the card's own arm makes
-  scope_pattern              TEXT NOT NULL,   -- the subject the daemon derived from the ask: a command's program and its first
-                                              -- subcommand, a network request's host, a written file's normalized absolute path; any
-                                              -- other category's exact subject (D-010-10)
-  sense                      TEXT NOT NULL    -- allow or block: the remembered set is two-sided, because a decline on a network
-                             CHECK(sense IN ('allow', 'block')),
-                                              -- ask has a subject worth remembering too, and the host is then refused with no
-                                              -- card raised until the rule is replaced. NOT NULL rather than defaulted: a
-                                              -- missing sense would have to read as 'allow', and a silently-widened block is
-                                              -- the one reading a permission rule must never take. It agrees with the
-                                              -- originating decision by construction -- an approval mints an allow, a decline
-                                              -- a block -- which is what the emission refinement on approval.remembered pins
-  made_at_level              TEXT NOT NULL    -- the permission level the session stood at when the rule was made. A rule
-                             CHECK(made_at_level IN ('readonly', 'ask', 'reviewed')),
-                                              -- never answers BELOW it: at a more careful level the card asks again with the
-                                              -- same words and the press re-scopes the rule to that level, and at that level
-                                              -- or any looser one the daemon answers the ask itself. The comparand is the
-                                              -- five-level vocabulary, but only the three careful levels can MAKE a rule --
-                                              -- the other two raise no card -- so a row carrying 'sandboxed' or 'yolo' would
-                                              -- name a rule nothing could have made, and the CHECK leaves it unrepresentable
-                                              -- rather than trusting the writer. The matcher's comparand, not a display field
-  granted_at                 TEXT NOT NULL,
-  revoked_at                 TEXT,            -- nullable; set when rule is invalidated
-  invalidation_trigger       TEXT
-                             CHECK(invalidation_trigger IS NULL OR invalidation_trigger IN
-                               ('explicit', 'session_end', 'project_detached', 'server_trust_withdrawn')),
-  CHECK((revoked_at IS NULL) = (invalidation_trigger IS NULL)),  -- co-presence: a revocation always records its trigger
-  CHECK((scope_kind = 'project') = (project_id IS NOT NULL))     -- project rules carry their project key
-);
-
-CREATE INDEX idx_remembered_rules_session ON remembered_approval_rules(session_id) WHERE revoked_at IS NULL;
-CREATE INDEX idx_remembered_rules_project ON remembered_approval_rules(project_id) WHERE project_id IS NOT NULL AND revoked_at IS NULL;
-CREATE INDEX idx_remembered_rules_mcp_binding ON remembered_approval_rules(mcp_binding_ref) WHERE mcp_binding_ref IS NOT NULL AND revoked_at IS NULL;
 ```
+
+The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
 
 ---
 
