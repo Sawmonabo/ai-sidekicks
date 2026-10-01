@@ -70,7 +70,7 @@ describe("attention.deliveryRead", () => {
     expect(AttentionDeliveryReadResponseSchema.safeParse(read).success).toBe(true);
   });
 
-  it("carries a host exactly when an address is saved", () => {
+  it("carries a host only when an address is saved, and none for a saved text", () => {
     const savedWithoutHost = {
       webAddress: { saved: true, host: null, lastOutcome: null },
       emailDigest: digest,
@@ -79,7 +79,7 @@ describe("attention.deliveryRead", () => {
       webAddress: { saved: false, host: "ntfy.sh", lastOutcome: null },
       emailDigest: digest,
     };
-    expect(AttentionDeliveryReadResponseSchema.safeParse(savedWithoutHost).success).toBe(false);
+    expect(AttentionDeliveryReadResponseSchema.safeParse(savedWithoutHost).success).toBe(true);
     expect(AttentionDeliveryReadResponseSchema.safeParse(hostWithoutSave).success).toBe(false);
   });
 });

@@ -225,8 +225,9 @@ const AttentionDeliveryOutcomeSchema: z.ZodType<AttentionDeliveryOutcome> = z
   .strict();
 
 /**
- * What each channel last did. The web address is shown back as its host only;
- * neither the address, its signing secret nor the mail password is ever sent.
+ * What each channel last did. The web address is shown back as its host only, and a saved text
+ * with no scheme and host has none; neither the address, its signing secret nor the mail
+ * password is ever sent.
  */
 export interface AttentionDeliveryReadResponse {
   webAddress: {
@@ -239,7 +240,7 @@ export interface AttentionDeliveryReadResponse {
     lastOutcome: AttentionDeliveryOutcome | null;
   };
 }
-/** Parses an {@link AttentionDeliveryReadResponse}; `host` is set when an address is saved. */
+/** Parses an {@link AttentionDeliveryReadResponse}; `host` is set only when an address is saved. */
 export const AttentionDeliveryReadResponseSchema: z.ZodType<AttentionDeliveryReadResponse> = z
   .object({
     webAddress: z
@@ -249,8 +250,8 @@ export const AttentionDeliveryReadResponseSchema: z.ZodType<AttentionDeliveryRea
         lastOutcome: AttentionDeliveryOutcomeSchema.nullable(),
       })
       .strict()
-      .refine((webAddress) => webAddress.saved === (webAddress.host !== null), {
-        message: "host is present exactly when an address is saved.",
+      .refine((webAddress) => webAddress.saved || webAddress.host === null, {
+        message: "host is present only when an address is saved.",
         path: ["host"],
       }),
     emailDigest: z
@@ -302,9 +303,9 @@ export const AttentionMailPasswordSaveRequestSchema: z.ZodType<
   .strict();
 
 /**
- * Saves the web address, a secret because chat services put their token in it.
- * The daemon parses it and refuses one it cannot send to with
- * {@link ATTENTION_WEB_ADDRESS_INVALID_CODE}.
+ * Saves the web address, a secret because chat services put their token in it. Whatever is typed
+ * is saved as typed; a text that is not an address is kept, and each message to it fails and is
+ * counted as undelivered.
  */
 export interface AttentionWebAddressSaveRequest {
   address: string;
@@ -323,16 +324,16 @@ export const AttentionWebAddressSaveRequestSchema: z.ZodType<
   .strict();
 
 /**
- * The saved address's host, and on the first save the signing secret the receiver
- * checks each message with, shown this once.
+ * The saved address's host, `null` for a text with no scheme and host, and on the first save the
+ * signing secret the receiver checks each message with, shown this once.
  */
 export interface AttentionWebAddressSaveResponse {
-  host: string;
+  host: string | null;
   signingSecret?: string | undefined;
 }
 /** Parses an {@link AttentionWebAddressSaveResponse}. */
 export const AttentionWebAddressSaveResponseSchema: z.ZodType<AttentionWebAddressSaveResponse> = z
-  .object({ host: z.string().min(1), signingSecret: z.string().min(1).optional() })
+  .object({ host: z.string().min(1).nullable(), signingSecret: z.string().min(1).optional() })
   .strict();
 
 /** A new signing secret, shown this once; the old one stops verifying at once. */
@@ -344,36 +345,6 @@ export const AttentionWebAddressSecretRotateResponseSchema: z.ZodType<AttentionW
   z.object({ signingSecret: z.string().min(1) }).strict();
 
 // Refusal codes
-
-/** The web address cannot be sent to. */
-export type AttentionWebAddressInvalidCode = "attention.web_address_invalid";
-/** Error code for a web address the daemon cannot send to. */
-export const ATTENTION_WEB_ADDRESS_INVALID_CODE: AttentionWebAddressInvalidCode =
-  "attention.web_address_invalid";
-
-const ATTENTION_WEB_ADDRESS_INVALID_REASON_VALUES = [
-  "unparseable",
-  "notHttps",
-  "notPrivateHttp",
-] as const;
-
-/**
- * Why: it is not an address; it is neither `https:` nor `http:`; or it is `http:`
- * to a host that is neither this machine nor a private network.
- */
-export type AttentionWebAddressInvalidReason =
-  (typeof ATTENTION_WEB_ADDRESS_INVALID_REASON_VALUES)[number];
-/** Every {@link AttentionWebAddressInvalidReason}. */
-export const ATTENTION_WEB_ADDRESS_INVALID_REASONS: readonly AttentionWebAddressInvalidReason[] =
-  ATTENTION_WEB_ADDRESS_INVALID_REASON_VALUES;
-
-/** The details {@link ATTENTION_WEB_ADDRESS_INVALID_CODE} carries. Never the address. */
-export interface AttentionWebAddressInvalidDetails {
-  reason: AttentionWebAddressInvalidReason;
-}
-/** Parses an {@link AttentionWebAddressInvalidDetails}. */
-export const AttentionWebAddressInvalidDetailsSchema: z.ZodType<AttentionWebAddressInvalidDetails> =
-  z.object({ reason: z.enum(ATTENTION_WEB_ADDRESS_INVALID_REASON_VALUES) }).strict();
 
 /** The keychain holding the delivery secrets could not be used. */
 export type AttentionDeliveryStoreUnavailableCode = "attention.delivery_store_unavailable";
