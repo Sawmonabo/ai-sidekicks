@@ -191,6 +191,8 @@ export interface ClaudeSessionChannel {
  */
 export interface ClaudeSpawnBoundLegs {
   readonly sessionId: SessionId;
+  /** The session's model, passed as `--model` on every spawn. */
+  readonly model: string;
   readonly admittedCostCapUsdMicros: number | undefined;
   readonly executionPosture: ExecutionPosture | undefined;
   readonly callbackTools: SessionCallbackTool[] | undefined;

@@ -66,6 +66,7 @@ export class ClaudeSpawnLegComposer {
     const callbackToolServer = this.#resolveCallbackToolServer(params);
     return {
       sessionId: params.sessionId,
+      model: params.model,
       admittedCostCapUsdMicros: params.admittedCostCapUsdMicros,
       executionPosture: posture,
       sandboxSettings: posture === undefined ? undefined : composeClaudeSandboxSettings(posture),

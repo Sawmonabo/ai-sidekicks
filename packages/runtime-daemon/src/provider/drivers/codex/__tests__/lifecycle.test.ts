@@ -479,6 +479,8 @@ function makeCapabilities(steer: boolean): DriverCapabilities {
   return { flags, contractVersion: "1.0.0" };
 }
 
+/** The test session's model. */
+const TEST_MODEL = "gpt-5.5";
 /** A live `model/list` read that answers an empty catalog, for tests that never list models. */
 const STUB_MODEL_CATALOG_READ: CodexModelCatalogExchange = () =>
   Promise.resolve({ data: [], nextCursor: null });
@@ -612,7 +614,11 @@ function threadStartResult(turnCount = 0): JsonRpcAnswer {
 
 async function createdSession(harness: Harness): Promise<void> {
   harness.server.on("thread/start", () => threadStartResult());
-  await harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  await harness.driver.createSession({
+    model: TEST_MODEL,
+    sessionId: SESSION_ID,
+    config: SESSION_CONFIG,
+  });
 }
 
 interface ManagerHarness {
@@ -860,7 +866,11 @@ describe("CodexDriver spawn and handshake", () => {
     harness.server.emitSentinelOnSubscribe = false;
     harness.server.on("thread/start", () => threadStartResult());
 
-    const pending = harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    const pending = harness.driver.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     // Drained, not counted: the create path resolves its credential policy before it opens a
     // connection, so the number of microtasks before the subscribe is not this test's concern.
     await drainMicrotasks();
@@ -882,6 +892,7 @@ describe("CodexDriver lifecycle operations", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     const handle = await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
@@ -982,6 +993,7 @@ describe("CodexDriver resumeSession", () => {
     harness.server.on("thread/resume", () => threadStartResult(3));
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -993,12 +1005,14 @@ describe("CodexDriver resumeSession", () => {
     const harness = createHarness();
     harness.server.on("thread/start", () => threadStartResult());
     const handle = await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
     harness.server.on("thread/resume", () => threadStartResult(1));
 
     await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: handle.resumeHandle,
     });
@@ -1020,6 +1034,7 @@ describe("CodexDriver resumeSession", () => {
     }));
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -1047,6 +1062,7 @@ describe("CodexDriver resumeSession", () => {
     }));
 
     const result = await harness.manager.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -1056,7 +1072,11 @@ describe("CodexDriver resumeSession", () => {
     // resume had taken the slot.
     harness.server.on("thread/start", () => threadStartResult());
     await expect(
-      harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+      harness.manager.createSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        config: SESSION_CONFIG,
+      }),
     ).resolves.toMatchObject({ resumeHandle: THREAD_ID });
   });
 
@@ -1070,6 +1090,7 @@ describe("CodexDriver resumeSession", () => {
     const createSessionSpy = vi.spyOn(harness.driver, "createSession");
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -1093,6 +1114,7 @@ describe("CodexDriver resumeSession", () => {
     harness.server.emitSentinelOnSubscribe = false;
 
     const pending = harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -1111,7 +1133,11 @@ describe("CodexDriver resumeSession", () => {
     const harness = createHarness();
     harness.server.on("thread/resume", () => threadStartResult(1));
 
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     // A resume is a fresh spawn and `ResumeSessionParams` carries no spawn context, so an empty
     // environment here would look like a bad handle.
@@ -1129,7 +1155,11 @@ describe("CodexDriver resumeSession", () => {
     harness.server.on("thread/resume", () => threadStartResult(3));
 
     await expect(
-      harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID }),
+      harness.driver.resumeSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        resumeHandle: THREAD_ID,
+      }),
     ).resolves.toMatchObject({ status: "resumed" });
 
     // A resume is a fresh spawn, so the earlier process would be orphaned by a driver that only
@@ -1147,7 +1177,11 @@ describe("CodexDriver resumeSession", () => {
     }));
 
     await expect(
-      harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID }),
+      harness.driver.resumeSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        resumeHandle: THREAD_ID,
+      }),
     ).resolves.toMatchObject({ recoveryCondition: "recovery-needed" });
 
     // Only the process that just failed is torn down. Killing the live one would make a refused
@@ -1408,7 +1442,11 @@ describe("CodexDriver session ownership", () => {
     await createdSession(harness);
 
     await expect(
-      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+      harness.driver.createSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        config: SESSION_CONFIG,
+      }),
     ).rejects.toBeInstanceOf(CodexSessionAlreadyLiveError);
     // A replace would leave the first child running with nothing routing to it.
     expect(harness.server.spawnRequests).toHaveLength(1);
@@ -1451,7 +1489,11 @@ describe("CodexDriver session ownership", () => {
 
     harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
     harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     expect(harness.textNeutralizationFailures).toHaveLength(1);
     expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
@@ -1486,7 +1528,11 @@ describe("CodexDriver session ownership", () => {
 
     harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
     harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     expect(harness.textNeutralizationFailures).toHaveLength(1);
     const reported = harness.diagnostics.filter(
@@ -1657,6 +1703,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: {
         cwd: SESSION_CWD,
@@ -1690,7 +1737,11 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     });
     harness.server.on("thread/resume", () => threadStartResult(1));
 
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
@@ -1719,6 +1770,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: {
         cwd: SESSION_CWD,
@@ -1752,6 +1804,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: {
         cwd: SESSION_CWD,
@@ -1785,6 +1838,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     const refused = await harness.driver
       .createSession({
+        model: TEST_MODEL,
         sessionId: SESSION_ID,
         config: {
           cwd: SESSION_CWD,
@@ -1821,6 +1875,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     });
     harness.server.on("thread/start", () => threadStartResult());
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: {
         cwd: SESSION_CWD,
@@ -1833,7 +1888,11 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     });
     harness.server.on("thread/resume", () => threadStartResult(1));
 
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     expect(harness.server.spawnRequests[1]?.env).toEqual([
       ["HOME", "/home/agent"],
@@ -1850,6 +1909,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     });
     harness.server.on("thread/start", () => threadStartResult());
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: {
         cwd: SESSION_CWD,
@@ -1862,6 +1922,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     harness.server.on("thread/resume", () => threadStartResult(1));
 
     await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       executionPosture: SANDBOXED_POSTURE,
@@ -1891,6 +1952,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     harness.server.on("thread/resume", () => threadStartResult(1));
 
     await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       executionPosture: SANDBOXED_POSTURE,
@@ -1912,6 +1974,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     harness.server.on("thread/resume", () => threadStartResult(1));
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       executionPosture: SANDBOXED_POSTURE,
@@ -2022,6 +2085,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     const harness = accountHarness();
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2036,6 +2100,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     const harness = accountHarness();
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: { ...SESSION_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
     });
@@ -2051,6 +2116,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
 
     const refused = await harness.driver
       .createSession({
+        model: TEST_MODEL,
         sessionId: SESSION_ID,
         config: { ...SESSION_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
         providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2079,7 +2145,12 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     const harness = accountHarness();
 
     const refused = await harness.driver
-      .createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG, providerAccountId: "" })
+      .createSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        config: SESSION_CONFIG,
+        providerAccountId: "",
+      })
       .then(
         () => undefined,
         (cause: unknown) => cause,
@@ -2097,6 +2168,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     });
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2116,6 +2188,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     });
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2138,6 +2211,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     const harness = accountHarness();
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2157,7 +2231,11 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
       resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
     });
 
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     expect(await boundAccountId(harness)).toBe(NODE_DEFAULT_ACCOUNT_ID);
   });
@@ -2169,12 +2247,17 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
       resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
     });
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       providerAccountId: ADMITTED_ACCOUNT_ID,
     });
 
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.driver.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     // The record's account, not the node-wide default beside it.
     expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
@@ -2186,6 +2269,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     // claims nothing about this session.
     const harness = accountHarness();
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2193,6 +2277,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     const spawnsAfterCreate = harness.server.spawnRequests.length;
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       providerAccountId: NODE_DEFAULT_ACCOUNT_ID,
@@ -2218,10 +2303,15 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
       resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
     });
     // A create that binds no account through either channel.
-    await harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.driver.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     const spawnsAfterCreate = harness.server.spawnRequests.length;
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2250,9 +2340,14 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     const harness = accountHarness({
       resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
     });
-    await harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.driver.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -2268,12 +2363,14 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
       resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
     });
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       providerAccountId: ADMITTED_ACCOUNT_ID,
     });
 
     const result = await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
       providerAccountId: ADMITTED_ACCOUNT_ID,
@@ -2293,6 +2390,7 @@ describe("CodexDriver turn posture realization", () => {
     const harness = createHarness();
     harness.server.on("thread/start", () => threadStartResult());
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
@@ -2369,6 +2467,7 @@ describe("CodexDriver resume-failure taxonomy", () => {
 
   async function resume(harness: Harness): Promise<DriverResumeResult> {
     return await harness.driver.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -2476,10 +2575,12 @@ describe("CodexLifecycleManager establishment slot", () => {
     // suspended in its spawn. A guard that read only the live map would see it empty and spawn a
     // second process whose handle the later install would orphan.
     const first = harness.manager.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
     const second = harness.manager.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
@@ -2509,9 +2610,21 @@ describe("CodexLifecycleManager establishment slot", () => {
     // the same settlement both find the slot free, establish concurrently, and the later install
     // orphans the earlier process.
     const results = await Promise.all([
-      harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID }),
-      harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID }),
-      harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID }),
+      harness.manager.resumeSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        resumeHandle: THREAD_ID,
+      }),
+      harness.manager.resumeSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        resumeHandle: THREAD_ID,
+      }),
+      harness.manager.resumeSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        resumeHandle: THREAD_ID,
+      }),
     ]);
 
     expect(results.map((result) => result.status)).toEqual(["resumed", "resumed", "resumed"]);
@@ -2526,6 +2639,7 @@ describe("CodexLifecycleManager establishment slot", () => {
     const release = harness.server.holdSpawns();
 
     const creating = harness.manager.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
@@ -2653,7 +2767,11 @@ describe("CodexLifecycleManager session slot across teardown", () => {
   it("holds the slot for the whole of teardown and releases it once teardown settles", async () => {
     const harness = createManagerHarness();
     harness.server.uniqueSpawnSessionIds = true;
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     // Gated on the host close, the last step of teardown: the record is already out of the live
     // map by then under any implementation, so this window tests only the claim.
@@ -2663,7 +2781,7 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
 
     const refusal = await harness.manager
-      .createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG })
+      .createSession({ model: TEST_MODEL, sessionId: SESSION_ID, config: SESSION_CONFIG })
       .then(
         () => undefined,
         (error: unknown) => error,
@@ -2681,13 +2799,21 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     await closing;
 
     // The slot is genuinely released: the create refused a moment ago is now admitted.
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     expect(harness.server.spawnRequests).toHaveLength(2);
   });
 
   it("releases the process even when the subscription disposer throws during teardown", async () => {
     const harness = createManagerHarness({ throwingSubscriptionDisposer: true });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const outcome = await harness.manager.closeSession({ sessionId: SESSION_ID }).then(
       () => undefined,
@@ -2701,12 +2827,20 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
     // A session whose teardown threw must still be creatable: the record is dropped in a
     // `finally`, so a misbehaving disposer cannot wedge the slot.
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
   });
 
   it("refuses a turn/start whose session stopped holding its slot while it was in flight", async () => {
     const harness = createManagerHarness();
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     let closing: Promise<void> | undefined;
     harness.server.on("turn/start", () => {
@@ -2756,12 +2890,17 @@ describe("CodexLifecycleManager session slot across re-establishment", () => {
       // branch.
       releaseSpawns = harness.server.holdSpawns();
       resuming = harness.manager.resumeSession({
+        model: TEST_MODEL,
         sessionId: SESSION_ID,
         resumeHandle: THREAD_ID,
       });
       return { result: { turn: { id: TURN_ID } } };
     });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
@@ -2795,7 +2934,11 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
     harness.server.uniqueSpawnSessionIds = true;
     // No `turn/start` handler is registered, so the request is never answered and its deadline is
     // the only way it settles: the case the provider may have accepted.
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
@@ -2817,14 +2960,22 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     // The retry is a clean establishment; leaving the session reusable would double the work
     // against a turn nobody can see.
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     expect(harness.server.spawnRequests).toHaveLength(2);
   });
 
   it("treats a turn/start response with an unusable turn id as ambiguous", async () => {
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: {} } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const outcome = await harness.manager
       .startRun({
@@ -2888,7 +3039,11 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
       turnStartCalls += 1;
       return typedTurnStartRefusal("badRequest");
     });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const outcome = await harness.manager
       .startRun({
@@ -2929,7 +3084,11 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
   it("does NOT condemn a typed refusal that names something other than the history", async () => {
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => typedTurnStartRefusal("contextWindowExceeded"));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const outcome = await harness.manager
       .startRun({
@@ -2961,7 +3120,11 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     built.server.uniqueSpawnSessionIds = true;
     // Unanswered on purpose: the deadline is the only way this settles, and the provider may have
     // accepted the turn.
-    await built.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await built.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const starting = built.manager.startRun({
       runId: RUN_ID,
@@ -3006,7 +3169,11 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
       },
     });
     harness.server.uniqueSpawnSessionIds = true;
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
@@ -3036,7 +3203,11 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     const harness: ManagerHarness = createManagerHarness({
       userTurnReadback: countingUserTurnReadback(0, reads, () => harness),
     });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     const starting = harness.manager.startRun({
       runId: RUN_ID,
@@ -3073,7 +3244,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     async (status) => {
       const harness = createManagerHarness();
       harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-      await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+      await harness.manager.createSession({
+        model: TEST_MODEL,
+        sessionId: SESSION_ID,
+        config: SESSION_CONFIG,
+      });
       await harness.manager.startRun({
         runId: RUN_ID,
         agentConfig: { sessionId: SESSION_ID, input: "go" },
@@ -3099,7 +3274,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       result: { turn: { id: TURN_ID } },
       trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
     }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await harness.manager.startRun({
       runId: RUN_ID,
@@ -3131,7 +3310,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       result: { turn: { id: TURN_ID } },
       trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
     }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await harness.manager.startRun({
       runId: RUN_ID,
@@ -3155,7 +3338,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // cause.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: {
@@ -3185,7 +3372,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     const harness = createManagerHarness();
     harness.server.uniqueSpawnSessionIds = true;
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: {
@@ -3200,7 +3391,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // refused. Recovery starts once the condemned child is gone.
     await drainMicrotasks();
 
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await expect(
       harness.manager.startRun({
@@ -3219,7 +3414,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: {
@@ -3257,7 +3456,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     // `turn/steer` is deliberately not registered: the fake writes the line and answers nothing,
     // the shape of an intercepted directive.
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: {
@@ -3312,7 +3515,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: {
@@ -3347,7 +3554,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   it("keeps the route while the turn is still inProgress", async () => {
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: { sessionId: SESSION_ID, input: "go" },
@@ -3370,7 +3581,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       result: { turn: { id: TURN_ID } },
       trailingFrames: [turnCompletedFrame(TURN_ID, "completed")],
     }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await harness.manager.startRun({
       runId: RUN_ID,
@@ -3384,7 +3599,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     const harness = createManagerHarness();
     let nextTurnId = TURN_ID;
     harness.server.on("turn/start", () => ({ result: { turn: { id: nextTurnId } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.startRun({
       runId: RUN_ID,
       agentConfig: { sessionId: SESSION_ID, input: "one" },
@@ -3412,7 +3631,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // swallowed turn from the tripwire. A bag has no type to enforce this, so the refusal does.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await expect(
       harness.manager.startRun({
@@ -3568,6 +3791,7 @@ describe("CodexAppServerConnection framing bounds", () => {
     // `printf`, and whatever the tty emits has no line terminator to drain it.
     harness.server.emitSentinelOnSubscribe = false;
     const pending = harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
@@ -3689,6 +3913,7 @@ async function resumedSessionWithTurns(
 ): Promise<void> {
   harness.server.on("thread/resume", () => threadStartResult(turnCount));
   await harness.driver.resumeSession({
+    model: TEST_MODEL,
     sessionId: SESSION_ID,
     resumeHandle: THREAD_ID,
     ...params,
@@ -3901,6 +4126,7 @@ describe("CodexDriver subagent caps", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       subagentPolicy: { enabled: false },
@@ -3919,6 +4145,7 @@ describe("CodexDriver subagent caps", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       subagentPolicy: { enabled: true, maxConcurrent: 0, maxDepth: 3, definitions: [] },
@@ -3945,6 +4172,7 @@ describe("CodexDriver posture realization", () => {
     }));
 
     await harness.driver.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
       executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
@@ -4061,11 +4289,16 @@ describe("CodexDriver transport construction", () => {
     // Constructed, not yet connected: nothing has asked the keyring anything.
     expect(resolvedRefs).toStrictEqual([]);
 
-    await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await driver.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     expect(resolvedRefs).toStrictEqual([websocketTransportConfig.bearerTokenRef]);
 
     // A second connection re-resolves rather than reusing the first answer.
     await driver.createSession({
+      model: TEST_MODEL,
       sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
       config: SESSION_CONFIG,
     });
@@ -4129,7 +4362,7 @@ async function routedAskHarness(
     readCapabilities: () => makeCapabilities(true),
     ...(responder === undefined ? {} : { answerServerRequest: responder }),
   });
-  await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  await driver.createSession({ model: TEST_MODEL, sessionId: SESSION_ID, config: SESSION_CONFIG });
   const harness: Harness = {
     server,
     driver,
@@ -4509,7 +4742,11 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     // A fresh accountant starts its base registers at zero, so the fixture's running totals restart
     // with it; otherwise `last` would derive from a previous test's cumulative.
     emittedCumulativeByThreadId.clear();
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     return harness;
   }
 
@@ -4727,6 +4964,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     });
     harness.server.on("thread/resume", () => threadStartResult(1));
     await harness.manager.resumeSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
@@ -5423,7 +5661,11 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
   async function compactionHarness(): Promise<ManagerHarness> {
     const harness = createManagerHarness({ onServerNotification: true });
     harness.server.on("thread/compact/start", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     return harness;
   }
 
@@ -5523,7 +5765,11 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     harness.server.on("thread/compact/start", () => ({
       error: { code: -32603, message: "compaction unavailable" },
     }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await expect(
       harness.manager.compactContext({ sessionId: SESSION_ID, bindingId: "binding-abc" }),
@@ -5638,6 +5884,7 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     harness.server.on("skills/list", () => skillsListResult(current));
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await harness.manager.createSession({
+      model: TEST_MODEL,
       sessionId: SESSION_ID,
       config: options.config ?? SESSION_CONFIG,
     });
@@ -5786,7 +6033,11 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     expect(harness.server.framesForMethod("skills/list")[0]?.["params"]).toStrictEqual({});
 
     await harness.manager.closeSession({ sessionId: SESSION_ID });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
 
     // A held list that survived its session would answer the next session on this id with the
@@ -6042,7 +6293,11 @@ describe("Codex ask normalization at the session seam", () => {
         },
       },
     });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     let nextRequestId = 4000;
     const ask = async (method: string, params: unknown): Promise<void> => {
       nextRequestId += 1;
@@ -6165,7 +6420,11 @@ describe("CodexLifecycleManager.replayTranscript", () => {
 
   async function freshTarget(harness: ManagerHarness): Promise<void> {
     harness.server.on("thread/inject_items", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
   }
 
   it("seeds frame by frame and CONFIRMS against the target's own answer", async () => {
@@ -6209,9 +6468,17 @@ describe("CodexLifecycleManager.replayTranscript", () => {
         thread: { id: OTHER_THREAD_ID, sessionId: "session-tree-other", turns: [] },
       },
     }));
-    await harness.manager.createSession({ sessionId: OTHER_SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: OTHER_SESSION_ID,
+      config: SESSION_CONFIG,
+    });
     harness.server.on("thread/start", () => threadStartResult());
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] });
 
@@ -6271,7 +6538,11 @@ describe("CodexLifecycleManager.replayTranscript", () => {
     });
     harness.server.on("thread/inject_items", () => ({ result: {} }));
     harness.server.on("thread/resume", () => threadStartResult(3));
-    await harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    await harness.manager.resumeSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
 
     await expect(
       harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
@@ -6293,7 +6564,11 @@ describe("CodexLifecycleManager.replayTranscript", () => {
         ? { result: {} }
         : { error: { code: -32602, message: "unsupported item shape" } };
     });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.createSession({
+      model: TEST_MODEL,
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+    });
 
     await expect(
       harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),

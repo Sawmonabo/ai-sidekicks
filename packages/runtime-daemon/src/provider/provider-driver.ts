@@ -106,6 +106,10 @@ export interface ProviderDriver {
 export interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  // The session's model. Claude Code takes it at process start as `--model`, so `switch_default`
+  // on its usage-credits prompt moves this session alone and never rewrites the account's saved
+  // default; Codex takes the model per turn.
+  model: string;
   // Realizes the native-cap-escape admitted cap at spawn for providers that bind budget caps then
   // (Claude `--max-budget-usd`), so a cap-admitted leg is never launched capless.
   admittedCostCapUsdMicros?: number | undefined;
@@ -155,6 +159,9 @@ export interface CreateSessionParams {
 export interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
+  // The session's current model, supplied by the caller rather than read from `spawn_config`: a
+  // model switch after the spawn moves the session, so the spawn-time value would be stale.
+  model: string;
   // Re-threads the run.queued server-stamped admitted cap so the provider-side hard stop survives
   // a daemon restart and session relaunch.
   admittedCostCapUsdMicros?: number | undefined;

@@ -33,6 +33,8 @@ import type { CreateSessionParams, StartRunParams } from "../../../provider-driv
 
 /** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
+/** The test session's model. */
+export const TEST_MODEL = "claude-sonnet-4-5";
 /** The run id of the first run in a test session. */
 export const TEST_RUN_ID: RunId = "run-1" as RunId;
 /** The run id of a second run in the same test session. */
@@ -333,7 +335,7 @@ export class FakeClaudeRunDispatchResolver implements ClaudeRunDispatchResolver 
 
 /** Minimal `createSession` params for the test session. */
 export function buildCreateSessionParams(): CreateSessionParams {
-  return { sessionId: TEST_SESSION_ID, config: { model: "claude-sonnet-4-5" } };
+  return { sessionId: TEST_SESSION_ID, model: TEST_MODEL, config: { model: TEST_MODEL } };
 }
 
 /** Minimal `startRun` params for the first test run. */

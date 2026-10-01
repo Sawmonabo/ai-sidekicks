@@ -65,6 +65,7 @@ import {
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
+  TEST_MODEL,
 } from "./claude-test-doubles.js";
 import {
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
@@ -197,6 +198,7 @@ describe("ClaudeSessionLifecycle.createSession", () => {
     });
 
     await harness.lifecycle.createSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       config: { model: "claude-sonnet-4-5" },
       admittedCostCapUsdMicros: 5_000_000,
@@ -252,6 +254,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     harness.transport.resumedSessionPosition = 42;
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -268,6 +271,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     const harness = buildHarness();
 
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       admittedCostCapUsdMicros: 7_500_000,
@@ -289,6 +293,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     harness.transport.resumeFailure = new Error("claude exited before init");
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -317,6 +322,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     harness.transport.announcedProviderSessionId = "provider-session-fresh";
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -344,6 +350,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     harness.transport.resumedSessionPosition = -1;
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -360,6 +367,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
     });
@@ -376,6 +384,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     );
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -392,6 +401,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     harness.transport.resumeFailure = new Error("\u0000   ");
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -414,6 +424,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
       const spawnCountBeforeResume = harness.transport.spawnRequests.length;
 
       const result = await harness.lifecycle.resumeSession({
+        model: TEST_MODEL,
         sessionId: TEST_SESSION_ID,
         resumeHandle: "provider-session-earlier",
       });
@@ -511,6 +522,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
   it("never starts a run whose posture disagrees with the spawned sandbox", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       config: {},
       executionPosture: SANDBOXED_POSTURE,
@@ -553,6 +565,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
   it("starts a run whose posture agrees with the spawned sandbox by value, not by reference", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       config: {},
       executionPosture: SANDBOXED_POSTURE,
@@ -588,6 +601,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     executionPosture: ExecutionPosture,
   ): Promise<void> {
     await harness.lifecycle.createSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       config: {},
       executionPosture,
@@ -865,6 +879,7 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
     });
@@ -961,6 +976,7 @@ describe("ClaudeSessionLifecycle establishment races", () => {
 
     const creating = harness.lifecycle.createSession(buildCreateSessionParams());
     const resumed = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -983,6 +999,7 @@ describe("ClaudeSessionLifecycle establishment races", () => {
     harness.transport.establishmentGate = gate;
 
     const resuming = harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
     });
@@ -1079,6 +1096,7 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
     const { closing, release } = await arrangeClosingSession(harness);
 
     const resumed = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
     });
@@ -1263,6 +1281,7 @@ describe("ClaudeSessionLifecycle adoption window", () => {
     });
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -1288,6 +1307,7 @@ describe("ClaudeSessionLifecycle adoption window", () => {
     harness.transport.onTurnTerminalFailure = new Error("the stream consumer is already closed");
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -1305,6 +1325,7 @@ describe("ClaudeSessionLifecycle adoption window", () => {
     const harness = buildHarness();
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       outputSchema: UNSERIALIZABLE_OUTPUT_SCHEMA,
@@ -1447,6 +1468,7 @@ describe("provider failure detail rendering", () => {
     const harness = buildHarness();
     harness.transport.resumeFailure = failure as Error;
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
     });
@@ -1535,6 +1557,7 @@ describe("ClaudeSessionLifecycle resume credential policy", () => {
     const harness = buildHarness();
 
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       executionPosture: SANDBOXED_POSTURE,
@@ -1552,6 +1575,7 @@ describe("ClaudeSessionLifecycle resume credential policy", () => {
     const harness = buildHarness();
 
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       executionPosture: TRUSTED_POSTURE,
@@ -1633,6 +1657,7 @@ describe("ClaudeSessionLifecycle callback-tool registry", () => {
     harness.transport.realizesCallbackToolRegistration = false;
 
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       callbackTools: [SEARCH_TOOL],
@@ -2273,6 +2298,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   it("a resume with NO prior-emitted reader bound records the overstatement rather than hiding it", async () => {
     const harness = buildRoutingHarness();
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       executionPosture: SANDBOXED_POSTURE,
@@ -2293,6 +2319,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     });
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       executionPosture: SANDBOXED_POSTURE,
@@ -2340,6 +2367,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   it("a resume WITH a prior-emitted sum meters only the excess over it", async () => {
     const harness = buildRoutingHarness({ readPriorEmittedUsage: () => ({ input: 500 }) });
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       executionPosture: SANDBOXED_POSTURE,
@@ -3895,6 +3923,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
 
     const resumed = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-stable",
     });
@@ -4130,6 +4159,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     // the record it installs.
     const harness = buildHarness();
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       providerAccountId: "account-admitted",
@@ -4155,6 +4185,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     const harness = buildHarness();
 
     const result = await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
       providerAccountId: "",
@@ -4358,6 +4389,7 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
     });
     await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
     await harness.lifecycle.resumeSession({
+      model: TEST_MODEL,
       sessionId: TEST_SESSION_ID,
       resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
       outputSpeed: "on",

@@ -230,12 +230,14 @@ export class RuntimeBindingNotResumableError extends Error {
 }
 
 /**
- * Rebuilds a resumed leg's spawn-bound surface from its durable binding. Throws
- * `RuntimeBindingNotResumableError` when `resumeHandle` is null or empty, as it names no session.
+ * Rebuilds a resumed leg's spawn-bound surface from its durable binding and the session's current
+ * model. Throws `RuntimeBindingNotResumableError` when `resumeHandle` is null or empty, as it
+ * names no session.
  */
 export function composeResumeSessionParams(
   sessionId: SessionId,
   binding: RuntimeBinding,
+  model: string,
   functionLegs: ResumeFunctionLegInjection,
 ): ResumeSessionParams {
   const resumeHandle = binding.resumeHandle;
@@ -261,6 +263,7 @@ export function composeResumeSessionParams(
   return {
     sessionId,
     resumeHandle,
+    model,
     ...resumeLegs,
     onCallbackToolCall: functionLegs.onCallbackToolCall,
     onMcpServerStatus: functionLegs.onMcpServerStatus,

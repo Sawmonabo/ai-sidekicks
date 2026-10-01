@@ -782,6 +782,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
 describe("composeResumeSessionParams", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
+  const SESSION_MODEL = "claude-sonnet-4-5";
   const NO_FUNCTION_LEGS = {
     onCallbackToolCall: undefined,
     onMcpServerStatus: undefined,
@@ -797,11 +798,12 @@ describe("composeResumeSessionParams", () => {
       resumeHandle: "opaque-handle-abc",
     });
 
-    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+    const params = composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS);
 
     expect(params).toStrictEqual({
       sessionId: SESSION_ID,
       resumeHandle: "opaque-handle-abc",
+      model: SESSION_MODEL,
       executionPosture: EXECUTION_POSTURE,
       callbackTools: FULL_SPAWN_CONFIG.callbackTools,
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
@@ -834,7 +836,8 @@ describe("composeResumeSessionParams", () => {
     expect(readRawSpawnConfig(binding.id)).not.toContain("providerAccountId");
     expect(binding.spawnConfig.providerAccountId).toBeUndefined();
     expect(
-      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS).providerAccountId,
+      composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS)
+        .providerAccountId,
     ).toBeUndefined();
   });
 
@@ -850,7 +853,7 @@ describe("composeResumeSessionParams", () => {
     const onCallbackToolCall = async (): Promise<CallbackToolResult> =>
       await Promise.resolve({ status: "completed" });
 
-    const params = composeResumeSessionParams(SESSION_ID, binding, {
+    const params = composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, {
       onCallbackToolCall,
       onMcpServerStatus: undefined,
     });
@@ -871,7 +874,7 @@ describe("composeResumeSessionParams", () => {
 
     let thrown: unknown;
     try {
-      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+      composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS);
     } catch (error) {
       thrown = error;
     }
