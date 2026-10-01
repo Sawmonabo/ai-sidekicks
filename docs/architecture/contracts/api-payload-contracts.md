@@ -2186,7 +2186,6 @@ interface SubagentDefinition {
   description?: string;
   model?: string;
   tools?: string[];
-  permissionMode?: string;
   effort?: string;
   maxTurns?: number;
 }
@@ -8729,7 +8728,6 @@ interface AgentDefinition {
     default: AgentProviderBinding;
     overrides: AgentProviderBinding[];
   };
-  executionPostureMode: ExecutionPostureMode | null; // one of the permission levels (§Shared Enums), or null = the posture of the session or run this agent is used in. A LEVEL only, never a composed ExecutionPosture: writableRoots and credentialPolicyRef are properties of a live run's workspace, so storing them here would freeze a path set that outlives the workspace it described, and a stored credentialPolicyRef could re-grant a trust decision the session has since narrowed. The daemon composes the full posture from this level when the run starts
   instructions: string; // may be empty; system-prompt content the person writes
   goal: string | null;
   toolAllowlist: string[] | null; // null = the driver's defaults, [] = no tools at all, populated = exactly these. Collapsing null and [] would make "I did not choose" indistinguishable from "I chose nothing"
@@ -8773,7 +8771,7 @@ type AgentHooks = Record<
 type AgentResolvedConfiguration = {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
-} & Pick<AgentDefinition, "executionPostureMode" | "toolAllowlist" | "instructions" | "goal">;
+} & Pick<AgentDefinition, "toolAllowlist" | "instructions" | "goal">;
 
 // agent.definitionList — node-local and unfiltered: every definition from the four origins — ours
 // (`.ai-sidekicks/agents/`, global or in a project), Claude Code's own agent files, Codex's own, and a
@@ -8829,7 +8827,6 @@ interface AgentDefinitionCreateRequest {
     default: AgentProviderBinding;
     overrides?: AgentProviderBinding[];
   };
-  executionPostureMode?: AgentDefinition["executionPostureMode"];
   instructions?: string;
   goal?: string | null;
   toolAllowlist?: string[] | null;
@@ -8863,7 +8860,6 @@ interface AgentDefinitionUpdateRequest {
     default: AgentProviderBinding;
     overrides?: AgentProviderBinding[];
   };
-  executionPostureMode?: AgentDefinition["executionPostureMode"];
   instructions?: string;
   goal?: string | null;
   toolAllowlist?: string[] | null;
@@ -9194,4 +9190,4 @@ interface AgentBridgeListResult {
 
 **Two library readings are derived on the list reply.** How many workflows bind a definition is `workflowUsage`, a fold over the workflow definitions on the node, and when a definition was last used is `lastUsedAt`, a fold over the session runs and workflow runs that record their resolved-from definition. Both are computed per reply and never stored, so the card, the library's last-used order and the delete confirmation read figures that are true when they are drawn; where a source cannot be read, its reading is absent rather than zero.
 
-**How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, permission mode, tool servers, hooks, turn cap and memory — because Claude Code drops `hooks`, `mcpServers` and `permissionMode` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversation_reloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run filled by the daemon's command hook; a save reaches a running Codex session by forking the lead's conversation on the running service.
+**How a saved agent reaches a session.** The daemon hands every agent to each provider at launch in the session pack, under the `sidekicks` namespace; nothing here is a wire method. On Claude Code each agent rides the `agents` map of the process's `initialize` request under its namespaced name with every field of its record — its tools, model, effort, tool servers, hooks, turn cap and memory, and no permission mode, so every agent runs at the session's level — because Claude Code drops `hooks` and `mcpServers` from a plugin's agent file. That map is fixed for the process's life, so a save reaches a running Claude Code session by a resume at the session's next idle moment — no turn and no background task running — with the new map; several saves before that moment make one restart and one `conversation_reloaded` notice. On Codex a role file carries the agent, and what a role file cannot carry — its hooks, tool servers, sandbox and memory — rides the conversation's `thread/start` configuration, the hooks with their trust records and, for a helper the lead starts, gated on that helper's agent type, each handler kind Codex does not run filled by the daemon's command hook; a save reaches a running Codex session by forking the lead's conversation on the running service.

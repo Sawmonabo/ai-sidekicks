@@ -1075,15 +1075,6 @@ CREATE TABLE agents (
                                                         -- `pending_switch` below: a spawn-bound axis with a durable pending column and no
                                                         -- durable effective column would apply once and silently revert at the next
                                                         -- restart
-  execution_posture_mode TEXT
-                  CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
-                        ('readonly','ask','reviewed','sandboxed','yolo')),
-                                                        -- CP-027-7: the permission level resolved when the run started,
-                                                        -- one of the five. NULL = the session default. A level only, never a composed
-                                                        -- ExecutionPosture: writableRoots and credentialPolicyRef belong to a live
-                                                        -- run's workspace and would freeze a path set that outlives it. CHECKable
-                                                        -- here, unlike `effort` above, because this vocabulary is corpus-owned
-                                                        -- rather than provider-reported, so it cannot go stale behind a vendor
   tool_allowlist  TEXT,                                 -- CP-027-7: JSON array, THREE-state like its wire axis —
                                                         -- SQL NULL = driver defaults, '[]' = no tools, populated = exactly these.
                                                         -- The daemon composes the callback registry from it (I-027-10)
@@ -1533,7 +1524,7 @@ A `providerAccountId` inside a binding deliberately carries **no foreign key** t
 
 `tool_allowlist` is three-state and the three states are **not** interchangeable (I-027-4): `NULL` means the driver's default tool set, the JSON array `'[]'` means no tools at all, and a populated array means exactly those tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible.
 
-`execution_posture_mode` stores **one of the five permission levels, and nothing composed** (I-027-8): `readonly`, `ask`, `reviewed`, `sandboxed`, `yolo`, or NULL for the posture of whatever session or run the agent is used in. A composed `ExecutionPosture` carries a `credentialPolicyRef` and writable roots meaningful only to the run that composed them, so persisting one would let a stale definition re-grant a superseded decision; the daemon composes the full posture from this level when the run starts. Planning is not a level and is not storable here — it is a session's own mode.
+The table has no level column (I-027-8): every agent runs at the level of the session or workflow run it works in.
 
 ```sql
 -- Owner: Plan-027
@@ -1569,10 +1560,6 @@ CREATE TABLE agent_definitions (
                                AND json_type(bindings, '$.overrides') = 'array'),
   turn_cap               INTEGER  -- NULL = no cap, and the daemon adds none of its own. The number of turns this agent may take before it is stopped; not a budget
                          CHECK(turn_cap IS NULL OR turn_cap > 0),
-  execution_posture_mode TEXT  -- NULL = the posture of the session or run the agent is used in. One of the five permission levels and nothing composed — no credentialPolicyRef, writableRoots, or network member is ever persisted here (I-027-8)
-                         CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN (
-                           'readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'
-                         )),
   instructions           TEXT NOT NULL DEFAULT ''  -- the system-prompt text the agent runs under; node-local configuration the person wrote, never emitted into an event payload
                          CHECK(instr(instructions, char(0)) = 0),
   goal                   TEXT

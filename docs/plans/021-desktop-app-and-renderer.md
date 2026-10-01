@@ -468,7 +468,7 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Devices revoked | A device revoked while a machine cannot be reached: its card in the revoked group with `Forget`, saying the unreachable machine drops it when it next connects, and the passkey added from it flagged |
 | Devices passkey flagged | A passkey added from a device later revoked, its row saying so and suggesting its removal if that device was lost, with the device in the revoked group |
 
-**Sidekicks.** The same eight agent definitions in every state, so the library and the editor are visibly one registry: a reviewer, a test writer, a documentation writer, a triage agent, a refactorer, a migration writer, a release-notes writer and a quick-summary agent, spread across both providers, all three definition origins and both scopes, with effort, posture, tool count, per-provider override, workflow use and last-used spread across them.
+**Sidekicks.** The same eight agent definitions in every state, so the library and the editor are visibly one registry: a reviewer, a test writer, a documentation writer, a triage agent, a refactorer, a migration writer, a release-notes writer and a quick-summary agent, spread across both providers, all three definition origins and both scopes, with effort, tool count, per-provider override, workflow use and last-used spread across them.
 
 | State to reach | What must be true |
 | --- | --- |
