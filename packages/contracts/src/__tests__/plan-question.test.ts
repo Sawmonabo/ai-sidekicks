@@ -29,7 +29,7 @@ describe("PlanResolveRequestSchema", () => {
       PlanResolveRequestSchema.safeParse({
         planId: PLAN_ID,
         verdict: "fresh",
-        fresh: { driverName: "codex", level: "ask" },
+        fresh: { driverName: "codex" },
       }).success,
     ).toBe(true);
   });
@@ -42,7 +42,7 @@ describe("PlanResolveRequestSchema", () => {
       PlanResolveRequestSchema.safeParse({
         planId: PLAN_ID,
         verdict: "build",
-        fresh: { driverName: "codex", level: "ask" },
+        fresh: { driverName: "codex" },
       }).success,
     ).toBe(false);
   });

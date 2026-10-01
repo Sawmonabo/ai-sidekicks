@@ -485,8 +485,6 @@ export const SessionTerminalCodexListResponseSchema: z.ZodType<SessionTerminalCo
  *   and the line; Claude Code's `doctor` names the file and, for one bad value, the key, and
  *   never a line.
  * - `conversation_reloaded`: the conversation was reopened to take new definitions.
- * - `permission_level_lowered`: a session a plan seeds, on a provider that cannot give the
- *   planning session's level, runs one step more careful, never looser.
  * - `review_started` and `review_finished`: the two ends of a review.
  * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its cap on unmet
  *   checks, or a goal check ran past its limit; the goal stays active.
@@ -509,12 +507,6 @@ export type SessionNoticePayload =
       key?: string | undefined;
     }
   | { sessionId: SessionId; kind: "conversation_reloaded" }
-  | {
-      sessionId: SessionId;
-      kind: "permission_level_lowered";
-      requestedLevel: ExecutionPostureMode;
-      level: ExecutionPostureMode;
-    }
   | { sessionId: SessionId; kind: "review_started"; target: SessionReviewTarget }
   | { sessionId: SessionId; kind: "review_finished" }
   | { sessionId: SessionId; kind: "goal_not_met"; agentId: string }
@@ -535,17 +527,10 @@ export type ProviderWarningSource = (typeof PROVIDER_WARNING_SOURCE_VALUES)[numb
 /** Every `session.notice` kind. */
 export type SessionNoticeKind = SessionNoticePayload["kind"];
 
-/** Whether `level` is more careful than `requestedLevel`, in the levels' fixed order. */
-function isMoreCareful(level: ExecutionPostureMode, requestedLevel: ExecutionPostureMode): boolean {
-  return (
-    EXECUTION_POSTURE_MODE_VALUES.indexOf(level) <
-    EXECUTION_POSTURE_MODE_VALUES.indexOf(requestedLevel)
-  );
-}
-
-/** Parses a {@link SessionNoticePayload}; a lowered level that is not more careful is refused. */
-export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z
-  .discriminatedUnion("kind", [
+/** Parses a {@link SessionNoticePayload}. */
+export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z.discriminatedUnion(
+  "kind",
+  [
     z.discriminatedUnion("provider", [
       z
         .object({
@@ -567,14 +552,6 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z
         .strict(),
     ]),
     z.object({ sessionId: SessionIdSchema, kind: z.literal("conversation_reloaded") }).strict(),
-    z
-      .object({
-        sessionId: SessionIdSchema,
-        kind: z.literal("permission_level_lowered"),
-        requestedLevel: ExecutionPostureModeSchema,
-        level: ExecutionPostureModeSchema,
-      })
-      .strict(),
     z
       .object({
         sessionId: SessionIdSchema,
@@ -609,13 +586,8 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z
         ).optional(),
       })
       .strict(),
-  ])
-  .refine(
-    (notice) =>
-      notice.kind !== "permission_level_lowered" ||
-      isMoreCareful(notice.level, notice.requestedLevel),
-    { message: "A lowered level is more careful than the level asked for.", path: ["level"] },
-  );
+  ],
+);
 
 const MODERATION_REVIEW_SIGNAL_VALUES = ["review_warning", "review_required"] as const;
 

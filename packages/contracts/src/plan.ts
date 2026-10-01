@@ -16,7 +16,6 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */
 export type PlanId = string & { readonly __brand: "PlanId" };
@@ -100,15 +99,13 @@ export const PlanHandedOffPayloadSchema: z.ZodType<PlanHandedOffPayload> = z
   .strict();
 
 /**
- * The session a `fresh` verdict mints: the provider it runs and the level it
- * starts at. Everything else is the planning session's: the same project and
- * worktree, the provider's current account, and the plan as the seed. The daemon
- * applies the level one step more careful where that provider cannot run it,
- * never looser.
+ * The session a `fresh` verdict mints: the provider it runs. Everything else is the planning
+ * session's: its level, the same project and worktree, the provider's current account, and the
+ * plan as the seed. Where that provider cannot give the planning session's level, the hand-off is
+ * refused naming the level.
  */
 export interface PlanFreshSession {
   driverName: ProviderName;
-  level: ExecutionPostureMode;
 }
 
 /** The verdict on one plan. `fresh` is present exactly on the `fresh` verdict. */
@@ -122,10 +119,7 @@ export const PlanResolveRequestSchema: z.ZodType<PlanResolveRequest, PlanResolve
   .object({
     planId: PlanIdSchema,
     verdict: PlanVerdictSchema,
-    fresh: z
-      .object({ driverName: ProviderNameSchema, level: ExecutionPostureModeSchema })
-      .strict()
-      .optional(),
+    fresh: z.object({ driverName: ProviderNameSchema }).strict().optional(),
   })
   .strict()
   .superRefine((request, context) => {
