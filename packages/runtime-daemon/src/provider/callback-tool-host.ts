@@ -304,7 +304,7 @@ export class CallbackToolHost {
       return;
     }
     this.#registriesBySessionId.set(sessionId, predecessor);
-    // Recorded like an install, so an operator's view of the live installation stays current.
+    // Recorded like an install, so the person's view of the live installation stays current.
     this.#recordRegistryReplacement(
       sessionId,
       "a failed spawn rolled its callback-tool registry back; the installation it had superseded is live again and the failed one no longer dispatches or releases",

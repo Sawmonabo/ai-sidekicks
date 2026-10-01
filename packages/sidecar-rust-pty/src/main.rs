@@ -191,7 +191,7 @@ async fn dispatch_one(
                 }
                 Err(err) => {
                     // A failed handler still gets a typed error response; the log line is for
-                    // operators.
+                    // the person reading the logs.
                     log_dispatch_error_for_session("resize", &sid, &err);
                     try_send_envelope(
                         dispatch_tx,

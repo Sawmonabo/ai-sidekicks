@@ -108,7 +108,6 @@ const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
   "session_goals",
   "callback_tools",
   "subagents",
-  "transcript_replay",
   "context_compaction",
   "provider_commands",
 ];

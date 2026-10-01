@@ -118,7 +118,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         env: {
           ...envWithoutSmoke,
           SIDEKICKS_GC_PROBE: "1",
-          // No focus steal on the operator's machine; see `src/main/windows/window-reveal.ts`.
+          // No focus steal on the person's machine; see `src/main/windows/window-reveal.ts`.
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
         },
       },

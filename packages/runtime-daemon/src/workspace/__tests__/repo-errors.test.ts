@@ -14,7 +14,7 @@ import {
   TrustEnvelopeViolationError,
 } from "../repo-errors.js";
 
-// A realistic operator path for the negative checks; no carrier has a channel that accepts one.
+// A realistic personal path for the negative checks; no carrier has a channel that accepts one.
 const ATTEMPTED_PATH = "/Users/operator/private-clients/acme-payments/src";
 
 // Bare UUIDs: the mount and workspace id schemas are branded UUIDs.

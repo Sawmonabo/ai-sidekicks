@@ -1,8 +1,8 @@
 // The Claude driver's session and run lifecycle: `createSession`, `resumeSession`, `startRun`,
 // `interruptRun` and `closeSession`, over one slot per session. The establishment legs, the
-// text-neutralization tripwire, frame routing, the handshake register, the spawn legs, compaction
-// dispatch and replay seeding are collaborators this class builds once; the other driver
-// operations live in sibling modules.
+// text-neutralization tripwire, frame routing, the handshake register, the spawn legs and
+// compaction dispatch are collaborators this class builds once; the other driver operations live
+// in sibling modules.
 //
 // Provider-process concerns sit behind the injected `ClaudeSessionTransport` and
 // `ClaudeSessionChannel` ports: this module spawns nothing and reads no environment variable, so
@@ -25,19 +25,10 @@ import {
   mayReattemptAfterDefinitelyUnsent,
 } from "../../transcript/failure-mapping.js";
 import {
-  ReplayTargetLedger,
-  type SeededTranscriptFrame,
-} from "../../transcript/replay-assertion.js";
-import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
   RuntimeBindingQuarantine,
 } from "../../outbound-frame.js";
-import type {
-  ClaudeTranscriptReplayReading,
-  ClaudeTranscriptReplaySurfaceReader,
-  ClaudeTranscriptSeedingSurface,
-} from "./capabilities.js";
 import { ClaudeTerminalEmissionGate } from "./turn-evidence.js";
 import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 import {
@@ -66,11 +57,6 @@ import {
   ClaudeSessionUnavailableError,
   describeFailure,
 } from "./session-errors.js";
-import {
-  ClaudeTranscriptReplayFailedError,
-  ClaudeTranscriptReplayUnsupportedError,
-  readRenderedTranscriptFrameForClaudeReplay,
-} from "./transcript-replay.js";
 import { assertClaudeSpawnBoundRealization, ClaudeSpawnLegComposer } from "./spawn-legs.js";
 import { ClaudeRunRoutes } from "./run-routes.js";
 import { ClaudeHandshakeRegister } from "./handshake-register.js";
@@ -78,10 +64,7 @@ import { ClaudeFrameRouting } from "./frame-routing.js";
 import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session-establishment.js";
 import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
-import { ClaudeReplaySeeding } from "./replay-seeding.js";
 import type {
-  DriverTranscriptReplayResult,
-  ReplayTranscriptParams,
   CloseSessionParams,
   CompactContextParams,
   CreateSessionParams,
@@ -115,9 +98,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // bindings a trip disposed.
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine = new RuntimeBindingQuarantine();
-  readonly #transcriptReplaySurfaceReader: ClaudeTranscriptReplaySurfaceReader | undefined;
-  /** Burned replay targets, keyed by the provider-side conversation's session id. */
-  readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
   readonly #handshakes: ClaudeHandshakeRegister;
   readonly #pendingCompactions: PendingCompactionRegistry;
   readonly #diagnostics: DriverDiagnosticsEmitter;
@@ -125,13 +105,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #textNeutralization: ClaudeTextNeutralization;
   readonly #establishment: ClaudeSessionEstablishment;
   readonly #compactionDispatch: ClaudeCompactionDispatch;
-  readonly #replaySeeding: ClaudeReplaySeeding;
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
     this.#transport = dependencies.transport;
     this.#runDispatchResolver = dependencies.runDispatchResolver;
     this.#diagnostics = dependencies.diagnostics;
-    this.#transcriptReplaySurfaceReader = dependencies.transcriptReplaySurfaceReader;
     this.#handshakes = new ClaudeHandshakeRegister(dependencies);
     this.#pendingCompactions = new PendingCompactionRegistry(
       dependencies.compactionWaitScheduler ??
@@ -178,7 +156,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       outboundTextFrameWriter,
       diagnostics: dependencies.diagnostics,
     });
-    this.#replaySeeding = new ClaudeReplaySeeding(this.#replayTargets);
     this.#establishment = new ClaudeSessionEstablishment({
       transport: dependencies.transport,
       mintProviderSessionId: dependencies.mintProviderSessionId ?? mintUuidV7,
@@ -426,49 +403,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       return undefined;
     }
     return this.#handshakes.observedOutputSpeedFor(sessionId, live.providerSessionId);
-  }
-
-  /**
-   * Reconstitutes the canonical transcript into a fresh provider session, returning only after the
-   * target's readback confirms it. Refuses on every published build: no stable prior-turn seeding
-   * contract exists, so the capability probe answers `false` and the memo floor takes over. No
-   * control-request subtype seeds turns, and the CLI's stored-session format (what `--resume`,
-   * `--fork-session` and `--resume-session-at` resume) is not a contract this daemon may write.
-   */
-  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    const targetProviderSessionId: string = params.target.providerSessionId;
-    this.#replayTargets.assertUsable(targetProviderSessionId);
-
-    const readSurface: ClaudeTranscriptReplaySurfaceReader | undefined =
-      this.#transcriptReplaySurfaceReader;
-    if (readSurface === undefined) {
-      throw new ClaudeTranscriptReplayUnsupportedError(
-        "no transcript-replay surface reader is bound, so no build has been shown to carry one",
-      );
-    }
-    const reading: ClaudeTranscriptReplayReading = await readSurface();
-    if (!reading.supported) {
-      // Nothing was written, so the caller may fall back to the memo floor.
-      throw new ClaudeTranscriptReplayUnsupportedError(reading.reason);
-    }
-    const surface: ClaudeTranscriptSeedingSurface = reading.surface;
-
-    const seeded: SeededTranscriptFrame[] = params.frames.map((frame) =>
-      readRenderedTranscriptFrameForClaudeReplay(frame),
-    );
-    if (seeded.length === 0) {
-      throw new ClaudeTranscriptReplayFailedError(
-        "Refusing to replay an empty transcript: there is nothing to reconstitute, and a post-replay assertion over no frames confirms nothing.",
-      );
-    }
-
-    await this.#replaySeeding.seedFreshTarget(surface, targetProviderSessionId, seeded);
-
-    // Retired on success too, so a second replay through the handle is refused as reuse.
-    this.#replayTargets.consume(targetProviderSessionId);
-
-    // Empty: an unrepresentable frame refuses in the parse above, so nothing is dropped silently.
-    return { status: "applied", declaredLosses: [] };
   }
 
   /**

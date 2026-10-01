@@ -140,7 +140,7 @@ describe("agent.definitionList entries", () => {
 
 describe("agent.definitionExport", () => {
   it("refuses an export that names no definition", () => {
-    const request = { definitionIds: [], filePath: "/Users/person/agents.json" };
+    const request = { definitionIds: [], folder: "/Users/person/agents" };
     expect(AgentDefinitionExportRequestSchema.safeParse(request).success).toBe(false);
   });
 });

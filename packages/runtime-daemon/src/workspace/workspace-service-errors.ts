@@ -113,7 +113,7 @@ export class WorkspaceBusyError extends DaemonDomainError {
 }
 
 /**
- * Discriminants for {@link WorkspaceServiceInvariantError}; they differ only in what an operator
+ * Discriminants for {@link WorkspaceServiceInvariantError}; they differ only in what the person
  * should inspect, and nothing branches on them.
  */
 export type WorkspaceServiceInvariantKind =

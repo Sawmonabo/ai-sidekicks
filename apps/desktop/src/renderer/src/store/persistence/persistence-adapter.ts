@@ -15,7 +15,7 @@ export type PersistenceAdapterKind = "indexeddb" | "memory";
  * Why the durable adapter is not in use, and the sentence each reason renders as.
  *
  * The reason vocabulary is the keys of this table, so a reason cannot exist without an
- * operator-facing sentence. It lives with the seam because the gauge, the health read and the
+ * sentence for the person. It lives with the seam because the gauge, the health read and the
  * fallback adapter all render it.
  */
 export const PERSISTENCE_UNAVAILABLE_DESCRIPTIONS = {

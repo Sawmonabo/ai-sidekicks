@@ -6,7 +6,7 @@
  *   MCP-discovered tools) takes `manual_reconcile_only`, and `closeToolIdempotencyClass` is the
  *   only constructor of a `NormalizedProviderToolMetadata` here.
  * - Only pure reads of local state are `idempotent`; a wrongly permissive class silently re-runs
- *   an effect after a crash, while the floor costs an operator prompt.
+ *   an effect after a crash, while the floor costs a prompt to the person.
  * - No entry is `compensable` (no built-in tool accepts a `dedupe_key`) or carries a `description`
  *   (that column holds the provider's own).
  */
@@ -25,7 +25,7 @@ import {
 } from "../mcp-server-status-ingest.js";
 import type { McpServerStatusEmission } from "../../provider-driver.js";
 
-/** The class an unannotated tool takes: it halts recovery for operator reconciliation. */
+/** The class an unannotated tool takes: it halts recovery for the person to reconcile. */
 const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** The closed `idempotency_class` vocabulary, for runtime recognition. */

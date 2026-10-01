@@ -8,7 +8,7 @@
 //
 // The table maps into the contract's `ProviderRemedy` union, so a new upstream arm is a compile
 // error here. A code with no remedy is a real answer: five of the twelve are refusals no console
-// act closes (a caller without operator authority, a lost set-default race that retries, a
+// act closes (a session asking for an account verb, a lost set-default race that retries, a
 // wrong-class token, a refused host custody ladder, a provider binary below the floor), so the
 // table's value type admits `null`.
 
@@ -73,10 +73,11 @@ export const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
   // readiness handoff discloses, display-only on the page that shows it.
   "provideraccount.signin_unsupported": { section: "providers", remedyKind: "sign_in" },
-  // No console act closes these five: authority is the caller's, a lost set-default race is
-  // retried, a host whose custody ladder refused needs the host fixed, and a provider binary
-  // below the floor needs upgrading outside this application. Routing any to a page would offer
-  // an act that changes nothing.
+  // No console act closes these five: only this machine's client or a linked device may call an
+  // account verb, never a session; a lost set-default race is retried; a wrong-class token is
+  // answered only by submitting another; a host whose custody ladder refused needs the host
+  // fixed; and a provider binary below the floor needs upgrading outside this application.
+  // Routing any to a page would offer an act that changes nothing.
   "provideraccount.permission_denied": null,
   "provideraccount.default_conflict": null,
   "provideraccount.token_class_refused": null,

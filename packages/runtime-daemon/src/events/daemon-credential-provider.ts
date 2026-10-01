@@ -81,7 +81,7 @@ export interface DaemonCredentialProvider {
 
 /**
  * Refuses every mint with a diagnostic naming the missing signing identity. It throws rather
- * than returning empty headers so the operator sees the real cause here, not a generic 401 from
+ * than returning empty headers so the person sees the real cause here, not a generic 401 from
  * the control plane.
  *
  * @consumedBy the daemon's startup wiring, until the daemon holds a signing identity

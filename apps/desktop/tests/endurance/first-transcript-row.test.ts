@@ -4,7 +4,7 @@
 //
 // The instant a window is shown is a main-process act, and in an automated launch on macOS it
 // is never performed: `src/main/windows/window-reveal.ts` leaves the window hidden with
-// background throttling off, because a revealed one steals the operator's focus and Space. So
+// background throttling off, because a revealed one steals the person's focus and Space. So
 // there is no `show` timestamp, and a wall clock read in either process would compare two clocks
 // across a process boundary. The renderer records the instant itself: `revealWindow` runs from
 // `ready-to-show`, emitted once the page has rendered, so the renderer's own
@@ -67,7 +67,7 @@ const PLANTED_PAINT_STALL_MS = 900;
  * say the instrument was not ready (no start instant, or no scenario handle); the last two say
  * the console did not paint (a body that never mounted, or one with no transcript row), which is
  * the regression this row exists to catch. One collapsed sentence would read as a harness
- * failure an operator retries rather than investigates.
+ * failure the person retries rather than investigates.
  */
 type UnmeasuredLaunchCause =
   | "no-paint-entry"

@@ -167,7 +167,7 @@ export class UiStateStore {
       if (!(error instanceof PersistenceAdapterError) || error.refusal.code !== "quota-exceeded") {
         return this.#refuseAdapterFailure(error, site);
       }
-      // One trim, one retry; a second failure is the operator's to see. The trim target is one
+      // One trim, one retry; a second failure is the person's to see. The trim target is one
       // below what the store holds, since a store at or under its cap would be asked to free
       // nothing and the retry would be the same failure twice. If nothing was freed, the
       // original refusal is surfaced without a second attempt.
@@ -194,7 +194,7 @@ export class UiStateStore {
       await this.#trimIfOverCap();
     } catch (trimFailure) {
       // The record may already be durable, and this arm says "refused" anyway: a store that
-      // could not finish validate, persist, trim reports a refusal the operator can count rather
+      // could not finish validate, persist, trim reports a refusal the person can count rather
       // than a success that hides a failing store.
       return this.#refuseAdapterFailure(trimFailure, site);
     }

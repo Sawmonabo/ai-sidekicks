@@ -22,7 +22,6 @@ import {
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
 } from "../../outbound-frame.js";
-import { type ClaudeTranscriptReplaySurfaceReader } from "./capabilities.js";
 import type {
   ClaudeHandshakeDeclaration,
   ClaudeInboundFrameObservation,
@@ -143,18 +142,13 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
   /**
    * Receives the run terminal a text-neutralization trip produces. Required: a trip raises no
-   * JSON-RPC error, so without it a neutralized turn ends with no terminal an operator can read.
+   * JSON-RPC error, so without it a neutralized turn ends with no terminal the person can read.
    */
   readonly onTextNeutralizationFailure: (
     sessionId: SessionId,
     runId: RunId,
     failure: TextNeutralizationRunFailure,
   ) => void;
-  /**
-   * Reads the installed build's transcript-replay surface, the source of the `transcript_replay`
-   * flag. Absent means every replay refuses, as no published build has a seeding surface.
-   */
-  readonly transcriptReplaySurfaceReader?: ClaudeTranscriptReplaySurfaceReader | undefined;
   /** Receives each child's `subagent.started`/`subagent.completed` pair, its only timeline mark. */
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)

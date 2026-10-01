@@ -45,7 +45,7 @@ describe("AccountsFixtureBody", () => {
     expect(container.querySelectorAll('input[type="text"]').length).toBeGreaterThan(0);
   });
 
-  // The daemon runs at most one brokered flow at a time; a second start would cost the operator
+  // The daemon runs at most one brokered flow at a time; a second start would cost the person
   // the code they were typing and the way to stop the flow.
   it("stops offering a start while a sign-in is running, and says what is holding it", async () => {
     const { container } = mountAccountsPage({

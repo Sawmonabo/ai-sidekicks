@@ -4,7 +4,7 @@
 //
 // Three moments report different facts:
 //   - A refused publish settled into a visit that had already ended: an anomaly worth an
-//     operator's attention, since work arrived for a target that is gone.
+//     person's attention, since work arrived for a target that is gone.
 //   - A replaced value is ordinary (a window replaces a store that closed itself), so only a
 //     disposal that threw is reported, because the value is then held by nothing.
 //   - A discarded value was seeded by a render pass that never committed. Also ordinary, so it

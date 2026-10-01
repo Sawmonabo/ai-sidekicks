@@ -131,7 +131,7 @@ const GIT_METADATA_ENTRY_NAME = ".git";
 /**
  * `GIT_*` variables removed from the child environment because each bends repository discovery
  * (git 2.50.1); the worktree and turn-snapshot services reuse this list. `GIT_CONFIG_GLOBAL`,
- * `GIT_CONFIG_SYSTEM` and `GIT_CONFIG_NOSYSTEM` are operator choices and stay.
+ * `GIT_CONFIG_SYSTEM` and `GIT_CONFIG_NOSYSTEM` are the person's choices and stay.
  */
 export const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
   // With these exported, `git -C <path> rev-parse` still answers about the ambient repository.
@@ -241,7 +241,7 @@ function namesMissingEntry(thrown: unknown): boolean {
 /**
  * `"not-a-repository"` only on git's positive verdict (not killed, no signal, exit 128, anchored
  * stderr wording); everything else is `"abnormal"`, since calling a broken invocation "not a
- * repository" sends the operator to fix the wrong thing. Damaged `.git` metadata also produces the
+ * repository" sends the person to fix the wrong thing. Damaged `.git` metadata also produces the
  * genuine wording; `resolveCanonicalRoot` cross-checks that.
  */
 function classifyGitFailure(thrown: unknown): "not-a-repository" | "abnormal" {

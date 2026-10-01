@@ -11,7 +11,7 @@ describe("the account-plane router", () => {
     expect(isAccountPlaneRefusalCode("driver.capability_unsupported")).toBe(false);
     expect(accountPlaneHandoffFor("driver.capability_unsupported")).toBeUndefined();
     expect(accountPlaneHandoffFor("")).toBeUndefined();
-    // A refusal about the caller's authority is not routed to a page that would change nothing.
+    // A session asking for an account verb is not routed to a page that would change nothing.
     expect(accountPlaneHandoffFor("provideraccount.permission_denied")).toBeUndefined();
     expect(accountPlaneHandoffFor("provideraccount.provider_version_below_floor")).toBeUndefined();
   });

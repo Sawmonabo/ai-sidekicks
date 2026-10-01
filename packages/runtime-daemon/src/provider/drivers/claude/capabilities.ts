@@ -5,8 +5,8 @@
  * - {@link CLAUDE_CAPABILITY_FLAGS} is total over `DriverCapabilityFlag`; an undeclared flag is
  *   unsupported, and support is never inferred from a method existing on the provider's wire.
  * - Order is version floor, then probe, then compose, so a refused build is never probed. A probe
- *   may withdraw a declared flag but never grant one, except `transcript_replay`, which it sets
- *   both ways. `detectionSource` is set only on this live read.
+ *   may withdraw a declared flag but never grant one. `detectionSource` is set only on this live
+ *   read.
  */
 
 import {
@@ -30,22 +30,17 @@ import type {
   DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type { ReplayTargetReadbackReader } from "../../transcript/replay-assertion.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { CLAUDE_DRIVER_DESCRIPTOR } from "./claude-driver-descriptor.js";
 import { getClaudeToolMetadata } from "./tools.js";
-import type {
-  CanonicalTranscriptTurn,
-  DriverCliVersionReport,
-  GetCapabilitiesResult,
-} from "../../provider-driver.js";
+import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
 
 /** The registry and capability-table key: daemon-controlled identity, never provider output. */
 export const CLAUDE_DRIVER_NAME = "claude" as const;
 
 /** The semver the writer compares to detect change; bump it when the declared shape changes. */
-export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
+export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
 
 /**
  * Claude's capability declaration, total over `DRIVER_CAPABILITY_FLAGS` so a new flag breaks
@@ -74,9 +69,6 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     callback_tools: true,
     // `--agents` AgentDefinitions (provider-native in-session subagents).
     subagents: true,
-    // The matrix reading: `getCapabilities` replaces it with the probe's reading, and an unprobed
-    // build declares `false` because no seeding contract is published.
-    transcript_replay: false,
     // Emulated: dispatches the provider's own compaction command as a `driver_command` frame,
     // checked against the command enumeration before and typed evidence after.
     context_compaction: true,
@@ -85,50 +77,6 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // available (the binding holds what the provider declared).
     output_speed: true,
   });
-
-// Separate from `SeededTranscriptFrame` so a surface cannot mutate what it is checked against.
-interface ClaudeTranscriptSeedFrame {
-  readonly position: number;
-  readonly role: CanonicalTranscriptTurn["role"];
-  readonly text: string;
-}
-
-/**
- * What a seeding surface reports about one frame: `refused` (it did not land) or `ambiguous`
- * (unknown outcome, such as a lost acknowledgment). Both abandon the target; only `ambiguous` may
- * have left the frame in it.
- */
-export type ClaudeTranscriptSeedOutcome =
-  | { readonly delivery: "applied" }
-  | { readonly delivery: "refused"; readonly reason: string }
-  | { readonly delivery: "ambiguous"; readonly reason: string };
-
-/** The prior-turn seeding surface of an installed Claude build: seed a frame, read turns back. */
-export interface ClaudeTranscriptSeedingSurface {
-  seedFrame(
-    targetProviderSessionId: string,
-    frame: ClaudeTranscriptSeedFrame,
-  ): Promise<ClaudeTranscriptSeedOutcome>;
-  /** Reads the target's turns back for the post-replay assertion. */
-  readonly readBack: ReplayTargetReadbackReader;
-}
-
-/** The probe's finding; the supported arm carries the surface, so a `true` flag needs one. */
-export type ClaudeTranscriptReplayReading =
-  | { readonly supported: false; readonly reason: string }
-  | { readonly supported: true; readonly surface: ClaudeTranscriptSeedingSurface };
-
-/**
- * Reads whether the build at `boundExecutablePath` carries a seeding surface; it may memoize per
- * path but must not answer for a build it did not read. No production code binds one yet: no
- * published build exposes a seeding contract.
- */
-export type ClaudeTranscriptReplayProbe = (
-  boundExecutablePath: string,
-) => Promise<ClaudeTranscriptReplayReading>;
-
-/** The same reading for the replay leg, bound over the same probe and executable path. */
-export type ClaudeTranscriptReplaySurfaceReader = () => Promise<ClaudeTranscriptReplayReading>;
 
 /** Constructor dependencies of {@link ClaudeCapabilityReporter}. */
 export interface ClaudeCapabilityReporterDependencies {
@@ -141,51 +89,18 @@ export interface ClaudeCapabilityReporterDependencies {
   readonly probe: CapabilityProbeExchange;
   /** Reports flag withdrawals; required so they cannot go uncounted. */
   readonly diagnostics: DriverDiagnosticsEmitter;
-  /** Decides `transcript_replay`; absent, refusing and throwing all land on `false`. */
-  readonly transcriptReplayProbe?: ClaudeTranscriptReplayProbe | undefined;
 }
 
 /** Reports and re-declares the Claude driver's capabilities. */
 export class ClaudeCapabilityReporter {
   readonly #readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
   readonly #probe: CapabilityProbeExchange;
-  readonly #transcriptReplayProbe: ClaudeTranscriptReplayProbe | undefined;
   readonly #diagnostics: DriverDiagnosticsEmitter;
 
   constructor(dependencies: ClaudeCapabilityReporterDependencies) {
     this.#readSpawnedVersion = dependencies.readSpawnedVersion;
     this.#probe = dependencies.probe;
-    this.#transcriptReplayProbe = dependencies.transcriptReplayProbe;
     this.#diagnostics = dependencies.diagnostics;
-  }
-
-  // Unbound, refusing and throwing all answer `false`, so reconstitution uses the memo floor. A
-  // throw emits `capability_flag_withdrawn` (`probe-faulted`); an unbound probe emits nothing.
-  async #readTranscriptReplayDeclaration(boundExecutablePath: string): Promise<boolean> {
-    const probe: ClaudeTranscriptReplayProbe | undefined = this.#transcriptReplayProbe;
-    if (probe === undefined) {
-      return false;
-    }
-    try {
-      const reading: ClaudeTranscriptReplayReading = await probe(boundExecutablePath);
-      return reading.supported;
-    } catch (error: unknown) {
-      this.#diagnostics.emit({
-        provider: CLAUDE_DRIVER_NAME,
-        kind: "capability_flag_withdrawn",
-        // No wire name: the fault is the probe's own, not one frame's.
-        rawWireType: null,
-        dispositionReason:
-          "transcript-replay probe faulted, and a probe that could not answer is never read as availability; flag withdrawn fail-closed",
-        details: {
-          flag: "transcript_replay",
-          disposition: "probe-faulted",
-          boundExecutablePath,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-      return false;
-    }
   }
 
   /**
@@ -211,16 +126,8 @@ export class ClaudeCapabilityReporter {
       exchange: this.#probe,
     });
     emitCapabilityDetectionDiagnostics(this.#diagnostics, detection);
-    const transcriptReplay: boolean = await this.#readTranscriptReplayDeclaration(
-      reading.resolvedExecutablePath,
-    );
     const capabilities: DriverCapabilities = {
-      flags: {
-        ...applyCapabilityDetection(CLAUDE_CAPABILITY_FLAGS, detection),
-        // Outside the withdraw-only intersection: the probe decides this cell in both directions.
-        // After the spread so the matrix's unprobed `false` cannot win.
-        transcript_replay: transcriptReplay,
-      },
+      flags: applyCapabilityDetection(CLAUDE_CAPABILITY_FLAGS, detection),
       contractVersion: CLAUDE_CAPABILITY_CONTRACT_VERSION,
     };
     return {

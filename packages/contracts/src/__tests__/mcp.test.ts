@@ -68,16 +68,12 @@ describe("mcp.upsertServer", () => {
     expect(McpUpsertServerRequestSchema.safeParse(withHeader).success).toBe(true);
   });
 
-  it("refuses an address with credentials in it or a scheme other than http", () => {
+  it("refuses an address whose scheme is not http", () => {
     const withAddress = (url: string) => ({
       ...PROJECT_BINDING,
       clientIdempotencyKey: PRESS_ID,
       config: { transport: "http", url },
     });
-    expect(
-      McpUpsertServerRequestSchema.safeParse(withAddress("https://me:pw@docs.example.com/mcp"))
-        .success,
-    ).toBe(false);
     expect(
       McpUpsertServerRequestSchema.safeParse(withAddress("ftp://docs.example.com/mcp")).success,
     ).toBe(false);
@@ -113,12 +109,13 @@ describe("the inventory entry", () => {
   it("serves the arm whose binding store answered and the arm whose store did not", () => {
     expect(McpGetResponseSchema.safeParse({ server: { ...base, ...answered } }).success).toBe(true);
     expect(
-      McpGetResponseSchema.safeParse({ server: { ...base, trustUnavailable: true } }).success,
+      McpGetResponseSchema.safeParse({ server: { ...base, bindingStoreUnavailable: true } })
+        .success,
     ).toBe(true);
   });
 
   it("refuses tool overrides on an entry whose binding store did not answer", () => {
-    const invented = { ...base, trustUnavailable: true, toolOverrides: [] };
+    const invented = { ...base, bindingStoreUnavailable: true, toolOverrides: [] };
     expect(McpGetResponseSchema.safeParse({ server: invented }).success).toBe(false);
   });
 

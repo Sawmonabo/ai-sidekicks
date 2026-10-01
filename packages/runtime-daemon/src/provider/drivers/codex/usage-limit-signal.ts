@@ -106,8 +106,8 @@ export function classifyCodexUsageLimitSignal(
   );
   const reachedType = reading.rateLimitReachedType;
   if (typeof reachedType !== "string" || !CODEX_PLAN_ALLOWANCE_REACHED_TYPES.has(reachedType)) {
-    // Operator-remediable, unrecognized and absent arms all emit nothing rather than a default
-    // signal. `spendControlReached` is not read: it is an administrative budget state.
+    // Arms the person can remedy, unrecognized arms and absent arms all emit nothing rather than a
+    // default signal. `spendControlReached` is not read: it is an administrative budget state.
     return null;
   }
 

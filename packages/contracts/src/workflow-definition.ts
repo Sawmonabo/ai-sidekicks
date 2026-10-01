@@ -453,7 +453,6 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "handle_type_unknown",
   "content_hash_mismatch",
   "scope_ref_invalid",
-  "governance_inline",
   "unknown_key",
   "secret_outside_sensitive_field",
   "code_packages_unresolved",

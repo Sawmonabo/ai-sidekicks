@@ -23,12 +23,12 @@ export interface MemoryPersistenceAdapterOptions {
   /**
    * Why the durable adapter is not in use. `"not-attempted"` is the honest value for a
    * deliberate in-memory construction (a test); anything else came from a failed open and is
-   * disclosed to the operator.
+   * disclosed to the person.
    */
   /**
    * Why the durable adapter is not in use. `"not-attempted"` is the honest value
    * for a deliberate in-memory construction (a test); anything else came from a
-   * real failed open and gets disclosed to the operator.
+   * real failed open and gets disclosed to the person.
    */
   readonly unavailableReason?: PersistenceUnavailableReason;
   /**

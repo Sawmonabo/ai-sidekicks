@@ -8,6 +8,7 @@ import { composedTextSchema, countSchema, percentSchema } from "./internal/wire-
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 import { SessionAddressedRequestSchema, type SessionAddressedRequest } from "./session-controls.js";
 
@@ -193,8 +194,8 @@ export const SessionAutoMemoryUpdateResponseSchema: z.ZodType<SessionAutoMemoryU
   .strict();
 
 /**
- * One hook Codex loaded for the session's folder. `event`, `source` and `trustStatus` are
- * Codex's own words, carried as sent.
+ * One hook the provider loaded for the session's folder. `event`, `source` and `trustStatus` are
+ * the provider's own words, carried as sent.
  */
 export interface SessionProviderHook {
   key: string;
@@ -211,7 +212,7 @@ export interface SessionProviderHook {
   trustStatus: string;
 }
 
-/** One folder's hooks, with the errors and warnings Codex reported for it. */
+/** One folder's hooks, with the errors and warnings the provider reported for it. */
 export interface ProviderHookSource {
   folder: string;
   hooks: SessionProviderHook[];
@@ -220,19 +221,26 @@ export interface ProviderHookSource {
 }
 
 /**
- * The inspector's `Hooks` section. Codex reports the hooks it loaded; Claude Code reports none,
- * so its arm lists the files it reads hooks from. The daemon's own hooks are never listed.
+ * The inspector's `Hooks` section, by what it lists: `loadedHooks` where the provider reports
+ * the hooks it loaded (Codex), `hookFiles` where it reports none and the section lists the files
+ * it reads hooks from (Claude Code). The daemon's own hooks are never listed.
  */
 export type SessionHookListResponse =
-  | { sessionId: SessionId; provider: "codex"; folders: ProviderHookSource[] }
-  | { sessionId: SessionId; provider: "claude"; files: { path: string }[] };
+  | {
+      sessionId: SessionId;
+      provider: ProviderName;
+      kind: "loadedHooks";
+      folders: ProviderHookSource[];
+    }
+  | { sessionId: SessionId; provider: ProviderName; kind: "hookFiles"; files: { path: string }[] };
 /** Parses a {@link SessionHookListResponse}. */
 export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
-  z.discriminatedUnion("provider", [
+  z.discriminatedUnion("kind", [
     z
       .object({
         sessionId: SessionIdSchema,
-        provider: z.literal("codex"),
+        provider: ProviderNameSchema,
+        kind: z.literal("loadedHooks"),
         folders: z.array(
           z
             .object({
@@ -267,7 +275,8 @@ export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
     z
       .object({
         sessionId: SessionIdSchema,
-        provider: z.literal("claude"),
+        provider: ProviderNameSchema,
+        kind: z.literal("hookFiles"),
         files: z.array(z.object({ path: composedPathSchema }).strict()),
       })
       .strict(),

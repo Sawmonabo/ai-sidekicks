@@ -172,7 +172,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.archived": "session_lifecycle",
   "session.reactivated": "session_lifecycle",
   "session.closed": "session_lifecycle",
-  "session.purge_requested": "session_lifecycle",
   "session.goal_updated": "session_lifecycle",
   "session.goal_cleared": "session_lifecycle",
   "session.provider_status": "session_lifecycle",

@@ -25,7 +25,7 @@ export interface AppRefusalRemedy {
    * reaches the session screen from a control pressed in one pane.
    */
   readonly rendering: RefusalRendering;
-  /** The operator's next move, in the console's own words. Never a paraphrase. */
+  /** The person's next move, in the console's own words. Never a paraphrase. */
   readonly nextMove: string;
   /**
    * Whether the request this refusal names is finished. `true` means the control has nothing

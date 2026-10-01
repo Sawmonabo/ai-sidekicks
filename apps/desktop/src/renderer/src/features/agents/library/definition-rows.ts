@@ -31,7 +31,7 @@ export interface AgentDefinitionRow {
   readonly definitionId: string;
   /** The mutable label. Nothing keys on it — see {@link AgentDefinitionRow.definitionId}. */
   readonly name: string;
-  /** May be empty: an operator who wrote nothing wrote nothing, and that is a value. */
+  /** May be empty: a person who wrote nothing wrote nothing, and that is a value. */
   readonly description: string;
   readonly axes: readonly AgentDefinitionAxis[];
 }

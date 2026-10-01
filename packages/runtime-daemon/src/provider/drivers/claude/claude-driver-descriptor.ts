@@ -89,12 +89,6 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     rationale:
       "Delivered by the launch-time `--agents` definitions, which the control-request channel cannot interrogate.",
   },
-  transcript_replay: {
-    detectionSource: "static",
-    failingConjuncts: ["decisive-at-consumption-granularity"],
-    rationale:
-      "No stable prior-turn seeding contract is published for this provider, so no control-request answer establishes that a seeded history is adopted. The matrix cell records this as an open probe; supplying it is future work, together with the post-replay assertion that is the only admissible evidence a replay worked.",
-  },
   context_compaction: {
     detectionSource: "static",
     failingConjuncts: ["zero-turn"],

@@ -1,15 +1,14 @@
 // Permanent-vs-transient classification of a failed provider request.
 // - A structurally invalid history (an unpaired tool call, a reasoning item the target forbids) is
 //   refused identically on every request: permanent, never retried. The driver disposes the run's
-//   provider binding and the caller reconstitutes from the canonical transcript.
+//   provider binding and the session falls back to the hand-over brief.
 // - The transient arm covers only definitely-unsent failures: retrying a request the provider may
 //   have applied repeats its spend and duplicates a turn, so an unknown outcome has its own arm.
 // - The rules live here once; each driver supplies only a normalized observation of its transport.
 // - No provider message text is read: the permanent arm needs a typed refusal shape derived from
 //   the provider's own enumerated refusal vocabulary.
 // - No `RecoveryCondition` is produced: resuming would re-establish a session whose next request
-//   refuses identically. Mid-replay ambiguity lives in `./replay-assertion.ts` and
-//   `./memo-projection.ts`.
+//   refuses identically. An ambiguous hand-over send is reconciled in `./memo-delivery.ts`.
 
 /**
  * How far a failed request's bytes got, as the transport can place them. `unsent` is a positive
@@ -57,8 +56,8 @@ export function classifyProviderRequestFailure(
   observation: ProviderRequestFailureObservation,
 ): ProviderRequestFailureClassification {
   if (observation.delivery === "consumed-and-refused") {
-    // An absent shape is not read as structural: the permanent arm forces a reconstitution, so it
-    // needs a positive typed claim.
+    // An absent shape is not read as structural: the permanent arm forces a fresh session from the
+    // hand-over brief, so it needs a positive typed claim.
     return observation.refusalShape === "history-structurally-invalid"
       ? { disposition: "permanent-structural-refusal" }
       : { disposition: "fail-consumed-and-declined" };
@@ -72,8 +71,9 @@ export function classifyProviderRequestFailure(
 
 /**
  * The permanent refusal as it crosses the driver boundary. A class, not a flag, so a caller cannot
- * mistake it for an ordinary failure and retry onto the same session; it needs reconstitution, not
- * a `RecoveryCondition`'s session re-establishment, which would refuse identically.
+ * mistake it for an ordinary failure and retry onto the same session; it needs a fresh session from
+ * the hand-over brief, not a `RecoveryCondition`'s session re-establishment, which would refuse
+ * identically.
  */
 export class PermanentStructuralRefusalError extends Error {
   readonly providerSessionId: string;
@@ -81,7 +81,7 @@ export class PermanentStructuralRefusalError extends Error {
   /** Always the structural member; carried so a log line names the evidence. */
   readonly refusalShape = "history-structurally-invalid" as const;
   /** The caller's standing obligation; a literal type because every construction owes it. */
-  readonly reconstitutionRequired = true as const;
+  readonly freshSessionRequired = true as const;
 
   constructor(details: {
     readonly providerSessionId: string;
@@ -89,7 +89,7 @@ export class PermanentStructuralRefusalError extends Error {
     readonly cause?: unknown;
   }) {
     super(
-      `The provider refused the request because the session history is structurally invalid; provider session "${details.providerSessionId}" must be reconstituted rather than retried.`,
+      `The provider refused the request because the session history is structurally invalid; provider session "${details.providerSessionId}" must be replaced by a fresh session from the hand-over brief rather than retried.`,
       details.cause === undefined ? undefined : { cause: details.cause },
     );
     this.name = "PermanentStructuralRefusalError";
@@ -99,8 +99,8 @@ export class PermanentStructuralRefusalError extends Error {
 }
 
 /**
- * How many user-originated turns the target holds. Not the body lists of `ReplayTargetReadback`
- * or `MemoTargetGateway.readTurnsForMarkerReconciliation`: those interleave assistant turns the
+ * How many user-originated turns the target holds. Not the body list of
+ * `MemoTargetGateway.readTurnsForMarkerReconciliation`: it interleaves assistant turns the
  * acknowledged count does not hold, so counting them compares different units.
  */
 export type UserTurnReadback =

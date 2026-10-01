@@ -19,6 +19,6 @@ import type { Refusal } from "@renderer/lib/refusal.js";
  * diagnostics, and only the code and the daemon's message go on screen.
  */
 export interface RefusalProps extends Pick<Refusal, "code" | "detail"> {
-  /** The operator's next move, when one exists. */
+  /** The person's next move, when one exists. */
   readonly action?: React.ReactNode;
 }

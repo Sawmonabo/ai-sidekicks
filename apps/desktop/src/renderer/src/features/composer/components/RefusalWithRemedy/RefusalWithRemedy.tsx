@@ -1,4 +1,4 @@
-// A refusal rendered with the operator's next move beside it: the join of `refusal-props.ts`,
+// A refusal rendered with the person's next move beside it: the join of `refusal-props.ts`,
 // `lib/refusal-remedies.ts` and `RefusalRemedyContent`, so every view answers a code the same way.
 // A `banner` remedy draws the card here, since a banner spans the frame and belongs to the frame's
 // store; escalating is `hooks/useRefusalBannerEscalation.ts`. A code with no remedy renders inline

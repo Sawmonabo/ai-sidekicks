@@ -23,7 +23,7 @@ import { structuralKey } from "@renderer/lib/structural-key.js";
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
-  /** The account's operator-chosen label. */
+  /** The label the person chose for the account. */
   readonly accountLabel: string;
   /**
    * The window's own label where the provider publishes one, and its `limitId` verbatim where

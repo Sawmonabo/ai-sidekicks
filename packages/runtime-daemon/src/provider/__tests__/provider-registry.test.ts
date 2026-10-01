@@ -30,15 +30,11 @@ import type {
   DriverCliVersionReport,
   DriverResumeResult,
   ForkConversationResult,
-  DriverTranscriptExportResult,
-  DriverTranscriptReplayResult,
-  ExportTranscriptParams,
   GetCapabilitiesResult,
   ListProviderCommandsParams,
   ProviderDriver,
   ProviderSessionHandle,
   RespondToRequestParams,
-  ReplayTranscriptParams,
   ResumeSessionParams,
   ForkConversationParams,
   SetSessionGoalParams,
@@ -135,12 +131,6 @@ class FakeProviderDriver implements ProviderDriver {
     throw new Error("not implemented in test");
   }
   probeAuth(): Promise<DriverAuthProbeResult> {
-    throw new Error("not implemented in test");
-  }
-  exportTranscript(_params: ExportTranscriptParams): Promise<DriverTranscriptExportResult> {
-    throw new Error("not implemented in test");
-  }
-  replayTranscript(_params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     throw new Error("not implemented in test");
   }
   compactContext(_params: CompactContextParams): Promise<DriverCompactionResult> {

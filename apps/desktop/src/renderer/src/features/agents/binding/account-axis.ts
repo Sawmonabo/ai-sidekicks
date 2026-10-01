@@ -30,7 +30,7 @@ export interface AccountRegistryReading extends WireReadState {
 /** One account the axis may take, with the stored reading that renders beside it. */
 export interface AccountChoice {
   readonly accountId: string;
-  /** Operator-chosen. What a person recognizes the account by. */
+  /** Chosen by the person. What a person recognizes the account by. */
   readonly displayLabel: string;
   readonly isProviderDefault: boolean;
   readonly healthState: ProviderAccount["healthState"];

@@ -535,18 +535,17 @@ export const AgentDefinitionDeleteResponseSchema: z.ZodType<AgentDefinitionDelet
 // agent.definitionExport and agent.definitionImport
 
 /**
- * Writes the chosen definitions to one JSON file: each definition's record, icon,
- * accent, hooks and memory scope, every binding with its account cleared, a format
- * marker, and a note saying the accounts were cleared. The daemon clears the
- * accounts itself, and never reads the notes in an agent's memory folder into the
- * file. An unknown id refuses the whole export.
+ * Writes the chosen definitions into the folder the person picked, one Markdown file per
+ * definition: its record, icon, accent, hooks and memory scope, and every binding with the account
+ * left out. The daemon leaves the accounts out itself and never reads the notes in an agent's
+ * memory folder into a file. An unknown id refuses the whole export.
  *
- * `filePath` is the path main's relay put in place of the token the platform's save
- * chooser returned.
+ * `folder` is the path main's relay put in place of the token the platform's folder chooser
+ * returned.
  */
 export interface AgentDefinitionExportRequest {
   definitionIds: AgentDefinitionId[];
-  filePath: string;
+  folder: string;
 }
 /** Parses an {@link AgentDefinitionExportRequest}; it names at least one definition. */
 export const AgentDefinitionExportRequestSchema: z.ZodType<
@@ -555,11 +554,11 @@ export const AgentDefinitionExportRequestSchema: z.ZodType<
 > = z
   .object({
     definitionIds: z.array(AgentDefinitionIdSchema).min(1),
-    filePath: wireFreeFormString(FILE_PATH_MAX_LEN, "filePath"),
+    folder: wireFreeFormString(FILE_PATH_MAX_LEN, "folder"),
   })
   .strict();
 
-/** How many definitions the file holds. */
+/** How many definition files the export wrote. */
 export interface AgentDefinitionExportResponse {
   exportedCount: number;
 }
@@ -612,9 +611,9 @@ export const AgentDefinitionImportResponseSchema: z.ZodType<AgentDefinitionImpor
 
 // Refusals
 
-/** An export whose file could not be written. */
+/** An export with a definition file that could not be written into the folder. */
 export type AgentExportWriteFailedCode = "agent.export_write_failed";
-/** The code of an export whose file could not be written. */
+/** The code of an export with a definition file that could not be written. */
 export const AGENT_EXPORT_WRITE_FAILED_CODE: AgentExportWriteFailedCode =
   "agent.export_write_failed";
 

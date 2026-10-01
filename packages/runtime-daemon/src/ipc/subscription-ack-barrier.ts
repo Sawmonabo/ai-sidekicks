@@ -56,7 +56,7 @@ export interface SubscriptionAckBarrier<EmissionType> {
 
 /**
  * Builds a barrier over `producer`. `methodName` (the wire method, such as `session.subscribe`)
- * prefixes the log line so an operator can tell which surface produced a bad value.
+ * prefixes the log line so the person can tell which surface produced a bad value.
  *
  * `producer.next` throws `StreamingValidationError` for a value that fails the subscription's
  * schema, which is a producer bug rather than a client fault. Both the live path and the flush

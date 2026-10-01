@@ -68,7 +68,7 @@ export function ServerRow(props: {
 
       <div className="meridian-mcp__row-block">
         <h4 className="meridian-mcp__row-block-title">Tool overrides</h4>
-        {entry.trustUnavailable === true ? (
+        {entry.bindingStoreUnavailable === true ? (
           <Nothing
             kind="not-checked"
             placement="inline"

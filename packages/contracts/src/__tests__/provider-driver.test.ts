@@ -48,7 +48,6 @@ describe("ProviderDriver contract: the capability flag record is closed and tota
       session_goals: false,
       callback_tools: false,
       subagents: false,
-      transcript_replay: false,
       context_compaction: false,
       provider_commands: false,
       output_speed: false,
@@ -78,7 +77,6 @@ describe("ProviderDriver contract: the capability flag record is closed and tota
       session_goals: false,
       callback_tools: false,
       subagents: false,
-      transcript_replay: false,
     };
     expect(incompleteFlags.resume).toBe(true);
   });

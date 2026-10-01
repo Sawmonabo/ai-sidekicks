@@ -236,7 +236,7 @@ interface McpServerInventoryFacts {
 /**
  * One inventory row: the binding and what is known about it.
  *
- * A pair on `trustUnavailable`. When the binding store is unreachable the members that depend on
+ * A pair on `bindingStoreUnavailable`. When the binding store is unreachable the members that depend on
  * it are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists. A client
  * renders the absence.
  */
@@ -244,12 +244,12 @@ export type McpServerInventoryEntry = McpServerBindingRef &
   McpServerInventoryFacts &
   (
     | {
-        trustUnavailable?: undefined;
+        bindingStoreUnavailable?: undefined;
         enabled: boolean;
         toolOverrides: McpToolOverride[];
       }
     | {
-        trustUnavailable: true;
+        bindingStoreUnavailable: true;
         enabled?: boolean | undefined;
       }
   );
@@ -317,20 +317,8 @@ export const MCP_REQUEST_TEXT_MAX_LEN = 8192;
 const mcpRequestText = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
 
-/**
- * An `http:` or `https:` address with no user name or password in it. Zod runs
- * the refinement even after the address check fails, so it parses defensively.
- */
-const mcpServerAddressSchema = z
-  .url({ protocol: /^https?$/ })
-  .max(MCP_REQUEST_TEXT_MAX_LEN)
-  .refine(
-    (address) => {
-      const parsed = URL.parse(address);
-      return parsed !== null && parsed.username === "" && parsed.password === "";
-    },
-    { message: "A server address carries no user name or password." },
-  );
+/** An `http:` or `https:` address, taken as typed, a user name or password in it included. */
+const mcpServerAddressSchema = z.url({ protocol: /^https?$/ }).max(MCP_REQUEST_TEXT_MAX_LEN);
 
 const mcpTimeoutSecondsSchema = z.number().positive();
 
@@ -610,8 +598,8 @@ const storeAnsweredEntryShape = {
   enabled: z.boolean(),
   toolOverrides: z.array(McpToolOverrideSchema),
 };
-const trustUnavailableEntryShape = {
-  trustUnavailable: z.literal(true),
+const bindingStoreUnavailableEntryShape = {
+  bindingStoreUnavailable: z.literal(true),
   enabled: z.boolean().optional(),
 };
 
@@ -619,7 +607,7 @@ const trustUnavailableEntryShape = {
 const inventoryEntryArms = <Binding extends z.ZodRawShape>(binding: Binding) =>
   [
     z.object({ ...binding, ...inventoryFactsShape, ...storeAnsweredEntryShape }).strict(),
-    z.object({ ...binding, ...inventoryFactsShape, ...trustUnavailableEntryShape }).strict(),
+    z.object({ ...binding, ...inventoryFactsShape, ...bindingStoreUnavailableEntryShape }).strict(),
   ] as const;
 
 /** Parses an {@link McpServerInventoryEntry}; refuses a failure reason on a non-`failed` server. */

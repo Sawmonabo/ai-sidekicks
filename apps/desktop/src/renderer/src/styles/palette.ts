@@ -6,7 +6,7 @@
 // Authoring rules this file obeys:
 //
 //   • Hue answers "who" and never "how urgent". The twelve user steps are one scheme-independent
-//     set, because identity does not change when the operator flips the theme. One lightness
+//     set, because identity does not change when the person flips the theme. One lightness
 //     (`HUE_WHEEL_LIGHTNESS`) clears 3:1 as an edge or mark against both schemes' grounds, which
 //     is why it sits mid-scale.
 //   • Amber means a person is needed; red means something failed; the accent is one desaturated
@@ -272,6 +272,6 @@ export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
  * A floor the frame declares, not a breakpoint: one fluid layout holds down to this width,
  * `layout/AppShell/app-frame.css` spends it as the frame's `min-width`, and below it the document
  * scrolls horizontally. A px value because that is the criterion's unit; a rem floor would move
- * under the operator who raised the root font size.
+ * under a person who raised the root font size.
  */
 export const REFLOW_MIN_WIDTH_PX = 320;

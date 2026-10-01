@@ -22,14 +22,12 @@ import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-  DeclaredLossKindSchema,
   RecoveryConditionSchema,
   RecoverySpanClassificationSchema,
   RunIdSchema,
   SessionIdSchema,
   wireFreeFormString,
   type ApplyInterventionParams,
-  type DeclaredLossKind,
   type DriverCapabilities,
   type DriverCapabilityFlag,
   type DriverCompactionResult,
@@ -77,15 +75,6 @@ export interface ProviderDriver {
   // Not capability-gated and required of every driver: a zero-turn authentication probe. No flag
   // exists for it, so a driver cannot opt out by silence.
   probeAuth(): Promise<DriverAuthProbeResult>;
-  // Not capability-gated and required of every driver: rendering the canonical transcript is how
-  // a driver declares what it can carry and report losing. Pure: it mutates nothing and starts no
-  // turn. The transcript is passed in because the daemon rebuilds it per call; a driver holding it
-  // would keep a second record of the log.
-  exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
-  // Gated on `transcript_replay`. Reconstitutes a conversation into a fresh provider session and
-  // never writes to the source session. Returns only after the post-replay assertion passes: the
-  // injection surface is untyped on the wire, so a returned success alone proves nothing.
-  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Gated on `context_compaction`. Compacts the bound session's provider-side context on user
   // request only, settling on the provider's typed compaction evidence and never on the request
   // being accepted (Codex answers an empty ack; Claude's `driver_command` frame only settles).
@@ -172,7 +161,7 @@ export interface ResumeSessionParams {
   // request; the two function legs are re-injected at every spawn, as functions are never stored.
   executionPosture?: ExecutionPosture | undefined;
   // A speed-less resume relaunches at the provider's default while `agents.output_speed` still
-  // records the operator's accepted mode. The state the relaunched process declares is observed as
+  // records the person's accepted mode. The state the relaunched process declares is observed as
   // binding-held state, not returned on `DriverResumeResult` (see `ProviderOutputSpeedState`).
   outputSpeed?: string | undefined;
   callbackTools?: SessionCallbackTool[] | undefined;
@@ -486,7 +475,7 @@ export interface ClearSessionGoalParams {
 /**
  * Return of the zero-turn `probeAuth` (not capability-gated), parsed from untrusted provider
  * output. `indeterminate` (probe surface unavailable or unparseable) counts as not authenticated
- * for admission (fail closed) yet stays distinguishable from `unauthenticated`, so operators can
+ * for admission (fail closed) yet stays distinguishable from `unauthenticated`, so the person can
  * tell probe health from credential state; a boolean would lose that. Run admission against a
  * driver not probing `authenticated` refuses as `driver.not_authenticated` before any turn is
  * spent. Mid-run credential expiry is a different surface: typed auth-failure signals map to the
@@ -495,9 +484,9 @@ export interface ClearSessionGoalParams {
 export interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
   // Knowingly PII-bearing: a provider-reported account or plan descriptor whose observed shape is
-  // a plan name plus a seat email. Transient operator-facing diagnostics only: never persist it or
+  // a plan name plus a seat email. Transient diagnostics for the person only: never persist it or
   // carry it on an event without a PII classification and the erasure that obliges. Admission
-  // reads `status` for the decision and this field only to tell an operator why, so dropping it
+  // reads `status` for the decision and this field only to tell the person why, so dropping it
   // loses diagnostics, never correctness.
   detail?: string | undefined;
 }
@@ -513,7 +502,7 @@ export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, Drive
     })
     .strict();
 
-// ---- Canonical transcript export and replay ----
+// ---- Canonical transcript ----
 
 // The canonical transcript is a projection the daemon folds from the session event log, so its
 // shapes are daemon-constructed and plain TypeScript. Content is bounded, normalized taxonomy:
@@ -562,8 +551,8 @@ export type CanonicalTranscriptSegment =
       // `toolCallId`, and a synthetic id would give the pairing repair a call no provider made. It
       // rides the segment it governs and survives any positional bound the segment survives;
       // without it, a bound between the result and its later-logged private reasoning row would
-      // leave the export declaring nothing. Never rendered or exported: the strip drops the segment
-      // and declares `provider_private_reasoning`. One literal because only `private` withholds a
+      // leave the transcript declaring nothing. Never rendered: the strip drops the segment and
+      // declares `provider_private_reasoning`. One literal because only `private` withholds a
       // read body; an `unknown` enclosure keeps its placeholder on the `contentUnavailable` path.
       withheldEnclosure?: "private" | undefined;
     }
@@ -580,8 +569,6 @@ export type CanonicalTranscriptSegment =
   | {
       kind: "tool_call";
       position: number;
-      // The canonical id: replay never re-mints one or reuses one across two calls; the
-      // target-facing id comes from the identity map.
       toolCallId: string;
       toolName: string;
       // The arguments as the provider serialized them; re-encoding a parsed object would change
@@ -639,101 +626,6 @@ export interface CanonicalTranscriptProjection {
   builtAtPosition: number;
   turns: readonly CanonicalTranscriptTurn[];
 }
-
-/**
- * Input of `exportTranscript`: the folded projection and the boundary it is exported against. The
- * driver retains exactly the segments whose `position` is at or below `boundary` and drops any turn
- * left empty. The filter is per segment, not per turn, because the fold coalesces consecutive
- * same-role events into one turn positioned at the first, so a turn-level filter would carry later
- * events' content across the boundary. It is a deterministic filter over data the driver already
- * holds and equals the fold bounded at the same position, so it is a no-op on an already-bounded
- * projection.
- */
-export interface ExportTranscriptParams {
-  sessionId: SessionId;
-  transcript: CanonicalTranscriptProjection;
-  // Export up to and including this normalized session position, the vocabulary of
-  // `ForkConversationParams.position` and `CanonicalTranscriptSegment.position`.
-  boundary: number;
-}
-
-/** Return of `ProviderDriver.exportTranscript()`. */
-export interface DriverTranscriptExportResult {
-  // Provider-shaped replay frames, untyped on purpose: the pinned injection surface takes an
-  // untyped array and validates neither shape nor tool-call pairing, so the daemon owns both and a
-  // type here would assure a check nobody performs.
-  frames: unknown[];
-  // What the strip and repair steps of the ordered pipeline removed or repaired, by class.
-  declaredLosses: DeclaredLossKind[];
-}
-
-/** Params of `replayTranscript`: a fresh target session and the frames to inject into it. */
-export interface ReplayTranscriptParams {
-  // A fresh session handle. Replay never writes to the session the transcript came from.
-  target: ProviderSessionHandle;
-  frames: unknown[];
-}
-
-/**
- * Return of `ProviderDriver.replayTranscript()`. Flat rather than discriminated, unlike
- * `ForkConversationResult`, because `declaredLosses` is required on both arms: an `applied` replay
- * that stripped provider-private reasoning still lost something. The arm-scoped content rule rides
- * the schema below, since expressing it in the type would need the union this shape avoids.
- */
-export interface DriverTranscriptReplayResult {
-  // `degraded` means the memo floor stood in: the conversation moved and the losses say what came
-  // along. It is not a failure; a target that cannot be reached at all throws.
-  status: "applied" | "degraded";
-  declaredLosses: DeclaredLossKind[];
-}
-
-/** Validates a {@link DriverTranscriptReplayResult}; strict, with arm-scoped loss rules. */
-export const DriverTranscriptReplayResultSchema: z.ZodType<
-  DriverTranscriptReplayResult,
-  DriverTranscriptReplayResult
-> = z
-  .object({
-    status: z.enum(["applied", "degraded"]),
-    declaredLosses: z.array(DeclaredLossKindSchema),
-  })
-  .strict()
-  // `degraded` here has one cause, the memo floor standing in, so it must name
-  // `conversation_history_summarized`. Enforced rather than narrated: the flat shape admits
-  // `{status: 'degraded', declaredLosses: []}`, and an empty array claims nothing was dropped, so
-  // that value would tell the caller a summary is the verbatim conversation. Naming the kind
-  // subsumes non-emptiness; a bare `.min(1)` would admit a degraded result declaring some other
-  // loss while hiding the summarization. `applied` keeps full latitude over every other kind,
-  // empty list included. (`.superRefine()` returns `this`, so the envelope stays a `ZodObject` and
-  // the annotation above holds.)
-  //
-  // The inverse rule makes the kind an exact witness of the arm: `applied` with
-  // `conversation_history_summarized` claims both that native replay landed and that a summary
-  // stood in, so a consumer reading `status` and one reading the kind would publish opposite
-  // continuity for the same value.
-  .superRefine((result, ctx) => {
-    if (
-      result.status === "degraded" &&
-      !result.declaredLosses.includes("conversation_history_summarized")
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["declaredLosses"],
-        message:
-          "a replay reported 'degraded' settled on the memo projection, so its declared-loss list must include 'conversation_history_summarized'; this result reports 'degraded' without it.",
-      });
-    }
-    if (
-      result.status === "applied" &&
-      result.declaredLosses.includes("conversation_history_summarized")
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["declaredLosses"],
-        message:
-          "'conversation_history_summarized' names the memo projection standing in for the conversation, which is the 'degraded' settlement; an 'applied' replay cannot declare it, and this result reports 'applied' with it.",
-      });
-    }
-  });
 
 // ---- Compaction and provider-command params ----
 

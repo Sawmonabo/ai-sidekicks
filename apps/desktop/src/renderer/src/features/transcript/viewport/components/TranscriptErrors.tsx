@@ -10,7 +10,7 @@ import { type TranscriptErrorEntry } from "../transcript-errors.js";
 /** The recorded entries, and the action for the highest one. */
 export interface TranscriptErrorsProps {
   readonly entries: readonly TranscriptErrorEntry[];
-  /** The operator's next move for the highest-ranked entry, when there is one. */
+  /** The person's next move for the highest-ranked entry, when there is one. */
   readonly action?: React.ReactNode;
 }
 

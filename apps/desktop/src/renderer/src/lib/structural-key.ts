@@ -1,7 +1,7 @@
 // One string standing for a tuple of free-form segments, and never for two tuples.
 //
 // Joining segments on a separator is injective only while no segment contains it, and the
-// segments keyed on are wire strings (repository paths, operator-typed server names, provider
+// segments keyed on are wire strings (repository paths, server names the person typed, provider
 // limit identifiers). `JSON.stringify` over the array is injective for string tuples, is total,
 // and separates arity, so a tuple with an empty third segment differs from a two-segment one.
 //

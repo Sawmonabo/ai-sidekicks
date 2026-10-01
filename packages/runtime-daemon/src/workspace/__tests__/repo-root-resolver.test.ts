@@ -922,7 +922,7 @@ describe("a redirected toplevel is refused, never persisted", () => {
   });
 
   it("refuses a sibling redirect with root_mismatch", async () => {
-    // Attaching this would persist a `canonical_root` naming a tree the operator never supplied.
+    // Attaching this would persist a `canonical_root` naming a tree the person never supplied.
     // The target self-reports honestly, so containment is what refuses it.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.siblingRedirectRoot),

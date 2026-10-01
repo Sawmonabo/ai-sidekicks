@@ -391,18 +391,3 @@ function deliveredMemoLosses(
     ? { source: "unknown", losses: DECLARED_LOSS_KINDS }
     : { source: "delivered-memo", losses: [...recorded] };
 }
-
-/** Thrown when a settlement that established no delivery is asked for a boundary result. */
-export class MemoDeliveryNotEstablishedError extends Error {
-  readonly settlement: MemoDeliverySettlement;
-
-  constructor(settlement: MemoDeliverySettlement) {
-    super(
-      `The memo floor established no delivery (${settlement.disposition}${
-        settlement.withheldReason === undefined ? "" : `: ${settlement.withheldReason}`
-      }); there is no replay result to report.`,
-    );
-    this.name = "MemoDeliveryNotEstablishedError";
-    this.settlement = settlement;
-  }
-}
