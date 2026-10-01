@@ -41,13 +41,13 @@ The monorepo layout for implementation is:
 | `packages/runtime-daemon/` | Local Runtime Daemon implementation and local execution services. |
 | `packages/control-plane/` | Control Plane services: the statement chain, device linking, machine registration and the relay. |
 | `apps/desktop/` | Desktop application package. Main process under `src/main/`, preload bridge under `src/preload/`, desktop-only contracts the three processes share under `src/shared/`, and the renderer under `src/renderer/`, with its code rooted at `src/renderer/src/`, per the electron-vite zero-config convention ([electron-vite Development guide](https://electron-vite.org/guide/dev) — Project Structure conventions for sibling `main` / `preload` / `renderer` directories under `src/`). [Desktop Architecture](./desktop.md) gives the folders inside each. |
-| `apps/cli/` | CLI client implementation over the shared client SDK. |
+| `apps/cli/` | CLI client implementation over the shared client SDK, a workspace [Plan-005](../plans/005-local-ipc-and-daemon-control.md) creates. |
 
 - Implementation plans may target submodules beneath these roots.
 
 ## Client Delivery Sequence
 
-- `apps/cli/` is the first shipped client path over `packages/client-sdk/` and the typed daemon contract.
+- `apps/cli/`, which [Plan-005](../plans/005-local-ipc-and-daemon-control.md) creates, will be the first shipped client path over `packages/client-sdk/` and the typed daemon contract.
 - `apps/desktop/` is the second client path and must reuse the same client SDK and daemon semantics rather than introducing a separate local control surface.
 - When a daemon capability is new, the contract and CLI path are the canonical proving ground before renderer-specific UX layers are treated as complete.
 

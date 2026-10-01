@@ -925,7 +925,7 @@ _Every console axis names the libraries considered, the evidence, and the verdic
 
 ### Console Test Tiers
 
-The console's tests are tiered by what each proves, in the seven tiers below; every tier is a Vitest project, declared in `apps/desktop/vitest/console-projects.ts` and registered beside the `renderer` / `main` set the desktop package ships today and the `main-unit` / `e2e` projects Plan-020 registers (T-020p-1B-3, T-020r-7-1), each with a glob no other project reaches, and none is optional for a console PR. No tier is a Playwright project: the tiers that need a real window drive Electron through Playwright's `_electron` launcher inside `tests/helpers/electron-harness.ts` and run under Vitest like every other tier.
+The console's tests are tiered by what each proves, in the seven tiers below; every tier is a Vitest project, declared in `apps/desktop/vitest/tier-projects.ts` and registered beside the `renderer` / `main` set the desktop package ships today and the `main-unit` / `e2e` projects Plan-020 registers (T-020p-1B-3, T-020r-7-1), each with a glob no other project reaches, and none is optional for a console PR. No tier is a Playwright project: the tiers that need a real window drive Electron through Playwright's `_electron` launcher inside `tests/helpers/electron-harness.ts` and run under Vitest like every other tier.
 
 | Tier | What it proves | Tooling |
 | --- | --- | --- |
