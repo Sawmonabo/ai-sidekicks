@@ -275,7 +275,7 @@ Its content is bounded by [Spec-005](005-session-event-taxonomy-and-audit-log.md
 
 The brief reads the transcript in two steps, in this order:
 
-1. **Fold** the run's normalized events into ordered turns. A logged turn whose body cannot be read is carried with its position and an empty body and declared `turn_content_unavailable`; one whose body was stored as a prefix is carried as that prefix and declared `turn_content_truncated`. Neither is dropped, since a dropped turn reads as one that never happened.
+1. **Fold** the run's normalized events into ordered turns. A logged turn whose body cannot be read is carried with its position and an empty body and declared `turn_content_unavailable`, never dropped, since a dropped turn reads as one that never happened. A long body is stored whole, so no turn is carried as a prefix.
 2. **Strip what is not portable**, and record each stripped class on the declared-loss list. Provider-private reasoning is stripped here, on **both** vendors' own stated rules: reasoning is tied to the model that produced it, and is reusable at most within one model family. Stripping is by the reasoning block's kind, not by a single type name — a filter that catches only the plain reasoning kind silently leaves its redacted sibling behind. Visible reasoning summaries are **not** stripped; they carry as plain text, because they are user-visible and therefore already canonical.
 
 ### The hand-over brief is the floor, and it is visibly a floor
