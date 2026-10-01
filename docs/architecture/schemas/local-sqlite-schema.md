@@ -153,6 +153,10 @@ CREATE TABLE queue_items (
                                               -- column (state, target_run_id, session_id).
   target_run_id   TEXT,                       -- the run a user message is delivered into; NULL on an
                                               -- orchestration-authored item, which is admitted as a new run
+  device_id       TEXT,                       -- the device a person's message came from (the machine's own
+                                              -- screen or a linked device's channel), found from the
+                                              -- connection at acceptance; NULL on an orchestration-authored
+                                              -- item, the system's own (Queue And Intervention Model)
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
   CHECK((state = 'not_delivered') = (not_delivered_reason IS NOT NULL))  -- a not_delivered item always says why
