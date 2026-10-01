@@ -155,11 +155,7 @@ Intervention request-admission codes ([Spec-004 §Required Behavior](../../specs
 
 ### Orchestration
 
-Orchestration admission-refusal codes (Plan-014 D-014-16). Every code is a zero-residue create-time refusal — no run row, no queue item, no partial state survives the rejection (I-014-8); the daemon additionally records the refusal durably via the `orchestration.rejected` event ([Spec-014 §Example Flows](../../specs/014-multi-agent-orchestration.md#example-flows) "records the refusal visibly"). The event name `orchestration.rejected` and these error codes share a root but no token collides with an event name. The parent-run-missing case reuses §Run `run.not_found` (no new semantic — D-014-16).
-
-| Code | Description | HTTP Status |
-| --- | --- | --- |
-| `orchestration.budget_exhausted` | The session's spend limit is reached — no turn starts until the person raises the limit; `observedValue` carries the session's spend from the service's own spend count ([Spec-014 §Budget Policies](../../specs/014-multi-agent-orchestration.md#budget-policies); `data.fields`: `budgetType`, `limitValue`, `observedValue`) | 429 |
+Orchestration registers no code of its own (Plan-014 D-014-16). An orchestration run-create refused at admission answers with a reused code: §Agent `agent.not_found`, or §Run `run.not_found` where the parent run is missing. Every such refusal is zero-residue — no run row, no queue item, no partial state survives it (I-014-8) — and the daemon records it durably as the `orchestration.rejected` event ([Spec-014 §Example Flows](../../specs/014-multi-agent-orchestration.md#example-flows) "records the refusal visibly"). A reached spend limit is not a refusal: a message sent while it stands lands with the `Spend limit reached` row under it and starts no turn ([Spec-014 §Budget Policies](../../specs/014-multi-agent-orchestration.md#budget-policies)).
 
 ### Agent
 

@@ -3202,7 +3202,7 @@ interface RunStateChangeEvent {
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-005 §Run Lifecycle run-state payload)
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
   executionPosture?: ExecutionPosture; // named type in §Plan-004 above (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-003 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
-  trigger?: "budget_exhausted"; // stop-condition provenance (additive per ADR-018): rides run.interrupted when the service stops a run at a spend or token limit (D-014-7). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
+  trigger?: "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled"; // stop-condition provenance (additive per ADR-018): rides run.interrupted when the service stops a run itself, at the step limit, the spend limit or the token limit the person set (D-014-7), or because its workflow phase was canceled. Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
   // A run's linkage and its admission stamps ride the run.queued row alone (RunQueuedPayload, §Plan-014),
   // never this stream.
   timestamp: string;
@@ -5549,13 +5549,14 @@ interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
 type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step"; // D-014-17: how a child was reached — the provider's own subagent, a bridge `run` call, or a workflow's `agent.run` step (§Plan-027). A `provider_subagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
-type InterruptReason = "budget_exhausted"; // D-014-8: the reason carried on a system-initiated interrupt at a spend or token limit
+type InterruptReason = "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled"; // D-014-8: the reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`
 
 // OrchestrationRunCreate — wire: orchestration.runCreate (admission pipeline D-014-13:
-// agent resolution -> spend-limit block -> Plan-003 queue admission; zero-residue typed
-// refusal + durable orchestration.rejected on deny). No count bounds admission: the runtime sets no
-// limit on runs, agents, children, nesting depth or queued messages, so a refusal here is
-// the provider's own, a reached spend limit the person set, or a target that does not resolve. No console
+// agent resolution -> Plan-003 queue admission; zero-residue typed refusal + durable
+// orchestration.rejected on deny). No count bounds admission: the runtime sets no limit on runs,
+// agents, children, nesting depth or queued messages, so a refusal here is the provider's own or a
+// target that does not resolve. A reached spend limit is never a refusal: while it stands no turn
+// starts in the session (Spec-014 §Budget Policies). No console
 // control calls it: its callers are the daemon's own paths (the bridge's `run` verb, §Plan-027, and a
 // workflow's run-an-agent node) and the SDK.
 // The target is EITHER an agent already in the session's agents projection, or a saved
@@ -5650,16 +5651,15 @@ interface OrchestrationBudgetState {
   sessionId: SessionId;
   spendLimitUsdMicros: number | null; // the session's `Spend limit`; null = `Unlimited`, the default — one exists only where the person set it
   tokensPerRun: number | null; // the session's `Tokens per run`, input and output together for one run; null = `Unlimited`, the default
-  // The ENFORCED number: what admission compares against spendLimitUsdMicros wherever a limit is set
-  // (with spendLimitUsdMicros null nothing is compared and admission is never refused on cost), and the one
+  // The ENFORCED number: what the accountant compares against spendLimitUsdMicros wherever a limit is
+  // set (with spendLimitUsdMicros null nothing is compared and no turn is held for spend), and the one
   // session cost figure a surface shows — never a sum over a visible run list (Spec-014 §Cost Figure
   // Display Consistency; Plan-014 I-014-24). The budget accountant folds it from the persisted
   // usage.cost_update rows alone: each request is priced once, at completion, from the live price table
   // and never repriced, so a replay rebuilds the same figure. A request on a model or speed the price
   // table does not price yet is held with its exact tokens and joins this figure when a later fetch
   // prices it (Spec-014 §Cost Derivation And Absent-Cost Semantics). Plan-014 T2.5 asserts the
-  // equality with the observedValue a session-cost orchestration.budget_exhausted refusal stamps at the
-  // same fold state.
+  // equality with the cost receipt's total at the same fold state.
   committedSpendUsdMicros: number;
   // Spend per agent in the session's tree, the lead included, routed up the parent chain at any depth:
   // `ownUsdMicros` is what the agent's own requests cost, `subtreeUsdMicros` that plus every descendant's.
