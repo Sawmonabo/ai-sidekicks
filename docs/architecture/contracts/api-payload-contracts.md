@@ -184,7 +184,6 @@ type DriverCapabilityFlag =
   | "session_goals" // setSessionGoal / clearSessionGoal
   | "callback_tools" // daemon-curated callback-tool registry
   | "subagents" // provider-native in-session subagents under subagentPolicy
-  | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (ADR-029; the Claude cell is probe-declared, not statically true — Spec-004 §Per-Driver Capability Matrix)
   | "context_compaction" // compacts the bound session's own provider-side context on user request via compactContext (Spec-004 §User-triggered context compaction)
   | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (Spec-004 §The provider command and skill surface)
   | "output_speed"; // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it, and detectionSource is STATIC on both because reading the declared state is not zero-turn (Spec-004 §The output-speed axis). Claude realizes the axis through its own fast-output setting; Codex realizes it through the participant-settable per-turn `serviceTier` override on `turn/start` — present in the default, non-field-gated generation — against the speed tiers its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name, description }`, with a `Fast` tier carried in upstream source), behind the provider's own `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard` control and the `/fast` word
@@ -1434,17 +1433,6 @@ interface ProviderDriver {
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
-  // Render the run's canonical transcript into this provider's replay frames (
-  // ADR-029; Spec-004 §Canonical Transcript Export And Replay). Pure with respect to session
-  // state: it mutates nothing, writes nothing, and starts no turn.
-  exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
-  // Reconstitute a conversation into a FRESH provider session from exported frames. Gated on the
-  // `transcript_replay` flag and never writes to the SOURCE session; returns only after the
-  // post-replay assertion passes. THIS IS THE FALLBACK PATH, not the ordinary one: a fresh process of
-  // the SAME provider reopens its own conversation. It is reached where a same-provider reopen does
-  // not load, and a driver whose provider refuses prior-turn content declares the flag `false`. No
-  // provider switch takes it: a switch settles `in_place` or `brief` (Spec-014 §Continuity).
-  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
   // copy of the old session and never on the live one; required of every driver (Spec-004
   // §Interfaces And Contracts; Spec-014 §Continuity, and what is declared rather than dropped).
@@ -1630,14 +1618,14 @@ interface ProviderCommandsUpdate {
   entries: ProviderCommandEntry[];
 }
 
-// Transcript export/replay shapes (ADR-029). The canonical transcript is a PROJECTION
-// the daemon rebuilds per call and caches nowhere, so it is passed IN rather than fetched by the
-// driver: a driver holding a transcript handle would be holding a second record of the log, which
-// is the divergence ADR-029 exists to eliminate.
+// The canonical transcript (ADR-029) is a PROJECTION the daemon rebuilds per call and caches
+// nowhere; the hand-over brief's one-line notes, its word-for-word tail and its transcript file are
+// read from it (Spec-004 §The Canonical Transcript And The Hand-Over Brief). No transcript is
+// replayed into a fresh provider session, so no driver operation takes it.
 // The daemon-side fold of a run's normalized events into ordered turns (Spec-004 §The canonical
 // transcript is a projection, never a store). It never crosses a wire and is never persisted, so
 // only its IDENTITY is mirrored here: the per-turn element shape is authored by Plan-004 T3.19 in
-// `packages/runtime-daemon/src/provider/provider-driver.ts` and is bounded by the Spec-005 normalized taxonomy,
+// `packages/runtime-daemon/src/provider/transcript/canonical-transcript.ts` and is bounded by the Spec-005 normalized taxonomy,
 // which is what makes "anything that never became an event is not in the transcript" true by
 // construction rather than by discipline.
 interface CanonicalTranscriptProjection {
@@ -1647,38 +1635,6 @@ interface CanonicalTranscriptProjection {
   // one taken after an appended event does not — the projection-not-a-store property, asserted.
   builtAtPosition: number;
   turns: readonly CanonicalTranscriptTurn[]; // element shape owned by Plan-004 T3.19, above
-}
-
-interface ExportTranscriptParams {
-  sessionId: SessionId;
-  // The daemon-supplied canonical projection, folded from normalized events. Its content is
-  // bounded by the Spec-005 taxonomy — anything a provider held that never became an event is by
-  // construction absent, which is what the declared-loss list exists to surface.
-  transcript: CanonicalTranscriptProjection;
-  // Export up to and including this normalized session position — the same position vocabulary
-  // `DriverResumeResult.sessionPosition` reports.
-  boundary: number;
-}
-interface DriverTranscriptExportResult {
-  // Provider-shaped replay frames, deliberately untyped at this boundary: the pinned Codex
-  // injection surface takes an untyped array and validates neither shape nor tool-call pairing, so
-  // the DAEMON owns both and a type here would be a false assurance.
-  frames: unknown[];
-  // What steps 3 and 4 of the ordered pipeline stripped or repaired, by class. An empty array is
-  // the positive assertion that nothing was dropped (Spec-014 §Same-Agent Provider Switch).
-  declaredLosses: DeclaredLossKind[];
-}
-interface ReplayTranscriptParams {
-  // A FRESH session handle. Replay never writes to the session the transcript came from.
-  target: ProviderSessionHandle;
-  frames: unknown[];
-}
-interface DriverTranscriptReplayResult {
-  // "degraded" is the conversation having been restarted from text rather than continued: it moved,
-  // and the losses say what came along. It is not a failure result — a target that cannot be reached
-  // at all throws.
-  status: "applied" | "degraded";
-  declaredLosses: DeclaredLossKind[];
 }
 
 interface CreateSessionParams {
@@ -5943,7 +5899,7 @@ type DeclaredLossKind =
   | "tool_output_bodies" // earlier steps travel as one-line notes, so the bodies of their output do not. Files touched on disk are unchanged
   | "live_tool_calls" // tool calls arrive as history and never as work in flight; a call that was about to run does not run
   | "provider_skill_and_command_names" // the old provider's own skills and commands name nothing on the new one
-  | "turn_content_unavailable"; // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The one member produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentBindingSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
+  | "turn_content_unavailable"; // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. Produced by the fold, which is daemon-side and upstream of the driver: it reaches AgentBindingSwitchOutcome.declaredLosses through the canonical projection
 
 // agent.provider_binding_changed — a switch landed (Spec-005 §Agent Lifecycle). A change
 // of model, effort or speed alone settles `in_place` with no declared losses and draws no transcript

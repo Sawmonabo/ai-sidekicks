@@ -282,8 +282,7 @@ CREATE TABLE driver_capabilities (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_fork', 'session_goals',
-                      'callback_tools', 'subagents',
-                      'transcript_replay', 'context_compaction',
+                      'callback_tools', 'subagents', 'context_compaction',
                       'provider_commands', 'output_speed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
