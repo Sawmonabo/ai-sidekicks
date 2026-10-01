@@ -24,7 +24,7 @@ import { wireFreeFormString } from "./session.js";
 
 /** The longest provider verification URL, carried verbatim. */
 export const PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN = 2048;
-/** The longest device-code the operator types at the verification URI. */
+/** The longest device-code the person types at the verification URI. */
 export const PROVIDER_LOGIN_USER_CODE_MAX_LEN = 64;
 /**
  * The longest non-interactive token. Generous because the token is vendor-minted and its
@@ -157,7 +157,7 @@ export const PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE =
 export type ProviderAccountDisplayLabelTakenCode = typeof PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE;
 
 /**
- * Rebuilds an account's credential home from empty so the operator can authenticate into it
+ * Rebuilds an account's credential home from empty so the person can authenticate into it
  * again. It bumps `credentialGeneration` and never resets it, so a stale consumer can still order
  * two readings across the rebuild. Identity and stored quota readings survive, because the
  * provider-side allowance kept running while the home was empty; the stored health is
@@ -178,7 +178,7 @@ export interface ProviderAccountResetCredentialHomeResponse {
   accountId: ProviderAccountId;
   /** The post-reset generation; strictly greater than the pre-reset value. */
   credentialGeneration: CredentialGeneration;
-  /** Expected `reauth_required` until the operator authenticates. */
+  /** Expected `reauth_required` until the person authenticates. */
   healthState: ProviderAccountHealthState;
 }
 
@@ -195,9 +195,9 @@ export const ProviderAccountResetCredentialHomeResponseSchema: z.ZodType<Provide
 /**
  * Starts a brokered interactive sign-in. The daemon spawns the provider's unmodified binary with
  * this account's home pinned and reads nothing the flow writes; what returns is what the provider
- * emits for the operator to act on, plus an opaque attempt id. The reply mirrors the provider's
+ * emits for the person to act on, plus an opaque attempt id. The reply mirrors the provider's
  * own: an authorization URL, or a device code with its verification URL. A provider that emits
- * neither cannot be brokered and is refused rather than spawning a flow the operator cannot
+ * neither cannot be brokered and is refused rather than spawning a flow the person cannot
  * finish.
  */
 export interface ProviderAccountLoginRequest {
@@ -210,13 +210,13 @@ export const ProviderAccountLoginRequestSchema: z.ZodType<
   ProviderAccountLoginRequest
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
 
-/** What the operator needs to finish the sign-in, and the key to cancel it. */
+/** What the person needs to finish the sign-in, and the key to cancel it. */
 export interface ProviderAccountLoginResponse {
   /** Opaque, daemon-minted, single-use; the correlation key for cancel and for completion. */
   attemptId: string;
-  /** Where the operator completes the flow: the provider's own URL, verbatim. */
+  /** Where the person completes the flow: the provider's own URL, verbatim. */
   verificationUri: string;
-  /** Present on a device-code arm; the operator types it at `verificationUri`. */
+  /** Present on a device-code arm; the person types it at `verificationUri`. */
   userCode?: string | undefined;
   /**
    * RFC 3339 UTC, where the provider bounds the attempt. Absent when the provider published no
@@ -232,7 +232,7 @@ export const ProviderAccountLoginResponseSchema: z.ZodType<ProviderAccountLoginR
       PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN,
       "ProviderAccountLoginResponse.attemptId",
     ),
-    // A URL, not a free-form string: the operator opens this value, so a non-URL must fail here
+    // A URL, not a free-form string: the person opens this value, so a non-URL must fail here
     // rather than reach a browser. The length cap guards against a pathological query string.
     verificationUri: z.url().max(PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN),
     userCode: wireFreeFormString(
