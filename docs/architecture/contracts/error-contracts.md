@@ -277,7 +277,7 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.version_stale` | A save against a stale definition version | 409 |
 | `workflow.step_not_waiting` | A form submitted, an approval answered or a form read on a step that is no longer waiting | 409 |
 | `workflow.retry_unavailable` | `Retry from this step` refused while the source run is still going. `data.fields.reason` is `source_running` | 409 |
-| `workflow.code_packages_not_locked` | A run of a workflow version whose Code steps' packages are not locked refused at its start, drawn `Packages not locked` on each such node; `data.fields.nodeIds` names them. A later save that locks them makes the version runnable | 409 |
+| `workflow.code_packages_not_locked` | A start of a workflow version whose Code steps' packages are not locked; `data.fields.nodeIds` names those nodes. A later save that locks them makes the version runnable | 409 |
 | `workflow.run_not_deletable` | `Delete run` on a run that is `new`, `running` or `waiting`, drawn `Cancel it first.`; nothing is deleted | 409 |
 | `workflow.trigger_unarmable` | A trigger that cannot be armed | 422 |
 | `workflow.webhook_token_mismatch` | A webhook call with the wrong token, or any call while no token exists | 403 |
