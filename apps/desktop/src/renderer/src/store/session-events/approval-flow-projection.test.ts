@@ -12,6 +12,7 @@ const AGENT_ID = "019b7a33-3300-7a6e-8110-d1a4c1150501";
 const NODE_ID = "019b7a33-3300-7d01-8110-d1a4c1150571";
 const RULE_ID = "019b7a33-3300-7e01-8110-d1a4c1150581";
 const CLIENT_RESOLUTION_ID = "019b7a33-3300-7c01-8110-d1a4c1150531";
+const DEVICE_ID = "019b7a33-3300-7d02-8110-d1a4c1150541";
 
 /** The members every ask payload of these cases shares. */
 const ASK = {
@@ -68,15 +69,17 @@ describe("one event, folded", () => {
     ]);
   });
 
-  it("marks an answer with its state and the answering client's id", () => {
+  it("marks an answer with its state, the answering device and the client's id", () => {
     const [mutation] = fold("approval.approved", {
       ...ASK,
       effectiveScope: "session",
+      deviceId: DEVICE_ID,
       clientResolutionId: CLIENT_RESOLUTION_ID,
     });
 
     expect(mutation?.operation === "upsert" ? mutation.entity.state : undefined).toBe("approved");
     expect(mutation?.operation === "upsert" ? mutation.entity.body : undefined).toMatchObject({
+      deviceId: DEVICE_ID,
       clientResolutionId: CLIENT_RESOLUTION_ID,
     });
   });

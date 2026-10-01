@@ -26,6 +26,7 @@ import {
   wireFreeFormString,
   type SessionId,
 } from "./session.js";
+import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 
 /**
  * An ask's target scope, free text such as a command or a path. Bounded by the longest wire
@@ -242,10 +243,11 @@ export const ApprovalResolveRequestSchema: z.ZodType<
     }
   });
 
-/** What an answer settled: the recorded scope and time. */
+/** What an answer settled: the device that answered, the recorded scope and the time. */
 export interface ApprovalResolveResponse {
   approvalRequestId: ApprovalRequestId;
   state: ApprovalState;
+  deviceId: DeviceId;
   effectiveScope: string;
   resolvedAt: string;
 }
@@ -254,6 +256,7 @@ export const ApprovalResolveResponseSchema: z.ZodType<ApprovalResolveResponse> =
   .object({
     approvalRequestId: ApprovalRequestIdSchema,
     state: ApprovalStateSchema,
+    deviceId: DeviceIdSchema,
     effectiveScope: approvalScopeSchema("ApprovalResolveResponse.effectiveScope"),
     resolvedAt: z.iso.datetime({ offset: true }),
   })
@@ -289,9 +292,9 @@ export const ApprovalProjectionReadRequestSchema: z.ZodType<
  * provider marks the ask as one that must not carry a standing allow, and the card
  * then draws only `Decline` and `Approve once`.
  *
- * The resolved members (`resolvedAt`, `decision`, `effectiveScope`)
- * are present exactly when the state is `approved` or `rejected`, and the decision
- * is the state. `rememberedScope` is present only where the resolution minted a
+ * The resolved members (`resolvedAt`, `decision`, `deviceId`, `effectiveScope`) are present
+ * exactly when the state is `approved` or `rejected`, and the decision is the state; `deviceId`
+ * is the device that answered. `rememberedScope` is present only where the resolution minted a
  * rule, and its sense agrees with the decision.
  */
 export interface ApprovalProjectionRow {
@@ -309,6 +312,7 @@ export interface ApprovalProjectionRow {
   updatedAt: string;
   resolvedAt?: string | undefined;
   decision?: ApprovalDecision | undefined;
+  deviceId?: DeviceId | undefined;
   effectiveScope?: string | undefined;
   rememberedScope?: RememberedScope | undefined;
 }
@@ -329,13 +333,14 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     updatedAt: z.iso.datetime({ offset: true }),
     resolvedAt: z.iso.datetime({ offset: true }).optional(),
     decision: ApprovalDecisionSchema.optional(),
+    deviceId: DeviceIdSchema.optional(),
     effectiveScope: approvalScopeSchema("ApprovalProjectionRow.effectiveScope").optional(),
     rememberedScope: RememberedScopeSchema.optional(),
   })
   .strict()
   .superRefine((row, context) => {
     const resolved = row.state === "approved" || row.state === "rejected";
-    for (const member of ["resolvedAt", "decision", "effectiveScope"] as const) {
+    for (const member of ["resolvedAt", "decision", "deviceId", "effectiveScope"] as const) {
       if (resolved !== (row[member] !== undefined)) {
         context.addIssue({
           code: "custom",
@@ -504,7 +509,10 @@ export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload>
   })
   .strict();
 
-/** `approval.approved` and `approval.rejected`: the answer and the answering client's id. */
+/**
+ * `approval.approved` and `approval.rejected`: the answer, the device it came from, and the id the
+ * answering client minted.
+ */
 export type ApprovalResolvedPayload = {
   sessionId: SessionId;
   runId: RunId;
@@ -512,6 +520,7 @@ export type ApprovalResolvedPayload = {
   category: ApprovalCategory;
   scope: string;
   effectiveScope: string;
+  deviceId: DeviceId;
   clientResolutionId: string;
 };
 /** Parses an {@link ApprovalResolvedPayload}. */
@@ -523,6 +532,7 @@ export const ApprovalResolvedPayloadSchema: z.ZodType<ApprovalResolvedPayload> =
     category: ApprovalCategorySchema,
     scope: approvalScopeSchema("ApprovalResolvedPayload.scope"),
     effectiveScope: approvalScopeSchema("ApprovalResolvedPayload.effectiveScope"),
+    deviceId: DeviceIdSchema,
     clientResolutionId: z.uuid(),
   })
   .strict();

@@ -384,6 +384,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     actorId: USER_YOU,
     members: {
       effectiveScope: APPROVAL_SCOPE,
+      deviceId: "019b79ee-0280-7d02-8110-d1a4c1150041",
       clientResolutionId: "019b79ee-0280-7c01-8110-d1a4c1150031",
     },
   }),
