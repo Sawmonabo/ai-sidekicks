@@ -1,13 +1,12 @@
 // The paged timeline reads (`timeline.read`, the reasoning surface, the child-run expansion) and
-// the frame budget they share. Every paged reply leaves the daemon inside one framed JSON-RPC
-// body, and a body over `MAX_MESSAGE_BYTES` closes the connection rather than failing the
-// request, so a row-count limit alone is not a bound: one contract-valid row can run to tens of KB.
-// Each paged member is therefore measured against the frame it will occupy. The reasoning read
+// the page budget they share. A row-count limit alone is not a bound, since one contract-valid row
+// can run to tens of KB, so each paged member is measured in bytes against the page budget, which
+// sits well inside the transport's message limit. The reasoning read
 // takes no principal member: the caller is the authenticated connection, a body field naming a
 // user would be a second source of identity, and `.strict()` refuses a request that sends one.
 import { z } from "zod";
 
-import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
+import { jsonUtf8ByteLength } from "../jsonrpc.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunStateSchema, type RunState } from "../run-state.js";
 import {
@@ -20,26 +19,16 @@ import {
 
 import { TimelineRowSchema, type TimelineRow } from "./row.js";
 
-// Frame budget shared by all three paged replies
-
-/**
- * Bytes held back from {@link MAX_MESSAGE_BYTES} for everything in the frame body that is not
- * the paged member: the 33-byte JSON-RPC envelope, the echoed request id (up to
- * `JSON_RPC_ID_MAX_BYTES`, which the gateway enforces by refusing a longer id), and the widest
- * non-paged members (`ChildRunExpandResponse` on its continuing arm, about 1.7 KB, mostly a
- * cursor of `EVENT_CURSOR_MAX_LEN` characters that may each escape to six bytes). The worst
- * case is about 2 KB; 8192 leaves fourfold headroom, since over-reserving only breaks a page
- * slightly early and under-reserving closes the connection.
- */
-export const TIMELINE_PAGE_FRAME_RESERVE_BYTES = 8192;
+// Page budget shared by all three paged replies
 
 /**
  * The byte ceiling on one paged member (`entries` or `reasoningEntries`), measured as
- * {@link jsonUtf8ByteLength} of the array itself. One constant serves all three reads because
- * the bounded quantity, the frame the reply becomes, is the same.
+ * {@link jsonUtf8ByteLength} of the array itself. It is the page size, its own figure and not
+ * derived from the transport's message limit; the reply around a full page (its envelope, the
+ * echoed id and a continuation cursor, about 2 KB at worst) still fits a message with room to
+ * spare. One constant serves all three reads.
  */
-export const TIMELINE_PAGE_MAX_BYTES: number =
-  MAX_MESSAGE_BYTES - TIMELINE_PAGE_FRAME_RESERVE_BYTES;
+export const TIMELINE_PAGE_MAX_BYTES = 991_808;
 
 /**
  * How many leading entries of `candidates` fit one frame, capped at `maxCount`: the producer's
@@ -79,8 +68,8 @@ export function countEntriesFittingOneFrame(
 }
 
 /**
- * Refuse a paged member that cannot ride one frame. The issue path names the member, so a
- * client learns which array overflowed.
+ * Refuse a paged member over the page budget. The issue path names the member, so a client
+ * learns which array overflowed.
  */
 export function requirePageToRideOneFrame(
   pagedMember: readonly unknown[],
@@ -94,10 +83,8 @@ export function requirePageToRideOneFrame(
       path: [memberName],
       message:
         `${memberName} measures ${String(measuredBytes)} JSON bytes, over the ` +
-        `${String(TIMELINE_PAGE_MAX_BYTES)}-byte page budget: the reply would exceed the ` +
-        "single-frame limit, which closes the connection rather than failing the request — " +
-        "the producer must page instead, stopping at whichever of the row limit and the byte " +
-        "budget trips first",
+        `${String(TIMELINE_PAGE_MAX_BYTES)}-byte page budget: the producer must page instead, ` +
+        "stopping at whichever of the row limit and the byte budget trips first",
     });
   }
 }

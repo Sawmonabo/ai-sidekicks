@@ -23,7 +23,6 @@ import {
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadResponseSchema,
-  TIMELINE_PAGE_FRAME_RESERVE_BYTES,
   TIMELINE_PAGE_MAX_BYTES,
   TIMELINE_READ_LIMIT_MAX,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
@@ -788,7 +787,7 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   it("the row-count ceiling alone does not bound the frame, and the byte budget does", () => {
     // Every field below is at its own contract bound, so this page is contract-valid on every
     // axis but its byte size.
-    expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(TIMELINE_PAGE_MAX_BYTES);
     expect(
       TimelineReadResponseSchema.safeParse({ entries: worstCasePage, hasMore: false }).success,
     ).toBe(false);
@@ -814,7 +813,7 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
       }).success,
     ).toBe(false);
 
-    // …and the frame that page becomes fits, which is the claim the reserve exists to make true:
+    // …and the frame that page becomes fits:
     // the whole JSON-RPC response envelope, carrying a maximal continuation cursor and a maximal
     // echoed id, stays under the framer's cap.
     const maximalCursor = worstCaseUnit.repeat(EVENT_CURSOR_MAX_LEN);
@@ -847,7 +846,7 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
         timestamp: TIMESTAMP,
       }),
     );
-    expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(TIMELINE_PAGE_MAX_BYTES);
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
@@ -868,8 +867,7 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
     ).toBe(true);
   });
 
-  it("the budget is the frame cap less a reserve, and the measure is exact", () => {
-    expect(TIMELINE_PAGE_MAX_BYTES).toBe(MAX_MESSAGE_BYTES - TIMELINE_PAGE_FRAME_RESERVE_BYTES);
+  it("the measure is exact", () => {
     // UTF-8 bytes of the JSON encoding, not JS string units — the distinction
     // the whole derivation rests on. Each figure includes the two quotes.
     expect(jsonUtf8ByteLength("a")).toBe(3);

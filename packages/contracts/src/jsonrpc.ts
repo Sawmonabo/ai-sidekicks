@@ -8,13 +8,14 @@ export const JSONRPC_VERSION = "2.0" as const;
 export type JsonRpcVersion = typeof JSONRPC_VERSION;
 
 /**
- * The largest body of one framed JSON-RPC message, in bytes (decimal: 1,000,000). The bound is on
- * the body the `Content-Length` header declares. An oversized body closes the connection, so a
- * producer that pages a reply sizes each page against this. The gateway enforces it; it is declared
- * here so a response schema does not keep a private copy that drifts. Changing it changes the wire
- * contract.
+ * The largest body of one framed JSON-RPC message, in bytes (4 MiB): the largest request the
+ * connection carries, a message at Codex's own length limit, plus its envelope. The bound is on the
+ * body the `Content-Length` header declares, and an oversized body closes the connection. It is the
+ * transport's limit only: no screen shows it, and a paged reply sizes itself against its own page
+ * budget. The gateway enforces it; it is declared here so the framer and its tests share one
+ * value. Changing it changes the wire contract.
  */
-export const MAX_MESSAGE_BYTES = 1_000_000;
+export const MAX_MESSAGE_BYTES: number = 4 * 1024 * 1024;
 
 /**
  * The UTF-8 byte length of `value` serialized as JSON, the quantity {@link MAX_MESSAGE_BYTES}
@@ -50,8 +51,7 @@ export function jsonUtf8ByteLength(value: unknown): number {
 /**
  * The largest JSON-RPC `id`, in bytes once JSON-encoded. The `id` is echoed in the reply, so an
  * unbounded id could push the reply past {@link MAX_MESSAGE_BYTES} and close the connection instead
- * of answering. The gateway refuses an over-bound id before dispatch, and page budgets subtract
- * this bound. The SDK mints integer ids and a UUID id encodes to 38 bytes. Changing it changes the
+ * of answering. The gateway refuses an over-bound id before dispatch. The SDK mints integer ids and a UUID id encodes to 38 bytes. Changing it changes the
  * wire contract.
  */
 export const JSON_RPC_ID_MAX_BYTES = 256;
