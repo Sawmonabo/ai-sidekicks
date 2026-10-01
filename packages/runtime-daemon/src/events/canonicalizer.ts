@@ -162,7 +162,10 @@ function assertNoToJsonOverride(value: unknown): void {
 const LONE_SURROGATE_PATTERN =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
-/** Refuses an unpaired surrogate without quoting the text, which may be PII headed for logs. */
+/**
+ * Refuses an unpaired surrogate without quoting the text, which may be PII headed for logs. The
+ * library refuses one too, but its message names neither the position nor the code unit.
+ */
 function assertNoLoneSurrogate(text: string, positionDescription: string): void {
   const match = LONE_SURROGATE_PATTERN.exec(text);
   if (match === null) return;
