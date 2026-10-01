@@ -37,14 +37,6 @@ export interface DaemonMemoryReading {
   readAt: string;
 }
 
-/** What scans an incoming file on this machine: the antivirus through AMSI, or nothing. */
-export type DaemonFileScanning = "amsi" | "none";
-/** Every {@link DaemonFileScanning}. */
-export const DAEMON_FILE_SCANNING_KINDS: readonly DaemonFileScanning[] = Object.freeze([
-  "amsi",
-  "none",
-]);
-
 /** One linked device as the relay last saw it, counted since the service started. */
 export interface DaemonRelayDevice {
   name: string;
@@ -86,7 +78,6 @@ export interface DaemonStatusReadResponse {
   dataDirectory: string;
   processor: DaemonProcessorReading;
   memory: DaemonMemoryReading;
-  fileScanning: DaemonFileScanning;
   relay?: DaemonRelayStatus | undefined;
 }
 
@@ -104,7 +95,6 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
     memory: z
       .object({ residentBytes: z.number().int().nonnegative(), readAt: TimestampSchema })
       .strict(),
-    fileScanning: z.enum(DAEMON_FILE_SCANNING_KINDS),
     relay: z
       .object({
         devices: z.array(
