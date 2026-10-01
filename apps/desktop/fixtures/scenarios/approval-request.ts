@@ -136,15 +136,14 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
         actorId: USER_YOU,
-        // A resolution carries the approver, the scope that took effect (never broader than
-        // requested) and the id the answering client minted.
+        // A resolution carries the scope that took effect (never broader than requested) and the
+        // id the answering client minted.
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
           approvalRequestId: APPROVAL_RESOLVED,
           category: "tool_execution",
           scope: "run",
-          approver: USER_YOU,
           effectiveScope: "run",
           clientResolutionId: "019b7a33-3300-7c01-8110-d1a4c1150531",
         },

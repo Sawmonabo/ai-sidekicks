@@ -9,7 +9,6 @@ import { SESSION_ID, approvalEvent } from "./approval-flow-projection.test-suppo
 const RUN_ID = "019b7a33-3300-740e-8110-d1a4c1150511";
 const APPROVAL_ID = "019b7a33-3300-7f01-8110-d1a4c1150591";
 const AGENT_ID = "019b7a33-3300-7a6e-8110-d1a4c1150501";
-const USER_ID = "019b7a33-3300-7b01-8110-d1a4c1150561";
 const NODE_ID = "019b7a33-3300-7d01-8110-d1a4c1150571";
 const RULE_ID = "019b7a33-3300-7e01-8110-d1a4c1150581";
 const CLIENT_RESOLUTION_ID = "019b7a33-3300-7c01-8110-d1a4c1150531";
@@ -72,7 +71,6 @@ describe("one event, folded", () => {
   it("marks an answer with its state and the answering client's id", () => {
     const [mutation] = fold("approval.approved", {
       ...ASK,
-      approver: USER_ID,
       effectiveScope: "session",
       clientResolutionId: CLIENT_RESOLUTION_ID,
     });
@@ -87,25 +85,23 @@ describe("one event, folded", () => {
     // A state written here would erase the approval in the store's merge.
     const [mutation] = fold("approval.remembered", {
       ...ASK,
-      approver: USER_ID,
       nodeId: NODE_ID,
       ruleId: RULE_ID,
       rememberedScope: { kind: "project", pattern: "git push", sense: "allow" },
-      madeAtLevel: "ask",
     });
 
     expect(mutation?.operation === "upsert" ? "state" in mutation.entity : true).toBe(false);
     expect(mutation?.operation === "upsert" ? mutation.entity.body : undefined).toMatchObject({
       rememberedScope: { kind: "project", pattern: "git push", sense: "allow" },
-      madeAtLevel: "ask",
     });
   });
 
   it("folds nothing for a payload its kind's schema refuses", () => {
-    // `approver` belongs to an answer, so a request carrying it is not one the contract registers.
-    expect(fold("approval.requested", { ...REQUESTED_PAYLOAD, approver: USER_ID })).toStrictEqual(
-      [],
-    );
+    // `effectiveScope` belongs to an answer, so a request carrying it is not one the contract
+    // registers.
+    expect(
+      fold("approval.requested", { ...REQUESTED_PAYLOAD, effectiveScope: "session" }),
+    ).toStrictEqual([]);
     expect(fold("approval.requested", { ...REQUESTED_PAYLOAD, askId: 7 })).toStrictEqual([]);
   });
 

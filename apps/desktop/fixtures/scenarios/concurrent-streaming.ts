@@ -143,7 +143,7 @@ const APPROVAL_SCOPE = "run";
 const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
 
 // One approval row. The caller supplies the members that differ: `requestedBy` and
-// `resourceDescriptor` on a request, `approver` and `effectiveScope` on a resolution.
+// `resourceDescriptor` on a request, `effectiveScope` on a resolution.
 function approvalEntry(input: {
   readonly atMs: number;
   readonly kind: string;
@@ -388,7 +388,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     kind: "approval.approved",
     actorId: USER_YOU,
     members: {
-      approver: USER_YOU,
       effectiveScope: APPROVAL_SCOPE,
       clientResolutionId: "019b79ee-0280-7c01-8110-d1a4c1150031",
     },

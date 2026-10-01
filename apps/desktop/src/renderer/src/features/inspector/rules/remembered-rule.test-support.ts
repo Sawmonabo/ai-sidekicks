@@ -14,7 +14,6 @@ export function rule(overrides: Readonly<Record<string, unknown>> = {}): Remembe
     ruleId: FIRST_RULE_ID,
     category: "tool_execution",
     scope: { kind: "session", pattern: "pnpm test", sense: "allow" },
-    madeAtLevel: "ask",
     grantedAt: "2026-01-01T10:00:00.000Z",
     ...overrides,
   });

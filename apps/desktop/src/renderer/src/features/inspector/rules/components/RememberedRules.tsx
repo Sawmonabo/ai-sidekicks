@@ -4,8 +4,8 @@
 // by entering the confirmation (`../hooks/useRevokeRuleCommands.ts`), and `offersRevoke` is
 // read by both, so the row and the button are offered on one reading.
 //
-// No per-row "remembered today" marker: the daemon's auto-approval runs before any request
-// exists, so no event carries the match.
+// No per-row "remembered today" marker: the provider applies its rule before any ask reaches
+// the daemon, so no event carries the match.
 //
 // An unreadable count is read before the empty arm: rows this build could not read are of
 // unknown existence, so "No rules yet" may be said only for a fully readable, empty reply.

@@ -6,9 +6,10 @@
 // ask is held with no timer until it is answered or its run ends, so nothing here names an
 // expiry.
 //
-// A remembered rule is the daemon's, kept in its own store and evaluated before the permission
-// level's default. It is never written into a provider's own rule files, so its scope is this
-// session or this project and nothing narrower or wider.
+// A remembered rule is handed to the provider that runs the session, which keeps it: for this
+// session, or in the provider's own rule file for this project. The daemon keeps no rule store;
+// it lists the session's own answers and the project's rule files, and a rule holds at every
+// level that asks.
 //
 // This file imports nothing from `event.ts`: that module imports the payload schemas below, and
 // an import back would close an eager module cycle.
@@ -22,12 +23,9 @@ import { RunIdSchema, type RunId } from "./provider-driver.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
-  UserIdSchema,
   wireFreeFormString,
   type SessionId,
-  type UserId,
 } from "./session.js";
-import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 /**
  * An ask's target scope, free text such as a command or a path. Bounded by the longest wire
@@ -44,7 +42,9 @@ export type ApprovalRequestId = string & { readonly __brand: "ApprovalRequestId"
 export const ApprovalRequestIdSchema: z.ZodType<ApprovalRequestId, ApprovalRequestId> =
   brandedUuidIdSchema<ApprovalRequestId>("ApprovalRequestId");
 
-/** The daemon-minted id of one remembered rule. */
+/**
+ * The id of one remembered rule: `approval.ruleList` names it and `approval.ruleRevoke` takes it.
+ */
 export type RememberedRuleId = string & { readonly __brand: "RememberedRuleId" };
 /** Parses a {@link RememberedRuleId}. */
 export const RememberedRuleIdSchema: z.ZodType<RememberedRuleId, RememberedRuleId> =
@@ -102,21 +102,11 @@ export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = APPROVAL_DECISION
 export const ApprovalDecisionSchema: z.ZodType<ApprovalDecision, ApprovalDecision> =
   z.enum(APPROVAL_DECISION_VALUES);
 
-/**
- * The levels that raise an ask, and so the only levels a rule can be made at. A
- * rule never answers below the level it was made at.
- */
-const ASKING_LEVELS: readonly ExecutionPostureMode[] = ["readonly", "ask", "reviewed"];
-const RuleLevelSchema: z.ZodType<ExecutionPostureMode, ExecutionPostureMode> =
-  ExecutionPostureModeSchema.refine((level) => ASKING_LEVELS.includes(level), {
-    message: "a rule is made only at a level that asks: readonly, ask or reviewed",
-  });
-
 const REMEMBERED_SCOPE_KIND_VALUES = ["session", "project"] as const;
 
 /**
- * A remembered rule's reach: this session, or every session on this project.
- * Both live in the daemon's rule store.
+ * A remembered rule's reach: this session, kept by the provider for the session, or every
+ * session on this project, kept in the provider's own project rule file.
  */
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KIND_VALUES)[number];
 /** Every {@link RememberedScopeKind}. */
@@ -139,13 +129,12 @@ const INVALIDATION_TRIGGER_VALUES = [
   "explicit",
   "session_end",
   "project_detached",
-  "server_trust_withdrawn",
+  "server_removed",
 ] as const;
 
 /**
  * Why a rule ended: the person revoked it, its session ended, its project was
- * detached, or its tool server's trust was withdrawn or the server removed. No
- * rule outlives what scoped it.
+ * detached, or its tool server was removed. No rule outlives what scoped it.
  */
 export type InvalidationTrigger = (typeof INVALIDATION_TRIGGER_VALUES)[number];
 /** Every {@link InvalidationTrigger}. */
@@ -193,15 +182,11 @@ const SENSE_BY_DECISION: Readonly<Record<ApprovalDecision, RememberedRuleSense>>
  * `clientResolutionId` is minted by the answering client and echoed on the
  * resolution event, so the device whose answer settled the ask draws nothing and
  * every other device showing the card draws that it was answered elsewhere.
- *
- * `approver` is informational: absent, the daemon records its own owner; present,
- * it is checked against the caller and never trusted.
  */
 export interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
   decision: ApprovalDecision;
   clientResolutionId: string;
-  approver?: UserId | undefined;
   declineReason?: string | undefined;
   editedAction?: string | undefined;
   /** Never broader than what was asked; defaults to the ask's own scope. */
@@ -223,7 +208,6 @@ export const ApprovalResolveRequestSchema: z.ZodType<
     approvalRequestId: ApprovalRequestIdSchema,
     decision: ApprovalDecisionSchema,
     clientResolutionId: z.uuid(),
-    approver: UserIdSchema.optional(),
     declineReason: z.string().min(1).optional(),
     editedAction: z.string().min(1).optional(),
     effectiveScope: approvalScopeSchema("ApprovalResolveRequest.effectiveScope").optional(),
@@ -258,12 +242,11 @@ export const ApprovalResolveRequestSchema: z.ZodType<
     }
   });
 
-/** What an answer settled: the recorded approver, scope and time. */
+/** What an answer settled: the recorded scope and time. */
 export interface ApprovalResolveResponse {
   approvalRequestId: ApprovalRequestId;
   state: ApprovalState;
   effectiveScope: string;
-  approverId: UserId;
   resolvedAt: string;
 }
 /** Parses an {@link ApprovalResolveResponse}. */
@@ -272,7 +255,6 @@ export const ApprovalResolveResponseSchema: z.ZodType<ApprovalResolveResponse> =
     approvalRequestId: ApprovalRequestIdSchema,
     state: ApprovalStateSchema,
     effectiveScope: approvalScopeSchema("ApprovalResolveResponse.effectiveScope"),
-    approverId: UserIdSchema,
     resolvedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
@@ -307,7 +289,7 @@ export const ApprovalProjectionReadRequestSchema: z.ZodType<
  * provider marks the ask as one that must not carry a standing allow, and the card
  * then draws only `Decline` and `Approve once`.
  *
- * The resolved members (`resolvedAt`, `decision`, `approverId`, `effectiveScope`)
+ * The resolved members (`resolvedAt`, `decision`, `effectiveScope`)
  * are present exactly when the state is `approved` or `rejected`, and the decision
  * is the state. `rememberedScope` is present only where the resolution minted a
  * rule, and its sense agrees with the decision.
@@ -327,7 +309,6 @@ export interface ApprovalProjectionRow {
   updatedAt: string;
   resolvedAt?: string | undefined;
   decision?: ApprovalDecision | undefined;
-  approverId?: UserId | undefined;
   effectiveScope?: string | undefined;
   rememberedScope?: RememberedScope | undefined;
 }
@@ -348,14 +329,13 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     updatedAt: z.iso.datetime({ offset: true }),
     resolvedAt: z.iso.datetime({ offset: true }).optional(),
     decision: ApprovalDecisionSchema.optional(),
-    approverId: UserIdSchema.optional(),
     effectiveScope: approvalScopeSchema("ApprovalProjectionRow.effectiveScope").optional(),
     rememberedScope: RememberedScopeSchema.optional(),
   })
   .strict()
   .superRefine((row, context) => {
     const resolved = row.state === "approved" || row.state === "rejected";
-    for (const member of ["resolvedAt", "decision", "approverId", "effectiveScope"] as const) {
+    for (const member of ["resolvedAt", "decision", "effectiveScope"] as const) {
       if (resolved !== (row[member] !== undefined)) {
         context.addIssue({
           code: "custom",
@@ -405,23 +385,21 @@ export const RememberedRuleListRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
 /**
- * One rule in force, as the inspector's row reads it: what it does, the derived
- * subject and the scope in words, and the level it was made at.
+ * One rule in force, as the inspector's row reads it: what it does, and the derived subject and
+ * the scope in words.
  */
 export interface RememberedRule {
   ruleId: RememberedRuleId;
   category: ApprovalCategory;
   scope: RememberedScope;
-  madeAtLevel: ExecutionPostureMode;
   grantedAt: string;
 }
-/** Parses a {@link RememberedRule}; a rule made at a level that never asks is refused. */
+/** Parses a {@link RememberedRule}. */
 export const RememberedRuleSchema: z.ZodType<RememberedRule> = z
   .object({
     ruleId: RememberedRuleIdSchema,
     category: ApprovalCategorySchema,
     scope: RememberedScopeSchema,
-    madeAtLevel: RuleLevelSchema,
     grantedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
@@ -435,7 +413,7 @@ export const RememberedRuleListResponseSchema: z.ZodType<RememberedRuleListRespo
   .object({ rules: z.array(RememberedRuleSchema) })
   .strict();
 
-/** Revokes one rule; a project rule's revocation reaches every session on the project. */
+/** Revokes one rule; a project rule's revoke removes it from the provider's project rule file. */
 export interface RememberedRuleRevokeRequest {
   ruleId: RememberedRuleId;
 }
@@ -491,9 +469,9 @@ export const ApprovalDenialOverrideResponseSchema: z.ZodType<ApprovalDenialOverr
   })
   .strict();
 
-// The `approval.*` event payloads: one per event type, and a remembered rule rebuilds from
-// them alone. Type aliases rather than interfaces, because an event payload narrows the
-// envelope's `Record<string, unknown>`, which an interface cannot satisfy.
+// The `approval.*` event payloads: one per event type, and the session's own remembered answers
+// rebuild from them alone. Type aliases rather than interfaces, because an event payload narrows
+// the envelope's `Record<string, unknown>`, which an interface cannot satisfy.
 
 /**
  * `approval.requested`. `askId` is present when the request is a provider's
@@ -526,14 +504,13 @@ export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload>
   })
   .strict();
 
-/** `approval.approved` and `approval.rejected`: who answered, and the answer's client id. */
+/** `approval.approved` and `approval.rejected`: the answer and the answering client's id. */
 export type ApprovalResolvedPayload = {
   sessionId: SessionId;
   runId: RunId;
   approvalRequestId: ApprovalRequestId;
   category: ApprovalCategory;
   scope: string;
-  approver: UserId;
   effectiveScope: string;
   clientResolutionId: string;
 };
@@ -545,7 +522,6 @@ export const ApprovalResolvedPayloadSchema: z.ZodType<ApprovalResolvedPayload> =
     approvalRequestId: ApprovalRequestIdSchema,
     category: ApprovalCategorySchema,
     scope: approvalScopeSchema("ApprovalResolvedPayload.scope"),
-    approver: UserIdSchema,
     effectiveScope: approvalScopeSchema("ApprovalResolvedPayload.effectiveScope"),
     clientResolutionId: z.uuid(),
   })
@@ -571,8 +547,8 @@ export const ApprovalCanceledPayloadSchema: z.ZodType<ApprovalCanceledPayload> =
   .strict();
 
 /**
- * `approval.remembered`: the whole rule, so it rebuilds from the log. `approver`
- * is the rule's grantor and `nodeId` the machine it is bound to.
+ * `approval.remembered`: the whole rule, so it rebuilds from the log. `nodeId` is the machine
+ * whose provider keeps it.
  */
 export type ApprovalRememberedPayload = {
   sessionId: SessionId;
@@ -580,13 +556,11 @@ export type ApprovalRememberedPayload = {
   approvalRequestId: ApprovalRequestId;
   category: ApprovalCategory;
   scope: string;
-  approver: UserId;
   nodeId: NodeId;
   ruleId: RememberedRuleId;
   rememberedScope: RememberedScope;
-  madeAtLevel: ExecutionPostureMode;
 };
-/** Parses an {@link ApprovalRememberedPayload}; a level that never asks is refused. */
+/** Parses an {@link ApprovalRememberedPayload}. */
 export const ApprovalRememberedPayloadSchema: z.ZodType<ApprovalRememberedPayload> = z
   .object({
     sessionId: SessionIdSchema,
@@ -594,17 +568,15 @@ export const ApprovalRememberedPayloadSchema: z.ZodType<ApprovalRememberedPayloa
     approvalRequestId: ApprovalRequestIdSchema,
     category: ApprovalCategorySchema,
     scope: approvalScopeSchema("ApprovalRememberedPayload.scope"),
-    approver: UserIdSchema,
     nodeId: NodeIdSchema,
     ruleId: RememberedRuleIdSchema,
     rememberedScope: RememberedScopeSchema,
-    madeAtLevel: RuleLevelSchema,
   })
   .strict();
 
 /**
  * `approval.rule_revoked`. The run and the ask are absent where no ask was in
- * flight, as when a project is detached or a server's trust is withdrawn.
+ * flight, as when a project is detached or a tool server is removed.
  */
 export type ApprovalRuleRevokedPayload = {
   sessionId: SessionId;

@@ -1,23 +1,18 @@
 // The approval answer and the card's rows: an answer's remembered rule, decline text and edited
 // action agree with its decision, a rule is remembered for a session or a project and never a
-// run, a row's resolved members, decision and rule agree with its state, a rule is made only at a
-// level that asks and records that level, and a revocation is only ever explicit, so an answer
-// never means something the person did not press.
+// run, a row's resolved members, decision and rule agree with its state, and a revocation is only
+// ever explicit, so an answer never means something the person did not press.
 import { describe, expect, it } from "vitest";
 
 import {
   ApprovalProjectionReadResponseSchema,
-  ApprovalRememberedPayloadSchema,
   ApprovalResolveRequestSchema,
-  RememberedRuleListResponseSchema,
   RememberedRuleRevokeResponseSchema,
 } from "../approval.js";
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_ID = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
 const REQUEST_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const RULE_ID = "1f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-const USER_ID = "2f2b4d5e-cccc-4ccc-8ccc-cccccccccccc";
 const RESOLUTION_ID = "3f2b4d5e-dddd-4ddd-8ddd-dddddddddddd";
 const AT = "2026-09-29T14:20:00.000Z";
 
@@ -102,7 +97,6 @@ const RESOLVED_ROW = {
   state: "approved",
   resolvedAt: AT,
   decision: "approved",
-  approverId: USER_ID,
   effectiveScope: "pnpm test",
   rememberedScope: ALLOW_THIS_SESSION,
 };
@@ -149,27 +143,6 @@ describe("ApprovalProjectionReadResponseSchema", () => {
   });
 });
 
-describe("RememberedRuleListResponseSchema", () => {
-  const RULE = {
-    ruleId: RULE_ID,
-    category: "network_access",
-    scope: { kind: "project", pattern: "api.example.com", sense: "block" },
-    madeAtLevel: "reviewed",
-    grantedAt: AT,
-  };
-
-  it("accepts a rule in force", () => {
-    expect(RememberedRuleListResponseSchema.safeParse({ rules: [RULE] }).success).toBe(true);
-  });
-
-  it("refuses a rule made at a level that never asks", () => {
-    expect(
-      RememberedRuleListResponseSchema.safeParse({ rules: [{ ...RULE, madeAtLevel: "yolo" }] })
-        .success,
-    ).toBe(false);
-  });
-});
-
 describe("RememberedRuleRevokeResponseSchema", () => {
   it("accepts an explicit revocation and refuses any other trigger", () => {
     const receipt = { ruleId: RULE_ID, revokedAt: AT, invalidationTrigger: "explicit" };
@@ -180,25 +153,5 @@ describe("RememberedRuleRevokeResponseSchema", () => {
         invalidationTrigger: "session_end",
       }).success,
     ).toBe(false);
-  });
-});
-
-describe("approval.remembered payload", () => {
-  it("refuses a remembered rule missing the level it was made at", () => {
-    const remembered = {
-      sessionId: SESSION_ID,
-      runId: RUN_ID,
-      approvalRequestId: REQUEST_ID,
-      category: "tool_execution",
-      scope: "pnpm test",
-      approver: USER_ID,
-      nodeId: "node-1",
-      ruleId: RULE_ID,
-      rememberedScope: ALLOW_THIS_SESSION,
-      madeAtLevel: "ask",
-    };
-    expect(ApprovalRememberedPayloadSchema.safeParse(remembered).success).toBe(true);
-    const { madeAtLevel: _madeAtLevel, ...withoutLevel } = remembered;
-    expect(ApprovalRememberedPayloadSchema.safeParse(withoutLevel).success).toBe(false);
   });
 });

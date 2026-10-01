@@ -410,7 +410,7 @@ export const ProviderProtectedPathListResponseSchema: z.ZodType<ProviderProtecte
 
 // Standing rules are read from the provider's own files on every read: Codex's `.rules` files under
 // each account home and each trusted project, and Claude Code's `permissions` in its user, project
-// and project-local settings files. The console's own remembered rules never appear here.
+// and project-local settings files. The approval card's project rules live in these same files.
 
 /** The daemon-minted id of one standing rule, derived from where the rule sits and what it says. */
 export type ProviderStandingRuleId = string & { readonly __brand: "ProviderStandingRuleId" };
