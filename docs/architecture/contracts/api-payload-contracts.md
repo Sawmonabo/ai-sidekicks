@@ -7840,7 +7840,7 @@ interface McpServerLegStatus {
 
 // Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
 // config, live status (McpServerStatus, §Plans 004, 005 And 006 seam), the binding row, the override
-// rows. A DISCRIMINATED PAIR on trustUnavailable (Spec-025 §Fallback Behavior): the normal arm serves
+// rows. A DISCRIMINATED PAIR on bindingStoreUnavailable (Spec-025 §Fallback Behavior): the normal arm serves
 // all four sources; the degraded arm (binding store unreachable) serves the provider-observed sources
 // only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (toolOverrides and
 // the Claude enabled overlay live in the unreachable store).
@@ -7854,12 +7854,12 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
 } & (
     | {
-        trustUnavailable?: never; // the normal (binding-store-available) arm
+        bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
         enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the binding row)
         toolOverrides: McpToolOverride[];
       }
     | {
-        trustUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-025 §Fallback Behavior)
+        bindingStoreUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-025 §Fallback Behavior)
         enabled?: boolean; // the provider-native enabled field only (Codex); ABSENT for Claude bindings — the daemon enabled overlay lives in the unreachable store, and a fabricated value would be a lie
       }
   );

@@ -208,7 +208,7 @@ A tool call that runs long moves to the background on both providers: after 120 
 - **Codex project file changed since it was read:** the edit is not renamed into place and the write refuses with `mcp.config_write_conflict`; the file is left as it was.
 - **Status source unavailable** (provider down, or the status probe refused on the running build): inventory serves `unknown` with an `observedAt` timestamp; the daemon does not fabricate `connected`/`failed`.
 - **Sign-in did not finish:** `mcp.server_oauth_completed` carries `outcome: 'failure'`, the server keeps reading `needs-auth`, and the next `mcp.oauthLogin` starts a new attempt — through the admitted provider's client where the daemon's own client was not admitted (§OAuth Orchestration).
-- **Binding store unavailable** (storage failure): governance reads degrade to the **degraded entry arm** — a discriminated `trustUnavailable: true` variant whose store-dependent fields (`toolOverrides`, the Claude enabled overlay) are structurally absent rather than fabricated, with provider-observed fields (config view, status, legs) intact; all mutations fail closed.
+- **Binding store unavailable** (storage failure): governance reads degrade to the **degraded entry arm** — a discriminated `bindingStoreUnavailable: true` variant whose store-dependent fields (`toolOverrides`, the Claude enabled overlay) are structurally absent rather than fabricated, with provider-observed fields (config view, status, legs) intact; all mutations fail closed.
 
 ## Interfaces And Contracts
 
@@ -281,7 +281,7 @@ A tool call that runs long moves to the background on both providers: after 120 
 - [ ] Removing a binding removes every approval rule over its tools from the provider's file that holds it, in the same transaction
 - [ ] An `idempotencyClass` the person assigns reaches the Spec-004 tool-metadata resolution output; absent assignment resolves to `manual_reconcile_only`; resolution is binding-keyed — with the same `serverName` bound in two scopes, each session's invocation resolves its own effective binding's override, never the other scope's
 - [ ] A Codex binding whose user config already carries native `enabled_tools` / `disabled_tools` / `tools.<t>.approval_mode` values survives an override set → clear round-trip with those native values restored from the baseline
-- [ ] With the binding store unavailable, `mcp.list` / `mcp.get` serve the degraded entry arm (`trustUnavailable: true`; store-dependent fields structurally absent, provider-observed fields intact) and every governance mutation fails closed
+- [ ] With the binding store unavailable, `mcp.list` / `mcp.get` serve the degraded entry arm (`bindingStoreUnavailable: true`; store-dependent fields structurally absent, provider-observed fields intact) and every governance mutation fails closed
 - [ ] No governance mutation appends a governance event; status transitions bind to the sentinel for node probes and to the real session for session-feed observations; `mcp.server_oauth_completed` is emitted exactly once per observed flow completion — an abandoned flow emits nothing and leaves only its expiring receipt; `mcp.reconnect` emits no governance event beyond the status transitions it induces
 - [ ] Event and error payloads contain no config values, tokens, env-var values, or unsanitized paths — raw `scopeRef` included: no event payload carries the path (schema-level test over every payload type and error code)
 - [ ] Every `mcp.*` error code is reachable in integration tests and absent from success paths
