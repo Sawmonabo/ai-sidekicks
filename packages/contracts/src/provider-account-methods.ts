@@ -213,19 +213,12 @@ export const ProviderAccountSetCurrentRequestSchema: z.ZodType<
   ProviderAccountSetCurrentRequest
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
 
-const PROVIDER_ACCOUNT_MOVE_APPLIES_AT_VALUES = ["immediately", "next_tool_call"] as const;
-
 /**
- * When a moved session reaches the new account: `immediately`, or at its next
- * tool call where the provider can only move it by resuming the conversation in
- * the new account and the session is in the middle of a turn.
+ * One running session the switch is moving. The move is in place and takes effect at the
+ * session's next provider request; it settles on that session's own timeline.
  */
-export type ProviderAccountMoveAppliesAt = (typeof PROVIDER_ACCOUNT_MOVE_APPLIES_AT_VALUES)[number];
-
-/** One running session the switch is moving; the move settles on that session's own timeline. */
 export interface ProviderAccountMovingSession {
   sessionId: SessionId;
-  appliesAt: ProviderAccountMoveAppliesAt;
 }
 
 /** The account now current and the sessions the switch is moving. */
@@ -249,14 +242,7 @@ export const ProviderAccountSetCurrentResponseSchema: z.ZodType<ProviderAccountS
   z
     .object({
       account: ProviderAccountSchema,
-      movingSessions: z.array(
-        z
-          .object({
-            sessionId: SessionIdSchema,
-            appliesAt: z.enum(PROVIDER_ACCOUNT_MOVE_APPLIES_AT_VALUES),
-          })
-          .strict(),
-      ),
+      movingSessions: z.array(z.object({ sessionId: SessionIdSchema }).strict()),
     })
     .strict()
     .superRefine((response, ctx) => {

@@ -54,9 +54,8 @@ const bindingTokenSchema = (label: string): z.ZodString =>
  * - `in_place`: carried on the running process: a per-turn setting, a run-bound
  *   setting the provider takes without a restart, or an account moved at the next
  *   request. Nothing was respawned or rebuilt.
- * - `resumed`: a fresh process of the same provider reopened its own conversation,
- *   in the same credential home or, on an account move's resume path, in the new
- *   account's home after the daemon copied the conversation file there.
+ * - `resumed`: a fresh process of the same provider reopened its own conversation
+ *   in the same credential home.
  * - `brief`: the new binding started from a hand-over brief, with the old transcript
  *   written beside it as a file the provider reads on demand.
  * - `replayed`: a same-provider reopen did not load, so the transcript was sent as
@@ -107,15 +106,10 @@ export type AgentBindingSwitchAccountState = (typeof AGENT_BINDING_SWITCH_ACCOUN
 
 /**
  * Where a pending switch applies, resolved by the daemon against the target driver
- * and never predicted by a client: the next turn, the end of the run in flight, or,
- * for an account move on the resume path only, the next tool call. A switch that
- * moves several members takes the widest of their boundaries.
+ * and never predicted by a client: the next turn or the end of the run in flight. A
+ * switch that moves several members takes the widest of their boundaries.
  */
-export const AGENT_BINDING_SWITCH_BOUNDARIES = [
-  "turn_boundary",
-  "run_boundary",
-  "next_tool_call",
-] as const;
+export const AGENT_BINDING_SWITCH_BOUNDARIES = ["turn_boundary", "run_boundary"] as const;
 /** One of {@link AGENT_BINDING_SWITCH_BOUNDARIES}. */
 export type AgentBindingSwitchBoundary = (typeof AGENT_BINDING_SWITCH_BOUNDARIES)[number];
 
@@ -133,9 +127,9 @@ export type AgentBindingSwitchStatus = (typeof AGENT_BINDING_SWITCH_STATUSES)[nu
 /**
  * The binding members a switch moves and the value each moves to; an omitted key is
  * a member this switch does not move. `agent.configUpdate` never sets the account,
- * which moves on the provider surface, and the account move sets only the account,
- * for a session it moves by the resume path. Nothing clears a member back to a
- * driver default, so there is no third state to encode.
+ * which moves on the provider surface, and the account move sets only the account.
+ * Nothing clears a member back to a driver default, so there is no third state to
+ * encode.
  */
 export interface AgentBindingSwitchTarget {
   driverName?: ProviderName | undefined;
@@ -334,9 +328,6 @@ export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDi
  * - `landedProviderAccountId` is the account the run actually landed on, kept apart
  *   from `to.providerAccountId` so an agent that follows the current account is
  *   never silently pinned to the account it happened to land on.
- * - `turnContinued` is true only on an account move's resume path, where the turn in
- *   flight was stopped at a tool call and told to continue; an in-place switch
- *   interrupts nothing.
  */
 export interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   sessionId: SessionId;
@@ -345,7 +336,6 @@ export interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOu
   from: AgentProviderBinding;
   to: AgentProviderBinding;
   landedProviderAccountId: ProviderAccountId;
-  turnContinued: boolean;
 }
 /** Parses an {@link AgentProviderBindingChangedPayload}. */
 export const AgentProviderBindingChangedPayloadSchema: z.ZodType<AgentProviderBindingChangedPayload> =
@@ -359,7 +349,6 @@ export const AgentProviderBindingChangedPayloadSchema: z.ZodType<AgentProviderBi
       from: AgentProviderBindingSchema,
       to: AgentProviderBindingSchema,
       landedProviderAccountId: ProviderAccountIdSchema,
-      turnContinued: z.boolean(),
     })
     .strict()
     .superRefine(refineDeclaredLosses);

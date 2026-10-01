@@ -71,10 +71,7 @@ describe("request/response pairs", () => {
     expect(
       ProviderAccountSetCurrentResponseSchema.safeParse({
         account: validAccount(),
-        movingSessions: [
-          { sessionId: SESSION_ID, appliesAt: "immediately" },
-          { sessionId: SESSION_ID_2, appliesAt: "next_tool_call" },
-        ],
+        movingSessions: [{ sessionId: SESSION_ID }, { sessionId: SESSION_ID_2 }],
       }).success,
     ).toBe(true);
     // The verb has no partial success: `isDefault: false` on a success reply would be a refusal

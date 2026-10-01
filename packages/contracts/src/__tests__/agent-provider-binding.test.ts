@@ -34,7 +34,6 @@ const CHANGED = {
   from: CLAUDE_BINDING,
   to: CODEX_BINDING,
   landedProviderAccountId: "codex-personal",
-  turnContinued: false,
   continuity: "brief",
   declaredLosses: ["conversation_history_summarized", "provider_private_reasoning"],
 } as const;
@@ -97,18 +96,6 @@ describe("the account state of a failed switch", () => {
 });
 
 describe("agent.configUpdate's answer", () => {
-  it("accepts a switch pended to the next tool call", () => {
-    const disposition = {
-      status: "pending",
-      switchId: "switch-3",
-      appliesAt: "next_tool_call",
-      interruptRequested: false,
-      pendingAxes: { providerAccountId: "claude-personal" },
-      replacedSwitchId: "switch-2",
-    };
-    expect(AgentBindingSwitchDispositionSchema.safeParse(disposition).success).toBe(true);
-  });
-
   it("refuses an applied switch whose conversation did not arrive whole", () => {
     const disposition = {
       status: "applied",
