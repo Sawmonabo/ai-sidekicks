@@ -265,6 +265,7 @@ Payload shape: `{sessionId, repoMountId?, workspaceId?, worktreeId?, state, acto
 
 | Type | Description |
 | --- | --- |
+| `repo.mount_health_changed` | The daemon's re-probe changed a mount's health, sent on the stream of every session on that mount; the session's lost-folder banner reads it. Per-type payload: `{repoMountId, health}`, `health` being the mount's `RepoMountHealth`. |
 | `workspace.preparing` | A workspace is being prepared. |
 | `workspace.ready` | A workspace has finished preparation and is ready for use. |
 | `workspace.stale` | A workspace has been marked stale due to drift or inactivity. |
@@ -540,7 +541,7 @@ The table covers session events only. The device and machine list events (§Devi
 | `interactive_request` (user message) | `user.message` (emission owned by the queue-submit surface) |
 | `interactive_request` (question) | `question.asked` |
 | `approval_flow` | `approval.requested` through `moderation.review_flagged` (incl. the reviewer's block and its override, and the `plan.*` types) |
-| `session_lifecycle` (repo/workspace/worktree) | `workspace.preparing` through `session.swept_to_repo_root` (incl. `session.branch_changed`) |
+| `session_lifecycle` (repo/workspace/worktree) | `repo.mount_health_changed` through `session.swept_to_repo_root` (incl. `session.branch_changed`) |
 | `artifact_publication` | `artifact.published` through `git.settled` |
 | `assistant_output` | `assistant.message`, `assistant.thinking_update` |
 | `tool_activity` | `tool.invoked` through `command.ended` (incl. the subagent-lifecycle rows) |
