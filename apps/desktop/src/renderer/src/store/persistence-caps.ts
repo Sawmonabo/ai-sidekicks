@@ -16,7 +16,7 @@ export const PERSISTENCE_RECORD_BYTE_CAP: number = 64 * 1024;
 
 /**
  * Fraction of the storage quota at which the gauge reports pressure. Reported, never acted on
- * silently: the operator is told rather than losing their layout behind their back.
+ * silently: the person is told rather than losing their layout behind their back.
  */
 export const PERSISTENCE_QUOTA_PRESSURE_RATIO = 0.8;
 

@@ -46,7 +46,7 @@ const CODEX_TOOL_NAMES = [
 /** The closed union of Codex tool identities. */
 export type CodexToolName = (typeof CODEX_TOOL_NAMES)[number];
 
-/** `description` is required: an operator reconciling a halted receipt reads it. */
+/** `description` is required: the person reconciling a halted receipt reads it. */
 interface CodexToolDeclaration {
   readonly idempotency_class?: IdempotencyClass;
   readonly description: string;

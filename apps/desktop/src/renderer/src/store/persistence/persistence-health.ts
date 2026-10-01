@@ -5,7 +5,7 @@
 // not keep or the store failing to keep something legitimate, which fires the
 // `persistence-value-class` tripwire, and what the diagnostics view shows. It is separate
 // because the two can be wrong independently: a full disk reported as a caller defect sends an
-// operator to audit the wrong half. Counts are cumulative for the window's lifetime, since a
+// person to audit the wrong half. Counts are cumulative for the window's lifetime, since a
 // count that could be cleared cannot answer "has this happened since the window opened".
 
 import { reportTripwire } from "@renderer/lib/tripwires.js";

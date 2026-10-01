@@ -155,7 +155,7 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
       expect(host).toBe(NODE_PTY_SENTINEL);
       expect(ctx.createNodePtyHost).toHaveBeenCalledTimes(1);
 
-      // The warning text is operator-facing and must stay exactly this format.
+      // The warning text is for the person and must stay exactly this format.
       expect(ctx.warn).toHaveBeenCalledTimes(1);
       expect(ctx.warn).toHaveBeenCalledWith(
         `AIS_PTY_BACKEND='${value}' unrecognized; falling back to platform default`,

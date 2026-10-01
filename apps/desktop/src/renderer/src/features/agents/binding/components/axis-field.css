@@ -52,7 +52,7 @@
   font-size: var(--meridian-text-sm);
 }
 
-/* An account row carries the operator's label and the opaque id, so the row is a column and
+/* An account row carries the person's label and the opaque id, so the row is a column and
    the label leads it. */
 .meridian-axis-field__option-label {
   display: block;

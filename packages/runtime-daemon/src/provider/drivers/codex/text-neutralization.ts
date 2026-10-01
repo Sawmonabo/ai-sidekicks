@@ -415,7 +415,7 @@ export class CodexTextNeutralization {
       reportedRunIds.add(runId);
       this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, ruling.decision);
     }
-    // Emitted even if every ruling duplicated: the counts are the operator's only sight of these
+    // Emitted even if every ruling duplicated: the counts are the person's only sight of these
     // writes.
     reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
       kind: "abandoned-frames-ruled",
@@ -450,7 +450,7 @@ export class CodexTextNeutralization {
         composeSupersededDeliveryRunFailure(frame.detailOrigin),
       );
     }
-    // Emitted even if no frame resolved to a run: the counts are the operator's only sight of the
+    // Emitted even if no frame resolved to a run: the counts are the person's only sight of the
     // writes.
     reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
       kind: "superseded-frames-failed",

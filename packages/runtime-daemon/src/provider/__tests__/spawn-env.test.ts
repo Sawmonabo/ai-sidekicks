@@ -234,7 +234,7 @@ describe("provider spawn environment — host name-matching semantics", () => {
       });
     } catch (error) {
       expect(error).toBeInstanceOf(ProviderSpawnEnvNameMatchMismatchError);
-      // Both values ride the error as members, so the operator knows which side to fix.
+      // Both values ride the error as members, so the person knows which side to fix.
       expect((error as ProviderSpawnEnvNameMatchMismatchError).hostEnvNameMatch).toBe(host);
       expect((error as ProviderSpawnEnvNameMatchMismatchError).policyEnvNameMatch).toBe(policy);
     }

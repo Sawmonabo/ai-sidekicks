@@ -595,7 +595,7 @@ describe("RuntimeBindingStore — spawn_config", () => {
       // A plain internal-invariant Error, not the provider-output type: this is daemon-written
       // local state, so a malformation is corrupt storage.
       expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
-      // The row is named, so the operator can find the corrupt record.
+      // The row is named, so the person can find the corrupt record.
       expect((thrown as Error).message).toContain(rawId);
       expect((thrown as Error).message).toContain("spawn_config");
     });

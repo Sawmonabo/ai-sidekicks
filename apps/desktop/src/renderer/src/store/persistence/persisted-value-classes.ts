@@ -269,7 +269,7 @@ export function measureRecordByteLength(
  * ordinary boolean value.
  *
  * It has its own refusal code, since the store counts refusals by code and a count naming
- * values for what were addresses would send an operator to audit the wrong half. Neither
+ * values for what were addresses would send the person to audit the wrong half. Neither
  * component is echoed, only its length and which half it is.
  */
 export function validatePersistedAddress(

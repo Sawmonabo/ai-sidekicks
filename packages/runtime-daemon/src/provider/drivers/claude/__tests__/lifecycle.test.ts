@@ -1383,7 +1383,7 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
     const harness = buildHarness();
     harness.transport.probeAuthFailure = new Error("claude binary not found");
 
-    // Fail-closed for admission yet distinguishable: sending an operator to re-authenticate a
+    // Fail-closed for admission yet distinguishable: sending the person to re-authenticate a
     // credential never in question misleads them.
     const result = await harness.lifecycle.probeAuth();
 
@@ -3676,7 +3676,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("DROPS an entry whose provider-published name the contract refuses, keeping every sibling", async () => {
-    // A skill name is read from an operator-writable file's front matter, so the handshake
+    // A skill name is read from a file the person can write's front matter, so the handshake
     // sets carry provider output verbatim. Each refusal shape is on a different set, so a guard
     // on only one set cannot pass.
     const harness = buildHarness();
@@ -4061,7 +4061,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     expect((refused as ClaudeSessionUnavailableError).fields.reason).toBe(
       "provider_account_ambiguous",
     );
-    // Both ids are named, so an operator can tell which resolver is wrong.
+    // Both ids are named, so the person can tell which resolver is wrong.
     expect((refused as ClaudeSessionUnavailableError).message).toContain("account-admitted");
     expect((refused as ClaudeSessionUnavailableError).message).toContain("account-stale");
     // A refused read disposes nothing.

@@ -352,7 +352,7 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSessionNotFoundData(thrown);
   } else if (thrown instanceof SecureDefaultsValidationError) {
-    // Boot-time config is the operator's request parameters, so a bad setting is invalid params.
+    // Boot-time config is the person's request parameters, so a bad setting is invalid params.
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSecureDefaultsValidationData(thrown);
   } else if (thrown instanceof DaemonDomainError) {

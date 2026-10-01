@@ -161,7 +161,7 @@ export interface ResumeSessionParams {
   // request; the two function legs are re-injected at every spawn, as functions are never stored.
   executionPosture?: ExecutionPosture | undefined;
   // A speed-less resume relaunches at the provider's default while `agents.output_speed` still
-  // records the operator's accepted mode. The state the relaunched process declares is observed as
+  // records the person's accepted mode. The state the relaunched process declares is observed as
   // binding-held state, not returned on `DriverResumeResult` (see `ProviderOutputSpeedState`).
   outputSpeed?: string | undefined;
   callbackTools?: SessionCallbackTool[] | undefined;
@@ -475,7 +475,7 @@ export interface ClearSessionGoalParams {
 /**
  * Return of the zero-turn `probeAuth` (not capability-gated), parsed from untrusted provider
  * output. `indeterminate` (probe surface unavailable or unparseable) counts as not authenticated
- * for admission (fail closed) yet stays distinguishable from `unauthenticated`, so operators can
+ * for admission (fail closed) yet stays distinguishable from `unauthenticated`, so the person can
  * tell probe health from credential state; a boolean would lose that. Run admission against a
  * driver not probing `authenticated` refuses as `driver.not_authenticated` before any turn is
  * spent. Mid-run credential expiry is a different surface: typed auth-failure signals map to the
@@ -484,9 +484,9 @@ export interface ClearSessionGoalParams {
 export interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
   // Knowingly PII-bearing: a provider-reported account or plan descriptor whose observed shape is
-  // a plan name plus a seat email. Transient operator-facing diagnostics only: never persist it or
+  // a plan name plus a seat email. Transient diagnostics for the person only: never persist it or
   // carry it on an event without a PII classification and the erasure that obliges. Admission
-  // reads `status` for the decision and this field only to tell an operator why, so dropping it
+  // reads `status` for the decision and this field only to tell the person why, so dropping it
   // loses diagnostics, never correctness.
   detail?: string | undefined;
 }

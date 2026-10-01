@@ -106,7 +106,7 @@ describe("DriverResumeResultSchema — the recovery condition is a closed vocabu
 describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition member", () => {
   it("keeps the two cause vocabularies mutually unassignable in BOTH directions", () => {
     // These lines break the build if either union grows into the other, which would route a
-    // self-clearing pause into the operator-remediation queue. A one-way check would pass if
+    // self-clearing pause into the queue that waits on the person. A one-way check would pass if
     // `RecoveryCondition` were widened to contain the cause.
     // @ts-expect-error — a usage-limit cause is not a recovery condition.
     const conditionFromCause: RecoveryCondition = "plan-allowance-exhausted";

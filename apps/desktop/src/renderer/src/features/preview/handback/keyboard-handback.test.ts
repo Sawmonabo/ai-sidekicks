@@ -1,5 +1,5 @@
 // A claim rule one modifier too broad takes `S` from a page's search box; one too narrow kills
-// the operator's whole chord set inside a pane. Neither shows until somebody is typing. The
+// the person's whole chord set inside a pane. Neither shows until somebody is typing. The
 // replay is asserted at both ends, the pane's own capture handler and the window the keybinding
 // table listens on, because a re-target that fixes one breaks the other.
 

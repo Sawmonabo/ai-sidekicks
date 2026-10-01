@@ -32,8 +32,8 @@ const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.freeze([
 export type CallerDeclaredFrameOrigin = Exclude<OutboundFrameOrigin, "driver_command">;
 
 /**
- * The origin a trip's operator-visible detail may carry. An off-union or absent origin becomes
- * `unknown`, so a rejected caller value is never echoed into a persisted string.
+ * The origin a trip's visible detail may carry. An off-union or absent origin becomes `unknown`,
+ * so a rejected caller value is never echoed into a persisted string.
  */
 export type TripwireDetailOrigin = "human_text" | "system_narration" | "unknown";
 

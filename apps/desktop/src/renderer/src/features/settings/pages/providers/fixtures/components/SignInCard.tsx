@@ -14,7 +14,7 @@ import type { SignInFlowState } from "../sign-in-flow.js";
  * account: the daemon runs the provider's own unmodified sign-in binary and reads nothing it
  * writes, so the card reports the flow's state, and whether the account ended up authenticated
  * is a registry question. The verification URI is rendered and never followed, since a URL a
- * page navigates to on its own is a flow the operator did not choose to start.
+ * page navigates to on its own is a flow the person did not choose to start.
  */
 export function SignInCard(props: {
   readonly flow: SignInFlowState;

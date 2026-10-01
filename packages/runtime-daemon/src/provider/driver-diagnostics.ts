@@ -1,6 +1,6 @@
 // The daemon diagnostic channel both event normalizers route to: the typed
 // `DriverDiagnosticRecord`, the emitter that lands each record on the daemon log and a counter,
-// and the bounded reorder buffer. These are operator diagnostics, never `session_events`
+// and the bounded reorder buffer. These are diagnostics for the person, never `session_events`
 // envelopes; a frame that reaches this channel is never silently dropped.
 
 import type { ProviderName } from "@ai-sidekicks/contracts";
@@ -77,7 +77,7 @@ export type DriverDiagnosticKind =
   // Concurrent subagents above the declared cap; observability only, never fails the run.
   | "subagent_concurrency_breach"
   // The tripwire swallowed a provider-bound text frame and the run-terminal consumer threw; the
-  // trip and the disposal stand, but the operator-visible terminal may not have landed.
+  // trip and the disposal stand, but the terminal the person sees may not have landed.
   | "text_neutralization_trip_report_failed"
   // The wait for the typed compaction frame ended without it (per-driver bound elapsed, or the
   // binding stopped being live); records which fired. Never emitted when compaction applied.
@@ -101,7 +101,7 @@ export type DriverDiagnosticKind =
   | "mcp_task_handle_write_failed";
 
 /**
- * One operator-visible daemon diagnostic; `details` is flat JSON-safe primitives. `rawWireType` is
+ * One daemon diagnostic the person sees; `details` is flat JSON-safe primitives. `rawWireType` is
  * null when no single frame caused it, else untrusted provider output: never interpolate it into
  * anything that executes.
  */

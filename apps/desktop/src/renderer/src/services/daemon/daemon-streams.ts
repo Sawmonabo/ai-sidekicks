@@ -15,7 +15,7 @@ import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "./session-e
  * The provider-account registry's live tail.
  *
  * Node-scoped and takes no parameters, so no filter can second-guess the registry's scope. It
- * carries a wire notification, not a session event: a node-local operator act on a node-local
+ * carries a wire notification, not a session event: a node-local act by the person on a node-local
  * registry belongs to no session's audit timeline.
  */
 export const PROVIDER_ACCOUNT_SUBSCRIBE_STREAM = "providerAccount.subscribe";

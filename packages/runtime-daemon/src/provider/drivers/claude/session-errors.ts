@@ -127,9 +127,9 @@ function readErrorStringProperty(error: Error, property: "message" | "name"): st
 }
 
 /**
- * Renders a thrown value as one operator-safe line; total, since every caller is a `catch` block.
- * It never serializes an arbitrary value (no `String(error)` fallback): `providerFailureDetail` is
- * persisted and could leak spawn configuration or credentials.
+ * Renders a thrown value as one line safe to show the person; total, since every caller is a
+ * `catch` block. It never serializes an arbitrary value (no `String(error)` fallback):
+ * `providerFailureDetail` is persisted and could leak spawn configuration or credentials.
  */
 export function describeFailure(error: unknown): string {
   if (error instanceof Error) {

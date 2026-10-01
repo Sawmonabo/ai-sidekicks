@@ -286,7 +286,7 @@ describe("CallbackToolHost — execution outcomes are the tool's, not the pipeli
     expect(harness.executedInvocations).toStrictEqual([]);
     expect(harness.activityRecords[0]?.disposition).toBe("denied-no-seam");
     expect(harness.diagnostics.recentRecordsOfKind("callback_tool_seam_absent")).toHaveLength(1);
-    // The cause travels so an operator can tell an absent seam from a failing one.
+    // The cause travels so the person can tell an absent seam from a failing one.
     expect(result.error).toContain("the policy store is unreachable");
   });
 });

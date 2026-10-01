@@ -39,7 +39,7 @@ export function composeProviderChildEnvironment(
 
 /**
  * Thrown when the configured provider command names no runnable executable, or one whose real
- * path cannot be read. Code `driver.unavailable`; `requestedCommand` is operator configuration.
+ * path cannot be read. Code `driver.unavailable`; `requestedCommand` is the person's configuration.
  */
 export class ProviderExecutableUnresolvableError extends Error {
   readonly code = "driver.unavailable" as const;

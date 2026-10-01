@@ -6,7 +6,7 @@
 //   1. `:root` carries the light values, so a document with no scheme signal still paints a
 //      complete palette (nothing is defined only inside a media query).
 //   2. `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-color-scheme="light"])`
-//      redefines the varying tokens, so the system preference wins when the operator chose none.
+//      redefines the varying tokens, so the system preference wins when the person chose none.
 //   3. `[data-color-scheme="light"]` and `[data-color-scheme="dark"]` are the explicit-choice
 //      layer, which beats the system in both directions. The attribute is stamped on the
 //      document element, so both selectors match `:root` and win on source order.
@@ -78,7 +78,7 @@ export function generateMeridianCss(): string {
 
   const systemDarkBlock = [
     "@media (prefers-color-scheme: dark) {",
-    "  /* System preference wins only where the operator has expressed none. */",
+    "  /* System preference wins only where the person has expressed none. */",
     '  :root:not([data-color-scheme="light"]) {',
     schemeColorBlock("dark", "  "),
     "  }",

@@ -1029,7 +1029,7 @@ describe("CodexDriver resumeSession", () => {
       recoveryCondition: "recovery-needed",
       recoverySpanClassification: "unclassifiable",
     });
-    // Both ids named, so an operator can see which thread answered.
+    // Both ids named, so the person can see which thread answered.
     const detail = (result as { providerFailureDetail: string }).providerFailureDetail;
     expect(detail).toContain(THREAD_ID);
     expect(detail).toContain(replacementThreadId);
@@ -1524,7 +1524,7 @@ describe("CodexDriver session ownership", () => {
       (diagnostic) => diagnostic.kind === "superseded-frames-failed",
     );
     expect(reported).toHaveLength(1);
-    // The frame count is the operator's only sight of the writes the superseded binding was
+    // The frame count is the person's only sight of the writes the superseded binding was
     // carrying, so it is not collapsed to the report count.
     expect(reported[0]).toMatchObject({ abandonedFrameCount: 2, reportedRunCount: 1 });
   });
@@ -1626,8 +1626,8 @@ describe("CodexLifecycleManager probeAuth", () => {
 
     const result = await harness.manager.probeAuth();
 
-    // Probe health and credential state are different facts with different operator actions;
-    // `unauthenticated` here would send an operator to re-authenticate a credential never in
+    // Probe health and credential state are different facts with different actions for the person;
+    // `unauthenticated` here would send the person to re-authenticate a credential never in
     // question.
     expect(result.status).toBe("indeterminate");
   });
@@ -1842,7 +1842,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     expect(refused).toBeInstanceOf(CodexDriverConfigError);
     // The field is the create request's own parameter path. The shared helper takes it as an
     // argument, so without this a caller passing the resume label would name a parameter the
-    // operator never sent, and nothing would fail.
+    // person never sent, and nothing would fail.
     expect((refused as CodexDriverConfigError).field).toBe(
       "CreateSessionParams.executionPosture.credentialPolicyRef",
     );
@@ -2112,10 +2112,10 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
       );
 
     expect(refused).toBeInstanceOf(CodexDriverConfigError);
-    // The field names the TYPED member's own parameter path, so an operator is
+    // The field names the TYPED member's own parameter path, so the person is
     // pointed at the authoritative channel rather than at the config bag.
     expect((refused as CodexDriverConfigError).field).toBe("CreateSessionParams.providerAccountId");
-    // Both account ids are named, so the operator can tell which resolver is wrong.
+    // Both account ids are named, so the person can tell which resolver is wrong.
     expect((refused as CodexDriverConfigError).message).toContain(ADMITTED_ACCOUNT_ID);
     expect((refused as CodexDriverConfigError).message).toContain(NODE_DEFAULT_ACCOUNT_ID);
     // Nothing was spawned: the composition runs before the connection object exists, so no child
@@ -2181,7 +2181,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
 
     // The refusal arrives as a typed result, not a rejection.
     expect(result.status).toBe("failed");
-    // Both accounts are named so an operator can see which side is wrong.
+    // Both accounts are named so the person can see which side is wrong.
     const detail = result.status === "failed" ? result.providerFailureDetail : "";
     expect(detail).toContain(ADMITTED_ACCOUNT_ID);
     expect(detail).toContain(NODE_DEFAULT_ACCOUNT_ID);
@@ -2461,8 +2461,8 @@ describe("CodexDriver resume-failure taxonomy", () => {
   it("reports reauth-required when the refusing provider resolves no auth method", async () => {
     const harness = refusingHarness({ result: { authMethod: null, requiresOpenaiAuth: true } });
 
-    // The two conditions call for different operator actions; an expired credential must not be
-    // reported as "reconcile this by hand".
+    // The two conditions call for different actions by the person; an expired credential must not
+    // be reported as "reconcile this by hand".
     await expect(resume(harness)).resolves.toMatchObject({
       status: "failed",
       recoveryCondition: "reauth-required",
@@ -3843,7 +3843,7 @@ describe("Codex driver config read-shapes", () => {
   });
 
   it("never serializes an arbitrary rejection value into the persisted detail", () => {
-    // `providerFailureDetail` reaches a durable, operator-visible row, and `String()` runs
+    // `providerFailureDetail` reaches a durable row the person sees, and `String()` runs
     // whatever `toString` the value carries, which is how spawn configuration, credentials
     // included, could get there. The constant is the designed output.
     const hostile = {
@@ -5433,7 +5433,7 @@ interface CallbackToolRoundTripHarness {
   readonly executedInvocations: CallbackToolInvocation[];
   readonly evaluatedToolNames: string[];
   readonly hostDiagnostics: DriverDiagnosticRecord[];
-  /** The manager's counted records, which operator counters read. */
+  /** The manager's counted records, which the diagnostic counters read. */
   readonly driverDiagnosticRecords: DriverDiagnosticRecord[];
   /** Transport-local diagnostics, captured beside the counted records. */
   readonly transportDiagnostics: CodexTransportDiagnostic[];
@@ -5562,7 +5562,7 @@ describe("CodexDriver callback-tool round trip", () => {
     // guessed run.
     expect(roundTrip.hostDiagnostics).toStrictEqual([]);
     expect(roundTrip.executedInvocations).toStrictEqual([]);
-    // Both sinks: the counted kind is what operator counters name.
+    // Both sinks: the counted kind is what the diagnostic counters name.
     expect(roundTrip.driverDiagnosticRecords.map((record) => record.kind)).toStrictEqual([
       "callback_tool_invocation_refused",
     ]);

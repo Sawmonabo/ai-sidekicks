@@ -18,7 +18,7 @@
 // intervals are held to each other, and a sweep that fails either test is re-measured once
 // before it fails the run.
 //
-// The reason a sweep is inadmissible is operator-facing text, because the failures are different
+// The reason a sweep is inadmissible is text for the person, because the failures are different
 // findings: a slope that is a small fraction of the first instance is a fixed cost reported as
 // an instance, and a figure inside the instrument's noise measured nothing. Renderer fallback is
 // not a candidate either sentence names, since `openPaneAndAwaitWebglReadiness` fails the run

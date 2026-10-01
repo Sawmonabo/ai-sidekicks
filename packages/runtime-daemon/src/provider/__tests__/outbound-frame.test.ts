@@ -156,7 +156,7 @@ describe("outbound text frame writer", () => {
       expect(frame.wireText).toBe("\n/status");
       expect(frame.tripwireExempt).toBe(false);
       expect(frame.origin).toBeNull();
-      // A rejected value is never echoed into a persisted, operator-visible string.
+      // A rejected value is never echoed into a persisted string the person sees.
       expect(frame.detailOrigin).toBe("unknown");
     }
   });
@@ -233,7 +233,7 @@ describe("Codex turn-evidence classifier", () => {
 
   it("passes a typed declared failure so an unrelated outage is not misreported", () => {
     // The measured quota-exhausted turn has no model output but is not a neutralization failure;
-    // reporting it as one would put the wrong cause in a shared operator-visible field.
+    // reporting it as one would put the wrong cause in a shared field the person sees.
     expect(classifyCodexTurnEvidence(codexQuotaExhaustedTurn("turn-1")).observations).toStrictEqual(
       ["declared_turn_failure"],
     );

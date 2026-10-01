@@ -57,7 +57,7 @@ export class ClaudeSpawnLegComposer {
         kind: "subagent_definition_disabled",
         rawWireType: null,
         dispositionReason: withheldDefinition.reason,
-        // Untrusted caller text, carried as data so an operator can see which definition was
+        // Untrusted caller text, carried as data so the person can see which definition was
         // withheld.
         details: { sessionId: params.sessionId, definitionName: withheldDefinition.name },
       });

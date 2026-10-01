@@ -142,7 +142,7 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
   /**
    * Receives the run terminal a text-neutralization trip produces. Required: a trip raises no
-   * JSON-RPC error, so without it a neutralized turn ends with no terminal an operator can read.
+   * JSON-RPC error, so without it a neutralized turn ends with no terminal the person can read.
    */
   readonly onTextNeutralizationFailure: (
     sessionId: SessionId,

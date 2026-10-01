@@ -2,7 +2,7 @@
 //
 // Every Electron tier (smoke probe, GC probe, end-to-end, endurance) launches the real main
 // process with a real window. On macOS `BrowserWindow.show()` activates the application: the
-// Dock icon appears, focus moves, and an operator on a full-screen Space is switched away. The
+// Dock icon appears, focus moves, and the person on a full-screen Space is switched away. The
 // tiers therefore ask for unobtrusive windows through one environment variable, and a test
 // build honors it in three places:
 //
@@ -20,7 +20,7 @@
 // The platform split in (2) is measured: Electron's `disable_hidden` patch, which throttling-off
 // switches on, keeps animation frames running for an occluded, minimized and hidden window on
 // macOS, but on Windows only for the first two; a hidden window there stops painting
-// (electron/electron#31016). Linux runs under Xvfb, where there is no operator to disturb, and
+// (electron/electron#31016). Linux runs under Xvfb, where there is no person to disturb, and
 // takes the inactive reveal.
 //
 // All three sit behind the compile-time build flag, so a release bundle carries neither the

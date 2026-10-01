@@ -62,7 +62,7 @@ import { normalizeWorkspaceLastError } from "./workspace-last-error.js";
 /**
  * The session-existence predicate a bind checks first (`SessionService.replay` satisfies it; `null`
  * means no such session). A `replay` that throws (a corrupt event chain) propagates unchanged,
- * since a 404 would send an operator to recreate a session that exists.
+ * since a 404 would send the person to recreate a session that exists.
  */
 export interface SessionExistenceReader {
   replay(sessionId: string): unknown;
@@ -352,7 +352,7 @@ export class WorkspaceService {
   /**
    * List a session's workspaces through the health projection (`repo.workspaceList`), persisting
    * any derived stale transition. A per-row failure fails the whole response: dropping the row
-   * would shorten the roster an operator uses to decide what to detach.
+   * would shorten the roster the person uses to decide what to detach.
    */
   async list(request: WorkspaceListRequest): Promise<WorkspaceListResponse> {
     // One binding from two statements that select the same columns and must project identically.
@@ -634,7 +634,7 @@ export class WorkspaceService {
       try {
         await this.markStale(row.id, options);
       } catch (error) {
-        // The health derived fine and the write failed: do not send the operator to a healthy row.
+        // The health derived fine and the write failed: do not send the person to a healthy row.
         throw wrapRowFailure(error, row.id, "stale_transition_durability_failure");
       }
     }

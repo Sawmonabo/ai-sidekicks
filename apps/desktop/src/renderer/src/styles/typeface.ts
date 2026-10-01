@@ -1,7 +1,7 @@
 // The console's faces, self-hosted: IBM Plex Sans for UI text and IBM Plex Mono for every
 // wire-true figure, as variable builds from the foundry's own packages. Without loaded faces the
 // console renders in whichever face the host carries, which would make the type scale, the
-// transcript's fixed gutter and every screenshot reference a property of the operator's machine.
+// transcript's fixed gutter and every screenshot reference a property of the person's machine.
 //
 // This is a module and not a stylesheet: a bare package specifier inside CSS `url()` is a bundler
 // convention no tool reads as a dependency, so the font packages would look unused. Declaring the
