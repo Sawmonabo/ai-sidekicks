@@ -67,7 +67,6 @@ export type SessionEventType =
   | "question.asked"
   // artifact_publication
   | "artifact.published"
-  | "artifact.visibility_updated"
   | "artifact.superseded"
   | "diff.created"
   | "git.settled"
@@ -174,8 +173,6 @@ export type SessionEventType =
   | "workflow.phase_suspended"
   | "workflow.phase_resumed"
   | "workflow.phase_completed"
-  | "workflow.human_phase_claimed"
-  | "workflow.human_phase_escalated"
   | "workflow.step_started"
   | "workflow.step_finished"
   | "workflow.step_failed"
@@ -341,7 +338,6 @@ export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
 /** The event types of the `artifact_publication` category. */
 export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
   "artifact.published",
-  "artifact.visibility_updated",
   "artifact.superseded",
   "diff.created",
   "git.settled",
@@ -485,8 +481,6 @@ export const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
   "workflow.phase_suspended",
   "workflow.phase_resumed",
   "workflow.phase_completed",
-  "workflow.human_phase_claimed",
-  "workflow.human_phase_escalated",
   "workflow.step_started",
   "workflow.step_finished",
   "workflow.step_failed",

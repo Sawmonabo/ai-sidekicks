@@ -39,8 +39,8 @@ export const RESOURCE_LABEL_MAX_LEN = 128;
 export const ERROR_MESSAGE_MAX_LEN = 8192;
 
 /**
- * The details of {@link ResourceLimitExceededError}: the name of the limit that tripped (such
- * as "users per session"), its configured ceiling and the count that triggered the rejection.
+ * The details of {@link ResourceLimitExceededError}: the name of the limit that tripped, its
+ * configured ceiling and the count that triggered the rejection.
  */
 export interface ResourceLimitExceededDetails {
   resource: string;

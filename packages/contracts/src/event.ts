@@ -166,7 +166,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "question.asked": "interactive_request",
   // artifact_publication
   "artifact.published": "artifact_publication",
-  "artifact.visibility_updated": "artifact_publication",
   "artifact.superseded": "artifact_publication",
   "diff.created": "artifact_publication",
   "git.settled": "artifact_publication",
@@ -273,8 +272,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "workflow.phase_suspended": "workflow_phase_lifecycle",
   "workflow.phase_resumed": "workflow_phase_lifecycle",
   "workflow.phase_completed": "workflow_phase_lifecycle",
-  "workflow.human_phase_claimed": "workflow_phase_lifecycle",
-  "workflow.human_phase_escalated": "workflow_phase_lifecycle",
   "workflow.step_started": "workflow_phase_lifecycle",
   "workflow.step_finished": "workflow_phase_lifecycle",
   "workflow.step_failed": "workflow_phase_lifecycle",
