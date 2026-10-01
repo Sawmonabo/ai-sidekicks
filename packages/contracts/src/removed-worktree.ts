@@ -7,10 +7,9 @@ import { z } from "zod";
 
 import { ProjectIdSchema, type ProjectId } from "./project.js";
 import { GitObjectIdSchema, type GitObjectId } from "./repo-git-reads.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { wireFreeFormString, wireUncappedFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 import {
   RemovedWorktreeIdSchema,
-  WORKTREE_GIT_REF_MAX_LEN,
   WorktreeIdSchema,
   type RemovedWorktreeId,
   type WorktreeId,
@@ -58,7 +57,7 @@ export const RemovedWorktreeListResponseSchema: z.ZodType<RemovedWorktreeListRes
           removedWorktreeId: RemovedWorktreeIdSchema,
           projectId: ProjectIdSchema,
           name: wireFreeFormString(FILE_PATH_MAX_LEN, "RemovedWorktree.name"),
-          branch: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "RemovedWorktree.branch"),
+          branch: wireUncappedFreeFormString("RemovedWorktree.branch"),
           headCommit: GitObjectIdSchema,
           removedAt: z.iso.datetime({ offset: true }),
           sizeBytes: z.number().int().nonnegative().nullable(),
@@ -95,7 +94,7 @@ export const WorktreeRestoreResponseSchema: z.ZodType<WorktreeRestoreResponse> =
   .object({
     worktreeId: WorktreeIdSchema,
     path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeRestoreResponse.path"),
-    branch: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "WorktreeRestoreResponse.branch"),
+    branch: wireUncappedFreeFormString("WorktreeRestoreResponse.branch"),
     onNewBranch: z.boolean(),
   })
   .strict();

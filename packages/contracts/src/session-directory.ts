@@ -46,6 +46,7 @@ import {
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
   wireFreeFormString,
+  wireUncappedFreeFormString,
   type EventCursor,
   type SessionId,
   type SessionShape,
@@ -54,7 +55,7 @@ import {
   type SessionSubscribeRequest,
   type SessionSubscribeResponse,
 } from "./session.js";
-import { WORKTREE_GIT_REF_MAX_LEN, WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
 /**
  * What a session is doing, as the daemon derives it: exactly one of five, and no surface
@@ -168,7 +169,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
       ...sessionListEntryCommonFields,
       shape: z.literal("project"),
       repoMountId: RepoMountIdSchema,
-      branch: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "SessionListEntry.branch").optional(),
+      branch: wireUncappedFreeFormString("SessionListEntry.branch").optional(),
     })
     .strict(),
   z

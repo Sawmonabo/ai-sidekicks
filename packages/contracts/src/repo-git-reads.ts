@@ -10,10 +10,11 @@ import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
 import {
   SessionIdSchema,
   wireFreeFormString,
+  wireUncappedFreeFormString,
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
-import { WORKTREE_GIT_REF_MAX_LEN, WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
 /**
  * A git object name as git prints it: 40 lowercase hex characters for SHA-1,
@@ -60,17 +61,11 @@ export interface RepoBranchListResponse {
 /** Wire schema for {@link RepoBranchListResponse}. */
 export const RepoBranchListResponseSchema: z.ZodType<RepoBranchListResponse> = z
   .object({
-    defaultBranch: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "RepoBranchListResponse.defaultBranch",
-    ),
+    defaultBranch: wireUncappedFreeFormString("RepoBranchListResponse.defaultBranch"),
     branches: z.array(
       z
         .object({
-          name: wireFreeFormString(
-            WORKTREE_GIT_REF_MAX_LEN,
-            "RepoBranchListResponse.branches[].name",
-          ),
+          name: wireUncappedFreeFormString("RepoBranchListResponse.branches[].name"),
           ahead: z.number().int().nonnegative().optional(),
           behind: z.number().int().nonnegative().optional(),
           heldBy: z

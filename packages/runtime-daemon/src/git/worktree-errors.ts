@@ -8,7 +8,7 @@
 // - Only `WorktreeNotFoundError` sets `jsonRpcCode` (`-32602`); the rest default to `-32603`.
 // - No filesystem path reaches a message and no class accepts a caller-supplied message: reasons
 //   are closed enums looked up in a table, so a git `stderr` capture has no way in, and the other
-//   carriers interpolate only opaque ids and git ref names (capped at `WORKTREE_GIT_REF_MAX_LEN`).
+//   carriers interpolate only opaque ids and git ref names.
 // - `workspace.busy` and `repo.not_found` stay with `WorkspaceBusyError` and
 //   `RepoMountNotFoundError`, so `instanceof` never depends on which module a throw site imported.
 

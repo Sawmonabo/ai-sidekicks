@@ -9,7 +9,6 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKTREE_GIT_REF_MAX_LEN } from "@ai-sidekicks/contracts";
 import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
@@ -403,29 +402,6 @@ describe("deriveWorktreeBranchName", () => {
 // ----------------------------------------------------------------------------
 
 describe("WorktreeService.create", () => {
-  it("refuses a suffix that would outgrow the ref cap instead of persisting it", async () => {
-    // A name at `WORKTREE_GIT_REF_MAX_LEN` collides and every suffixed candidate is longer than
-    // the cap. A persisted over-cap `branch_name` would fail response validation for the whole
-    // status projection, so the write refuses with `branch_name_unavailable`, the same answer
-    // as ordinal exhaustion.
-    const service = makeService();
-    const capLengthBranchName = `feature/${"x".repeat(WORKTREE_GIT_REF_MAX_LEN - "feature/".length)}`;
-    const base: Omit<CreateWorktreeInput, "onCollision"> = {
-      repoMountId: REPO_MOUNT_ID,
-      sessionId: SESSION_ID,
-      runId: RUN_ID,
-      branchName: capLengthBranchName,
-    };
-    await service.create({ ...base, onCollision: "refuse" });
-
-    const thrown = await captureRejection(() => service.create({ ...base, onCollision: "suffix" }));
-
-    expect(thrown).toBeInstanceOf(WorktreeCreateFailedError);
-    expect((thrown as WorktreeCreateFailedError).reason).toBe("branch_name_unavailable");
-    // Refused before anything landed: one row, the original's.
-    expect(readAllWorktreeIds()).toHaveLength(1);
-  });
-
   it("frees the bare name in the active-branch index once the colliding row is retired", async () => {
     const service = makeService();
     const suffixingInput: CreateWorktreeInput = {

@@ -10,10 +10,9 @@ import {
   RepoMountIdSchema,
   type RepoMountId,
 } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { SessionIdSchema, wireUncappedFreeFormString, type SessionId } from "./session.js";
 import {
   RemovedWorktreeIdSchema,
-  WORKTREE_GIT_REF_MAX_LEN,
   WorktreeIdSchema,
   WorktreeStateSchema,
   type RemovedWorktreeId,
@@ -92,12 +91,8 @@ export const SessionBranchChangedPayloadSchema: z.ZodType<SessionBranchChangedPa
     sessionId: SessionIdSchema,
     repoMountId: RepoMountIdSchema,
     worktreeId: WorktreeIdSchema.nullable(),
-    branch: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
-      "SessionBranchChangedPayload.branch",
-    ).nullable(),
-    previousBranch: wireFreeFormString(
-      WORKTREE_GIT_REF_MAX_LEN,
+    branch: wireUncappedFreeFormString("SessionBranchChangedPayload.branch").nullable(),
+    previousBranch: wireUncappedFreeFormString(
       "SessionBranchChangedPayload.previousBranch",
     ).nullable(),
   })

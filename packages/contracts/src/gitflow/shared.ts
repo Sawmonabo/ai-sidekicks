@@ -2,19 +2,16 @@
 // a public schema, not a contract of its own.
 import { z } from "zod";
 
-import { wireFreeFormString } from "../session.js";
-import { WORKTREE_GIT_REF_MAX_LEN } from "../worktree.js";
+import { wireUncappedFreeFormString } from "../session.js";
 
 /** A commit's short id, git's own abbreviation, which is as long as the repository needs. */
 export const GitShortObjectIdSchema: z.ZodType<string, string> = z
   .string()
   .regex(/^[0-9a-f]{4,64}$/u, "Expected an abbreviated hex git object id");
 
-/** A branch or other ref name. Shares the ref bound the worktree contract states. */
-export const GitRefNameSchema: z.ZodType<string, string> = wireFreeFormString(
-  WORKTREE_GIT_REF_MAX_LEN,
-  "git ref name",
-);
+/** A branch or other ref name; git's own rule judges it, so the wire sets no length. */
+export const GitRefNameSchema: z.ZodType<string, string> =
+  wireUncappedFreeFormString("git ref name");
 
 /** An address on the hosting service, opened in the system browser. */
 export const HostingAddressSchema: z.ZodType<string, string> = z.url({ protocol: /^https?$/u });
