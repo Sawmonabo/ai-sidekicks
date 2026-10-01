@@ -62,7 +62,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 | --- | --- | --- |
 | `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (T-006p-1-4) |
 | `transport.unavailable` | `-32603` | The client cannot reach the daemon's OS-local socket or named pipe; no fallback transport exists |
-| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (the InvalidRequest classification of [Plan-006 §Phase 2: Wire Substrate](../../plans/006-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-006p-2-2). It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
+| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 4 MB body cap (the InvalidRequest classification of [Plan-006 §Phase 2: Wire Substrate](../../plans/006-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-006p-2-2). It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
 | `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#LocalIpcGateway` enforces per I-006-7 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
 
 `data.fields` shape per code:
@@ -408,7 +408,7 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `transport.unavailable` | The client cannot reach the daemon's OS-local socket or named pipe; no fallback transport exists | 503 |
-| `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-006 Phase 2). 413 semantic. | 413 |
+| `transport.message_too_large` | Inbound frame's declared body length exceeded the 4 MB cap, or daemon-side outbound build exceeded it (Plan-006 Phase 2). 413 semantic. | 413 |
 | `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-006-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 
 ### System
