@@ -109,13 +109,7 @@ interface RateLimitResponse {
 ## Shared Enums
 
 ```ts
-type SessionState =
-  | "provisioning"
-  | "active"
-  | "archived"
-  | "closed"
-  | "purge_requested"
-  | "purged";
+type SessionState = "provisioning" | "active" | "archived" | "closed" | "purge_requested";
 type PresenceState = "online" | "idle" | "reconnecting" | "offline"; // per-device liveness
 
 type RunState =
