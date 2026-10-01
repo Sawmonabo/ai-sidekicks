@@ -68,16 +68,12 @@ describe("mcp.upsertServer", () => {
     expect(McpUpsertServerRequestSchema.safeParse(withHeader).success).toBe(true);
   });
 
-  it("refuses an address with credentials in it or a scheme other than http", () => {
+  it("refuses an address whose scheme is not http", () => {
     const withAddress = (url: string) => ({
       ...PROJECT_BINDING,
       clientIdempotencyKey: PRESS_ID,
       config: { transport: "http", url },
     });
-    expect(
-      McpUpsertServerRequestSchema.safeParse(withAddress("https://me:pw@docs.example.com/mcp"))
-        .success,
-    ).toBe(false);
     expect(
       McpUpsertServerRequestSchema.safeParse(withAddress("ftp://docs.example.com/mcp")).success,
     ).toBe(false);

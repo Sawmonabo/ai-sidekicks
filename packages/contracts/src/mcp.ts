@@ -317,20 +317,8 @@ export const MCP_REQUEST_TEXT_MAX_LEN = 8192;
 const mcpRequestText = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
 
-/**
- * An `http:` or `https:` address with no user name or password in it. Zod runs
- * the refinement even after the address check fails, so it parses defensively.
- */
-const mcpServerAddressSchema = z
-  .url({ protocol: /^https?$/ })
-  .max(MCP_REQUEST_TEXT_MAX_LEN)
-  .refine(
-    (address) => {
-      const parsed = URL.parse(address);
-      return parsed !== null && parsed.username === "" && parsed.password === "";
-    },
-    { message: "A server address carries no user name or password." },
-  );
+/** An `http:` or `https:` address, taken as typed, a user name or password in it included. */
+const mcpServerAddressSchema = z.url({ protocol: /^https?$/ }).max(MCP_REQUEST_TEXT_MAX_LEN);
 
 const mcpTimeoutSecondsSchema = z.number().positive();
 
