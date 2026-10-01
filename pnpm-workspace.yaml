@@ -47,9 +47,9 @@ allowBuilds:
   #   backend. Required on every dev and CI platform (the daemon's local NodePtyHost cannot
   #   construct without it).
   # - koffi: FFI bindings NodePtyHost uses on Windows to call `kernel32!GenerateConsoleCtrlEvent`
-  #   for the Windows kill semantics. Listed in `optionalDependencies` so non-Windows installs skip
-  #   the .node prebuild gracefully, but the build script must be approved for the cases where the
-  #   prebuild does land (Windows CI, the sidecar fallback path).
+  #   for the Windows kill semantics, an optional dependency of the daemon. Its native binary comes
+  #   from a per-platform `@koromix/koffi-<os>-<cpu>` package; the install script checks that koffi
+  #   loads and builds it from source with CMake when no prebuilt package fits the platform.
   node-pty: true
   koffi: true
   # apps/desktop Electron substrate:

@@ -175,9 +175,8 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
   // No platform guard: tests inject the FFI seam directly, and a real Windows failure surfaces
   // with its own diagnostics.
   //
-  // `koffi` sets `module.exports` to a runtime-assigned identifier, so `cjs-module-lexer` finds
-  // no named exports and `(await import("koffi")).load` is `undefined`. The binding is on
-  // `.default`; `.default ?? mod` also works if a later version ships real ESM.
+  // `koffi` ships ESM with both a default export and a named `load`; `.default ?? mod` takes
+  // whichever shape the installed version has.
   type KoffiBinding = {
     load(name: string): {
       func(signature: string): (...args: unknown[]) => unknown;
