@@ -1677,7 +1677,7 @@ interface CreateSessionParams {
   // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends
   // the turn and then the run, as run.interrupted with trigger "step_limit". It is not a budget.
   maxStepsPerTurn?: number;
-  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-009's Cedar pipeline (CP-003-6 / B13 T2.8). See CallbackToolInvocation below
+  onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-009's Cedar pipeline (CP-003-6 / Plan-009 T2.8). See CallbackToolInvocation below
   onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink; the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate. Producer-only at Plan-003 — the consumer is Plan-022's status normalizer (§Plan-022 — MCP Governance Contract Surfaces below; Spec-024). See McpServerStatusEmission below
 }
 
@@ -5522,7 +5522,7 @@ interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
 type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step"; // D-013-12: how a child was reached — the provider's own subagent, a bridge `run` call, or a workflow's `agent.run` step (§Plan-024). A `provider_subagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
-type InterruptReason = "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled"; // D-013-8: the reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`
+type InterruptReason = "step_limit" | "spend_limit" | "token_limit" | "workflow_phase_canceled"; // the reason carried on a system-initiated interrupt, the same set as run.interrupted's `trigger`
 
 // OrchestrationRunCreate — wire: orchestration.runCreate (admission pipeline D-013-9:
 // agent resolution -> Plan-002 queue admission; zero-residue typed refusal + durable
@@ -6010,7 +6010,7 @@ interface AgentListEntry {
 // run_links row and its per-run limits rebuild from this event alone, while a provider's own subagent's row
 // is written by the provider driver from that provider's subagent notifications. `effectiveRunConfig` is
 // the admission-resolved OrchestrationRunConfig (request override else session default), kept so the
-// token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5, I-013-14).
+// token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5).
 //
 // The run's agent is named ONE way, never both: `agentId` for an agent already in the projection, or
 // `resolvedAgent` where the request that created the run named a saved definition instead — a peer
@@ -6063,7 +6063,7 @@ interface OrchestrationRunLinkCarrier {
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
   internalHelper: boolean;
   agentId: AgentId; // the resolved target (CP-002-10): the wire's targetAgentId, written to run.queued as `agentId`, or the agent minted from its targetDefinitionId, written as `resolvedAgent`
-  effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so the token-limit enforcement rebuilds replay-stable (D-013-5, I-013-14)
+  effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so the token-limit enforcement rebuilds replay-stable (D-013-5)
 }
 ```
 
