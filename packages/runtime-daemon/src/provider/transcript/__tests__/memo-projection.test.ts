@@ -6,13 +6,6 @@ import { describe, expect, it } from "vitest";
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import {
-  ContradictoryReplayDispositionError,
-  TranscriptReconstitutionRouter,
-  memoSettlementAsReplayResult,
-  renderReconstitutionDisclosure,
-  type ReconstitutionSettlement,
-} from "../transcript-reconstitution.js";
-import {
   DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
   MEMO_CONTINUITY_MARKER_PREFIX,
   MemoProjection,
@@ -28,7 +21,6 @@ import {
 } from "../memo-projection.js";
 import {
   MemoDeliveryCoordinator,
-  MemoDeliveryNotEstablishedError,
   type MemoDeliveryRequest,
   type MemoDeliverySettlement,
   type MemoOutboundFrame,
@@ -800,13 +792,6 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     expect(settlement.declaredLossSource).toBe("unknown");
     expect(settlement.declaredLosses).toStrictEqual(DECLARED_LOSS_KINDS);
     expect(target.sendAttempts).toBe(0);
-
-    const disclosure: string = renderReconstitutionDisclosure({
-      route: "memo",
-      memo: settlement,
-    });
-    expect(disclosure).toContain("not recorded");
-    expect(disclosure).toContain("at most");
   });
 
   it("reads a continuity record strictly, over the whole loss vocabulary of the wire", () => {
@@ -1613,288 +1598,6 @@ describe("memo frame — the key is carried as visible characters", () => {
   });
 });
 
-describe("reconstitution routing — the memo is the caller's fallback", () => {
-  it("emits no memo when native replay applied — the target is never touched", async () => {
-    const observedMemberNames: string[] = [];
-    const target = new FakeTargetSession();
-    const coordinator = new MemoDeliveryCoordinator(recordingGateway(target, observedMemberNames));
-    const router = new TranscriptReconstitutionRouter(coordinator);
-
-    const settlement: ReconstitutionSettlement = await router.route(
-      { outcome: "applied", declaredLosses: ["provider_private_reasoning"] },
-      addressedTo(
-        coordinator,
-        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
-      ),
-    );
-
-    expect(settlement.route).toBe("native-replay");
-    if (settlement.route !== "native-replay") {
-      throw new Error("an applied replay is the native-replay route");
-    }
-    expect(settlement.result.status).toBe("applied");
-    expect(observedMemberNames).toEqual([]);
-    expect(target.sendAttempts).toBe(0);
-    expect(target.readAttempts).toBe(0);
-  });
-
-  it("falls to the memo on every non-applied replay outcome", async () => {
-    for (const outcome of ["unavailable", "refused", "context-window-exceeded"] as const) {
-      const target = new FakeTargetSession();
-      const coordinator = new MemoDeliveryCoordinator(target);
-      const router = new TranscriptReconstitutionRouter(coordinator);
-
-      const settlement: ReconstitutionSettlement = await router.route(
-        { outcome },
-        addressedTo(
-          coordinator,
-          requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
-        ),
-      );
-
-      expect(settlement.route).toBe("memo");
-      if (settlement.route !== "memo") {
-        throw new Error("the non-applied outcomes route to the memo floor");
-      }
-      // The memo arm has no result member; the result is requested from the producer, which
-      // answers here because this delivery landed.
-      const result = memoSettlementAsReplayResult(settlement.memo);
-      expect(result.status).toBe("degraded");
-      expect(result.declaredLosses).toContain("conversation_history_summarized");
-      expect(target.sendAttempts).toBe(1);
-    }
-  });
-
-  it("refuses an applied disposition that also declares the summarization", async () => {
-    // The router builds its result from a literal and never parses one, so the schema's arm
-    // scoping does not apply; unguarded, it would publish native-replay continuity for a
-    // session that holds a bounded prose summary.
-    const target = new FakeTargetSession();
-    const coordinator = new MemoDeliveryCoordinator(target);
-    const router = new TranscriptReconstitutionRouter(coordinator);
-
-    await expect(
-      router.route(
-        { outcome: "applied", declaredLosses: ["conversation_history_summarized"] },
-        addressedTo(
-          coordinator,
-          requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
-        ),
-      ),
-    ).rejects.toBeInstanceOf(ContradictoryReplayDispositionError);
-
-    // Refused, not rerouted: sending a summary would resolve the caller's contradiction by
-    // picking one of its two claims.
-    expect(target.sendAttempts).toBe(0);
-  });
-
-  it("still routes an applied disposition carrying ordinary losses", async () => {
-    // The guard keys on the one loss kind that names the memo floor, not on a non-empty list;
-    // an applied replay that stripped private reasoning is the ordinary case and still routes.
-    const target = new FakeTargetSession();
-    const coordinator = new MemoDeliveryCoordinator(target);
-    const router = new TranscriptReconstitutionRouter(coordinator);
-
-    const settlement: ReconstitutionSettlement = await router.route(
-      {
-        outcome: "applied",
-        declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
-      },
-      addressedTo(
-        coordinator,
-        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
-      ),
-    );
-
-    expect(settlement.route).toBe("native-replay");
-    if (settlement.route !== "native-replay") {
-      throw new Error("an applied replay is the native-replay route");
-    }
-    expect(settlement.result.declaredLosses).toEqual([
-      "provider_private_reasoning",
-      "tool_call_history_repaired",
-    ]);
-  });
-});
-
-async function collectMemoSettlements(): Promise<MemoDeliverySettlement[]> {
-  const request: DeliveryDraft = requestFor(
-    projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
-  );
-
-  const deliveredTarget = new FakeTargetSession();
-  const delivered: MemoDeliverySettlement = await deliverVia(
-    new MemoDeliveryCoordinator(deliveredTarget),
-    request,
-  );
-  const alreadyDelivered: MemoDeliverySettlement = await deliverVia(
-    new MemoDeliveryCoordinator(deliveredTarget),
-    request,
-  );
-
-  const withheldTarget = new FakeTargetSession();
-  withheldTarget.readOutcomes.push("fail");
-  const withheld: MemoDeliverySettlement = await deliverVia(
-    new MemoDeliveryCoordinator(withheldTarget),
-    request,
-  );
-
-  const unconfirmedTarget = new FakeTargetSession();
-  unconfirmedTarget.readOutcomes.push("ok", "fail");
-  unconfirmedTarget.sendBehavior = "apply-then-fail";
-  const unconfirmed: MemoDeliverySettlement = await deliverVia(
-    new MemoDeliveryCoordinator(unconfirmedTarget),
-    request,
-  );
-
-  return [delivered, alreadyDelivered, withheld, unconfirmed];
-}
-
-describe("settlement disclosure — a degraded settlement never reads like an applied one", () => {
-  it("renders every memo disposition differently from an applied replay", async () => {
-    const memoSettlements: MemoDeliverySettlement[] = await collectMemoSettlements();
-    expect(memoSettlements.map((settlement) => settlement.disposition)).toEqual([
-      "delivered",
-      "already-delivered",
-      "withheld",
-      "unconfirmed",
-    ]);
-
-    // An applied replay that itself declared a loss: an implementation that inferred degraded
-    // from a non-empty loss list fails here. The applied arm reads the list only to choose
-    // between claiming a full replay and naming what it omitted; the route never comes from it.
-    const appliedWithLoss: ReconstitutionSettlement = {
-      route: "native-replay",
-      result: { status: "applied", declaredLosses: ["provider_private_reasoning"] },
-    };
-    const appliedWithoutLoss: ReconstitutionSettlement = {
-      route: "native-replay",
-      result: { status: "applied", declaredLosses: [] },
-    };
-
-    const renderings: string[] = [
-      renderReconstitutionDisclosure(appliedWithLoss),
-      renderReconstitutionDisclosure(appliedWithoutLoss),
-      ...memoSettlements.map((settlement) =>
-        renderReconstitutionDisclosure({ route: "memo", memo: settlement }),
-      ),
-    ];
-
-    // Every rendering is distinct, applied and memo alike.
-    expect(new Set(renderings).size).toBe(renderings.length);
-
-    const appliedRenderings: string[] = renderings.slice(0, 2);
-    for (const memoRendering of renderings.slice(2)) {
-      expect(appliedRenderings).not.toContain(memoRendering);
-    }
-  });
-
-  it("claims a replay was in full only when the declared-loss list is empty", () => {
-    const disclosure: string = renderReconstitutionDisclosure({
-      route: "native-replay",
-      result: { status: "applied", declaredLosses: [] },
-    });
-
-    expect(disclosure).toContain("in full");
-    expect(disclosure).toContain("nothing was dropped");
-  });
-
-  it("names what an applied replay omitted, and does not call that replay in full", () => {
-    const disclosure: string = renderReconstitutionDisclosure({
-      route: "native-replay",
-      result: {
-        status: "applied",
-        declaredLosses: ["provider_private_reasoning", "turn_content_unavailable"],
-      },
-    });
-
-    // "In full" is reserved for a replay that dropped nothing; a replay that omitted something
-    // names the omissions instead.
-    expect(disclosure).not.toContain("in full");
-    expect(disclosure).toContain("provider_private_reasoning");
-    expect(disclosure).toContain("turn_content_unavailable");
-    expect(disclosure).not.toContain("nothing was dropped");
-    // It is still an applied replay, not a summary.
-    expect(disclosure).toContain("replayed into the new session");
-    expect(disclosure).not.toContain("summarized");
-  });
-
-  it("produces no replay result for a settlement that established no delivery", async () => {
-    // `degraded` at the driver boundary means the memo floor stood in and the target holds a
-    // summary. Stamping it for a settlement that established no delivery would report a
-    // successful degraded switch into a session that may hold no prior context, and the result
-    // type has no arm for that, so such a settlement throws.
-    const [delivered, alreadyDelivered, withheld, unconfirmed] = await collectMemoSettlements();
-    if (
-      delivered === undefined ||
-      alreadyDelivered === undefined ||
-      withheld === undefined ||
-      unconfirmed === undefined
-    ) {
-      throw new Error("every disposition is needed to state the split");
-    }
-
-    expect(memoSettlementAsReplayResult(delivered).status).toBe("degraded");
-    expect(memoSettlementAsReplayResult(alreadyDelivered).status).toBe("degraded");
-
-    for (const unestablished of [withheld, unconfirmed]) {
-      expect(() => memoSettlementAsReplayResult(unestablished)).toThrow(
-        MemoDeliveryNotEstablishedError,
-      );
-      // The error carries the settlement so a caller can tell the user what happened.
-      try {
-        memoSettlementAsReplayResult(unestablished);
-        throw new Error("the unestablished arms must not produce a result");
-      } catch (cause) {
-        expect(cause).toBeInstanceOf(MemoDeliveryNotEstablishedError);
-        if (!(cause instanceof MemoDeliveryNotEstablishedError)) {
-          throw cause;
-        }
-        expect(cause.settlement).toBe(unestablished);
-        expect(cause.message).toContain(unestablished.disposition);
-      }
-    }
-    expect(withheld.withheldReason).toBe("target-unreadable");
-  });
-
-  it("still reports an unlanded memo to the user rather than erasing it", async () => {
-    // Routing still settles with a memo disposition: the user must be told the summary did not
-    // arrive, and a throw from the router would lose that disclosure.
-    const target = new FakeTargetSession();
-    target.readOutcomes.push("fail");
-    const coordinator = new MemoDeliveryCoordinator(target);
-    const router = new TranscriptReconstitutionRouter(coordinator);
-
-    const settlement: ReconstitutionSettlement = await router.route(
-      { outcome: "unavailable" },
-      addressedTo(
-        coordinator,
-        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
-      ),
-    );
-
-    expect(settlement.route).toBe("memo");
-    if (settlement.route !== "memo") {
-      throw new Error("an unreadable target still routes to the memo floor");
-    }
-    expect(settlement.memo.disposition).toBe("withheld");
-    expect(renderReconstitutionDisclosure(settlement)).toContain("did not reach the new session");
-    // The memo arm carries no boundary result to be mistaken for one.
-    expect(Object.hasOwn(settlement, "result")).toBe(false);
-  });
-
-  it("says plainly, on every memo path, that the conversation was summarized", async () => {
-    for (const settlement of await collectMemoSettlements()) {
-      const disclosure: string = renderReconstitutionDisclosure({
-        route: "memo",
-        memo: settlement,
-      });
-      expect(disclosure).toContain("summarized");
-      expect(settlement.status).toBe("degraded");
-    }
-  });
-});
-
 describe("memo floor — a result whose enclosure cannot be resolved is withheld", () => {
   /**
    * A tool result citing a reasoning block the content port could not read. It uses its own
@@ -1924,7 +1627,7 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
   }
 
   it("keeps the body out of the summary the new session is handed", async () => {
-    // The memo floor runs the same strip as the export, so the withholding applies here too: a
+    // The brief runs the same strip as the transcript transform, so the withholding applies: a
     // memo is prose the target model reads, and content that may be private reasoning's must not
     // appear in it.
     const projection: CanonicalTranscriptProjection = foldUnreadableEnclosure();

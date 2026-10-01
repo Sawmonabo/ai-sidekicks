@@ -1,5 +1,5 @@
-// The memo floor: the fallback that stands in when a conversation cannot be reconstituted
-// natively. It renders the canonical projection as bounded prose and delivers it at most once.
+// The memo floor: the hand-over that stands in for a conversation a new provider session cannot
+// continue. It renders the canonical projection as bounded prose and delivers it at most once.
 //
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
@@ -9,19 +9,16 @@
 //     `builtAtPosition`, which moves on any append. Nothing durable is written.
 //   * An ambiguous send stays unconfirmed until the marker appears or an absence is read after the
 //     caller's settlement barrier: a duplicate memo corrupts the conversation, a missing one only
-//     degrades it. The caller decides whether native replay already succeeded.
+//     degrades it.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 import {
-  createTranscriptPipelineState,
-  foldTurns,
   orderDeclaredLosses,
-  repairPairingIntegrity,
   segmentContentIsUnavailable,
-  stripNonPortableContent,
-  type TranscriptPipelineState,
+  transformTranscript,
+  type TransformedTranscript,
 } from "./transform-pipeline.js";
 import type {
   CanonicalTranscriptProjection,
@@ -429,12 +426,8 @@ export class MemoProjection {
     const memoIdentityKey: string = deriveMemoIdentityKey(request.projection, request.target);
 
     // Strip what no other model may be shown, then repair the results the strip orphaned (an
-    // unpaired call is accepted silently and rejected on every later request). Prose needs no frame
-    // steps.
-    const transformed: {
-      turns: readonly CanonicalTranscriptTurn[];
-      losses: readonly DeclaredLossKind[];
-    } = applyPortabilityTransforms(request.projection);
+    // unpaired call is accepted silently and rejected on every later request).
+    const transformed: TransformedTranscript = transformTranscript(request.projection);
 
     const exchanges: readonly TranscriptExchange[] = partitionIntoExchanges(transformed.turns);
     const budgetTokens: number = Math.max(
@@ -452,7 +445,7 @@ export class MemoProjection {
     const exchangeRenderings: readonly string[] = exchanges.map(renderExchange);
 
     const preBudgetLosses: readonly DeclaredLossKind[] = orderDeclaredLosses([
-      ...transformed.losses,
+      ...transformed.declaredLosses,
       // Always declared: an empty list would claim nothing was dropped.
       MEMO_FLOOR_DECLARED_LOSS_KIND,
     ]);
@@ -526,15 +519,4 @@ export class MemoProjection {
       declaredLosses,
     };
   }
-}
-
-function applyPortabilityTransforms(projection: CanonicalTranscriptProjection): {
-  turns: readonly CanonicalTranscriptTurn[];
-  losses: readonly DeclaredLossKind[];
-} {
-  let state: TranscriptPipelineState = createTranscriptPipelineState(projection);
-  state = foldTurns(state);
-  state = stripNonPortableContent(state);
-  state = repairPairingIntegrity(state);
-  return { turns: state.turns, losses: state.declaredLosses };
 }

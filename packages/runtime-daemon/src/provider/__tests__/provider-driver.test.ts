@@ -1,15 +1,13 @@
 // Guards on the daemon's provider-driver seam that a driver could otherwise break: a failed resume
 // carries no binding, the recovery condition is a closed vocabulary, the usage-limit cause is a
-// separate axis, the daemon stamps an MCP status's leg, a websocket transport is authenticated,
-// and a transcript replay's settlement matches its declared losses. Runtime guards are proven by
-// `.safeParse()`; type guards by `@ts-expect-error`, which fails as unused (TS2578) if the guarded
-// shape loosens.
+// separate axis, the daemon stamps an MCP status's leg, and a websocket transport is
+// authenticated. Runtime guards are proven by `.safeParse()`; type guards by `@ts-expect-error`,
+// which fails as unused (TS2578) if the guarded shape loosens.
 import { DRIVER_CAPABILITY_FLAGS, type RecoveryCondition } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   DriverResumeResultSchema,
-  DriverTranscriptReplayResultSchema,
   McpServerStatusEmissionSchema,
   type DriverResumeResult,
   type DriverTransportConfig,
@@ -129,7 +127,7 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
   it("adds no capability flag for it — recognizing a usage limit is every driver's duty", () => {
     // A flag would let a driver declare the obligation away, leaving a run refused for spend in
     // the generic failure path with nothing saying why.
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(16);
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(15);
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       expect(flag).not.toMatch(/usage|limit|rate/);
     }
@@ -164,44 +162,5 @@ describe("DriverTransportConfig — the websocket arm is authenticated", () => {
       endpoint: "ws://127.0.0.1:7000",
     };
     void unauthenticated;
-  });
-});
-
-describe("DriverTranscriptReplayResultSchema — the canonical transcript replay envelope", () => {
-  it("rejects a degraded replay that omits the summarization, empty list or not", () => {
-    // An empty list claims nothing was dropped, which would tell a caller the memo summary is
-    // the verbatim conversation.
-    const emptyDegraded = DriverTranscriptReplayResultSchema.safeParse({
-      status: "degraded",
-      declaredLosses: [],
-    });
-    expect(emptyDegraded.success).toBe(false);
-
-    // A merely non-empty rule would let this through: losses are named but not the
-    // summarization.
-    const degradedWithoutSummarization = DriverTranscriptReplayResultSchema.safeParse({
-      status: "degraded",
-      declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
-    });
-    expect(degradedWithoutSummarization.success).toBe(false);
-  });
-
-  it("rejects an applied replay declaring the summarization, alone or not", () => {
-    // The summarization names the memo floor standing in for the conversation, which is the
-    // degraded settlement. A consumer reading `status` would otherwise publish native-replay
-    // continuity for a session holding only a bounded summary.
-    const appliedWithSummarization = DriverTranscriptReplayResultSchema.safeParse({
-      status: "applied",
-      declaredLosses: ["conversation_history_summarized"],
-    });
-    expect(appliedWithSummarization.success).toBe(false);
-
-    // Stripping private reasoning is an ordinary applied loss; listing it alongside does not
-    // launder the contradiction.
-    const appliedWithSummarizationBesideOthers = DriverTranscriptReplayResultSchema.safeParse({
-      status: "applied",
-      declaredLosses: ["provider_private_reasoning", "conversation_history_summarized"],
-    });
-    expect(appliedWithSummarizationBesideOthers.success).toBe(false);
   });
 });

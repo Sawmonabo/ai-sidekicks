@@ -20,9 +20,12 @@ export const CODEX_THREAD_COMPACT_START_METHOD = "thread/compact/start" as const
 export const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
 
 /**
- * The item-injection method the replay seeds a fresh thread through (`ThreadInjectItemsParams`,
- * non-experimental at the pin). `items` accepts any JSON, so an unrecognized frame is taken and
- * dropped while the request still succeeds, which is why the post-replay assertion exists.
+ * The item-injection method (`ThreadInjectItemsParams`, non-experimental at the pin): appends items
+ * to a loaded thread's model-visible history, one way a conversation takes changed instructions
+ * from its next turn. `items` accepts any JSON, so an unrecognized item is taken and dropped while
+ * the request still succeeds.
+ *
+ * @consumedBy the Codex leg that hands a loaded conversation changed instructions
  */
 export const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
 

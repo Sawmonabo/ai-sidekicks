@@ -66,20 +66,6 @@ describe("UsageDeltaAccountant", () => {
     expect(delta?.axisDeltas.output).toBe(300);
   });
 
-  it("a replay-seeded session is fresh: seeding meters nothing, the first turn's reading meters whole", () => {
-    // Replay-seeding injects transcript, not billed spend: the provider's counter starts at zero
-    // either way, so the first post-seed reading is entirely real spend.
-    const { accountant } = makeAccountant();
-    accountant.establishThread("replay-seeded-thread", { mode: "fresh" });
-    const delta = accountant.meterReading({
-      threadId: "replay-seeded-thread",
-      namedTurnId: "turn-after-seeding",
-      cumulative: { input: 55_000, output: 900 },
-    });
-    expect(delta?.axisDeltas.input).toBe(55_000);
-    expect(delta?.axisDeltas.output).toBe(900);
-  });
-
   it("a provider-native resume meters only the excess over the prior-emitted sum, and zero when there is none", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("resumed-thread", {

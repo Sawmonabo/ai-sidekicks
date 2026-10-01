@@ -125,12 +125,6 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): ProviderDriv
     probeAuth(): Promise<never> {
       return Promise.reject(new Error("probeAuth is not exercised by this suite"));
     },
-    exportTranscript(): Promise<never> {
-      return Promise.reject(new Error("exportTranscript is not exercised by this suite"));
-    },
-    replayTranscript(): Promise<never> {
-      return Promise.reject(new Error("replayTranscript is not exercised by this suite"));
-    },
     compactContext(): Promise<never> {
       return Promise.reject(new Error("compactContext is not exercised by this suite"));
     },

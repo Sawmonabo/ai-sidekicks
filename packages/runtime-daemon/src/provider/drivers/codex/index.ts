@@ -1,15 +1,15 @@
 /**
  * Codex driver entry point: composes `CodexLifecycleManager` (sessions, runs, fork, goals,
- * compaction, provider commands, transcript replay) and `CodexInterventionDispatcher` behind the
- * slice of `ProviderDriver` they implement.
+ * compaction, provider commands) and `CodexInterventionDispatcher` behind the slice of
+ * `ProviderDriver` they implement.
  *
  * No operation is capability-gated here. The registry's `checkCapability` is the static refusal
  * and reads the snapshot captured at registration; a second gate in this class would read a live
  * snapshot and could disagree with the one that already admitted the call.
  *
  * `implements Pick<ProviderDriver, ...>` checks each signature against the canonical contract. The
- * operations the `Pick` omits (`respondToRequest`, `listModes`, `getCapabilities`,
- * `exportTranscript`) are not implemented by this class.
+ * operations the `Pick` omits (`respondToRequest`, `listModes`, `getCapabilities`) are not
+ * implemented by this class.
  *
  * The capability snapshot is injected and read live at each dispatch, so a refreshed capability
  * record is honored. The process substrate (`PtyHost`), the per-session subscription, the timeout
@@ -45,9 +45,7 @@ import type {
   ForkConversationResult,
   DriverTransportConfig,
   ListProviderCommandsParams,
-  DriverTranscriptReplayResult,
   ProviderDriver,
-  ReplayTranscriptParams,
   ProviderSessionHandle,
   ResumeSessionParams,
   ForkConversationParams,
@@ -128,7 +126,6 @@ export class CodexDriver implements Pick<
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
-  | "replayTranscript"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
@@ -217,11 +214,6 @@ export class CodexDriver implements Pick<
 
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
     return this.#lifecycle.listProviderCommands(params);
-  }
-
-  /** Reconstitutes the canonical transcript into a fresh provider session. */
-  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    return this.#lifecycle.replayTranscript(params);
   }
 
   /** The transport this driver reaches its provider processes over. */

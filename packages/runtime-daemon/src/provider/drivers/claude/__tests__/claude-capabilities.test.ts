@@ -1,6 +1,6 @@
 // Claude capability declaration: the declared flag matrix; a reporter that admits any build at or
 // above the floor and refuses a below-floor, unparseable or foreign one before the writer sees it;
-// the model catalog read from the recorded `list_models` reply; and the probed `transcript_replay`.
+// and the model catalog read from the recorded `list_models` reply.
 
 import { describe, expect, it } from "vitest";
 
@@ -10,10 +10,6 @@ import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../../../__fixtures__/capability-probe-doubles.js";
-import {
-  DriverDiagnosticsEmitter,
-  type DriverDiagnosticRecord,
-} from "../../../driver-diagnostics.js";
 import {
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
@@ -28,8 +24,6 @@ import {
   ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
   resolveClaudeModelCatalog,
-  type ClaudeTranscriptReplayReading,
-  type ClaudeTranscriptSeedingSurface,
 } from "../capabilities.js";
 import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
@@ -79,7 +73,6 @@ describe("Claude capability declaration", () => {
       session_goals: false,
       callback_tools: true,
       subagents: true,
-      transcript_replay: false,
       context_compaction: true,
       provider_commands: true,
       output_speed: true,
@@ -393,71 +386,5 @@ describe("Claude model catalog", () => {
     await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
       ClaudeModelCatalogUnreadableError,
     );
-  });
-});
-
-// `transcript_replay` is the one probe-valued flag: the declaration must follow the probe in
-// both directions, or a suite that only ran the refusing double would pass on a hard-coded `false`.
-describe("ClaudeCapabilityReporter — the probe-derived transcript_replay declaration", () => {
-  const SEEDING_SURFACE: ClaudeTranscriptSeedingSurface = {
-    seedFrame: () => Promise.resolve({ delivery: "applied" as const }),
-    readBack: () => Promise.resolve({ kind: "turns" as const, turns: [] }),
-  };
-
-  function reporterWithReplayProbe(
-    reading: () => Promise<ClaudeTranscriptReplayReading>,
-  ): ClaudeCapabilityReporter {
-    return new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(claudeReading({ ...CLI_VERSION })),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
-      diagnostics: makeSilentDriverDiagnostics(),
-      transcriptReplayProbe: reading,
-    });
-  }
-
-  // Whichever way the probe answers, the declaration is that answer, never the module constant.
-  it("tracks a probe that flips, in both directions", async () => {
-    let supported = false;
-    const reporter = reporterWithReplayProbe(() =>
-      Promise.resolve(
-        supported
-          ? { supported: true, surface: SEEDING_SURFACE }
-          : { supported: false, reason: "not yet" },
-      ),
-    );
-    const before = await reporter.getCapabilities();
-    expect(before.capabilities.flags.transcript_replay).toBe(false);
-
-    supported = true;
-    const after = await reporter.getCapabilities();
-    expect(after.capabilities.flags.transcript_replay).toBe(true);
-
-    supported = false;
-    const again = await reporter.getCapabilities();
-    expect(again.capabilities.flags.transcript_replay).toBe(false);
-  });
-
-  it("declares FALSE with no probe bound, which is this pin's honest answer", async () => {
-    const result = await makeReporter().getCapabilities();
-    expect(result.capabilities.flags.transcript_replay).toBe(false);
-  });
-
-  // A faulted probe fails closed to `false` and records a diagnostic, since the flag alone cannot
-  // tell it from a probe that answered no.
-  it("fails closed AND records a diagnostic when the probe throws", async () => {
-    const emitted: DriverDiagnosticRecord[] = [];
-    const reporter = new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(claudeReading({ ...CLI_VERSION })),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
-      diagnostics: new DriverDiagnosticsEmitter({
-        logSink: { record: (record) => emitted.push(record) },
-      }),
-      transcriptReplayProbe: () => Promise.reject(new Error("probe transport died")),
-    });
-    const result = await reporter.getCapabilities();
-    expect(result.capabilities.flags.transcript_replay).toBe(false);
-    const withdrawal = emitted.find((record) => record.details["flag"] === "transcript_replay");
-    expect(withdrawal?.kind).toBe("capability_flag_withdrawn");
-    expect(withdrawal?.details["disposition"]).toBe("probe-faulted");
   });
 });

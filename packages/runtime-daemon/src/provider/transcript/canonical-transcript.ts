@@ -96,7 +96,7 @@ const TRANSCRIPT_BEARING_EVENT_TYPE_SET: ReadonlySet<string> = new Set(
 /**
  * Whether a logged row belongs to the named run's transcript. A row qualifies only when its
  * payload names the run: a row naming no run cannot be proven to belong to this one, and admitting
- * it could export another run's conversation into this run's replay target.
+ * it could carry another run's conversation into this run's hand-over brief.
  */
 function isEventInRunScope(event: StoredEvent, runId: RunId): boolean {
   if (!TRANSCRIPT_BEARING_EVENT_TYPE_SET.has(event.type)) {

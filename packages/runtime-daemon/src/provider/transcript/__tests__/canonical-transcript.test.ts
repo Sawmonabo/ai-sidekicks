@@ -1,24 +1,18 @@
-// The canonical transcript fold and its export pipeline: no turn is lost, reordered or carried
-// past its bound, no private reasoning leaves, and every exported tool call stays paired.
+// The canonical transcript fold and its transform steps: no turn is lost, reordered or carried
+// past its bound, no private reasoning leaves, and every carried tool call stays paired.
 
 import { describe, expect, it } from "vitest";
 
+import { boundProjectionToPosition } from "../canonical-transcript.js";
 import {
-  CANONICAL_TRANSCRIPT_PIPELINE,
   SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
   SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
-  ToolCallIdentityCollisionError,
-  ToolCallIdentityMap,
-  TranscriptTransformPipeline,
-  UnmappedToolCallIdentityError,
-  boundProjectionToPosition,
   createTranscriptPipelineState,
   foldTurns,
-  mapToolCallIdentity,
-  renderTargetFrames,
   repairPairingIntegrity,
   stripNonPortableContent,
-  type RenderedTranscriptFrame,
+  transformTranscript,
+  type TransformedTranscript,
   type TranscriptPipelineState,
 } from "../transform-pipeline.js";
 import {
@@ -32,7 +26,7 @@ import {
 import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
-  DriverTranscriptExportResult,
+  CanonicalTranscriptTurn,
 } from "../../provider-driver.js";
 
 // --------------------------------------------------------------------------
@@ -70,8 +64,8 @@ function seedInterruptedToolFixture(fixture: TranscriptFixture): void {
   fixture.contentSource.assistantTextBySequence.set(5, "all green");
 }
 
-function segmentsOf(frames: readonly RenderedTranscriptFrame[]): CanonicalTranscriptSegment[] {
-  return frames.flatMap((frame) => [...frame.segments]);
+function segmentsOf(turns: readonly CanonicalTranscriptTurn[]): CanonicalTranscriptSegment[] {
+  return turns.flatMap((turn) => [...turn.segments]);
 }
 
 // --------------------------------------------------------------------------
@@ -116,9 +110,9 @@ describe("canonical transcript fold — scope and ordering", () => {
     // The assistant turn is intact, so the loss below is the user's alone.
     expect(projection.turns[1]?.segments).toEqual([{ kind: "text", position: 2, text: "on it" }]);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    expect(exported.declaredLosses).toEqual(["turn_content_unavailable"]);
-    expect(exported.frames).toHaveLength(2);
+    const transformed = transformTranscript(projection);
+    expect(transformed.declaredLosses).toEqual(["turn_content_unavailable"]);
+    expect(transformed.turns).toHaveLength(2);
   });
 
   it("keeps another run's rows out of this run's transcript", () => {
@@ -240,63 +234,17 @@ describe("canonical transcript fold — a projection, never a store", () => {
 });
 
 // --------------------------------------------------------------------------
-// Tool-call identity
-// --------------------------------------------------------------------------
-
-describe("tool-call identity map", () => {
-  it("round-trips an id in both directions", () => {
-    const identityMap = new ToolCallIdentityMap((canonicalId) => `target-${canonicalId}`);
-    const targetId = identityMap.bind("call-1");
-
-    expect(targetId).toBe("target-call-1");
-    expect(identityMap.canonicalIdFor(targetId)).toBe("call-1");
-    expect(identityMap.targetIdFor("call-1")).toBe(targetId);
-  });
-
-  it("never re-mints an id it already holds", () => {
-    let derivations = 0;
-    const identityMap = new ToolCallIdentityMap((canonicalId) => {
-      derivations += 1;
-      return `${canonicalId}-${derivations.toString()}`;
-    });
-
-    expect(identityMap.bind("call-1")).toBe("call-1-1");
-    expect(identityMap.bind("call-1")).toBe("call-1-1");
-    expect(derivations).toBe(1);
-    expect(identityMap.size).toBe(1);
-  });
-
-  it("refuses to hand one target id to two distinct calls", () => {
-    const identityMap = new ToolCallIdentityMap(() => "collapsed");
-    identityMap.bind("call-1");
-
-    expect(() => identityMap.bind("call-2")).toThrow(ToolCallIdentityCollisionError);
-  });
-});
-
-// --------------------------------------------------------------------------
 // The ordered pipeline
 // --------------------------------------------------------------------------
 
 describe("transform pipeline — the ordered contract", () => {
-  it("names its five steps in canonical order", () => {
-    expect(CANONICAL_TRANSCRIPT_PIPELINE).toEqual([
-      foldTurns,
-      mapToolCallIdentity,
-      stripNonPortableContent,
-      repairPairingIntegrity,
-      renderTargetFrames,
-    ]);
-  });
-
   it("repairs a tool call whose result the strip removed, rather than dropping or orphaning it", () => {
     const fixture = makeFixture();
     seedInterruptedToolFixture(fixture);
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    const segments = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]);
+    const transformed: TransformedTranscript = transformTranscript(projection);
+    const segments = segmentsOf(transformed.turns);
 
     const calls = segments.filter((segment) => segment.kind === "tool_call");
     const results = segments.filter((segment) => segment.kind === "tool_result");
@@ -312,20 +260,19 @@ describe("transform pipeline — the ordered contract", () => {
       text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
     });
 
-    // The target pairs a call with the result that follows it, so a synthetic result appended at
+    // A reader pairs a call with the result that follows it, so a synthetic result appended at
     // the end of the turn would pass the counts above and still rebuild the wrong history.
-    const callFrame = (exported.frames as readonly RenderedTranscriptFrame[]).find((frame) =>
-      frame.segments.some((segment) => segment.kind === "tool_call"),
+    const callTurn = transformed.turns.find((turn) =>
+      turn.segments.some((segment) => segment.kind === "tool_call"),
     );
-    expect(callFrame).toBeDefined();
-    const callIndex =
-      callFrame?.segments.findIndex((segment) => segment.kind === "tool_call") ?? -1;
+    expect(callTurn).toBeDefined();
+    const callIndex = callTurn?.segments.findIndex((segment) => segment.kind === "tool_call") ?? -1;
     expect(callIndex).toBeGreaterThanOrEqual(0);
-    expect(callFrame?.segments[callIndex + 1]).toEqual(results[0]);
+    expect(callTurn?.segments[callIndex + 1]).toEqual(results[0]);
 
     // The private block is gone and both losses are declared, in the contract's order.
     expect(segments.some((segment) => segment.kind === "reasoning")).toBe(false);
-    expect(exported.declaredLosses).toEqual([
+    expect(transformed.declaredLosses).toEqual([
       "provider_private_reasoning",
       "tool_call_history_repaired",
     ]);
@@ -343,33 +290,14 @@ describe("transform pipeline — the ordered contract", () => {
     let state: TranscriptPipelineState = createTranscriptPipelineState(
       projectionWithStrippedResult(),
     );
-    for (const step of [
-      foldTurns,
-      mapToolCallIdentity,
-      repairPairingIntegrity,
-      stripNonPortableContent,
-      renderTargetFrames,
-    ]) {
+    for (const step of [foldTurns, repairPairingIntegrity, stripNonPortableContent]) {
       state = step(state);
     }
 
-    const segments = segmentsOf(state.frames);
+    const segments = segmentsOf(state.turns);
     expect(segments.filter((segment) => segment.kind === "tool_call")).toHaveLength(1);
     expect(segments.filter((segment) => segment.kind === "tool_result")).toHaveLength(0);
     expect(state.declaredLosses).not.toContain("tool_call_history_repaired");
-  });
-
-  it("rendering BEFORE mapping identity throws rather than minting ids", () => {
-    // Render's lookup does not bind on demand, so this fails loudly instead of producing frames
-    // whose ids nothing else knows.
-    let state: TranscriptPipelineState = createTranscriptPipelineState(
-      projectionWithStrippedResult(),
-    );
-    state = foldTurns(state);
-    state = stripNonPortableContent(state);
-    state = repairPairingIntegrity(state);
-
-    expect(() => renderTargetFrames(state)).toThrow(UnmappedToolCallIdentityError);
   });
 
   it("strips only the result the private block actually enclosed, not an id-alike in another turn", () => {
@@ -431,8 +359,8 @@ describe("transform pipeline — the ordered contract", () => {
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
     expect(projection.turns).toHaveLength(2);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    const results = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).filter(
+    const transformed = transformTranscript(projection);
+    const results = segmentsOf(transformed.turns).filter(
       (segment) => segment.kind === "tool_result",
     );
     expect(results).toHaveLength(2);
@@ -480,11 +408,11 @@ describe("transform pipeline — the ordered contract", () => {
     ]);
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    const segments = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]);
+    const transformed = transformTranscript(projection);
+    const segments = segmentsOf(transformed.turns);
 
     expect(segments).toEqual([{ kind: "text", position: 1, text: "checking the failing suite" }]);
-    expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
+    expect(transformed.declaredLosses).toEqual(["provider_private_reasoning"]);
   });
 
   it("declares no loss for a transcript that lost nothing", () => {
@@ -495,9 +423,7 @@ describe("transform pipeline — the ordered contract", () => {
     fixture.contentSource.assistantTextBySequence.set(2, "hi");
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    expect(
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded").declaredLosses,
-    ).toEqual([]);
+    expect(transformTranscript(projection).declaredLosses).toEqual([]);
   });
 
   it("keeps a turn whose body was unreadable and declares the loss over it", () => {
@@ -516,9 +442,9 @@ describe("transform pipeline — the ordered contract", () => {
       { kind: "text", position: 2, text: "", contentUnavailable: true },
     ]);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    expect(exported.declaredLosses).toEqual(["turn_content_unavailable"]);
-    expect(exported.frames).toHaveLength(2);
+    const transformed = transformTranscript(projection);
+    expect(transformed.declaredLosses).toEqual(["turn_content_unavailable"]);
+    expect(transformed.turns).toHaveLength(2);
   });
 
   it("declares the loss over an unreadable TOOL body, call and result alike", () => {
@@ -530,8 +456,7 @@ describe("transform pipeline — the ordered contract", () => {
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
     const segments = projection.turns.flatMap((turn) => [...turn.segments]);
-    // The pairing keys survive; a marker segment would destroy the id the repair and identity map
-    // use.
+    // The pairing keys survive; a marker segment would destroy the id the repair uses.
     expect(segments).toEqual([
       {
         kind: "tool_call",
@@ -553,56 +478,7 @@ describe("transform pipeline — the ordered contract", () => {
       },
     ]);
 
-    expect(
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded").declaredLosses,
-    ).toContain("turn_content_unavailable");
-  });
-
-  it("is idempotent on ids across two exports of the same transcript", () => {
-    const fixture = makeFixture();
-    seedInterruptedToolFixture(fixture);
-    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-    const pipeline = new TranscriptTransformPipeline((canonicalId) => `target-${canonicalId}`);
-
-    const first = pipeline.exportTranscript(projection, "unbounded");
-    const second = pipeline.exportTranscript(projection, "unbounded");
-
-    expect(second).toEqual(first);
-    const firstIds = segmentsOf(first.frames as readonly RenderedTranscriptFrame[])
-      .filter((segment) => segment.kind === "tool_call")
-      .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
-    expect(firstIds).toEqual(["target-call-1"]);
-  });
-
-  it("round-trips a rendered id back to its canonical one", () => {
-    const identityMap = new ToolCallIdentityMap((canonicalId) => `target-${canonicalId}`);
-    const fixture = makeFixture();
-    seedInterruptedToolFixture(fixture);
-    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-
-    let state: TranscriptPipelineState = createTranscriptPipelineState(projection, identityMap);
-    for (const step of CANONICAL_TRANSCRIPT_PIPELINE) {
-      state = step(state);
-    }
-
-    const renderedIds = segmentsOf(state.frames)
-      .filter((segment) => segment.kind === "tool_call")
-      .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
-    expect(renderedIds).toEqual(["target-call-1"]);
-    for (const renderedId of renderedIds) {
-      expect(identityMap.canonicalIdFor(renderedId)).toBe("call-1");
-    }
-  });
-
-  it("classifies a replayed user turn as user text and leaves seeded history unclassified", () => {
-    const fixture = makeFixture();
-    seedInterruptedToolFixture(fixture);
-    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-
-    const frames = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded")
-      .frames as readonly RenderedTranscriptFrame[];
-
-    expect(frames.map((frame) => frame.origin)).toEqual(["human_text", undefined]);
+    expect(transformTranscript(projection).declaredLosses).toContain("turn_content_unavailable");
   });
 });
 
@@ -645,15 +521,15 @@ describe("transform pipeline — a result with no call before it", () => {
       ],
     };
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed = transformTranscript(projection);
 
     // The turn the result vacated is gone; the call's turn carries both, in order, with the
     // provider's own outcome rather than a synthetic failure.
-    expect(exported.frames).toHaveLength(1);
-    const invertedPairFrames = exported.frames as readonly RenderedTranscriptFrame[];
-    expect(invertedPairFrames[0]?.position).toBe(2);
+    expect(transformed.turns).toHaveLength(1);
+    const invertedPairTurns = transformed.turns;
+    expect(invertedPairTurns[0]?.position).toBe(2);
     // Each segment keeps its event's position, so a re-homed answer leaves positions descending.
-    expect(invertedPairFrames[0]?.segments).toEqual([
+    expect(invertedPairTurns[0]?.segments).toEqual([
       {
         kind: "tool_call",
         position: 2,
@@ -670,7 +546,7 @@ describe("transform pipeline — a result with no call before it", () => {
         text: "answered early",
       },
     ]);
-    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+    expect(transformed.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 
   it("removes a result whose call is absent rather than asserting a call that never happened", () => {
@@ -696,10 +572,10 @@ describe("transform pipeline — a result with no call before it", () => {
       ],
     };
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed = transformTranscript(projection);
 
-    expect(exported.frames).toEqual([]);
-    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+    expect(transformed.turns).toEqual([]);
+    expect(transformed.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 });
 
@@ -753,11 +629,11 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
   }
 
   /**
-   * Asserts every exported call has a distinct identifier and exactly one answer that follows it,
-   * and no answer names a missing call.
+   * Asserts every transformed call has a distinct identifier and exactly one answer that follows
+   * it, and no answer names a missing call.
    */
-  function expectOneAnswerPerDistinctCall(exported: DriverTranscriptExportResult): void {
-    const segments = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]);
+  function expectOneAnswerPerDistinctCall(transformed: TransformedTranscript): void {
+    const segments = segmentsOf(transformed.turns);
     const callIds = segments
       .filter((segment) => segment.kind === "tool_call")
       .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
@@ -828,14 +704,14 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
       ],
     ]);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed = transformTranscript(projection);
 
-    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toEqual([
+    expect(segmentsOf(transformed.turns)).toEqual([
       callSegment(1, OWNER_ARGUMENTS),
       ownerResult(2),
     ]);
-    expectOneAnswerPerDistinctCall(exported);
-    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+    expectOneAnswerPerDistinctCall(transformed);
+    expect(transformed.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 
   it("disambiguates a later call reusing an identifier, when the answer sits between them", () => {
@@ -843,18 +719,18 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
       [callSegment(1, OWNER_ARGUMENTS), ownerResult(2), callSegment(3, DUPLICATE_ARGUMENTS)],
     ]);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed = transformTranscript(projection);
 
     // The identifier derives from the duplicate's position; its arguments cross unchanged.
-    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toEqual(
+    expect(segmentsOf(transformed.turns)).toEqual(
       repairedDuplicateSegments("call-shared-repaired-2", {
         ownerCall: 1,
         ownerResult: 2,
         duplicate: 3,
       }),
     );
-    expectOneAnswerPerDistinctCall(exported);
-    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+    expectOneAnswerPerDistinctCall(transformed);
+    expect(transformed.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 
   it("disambiguates a later call reusing an identifier, when the answer follows both", () => {
@@ -866,10 +742,10 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
       [ownerResult(3)],
     ]);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    const frames = exported.frames as readonly RenderedTranscriptFrame[];
+    const transformed = transformTranscript(projection);
+    const turns = transformed.turns;
 
-    expect(segmentsOf(frames)).toEqual(
+    expect(segmentsOf(turns)).toEqual(
       repairedDuplicateSegments("call-shared-repaired-1", {
         ownerCall: 1,
         ownerResult: 3,
@@ -877,9 +753,9 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
       }),
     );
     // The turn the answer vacated is empty and gone.
-    expect(frames.map((frame) => frame.position)).toEqual([1, 2]);
-    expectOneAnswerPerDistinctCall(exported);
-    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+    expect(turns.map((turn) => turn.position)).toEqual([1, 2]);
+    expectOneAnswerPerDistinctCall(transformed);
+    expect(transformed.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 
   it("derives the same disambiguated identifier on every export of one transcript", () => {
@@ -888,32 +764,10 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
       [callSegment(2, DUPLICATE_ARGUMENTS)],
       [ownerResult(3)],
     ]);
-    const pipeline = new TranscriptTransformPipeline();
 
     // A counter or random value would make the second export unrecognizable to a target that saw
     // the first.
-    expect(pipeline.exportTranscript(projection, "unbounded")).toEqual(
-      pipeline.exportTranscript(projection, "unbounded"),
-    );
-  });
-
-  it("routes a disambiguated identifier through the identity map like any other", () => {
-    // Render only looks ids up, so an identifier minted after the mapping step must arrive bound or
-    // the export throws.
-    const projection = projectionOfTurns([
-      [callSegment(1, OWNER_ARGUMENTS)],
-      [callSegment(2, DUPLICATE_ARGUMENTS)],
-      [ownerResult(3)],
-    ]);
-
-    const exported = new TranscriptTransformPipeline(
-      (canonicalId) => `target-${canonicalId}`,
-    ).exportTranscript(projection, "unbounded");
-
-    const renderedIds = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])
-      .filter((segment) => segment.kind === "tool_call")
-      .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
-    expect(renderedIds).toEqual(["target-call-shared", "target-call-shared-repaired-1"]);
+    expect(transformTranscript(projection)).toEqual(transformTranscript(projection));
   });
 
   it("mints an identifier the transcript does not already spend", () => {
@@ -934,18 +788,18 @@ describe("transform pipeline — pairing is one-to-one, on identifiers that are 
       ],
     ]);
 
-    const exported = new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
-    const callIds = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])
+    const transformed = transformTranscript(projection);
+    const callIds = segmentsOf(transformed.turns)
       .filter((segment) => segment.kind === "tool_call")
       .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
 
     expect(callIds).toEqual(["call-shared", "call-shared-repaired-1-1", "call-shared-repaired-1"]);
-    expectOneAnswerPerDistinctCall(exported);
+    expectOneAnswerPerDistinctCall(transformed);
   });
 });
 
 // --------------------------------------------------------------------------
-// The export boundary
+// The bound
 // --------------------------------------------------------------------------
 
 /** Four turns of alternating roles: 1 and 3 are the user's, 2 and 4 the assistant's. */
@@ -960,12 +814,12 @@ function seedFourTurnFixture(fixture: TranscriptFixture): void {
   fixture.contentSource.assistantTextBySequence.set(4, "second answer");
 }
 
-function exportedPositions(exported: DriverTranscriptExportResult): number[] {
-  return (exported.frames as readonly RenderedTranscriptFrame[]).map((frame) => frame.position);
+function transformedPositions(transformed: TransformedTranscript): number[] {
+  return transformed.turns.map((turn) => turn.position);
 }
 
-function exportedText(exported: DriverTranscriptExportResult): string {
-  return segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])
+function transformedText(transformed: TransformedTranscript): string {
+  return segmentsOf(transformed.turns)
     .map((segment) => (segment.kind === "text" ? segment.text : ""))
     .join("\n");
 }
@@ -975,20 +829,21 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     const fixture = makeFixture();
     seedFourTurnFixture(fixture);
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-    const pipeline = new TranscriptTransformPipeline();
 
-    const bounded: DriverTranscriptExportResult = pipeline.exportTranscript(projection, 2);
-    const whole: DriverTranscriptExportResult = pipeline.exportTranscript(projection, "unbounded");
+    const bounded: TransformedTranscript = transformTranscript(
+      boundProjectionToPosition(projection, 2),
+    );
+    const whole: TransformedTranscript = transformTranscript(projection);
 
-    expect(exportedPositions(bounded)).toEqual([1, 2]);
+    expect(transformedPositions(bounded)).toEqual([1, 2]);
     // Checked on rendered content, not only frame count: a bound that filtered positions but left
     // later text in the export would still leak it.
-    expect(exportedText(bounded)).toContain("first answer");
-    expect(exportedText(bounded)).not.toContain("second question");
-    expect(exportedText(bounded)).not.toContain("second answer");
+    expect(transformedText(bounded)).toContain("first answer");
+    expect(transformedText(bounded)).not.toContain("second question");
+    expect(transformedText(bounded)).not.toContain("second answer");
 
-    expect(exportedPositions(whole)).toEqual([1, 2, 3, 4]);
-    expect(exportedText(whole)).toContain("second answer");
+    expect(transformedPositions(whole)).toEqual([1, 2, 3, 4]);
+    expect(transformedText(whole)).toContain("second answer");
   });
 
   it("bounds the turns BEFORE pairing repair, so a call keeps an answer inside the bound", () => {
@@ -1007,9 +862,10 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     fixture.contentSource.toolResultBodyBySequence.set(3, { text: "the file contents" });
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    const bounded: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(projection, 1);
-    const segments = segmentsOf(bounded.frames as readonly RenderedTranscriptFrame[]);
+    const bounded: TransformedTranscript = transformTranscript(
+      boundProjectionToPosition(projection, 1),
+    );
+    const segments = segmentsOf(bounded.turns);
 
     // Bounding must precede the repair: after it, the call would pair with the out-of-bound result
     // and an unanswered call would reach the target under no declared loss.
@@ -1024,7 +880,7 @@ describe("transform pipeline — a bounded export carries only what the bound ad
         text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
       },
     ]);
-    expect(exportedText(bounded)).not.toContain("the file contents");
+    expect(transformedText(bounded)).not.toContain("the file contents");
     expect(bounded.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 
@@ -1044,15 +900,15 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     expect(projection.turns[0]?.position).toBe(5);
     expect(projection.turns[0]?.segments.map((segment) => segment.position)).toEqual([5, 7]);
 
-    const bounded = new TranscriptTransformPipeline().exportTranscript(projection, 5);
-    const frames = bounded.frames as readonly RenderedTranscriptFrame[];
+    const bounded = transformTranscript(boundProjectionToPosition(projection, 5));
+    const turns = bounded.turns;
 
     // A bound read off the turn's position would keep the turn whole and carry the position-7 body.
-    expect(frames).toHaveLength(1);
-    expect(frames[0]?.position).toBe(5);
-    expect(frames[0]?.segments.map((segment) => segment.position)).toEqual([5]);
-    expect(exportedText(bounded)).toContain("the suite is green");
-    expect(exportedText(bounded)).not.toContain("the leaked follow-up");
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.position).toBe(5);
+    expect(turns[0]?.segments.map((segment) => segment.position)).toEqual([5]);
+    expect(transformedText(bounded)).toContain("the suite is green");
+    expect(transformedText(bounded)).not.toContain("the leaked follow-up");
   });
 
   it("withholds an in-bound answer whose private block is logged past the bound", () => {
@@ -1096,11 +952,9 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     expect(boundProjectionToPosition(whole, 3)).toEqual(foldedToThree);
 
     // The equality above would also hold if both paths shipped the body; this says they withhold.
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(foldedToThree, "unbounded"),
-      ),
-    ).not.toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(foldedToThree))).not.toContain(
+      "42 passed",
+    );
   });
 
   it("withholds an over-bound answer whose private block is logged inside the bound", () => {
@@ -1140,11 +994,9 @@ describe("transform pipeline — a bounded export carries only what the bound ad
       foldedToThree.turns.flatMap((turn) => turn.segments).map((segment) => segment.position),
     ).toEqual([1, 2, 3]);
     expect(boundProjectionToPosition(whole, 3)).toEqual(foldedToThree);
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(foldedToThree, "unbounded"),
-      ),
-    ).not.toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(foldedToThree))).not.toContain(
+      "42 passed",
+    );
   });
 
   it("repairs a call the bound admits whose answer it does not, inside one folded turn", () => {
@@ -1159,8 +1011,8 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
     expect(projection.turns).toHaveLength(1);
 
-    const bounded = new TranscriptTransformPipeline().exportTranscript(projection, 1);
-    const segments = segmentsOf(bounded.frames as readonly RenderedTranscriptFrame[]);
+    const bounded = transformTranscript(boundProjectionToPosition(projection, 1));
+    const segments = segmentsOf(bounded.turns);
 
     // The call survives the bound orphaned and the repair answers it with a stand-in at the call's
     // own position, which the bound already admits.
@@ -1181,7 +1033,7 @@ describe("transform pipeline — a bounded export carries only what the bound ad
         text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
       },
     ]);
-    expect(exportedText(bounded)).not.toContain("the file contents");
+    expect(transformedText(bounded)).not.toContain("the file contents");
     expect(bounded.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 });
@@ -1200,28 +1052,21 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     fixture.contentSource.toolResultBodyBySequence.set(2, { text: "the file contents" });
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed: TransformedTranscript = transformTranscript(projection);
 
     // A silent drop is an empty export declaring nothing; both halves are checked.
-    expect(exported.frames).not.toEqual([]);
-    expect(exported.frames).toHaveLength(1);
+    expect(transformed.turns).not.toEqual([]);
+    expect(transformed.turns).toHaveLength(1);
     // The exact text a target receives: it must read as tool activity, not assistant prose.
     expect(
-      segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).map((segment) =>
-        segment.kind === "text" ? segment.text : "",
-      ),
+      segmentsOf(transformed.turns).map((segment) => (segment.kind === "text" ? segment.text : "")),
     ).toEqual([
       '[tool call read_file] {"path":"notes.md"}',
       "[tool result succeeded] the file contents",
     ]);
     // Nothing was lost, so nothing is declared; the row rides text, so no identifier is minted.
-    expect(exported.declaredLosses).toEqual([]);
-    expect(
-      segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).map(
-        (segment) => segment.kind,
-      ),
-    ).toEqual(["text", "text"]);
+    expect(transformed.declaredLosses).toEqual([]);
+    expect(segmentsOf(transformed.turns).map((segment) => segment.kind)).toEqual(["text", "text"]);
   });
 
   it("names a failed answer as failed rather than borrowing the succeeded wording", () => {
@@ -1229,18 +1074,14 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     fixture.log.append(storedEvent(1, "tool.error", { runId: RUN_ID }));
     fixture.contentSource.toolResultBodyBySequence.set(1, { text: "permission denied" });
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(
-        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
-        "unbounded",
-      );
+    const transformed: TransformedTranscript = transformTranscript(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+    );
 
     expect(
-      segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).map((segment) =>
-        segment.kind === "text" ? segment.text : "",
-      ),
+      segmentsOf(transformed.turns).map((segment) => (segment.kind === "text" ? segment.text : "")),
     ).toEqual(["[tool result failed] permission denied"]);
-    expect(exported.declaredLosses).toEqual([]);
+    expect(transformed.declaredLosses).toEqual([]);
   });
 
   it("withholds an unkeyed answer inside a private block, keeping the rest of its turn in order", () => {
@@ -1266,8 +1107,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     fixture.contentSource.assistantTextBySequence.set(3, "all green");
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed: TransformedTranscript = transformTranscript(projection);
 
     // The answer settles to a `withheldEnclosure` marker, not `contentUnavailable`: the body was
     // read, then withheld on purpose.
@@ -1283,11 +1123,11 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       { kind: "text", position: 2, text: "", withheldEnclosure: "private" },
       { kind: "text", position: 3, text: "all green" },
     ]);
-    expect(exportedText(exported)).not.toContain("private notes");
-    expect(exportedText(exported)).not.toContain("internal deliberation");
-    expect(exportedText(exported)).toContain("all green");
+    expect(transformedText(transformed)).not.toContain("private notes");
+    expect(transformedText(transformed)).not.toContain("internal deliberation");
+    expect(transformedText(transformed)).toContain("all green");
     // One loss even though the private block and its marker both reach the strip.
-    expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
+    expect(transformed.declaredLosses).toEqual(["provider_private_reasoning"]);
   });
 
   it("declares the withheld enclosure across a bound that cuts away the private block", () => {
@@ -1324,15 +1164,16 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       },
     ]);
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(projection, 1);
+    const transformed: TransformedTranscript = transformTranscript(
+      boundProjectionToPosition(projection, 1),
+    );
 
     // The loss is declared even though the private block is outside the bound.
-    expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
-    expect(exportedText(exported)).not.toContain("private notes");
-    expect(exportedText(exported)).not.toContain("internal deliberation");
+    expect(transformed.declaredLosses).toEqual(["provider_private_reasoning"]);
+    expect(transformedText(transformed)).not.toContain("private notes");
+    expect(transformedText(transformed)).not.toContain("internal deliberation");
     // The marker never renders: the strip consumed it, and its turn went with it.
-    expect(exported.frames).toEqual([]);
+    expect(transformed.turns).toEqual([]);
   });
 
   it("carries an unkeyed answer the provider emitted inside a summary block", () => {
@@ -1354,14 +1195,12 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       enclosingReasoningBlockId: "block-1",
     });
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(
-        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
-        "unbounded",
-      );
+    const transformed: TransformedTranscript = transformTranscript(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+    );
 
-    expect(exportedText(exported)).toContain("[tool result succeeded] 42 tests passed");
-    expect(exported.declaredLosses).toEqual([]);
+    expect(transformedText(transformed)).toContain("[tool result succeeded] 42 tests passed");
+    expect(transformed.declaredLosses).toEqual([]);
   });
 
   it("carries an unkeyed answer logged before the summary block that enclosed it", () => {
@@ -1383,14 +1222,12 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       },
     ]);
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(
-        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
-        "unbounded",
-      );
+    const transformed: TransformedTranscript = transformTranscript(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+    );
 
-    expect(exportedText(exported)).toContain("[tool result succeeded] 42 tests passed");
-    expect(exported.declaredLosses).toEqual([]);
+    expect(transformedText(transformed)).toContain("[tool result succeeded] 42 tests passed");
+    expect(transformed.declaredLosses).toEqual([]);
   });
 
   it("withholds an unkeyed answer citing a block its own turn does not carry", () => {
@@ -1413,14 +1250,12 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       enclosingReasoningBlockId: "block-1",
     });
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(
-        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
-        "unbounded",
-      );
+    const transformed: TransformedTranscript = transformTranscript(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+    );
 
-    expect(exportedText(exported)).not.toContain("42 tests passed");
-    expect(exported.declaredLosses).toContain("turn_content_unavailable");
+    expect(transformedText(transformed)).not.toContain("42 tests passed");
+    expect(transformed.declaredLosses).toContain("turn_content_unavailable");
   });
 
   it("marks a reasoning row whose blocks could not be read", () => {
@@ -1434,9 +1269,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     expect(projection.turns[0]?.segments).toEqual([
       { kind: "text", position: 1, text: "", contentUnavailable: true },
     ]);
-    expect(
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded").declaredLosses,
-    ).toEqual(["turn_content_unavailable"]);
+    expect(transformTranscript(projection).declaredLosses).toEqual(["turn_content_unavailable"]);
   });
 
   it("keeps a reasoning row that carried no blocks apart from one it could not read", () => {
@@ -1447,14 +1280,12 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     fixture.contentSource.assistantTextBySequence.set(2, "done");
 
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(
-        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
-        "unbounded",
-      );
+    const transformed: TransformedTranscript = transformTranscript(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+    );
 
-    expect(exportedText(exported)).toBe("done");
-    expect(exported.declaredLosses).toEqual([]);
+    expect(transformedText(transformed)).toBe("done");
+    expect(transformed.declaredLosses).toEqual([]);
   });
 
   it("marks an unkeyed invocation whose arguments could not be read", () => {
@@ -1467,9 +1298,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     expect(projection.turns[0]?.segments).toEqual([
       { kind: "text", position: 1, text: "", contentUnavailable: true },
     ]);
-    expect(
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded").declaredLosses,
-    ).toEqual(["turn_content_unavailable"]);
+    expect(transformTranscript(projection).declaredLosses).toEqual(["turn_content_unavailable"]);
   });
 });
 
@@ -1481,9 +1310,9 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
 // same turn. When that block is unreadable or cut away by a bound, its disclosure is unknowable,
 // and keeping the result could export private reasoning's output to a target.
 
-/** The bodies the export's tool results carry; `exportedText` reads text segments only. */
-function exportedToolResultTexts(exported: DriverTranscriptExportResult): string[] {
-  return segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).flatMap((segment) =>
+/** The bodies the transformed tool results carry; `transformedText` reads text segments only. */
+function transformedToolResultTexts(transformed: TransformedTranscript): string[] {
+  return segmentsOf(transformed.turns).flatMap((segment) =>
     segment.kind === "tool_result" ? [segment.text] : [],
   );
 }
@@ -1515,21 +1344,20 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
     seedUnreadableEnclosureFixture(fixture);
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-    const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+    const transformed: TransformedTranscript = transformTranscript(projection);
 
     // The body never reaches the target; its call survives and the pairing repair answers it.
-    expect(exportedToolResultTexts(exported)).not.toContain("42 passed");
-    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toContainEqual(
+    expect(transformedToolResultTexts(transformed)).not.toContain("42 passed");
+    expect(segmentsOf(transformed.turns)).toContainEqual(
       expect.objectContaining({
         kind: "tool_result",
         text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
       }),
     );
     // Declared, so a withheld body is not read as a transcript that dropped nothing.
-    expect(exported.declaredLosses).toContain("turn_content_unavailable");
+    expect(transformed.declaredLosses).toContain("turn_content_unavailable");
     // Not reported as private reasoning: the block was never read, so its disclosure is unknown.
-    expect(exported.declaredLosses).not.toContain("provider_private_reasoning");
+    expect(transformed.declaredLosses).not.toContain("provider_private_reasoning");
   });
 
   /** The private block is logged after the answer it enclosed, and a bound falls between them. */
@@ -1573,11 +1401,7 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
         .some((segment) => segment.kind === "reasoning"),
     ).toBe(false);
 
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
-      ),
-    ).not.toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(bounded))).not.toContain("42 passed");
   });
 
   it("keeps a result whose summary enclosure a bound cuts away", () => {
@@ -1613,11 +1437,7 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
     const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
 
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
-      ),
-    ).toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(bounded))).toContain("42 passed");
   });
   it("keeps a result citing a block from another turn", () => {
     // A citation across a turn boundary is not an enclosure, and this turn read its own reasoning
@@ -1650,11 +1470,7 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(projection, "unbounded"),
-      ),
-    ).toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(projection))).toContain("42 passed");
   });
 
   /**
@@ -1714,11 +1530,7 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
 
     // The result names its enclosure by block id alone, so the disagreement resolves to unknown and
     // the body does not travel.
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
-      ),
-    ).not.toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(bounded))).not.toContain("42 passed");
   });
 
   it("keeps it when a repeated block id agrees on its disclosure", () => {
@@ -1755,10 +1567,6 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
     const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
 
-    expect(
-      exportedToolResultTexts(
-        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
-      ),
-    ).toContain("42 passed");
+    expect(transformedToolResultTexts(transformTranscript(bounded))).toContain("42 passed");
   });
 });

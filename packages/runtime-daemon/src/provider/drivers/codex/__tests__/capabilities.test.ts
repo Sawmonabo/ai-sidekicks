@@ -43,7 +43,6 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   session_goals: true,
   callback_tools: true,
   subagents: true,
-  transcript_replay: true,
   // `context_compaction` and `provider_commands` are native on this provider
   // (`thread/compact/start` and `skills/list`).
   context_compaction: true,

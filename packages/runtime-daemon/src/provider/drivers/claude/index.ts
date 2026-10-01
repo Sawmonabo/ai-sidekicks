@@ -7,9 +7,9 @@
 //
 // The class implements a `Pick<ProviderDriver, ...>` rather than the whole interface. Declaring
 // the full interface would force throwing stubs for the operations this driver does not serve
-// (`respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`, the two goal
-// operations), and a driver that throws for an operation looks like a provider that refused it.
-// The `Pick` still binds every implemented signature to the contract at compile time.
+// (`respondToRequest`, `listModes`, `getCapabilities`, the two goal operations), and a driver
+// that throws for an operation looks like a provider that refused it. The `Pick` still binds every
+// implemented signature to the contract at compile time.
 
 import type {
   ApplyInterventionParams,
@@ -34,9 +34,7 @@ import type {
   ListProviderCommandsParams,
   DriverResumeResult,
   ForkConversationResult,
-  DriverTranscriptReplayResult,
   ProviderDriver,
-  ReplayTranscriptParams,
   ProviderSessionHandle,
   ResumeSessionParams,
   ForkConversationParams,
@@ -64,7 +62,6 @@ type ClaudeDriverOperations = Pick<
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
-  | "replayTranscript"
 >;
 
 /** The composition root's dependencies: the lifecycle's plus the model-catalog exchange. */
@@ -135,16 +132,6 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
     return await this.#lifecycle.listProviderCommands(params);
-  }
-
-  /**
-   * Reconstitutes the canonical transcript into a fresh provider session.
-   *
-   * Refuses on every published build: the provider offers no transcript-seeding surface, so
-   * reconstitution falls back to the memo floor reported `degraded`.
-   */
-  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    return await this.#lifecycle.replayTranscript(params);
   }
 
   /**

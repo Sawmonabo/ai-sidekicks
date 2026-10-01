@@ -10,10 +10,9 @@
 //     the interval the other metered (readings 0, 100, 150 must yield 100 + 50).
 //   - Each interval is attributed to the turn the frame itself names, not the turn open at
 //     arrival: a usage frame routinely lands after the next turn has opened.
-//   - A fresh provider session, replay-seeded included, bases at zero and its first reading
-//     meters in full: the provider counter starts at zero and transcript injection spends
-//     nothing. A provider-native resume bases at the daemon's own prior-emitted cumulative sum
-//     for the thread, never at the first post-resume reading.
+//   - A fresh provider session bases at zero and its first reading meters in full: the provider
+//     counter starts at zero. A provider-native resume bases at the daemon's own prior-emitted
+//     cumulative sum for the thread, never at the first post-resume reading.
 //   - There is no compaction re-base: compaction does not touch the provider's counter, and a
 //     re-base would forgive every pre-boundary token.
 //   - Where the wire declares a per-turn figure beside the cumulative one (the Codex breakdown's
@@ -167,11 +166,11 @@ export class UsageDeltaAccountant {
   }
 
   /**
-   * Establish one thread's base registers. `fresh` (a daemon-created session, replay-seeded
-   * included) bases every axis at zero. `resume` (a provider-native resume) bases each axis at
-   * the prior-emitted cumulative sum rebuilt from the canonical record, so pre-resume spend is
-   * never re-metered. Establishing an established thread replaces its registers, which is what
-   * a resume of an already-metered thread needs.
+   * Establish one thread's base registers. `fresh` (a daemon-created session) bases every axis at
+   * zero. `resume` (a provider-native resume) bases each axis at the prior-emitted cumulative sum
+   * rebuilt from the canonical record, so pre-resume spend is never re-metered. Establishing an
+   * established thread replaces its registers, which is what a resume of an already-metered thread
+   * needs.
    */
   establishThread(threadId: string, establishment: ThreadBaseEstablishment): void {
     const baseRegisters = new Map<UsageTokenAxis, number>();

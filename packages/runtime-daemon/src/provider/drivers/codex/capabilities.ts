@@ -39,7 +39,7 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * Capability-contract semver the writer compares to detect change; it moves whenever the shape of
  * what this driver advertises changes.
  */
-const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
+const CODEX_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
 
 /** A flag is `true` only where the driver delivers the capability at its own boundary. */
 export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
@@ -69,9 +69,6 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     callback_tools: true,
     // Peer agents can be spawned, messaged, and closed from within a turn.
     subagents: true,
-    // Native: `thread/inject_items` appends Responses-API items to the model-visible history. The
-    // wire types them as untyped JSON, so `./lifecycle.ts` reads the session back after seeding.
-    transcript_replay: true,
     // User-triggered compaction (`thread/compact/start`) announces itself like an unsolicited one.
     context_compaction: true,
     // The provider publishes an enumerable skill surface (`skills/list`) and signals invalidation.

@@ -90,12 +90,6 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     rationale:
       "Peer agents are spawned from WITHIN a turn; the wire reference establishes no client-request method for them, so the enumeration cannot decide it in either direction.",
   },
-  transcript_replay: {
-    detectionSource: "static",
-    failingConjuncts: ["decisive-at-consumption-granularity"],
-    rationale:
-      "An item-injection method being accepted does not establish that a seeded history is faithfully adopted — which is what the flag's consumers depend on, and what the post-replay assertion is the only admissible evidence of.",
-  },
   context_compaction: {
     detectionSource: "probed",
     probe: {

@@ -1,153 +1,23 @@
-// The ordered transcript transform pipeline: fold, map identity, strip non-portable content,
-// repair pairing, render. The order is the contract. Repairing before stripping repairs pairs the
-// strip then breaks; rendering before mapping identity renders ids the map has not yet fixed.
-// The steps are exported individually, and a caller that composes them wrongly gets a wrong
-// answer or a thrown error, not a quietly different one. `TranscriptTransformPipeline` is the
-// only place that hard-codes the canonical order.
+// The ordered transcript transform steps: fold, strip non-portable content, repair pairing. The
+// order is the contract: repairing before stripping repairs pairs the strip then breaks. The steps
+// are exported individually, and a caller that composes them wrongly gets a wrong answer, not a
+// quietly different one. `transformTranscript` is the only place that hard-codes the order.
 //
-// A rendered transcript is a projection of a log that moves, so it is never cached.
+// A transformed transcript is a projection of a log that moves, so it is never cached.
 //
-// The identity map never gives a different id to a call whose id is intact, so an export and
-// back is the identity function on ids. The one exception is the pairing repair: a transcript
-// with two calls under one id cannot be exported as-is, so the repair disambiguates the later
-// call instead of dropping it. That repair is declared, and it is the only id this module mints.
+// The pairing repair is the one place this module mints an id: a transcript with two calls under
+// one id cannot be carried as-is, so the repair disambiguates the later call instead of dropping
+// it, and declares that it did.
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
-import type { OutboundFrameOrigin } from "../outbound-frame.js";
-
-import { boundProjectionToPosition, type TranscriptExportBound } from "./canonical-transcript.js";
 import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-  DriverTranscriptExportResult,
 } from "../provider-driver.js";
-
-// --------------------------------------------------------------------------
-// Tool-call identity
-// --------------------------------------------------------------------------
-
-/**
- * Derives the id the target provider will see from the canonical id. The default is the identity
- * function; a driver whose provider constrains id syntax supplies its own, and the map still
- * guarantees the mapping is bidirectional.
- */
-export type TargetToolCallIdDerivation = (canonicalToolCallId: string) => string;
-
-/** Thrown when a derivation would give two distinct canonical ids one target id. */
-export class ToolCallIdentityCollisionError extends Error {
-  readonly canonicalToolCallId: string;
-  readonly conflictingCanonicalToolCallId: string;
-  readonly targetToolCallId: string;
-
-  constructor(
-    canonicalToolCallId: string,
-    conflictingCanonicalToolCallId: string,
-    targetToolCallId: string,
-  ) {
-    super(
-      `Two distinct tool calls would share one target identifier: refusing to reuse "${targetToolCallId}".`,
-    );
-    this.name = "ToolCallIdentityCollisionError";
-    this.canonicalToolCallId = canonicalToolCallId;
-    this.conflictingCanonicalToolCallId = conflictingCanonicalToolCallId;
-    this.targetToolCallId = targetToolCallId;
-  }
-}
-
-/** Thrown when a render reaches a tool call the identity map never bound. */
-export class UnmappedToolCallIdentityError extends Error {
-  readonly canonicalToolCallId: string;
-
-  constructor(canonicalToolCallId: string) {
-    super(
-      `No target identifier is bound for tool call "${canonicalToolCallId}"; identity must be mapped before frames are rendered.`,
-    );
-    this.name = "UnmappedToolCallIdentityError";
-    this.canonicalToolCallId = canonicalToolCallId;
-  }
-}
-
-/**
- * The stable, bidirectional canonical-to-target tool-call id mapping. `bind` is idempotent for
- * a canonical id it already holds, so a second pass over one transcript mints no second
- * identity, and it refuses to hand one target id to two canonical ids.
- */
-export class ToolCallIdentityMap {
-  readonly #deriveTargetId: TargetToolCallIdDerivation;
-  readonly #targetIdByCanonicalId: Map<string, string> = new Map<string, string>();
-  readonly #canonicalIdByTargetId: Map<string, string> = new Map<string, string>();
-
-  constructor(deriveTargetId: TargetToolCallIdDerivation = (canonicalId) => canonicalId) {
-    this.#deriveTargetId = deriveTargetId;
-  }
-
-  /** Bind (or return the existing binding for) one canonical tool-call id. */
-  bind(canonicalToolCallId: string): string {
-    const alreadyBound: string | undefined = this.#targetIdByCanonicalId.get(canonicalToolCallId);
-    if (alreadyBound !== undefined) {
-      return alreadyBound;
-    }
-
-    const targetToolCallId: string = this.#deriveTargetId(canonicalToolCallId);
-    const conflicting: string | undefined = this.#canonicalIdByTargetId.get(targetToolCallId);
-    if (conflicting !== undefined) {
-      throw new ToolCallIdentityCollisionError(canonicalToolCallId, conflicting, targetToolCallId);
-    }
-
-    this.#targetIdByCanonicalId.set(canonicalToolCallId, targetToolCallId);
-    this.#canonicalIdByTargetId.set(targetToolCallId, canonicalToolCallId);
-    return targetToolCallId;
-  }
-
-  /**
-   * The target id for an already-bound canonical id. Throws instead of binding on demand, so a
-   * render that ran before the identity step fails rather than succeeding with unagreed ids.
-   */
-  targetIdFor(canonicalToolCallId: string): string {
-    const targetToolCallId: string | undefined =
-      this.#targetIdByCanonicalId.get(canonicalToolCallId);
-    if (targetToolCallId === undefined) {
-      throw new UnmappedToolCallIdentityError(canonicalToolCallId);
-    }
-    return targetToolCallId;
-  }
-
-  /** The canonical id a target id came from — the reverse direction. */
-  canonicalIdFor(targetToolCallId: string): string | undefined {
-    return this.#canonicalIdByTargetId.get(targetToolCallId);
-  }
-
-  /** How many calls are bound. */
-  get size(): number {
-    return this.#targetIdByCanonicalId.size;
-  }
-}
-
-// --------------------------------------------------------------------------
-// Rendered frames
-// --------------------------------------------------------------------------
-
-// An alias of the neutralization boundary's closed set, so the two never drift into separate
-// spellings of a fail-closed discriminator.
-type RenderedFrameOrigin = OutboundFrameOrigin;
-
-/**
- * One provider-neutral outbound frame; drivers map these into their own target shapes.
- *
- * `origin` is set only for a replayed user turn. It is absent for prior assistant and tool
- * turns, which are not on the provider's text-input channel; an absent origin takes the
- * neutralizing arm of the discriminator.
- */
-export interface RenderedTranscriptFrame {
-  readonly position: number;
-  readonly role: CanonicalTranscriptTurn["role"];
-  readonly origin?: RenderedFrameOrigin | undefined;
-  readonly segments: readonly CanonicalTranscriptSegment[];
-}
 
 // --------------------------------------------------------------------------
 // Pipeline state and steps
@@ -157,9 +27,7 @@ export interface RenderedTranscriptFrame {
 export interface TranscriptPipelineState {
   readonly projection: CanonicalTranscriptProjection;
   readonly turns: readonly CanonicalTranscriptTurn[];
-  readonly identityMap: ToolCallIdentityMap;
   readonly declaredLosses: readonly DeclaredLossKind[];
-  readonly frames: readonly RenderedTranscriptFrame[];
 }
 
 /** One pipeline step: reads the state and returns the next one. */
@@ -187,16 +55,13 @@ const REPAIRED_TOOL_CALL_ID_INFIX = "-repaired-";
 /** Build the state a pipeline run starts from. */
 export function createTranscriptPipelineState(
   projection: CanonicalTranscriptProjection,
-  identityMap: ToolCallIdentityMap = new ToolCallIdentityMap(),
 ): TranscriptPipelineState {
   return {
     projection,
     // Empty, not pre-seated: a composition that skips the fold step yields nothing rather than
     // quietly working.
     turns: [],
-    identityMap,
     declaredLosses: [],
-    frames: [],
   };
 }
 
@@ -210,8 +75,7 @@ export function segmentContentIsUnavailable(segment: CanonicalTranscriptSegment)
 
 /**
  * Step 1: seat the folded turns the projection carries, declaring the loss for any body the
- * fold could not read. Declared here because both the export pipeline and the memo projection
- * run this step, so no consumer reads an empty loss list as "nothing was dropped".
+ * fold could not read, so no consumer reads an empty loss list as "nothing was dropped".
  */
 export const foldTurns: TranscriptPipelineStep = (state) => {
   const carriesUnavailableContent: boolean = state.projection.turns.some((turn) =>
@@ -227,26 +91,11 @@ export const foldTurns: TranscriptPipelineStep = (state) => {
   };
 };
 
-/**
- * Step 2: bind every tool call's identity, in log order. It mutates the shared map instead of
- * returning a new one, because steps 2 and 5 must consult the same map.
- */
-export const mapToolCallIdentity: TranscriptPipelineStep = (state) => {
-  for (const turn of state.turns) {
-    for (const segment of turn.segments) {
-      if (segment.kind === "tool_call") {
-        state.identityMap.bind(segment.toolCallId);
-      }
-    }
-  }
-  return state;
-};
-
 /** Shared empty lookup for a turn that stripped no private block. */
 const EMPTY_BLOCK_ID_SET: ReadonlySet<string> = new Set<string>();
 
 /**
- * Step 3: strip what is not portable, recording each stripped class.
+ * Step 2: strip what is not portable, recording each stripped class.
  *
  * Keyed on `disclosure`, never on a reasoning-kind name: a filter matching one kind leaves that
  * kind's redacted sibling behind and breaks the multi-turn protocol. Visible summaries carry
@@ -260,7 +109,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
   //
   // The set of stripped block ids is scoped per turn. Providers restart block numbering, so a
   // flat set would let one turn's private id censor an unrelated turn's real tool result, which
-  // step 4 would then repair into a failure the provider never produced. It is keyed by array
+  // step 3 would then repair into a failure the provider never produced. It is keyed by array
   // index, not `turn.position`, which a malformed projection can repeat.
   //
   // The turn is the enclosure boundary: the fold closes a turn at a turn marker or a user
@@ -308,10 +157,10 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
           segment.enclosureDisclosure === "private" ||
           strippedBlockIdsInTurn.has(segment.enclosingReasoningBlockId)
         ) {
-          // The result goes with the block that carried it; its call survives, which step 4
+          // The result goes with the block that carried it; its call survives, which step 3
           // answers. Two sources: the fold's stamp survives a positional bound that cuts the
           // private block; the in-turn set is the floor for a projection built by anything
-          // that does not stamp, where failing open would export private reasoning.
+          // that does not stamp, where failing open would carry private reasoning.
           recordedPrivateReasoningLoss = true;
           continue;
         }
@@ -342,24 +191,22 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
 };
 
 /**
- * Step 4: repair pairing integrity, strictly after the strip.
+ * Step 3: repair pairing integrity, strictly after the strip.
  *
- * Pairing is positional. A result that precedes its call is as invalid to the target as an
- * unpaired one, and a set-membership check would report it as no loss. Exported calls carry
- * distinct ids and each is answered exactly once, because a target mis-attributes or rejects
- * any other shape. Every repair is declared:
+ * Pairing is positional. A result that precedes its call is as unpaired as one with no call, and a
+ * set-membership check would report it as no loss. Repaired calls carry distinct ids and each is
+ * answered exactly once, because a reader mis-attributes any other shape. Every repair is
+ * declared:
  *
- *   - An unpaired call takes a synthetic error result right after it and is never dropped: the
- *     target's injection surface does no pairing validation, so an unpaired call would be
- *     accepted silently and every later request against that session rejected.
+ *   - An unpaired call takes a synthetic error result right after it and is never dropped.
  *   - A result that precedes its call is re-homed directly after it, keeping the provider's
  *     real outcome.
- *   - A result whose call is absent is removed; injecting it would assert a call that never
+ *   - A result whose call is absent is removed; carrying it would assert a call that never
  *     happened.
  *   - Of several results under one id, the first-positioned one stays and the rest are removed.
  *   - A call reusing an id an earlier call owns gets a disambiguated id derived from its
  *     position, with a synthetic error result under the new id. Its arguments are unchanged.
- *     Dropping the call or exporting two indistinguishable calls are the alternatives.
+ *     Dropping the call or carrying two indistinguishable calls are the alternatives.
  */
 export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
   // Flat segment ordinals across the whole transcript, so "before" and "after" hold across a
@@ -451,8 +298,6 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
           identifiersInUse,
         );
         identifiersInUse.add(disambiguatedToolCallId);
-        // The render looks every id up in the map, so an id minted after step 2 is bound here.
-        state.identityMap.bind(disambiguatedToolCallId);
         segments.push({ ...segment, toolCallId: disambiguatedToolCallId });
         segments.push({
           kind: "tool_result",
@@ -500,7 +345,7 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
       );
       if (reusedToolCallIds.has(segment.toolCallId) && retainedResult !== undefined) {
         // A reused id puts a second call between this one and its answer. Pulling the answer up
-        // stops a target that pairs a call with the next result from reading the duplicate's
+        // stops a reader that pairs a call with the next result from reading the duplicate's
         // synthetic failure as this call's outcome.
         repaired = true;
         segments.push(retainedResult);
@@ -520,7 +365,7 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
   return { ...state, turns: repairedTurns, declaredLosses: orderDeclaredLosses(declaredLosses) };
 };
 
-// Derived from the call's position, not a counter or random value, so two exports of one
+// Derived from the call's position, not a counter or random value, so two runs over one
 // transcript yield the same id. The suffix loop covers a provider that already used the name.
 function mintDisambiguatedToolCallId(
   reusedToolCallId: string,
@@ -537,95 +382,21 @@ function mintDisambiguatedToolCallId(
   return candidate;
 }
 
-/**
- * Step 5: render the turns into provider-neutral outbound frames, rewriting every tool-call id
- * through the identity map. The rewrite is a lookup, so a render that ran before the identity
- * step throws instead of minting ids.
- */
-export const renderTargetFrames: TranscriptPipelineStep = (state) => {
-  const frames: RenderedTranscriptFrame[] = state.turns.map((turn): RenderedTranscriptFrame => {
-    const segments: CanonicalTranscriptSegment[] = turn.segments.map((segment) => {
-      if (segment.kind === "tool_call") {
-        return { ...segment, toolCallId: state.identityMap.targetIdFor(segment.toolCallId) };
-      }
-      if (segment.kind === "tool_result") {
-        return { ...segment, toolCallId: state.identityMap.targetIdFor(segment.toolCallId) };
-      }
-      return segment;
-    });
-    return turn.role === "user"
-      ? { position: turn.position, role: turn.role, origin: "human_text", segments }
-      : { position: turn.position, role: turn.role, segments };
-  });
+/** What the three steps leave of a projection: its portable turns and every declared loss. */
+export interface TransformedTranscript {
+  readonly turns: readonly CanonicalTranscriptTurn[];
+  readonly declaredLosses: readonly DeclaredLossKind[];
+}
 
-  return { ...state, frames };
-};
-
-/** The five steps in canonical order, exported so a test can assert the sequence directly. */
-export const CANONICAL_TRANSCRIPT_PIPELINE: readonly TranscriptPipelineStep[] = [
-  foldTurns,
-  mapToolCallIdentity,
-  stripNonPortableContent,
-  repairPairingIntegrity,
-  renderTargetFrames,
-];
-
-// --------------------------------------------------------------------------
-// The export boundary
-// --------------------------------------------------------------------------
-
-// The position bound is defined in `canonical-transcript.ts`, which applies it to its own output.
-// It is re-exported so this module's `exportTranscript` signature and its importers keep one name
-// for the concept.
-export type { TranscriptExportBound };
-export { boundProjectionToPosition };
-
-// --------------------------------------------------------------------------
-// The runner
-// --------------------------------------------------------------------------
-
-/**
- * Runs the five steps in canonical order and nothing else. It owns the per-export identity map's
- * lifetime, so an export cannot inherit bindings from an unrelated transcript, and takes the id
- * derivation once at construction.
- */
-export class TranscriptTransformPipeline {
-  readonly #deriveTargetToolCallId: TargetToolCallIdDerivation | undefined;
-
-  constructor(deriveTargetToolCallId?: TargetToolCallIdDerivation) {
-    this.#deriveTargetToolCallId = deriveTargetToolCallId;
-  }
-
-  /**
-   * Export one canonical transcript, optionally bounded. The same projection and bound always
-   * yield equal frames and ids; nothing carries between calls.
-   *
-   * `bound` is the inclusive position the export may carry up to, or `"unbounded"`. It is
-   * required so no caller exports the whole conversation by forgetting to forward it, and it is
-   * applied ahead of the first step (see {@link boundProjectionToPosition}).
-   */
-  exportTranscript(
-    projection: CanonicalTranscriptProjection,
-    bound: TranscriptExportBound,
-  ): DriverTranscriptExportResult {
-    const identityMap: ToolCallIdentityMap =
-      this.#deriveTargetToolCallId === undefined
-        ? new ToolCallIdentityMap()
-        : new ToolCallIdentityMap(this.#deriveTargetToolCallId);
-
-    let state: TranscriptPipelineState = createTranscriptPipelineState(
-      boundProjectionToPosition(projection, bound),
-      identityMap,
-    );
-    for (const step of CANONICAL_TRANSCRIPT_PIPELINE) {
-      state = step(state);
-    }
-
-    return {
-      frames: [...state.frames],
-      declaredLosses: [...state.declaredLosses],
-    };
-  }
+/** Runs fold, strip and repair over one projection, in that order. */
+export function transformTranscript(
+  projection: CanonicalTranscriptProjection,
+): TransformedTranscript {
+  let state: TranscriptPipelineState = createTranscriptPipelineState(projection);
+  state = foldTurns(state);
+  state = stripNonPortableContent(state);
+  state = repairPairingIntegrity(state);
+  return { turns: state.turns, declaredLosses: state.declaredLosses };
 }
 
 // --------------------------------------------------------------------------

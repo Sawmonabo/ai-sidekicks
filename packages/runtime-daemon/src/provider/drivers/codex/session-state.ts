@@ -22,7 +22,6 @@ import {
   type ProviderRefusalShape,
   type ProviderRequestFailureObservation,
 } from "../../transcript/failure-mapping.js";
-import { type ReplayTargetReadbackReader } from "../../transcript/replay-assertion.js";
 import {
   CODEX_THREAD_STARTED_METHOD,
   CODEX_TURN_COMPLETED_METHOD,
@@ -392,15 +391,9 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
   /**
-   * Reads a replay target's turns back as text for the post-replay assertion (same shape as
-   * `MemoTargetGateway.readTurnsForMarkerReconciliation`). Unbound: the pinned Codex documents no
-   * read returning turn bodies, so `replayTranscript` abandons the target and refuses.
-   */
-  readonly transcriptReplayReadback?: ReplayTargetReadbackReader | undefined;
-  /**
    * Reads how many user-originated turns a thread holds, for the positional reconcile of an
-   * ambiguous `turn/start` against `turnBoundaries` (`transcriptReplayReadback` bodies include
-   * assistant turns). Unbound, the ambiguity reports `unrecoverable`: nothing is re-sent.
+   * ambiguous `turn/start` against `turnBoundaries`. Unbound, the ambiguity reports
+   * `unrecoverable`: nothing is re-sent.
    */
   readonly userTurnReadback?: UserTurnReadbackReader | undefined;
 }

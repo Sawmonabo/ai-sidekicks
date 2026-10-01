@@ -22,7 +22,6 @@ import {
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
 } from "../../outbound-frame.js";
-import { type ClaudeTranscriptReplaySurfaceReader } from "./capabilities.js";
 import type {
   ClaudeHandshakeDeclaration,
   ClaudeInboundFrameObservation,
@@ -150,11 +149,6 @@ export interface ClaudeSessionLifecycleDependencies {
     runId: RunId,
     failure: TextNeutralizationRunFailure,
   ) => void;
-  /**
-   * Reads the installed build's transcript-replay surface, the source of the `transcript_replay`
-   * flag. Absent means every replay refuses, as no published build has a seeding surface.
-   */
-  readonly transcriptReplaySurfaceReader?: ClaudeTranscriptReplaySurfaceReader | undefined;
   /** Receives each child's `subagent.started`/`subagent.completed` pair, its only timeline mark. */
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)

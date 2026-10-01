@@ -468,7 +468,7 @@ describe("DriverCapabilitiesWriter — snapshot reader row-set invariant", () =>
     expect(() => {
       db.prepare(
         `UPDATE driver_capabilities
-            SET capability_flag = 'transcript_replay'
+            SET capability_flag = 'context_compaction'
           WHERE driver_name = ? AND capability_flag = 'mcp'`,
       ).run(DRIVER_NAME);
     }).toThrow(/UNIQUE constraint failed|PRIMARY KEY/i);
@@ -477,7 +477,7 @@ describe("DriverCapabilitiesWriter — snapshot reader row-set invariant", () =>
     expect(() => {
       db.prepare(
         `UPDATE driver_capabilities
-            SET capability_flag = 'transcript_replays'
+            SET capability_flag = 'context_compactions'
           WHERE driver_name = ? AND capability_flag = 'mcp'`,
       ).run(DRIVER_NAME);
     }).toThrow(/CHECK constraint failed/i);

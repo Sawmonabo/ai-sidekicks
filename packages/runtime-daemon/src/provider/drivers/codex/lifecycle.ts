@@ -8,8 +8,8 @@
  *   Splitting a frame across small writes does not help: the cap is per line, not per write, and
  *   it performs worse.
  * - The establishment legs, spawn posture, text-neutralization tripwire, steer dispatch, routing
- *   band, routed-ask attribution, command cache, compaction dispatch and replay seeding are
- *   collaborators this class builds once; it keeps the session slots, the run and turn entry
+ *   band, routed-ask attribution, command cache and compaction dispatch are collaborators this
+ *   class builds once; it keeps the session slots, the run and turn entry
  *   points and teardown.
  * - Every spawn or dispose runs inside `#claimSessionSlot` (`establishing`, `live`, `closing`),
  *   held until fully settled, so no owned process exists without a held slot; a `startRun` that
@@ -32,7 +32,6 @@ import {
   classifyProviderRequestFailure,
   PermanentStructuralRefusalError,
 } from "../../transcript/failure-mapping.js";
-import { ReplayTargetLedger } from "../../transcript/replay-assertion.js";
 import { CODEX_SKILLS_CHANGED_METHOD } from "./event-normalizer.js";
 import { CodexTerminalEmissionGate } from "./turn-evidence.js";
 import {
@@ -79,7 +78,6 @@ import {
   requestCodexAuthStatus,
 } from "./auth-status.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
-import { CODEX_THREAD_INJECT_ITEMS_METHOD } from "./provider-commands.js";
 import { CodexRunRoutes } from "./run-routes.js";
 import { CodexTextNeutralization } from "./text-neutralization.js";
 import { CodexNotificationRouting } from "./notification-routing.js";
@@ -87,7 +85,6 @@ import { CodexProviderCommandCache } from "./provider-command-cache.js";
 import { CodexSpawnPosture } from "./spawn-posture.js";
 import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
 import { CodexSteerDispatch } from "./steer-dispatch.js";
-import { CodexReplaySeeding } from "./replay-seeding.js";
 import { CodexCompactionDispatch } from "./compaction-dispatch.js";
 import { CodexSessionEstablishment, releaseAbandonedConnection } from "./session-establishment.js";
 import {
@@ -100,9 +97,7 @@ import {
   type ListProviderCommandsParams,
   type DriverResumeResult,
   type ForkConversationResult,
-  type DriverTranscriptReplayResult,
   type ProviderSessionHandle,
-  type ReplayTranscriptParams,
   type ResumeSessionParams,
   type ForkConversationParams,
   type SetSessionGoalParams,
@@ -125,8 +120,6 @@ export class CodexLifecycleManager {
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
-  /** Burned replay targets by provider session id; they outlive the daemon-side session. */
-  readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
   /**
    * Settles an ambiguous `turn/start` positionally; its per-thread serialization keeps one
    * reconcile's read and ruling atomic. A concurrent successful start can only inflate the read,
@@ -152,7 +145,6 @@ export class CodexLifecycleManager {
   readonly #notificationRouting: CodexNotificationRouting;
   readonly #routedAsks: CodexRoutedAskAttributor;
   readonly #compactionDispatch: CodexCompactionDispatch;
-  readonly #replaySeeding: CodexReplaySeeding;
   readonly #establishment: CodexSessionEstablishment;
   readonly #steerDispatch: CodexSteerDispatch;
 
@@ -205,13 +197,6 @@ export class CodexLifecycleManager {
     });
     this.#routedAsks = new CodexRoutedAskAttributor(options, this.#sessions);
     this.#compactionDispatch = new CodexCompactionDispatch(options, this.#pendingCompactions);
-    this.#replaySeeding = new CodexReplaySeeding({
-      options,
-      replayTargets: this.#replayTargets,
-      closeSession: async (params: CloseSessionParams): Promise<void> => {
-        await this.closeSession(params);
-      },
-    });
     this.#establishment = new CodexSessionEstablishment({
       options,
       sessions: this.#sessions,
@@ -527,40 +512,6 @@ export class CodexLifecycleManager {
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     const record = this.#requireSession(params.sessionId);
     return await this.#compactionDispatch.dispatchCompaction(params.sessionId, record);
-  }
-
-  /**
-   * Reconstitutes the transcript into a fresh session, one `thread/inject_items` request per frame
-   * so a failure leaves a known applied prefix, and returns only after the readback confirms it.
-   * Every failure abandons the target ({@link ReplayTargetLedger}) and throws; a frame this leg
-   * cannot represent is refused, never skipped, so `applied` carries no losses.
-   */
-  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    const targetProviderSessionId: string = params.target.providerSessionId;
-    this.#replayTargets.assertUsable(targetProviderSessionId);
-
-    const record: CodexSessionRecord = this.#requireReplayTargetRecord(params.target);
-
-    await this.#replaySeeding.seedFreshTarget(record, targetProviderSessionId, params);
-
-    // Retired on success too: `thread/inject_items` leaves `turnBoundaries` empty, so the
-    // freshness gate would not stop a second seeding through the same handle.
-    this.#replayTargets.consume(targetProviderSessionId);
-
-    return { status: "applied", declaredLosses: [] };
-  }
-
-  /** Finds the record whose current thread id is the handle's `resumeHandle`; a miss throws. */
-  #requireReplayTargetRecord(target: ProviderSessionHandle): CodexSessionRecord {
-    for (const record of this.#sessions.values()) {
-      if (record.threadId === target.resumeHandle) {
-        return record;
-      }
-    }
-    throw new CodexTransportError(
-      `No live Codex session is bound to replay target thread "${target.resumeHandle}".`,
-      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
-    );
   }
 
   /**

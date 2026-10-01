@@ -99,7 +99,6 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "session_goals",
   "callback_tools",
   "subagents",
-  "transcript_replay",
   // User-triggered compaction of the bound session's provider-side context via `compactContext`.
   // Native on Codex; emulated on Claude through the one tripwire-exempt `driver_command` frame.
   "context_compaction",
