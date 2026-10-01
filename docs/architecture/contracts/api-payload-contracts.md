@@ -7784,7 +7784,7 @@ type McpServerConfigInput =
     }
   | {
       transport: "http" | "sse"; // "sse" is Claude-only (Claude-native transport kind)
-      url: string; // absolute http(s) URL; userinfo (embedded credentials) rejected. Query-string VALUES are write-only credential-equivalent material (a ?api_key=… credential passes no-userinfo validation): accepted, passed to the provider write path — never round-tripped (the view serves query param NAMES)
+      url: string; // absolute http(s) URL, taken as typed and passed to the provider write path as typed, a user name or password in it included. That user name and password and the query-string VALUES are write-only credential-equivalent material: accepted, passed on — never round-tripped (the view serves query param NAMES)
       headers?: Record<string, string>; // write-only values (see above)
       bearerTokenEnvVar?: string; // Codex-only `bearer_token_env_var` — the env-var NAME, never the value
       envHttpHeaders?: Record<string, string>; // Codex-only `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
@@ -7815,7 +7815,7 @@ type McpServerConfigView =
     }
   | {
       transport: "http" | "sse";
-      url: string; // QUERY-REDACTED: scheme + host + path only (userinfo already rejected at input; query values are credential-equivalent and never round-trip)
+      url: string; // QUERY-REDACTED: scheme + host + path only (a user name or password, like the query values, is credential-equivalent and never round-trips)
       urlQueryParamNames?: string[]; // the query string's parameter NAMES when one existed; values never round-trip (the env/header names-not-values discipline)
       headerNames?: string[]; // the header map's KEYS; values never round-trip
       bearerTokenEnvVar?: string; // an env-var NAME (Codex-only), safe to serve
