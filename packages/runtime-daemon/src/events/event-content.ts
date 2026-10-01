@@ -47,7 +47,7 @@ export function assertNoSeededContentDescription(
 }
 
 // The `SessionEvent` variants whose payload declares the content-length member, derived from the
-// contracts union. `keyof` includes optional members, which the test needs.
+// contracts union. `keyof` includes optional members, so an optional content-length member counts.
 type EventTypeCarryingContentDescriptor<Variant> = Variant extends {
   type: infer VariantType;
   payload: infer VariantPayload;
@@ -58,12 +58,12 @@ type EventTypeCarryingContentDescriptor<Variant> = Variant extends {
   : never;
 
 /** The event types that may carry a machine-authored content partition. */
-export type BodyBearingEventType = EventTypeCarryingContentDescriptor<SessionEvent>;
+type BodyBearingEventType = EventTypeCarryingContentDescriptor<SessionEvent>;
 
 /**
  * The runtime half of the same set, a full record so the compiler flags a missing or excess key.
  */
-export const BODY_BEARING_EVENT_TYPES: Readonly<Record<BodyBearingEventType, true>> = {
+const BODY_BEARING_EVENT_TYPES: Readonly<Record<BodyBearingEventType, true>> = {
   "assistant.message": true,
   "assistant.thinking_update": true,
   "tool.invoked": true,
