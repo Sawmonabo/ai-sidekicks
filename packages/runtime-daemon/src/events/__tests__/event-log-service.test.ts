@@ -1,6 +1,6 @@
 // `EventLogService`, the sole durable append path: per-session sequencing under the append lock,
-// the head read boundary, the canonical-size ceiling, the stored-variant parse and
-// the terminal-run backstop, each asserted on the stored rows.
+// the head read boundary, the stored-variant parse and the terminal-run backstop, each asserted
+// on the stored rows.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,19 +8,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-  DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
-  EVENT_CANONICAL_BYTES_MAX,
   EventEnvelopeVersionSchema,
-  JsonRpcErrorCode,
   SessionIdSchema,
-  type EventEnvelope,
-  type JsonRpcErrorResponse,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 
-import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { canonicalizeEvent } from "../canonicalizer.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
@@ -117,34 +110,6 @@ function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
     .all(sessionId) as ReadonlyArray<RawEventRow>;
 }
 
-/** The stored row, rebuilt into its envelope. */
-function hydrate(row: RawEventRow): EventEnvelope {
-  return {
-    id: row.id,
-    sessionId: SessionIdSchema.parse(row.session_id),
-    sequence: row.sequence,
-    occurredAt: row.occurred_at,
-    // The column is TEXT; the append path already refused any other category.
-    category: row.category as EventEnvelope["category"],
-    type: row.type,
-    actor: row.actor,
-    payload: JSON.parse(row.payload) as Record<string, unknown>,
-    version: EventEnvelopeVersionSchema.parse(row.version),
-    ...(row.correlation_id !== null ? { correlationId: row.correlation_id } : {}),
-    ...(row.causation_id !== null ? { causationId: row.causation_id } : {}),
-  };
-}
-
-/** The refusal as a client sees it. */
-async function mappedRefusalOf(work: Promise<unknown>): Promise<JsonRpcErrorResponse> {
-  try {
-    await work;
-  } catch (thrown) {
-    return mapJsonRpcError(thrown, "req-1");
-  }
-  throw new Error("expected the append to be refused, but it resolved");
-}
-
 // ----------------------------------------------------------------------------
 // Sequence allocation
 // ----------------------------------------------------------------------------
@@ -187,61 +152,6 @@ describe("EventLogService — head read boundary", () => {
     );
     // Unnarrowed, `Number('x') + 1` is `NaN`, which would be stored as the next sequence.
     expect(readRawRows(SESSION)).toHaveLength(2);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// `daemon.event_canonical_bytes_exceeded` — the append ceiling
-// ----------------------------------------------------------------------------
-
-describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
-  /**
-   * An envelope whose stored canonical form is exactly `targetBytes` long.
-   *
-   * Padded with ASCII filler so each added character is one canonical byte. `sequence` is a
-   * parameter because its decimal width is part of the canonical form.
-   */
-  function envelopeOfCanonicalSize(
-    targetBytes: number,
-    sequence: number,
-    overrides?: Partial<UnsequencedEventEnvelope>,
-  ): UnsequencedEventEnvelope {
-    const template = makeEnvelope({ ...overrides, payload: { filler: "" } });
-    const storable: EventEnvelope = { ...template, sequence };
-    const emptyFillerLength = canonicalizeEvent(storable).length;
-    return { ...template, payload: { filler: "x".repeat(targetBytes - emptyFillerLength) } };
-  }
-
-  it("admits a row whose canonical form sits exactly AT the ceiling", async () => {
-    const { service } = buildService();
-
-    const receipt = await service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX, 0));
-
-    expect(receipt.sequence).toBe(0);
-    const rows = readRawRows(SESSION);
-    expect(rows).toHaveLength(1);
-    const [row] = rows;
-    if (row === undefined) return;
-    // The stored row re-canonicalizes to exactly the ceiling: the bound is inclusive.
-    expect(canonicalizeEvent(hydrate(row)).length).toBe(EVENT_CANONICAL_BYTES_MAX);
-  });
-
-  it("refuses ONE byte over with the typed 400-equivalent envelope, writing nothing", async () => {
-    const { service } = buildService();
-
-    const mapped = await mappedRefusalOf(
-      service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 0)),
-    );
-
-    expect(mapped.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-    expect(mapped.error.data?.type).toBe(DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE);
-    expect(mapped.error.data?.fields).toEqual({
-      canonicalBytes: EVENT_CANONICAL_BYTES_MAX + 1,
-      maxCanonicalBytes: EVENT_CANONICAL_BYTES_MAX,
-    });
-    expect(readRawRows(SESSION)).toHaveLength(0);
-    // The filler must appear nowhere: echoing a payload of about 32 KiB would defeat the ceiling.
-    expect(JSON.stringify(mapped)).not.toContain("xxxxxxxx");
   });
 });
 

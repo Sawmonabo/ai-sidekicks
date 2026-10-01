@@ -9,10 +9,9 @@
 //
 //   - `event_maintenance` rows are never purged: the selector excludes them in SQL, and they
 //     record maintenance, this purge's own receipt included.
-//   - The stub projection is canonicalized once to `B` under `EVENT_CANONICAL_BYTES_MAX`, and `B`
-//     is what lands in `payload`, so the stored stub is canonical JSON within that bound. `payload`
-//     is a TEXT-affinity column, and binding a Buffer would write a BLOB, so `B` is bound as
-//     `new TextDecoder().decode(B)`. The decode is lossless because canonical JSON is valid UTF-8,
+//   - The stub projection is canonicalized once to `B`, and `B` is what lands in `payload`, so the
+//     stored stub is canonical JSON. `payload` is a TEXT-affinity column, and binding a Buffer
+//     would write a BLOB, so `B` is bound as `new TextDecoder().decode(B)`. The decode is lossless because canonical JSON is valid UTF-8,
 //     and the string comes from `B`, never from a second `JSON.stringify`.
 //   - The purge refuses to start inside an append-lock hold. The lock is reentrant per owner, so a
 //     purge entered inside a hold would stub rows outside the serialization the hold provides.
@@ -28,7 +27,6 @@ import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  EVENT_CANONICAL_BYTES_MAX,
   EventCategorySchema,
   EventCompactedPayloadSchema,
   EventEnvelopeVersionSchema,
@@ -369,12 +367,9 @@ export class SessionPurge {
         purgeInstant,
       );
 
-      // The UPDATE stores the UTF-8 decoding of the bounded canonicalization. The decode is sound
-      // because `canonicalizeJson` refuses a lone surrogate; the decoder would substitute U+FFFD.
-      const canonicalStubBytes: CanonicalBytes = canonicalizeBoundedStubProjection(
-        projection,
-        eventId,
-      );
+      // The UPDATE stores the UTF-8 decoding of the canonicalization. The decode is sound because
+      // `canonicalizeJson` refuses a lone surrogate; the decoder would substitute U+FFFD.
+      const canonicalStubBytes: CanonicalBytes = canonicalizeJson(projection);
 
       const result = this.#stubUpdateStmt.run(
         new TextDecoder().decode(canonicalStubBytes),
@@ -490,49 +485,6 @@ function buildStubSummary(
     `${category}/${type}: original payload discarded at purge ` +
     `(${String(fieldCount)} fields, ${String(storedPayloadByteLength)} bytes)`
   );
-}
-
-/**
- * Canonicalizes a stub projection under `EVENT_CANONICAL_BYTES_MAX`, shortening the locally minted
- * `summary` toward the bound and throwing a `SessionPurgeRefusal` when the projection stays
- * oversized with `summary` gone.
- *
- * The bound can bite because rows are read straight off SQLite, including rows written outside
- * the append path's ceiling, and the preserved members are copied verbatim. `summary` is the only
- * member minted here, so it is the only one a bound may shorten.
- *
- * Measured on canonical bytes and cut by code points: every code point serializes to at least one
- * byte, so each round removes at least the overage and the loop converges, and a code-point cut
- * never splits a surrogate pair, which `canonicalizeJson` would refuse.
- */
-function canonicalizeBoundedStubProjection(
-  projection: AuditStubProjection,
-  eventId: string,
-): CanonicalBytes {
-  let boundedProjection: AuditStubProjection = projection;
-  let canonicalStubBytes: CanonicalBytes = canonicalizeJson(boundedProjection);
-  while (
-    canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX &&
-    boundedProjection.summary.length > 0
-  ) {
-    const overage: number = canonicalStubBytes.length - EVENT_CANONICAL_BYTES_MAX;
-    const summaryCodePoints: readonly string[] = Array.from(boundedProjection.summary);
-    boundedProjection = {
-      ...boundedProjection,
-      summary: summaryCodePoints.slice(0, Math.max(0, summaryCodePoints.length - overage)).join(""),
-    };
-    canonicalStubBytes = canonicalizeJson(boundedProjection);
-  }
-  if (canonicalStubBytes.length > EVENT_CANONICAL_BYTES_MAX) {
-    throw new SessionPurgeRefusal(
-      `audit-stub projection for event ${eventId} is ${String(canonicalStubBytes.length)} ` +
-        `canonical bytes with its summary already emptied, over the ` +
-        `${String(EVENT_CANONICAL_BYTES_MAX)}-byte EVENT_CANONICAL_BYTES_MAX bound every ` +
-        "stored payload must satisfy; every remaining member is a scalar mirror or preserved " +
-        "content this purge may not shorten.",
-    );
-  }
-  return canonicalStubBytes;
 }
 
 function describeError(error: unknown): string {

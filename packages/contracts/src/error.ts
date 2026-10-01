@@ -1,5 +1,5 @@
-// Wire error envelopes and their codes: `resource.limit_exceeded`, `PtyBackendUnavailable`,
-// `daemon.event_canonical_bytes_exceeded` and `event.cursor_unresolvable`.
+// Wire error envelopes and their codes: `resource.limit_exceeded`, `PtyBackendUnavailable` and
+// `event.cursor_unresolvable`.
 import { z } from "zod";
 
 import { wireFreeFormString } from "./session.js";
@@ -19,17 +19,6 @@ export type PtyBackendUnavailableCode = "PtyBackendUnavailable";
  * daemon throwers and SDK consumers compare against this exact string.
  */
 export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBackendUnavailable";
-
-/** Type of {@link DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE}. */
-export type DaemonEventCanonicalBytesExceededCode = "daemon.event_canonical_bytes_exceeded";
-/**
- * Error code for a write whose canonical form is over the relay-frame ceiling, raised by the
- * daemon's append path. The refusal is structural: no session-state change makes the write
- * admissible, so the producer moves bulk content behind a reference. It is not the
- * `daemon.pii_split_ambiguous` event, which reports a successful containment fallback.
- */
-export const DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE: DaemonEventCanonicalBytesExceededCode =
-  "daemon.event_canonical_bytes_exceeded";
 
 /** Type of {@link EVENT_CURSOR_UNRESOLVABLE_CODE}. */
 export type EventCursorUnresolvableCode = "event.cursor_unresolvable";
@@ -122,24 +111,3 @@ export const PtyBackendUnavailableSchema: z.ZodType<PtyBackendUnavailable> = z
     details: PtyBackendUnavailableDetailsSchema,
   })
   .strict();
-
-/**
- * The details of {@link DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE}: the measured canonical
- * byte length and the bound it exceeded. Both are sizes, never payload content, so the details
- * leak nothing of the refused write.
- *
- * A type alias rather than an interface: only an alias is assignable to
- * `Record<string, unknown>`, which the daemon's `DaemonDomainError.detail` requires.
- */
-export type DaemonEventCanonicalBytesExceededDetails = {
-  canonicalBytes: number;
-  maxCanonicalBytes: number;
-};
-/** Parses {@link DaemonEventCanonicalBytesExceededDetails}. */
-export const DaemonEventCanonicalBytesExceededDetailsSchema: z.ZodType<DaemonEventCanonicalBytesExceededDetails> =
-  z
-    .object({
-      canonicalBytes: z.number().int().nonnegative(),
-      maxCanonicalBytes: z.number().int().positive(),
-    })
-    .strict();

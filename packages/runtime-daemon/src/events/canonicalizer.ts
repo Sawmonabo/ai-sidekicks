@@ -233,8 +233,8 @@ function assertRepresentableSequence(sequence: number): void {
 }
 
 /**
- * Canonicalizes an {@link EventEnvelope} to the bytes the append path holds to
- * `EVENT_CANONICAL_BYTES_MAX`. `actor` must already have the shape the row stores (absent and
+ * Canonicalizes an {@link EventEnvelope} to its RFC 8785 bytes, which the append path computes
+ * before every write. `actor` must already have the shape the row stores (absent and
  * `null` emit different bytes); that narrowing belongs to `EventLogService.append`.
  */
 export function canonicalizeEvent(envelope: EventEnvelope): CanonicalBytes {

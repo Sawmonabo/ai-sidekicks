@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  EVENT_CANONICAL_BYTES_MAX,
   NodeIdSchema,
   SessionIdSchema,
   type NodeId,
@@ -309,49 +308,6 @@ describe("SessionPurge — the stub projection", () => {
     const stampedStub = stubProjection(stamped.id);
     expect(stampedStub.sourceEpoch).toBe(2);
     expect(stampedStub.sourcePosition).toBe(5);
-  });
-
-  it("shortens the minted summary until the stored stub sits at the ceiling", async () => {
-    // A row written outside the append path's ceiling: the `type` scalar fits
-    // the bound on its own and the summary, which embeds it, pushes it over.
-    const oversizedType = "t".repeat(20_000);
-    const target = seed({
-      category: "session_lifecycle",
-      type: oversizedType,
-      payload: { text: "hi" },
-    });
-
-    const outcome = await buildPurge().purge([SESSION]).then(onlyOutcome);
-
-    expect(outcome.rowsStubbed).toBe(1);
-    const stubbed = readRow(target.id);
-    const storedBytes = new TextEncoder().encode(stubbed.payload);
-    expect(storedBytes.length).toBe(EVENT_CANONICAL_BYTES_MAX);
-    const projection = stubProjection(target.id);
-    expect(projection.type).toBe(oversizedType);
-    const untruncatedSummary =
-      `session_lifecycle/${oversizedType}: original payload discarded at purge ` +
-      `(1 fields, ${String(JSON.stringify({ text: "hi" }).length)} bytes)`;
-    expect(projection.summary?.length).toBeLessThan(untruncatedSummary.length);
-    expect(untruncatedSummary.startsWith(projection.summary ?? "\u0000")).toBe(true);
-  });
-
-  it("refuses to stub, and leaves the row whole, when the projection stays oversized with no summary", async () => {
-    // A preserved member no bound may shorten.
-    const oversizedReference = "r".repeat(EVENT_CANONICAL_BYTES_MAX + 1024);
-    const target = seed({
-      category: "session_lifecycle",
-      type: "session.updated",
-      payload: { credentialPolicyRef: oversizedReference },
-    });
-
-    const outcome = await buildPurge().purge([SESSION]).then(onlyOutcome);
-
-    expect(outcome.rowsStubbed).toBe(0);
-    expect(outcome.refusedReason).toContain("EVENT_CANONICAL_BYTES_MAX");
-    const row = readRow(target.id);
-    expect(row.retention_class).toBeNull();
-    expect(JSON.parse(row.payload)).toEqual({ credentialPolicyRef: oversizedReference });
   });
 });
 

@@ -2,7 +2,6 @@
 // jointly satisfiable in `append()` under one lock:
 // - Serialization: `withSessionAppendLock` keeps two appends from allocating the same `sequence`
 //   across the awaits between reading the head and writing the row.
-// - Serviceability: every canonical form is held to `EVENT_CANONICAL_BYTES_MAX` (one relay frame).
 // - Content: machine-authored prose is kept in `content_payload` beside the event, and the payload
 //   gains the members that describe it; both are written as a unit.
 // Dual-write: `options.transactionalPrelude` is a synchronous closure run in the same transaction
@@ -11,18 +10,10 @@
 // state as the prelude's first statement and throws if it moved; an abort consumes no sequence.
 // This service does not write `retention_class`; the purge owns it.
 
-import {
-  DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
-  DaemonEventCanonicalBytesExceededDetailsSchema,
-  EVENT_CANONICAL_BYTES_MAX,
-  JsonRpcErrorCode,
-  type EventEnvelope,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import type { EventEnvelope, SessionId } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";
 
-import { DaemonDomainError } from "../ipc/domain-error.js";
-import { canonicalizeEvent, normalizeOccurredAt, type CanonicalBytes } from "./canonicalizer.js";
+import { canonicalizeEvent, normalizeOccurredAt } from "./canonicalizer.js";
 import {
   assertNoSeededContentDescription,
   assertRegisteredVariantParses,
@@ -141,8 +132,8 @@ export class EventLogService {
   /**
    * Appends one event under the per-session append lock (reentrant) and returns its allocated
    * `sequence`. Refuses with a seeded content description member, a content partition on a type
-   * that carries none, a failed strict-variant parse, or `daemon.event_canonical_bytes_exceeded`
-   * (400); only the last is a `DaemonDomainError`.
+   * that carries none, a failed strict-variant parse, or a payload with no canonical form. An
+   * event is never refused for its size.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
@@ -208,8 +199,8 @@ export class EventLogService {
 
 /**
  * Composes the stored form: the envelope as it will be written and, on a content-bearing append,
- * the body `content_payload` holds. Both are checked against the registered variant and measured
- * against the canonical ceiling before the transaction opens.
+ * the body `content_payload` holds. Both are checked against the registered variant and
+ * canonicalized before the transaction opens.
  */
 function composeRow(
   storable: EventEnvelope,
@@ -220,11 +211,9 @@ function composeRow(
       ? { envelope: storable, storedBody: undefined }
       : composeContentRow(storable, content.body);
   assertRegisteredVariantParses(composed.envelope, "EventLogService.append");
-  const canonical: CanonicalBytes = canonicalizeEvent(composed.envelope);
-  // A row too large for one relay frame is refused before any write, never truncated.
-  if (canonical.length > EVENT_CANONICAL_BYTES_MAX) {
-    throw eventCanonicalBytesExceeded(canonical.length, composed.envelope.id);
-  }
+  // Refuses before any write what the stored row could not hold faithfully: an unpaired
+  // surrogate, which SQLite would store as U+FFFD, or a sequence past the safe integers.
+  canonicalizeEvent(composed.envelope);
   return composed;
 }
 
@@ -263,32 +252,4 @@ interface InsertBindings {
 interface ComposedEventRow {
   readonly envelope: EventEnvelope;
   readonly storedBody: string | undefined;
-}
-
-/**
- * Builds the `daemon.event_canonical_bytes_exceeded` refusal for both append branches. The detail
- * carries the two sizes only, never the oversized payload.
- */
-function eventCanonicalBytesExceeded(
-  canonicalByteLength: number,
-  eventId: string,
-): DaemonDomainError {
-  return new DaemonDomainError(
-    `event ${eventId} canonicalizes to ${String(canonicalByteLength)} bytes, over the ` +
-      `${String(EVENT_CANONICAL_BYTES_MAX)}-byte EVENT_CANONICAL_BYTES_MAX ceiling ` +
-      `a row this size could never be` +
-      `re-published inside one 64 KB relay frame on backfill seam. Refused` +
-      `with no row written. The event payload catalog is metadata-shaped by design — ` +
-      `move bulk content behind a reference instead of inlining it.`,
-    {
-      code: DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
-      // InvalidParams: the refusal is structural, so no session state makes the write admissible.
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 400,
-      detail: DaemonEventCanonicalBytesExceededDetailsSchema.parse({
-        canonicalBytes: canonicalByteLength,
-        maxCanonicalBytes: EVENT_CANONICAL_BYTES_MAX,
-      }),
-    },
-  );
 }

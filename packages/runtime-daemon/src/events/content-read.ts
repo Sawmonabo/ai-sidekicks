@@ -2,9 +2,8 @@
  * The read projection for machine-authored prose: pairs a stored event with the body its
  * `session_events.content_payload` column holds, without altering the event.
  *
- * - The body is never merged into `payload`. It is excluded from the canonical bytes so a
- *   large tool result cannot push a row past `EVENT_CANONICAL_BYTES_MAX`, and a caller must
- *   be able to tell what the daemon stored from what a read added. The projection is a pair
+ * - The body is never merged into `payload`: it is excluded from the canonical bytes, and a
+ *   caller must be able to tell what the daemon stored from what a read added. The projection is a pair
  *   ({@link HydratedSessionEvent}), and this module returns a fresh object.
  * - A row with no body is reported on the `unavailable` arm, never as
  *   `{ status: "available", body: "" }`: an empty body claims the assistant said nothing.
