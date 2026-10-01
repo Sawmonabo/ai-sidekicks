@@ -92,7 +92,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 - `.nvmrc` — pins Node 24.16, the floor the daemon and the command line run on because the memory gate reads `process.availableMemory()`, per [ADR-022](../decisions/022-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
-**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (its type set leaves out `style`), Renovate config (`renovate.json5` with `minimumReleaseAge: 14 days`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (Apple Developer Individual + Azure Artifact Signing OIDC + Sigstore keyless + AWS KMS Ed25519 hot key + YubiHSM 2 cold key envelope) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision).
+**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (its type set leaves out `style`), Renovate config (`renovate.json5` with `minimumReleaseAge: 14 days`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (Apple Developer Individual + Azure Artifact Signing OIDC + Sigstore keyless) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision).
 
 ### Per-Package Scaffolding
 

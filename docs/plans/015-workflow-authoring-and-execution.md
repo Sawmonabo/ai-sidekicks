@@ -228,7 +228,7 @@ A `multi-agent` step runs its lead and the helpers it starts in the run's own se
 
 ### CP-015-6 — Tool-binding resolution and governance (Plan-004 / Plan-025)
 
-A workflow node's tool bindings resolve through the [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) tool-metadata layer, with per-tool governance facets supplied by the [Plan-025](./025-mcp-server-configuration-and-governance.md) override and trust stores. Plan-015 **consumes** that resolution and authors none of it: it defines no override facet, writes no trust row, evaluates no Cedar policy for tool authorization, and adds no `mcp.*` operation. The definition's persisted binding is an identity reference only (I-015-14); the effective posture is read at launch and refuses there under the existing Spec-025 rules when a binding is untrusted or disabled.
+A workflow node's tool bindings resolve through the [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) tool-metadata layer, with per-tool governance facets supplied by the [Plan-025](./025-mcp-server-configuration-and-governance.md) override store. Plan-015 **consumes** that resolution and authors none of it: it defines no override facet, writes no override row, evaluates no Cedar policy for tool authorization, and adds no `mcp.*` operation. The definition's persisted binding is an identity reference only (I-015-14); the effective posture is read at launch and refuses there under the existing Spec-025 rules when a binding is disabled.
 
 **Resolution.** Plan-025 is a leaf and the consumption is read-only, so nothing is owed upstream. Consumed by T1.8, T5.5, and T5.6.
 

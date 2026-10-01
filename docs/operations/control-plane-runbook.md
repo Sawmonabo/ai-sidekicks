@@ -15,8 +15,8 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 
 ## Detection
 
-- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, the reconnect count and the rejected-frame count, each counted since the service started. With no relay configured the block is absent.
-- Every device not connected, with an old last frame in, means the machine's own relay connection is down. One device refused with a rejected-frame count that climbs, then stops for a minute, means that device went over its quota. One device that keeps reconnecting means its key is in two places.
+- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, and the reconnect count, each counted since the service started. With no relay configured the block is absent.
+- Every device not connected, with an old last frame in, means the machine's own relay connection is down. One device that keeps reconnecting means its key is in two places.
 - `sidekicks devices` prints the account's machines and devices, as the Devices page's cards show them.
 - Read the relay's own logs: the Worker's logs in the person's Cloudflare account, or `docker compose logs` on the Compose server.
 
@@ -31,11 +31,10 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 1. Run `sidekicks daemon status` on the machine and read the relay block against Detection.
 2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server. On the Compose server, bring Postgres back before restarting the Node service.
 3. If `sidekicks sign-in` fails, fix the relay first. Sign-in runs only while the service is stopped, so stop it (`sidekicks daemon stop`, or `Stop` on Settings › Runtime), run `sidekicks sign-in` on the machine, and start the service again (`sidekicks daemon start`).
-4. If one device was refused for going over its quota of 6,000 device-sent frames a minute, it gets one refusal frame and a 60-second pause, and resumes after the pause; nothing needs doing.
-5. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks devices revoke <device>`) and link the real device again as a new one.
-6. If a device refuses a machine with `<machine> is using a new key, so it was not connected.`, the machine was reinstalled without a key rotation: remove it on Devices and link it again. Linked again, it mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay.
-7. If `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`, and the relay was redeployed on purpose with a new key, run `sidekicks relay repin --force` with the new key's hash. Only a relay without a publicly trusted certificate is pinned; a pinned relay's key that changed without a deliberate redeploy is treated as an attack and left refused.
-8. Link one device and open one known session from it before declaring recovery complete.
+4. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks devices revoke <device>`) and link the real device again as a new one.
+5. If a device refuses a machine with `<machine> is using a new key, so it was not connected.`, the machine was reinstalled without a key rotation: remove it on Devices and link it again. Linked again, it mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay.
+6. If `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`, and the relay was redeployed on purpose with a new key, run `sidekicks relay repin --force` with the new key's hash. Only a relay without a publicly trusted certificate is pinned; a pinned relay's key that changed without a deliberate redeploy is treated as an attack and left refused.
+7. Link one device and open one known session from it before declaring recovery complete.
 
 ## Validation
 
@@ -64,7 +63,6 @@ sidekicks relay repin --force    # a relay without a publicly trusted certificat
 | Threshold | Value |
 | --- | --- |
 | Machine shown `Not reachable` | 45 seconds without a frame on its relay connection |
-| Per-device quota | 6,000 device-sent frames a minute; over it, one refusal frame and a 60-second pause |
 | Live connections per key | One; a new connection closes the one before it |
 | Key in two places | Three displacements within a minute; the relay refuses both connections for a minute |
 | Channel rekey | A fresh handshake on every connection and every 10 minutes on a long one |

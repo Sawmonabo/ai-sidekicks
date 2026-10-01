@@ -43,7 +43,7 @@ We will use OS-local IPC for client-to-daemon communication on the machine itsel
 
 - **What:** Reach the machine directly where the network allows, and use the relay only when topology requires it.
 - **Steel man:** No relay hop when the device and the machine can reach each other directly.
-- **Why rejected:** The machine keeps one outbound connection to the relay, so it needs no address a device can reach, and reachability, the one-connection-per-key rule and the per-device quota are all read in one place. A second, direct path would be a second place to secure and a second reachability fact, while the channel's end-to-end sealing already keeps the relay from reading any session.
+- **Why rejected:** The machine keeps one outbound connection to the relay, so it needs no address a device can reach, and reachability and the one-connection-per-key rule are both read in one place. A second, direct path would be a second place to secure and a second reachability fact, while the channel's end-to-end sealing already keeps the relay from reading any session.
 
 ## Reversibility Assessment
 

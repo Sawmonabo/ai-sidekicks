@@ -52,7 +52,7 @@ Rate limiting uses a deployment-aware abstraction with identical limits across a
 | `Compose Relay` | `rate-limiter-flexible` with Postgres backend | `rate-limiter-flexible` with Postgres backend |
 | `Single-Device Local` | No rate limiting (trusted by socket reachability) | No rate limiting |
 
-The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). The Compose relay uses `rate-limiter-flexible` (Postgres backend) to achieve the same semantics as the Cloudflare native binding; both run the same one-stage admission, the sliding-window counter (Plan-019 I-019-1): a trip is refused with the window's `Retry-After`, and a device over its frame quota gets one refusal frame and a 60-second pause. Nothing is banned and nothing escalates.
+The rate limiting interface is identical regardless of deployment. Implementation swaps via configuration (`AIS_RATELIMIT_BACKEND`). The Compose relay uses `rate-limiter-flexible` (Postgres backend) to achieve the same semantics as the Cloudflare native binding; both run the same one-stage admission, the sliding-window counter (Plan-019 I-019-1): a trip is refused with the window's `Retry-After`, and the relay's channel carries no rate limit. Nothing is banned and nothing escalates.
 
 ## Relay Scaling Strategy
 
@@ -69,20 +69,20 @@ The relay serves one person: their machines and the devices they link. Each mach
 
 | Input | Value | Source |
 | --- | --- | --- |
-| Device-sent frames | At most 6,000 a minute (100 a second) per device, held by the relay's per-device quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
+| Device-sent frames | Bounded by each channel's backpressure; no quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
 | Machine-sent frames | Bounded by each channel's backpressure; no quota | [Plan-028](../plans/028-remote-control.md) Phase 3 |
 | Sustained budget for the object | 400 requests a second, 2.5× under the 1,000 rps soft cap | Intentional: CF guidance places complex operations in the 200–500 rps band ([Rules of DO][do-rules]) |
 
-Machine-sent traffic, meaning agent output and Preview's live picture, is the term no quota fixes, so it is measured rather than assumed.
+Frames either way, agent output and Preview's live picture included, are the term no quota fixes, so they are measured rather than assumed.
 
-**Compose relay.** One Node process holds every connection under the same quota and backpressure.
+**Compose relay.** One Node process holds every connection under the same backpressure.
 
 **Decision triggers for changing the layout.** Re-evaluate when either is true:
 
 1. The measured sustained rate on the account's object exceeds 400 requests a second.
 2. Cloudflare raises or lowers the per-DO rps soft cap ([monitor DO changelog][do-changelog]).
 
-**Pre-launch requirement:** before the first release that carries Remote Control, a load test on the Workers relay must pass. The test is one account with two machines and three devices; each machine streams agent output and Preview's live picture to a device, and each device sends at its full frame quota. It measures the object's sustained requests a second and each channel's machine-sent frames a second, and it passes when the object stays under 400 requests a second.
+**Pre-launch requirement:** before the first release that carries Remote Control, a load test on the Workers relay must pass. The test is one account with two machines and three devices; each machine streams agent output and Preview's live picture to a device, and each device sends as fast as its channel's backpressure allows. It measures the object's sustained requests a second and each channel's frames a second each way, and it passes when the object stays under 400 requests a second.
 
 [do-limits]: https://developers.cloudflare.com/durable-objects/platform/limits/
 [do-ws]: https://developers.cloudflare.com/durable-objects/best-practices/websockets/
@@ -115,7 +115,6 @@ Machine-sent traffic, meaning agent output and Preview's live picture, is the te
 | --- | --- |
 | Accounts per relay | 1, the person's own |
 | Relay connections | One per machine and one per linked device, at most one live connection per key |
-| Device-sent frames | 6,000 a minute per device |
 | Session event log size | 100,000 events/session lifetime |
 
 ## Infrastructure Requirements

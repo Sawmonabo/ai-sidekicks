@@ -23,7 +23,7 @@ The security architecture and approvals spec need a durable model for trust and 
 
 ## Decision
 
-We will use a layered trust model that separates device trust — which device, acting for the account, may call at all — from what an agent may do: the session's permission level, which decides whether anything asks at all; remembered rules, which answer an ask for one subject at the session's or the project's scope; and trust, which is given per project and per tool server and never per machine.
+We will use a layered trust model that separates device trust — which device, acting for the account, may call at all — from what an agent may do: the session's permission level, which decides whether anything asks at all; remembered rules, which answer an ask for one subject at the session's or the project's scope; and trust, which is given per project and never per machine.
 
 Device trust is the account's statement chain. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked`, `passkey.added` and `runtimenode.key_rotated` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed`, `passkey.removed` or `runtimenode.key_rotated` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every linked device reads and acts on everything: there is no per-device permission and no view-only device, and a device that should not act is revoked.
 
@@ -39,13 +39,13 @@ Multiple permission layers risk confusing users and implementers. A simpler mode
 
 ### Synthesis — Why It Still Holds
 
-The simpler flat model is unacceptable because it collapses account authentication into device trust: anything holding the account's sign-in would drive every machine the account owns. Here a device acts only with a key the chain trusts, which every machine checks in the handshake, and a stolen phone is revoked from any other device. The fully explicit model is safer but too friction-heavy for real coding workflows. Layered trust gives a principled middle path: durable device identity on the chain, plus the session's permission level and auditable remembered rules, with trust given per project and per tool server.
+The simpler flat model is unacceptable because it collapses account authentication into device trust: anything holding the account's sign-in would drive every machine the account owns. Here a device acts only with a key the chain trusts, which every machine checks in the handshake, and a stolen phone is revoked from any other device. The fully explicit model is safer but too friction-heavy for real coding workflows. Layered trust gives a principled middle path: durable device identity on the chain, plus the session's permission level and auditable remembered rules, with trust given per project.
 
 ## Alternatives Considered
 
 ### Option A: Layered Device + Action Trust (Chosen)
 
-- **What:** Separate device trust from the session's permission level, remembered rules, and trust given per project and per tool server.
+- **What:** Separate device trust from the session's permission level, remembered rules, and trust given per project.
 - **Steel man:** Preserves the true trust boundaries of remotely driven local execution.
 - **Weaknesses:** More concepts to teach and implement.
 

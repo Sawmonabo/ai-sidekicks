@@ -73,11 +73,11 @@ Both relays hold the same admission rules:
 
 - On the Workers relay, the credential routes (sign-in, token refresh, device linking) count in the per-identity Durable Object, one global counter that rotating edge locations does not reset. Frame traffic keeps the per-location binding.
 - On the WebSocket the relay sees only encrypted frames and counts only frames. A method inside a frame is the machine's to limit: the machine enforces `presence.heartbeat` at 10 a minute per device, inside the sealed connection, drops the excess and keeps the last heartbeat per device.
-- Each device carries a quota of 6,000 device-sent frames a minute, with no byte figure. Frames the machine sends, and bytes either way, are bounded by the channel's per-connection backpressure. A device over its quota gets one refusal frame and a 60-second pause, and `sidekicks daemon status` adds the refusal to that device's rejected-frame count.
+- The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds frames and bytes in both directions.
 
 ### Rate-Limiter Backends (Ships Both in V1)
 
-- Workers relay: Cloudflare-native `rate_limit` binding for frame traffic; the per-identity Durable Object for the credential routes.
+- Workers relay: Cloudflare-native `rate_limit` binding for the control plane's sliding-window rows; the per-identity Durable Object for the credential routes.
 - Compose relay: `rate-limiter-flexible` with Postgres backend.
 
 Both ship in V1 under the deployment-aware abstraction already named in `deployment-topology.md` §Rate Limiting By Deployment.

@@ -84,7 +84,7 @@ Per [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-m
 
 > **D-020-4.** The bounded-retention column names above say what each bucket carries; each diagnostic table stores it in a single `bucket_payload BLOB`, the shape [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md) defines and [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map) records. See [§Design Decisions](#design-decisions) D-020-4.
 
-**No telemetry tier.** The app sends no telemetry and has no outbound telemetry sink: a crash report stays on the machine that crashed and is deleted with the diagnostic logs, and each provider's own telemetry export is received on loopback, read and dropped ([Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)).
+**No telemetry tier.** The app sends no telemetry and has no outbound telemetry sink: a crash report stays on the machine that crashed and is deleted with the diagnostic logs, and each provider's own telemetry export is received on loopback and written to the service's own diagnostic logs, dropped past `Keep diagnostic logs for` ([Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)).
 
 ### SQLite: `master_keys` (new, owned by Plan-020)
 

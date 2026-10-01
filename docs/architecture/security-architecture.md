@@ -185,7 +185,7 @@ Every public key carries its algorithm tag (`p256` or `ed25519`). Trust is the a
 1. A device or machine negotiates relay access with the control plane and receives a relay endpoint and a short-lived connect token bound to that device and that machine, never to a session; a token replayed for another device or machine, or an expired one, is refused.
 2. The client connects over WSS and presents the connect token in the initial WebSocket handshake via two `Sec-WebSocket-Protocol` subprotocol values — `paseto-v4, <base64url(connectionToken)>` (value 1 names the scheme and is echoed by the relay as the negotiated subprotocol; value 2 carries the base64url-encoded token, since browsers cannot set custom WebSocket request headers).
 3. The relay forwards the channel's frames and inspects none of them. It holds at most one live connection per device key and one per machine key; a new connection under a key closes the one before it, and two connections that keep displacing each other, three times within a minute, are refused for a minute and the key is flagged.
-4. Each device carries a quota of 6,000 device-sent frames a minute with no byte figure; frames the machine sends, and bytes either way, are bounded by the channel's per-connection backpressure.
+4. The relay forwards each device's frames as fast as the machine drains them; backpressure on the channel bounds both directions.
 
 ### Daemon Master Key Rotation
 

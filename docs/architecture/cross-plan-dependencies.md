@@ -113,7 +113,7 @@ flowchart TD
  n028_1["Plan-025 Phase 1 — MCP contracts and storage"]
  n028_2["Plan-025 Phase 2 — MCP inventory and status observation"]
  n028_3["Plan-025 Phase 3 — MCP configuration mutation engines"]
- n028_4["Plan-025 Phase 4 — MCP trust, overrides, Cedar gating"]
+ n028_4["Plan-025 Phase 4 — MCP overrides and Cedar gating"]
  n028_5["Plan-025 Phase 5 — MCP sign-in, the daemon's client and route, and client delivery"]
  %% Plan-026
  n029_2["Plan-026 Phase 2 — account registry service and authorization"]
@@ -147,7 +147,6 @@ flowchart TD
  n004_2 --> n016_2
  n004_3 --> n004_4
  n004_3 --> n010_3
- n004_3 --> n028_4
  n004_3B --> n013_2
  n004_4 --> n004_3B
  n006_4 --> n030_4
@@ -335,10 +334,10 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-026 Phase 2](../plans/026-provider-accounts-and-credential-homes.md) | account registry service and authorization. | Plan-010 Phase 2 |
 |  | [Plan-028 Phase 3](../plans/028-remote-control.md) | the relay and the channel. | Plan-028 Phase 2 |
 |  | [Plan-015 Phase 2](../plans/015-workflow-authoring-and-execution.md) | sequential execution and gate resolution. | Plan-010 Phase 2, Plan-015 Phase 1 |
+|  | [Plan-025 Phase 4](../plans/025-mcp-server-configuration-and-governance.md) | MCP overrides and Cedar gating. | Plan-010 Phase 2, Plan-025 Phase 2, Plan-025 Phase 3 |
 | 4 | [Plan-028 Phase 5](../plans/028-remote-control.md) | devices, linking and revocation. | Plan-028 Phase 2, Plan-028 Phase 3 |
 |  | [Plan-003 Phase 4](../plans/003-queue-steer-pause-resume.md) | desktop run controls. | Plan-003 Phase 3 |
 |  | [Plan-008 Phase 3](../plans/008-worktree-lifecycle-and-execution-modes.md) | run-setup gate, worktree verbs, IPC namespace and SDK. | Plan-003 Phase 3 |
-|  | [Plan-025 Phase 4](../plans/025-mcp-server-configuration-and-governance.md) | MCP trust, overrides, Cedar gating. | Plan-003 Phase 3, Plan-010 Phase 2, Plan-025 Phase 2, Plan-025 Phase 3 |
 |  | [Plan-010 Phase 4](../plans/010-approvals-permissions-and-trust-boundaries.md) | desktop approval surfaces. | Plan-010 Phase 3 |
 |  | [Plan-016 Phase 4](../plans/016-identity-and-user-state.md) | client surfaces and authorization. | Plan-016 Phase 3 |
 |  | [Plan-019 Phase 4](../plans/019-rate-limiting-policy.md) | rate-limit observability and rollout. | Plan-019 Phase 3 |
@@ -350,10 +349,10 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-006 Phase R4](../plans/006-local-ipc-and-daemon-control.md) | the service on WSL 2. | Plan-006 Phase R1, Plan-006 Phase R3, Plan-022 Phase 4 |
 |  | [Plan-015 Phase 2B](../plans/015-workflow-authoring-and-execution.md) | usage-limit park and durable pacing. | Plan-015 Phase 2 |
 |  | [Plan-028 Phase 8](../plans/028-remote-control.md) | self-host deployment. | Plan-028 Phase 3 |
+|  | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) | MCP sign-in, the daemon's client and route, and client delivery. | Plan-025 Phase 4 |
 | 5 | [Plan-020 Phase 1](../plans/020-data-retention-and-gdpr.md) | daemon master-key custody. | Plan-006 Phase R2, Plan-006 Phase R4 |
 |  | [Plan-028 Phase 6](../plans/028-remote-control.md) | per-device event attestation. | Plan-028 Phase 5 |
 |  | [Plan-007 Phase 2B](../plans/007-repo-attachment-and-workspace-binding.md) | repo identity keying and resolution. | Plan-008 Phase 3 |
-|  | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) | MCP sign-in, the daemon's client and route, and client delivery. | Plan-025 Phase 4 |
 |  | [Plan-030 Phase 1](../plans/030-skills.md) | skill contracts and the read over three origins. | Plan-006 Phase R1, Plan-027 Phase 2 |
 |  | [Plan-014 Phase 2](../plans/014-multi-agent-orchestration.md) | daemon orchestration services. | Plan-003 Phase 2, Plan-006 Phase R1, Plan-014 Phase 1, Plan-026 Phase 3 |
 |  | [Plan-016 Phase 5](../plans/016-identity-and-user-state.md) | credential seam and account. | Plan-016 Phase 4 |
@@ -411,7 +410,7 @@ The console has five rail destinations, in a fixed order ([ADR-031](../decisions
 | Sidekicks | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) (the library and the editor), then Phase 6 (Browse plugins) | 8, 11 |
 | Skills | [Plan-030 Phase 4](../plans/030-skills.md) (rail, addresses, list), then Phase 5 (the folder editor), then Phase 6 (availability and the composer's Skills group), then Phase 7 (a plugin's skills) | 11, 12, 13, 14 |
 | Workflows | [Plan-015 Phase 5](../plans/015-workflow-authoring-and-execution.md) (the builder, run detail, human forms and chat start), then Phase 5B (the operator recovery surface) | 9, 10 |
-| Settings | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) (the MCP servers page) | 5 |
+| Settings | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) (the MCP servers page) | 4 |
 |  | [Plan-026 Phase 4](../plans/026-provider-accounts-and-credential-homes.md) (the Providers page) | 5 |
 |  | [Plan-021 Phase 9](../plans/021-desktop-app-and-renderer.md#phase-9--preview-and-detached-panes) (the Browser page) | 10 |
 |  | The other pages' chrome is in the tree from the console phase. Each page goes live when the daemon methods it reads are built; [api-payload-contracts.md §Operations Not Yet Built](./contracts/api-payload-contracts.md#operations-not-yet-built) names each with its owning plan. | — |

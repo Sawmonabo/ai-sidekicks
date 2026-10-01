@@ -15,7 +15,7 @@ This document covers `RuntimeNode` ownership, registration, reachability, and it
 
 ## What This Is
 
-A runtime node is the machine where a session's work actually happens. It owns provider processes, tool execution, repo access, and local persistence. It carries no trust level of its own: trust is given per project and per tool server, never per machine.
+A runtime node is the machine where a session's work actually happens. It owns provider processes, tool execution, repo access, and local persistence. It carries no trust level of its own: trust is given per project, never per machine.
 
 It is the "one machine executing" half of the product model. A session runs on exactly one runtime node, the one it was started on, for its whole life, and a person may have any number of machines, each running its own sessions. The user's devices read a session and send it work, but they execute nothing themselves. The desktop app on a computer that runs the service acts with that machine's own key, so the computer is one machine under one name, never a machine and a device ([User And Device Model](./user-and-device-model.md)).
 

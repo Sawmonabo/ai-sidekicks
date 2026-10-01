@@ -278,7 +278,6 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `artifact.list` | The session's artifacts | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.20 |
-| error `artifact.picture_refused {reason: pixel_limit \| damaged}` | A picture from outside the daemon is refused before it is decoded, or when it is damaged | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.16 |
 | `artifact.read` | One artifact's content | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.1, T14.5 |
 
 ### `attention.*`
@@ -290,7 +289,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `attention.projectionRead`, served live: the whole projection, then every change; `attention.bannerSettle {entryId, state}`, main-only, a no-op once the entry is past `pending` | The bell's count and its list, one stable id per moment; main mirrors the count to the app icon and posts and withdraws the OS notification from the same projection, and while no main is connected the daemon's attention service starts the app windowless to post it | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T2.4, T1.2 |
 | one entry on `attention.projectionRead` with trigger `workflow_notify`, its `momentId` from the run, node and execution index and its `stepId`, posted by main | The Notify node posts a notification | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.24 |
 | `attention.seenUpdate` {sessionId} | Mark a session seen (its done dot filled or hollow) | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T2.4 |
-| `attention.webAddressSave {address}` → `{host, signingSecret?}`, `attention.webAddressSecretRotate {}` → `{signingSecret}`, `attention.webAddressRemove {}` → `{}`; refusal `attention.web_address_invalid` (`reason: unparseable \| notHttps \| notPrivateHttp`); the channel's switch and kinds are keys in the machine settings file, which the service writes; `web_address_state` (`pending \| delivered \| undelivered`) and an attempt count on each attention entry | The web address: `Send to a web address`, one signed message per moment of the kinds picked for it, the address and its signing secret sealed by the service | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.4 |
+| `attention.webAddressSave {address}` → `{host, signingSecret?}`, `attention.webAddressSecretRotate {}` → `{signingSecret}`, `attention.webAddressRemove {}` → `{}`; the channel's switch and kinds are keys in the machine settings file, which the service writes; `web_address_state` (`pending \| delivered \| undelivered`) and an attempt count on each attention entry | The web address: `Send to a web address`, one signed message per moment of the kinds picked for it, the address and its signing secret sealed by the service | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.4 |
 
 ### `browser.*`
 
@@ -426,7 +425,6 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `mcp.removeServer` | Remove a server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.3.1, T28.3.4 |
 | `mcp.setEnabled` | Turn a server on or off | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.3.3 |
 | `mcp.setToolOverride` | Set a per-tool override | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.4.8 |
-| `mcp.setTrust` | Set a server's trust | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.4.4 |
 | `mcp.subscribe` | Follow server state | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.2.10 |
 | `mcp.upsertServer` | Add or edit a server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.3.1, T28.3.4 |
 
@@ -556,7 +554,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `repo.detach` | Delete a project, from Projects' `Delete` or Runtime's `Remove` on the project's folder (sessions and folder stay) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.7, T1.2, T2.3 |
 | `repo.executionRootPrepare` (+ `carryUncommitted`) | New worktree from a base, optionally carrying uncommitted work | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.3, T1.2, T2.4 |
 | `repo.fileRead` | Read a working-tree file not in the diff, and the lines inside a collapsed gap | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.3 |
-| `repo.folderList {folderToken?, filter?, showHidden?}` → the folder in view and up to 500 entries, each with a token, and `more: true` when the filter would narrow more | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.11 |
+| `repo.folderList {path?, filter?, showHidden?}` → the folder in view and up to 500 entries, each with its path, and `more: true` when the filter would narrow more | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.11 |
 | `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
 | `repo.mountList` | Every folder the service can reach, each with what is using it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.2 |
 | `repo.mountRead` | One mount's facts: its origin (`attached`, a project's folder; `managed`, a chat's workspace; `worktree`, a worktree the app made, under its project) and what uses it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.2, T1.2, T2.3 |
@@ -795,8 +793,8 @@ interface SessionCreateRequest {
 // A chat names nothing more: the daemon makes the chat's managed workspace inside the create and registers
 // it as a mount whose managed origin names this one chat. A project names the project's mount and where the
 // session works in it — the project's own checkout (`bound-root`) or a worktree of its own
-// (`provisioned-worktree`) — and the daemon admits that root to the session's trust envelope in the same
-// step, the admission `repo.workspaceBind` performs when a chat converts. A mount belongs to the machine,
+// (`provisioned-worktree`) — and the daemon checks, in the same step, that the picked root belongs to the
+// project, the check `repo.workspaceBind` makes when a chat converts. A mount belongs to the machine,
 // not to one session, so every project session names the project's one mount.
 type SessionBinding =
   | { kind: "chat" }
@@ -1012,7 +1010,7 @@ interface SessionDraftUpdateResponse {
 // and main's relay turns the token into the path the daemon copies, so no path string comes from the
 // renderer or from another device; a pasted picture is a file too, written by main to a temporary file
 // whose token it mints. Each accepted item is validated by the Plan-012 ingest pipeline — a picture is
-// rewritten once there, and only that copy is kept, shown and sent — and is addressed by its `ArtifactId`
+// kept, shown and sent as its original bytes — and is addressed by its `ArtifactId`
 // from then on, so the original path is never read again, which is also why a pasted or dropped file
 // stages through this same operation rather than a second one.
 interface SessionAttachmentAddRequest {
@@ -1032,11 +1030,10 @@ interface SessionAttachmentAddResponse {
   // The WHOLE staged set, so a client renders what the daemon holds instead of merging its own add.
   attachments: SessionAttachmentSummary[];
   // One entry per item not staged, so no item is dropped in silence. The cause is the daemon's own: a
-  // limit hit, named — how many files one message carries, how large a picture or any other file may be,
-  // each figure read from what the daemon and the provider accept — a provider that takes no attachments,
-  // a card waiting on the person, a picture refused before it is decoded or found damaged
-  // (`artifact.picture_refused`), or a copy that failed. How many were taken is the request's items less
-  // these.
+  // limit hit, named — how many files one message carries, how large a file may be, each figure read
+  // from what the daemon accepts — a provider that takes no attachments, a card waiting on the person, a
+  // picture the provider will not take, refused in that provider's own words, or a copy that failed. How
+  // many were taken is the request's items less these.
   refused: Array<{ clientStagingId: string; error: ErrorResponse }>;
 }
 interface SessionAttachmentSummary {
@@ -2904,7 +2901,6 @@ interface DaemonStatusReadResult {
       lastFrameOutAgeMs?: number;
       lastFrameInAgeMs?: number;
       reconnectCount: number;
-      rejectedFrameCount: number;
     }>;
   };
 }
@@ -3526,11 +3522,10 @@ interface RepoMountHealth {
 // refused; the repository is keyed by its git common folder, so attaching a linked worktree's folder
 // finds the repository already attached.
 interface RepoAttachRequest {
-  // Exactly one of them (Zod refinement). On the machine itself the path comes from the platform's own
-  // folder chooser, whose token the main process's relay turns into a path; from another device it is a
-  // `folderToken` that `repo.folderList` minted, so no path string ever comes from another device.
-  localPath?: string; // user-entered path (provenance; persisted as repo_mounts.local_path)
-  folderToken?: string;
+  // On the machine itself the path comes from the platform's own folder chooser, whose token the main
+  // process's relay turns into a path; from another device it is the path of the folder `repo.folderList`
+  // showed.
+  localPath: string; // user-entered path (provenance; persisted as repo_mounts.local_path)
 }
 interface RepoAttachResponse {
   repoMountId: RepoMountId;
@@ -3571,13 +3566,13 @@ interface RepoDetachResponse {
 
 // WorkspaceBind — binds one session to its project's mount and to where it works: a worktree of its own
 // (`provisioned-worktree`) or the checkout the project already has (`bound-root`). A new session binds in
-// the same step as `session.create`; this call serves a converted chat, and it admits the path to that
-// session's trust envelope.
+// the same step as `session.create`; this call serves a converted chat, and it checks, once, that the
+// picked folder belongs to the project.
 interface WorkspaceBindRequest {
   sessionId: SessionId;
   repoMountId: RepoMountId;
   executionMode: ExecutionMode;
-  directory?: string; // relative: subdirectory under the mount canonical root; absolute: names a registered working tree of the mount's repository (Spec-007 trust-envelope rule) — containment re-checked after symlink resolution either way
+  directory?: string; // relative: subdirectory under the mount canonical root; absolute: names a working tree git lists for the mount's repository (Spec-007 trust-envelope rule) — containment re-checked after symlink resolution either way
 }
 interface WorkspaceBindResponse {
   workspaceId: WorkspaceId;
@@ -3641,7 +3636,7 @@ Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree.t
 - **Open in editor** is the bridge's `native.openInEditor`, which opens the project's folder in the editor Settings › General names.
 - **Archive** is `repo.projectArchive`: it takes the project out of the session list's grouping and into an archived group carrying one action, unarchive; its sessions are kept and come back with it. **Unarchive** is `repo.projectReactivate`, the inverse, which restores the grouping.
 - **Delete** is `repo.detach`, the project's one removal act and the same act as Runtime's `Remove` on the project's folder. It is refused only while an agent runs anywhere in the project. It takes the project out of the projects page and out of the session list, forgets its setup steps and its branch-name pattern, and ARCHIVES its sessions, which stay readable. Nothing on disk is touched and it is not undoable, which is why the confirm states all three facts before it acts.
-- **The setup steps** are written through `repo.projectSetupUpdate`: a per-project recipe — files to copy, commands to run in order, and a time limit — read and written from the projects page. They run with the repository's own git hooks off, raise no approval card at any permission level, and mint no remembered rule. They are the person's own list on this machine rather than a file inside the repository.
+- **The setup steps** are written through `repo.projectSetupUpdate`: a per-project recipe — files to copy, commands to run in order, and a time limit — read and written from the projects page. They run with the repository's own git config, its hooks included, raise no approval card at any permission level, and mint no remembered rule. They are the person's own list on this machine rather than a file inside the repository.
 - **The environment rows** are two lists. The machine-wide list is passed to every process the app starts and belongs to the machine's settings file; a project's own list, written through `repo.projectEnvironmentUpdate`, is passed to every process that project's sessions start and belongs to the project record. A name in a project's list WINS over the same name machine-wide. The daemon reads both lists when it starts a project's process. A credential-shaped name is refused at save, in the list it was typed into, and nothing is written — credentials live in the account's credential home, never in an environment row — and so is a name the app sets itself on the processes it starts.
 - **The branch-name pattern** is written through `repo.projectBranchPatternUpdate {projectId, pattern | null}`, `null` returning the project to the machine's own pattern.
 
@@ -5270,9 +5265,8 @@ interface AttentionWebAddressSecretRotateResponse {
 }
 interface AttentionWebAddressRemoveRequest {} // removes the address and its signing secret
 interface AttentionWebAddressRemoveResponse {}
-// Refusals: `attention.delivery_store_unavailable` (`cause: locked | unavailable`),
-// `attention.delivery_not_configured` (`missing: address | password`) and `attention.web_address_invalid`
-// (`reason: unparseable | notHttps | notPrivateHttp`).
+// Refusals: `attention.delivery_store_unavailable` (`cause: locked | unavailable`) and
+// `attention.delivery_not_configured` (`missing: address | password`).
 ```
 
 > **Scope and aggregate carrier (Plan-017 D-017-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation — `actionable` while **any** unresolved contributor (a run-scoped item or a pending request) is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.projectionRead` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-017 §API And Transport Changes](../../plans/017-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-017](../../plans/017-notifications-and-attention-model.md) D-017-2.
@@ -5298,7 +5292,7 @@ Plan-017's attention surface is exposed as the `attention.*` methods below, all 
 
 **The preferences are the machine's settings file's.** No `attention.*` verb carries a notification preference, and the daemon keeps none of its own. `Notify me outside the app`, the four kinds beneath it (`Waiting on you`, `Finished`, `Failed`, `Notify steps`, each on by default), the web address's switch and kinds, and the email digest's settings other than its password are this device's, kept in the machine's settings file (§Settings Surface Reads And Writes below); the daemon reads them, with the session's mute, each time it writes an entry, and no preference gates a withdrawal.
 
-**Delivery off this screen is the machine's own.** `Email me what I have not seen` is off by default. When on, the service sends at most one email per period — an hour, four hours or a day, a day by default — through the person's own mail account, sent by Nodemailer over TLS only (on 465 from the start, on 587 with a required STARTTLS, so a server that will not encrypt is refused before the password is written). It lists each `Waiting on you` still unresolved and each `Finished`, `Failed` or Notify-step moment whose session or run has not been opened since, each once, never a muted session's `Finished` or `Failed`, and names each session or run, its state, its time and its `sidekicks://` address, never what was said. `Send to a web address` is off by default. When on, the service sends one Standard Webhooks-signed JSON `POST` per moment of the kinds picked for it (`text`, `kind`, `state`, `subject`, `momentId`, `at`, `machine`, `link`; never what was said), never for a muted session's `Finished` or `Failed` and nothing for a withdrawal, and only while no console window is in front on any device, except that a workflow's Notify step always sends. The address is `https://`, or `http://` only to a loopback or private-network host; success is a 2xx answer within 15 s and a redirect is a failure; a failed send is retried at 5 s, 5 min and 30 min, with at most 100 waiting, the oldest dropped and counted past that. The mail password, the address and its signing secret are sealed in the operating system's keychain; the address is shown back as its host only. A push to another of the person's devices is sealed on this machine and sent through `push.send` ([Spec-028](../../specs/028-remote-control.md)); the control plane keeps no notification queue, filter or preference. Canonical Zod schemas live in `packages/contracts/src/attention.ts` per the §Source-of-Truth Policy.
+**Delivery off this screen is the machine's own.** `Email me what I have not seen` is off by default. When on, the service sends at most one email per period — an hour, four hours or a day, a day by default — through the person's own mail account, sent by Nodemailer over TLS only (on 465 from the start, on 587 with a required STARTTLS, so a server that will not encrypt is refused before the password is written). It lists each `Waiting on you` still unresolved and each `Finished`, `Failed` or Notify-step moment whose session or run has not been opened since, each once, never a muted session's `Finished` or `Failed`, and names each session or run, its state, its time and its `sidekicks://` address, never what was said. `Send to a web address` is off by default. When on, the service sends one Standard Webhooks-signed JSON `POST` per moment of the kinds picked for it (`text`, `kind`, `state`, `subject`, `momentId`, `at`, `machine`, `link`; never what was said), never for a muted session's `Finished` or `Failed` and nothing for a withdrawal, and only while no console window is in front on any device, except that a workflow's Notify step always sends. The address is whatever the person typed; success is a 2xx answer within 15 s and a redirect is a failure; a failed send is retried at 5 s, 5 min and 30 min, with at most 100 waiting, the oldest dropped and counted past that. The mail password, the address and its signing secret are sealed in the operating system's keychain; the address is shown back as its host only. A push to another of the person's devices is sealed on this machine and sent through `push.send` ([Spec-028](../../specs/028-remote-control.md)); the control plane keeps no notification queue, filter or preference. Canonical Zod schemas live in `packages/contracts/src/attention.ts` per the §Source-of-Truth Policy.
 
 ### Page-Host Method Registry
 
@@ -5380,8 +5374,8 @@ interface PreviewPageListResponse {
 // Opening is EITHER an address the person entered or a server the daemon discovered — a closed union,
 // so a caller cannot ask for both and leave the daemon to choose. An entry the pane will not take is
 // refused by NAMING THE CAUSE and the page stays where it was: text that is not an address is refused
-// as not-an-address rather than searched, an address carrying a username or a password says so, and a
-// scheme the pane cannot open says so. Nothing is ever searched on the web.
+// as not-an-address rather than searched, and a scheme the pane cannot open says so. An address carrying
+// a username or a password opens as typed. Nothing is ever searched on the web.
 type PreviewPageTarget = { kind: "address"; address: string } | { kind: "devServer"; port: number };
 interface PreviewPageOpenRequest {
   sessionId: SessionId;
@@ -5619,7 +5613,7 @@ interface PreviewPageSiteDataClearResponse {
 
 - **General** goes through the main process's own update channel — `update.getState`, `update.subscribe`, `update.requestCheck`, `update.requestDownload` and `update.requestRestart` — and the app's reported facts (`app.version`, `app.platform`, `app.arch`, `app.locale`), with `native.listEditors()` for the editor list. The editor preference, the default checkout for a new project session, the new-session switch, the keep-awake switch and the crash-report switch are the machine's settings file's, read and written through `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()`; the background service reads the keep-awake switch and holds the machine and its screen awake itself while any agent works.
 - **Providers** is one section per provider, and its two halves read through different surfaces. **The accounts half** goes through the `providerAccount.*` namespace of §Plan-026: `providerAccount.list` and `providerAccount.subscribe`, `.register`, `.update`, `.remove`, `.setCurrent` (which moves the `Default` mark; a session on that provider moves to the new account in place at its next request), `.probe` (`Check now`, and the five-minute read), `.resetCredentialHome` (the page's `Sign out`), `.login` and `.loginCancel` (the brokered sign-in), `.memoryImport` (the one-time copy of the person's own provider memories into an account's home) and `.usageRead`. An account is named by the identity its provider reports — the address, the plan in the provider's own word, and the organization where the plan carries one — so no payload on this page carries a label the person typed, and the only field the person authors that the update mutation corrects is the billing mode. **The provider's half** goes through the `provider.*` root: `provider.list` (each provider's status and its own knobs), `provider.update` (one knob per press: the command path, whether the provider is available for new sessions, the helper processes at once, the automatic-compaction bound, the output style, and Codex's `Reach Codex sessions started in a terminal`), `provider.probe {provider}` (the command's `Check again`: the executable resolved again and its version re-read), `provider.protectedPathList` (each protected path with the source it came from), `provider.install {provider}`, `provider.installSubscribe` and `provider.installStop` (`Install`), and `provider.terminalPluginUpdate {provider, enabled}` (the terminal plugin switch, which writes only its own key in the person's Claude Code settings). The standing rules the provider itself holds on this machine are read and revoked in the provider's own files through `provider.standingRuleList` and `provider.standingRuleRevoke`, each rule with its scope and source file. The console's remembered rules, session and project alike, are a different store: the daemon's, listed and revoked in the session inspector's `Rules` section through `approval.ruleList` and `approval.ruleRevoke` of §Plan-010, and never written into the provider's files. The import of the provider's own existing conversations is `session.importPreview`, `session.import`, `session.importSubscribe` (its first message each provider's last outcome) and `session.importStop`. On a Windows computer with WSL, the supervisor's `daemon.listPlaces()` and `daemon.subscribePlaces()` draw the place row and `Change…`'s list, and `daemon.requestMove(place)`, `daemon.cancelMove()` and `daemon.subscribeMove()` carry the move.
-- **MCP servers** goes through the operations §Plan-025 registers, with the live stream among them, and one registry search: `mcp.list`, `mcp.get`, `mcp.subscribe`, `mcp.upsertServer` and `mcp.removeServer`, each carrying `scope` and `scopeRef`, `mcp.registrySearch {query, cursor?}` answering `{servers, nextCursor?}`, `mcp.setEnabled`, `mcp.setTrust`, `mcp.setToolOverride`, `mcp.clearToolOverride`, `mcp.oauthLogin` (the service's own sign-in), `mcp.oauthLogout {serverId}` and `mcp.reconnect`. A sign-in page opens through `native.openExternal`, and a server whose command cannot run after a move reads `failed` with `failedReason: commandNotRunnable` on its entry.
+- **MCP servers** goes through the operations §Plan-025 registers, with the live stream among them, and one registry search: `mcp.list`, `mcp.get`, `mcp.subscribe`, `mcp.upsertServer` and `mcp.removeServer`, each carrying `scope` and `scopeRef`, `mcp.registrySearch {query, cursor?}` answering `{servers, nextCursor?}`, `mcp.setEnabled`, `mcp.setToolOverride`, `mcp.clearToolOverride`, `mcp.oauthLogin` (the service's own sign-in), `mcp.oauthLogout {serverId}` and `mcp.reconnect`. A sign-in page opens through `native.openExternal`, and a server whose command cannot run after a move reads `failed` with `failedReason: commandNotRunnable` on its entry.
 - **Projects** goes through the repository surface of §Repo Method-Name Registry above, with a project record beside its mount: `repo.projectList` (each row with `onOtherSideDisk`), `repo.projectRename`, `repo.projectArchive`, `repo.projectReactivate`, `repo.projectSetupUpdate`, `repo.projectEnvironmentUpdate` and `repo.detach`, which is the row's `Delete` (the sessions and the folder stay), with `native.openInEditor` for opening the project. The machine-wide environment rows and `Clone new repositories into` are the settings file's; the background service reads the environment rows when it starts a project's process and the clone folder at each clone. `repo.cloneFolderRead {}` → `{folder, source: setting | lastProject | home}`, served by the background service, is the one answer to where a clone goes, which this page's row and the session picker's `Clones into` line both draw.
 - **Browser** goes through the `browser.*` root of §Page-Host Method Registry above — `browser.siteDataList`, `browser.siteDataForget`, `browser.siteDataClear`, `browser.siteCookiesClear {origin}`, `browser.siteSignIn {origin}`, `browser.chromiumRead` and `browser.chromiumFetch` — and through `gitflow.hostList`, `gitflow.hostAdd {host}` and `gitflow.hostRemove` of §Plan-009 for the self-hosted git hosts. Its two switches, `Remember site data` and `Browser tools for sidekicks`, are no verb: they are the machine's settings file's, and the background service reads them each time it launches the headless browser or a provider.
 - **Keyboard** goes through nothing on the daemon's wire: the chord map is its own file on this install, `userData/keyboard-map.json`, holding only the overridden rows, read and written by the main process through `keyboardMap.read()` and `keyboardMap.write()`, which returns the map as stored. There is no change feed: one renderer drives every window, so one reader holds the map.
@@ -5630,7 +5624,7 @@ interface PreviewPageSiteDataClearResponse {
 
 **The machine's settings file** is `<home>/.ai-sidekicks/machine-settings.json`, a place both the main process and a background service started from the command line can find without the app. It holds the auto-update preference, the crash-report switch, the editor preference, the default checkout, the new-session switch, the keep-awake switch, the notification preferences (the switches, the kinds, and the web address's and the email digest's settings other than their secrets), the browser's two switches, the screen-reader switch, the environment rows for every project, the backup switch and the backup folder, the `Branch names` pattern, the folder new clones go into (absent until the person sets one), and voice's two settings (the mode, and the Codex voice). The folders this machine can reach are not in it: they are the background service's, because only it knows which sessions use a folder. The background service is its one writer, so a change made on another device reaches it as surely as one made at the machine, and a machine running the service with no desktop app can still be changed: the service serves the file through `daemon.machineSettingsRead`, writes a change through `daemon.machineSettingsUpdate {change}`, answered with the file as written, and delivers each written change through `daemon.machineSettingsSubscribe`, the first delivery being the current file. The main process's `machineSettings.read()`, `machineSettings.write(change)` and `machineSettings.subscribe()` carry them; the main process alone may read the file directly, and only before the service first answers, for the values it needs at start (the auto-update preference and the crash-report switch); the renderer never reads the file. The service reads it each time it starts the headless browser, a provider process, a project session, a project's process, a Terminal pane's shell, a clone or a Codex voice call, and keeps no copy; a missing or broken file reads as the defaults there, and the service repairs it. One schema, `MachineSettings` in `packages/contracts/src/machine-settings.ts` beside `daemon.machineSettingsRead`, `daemon.machineSettingsUpdate` and `daemon.machineSettingsSubscribe`, describes the file for both readers. It is written by an ATOMIC RENAME over a schema-checked parse with fail-closed defaults, so a half-written file is never read and a malformed one falls back rather than crashing the screen. A small value may additionally be sealed through the platform's own one-blob encryption. Credential material — a token, a key, the web address's signing secret, the mail password — is never in this file and never in the app's own durable store: it lives in the operating system's keystore, which is why no payload above carries one.
 
-**Settings appends no session event.** Its values are machine-local configuration, so nothing on the screen writes to a session's event log. The one audit stream the screen shows is the tool-server governance stream of §Plan-025, which it reads and never writes.
+**Settings appends no session event.** Its values are machine-local configuration, so nothing on the screen writes to a session's event log. The one stream the screen reads is the tool-server status and sign-in stream of §Plan-025, `mcp.subscribe`, which it reads and never writes.
 
 ---
 
@@ -7905,21 +7899,6 @@ type RateLimitCheckResponse =
   | { allowed: true; degraded: true; graceEndsAt: string };
 ```
 
-#### Relay Rate-Limit Signaling
-
-WS overflow is a per-device quota (Plan-019 D-019-9): a device over 6,000 frames in a sliding 60 seconds gets ONE in-band `rate_limited` frame, and the relay forwards nothing that device sends for the next 60 seconds, with no further frame; the connection stays open, a machine connection is never counted, and the quota never closes a connection ([Spec-019 §WebSocket Overflow Response](../../specs/019-rate-limiting-policy.md#websocket-overflow-response)).
-
-```ts
-// In-band frame sent once when a device passes its quota (connection stays open)
-interface RateLimitedFrame {
-  type: "rate_limited";
-  retryAfter: number; // seconds — 60, the pause
-  limit: number;
-  remaining: 0;
-  resetAt: string; // ISO 8601
-}
-```
-
 ### Spec-020 — Data Retention And GDPR
 
 The data acts are daemon JSON-RPC verbs on the `daemon` root, registered by Plan-020 on Plan-006's `MethodRegistry`, with their params and result schemas in `packages/contracts/src/daemon-data.ts`: `daemon.dataExport {destination}` with `daemon.dataExportSubscribe` for its progress (`Export all data`), `daemon.dataErase {}` (`Erase all data`), `daemon.keyRotate {passphrase?, recoveryPassphrase?}` (`sidekicks rotate-keys`, carrying the machine's passphrase on the passphrase-file tier and the recovery passphrase when one is set) and `daemon.unlock {passphrase}`, which unlocks a service whose master key is on the passphrase file (§Operations Not Yet Built, `daemon.*`). They are daemon verbs rather than control-plane routes because the handlers read the daemon-local `session_content_keys` and `master_keys` rows and the master key, which a Cloudflare-Workers control plane cannot reach (Plan-020 D-020-3). A session's purge is `daemon.retentionPurge` (`Delete old data`). Deleting the hosted account is the control plane's `account.delete`, and `account.export` answers the export's `hosted-account.json` (§Operations Not Yet Built, `account.*`). No `gdpr.*` method exists.
@@ -7934,13 +7913,11 @@ type McpProvider = "claude" | "codex";
 type McpConfigScope = "user" | "project" | "local"; // scope axis of the binding identity, writable on both providers: user = the provider's own user configuration, every project on this machine; project = the project's own file, saved with the repository (Claude Code's `<project>/.mcp.json`, Codex's `<project>/.codex/config.toml`); local = this project on this machine only (Claude Code's per-project entry in its user configuration; on Codex, which has no such layer, a user entry kept switched off and switched on per conversation in that project's sessions). Scope-applicability is PER OPERATION (see the operations block)
 type McpApplicationGrade = "live_reconcile" | "user_config_write" | "next_run" | "daemon_enforced"; // when/where a mutation takes effect — honest, typed, never silent (parity-triad degrade-honestly): live session set / provider config store (subsequent runs) / next-run composed config / daemon decision layer (immediate)
 type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native vocabulary adopted as the normalized set; Claude-side enforcement is daemon-owned (Spec-025 §Tool-Level Overrides)
-type McpTrustReason = "operator_grant" | "operator_revoke" | "config_drift";
-type McpConfigChangeKind = "added" | "updated" | "removed" | "enabled" | "disabled";
 
 // The scope-qualified server binding (Spec-025 §Unified Inventory): identity is
 // (provider, scope, scopeRef, serverName) — never merged across providers OR scopes. Same-named
-// servers in two scopes are distinct configurations with independent status, trust, and overrides;
-// collapsing them would trust-ping-pong on drift and bleed overrides across configurations.
+// servers in two scopes are distinct configurations with independent status and overrides;
+// collapsing them would bleed overrides across configurations.
 // Structural validity is schema-level (a Zod discriminated union on `scope`), not service-layer:
 // `user` FORBIDS scopeRef (persisted as '' in the daemon tables), and `project`/`local` REQUIRE a
 // canonical non-empty scopeRef (the project root), so unrelated projects can never collapse onto one
@@ -7961,39 +7938,30 @@ type McpServerBindingRef =
 // without the master key reproduces no digest, stable for the binding's life, and
 // joinable to inventory entries (which serve the same digest).
 // Requests and inventory reads keep the full McpServerBindingRef (transient wire / the person's read,
-// not durable audit rows); only the local trust store resolves a digest back to its path.
+// not durable audit rows); only the local binding store resolves a digest back to its path.
 type McpServerBindingAuditRef =
   | { provider: McpProvider; scope: "user"; serverName: string }
   | { provider: McpProvider; scope: "project"; scopeRefDigest: string; serverName: string }
   | { provider: McpProvider; scope: "local"; scopeRefDigest: string; serverName: string };
 
 // Effective-binding derivation output (Plan-025 T28.4.11). NOT a carrier threaded in from another plan — Plan-025 derives this
-// in-plan from the post-drift composed-config snapshot it already builds at T28.4.6. `null` is a first-class answer meaning the tool
+// in-plan from the session sets it builds (T28.3.3, T28.3.9). `null` is a first-class answer meaning the tool
 // resolved from NO governed binding: a provider built-in, or a tool served by the daemon's own
 // ephemeral callback-tool host (Spec-004 §Required Behavior), which sits outside Spec-025 governance
-// entirely (Spec-025 §Non-Goals) and is never trusted, drift-evaluated, or override-governed.
+// entirely (Spec-025 §Non-Goals) and is never override-governed.
 // NEVER derived by parsing the delivered wire tool name: provider-side `mcp__<server>__<tool>`
 // prefixing and collision-suffixing are provider defaults rather than wire invariants, so the
 // mapping runs off the daemon's own registration identity.
 type McpEffectiveBinding = McpServerBindingRef | null;
 
-// Binding-identity digest, stamped onto `command_receipts.mcp_binding_digest` at receipt write so
-// crash recovery never re-resolves an override it has no session to resolve against (Plan-025
-// I-025-6; the column, its partial index, and the receipt-write argument are owned by Plan-025
-// T28.4.12). Because the digest is KEYED, key availability is part of the guarantee: a revocation
-// matches receipts by RECOMPUTING this value, so if the binding-identity subkey is unavailable the
-// daemon cannot tell which stamped rows a revocation covers, and I-025-6 then requires neutralizing
-// every non-terminal digest-bearing receipt to the manual_reconcile_only floor and refusing to stamp
-// new digests — unmatchable is treated as revoked, never as untouched.
+// Binding-identity digest, stamped onto a remembered approval rule whose subject is one of the
+// binding's tools (`remembered_approval_rules.mcp_binding_digest`), so removing the binding finds and
+// revokes those rules in the removal's own transaction (Spec-025 §Configuration Mutation).
 // "b3:"-prefixed keyed BLAKE3 — key = the binding-identity subkey of the governance key, which the
-// database holds only sealed under the daemon master key, the same derivation family as configHash and scopeRefDigest
+// database holds only sealed under the daemon master key, the same derivation family as scopeRefDigest
 // — over the RFC 8785 JCS canonicalization of the full McpServerBindingRef tuple: the scopeRefDigest
 // discipline widened from the scopeRef alone to the whole tuple, so no raw filesystem path reaches a
-// durable row and the digest is not brute-forceable from a database copy. DELIBERATELY EXCLUDES the
-// config hash — a binding's config drifts while its identity does not, and a drift-triggered
-// revocation must still match receipts stamped before that drift. Stable for the binding's life;
-// written from the same Plan-025 resolution output that supplies idempotencyClass, so the receipt
-// write gains no new seam.
+// durable row and the digest is not brute-forceable from a database copy. Stable for the binding's life.
 type McpBindingIdentityDigest = string; // `b3:${string}`
 
 // mcp.upsertServer config input — the normalized governed surface, discriminated on transport.
@@ -8002,13 +7970,13 @@ type McpBindingIdentityDigest = string; // `b3:${string}`
 // (names may appear; values never do). Provider-conditional validation is schema-enforced (Zod
 // refinements), not prose: a field marked Codex-only rejects for provider "claude" and vice versa,
 // so the canonical request schema and SDK signature derive from this union without divergence.
-// PROJECT SCOPE TAKES NAMES ONLY, because that file travels with the repository: at `project` scope a
-// Claude Code `env` or `headers` value must be a `${VAR}` or `${VAR:-default}` reference, and a Codex
-// server names its variables through `envVars`, `envHttpHeaders` and `bearerTokenEnvVar`; a literal
-// value, the URL's query values included, is refused before anything is written. The server reads
-// the value from the environment its provider starts in — on Claude Code the daemon expands the
-// references from the session's own start environment before it sends the server set, holding the
-// expanded value only for that call and never storing or logging it.
+// EVERY SCOPE TAKES WHAT THE PERSON TYPES: at `project` scope the values are written into the
+// project's file in that provider's own format, as at the other scopes. A declaration may name a
+// variable in place of a value — a Claude Code `env` or `headers` value written as a `${VAR}` or
+// `${VAR:-default}` reference, a Codex server naming its variables through `envVars`,
+// `envHttpHeaders` and `bearerTokenEnvVar`. On Claude Code the daemon expands the references from the
+// session's own start environment before it sends the server set, holding the expanded value only
+// for that call and never storing or logging it.
 // PRESERVATION RULE (Spec-025 §Configuration Mutation): upserts are read-modify-write over the
 // provider's own declaration — provider fields this union does not model (or the request does not
 // carry) are preserved, never erased. Codex `user` writes are field-granular `config/value/write`
@@ -8028,7 +7996,7 @@ type McpServerConfigInput =
     }
   | {
       transport: "http" | "sse"; // "sse" is Claude-only (Claude-native transport kind)
-      url: string; // absolute http(s) URL; userinfo (embedded credentials) rejected. Query-string VALUES are write-only credential-equivalent material (a ?api_key=… credential passes no-userinfo validation): accepted, hashed, passed to the provider write path — never round-tripped (the view serves query param NAMES)
+      url: string; // absolute http(s) URL; userinfo (embedded credentials) rejected. Query-string VALUES are write-only credential-equivalent material (a ?api_key=… credential passes no-userinfo validation): accepted, passed to the provider write path — never round-tripped (the view serves query param NAMES)
       headers?: Record<string, string>; // write-only values (see above)
       bearerTokenEnvVar?: string; // Codex-only `bearer_token_env_var` — the env-var NAME, never the value
       envHttpHeaders?: Record<string, string>; // Codex-only `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
@@ -8059,7 +8027,7 @@ type McpServerConfigView =
     }
   | {
       transport: "http" | "sse";
-      url: string; // QUERY-REDACTED: scheme + host + path only (userinfo already rejected at input; query values are credential-equivalent and never round-trip — the full URL feeds only the base-config hash, so query-credential drift is still detected)
+      url: string; // QUERY-REDACTED: scheme + host + path only (userinfo already rejected at input; query values are credential-equivalent and never round-trip)
       urlQueryParamNames?: string[]; // the query string's parameter NAMES when one existed; values never round-trip (the env/header names-not-values discipline)
       headerNames?: string[]; // the header map's KEYS; values never round-trip
       bearerTokenEnvVar?: string; // an env-var NAME (Codex-only), safe to serve
@@ -8083,33 +8051,29 @@ interface McpServerLegStatus {
 }
 
 // Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
-// config, live status (McpServerStatus, §Plans 004, 005 And 006 seam), the trust row, the override rows. A
-// DISCRIMINATED PAIR on trustUnavailable (Spec-025 §Fallback Behavior): the normal arm serves all
-// four sources; the degraded arm (trust store unreachable) serves the provider-observed sources
-// only, with every trust- and override-dependent field STRUCTURALLY ABSENT rather than fabricated —
-// the daemon can construct a valid degraded entry without inventing trust state or a noncanonical
-// hash (trusted/configHash/toolOverrides all live in the unreachable store). scopeRefDigest stays
-// served in BOTH arms: it derives from the governance key, not from any trust-store row.
+// config, live status (McpServerStatus, §Plans 004, 005 And 006 seam), the binding row, the override
+// rows. A DISCRIMINATED PAIR on trustUnavailable (Spec-025 §Fallback Behavior): the normal arm serves
+// all four sources; the degraded arm (binding store unreachable) serves the provider-observed sources
+// only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (toolOverrides and
+// the Claude enabled overlay live in the unreachable store). scopeRefDigest stays served in BOTH arms:
+// it derives from the governance key, not from any binding row.
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
-  effectiveInRuns: boolean; // whether this binding reaches provider runs: true for every scope on both providers, except a `project` binding the daemon did not write (its file came with the repository), which starts untrusted and reaches runs only once the person trusts it — on Claude Code the session's server set is the daemon's own (`--strict-mcp-config` plus the server set it sends), so the provider's own `.mcp.json` approval never runs and the trust grant stands in for it; on Codex an untrusted project server is switched off per conversation. A server the person rejected in Claude Code stays out. A drift auto-revoke takes it back out until it is trusted again
   config: McpServerConfigView; // the redacted normalized declaration (see above)
   status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needs-auth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest node-probe observation, else "unknown" — never fabricated
   failedReason?: "commandNotRunnable"; // present only on an entry reading "failed" because, after the background service moved between Windows and a WSL distribution, its command or arguments name a program on the side it left; a bare command name such as npx is looked up on the new side and is not marked. One member on the entry, not a status of its own
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
-  scopeRefDigest?: string; // present for project/local bindings in BOTH arms — the McpServerBindingAuditRef digest, served so clients can join mcp.subscribe / sentinel-bound event payloads to inventory entries without recomputing; derived from the governance key (the scope-ref subkey), so it needs no trust-store row and the key never leaves the daemon
+  scopeRefDigest?: string; // present for project/local bindings in BOTH arms — the McpServerBindingAuditRef digest, served so clients can join mcp.subscribe / sentinel-bound event payloads to inventory entries without recomputing; derived from the governance key (the scope-ref subkey), so it needs no binding row and the key never leaves the daemon
 } & (
     | {
-        trustUnavailable?: never; // the normal (trust-store-available) arm
-        enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the trust row)
-        trusted: boolean;
-        configHash: string; // "b3:"-prefixed keyed BLAKE3 (key = the binding's config-hash subkey, derived from the governance key, which the database holds only sealed under the daemon master key — Spec-025 §Trust Governance) over the RFC 8785 JCS canonical BASE config — daemon-managed override-projection fields excluded, so a governed override write never drifts the hash trust binds to (excluded from the HASH only, never from drift detection: every drift evaluation on a trusted binding separately reconciles the observed projection fields against the expected native state — the preserved native-field baseline overlaid with materialized facets — so an out-of-band enabled_tools/approval-mode edit cannot ride under an unchanged base hash); a database copy without the master key reproduces no digest
+        trustUnavailable?: never; // the normal (binding-store-available) arm
+        enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the binding row)
         toolOverrides: McpToolOverride[];
       }
     | {
-        trustUnavailable: true; // degraded read: trust store unreachable — mutations fail closed (Spec-025 §Fallback Behavior)
+        trustUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-025 §Fallback Behavior)
         enabled?: boolean; // the provider-native enabled field only (Codex); ABSENT for Claude bindings — the daemon enabled overlay lives in the unreachable store, and a fabricated value would be a lie
       }
   );
@@ -8117,20 +8081,18 @@ type McpServerInventoryEntry = McpServerBindingRef & {
 // At least one facet is REQUIRED — a toolName-only override is meaningless and the canonical DDL
 // rejects the all-NULL row, so the Zod mirror refines "enabled, approvalMode, or idempotencyClass
 // present" and a facet-less request dies as a typed validation error, never a constraint failure.
-// enabled: true is a safety-WEAKENING facet (it broadens the executable tool set) and is
-// trust-conditioned like every weakening facet (Spec-025 §Trust Governance).
 interface McpToolOverride {
   toolName: string;
   enabled?: boolean; // absent = inherit provider config (for Codex-materialized facets, "provider config" means the preserved native baseline — a clear restores it; Spec-025 §Tool-Level Overrides)
   approvalMode?: McpApprovalMode; // absent = provider default
-  idempotencyClass?: "idempotent" | "compensable"; // absent = the Spec-004 §Tool Metadata manual_reconcile_only floor; assignment is trusted-server-only + Cedar-gated
+  idempotencyClass?: "idempotent" | "compensable"; // absent = the Spec-004 §Tool Metadata manual_reconcile_only floor; assignment is Cedar-gated
 }
 
 // Per-facet application grades for override mutations (Spec-025 §Tool-Level Overrides): Codex
-// enabled/approvalMode materialize into native config fields (user_config_write) on `user` and
-// `local` bindings (an emulated local binding is a user entry); on a Codex project binding those
-// facets refuse mcp.config_scope_unsupported while idempotencyClass still applies; Claude enforces all
-// of them at the daemon approval/resolution layer (daemon_enforced, immediate).
+// enabled/approvalMode materialize into native config fields (user_config_write) in the file that
+// holds the binding — the user file for `user` and `local` bindings (an emulated local binding is a
+// user entry), the project's `.codex/config.toml` for a `project` binding; Claude enforces all of
+// them at the daemon approval/resolution layer (daemon_enforced, immediate).
 // Present keys mirror the facets the request touched (or reverted, on clear).
 interface McpToolOverrideApplication {
   enabled?: McpApplicationGrade;
@@ -8150,25 +8112,24 @@ interface McpLiveApplicationResult {
   detail?: string; // sanitized — never config values or unsanitized paths
 }
 
-// ---- Operations (13; JSON-RPC per ADR-009) ----
+// ---- Operations (12; JSON-RPC per ADR-009) ----
 // Reads (readable by the person, no Cedar mutation check):
 //   mcp.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[]}
 //   mcp.get       McpServerBindingRef → {server: McpServerInventoryEntry}
 //   mcp.subscribe {} → AsyncIterable<EventEnvelope> // live-tail of every mcp_governance envelope as appended (sentinel- and session-bound alike; Plan-006 streaming primitive, session.subscribe consumer shape). Gap-free by ORDERING, not by cursor: a (re)connecting client opens mcp.subscribe FIRST, then reads mcp.list — the subscribe acknowledgment precedes the stream's first delivery (the Plan-006 I-006-10 wire-ordering invariant), so registration is live before the snapshot read and an event concurrent with the snapshot arrives on the stream instead of falling between snapshot and subscription (re-observation is harmless — governance envelopes are re-entrant state updates; omission is impossible). History via the locally-verified sentinel chain (Spec-025 §Status Observation and Events)
-//   mcp.registrySearch {query: string, cursor?: string} → {servers: McpRegistryServer[], nextCursor?: string} // `Browse servers`: a search of the public MCP Registry (`GET /v0/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the daemon only when the person types and caching nothing past the page. Each result carries its title or name, description and version, whether it runs as a package (its `runtimeHint` and `runtimeArguments`) or at an address (its `remotes`), and each environment variable's name, description and whether it is required — never a value. A pick fills the add form; the person still adds the server and types every secret, and a server added this way starts untrusted like any other
+//   mcp.registrySearch {query: string, cursor?: string} → {servers: McpRegistryServer[], nextCursor?: string} // `Browse servers`: a search of the public MCP Registry (`GET /v0/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the daemon only when the person types and caching nothing past the page. Each result carries its title or name, description and version, whether it runs as a package (its `runtimeHint` and `runtimeArguments`) or at an address (its `remotes`), and each environment variable's name, description and whether it is required — never a value. A pick fills the add form; the person still adds the server and types every secret
 // Cedar-gated non-reads (all deny-before-effect; every operation except mcp.reconnect carries the
 // MANDATORY clientIdempotencyKey: string — requester-generated UUID, durable receipt replay on
 // identical retry, mcp.idempotency_conflict on key reuse with a differing request digest, Spec-025
-// §Authorization. The governance mutations below each emit their mcp_governance event exactly
-// once, atomically with the receipt; mcp.oauthLogin, mcp.oauthLogout and mcp.reconnect are
-// operational commands outside that atomic invariant — oauthLogin is receipted but its durable trace
+// §Authorization. The governance mutations below finalize their receipt with their store writes and
+// emit no governance event; mcp.oauthLogin, mcp.oauthLogout and mcp.reconnect are operational
+// commands — oauthLogin is receipted but its durable trace
 // is the asynchronous mcp.server_oauth_completed, emitted exactly once per completed sign-in (an
 // abandoned sign-in, or one ended by a newer attempt, leaves only its expiring receipt); oauthLogout is receipted and, like
 // reconnect, audits through the status transitions it induces; reconnect is unreceipted):
 //   mcp.upsertServer      McpServerBindingRef & {clientIdempotencyKey: string, config: McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
-//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it
+//   mcp.removeServer      McpServerBindingRef & {clientIdempotencyKey: string} → {applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex local server also removes the daemon's row for it; removing any server revokes every remembered approval rule over its tools in the same transaction
 //   mcp.setEnabled        McpServerBindingRef & {clientIdempotencyKey: string, enabled: boolean} → {server: McpServerInventoryEntry, applied: McpApplicationGrade, liveResults?: McpLiveApplicationResult[]}
-//   mcp.setTrust          McpServerBindingRef & {clientIdempotencyKey: string, trusted: boolean} → {server: McpServerInventoryEntry, applied: "daemon_enforced"} // a grant binds to the binding's CURRENT base-config hash
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
 //   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-025 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-025 I-025-1), so an identical-key retry replays a URL-free acknowledgment: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key
@@ -8189,12 +8150,8 @@ interface McpLiveApplicationResult {
 // mcp.config_write_conflict), then read back with `config/read` and reloaded with
 // `config/mcpServer/reload`; Codex `local` is emulated as a user entry with `enabled = false`,
 // switched on per conversation in each session of that project, its name unique across the user
-// file (a clash is refused, naming the project that holds the other one). Each write is one governed
-// mutation, committed together with the recomputed base-config hash and mcp.server_config_changed,
-// so a server saved here never trips the drift gate and never loses its trust.
-// setTrust/overrides/oauthLogin/reconnect apply to any binding, and oauthLogout to any server; the one scope refusal
-// left is mcp.config_scope_unsupported for a Codex `enabled` or `approvalMode` override facet on a
-// `project` binding — a typed refusal at the service layer, not a parse error.
+// file (a clash is refused, naming the project that holds the other one).
+// Overrides, oauthLogin and reconnect apply to any binding, and oauthLogout to any server.
 // One mcp.registrySearch result, read from the registry's own record. Untrusted data: it fills the add
 // form and nothing else, and no value of any environment variable is ever part of it.
 interface McpRegistryServer {
@@ -8216,34 +8173,13 @@ interface McpRegistryServer {
 // Every payload embeds the PATH-FREE binding identity via intersection with the
 // McpServerBindingAuditRef union (provider, scope, scopeRefDigest per the scope variant,
 // serverName) — never the raw scopeRef (see the audit-ref comment above): these payloads are
-// durable audit rows, and Spec-025 forbids filesystem paths in them.
+// durable rows, and Spec-025 forbids filesystem paths in them.
 type McpServerStatusChangedPayload = McpServerBindingAuditRef & {
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string; // sanitized
   origin: "session_feed" | "node_probe"; // mirrors the per-event session binding: real sessionId on session_feed rows, the daemon-scope sentinel on node_probe rows
   bindingId?: string; // REQUIRED for origin "session_feed" — the Plan-004 runtime-binding leg key (opaque daemon-minted id), attributing the transition to its legs[] entry when one binding backs several legs in the same session; ABSENT for "node_probe" (no leg observed). The Zod mirror enforces the conditionality as a refinement
-};
-type McpServerConfigChangedPayload = McpServerBindingAuditRef & {
-  changeKind: McpConfigChangeKind;
-  appliedVia: McpApplicationGrade;
-  configHash?: string; // REQUIRED for every changeKind except "removed"; ABSENT for "removed" — there is no post-removal config to hash. The Zod mirror enforces the conditionality as a refinement; no tombstone hash is ever fabricated
-  previousConfigHash?: string; // REQUIRED for "removed" and "updated" (the pre-change hash); optional otherwise
-  initiatingSessionId?: SessionId; // sentinel-bound rows record a session-scoped initiator here, never in the envelope session_id
-};
-type McpServerTrustChangedPayload = McpServerBindingAuditRef & {
-  trusted: boolean;
-  reason: McpTrustReason;
-  configHash: string; // the base-config hash the grant binds to, or the drift-observed hash on revoke — keyed BLAKE3 under the binding's derived config-hash subkey (Spec-025 §Trust Governance; derived from the governance key, which the database holds only sealed under the daemon master key), so a database copy without the master key reproduces no digest
-  initiatingSessionId?: SessionId; // absent on config_drift auto-revoke
-};
-type McpToolOverrideChangedPayload = McpServerBindingAuditRef & {
-  toolName: string;
-  changeKind: "set" | "cleared";
-  enabled?: boolean;
-  approvalMode?: McpApprovalMode;
-  idempotencyClass?: "idempotent" | "compensable";
-  initiatingSessionId?: SessionId; // absent on the trust-revocation facet-reversion path (revocation neutralizes weakening, Spec-025 §Trust Governance)
 };
 type McpServerOauthCompletedPayload = McpServerBindingAuditRef & {
   outcome: "success" | "failure"; // 'failure' IS the asynchronous completion-failure channel (Spec-025 §OAuth Orchestration — launch failures are errors, completion failures are events)
@@ -8368,8 +8304,8 @@ type ProviderAccountHealthState =
 // and it is message text for the person that travels structured. The prohibition it lives under is
 // unchanged and is about the READER, not the encoding: the home reaches the person's screen and never
 // an event payload, anything the control plane can read, or a log line
-// (Spec-026 §Node provider readiness and the sign-in handoff, on the `mcp.config_scope_unsupported`
-// disclosure discipline). On every surface a session user can reach — the relay
+// (Spec-026 §Node provider readiness and the sign-in handoff, on message-text-only disclosure).
+// On every surface a session user can reach — the relay
 // included — `credential_home_path` names a column and nothing else.
 
 // Readiness is the pre-computed answer to the question run admission will ask, derived by the SAME
@@ -9287,8 +9223,7 @@ interface PluginAppListResponse {
 // The daemon serves a session exactly ONE tool server, carrying six verbs — run, message, wait, stop,
 // close, list — registered as ordinary SessionCallbackTool entries through the existing callback-tool
 // dispatch seam (Spec-004 §Required Behavior). The host is the daemon's own, sits OUTSIDE the Spec-025
-// MCP governance model (Spec-025 §Non-Goals), and is never trusted, drift-evaluated, or
-// override-governed. The Codex leg reaches the verbs as function-form dynamic tools and the tool server
+// MCP governance model (Spec-025 §Non-Goals), and is never override-governed. The Codex leg reaches the verbs as function-form dynamic tools and the tool server
 // itself is the interface there — its own description lists every cross-provider agent by name and
 // description, and the lead runs one by name. The Claude leg reaches them through the daemon-hosted ephemeral MCP server,
 // where a cross-provider agent is a session-pack entry whose ONLY tools are these six: the lead's own
@@ -9314,9 +9249,10 @@ interface PluginAppListResponse {
 // schema-invalid arguments answers `failed`. No invocation is left unanswered.
 // EVERY VERB THAT NAMES A TARGET NAMES AN AGENT. `run` names a saved definition; `message`, `wait`,
 // `stop` and `close` name an agent already running in this session, by the handle `run` returned; `list`
-// names none. A request naming a provider, a model, an account or a node instead is REFUSED — the unit
-// an agent addresses is another configured agent, never a vendor — which is why no free-form target
-// string and no provider-axis member appears in any shape below.
+// names none. `run` may also carry a model and a reasoning effort, as both providers' own spawn calls
+// take them. A request naming a provider, an account or a node is REFUSED — the agent's binding names
+// them, and the unit an agent addresses is another configured agent, never a vendor — which is why no
+// free-form target string and no provider or account member appears in any shape below.
 // STATE LIVES IN THE DAEMON, NEVER IN THE TOOL-SERVER PROCESS. The handles, the provider-side thread and
 // process identities, and what each agent has produced are the daemon's own, which is why nothing below
 // carries a provider-side identifier even though the daemon holds one. A provider restarts a tool server
@@ -9341,8 +9277,10 @@ type AgentBridgeHandle = string & { readonly __brand: "AgentBridgeHandle" };
 // agent reached through the bridge may reach another, and that one another, to any depth. Because the daemon owns the started process it reads that agent's output word
 // by word in both directions, unlike a provider's own in-session helper seen through its lead.
 interface AgentBridgeRunArguments {
-  definitionId: AgentDefinitionId; // the saved definition — never a name, never a provider axis
+  definitionId: AgentDefinitionId; // the saved definition — never a name
   task: string;
+  modelId?: string; // this run's model in place of the binding's, resolved as the binding's is
+  effort?: string; // this run's reasoning effort in place of the binding's, resolved as the binding's is
   // A JSON Schema the agent's final answer must fit, which `wait` then returns as an object. On Claude
   // Code it is `--json-schema` on the agent's process, which binds every turn of that process, so a later
   // `run` with a different schema or none restarts the process on `--resume` at its next idle moment and
