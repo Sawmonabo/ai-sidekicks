@@ -24,7 +24,21 @@ This governs identifiers you introduce. When editing code that already follows a
 - **Name a thing for what it is,** by its responsibility and owner; a generic word (`Surface`, `Feature`, `State`, `Act`) never stands in for that. No dumping-ground folders (`utils/`, `helpers/`, `common/`, `misc/`, `managers/`).
 - **An interface takes no `I` prefix:** `User`, never `IUser`. ESLint refuses it (`@typescript-eslint/naming-convention` in the root `eslint.config.mjs`).
 - **Names read as proper English.** Things that act (functions, hooks, controls) start with the verb: `takeShell`, `useTakeShell`. Things that hold data (types, state, models) are noun phrases with the head noun last: `TakeShellAvailability`. Booleans read as questions: `isHeld`, `canTake`. An existing name is not renamed only to satisfy this.
-- **File names:** components and pages `PascalCase.tsx`, one component per file; hooks `useThing.ts`; other modules `kebab-case.ts`; folders `kebab-case/`; tests `Foo.test.tsx` and `foo.test.ts`. `.tsx` only when the file has JSX.
+- **File and folder names.** A name's case says what the file is responsible for; `.ts` or `.tsx` says only whether it contains JSX.
+  - React component and page implementation files use a PascalCase basename: `.tsx` when the file contains JSX, `.ts` when it does not.
+  - A reusable or exported component normally has its own clearly named component file. A tiny private helper component may stay with its sole owner when extracting it would create ceremony rather than a real reusable boundary.
+  - Shared component and group owners use PascalCase folders. A folder may hold a small cohesive set of related components that share one semantic owner, styling, contracts or implementation infrastructure; it never becomes a generic component bucket.
+  - React hooks use `useThing.ts`. A hook holds no presentation JSX; that presentation becomes a component when it has a real interface responsibility.
+  - Other TypeScript and JavaScript modules use kebab-case file names. A non-component module that genuinely contains JSX may use `.tsx` and keeps its kebab-case basename.
+  - Non-component folders use `kebab-case/`.
+  - Tests keep the subject's file name stem and casing, and use `.test.ts` or `.test.tsx` according to whether the test itself contains JSX.
+  - Subject-specific test support stays beside the subject as `*.test-support.ts(x)`; broader test helpers live under `tests/helpers/`.
+  - JSX lives in `.tsx` files; a file with no JSX is `.ts`.
+  - Tool- and framework-required file names, generated files and established configuration file names keep the spelling their owning tool requires.
+  - Package-level `__tests__/` placement is the explicit package-test exception.
+  - Rust follows Rust convention: `snake_case.rs`.
+  - `index.ts` exists only for an intentional public API, uses named exports only, never `export *`, and never forms a barrel chain.
+  - ESLint checks the shapes (`eslint-plugin-check-file` in the root `eslint.config.mjs`): kebab-case for every file and folder outside the desktop renderer, with `__tests__/` in the packages and the repository's tooling and `__fixtures__/` in the packages; in the renderer, PascalCase for a `.tsx` under `app/`, `components/`, `features/` or `layout/` that is not a test, test support or hook, and for a folder directly under `components/` or `layout/`, `useThing` for a file in a `hooks/` folder that is not test support, kebab-case, PascalCase or `useThing` for any other file, and kebab-case for any other folder; and no `.spec` file anywhere; whether a file is a component, whether it holds JSX, and what test support is named for are checked by reading.
 - **`shell` means a terminal or command shell.** Electron's main process is `main`; persistent interface chrome is `layout` or `AppShell`.
 - Agent in code, sidekick on screen, as the root `AGENTS.md` states.
 
