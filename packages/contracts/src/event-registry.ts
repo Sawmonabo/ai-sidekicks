@@ -10,11 +10,9 @@ import type { SessionEvent } from "./event-variant-types.js";
 // registered literal is never renamed. Blocks follow `EventCategory` order, which is not
 // load-bearing.
 //
-// A type's category is its registry entry, not its prefix: `session.clock_unsynced` and
-// `session.clock_corrected` are `runtime_node_lifecycle` (they keep the `session.` prefix because
-// a rename would break the wire), `daemon.*` and `relay.pin_refused` are `security_events`,
-// `moderation.review_flagged` and `plan.*` are `approval_flow`, and `orchestration.rejected` is
-// `orchestration_admission`.
+// A type's category is its registry entry, not its prefix: `daemon.*` and `relay.pin_refused` are
+// `security_events`, `moderation.review_flagged` and `plan.*` are `approval_flow`, and
+// `orchestration.rejected` is `orchestration_admission`.
 /**
  * Every wire event type string the taxonomy registers, whether or not a payload variant exists
  * for it yet.
@@ -129,9 +127,6 @@ export type SessionEventType =
   | "usage.api_retry"
   | "usage.context_compacted"
   | "usage.model_rerouted"
-  // runtime_node_lifecycle
-  | "session.clock_unsynced"
-  | "session.clock_corrected"
   // recovery_events
   | "recovery.attempted"
   | "recovery.succeeded"
@@ -419,15 +414,6 @@ export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] = [
   "usage.api_retry",
   "usage.context_compacted",
   "usage.model_rerouted",
-] as const;
-
-/**
- * The event types of the `runtime_node_lifecycle` category: the two `session.clock_*` events,
- * whose category is the registry's, not their namespace prefix's.
- */
-export const RUNTIME_NODE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "session.clock_unsynced",
-  "session.clock_corrected",
 ] as const;
 
 /** The event types of the `recovery_events` category. */

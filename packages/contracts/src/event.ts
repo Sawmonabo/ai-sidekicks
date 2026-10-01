@@ -226,9 +226,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "usage.api_retry": "usage_telemetry",
   "usage.context_compacted": "usage_telemetry",
   "usage.model_rerouted": "usage_telemetry",
-  // runtime_node_lifecycle
-  "session.clock_unsynced": "runtime_node_lifecycle",
-  "session.clock_corrected": "runtime_node_lifecycle",
   // recovery_events
   "recovery.attempted": "recovery_events",
   "recovery.succeeded": "recovery_events",

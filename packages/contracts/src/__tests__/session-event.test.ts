@@ -15,7 +15,6 @@ import {
   MCP_GOVERNANCE_EVENT_TYPES,
   ORCHESTRATION_ADMISSION_EVENT_TYPES,
   RECOVERY_EVENTS_EVENT_TYPES,
-  RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   SECURITY_EVENTS_EVENT_TYPES,
   SESSION_LIFECYCLE_EVENT_TYPES,
@@ -211,7 +210,6 @@ const CATEGORY_TYPE_ARRAYS: ReadonlyArray<readonly [EventCategory, readonly Sess
   ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES],
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES],
-  ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES],
   ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES],
   ["security_events", SECURITY_EVENTS_EVENT_TYPES],
   ["event_maintenance", EVENT_MAINTENANCE_EVENT_TYPES],
@@ -256,8 +254,6 @@ describe("SESSION_EVENT_CATEGORY_BY_TYPE — the category registry", () => {
   it.each([
     // The namespace prefix of these rows does not name their category. The registry, not the
     // prefix, is the category authority, so a cleanup by namespace heuristic must fail loudly.
-    ["session.clock_unsynced", "runtime_node_lifecycle"],
-    ["session.clock_corrected", "runtime_node_lifecycle"],
     ["daemon.master_key_source", "security_events"],
     ["daemon.pii_split_ambiguous", "security_events"],
     ["relay.pin_refused", "security_events"],

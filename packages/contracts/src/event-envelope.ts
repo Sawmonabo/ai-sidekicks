@@ -28,7 +28,6 @@ export type EventCategory =
   | "session_lifecycle"
   | "approval_flow"
   | "usage_telemetry"
-  | "runtime_node_lifecycle"
   | "recovery_events"
   | "security_events"
   | "event_maintenance"
@@ -48,7 +47,6 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "session_lifecycle",
   "approval_flow",
   "usage_telemetry",
-  "runtime_node_lifecycle",
   "recovery_events",
   "security_events",
   "event_maintenance",

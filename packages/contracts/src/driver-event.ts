@@ -1,5 +1,5 @@
 // `driver.subscribeEvents` streams one run's driver activity; `DriverEvent` is what may travel
-// on it: the session events of seven categories. The derivation lives here once, and the
+// on it: the session events of six categories. The derivation lives here once, and the
 // daemon handler filters against it.
 //
 // This is a separate module because `event.ts` and `event-core.ts` read `provider-driver.ts`
@@ -7,7 +7,7 @@
 // cycle, and TypeScript compiles that silently; the failure shows at runtime as an
 // `undefined` schema.
 //
-// `DRIVER_EVENT_TYPES` is the runtime membership test over every event type the seven
+// `DRIVER_EVENT_TYPES` is the runtime membership test over every event type the six
 // categories carry, including a type with no payload variant yet, because the filter decides
 // what belongs on the stream, not what parses. `DriverEvent` and `DriverEventType` cover only
 // the variants `SessionEvent` registers, a subset of that set. The two agree by construction
@@ -19,7 +19,6 @@ import {
   ARTIFACT_PUBLICATION_EVENT_TYPES,
   ASSISTANT_OUTPUT_EVENT_TYPES,
   INTERACTIVE_REQUEST_EVENT_TYPES,
-  RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
@@ -34,7 +33,7 @@ import {
   type DriverSubscribeEventsParams,
 } from "./provider-driver-wire.js";
 
-// The seven `EventCategory` values a driver event may carry. Hand-written because nothing
+// The six `EventCategory` values a driver event may carry. Hand-written because nothing
 // derives the choice; everything below is derived from it.
 type DriverEventCategory =
   | "run_lifecycle"
@@ -42,11 +41,10 @@ type DriverEventCategory =
   | "tool_activity"
   | "interactive_request"
   | "artifact_publication"
-  | "usage_telemetry"
-  | "runtime_node_lifecycle";
+  | "usage_telemetry";
 
 /**
- * Every `SessionEventType` in the seven driver-event categories: the membership test a
+ * Every `SessionEventType` in the six driver-event categories: the membership test a
  * driver-event stream filters on. Spread from the per-category arrays, so a new event type in
  * a category joins the set automatically.
  */
@@ -57,7 +55,6 @@ export const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<Session
   ...INTERACTIVE_REQUEST_EVENT_TYPES,
   ...ARTIFACT_PUBLICATION_EVENT_TYPES,
   ...USAGE_TELEMETRY_EVENT_TYPES,
-  ...RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
 ]);
 
 /**
