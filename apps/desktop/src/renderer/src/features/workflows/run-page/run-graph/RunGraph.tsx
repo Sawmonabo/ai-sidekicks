@@ -98,7 +98,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
 }
 
 /**
- * Why a sequence was refused, in the operator's terms.
+ * Why a sequence was refused, in the person's terms.
  *
  * Names the ids rather than counting them: the ids say which producer to look at.
  */

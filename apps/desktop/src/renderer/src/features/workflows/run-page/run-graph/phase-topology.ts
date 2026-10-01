@@ -161,7 +161,7 @@ export function declaredEdges(
  * Every declared phase that can never become eligible, in declaration order.
  *
  * Kahn's peel run to exhaustion: what is left is a cycle's members and anything waiting
- * behind them. Named rather than counted, so an operator can find the loop. Every dependency
+ * behind them. Named rather than counted, so a person can find the loop. Every dependency
  * is already known to be a declared phase.
  */
 export function phasesNeverEligible(topology: PhaseTopology): readonly string[] {

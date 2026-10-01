@@ -230,7 +230,7 @@ function publishOutcome(
   }));
 }
 
-/** What a served cancel means for the operator, read off the reply and nothing else. */
+/** What a served cancel means for the person, read off the reply and nothing else. */
 function readCancelReply(value: WorkflowRunCancelReply): ServedActReading {
   return {
     runState: value.state,

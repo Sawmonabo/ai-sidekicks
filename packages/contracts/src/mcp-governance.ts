@@ -261,12 +261,6 @@ export type McpConfigScopeUnsupportedCode = "mcp.config_scope_unsupported";
 export const MCP_CONFIG_SCOPE_UNSUPPORTED_CODE: McpConfigScopeUnsupportedCode =
   "mcp.config_scope_unsupported";
 
-/** The caller does not own this machine. Ownership decides, never the transport. */
-export type McpOperatorScopeRequiredCode = "mcp.operator_scope_required";
-/** The value of {@link McpOperatorScopeRequiredCode}. */
-export const MCP_OPERATOR_SCOPE_REQUIRED_CODE: McpOperatorScopeRequiredCode =
-  "mcp.operator_scope_required";
-
 /** The policy denied the governance change, checked before whether the binding exists. */
 export type McpGovernanceDeniedCode = "mcp.governance_denied";
 /** The value of {@link McpGovernanceDeniedCode}. */

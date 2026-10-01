@@ -1,15 +1,10 @@
 // The run controls' vocabulary: the two actions, what a dispatched act can have got to, and the
-// two refusals the controls raise themselves. Eligibility is never computed here: a control is
-// always offered and the daemon's answer lands on `WorkflowRunControlOutcome`. Both refusals
-// are raised before a call, not instead of one.
-
-import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
+// one refusal the controls raise themselves. Eligibility is never computed here: a control is
+// always offered and the daemon's answer lands on `WorkflowRunControlOutcome`. The refusal is
+// raised before a call, not instead of one.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { WorkflowRunState } from "../runs/run-list-rows.js";
-// The renderer's one byte measurement: the reason is bounded the way the durable path bounds a
-// record, and a second counter would drift on non-ASCII text.
-import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /**
  * The two run controls, and exactly two.
@@ -26,12 +21,10 @@ export type WorkflowRunControlAction = (typeof WORKFLOW_RUN_CONTROL_ACTIONS)[num
 export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
 
 /**
- * The refusals the run controls raise on their own, and no others.
- *
- * Both have no daemon in the loop: an input measured before the round trip, and a press that
+ * The refusal the run controls raise on their own, with no daemon in the loop: a press that
  * duplicates one already outstanding.
  */
-export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-in-flight";
+export type WorkflowRunControlRefusalCode = "act-already-in-flight";
 
 /** What a served `workflow.runCancel` answers with. */
 export interface WorkflowRunCancelReply {
@@ -67,7 +60,7 @@ export type WorkflowRunControlOutcome =
       readonly kind: "settled";
       /** The run state the reply answered with, wire-verbatim and never paraphrased. */
       readonly runState: WorkflowRunControlRunState;
-      /** What that state means for the operator, in this console's own words. */
+      /** What that state means for the person, in this console's own words. */
       readonly detail: string;
     }
   | { readonly kind: "refused"; readonly refusal: Refusal };
@@ -81,40 +74,6 @@ export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle
  * Annotated with the derived union, so a word this reply cannot answer with fails to compile.
  */
 export const WORKFLOW_RUN_RE_PARKED_STATE: WorkflowRunControlRunState = "suspended";
-
-/** What the operator has spent of the reason budget, and whether they are past it. */
-export interface CancelReasonBudget {
-  readonly byteLength: number;
-  /** Bytes still available. Zero rather than negative once the bound is passed. */
-  readonly remainingBytes: number;
-  readonly isPastBound: boolean;
-}
-
-/** Measure a reason against the bound. Pure; the caller decides what to do about it. */
-export function cancelReasonBudget(reason: string): CancelReasonBudget {
-  const byteLength = measureUtf8ByteLength(reason);
-  return {
-    byteLength,
-    remainingBytes: Math.max(0, WORKFLOW_CANCEL_REASON_BYTE_CAP - byteLength),
-    isPastBound: byteLength > WORKFLOW_CANCEL_REASON_BYTE_CAP,
-  };
-}
-
-/**
- * The refusal a reason past the bound earns.
- *
- * Names the bound and never the value: the reason is user content, and a refusal's detail is
- * never the refused value.
- */
-export function reasonPastBoundRefusal(budget: CancelReasonBudget): Refusal {
-  // Annotated with the closed union so the code cannot drift outside this producer's set.
-  const code: WorkflowRunControlRefusalCode = "reason-past-bound";
-  return refuse(
-    WORKFLOW_RUN_CONTROL_ORIGIN,
-    code,
-    `The reason is ${String(budget.byteLength)} bytes and the engine accepts ${String(WORKFLOW_CANCEL_REASON_BYTE_CAP)}. Shorten it, or cancel without one.`,
-  );
-}
 
 /** What each action is called where a person reads a sentence about it. */
 const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
@@ -135,7 +94,7 @@ export interface WorkflowVersionChoice {
 /**
  * The re-pin a resume carries, when it carries one.
  *
- * A resume re-pins onto a version the operator named or not at all. There is no "latest": a
+ * A resume re-pins onto a version the person named or not at all. There is no "latest": a
  * server-resolved one would race the definition's edits and leave the audited pair unverifiable.
  */
 export interface WorkflowVersionRepin {
@@ -144,7 +103,7 @@ export interface WorkflowVersionRepin {
 
 /** What a cancel control is: the call, and where the last press of it got to. */
 export interface WorkflowCancelControl {
-  /** `undefined` when the operator gave no reason, which is a legal cancel. */
+  /** `undefined` when the person gave no reason, which is a legal cancel. */
   readonly cancel: (reason: string | undefined) => void;
   readonly outcome: WorkflowRunControlOutcome;
 }
@@ -158,15 +117,6 @@ export interface WorkflowCancelControl {
 export interface WorkflowResumeDispatch {
   readonly resume: (repin: WorkflowVersionRepin | undefined) => void;
   readonly outcome: WorkflowRunControlOutcome;
-}
-
-/** What a resume control is, plus the chain a re-pin may choose from. */
-export interface WorkflowResumeControl extends WorkflowResumeDispatch {
-  /**
-   * The version chain, as the caller read it. Empty means no chain was read, so no target can
-   * be named and the re-pin control is absent, never a disabled picker or a silent "latest".
-   */
-  readonly versionChain: readonly WorkflowVersionChoice[];
 }
 
 /**

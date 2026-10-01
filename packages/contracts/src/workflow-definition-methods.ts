@@ -70,11 +70,6 @@ const isoInstant = z.iso.datetime({ offset: true });
 
 // Refusals
 
-/** A `shared` definition saved by someone the daemon's operator check does not admit. */
-export const WORKFLOW_OPERATOR_REQUIRED_CODE = "workflow.operator_required" as const;
-/** The type of {@link WORKFLOW_OPERATOR_REQUIRED_CODE}. */
-export type WorkflowOperatorRequiredCode = typeof WORKFLOW_OPERATOR_REQUIRED_CODE;
-
 /** An update whose expected version is no longer the latest; nothing is written. */
 export const WORKFLOW_VERSION_STALE_CODE = "workflow.version_stale" as const;
 /** The type of {@link WORKFLOW_VERSION_STALE_CODE}. */
@@ -107,8 +102,8 @@ export const WorkflowDefinitionCreateRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    // A `shared` target is refused for anyone the daemon's operator check does not
-    // admit; it is never quietly narrowed to a smaller scope.
+    // The scope is the caller's: a `shared` target is never quietly narrowed to a smaller
+    // one.
     scope: WorkflowDefinitionScopeSchema,
     // Omitted at `session`, it means this request's session; at `shared`, the empty
     // string. `project` has nothing to derive it from, so omitting it there is refused.

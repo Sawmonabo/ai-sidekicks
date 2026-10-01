@@ -95,8 +95,8 @@ export function serializeDefinitionFile(body: WorkflowVersionBody): string {
 /**
  * Read pasted text as a definition file, and compose the create body it stands for. The target
  * is the caller's and not the file's: a file that chose its own scope would decide where it
- * lands, which the daemon's operator-scope authorization is keyed on. Every refusal is a
- * sentence, never a throw, so the caller can render which member is wrong beside the paste box.
+ * lands. Every refusal is a sentence, never a throw, so the caller can render which member is
+ * wrong beside the paste box.
  */
 export function parseDefinitionFile(
   text: string,

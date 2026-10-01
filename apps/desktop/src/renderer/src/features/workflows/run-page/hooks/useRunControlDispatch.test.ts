@@ -1,4 +1,4 @@
-// The run controls' dispatch: a press puts the run and the operator's reason on the call, one act
+// The run controls' dispatch: a press puts the run and the person's reason on the call, one act
 // per run and action is in flight, an answer lands only on the run that asked, and a rejected call
 // gives its key back.
 
@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe("a press reaches the calls", () => {
-  it("sends the run and the operator's reason on the request the operation declares", async () => {
+  it("sends the run and the person's reason on the request the operation declares", async () => {
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
@@ -102,7 +102,7 @@ describe("an answer is about the run that asked", () => {
       held.serve();
     });
     await settle();
-    // Run A's answer lands nowhere: settling it under run B would tell an operator that the
+    // Run A's answer lands nowhere: settling it under run B would tell the person that the
     // run in front of them had been canceled when it had not.
     expect(controls.latest().cancel.outcome.kind).toBe("idle");
     expect(controls.latest().servedActCount).toBe(0);

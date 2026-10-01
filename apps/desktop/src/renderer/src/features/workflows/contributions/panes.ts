@@ -20,8 +20,7 @@ const WORKFLOW_PANES: readonly PaneRegistration[] = [
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
     // A loader: a run pane opens from the run list or a run address, so nothing paints it
-    // before a person asks. The operator controls' class `meridian-workflow-run-controls` has
-    // one owner, so chunking cannot change how the pane lays out.
+    // before a person asks.
     body: () => import("../run-page/run-page-body.js"),
   },
   {

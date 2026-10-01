@@ -65,7 +65,7 @@
 
 /*
  * The malformed instant a park armed. It wraps onto its own line because the sentence is the
- * operator's next move and this is the evidence.
+ * person's next move and this is the evidence.
  */
 .meridian-park__unreadable {
   display: flex;

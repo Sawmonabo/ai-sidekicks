@@ -1,4 +1,4 @@
-// The round the run pane re-reads on when the operator did nothing: the engine advancing a
+// The round the run pane re-reads on when the person did nothing: the engine advancing a
 // phase, a park arming a resume, another window's cancel. Counting the round is the instrument: a
 // re-read and a re-render look the same on screen.
 
