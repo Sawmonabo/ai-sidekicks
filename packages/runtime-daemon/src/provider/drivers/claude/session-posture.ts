@@ -5,6 +5,7 @@
 
 import { type ExecutionPosture } from "@ai-sidekicks/contracts";
 import { createHash } from "node:crypto";
+import { canonicalizeJson } from "../../../events/canonicalizer.js";
 
 // The `ExecutionPosture` axes a spawn realizes, in mismatch-report order; `startRun` refuses a run
 // differing on any (see `assertClaudeSpawnBoundRealization`). Enumerated from the contract type,
@@ -82,27 +83,12 @@ export function findPostureDivergence(
   return undefined;
 }
 
-// Stable serialization: keys sorted recursively, array order kept (it is meaningful in JSON
-// Schema, e.g. `prefixItems`). `undefined` keys are dropped, as `JSON.stringify` drops them.
-function canonicalizeJsonValue(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalizeJsonValue).join(",")}]`;
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entryValue]) => entryValue !== undefined)
-    // Code-unit order, not `localeCompare`: the digest must not depend on the host locale.
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
-  return `{${entries
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalizeJsonValue(entryValue)}`)
-    .join(",")}}`;
-}
-
 /**
- * A boolean "is one bound?" would admit a run with schema B into a process spawned with schema A.
+ * The SHA-256 of an output schema's canonical JSON bytes: key order does not change it, array order
+ * does (it is meaningful in JSON Schema, e.g. `prefixItems`). Throws when the schema has no
+ * canonical form. A digest, not a boolean "is one bound?", so a run with schema B is never admitted
+ * into a process spawned with schema A.
  */
 export function digestOutputSchema(outputSchema: Record<string, unknown>): string {
-  return createHash("sha256").update(canonicalizeJsonValue(outputSchema)).digest("hex");
+  return createHash("sha256").update(canonicalizeJson(outputSchema)).digest("hex");
 }
