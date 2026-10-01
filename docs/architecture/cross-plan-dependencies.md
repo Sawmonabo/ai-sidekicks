@@ -11,272 +11,272 @@ Every numbered group below builds and checks on macOS. The code stays portable: 
 ```mermaid
 flowchart TD
  %% Plan-001
- n002_6["Plan-001 Phase 6 — the session directory and lifecycle"]
+ n001_6["Plan-001 Phase 6 — the session directory and lifecycle"]
  %% Plan-002
- n004_2["Plan-002 Phase 2 — queue admission and serialized interventions"]
- n004_3["Plan-002 Phase 3 — run-engine orchestration"]
- n004_3B["Plan-002 Phase 3B — the run side of an undo"]
- n004_4["Plan-002 Phase 4 — desktop run controls"]
+ n002_2["Plan-002 Phase 2 — queue admission and serialized interventions"]
+ n002_3["Plan-002 Phase 3 — run-engine orchestration"]
+ n002_3B["Plan-002 Phase 3B — the run side of an undo"]
+ n002_4["Plan-002 Phase 4 — desktop run controls"]
  %% Plan-003
- n005_3["Plan-003 Phase 3 — Codex and Claude driver implementations"]
- n005_5["Plan-003 Phase 5 — MCP task-handle durability"]
+ n003_3["Plan-003 Phase 3 — Codex and Claude driver implementations"]
+ n003_5["Plan-003 Phase 5 — MCP task-handle durability"]
  %% Plan-004
- n006_3B["Plan-004 Phase 3B — machine-authored content column"]
- n006_4["Plan-004 Phase 4 — read side and SDK"]
+ n004_3B["Plan-004 Phase 3B — machine-authored content column"]
+ n004_4["Plan-004 Phase 4 — read side and SDK"]
  %% Plan-005
- n007_R1["Plan-005 Phase R1 — daemon and settings namespace handlers"]
- n007_R2["Plan-005 Phase R2 — secure defaults, TLS, first-run keys"]
- n007_R3["Plan-005 Phase R3 — CLI package and daemon-status delivery"]
- n007_2B["Plan-005 Phase 2B — the calling device on the dispatch context"]
- n007_2C["Plan-005 Phase 2C — socket path length check before bind"]
- n007_2D["Plan-005 Phase 2D — batched subscription frame"]
- n007_R4["Plan-005 Phase R4 — the service on WSL 2"]
+ n005_R1["Plan-005 Phase R1 — daemon and settings namespace handlers"]
+ n005_R2["Plan-005 Phase R2 — secure defaults, TLS, first-run keys"]
+ n005_R3["Plan-005 Phase R3 — CLI package and daemon-status delivery"]
+ n005_2B["Plan-005 Phase 2B — the calling device on the dispatch context"]
+ n005_2C["Plan-005 Phase 2C — socket path length check before bind"]
+ n005_2D["Plan-005 Phase 2D — batched subscription frame"]
+ n005_R4["Plan-005 Phase R4 — the service on WSL 2"]
  %% Plan-006
- n009_2B["Plan-006 Phase 2B — repo identity keying and resolution"]
- n009_3["Plan-006 Phase 3 — repo IPC namespace and SDK"]
+ n006_2B["Plan-006 Phase 2B — repo identity keying and resolution"]
+ n006_3["Plan-006 Phase 3 — repo IPC namespace and SDK"]
  %% Plan-007
- n010_3["Plan-007 Phase 3 — run-setup gate, worktree verbs, IPC namespace and SDK"]
+ n007_3["Plan-007 Phase 3 — run-setup gate, worktree verbs, IPC namespace and SDK"]
  %% Plan-008
- n011_1["Plan-008 Phase 1 — contracts"]
- n011_2["Plan-008 Phase 2 — ship facts and the diff read"]
- n011_3["Plan-008 Phase 3 — ship acts, generate and the trailer"]
- n011_4["Plan-008 Phase 4 — hosting, reviews and notes"]
- n011_5["Plan-008 Phase 5 — the review surface"]
+ n008_1["Plan-008 Phase 1 — contracts"]
+ n008_2["Plan-008 Phase 2 — ship facts and the diff read"]
+ n008_3["Plan-008 Phase 3 — ship acts, generate and the trailer"]
+ n008_4["Plan-008 Phase 4 — hosting, reviews and notes"]
+ n008_5["Plan-008 Phase 5 — the review surface"]
  %% Plan-009
- n012_1["Plan-009 Phase 1 — approval contracts and persistence"]
- n012_2["Plan-009 Phase 2 — daemon policy and approval services"]
- n012_3["Plan-009 Phase 3 — approval IPC, SDK, projection"]
- n012_4["Plan-009 Phase 4 — desktop approval surfaces"]
+ n009_1["Plan-009 Phase 1 — approval contracts and persistence"]
+ n009_2["Plan-009 Phase 2 — daemon policy and approval services"]
+ n009_3["Plan-009 Phase 3 — approval IPC, SDK, projection"]
+ n009_4["Plan-009 Phase 4 — desktop approval surfaces"]
  %% Plan-010
- n013_2["Plan-010 Phase 2 — projection and replay-aware subscription"]
- n013_3["Plan-010 Phase 3 — child-run expansion and reasoning"]
- n013_4["Plan-010 Phase 4 — desktop timeline rendering"]
+ n010_2["Plan-010 Phase 2 — projection and replay-aware subscription"]
+ n010_3["Plan-010 Phase 3 — child-run expansion and reasoning"]
+ n010_4["Plan-010 Phase 4 — desktop timeline rendering"]
  %% Plan-011
- n014_1["Plan-011 Phase 1 — artifact contracts"]
- n014_2["Plan-011 Phase 2 — ingest and publication producers"]
- n014_3["Plan-011 Phase 3 — derivatives, events and deletion"]
- n014_4["Plan-011 Phase 4 — ingest worker, scan, cover, staging and artifact reads"]
+ n011_1["Plan-011 Phase 1 — artifact contracts"]
+ n011_2["Plan-011 Phase 2 — ingest and publication producers"]
+ n011_3["Plan-011 Phase 3 — derivatives, events and deletion"]
+ n011_4["Plan-011 Phase 4 — ingest worker, scan, cover, staging and artifact reads"]
  %% Plan-012
- n015_1["Plan-012 Phase 1 — persistence schema and receipt store"]
- n015_2["Plan-012 Phase 2 — replay rebuild and recovery status"]
- n015_3["Plan-012 Phase 3 — runtime-binding recovery and resume"]
+ n012_1["Plan-012 Phase 1 — persistence schema and receipt store"]
+ n012_2["Plan-012 Phase 2 — replay rebuild and recovery status"]
+ n012_3["Plan-012 Phase 3 — runtime-binding recovery and resume"]
  %% Plan-013
- n016_1["Plan-013 Phase 1 — orchestration contracts and persistence"]
- n016_2["Plan-013 Phase 2 — daemon orchestration services"]
- n016_3["Plan-013 Phase 3 — orchestration wire namespace and SDK"]
- n016_4["Plan-013 Phase 4 — desktop child-run surface"]
- n016_4B["Plan-013 Phase 4B — session cost receipt"]
+ n013_1["Plan-013 Phase 1 — orchestration contracts and persistence"]
+ n013_2["Plan-013 Phase 2 — daemon orchestration services"]
+ n013_3["Plan-013 Phase 3 — orchestration wire namespace and SDK"]
+ n013_4["Plan-013 Phase 4 — desktop child-run surface"]
+ n013_4B["Plan-013 Phase 4B — session cost receipt"]
  %% Plan-014
- n017_1["Plan-014 Phase 1 — workflow contracts, schema, writer"]
- n017_2["Plan-014 Phase 2 — sequential execution and gate resolution"]
- n017_2B["Plan-014 Phase 2B — usage-limit park and durable pacing"]
- n017_3["Plan-014 Phase 3 — multi-agent and human steps"]
- n017_4["Plan-014 Phase 4 — parallel steps and memory admission"]
- n017_5["Plan-014 Phase 5 — resumption, CLI, authoring surfaces"]
- n017_5B["Plan-014 Phase 5B — park cancelability and operator recovery"]
- n017_5C["Plan-014 Phase 5C — always-on engine event record"]
+ n014_1["Plan-014 Phase 1 — workflow contracts, schema, writer"]
+ n014_2["Plan-014 Phase 2 — sequential execution and gate resolution"]
+ n014_2B["Plan-014 Phase 2B — usage-limit park and durable pacing"]
+ n014_3["Plan-014 Phase 3 — multi-agent and human steps"]
+ n014_4["Plan-014 Phase 4 — parallel steps and memory admission"]
+ n014_5["Plan-014 Phase 5 — resumption, CLI, authoring surfaces"]
+ n014_5B["Plan-014 Phase 5B — park cancelability and operator recovery"]
+ n014_5C["Plan-014 Phase 5C — always-on engine event record"]
  %% Plan-015
- n018_1["Plan-015 Phase 1 — user contracts"]
- n018_2["Plan-015 Phase 2 — identity to user mapping"]
- n018_3["Plan-015 Phase 3 — user projection and display updates"]
- n018_4["Plan-015 Phase 4 — client surfaces and authorization"]
- n018_5["Plan-015 Phase 5 — credential seam and account"]
- n018_6["Plan-015 Phase 6 — WebAuthn ceremony server side"]
+ n015_1["Plan-015 Phase 1 — user contracts"]
+ n015_2["Plan-015 Phase 2 — identity to user mapping"]
+ n015_3["Plan-015 Phase 3 — user projection and display updates"]
+ n015_4["Plan-015 Phase 4 — client surfaces and authorization"]
+ n015_5["Plan-015 Phase 5 — credential seam and account"]
+ n015_6["Plan-015 Phase 6 — WebAuthn ceremony server side"]
  %% Plan-016
- n019_1["Plan-016 Phase 1 — attention contracts and kinds"]
- n019_2["Plan-016 Phase 2 — the projection, the gate and the mute"]
- n019_3["Plan-016 Phase 3 — notification emission and delivery"]
+ n016_1["Plan-016 Phase 1 — attention contracts and kinds"]
+ n016_2["Plan-016 Phase 2 — the projection, the gate and the mute"]
+ n016_3["Plan-016 Phase 3 — notification emission and delivery"]
  %% Plan-017
- n020_1["Plan-017 Phase 1 — diagnostic policy state"]
- n020_2["Plan-017 Phase 2 — diagnostic-bucket retention"]
+ n017_1["Plan-017 Phase 1 — diagnostic policy state"]
+ n017_2["Plan-017 Phase 2 — diagnostic-bucket retention"]
  %% Plan-018
- n021_1["Plan-018 Phase 1 — rate-limit contracts and doc parity"]
- n021_2["Plan-018 Phase 2 — rate-limit backends"]
- n021_3["Plan-018 Phase 3 — enforcement wiring"]
- n021_4["Plan-018 Phase 4 — verification"]
+ n018_1["Plan-018 Phase 1 — rate-limit contracts and doc parity"]
+ n018_2["Plan-018 Phase 2 — rate-limit backends"]
+ n018_3["Plan-018 Phase 3 — enforcement wiring"]
+ n018_4["Plan-018 Phase 4 — verification"]
  %% Plan-019
- n022_1["Plan-019 Phase 1 — the daemon's secrets"]
- n022_4["Plan-019 Phase 2 — the data acts"]
- n022_5["Plan-019 Phase 3 — the purge's erasure step and the account-deletion alignment"]
+ n019_1["Plan-019 Phase 1 — the daemon's secrets"]
+ n019_2["Plan-019 Phase 2 — the data acts"]
+ n019_3["Plan-019 Phase 3 — the purge's erasure step and the account-deletion alignment"]
  %% Plan-020
- n023_2["Plan-020 Phase 2 — IPC bridge registry and handlers"]
- n023_3["Plan-020 Phase 3 — daemon supervisor and crash reporter"]
- n023_5["Plan-020 Phase 4 — auto-updater and deep-link handler"]
- n023_6["Plan-020 Phase 5 — renderer layout, router, composer"]
- n023_7["Plan-020 Phase 6 — build pipeline and release signing"]
- n023_8["Plan-020 Phase 7 — E2E suite, harness, CI gate"]
- n023_9["Plan-020 Phase 8 — Preview and detached panes"]
+ n020_2["Plan-020 Phase 2 — IPC bridge registry and handlers"]
+ n020_3["Plan-020 Phase 3 — daemon supervisor and crash reporter"]
+ n020_4["Plan-020 Phase 4 — auto-updater and deep-link handler"]
+ n020_5["Plan-020 Phase 5 — renderer layout, router, composer"]
+ n020_6["Plan-020 Phase 6 — build pipeline and release signing"]
+ n020_7["Plan-020 Phase 7 — E2E suite, harness, CI gate"]
+ n020_8["Plan-020 Phase 8 — Preview and detached panes"]
  %% Plan-021
- n024_3B["Plan-021 Phase 3B — PTY substrate hardening"]
- n024_4["Plan-021 Phase 4 — CI cross-compile matrix and signing"]
- n024_5["Plan-021 Phase 5 — publish and Windows default-flip"]
+ n021_3B["Plan-021 Phase 3B — PTY substrate hardening"]
+ n021_4["Plan-021 Phase 4 — CI cross-compile matrix and signing"]
+ n021_5["Plan-021 Phase 5 — publish and Windows default-flip"]
  %% Plan-022
- n028_1["Plan-022 Phase 1 — MCP contracts and storage"]
- n028_2["Plan-022 Phase 2 — MCP inventory and status observation"]
- n028_3["Plan-022 Phase 3 — MCP configuration mutation engines"]
- n028_4["Plan-022 Phase 4 — MCP overrides"]
- n028_5["Plan-022 Phase 5 — MCP sign-in, the daemon's client and route, and client delivery"]
+ n022_1["Plan-022 Phase 1 — MCP contracts and storage"]
+ n022_2["Plan-022 Phase 2 — MCP inventory and status observation"]
+ n022_3["Plan-022 Phase 3 — MCP configuration mutation engines"]
+ n022_4["Plan-022 Phase 4 — MCP overrides"]
+ n022_5["Plan-022 Phase 5 — MCP sign-in, the daemon's client and route, and client delivery"]
  %% Plan-023
- n029_2["Plan-023 Phase 2 — account registry service and authorization"]
- n029_3["Plan-023 Phase 3 — credential homes and spawn binding"]
- n029_4["Plan-023 Phase 4 — cost attribution and client surfaces"]
+ n023_2["Plan-023 Phase 2 — account registry service and authorization"]
+ n023_3["Plan-023 Phase 3 — credential homes and spawn binding"]
+ n023_4["Plan-023 Phase 4 — cost attribution and client surfaces"]
  %% Plan-024
- n030_1["Plan-024 Phase 1 — agent definition contracts and schema"]
- n030_2["Plan-024 Phase 2 — definition registry, CLI, SDK"]
- n030_3["Plan-024 Phase 3 — resolution when a run starts"]
- n030_4["Plan-024 Phase 4 — peer invocation"]
- n030_5["Plan-024 Phase 5 — desktop library and editor"]
- n030_6["Plan-024 Phase 6 — Browse plugins"]
+ n024_1["Plan-024 Phase 1 — agent definition contracts and schema"]
+ n024_2["Plan-024 Phase 2 — definition registry, CLI, SDK"]
+ n024_3["Plan-024 Phase 3 — resolution when a run starts"]
+ n024_4["Plan-024 Phase 4 — peer invocation"]
+ n024_5["Plan-024 Phase 5 — desktop library and editor"]
+ n024_6["Plan-024 Phase 6 — Browse plugins"]
  %% Plan-025
- n031_1["Plan-025 Phase 1 — the daemon as a running process"]
- n031_2["Plan-025 Phase 2 — identity keys and the statement chain"]
- n031_3["Plan-025 Phase 3 — the relay and the channel"]
- n031_4["Plan-025 Phase 4 — method proxy and terminal streaming"]
- n031_5["Plan-025 Phase 5 — devices, linking and revocation"]
- n031_6["Plan-025 Phase 6 — the device recorded on each event"]
- n031_7["Plan-025 Phase 7 — Remote Control frontend"]
- n031_8["Plan-025 Phase 8 — self-host deployment"]
+ n025_1["Plan-025 Phase 1 — the daemon as a running process"]
+ n025_2["Plan-025 Phase 2 — identity keys and the statement chain"]
+ n025_3["Plan-025 Phase 3 — the relay and the channel"]
+ n025_4["Plan-025 Phase 4 — method proxy and terminal streaming"]
+ n025_5["Plan-025 Phase 5 — devices, linking and revocation"]
+ n025_6["Plan-025 Phase 6 — the device recorded on each event"]
+ n025_7["Plan-025 Phase 7 — Remote Control frontend"]
+ n025_8["Plan-025 Phase 8 — self-host deployment"]
  %% Plan-026
- n033_1["Plan-026 Phase 1 — skill contracts and the read over three origins"]
- n033_2["Plan-026 Phase 2 — folder write, availability record, widening scan"]
- n033_3["Plan-026 Phase 3 — session pack and mid-session liveness"]
- n033_4["Plan-026 Phase 4 — Skills destination: rail, addresses, list"]
- n033_5["Plan-026 Phase 5 — folder editor"]
- n033_6["Plan-026 Phase 6 — availability on screen and the composer's Skills group"]
- n033_7["Plan-026 Phase 7 — a plugin's skills"]
+ n026_1["Plan-026 Phase 1 — skill contracts and the read over three origins"]
+ n026_2["Plan-026 Phase 2 — folder write, availability record, widening scan"]
+ n026_3["Plan-026 Phase 3 — session pack and mid-session liveness"]
+ n026_4["Plan-026 Phase 4 — Skills destination: rail, addresses, list"]
+ n026_5["Plan-026 Phase 5 — folder editor"]
+ n026_6["Plan-026 Phase 6 — availability on screen and the composer's Skills group"]
+ n026_7["Plan-026 Phase 7 — a plugin's skills"]
  subgraph phase10["Phase 10 — Other platforms"]
-  n024_4
-  n024_5
-  n007_R4
+  n021_4
+  n021_5
+  n005_R4
  end
  subgraph phase11["Phase 11 — Release"]
-  n023_7
+  n020_6
  end
- n004_2 --> n004_3
- n004_2 --> n016_2
- n004_3 --> n004_4
- n004_3 --> n010_3
- n004_3B --> n013_2
- n004_4 --> n004_3B
- n006_4 --> n030_4
- n007_R1 --> n007_R2
- n007_2D --> n013_2
- n007_R1 --> n016_2
- n007_2D --> n023_6
- n007_R2 --> n007_R3
- n007_R2 --> n022_1
- n007_R3 --> n023_2
- n007_R3 --> n030_2
- n007_R3 --> n007_R4
- n010_3 --> n009_2B
+ n002_2 --> n002_3
+ n002_2 --> n013_2
+ n002_3 --> n002_4
+ n002_3 --> n007_3
+ n002_3B --> n010_2
+ n002_4 --> n002_3B
+ n004_4 --> n024_4
+ n005_R1 --> n005_R2
+ n005_2D --> n010_2
+ n005_R1 --> n013_2
+ n005_2D --> n020_5
+ n005_R2 --> n005_R3
+ n005_R2 --> n019_1
+ n005_R3 --> n020_2
+ n005_R3 --> n024_2
+ n005_R3 --> n005_R4
+ n007_3 --> n006_2B
+ n008_1 --> n008_2
+ n008_1 --> n008_3
+ n008_1 --> n008_4
+ n008_1 --> n008_5
+ n009_1 --> n009_2
+ n009_2 --> n009_3
+ n009_2 --> n022_4
+ n009_2 --> n023_2
+ n009_2 --> n024_2
+ n009_2 --> n014_2
+ n009_3 --> n009_4
+ n010_2 --> n010_4
+ n010_2 --> n016_2
+ n010_3 --> n010_4
+ n010_4 --> n016_3
  n011_1 --> n011_2
- n011_1 --> n011_3
- n011_1 --> n011_4
- n011_1 --> n011_5
+ n011_2 --> n011_3
+ n011_3 --> n011_4
  n012_1 --> n012_2
  n012_2 --> n012_3
- n012_2 --> n028_4
- n012_2 --> n029_2
- n012_2 --> n030_2
- n012_2 --> n017_2
- n012_3 --> n012_4
- n013_2 --> n013_4
- n013_2 --> n019_2
+ n013_1 --> n013_2
+ n013_1 --> n024_1
+ n013_2 --> n013_3
+ n013_2 --> n024_3
  n013_3 --> n013_4
- n013_4 --> n019_3
+ n013_3 --> n014_3
+ n013_4 --> n013_4B
+ n013_4B --> n024_4
  n014_1 --> n014_2
+ n014_2 --> n014_2B
  n014_2 --> n014_3
+ n014_2B --> n014_5B
+ n014_2B --> n014_5C
  n014_3 --> n014_4
+ n014_4 --> n014_5
+ n014_5 --> n014_5B
  n015_1 --> n015_2
  n015_2 --> n015_3
+ n015_2 --> n015_6
+ n015_3 --> n015_4
+ n015_4 --> n015_5
  n016_1 --> n016_2
- n016_1 --> n030_1
  n016_2 --> n016_3
- n016_2 --> n030_3
- n016_3 --> n016_4
- n016_3 --> n017_3
- n016_4 --> n016_4B
- n016_4B --> n030_4
  n017_1 --> n017_2
- n017_2 --> n017_2B
- n017_2 --> n017_3
- n017_2B --> n017_5B
- n017_2B --> n017_5C
- n017_3 --> n017_4
- n017_4 --> n017_5
- n017_5 --> n017_5B
+ n017_2 --> n014_5C
  n018_1 --> n018_2
  n018_2 --> n018_3
- n018_2 --> n018_6
  n018_3 --> n018_4
- n018_4 --> n018_5
  n019_1 --> n019_2
  n019_2 --> n019_3
- n020_1 --> n020_2
- n020_2 --> n017_5C
- n021_1 --> n021_2
- n021_2 --> n021_3
- n021_3 --> n021_4
- n022_1 --> n022_4
+ n005_R1 --> n019_3
+ n020_2 --> n020_3
+ n020_3 --> n020_4
+ n020_4 --> n020_5
+ n020_5 --> n020_6
+ n020_5 --> n024_5
+ n020_5 --> n020_7
+ n020_7 --> n020_8
+ n021_3B --> n021_5
+ n021_4 --> n021_5
+ n021_4 --> n005_R4
+ n022_1 --> n022_2
+ n022_1 --> n022_3
+ n022_2 --> n022_4
+ n022_3 --> n022_4
  n022_4 --> n022_5
- n007_R1 --> n022_5
  n023_2 --> n023_3
- n023_3 --> n023_5
- n023_5 --> n023_6
- n023_6 --> n023_7
- n023_6 --> n030_5
- n023_6 --> n023_8
- n023_8 --> n023_9
- n024_3B --> n024_5
- n024_4 --> n024_5
- n024_4 --> n007_R4
- n028_1 --> n028_2
- n028_1 --> n028_3
- n028_2 --> n028_4
- n028_3 --> n028_4
- n028_4 --> n028_5
- n029_2 --> n029_3
- n029_2 --> n030_3
- n029_3 --> n029_4
- n029_3 --> n016_2
- n030_1 --> n030_2
- n030_2 --> n030_3
- n030_3 --> n030_4
- n030_3 --> n030_5
- n031_1 --> n031_2
- n031_1 --> n023_2
- n031_2 --> n031_3
- n031_2 --> n031_5
- n031_3 --> n031_4
- n031_3 --> n031_5
- n031_3 --> n031_8
- n031_4 --> n031_7
- n031_5 --> n031_6
- n031_6 --> n031_7
- n007_R1 --> n033_1
- n007_R1 --> n007_R4
- n033_1 --> n033_2
- n033_2 --> n033_3
- n033_3 --> n033_4
- n023_6 --> n033_4
- n033_4 --> n033_5
- n033_5 --> n033_6
- n030_2 --> n033_1
- n030_4 --> n033_3
- n030_5 --> n030_6
- n033_3 --> n030_6
- n028_2 --> n030_6
- n033_6 --> n033_7
- n030_6 --> n033_7
- n009_2B --> n009_3
- n007_2B --> n004_2
- n007_2B --> n004_3
- n005_3 --> n005_5
- n005_3 --> n028_2
- n005_3 --> n030_3
- n005_3 --> n030_4
- n005_3 --> n030_6
- n005_3 --> n033_3
+ n023_2 --> n024_3
+ n023_3 --> n023_4
+ n023_3 --> n013_2
+ n024_1 --> n024_2
+ n024_2 --> n024_3
+ n024_3 --> n024_4
+ n024_3 --> n024_5
+ n025_1 --> n025_2
+ n025_1 --> n020_2
+ n025_2 --> n025_3
+ n025_2 --> n025_5
+ n025_3 --> n025_4
+ n025_3 --> n025_5
+ n025_3 --> n025_8
+ n025_4 --> n025_7
+ n025_5 --> n025_6
+ n025_6 --> n025_7
+ n005_R1 --> n026_1
+ n005_R1 --> n005_R4
+ n026_1 --> n026_2
+ n026_2 --> n026_3
+ n026_3 --> n026_4
+ n020_5 --> n026_4
+ n026_4 --> n026_5
+ n026_5 --> n026_6
+ n024_2 --> n026_1
+ n024_4 --> n026_3
+ n024_5 --> n024_6
+ n026_3 --> n024_6
+ n022_2 --> n024_6
+ n026_6 --> n026_7
+ n024_6 --> n026_7
+ n006_2B --> n006_3
+ n005_2B --> n002_2
+ n005_2B --> n002_3
+ n003_3 --> n003_5
+ n003_3 --> n022_2
+ n003_3 --> n024_3
+ n003_3 --> n024_4
+ n003_3 --> n024_6
+ n003_3 --> n026_3
 ```
 
 ## Dispatch groups
