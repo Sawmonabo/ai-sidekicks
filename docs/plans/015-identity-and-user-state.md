@@ -37,7 +37,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/control-plane/src/users/user-projection-service.ts` (CREATE — T3.1)
 - `packages/control-plane/src/users/user-state-update-service.ts` (CREATE — T3.2)
 - `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE — Plan-015-owned relay connection-token custody, T4.4)
-- `packages/client-sdk/src/userClient.ts` (CREATE — T4.1)
+- `packages/client-sdk/src/user-client.ts` (CREATE — T4.1)
 - `apps/desktop/src/renderer/src/store/user/` (CREATE — T4.2, the user projection)
 - `apps/cli/src/users/` (CREATE — T4.3)
 - `packages/control-plane/src/account/` (CREATE — T5.4 hosted-account sign-in and token family, T5.5 `account.delete` and `account.export`)
@@ -76,7 +76,7 @@ Behavioral guarantees this plan must preserve. Each is bound to the Tasks that u
 - **I-015-2 — Stable historical authorship.** Event/run authorship references the immutable user id, never mutable display metadata; a display-name change MUST NOT rewrite or re-attribute prior events. ([Spec-016 §Required Behavior](../specs/016-identity-and-user-state.md#required-behavior) + [Spec-016 §Fallback Behavior](../specs/016-identity-and-user-state.md#fallback-behavior) + [Spec-016 §State And Data Implications](../specs/016-identity-and-user-state.md#state-and-data-implications); ADR-001.) Tasks: T1.1, T1.2, T3.1, T3.2.
 - **I-015-3 — Self-scoped state update.** `UserStateUpdate` updates the calling user's own display state and carries no actor-override field — the target is resolved from the authenticated identity, never from the request, so no request shape can name a subject other than the caller. ([Spec-016 §Interfaces And Contracts](../specs/016-identity-and-user-state.md#interfaces-and-contracts); ADR-007.) Tasks: T1.2, T3.2.
 - **I-015-4 — Daemon-as-gateway single transport.** Client surfaces (SDK, CLI, renderer) reach user reads through the local daemon JSON-RPC gateway, never a direct control-plane client; the daemon proxies control-plane-stored identity truth. (ADR-008 transport-boundary decision; the shipped `presence.*` daemon-proxy precedent.) Tasks: T4.1, T4.3.
-- **I-015-5 — Renderer is bridge-only.** The desktop renderer reads user state exclusively through the `window.desktopBridge` preload bridge projection, never a direct daemon socket or control-plane fetch. (ADR-009; Spec-021.) Tasks: T4.2.
+- **I-015-5 — Renderer is bridge-only.** The desktop renderer reads user state exclusively through its `services/daemon/` client into the `store/user/` projection, never a direct daemon socket or control-plane fetch. (ADR-009; Spec-021.) Tasks: T4.2.
 - **I-015-6 — Daemon credentials are DPoP-bound, never `Bearer`.** Every credential the daemon mints for a control-plane call carries the `DPoP` authorization scheme with a matching per-attempt proof (`{jti, htm, htu, iat, ath}` per RFC 9449) — never `Bearer` — and production construction never leaves the refusing stub bound at a composition root. ([Spec-016 §Required Behavior](../specs/016-identity-and-user-state.md#required-behavior); ADR-010; CP-004-7.) Tasks: T5.1, T5.2, T5.3, T5.4.
 - **I-015-7 — No verification-key bytes on the projection.** Key material lives only in each linked device's `devices` row and each machine's `runtime_nodes` row, and reaches another machine only through the signed statement chain; `UserProjection` never carries key bytes. Scoped, not absolute: `users.identity_ref` (the account's passkey user handle, never key material, D-015-2) rides the user record and is unaffected. ([Spec-016 §State And Data Implications](../specs/016-identity-and-user-state.md#state-and-data-implications).) Tasks: T1.1.
 - **I-015-8 — WebAuthn challenges are single-use and short-lived, and the transaction id is the ceremony's only correlator.** A challenge is recorded when ceremony options are issued and consumed atomically at verification — the consuming statement is a `DELETE ... RETURNING`, so two concurrent verifications of one challenge cannot both find a row — and an unconsumed challenge expires on its own clock. A verification whose challenge or transaction id is unknown, already consumed, or expired refuses with `user.webauthn_challenge_invalid` and writes nothing. Because the two **authentication** operations admit an uncredentialed caller ([Spec-016 §Required Behavior](../specs/016-identity-and-user-state.md#required-behavior) — sign-in is what mints the credential, so demanding one first makes the flow unreachable after a reinstall), this fence is the only thing binding that caller: it is scoped to the transaction the server issued, never to a session, and the pair is throttled under the [Spec-019 §Canonical Endpoint Group Registry](../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row rather than a row of its own. ([Spec-016 §Required Behavior](../specs/016-identity-and-user-state.md#required-behavior) + [Spec-016 §State And Data Implications](../specs/016-identity-and-user-state.md#state-and-data-implications); ADR-010.) Tasks: T6.1, T6.2, T6.3, T6.4.
@@ -188,8 +188,8 @@ Typed SDK (daemon-as-gateway), the renderer's user projection, CLI commands, and
 
 #### Tasks
 
-- **T4.1 — `userClient` SDK (daemon-as-gateway).**
-  - Files: `packages/client-sdk/src/userClient.ts` (CREATE), client-sdk index barrel (EXTEND)
+- **T4.1 — `user-client.ts` SDK (daemon-as-gateway).**
+  - Files: `packages/client-sdk/src/user-client.ts` (CREATE), client-sdk index barrel (EXTEND)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (the read and the update)
   - **Verifies invariant:** I-015-4
   - Consumes: the T1.1 and T1.2 contracts; `JsonRpcClient` (shipped Plan-005 substrate); `user.*` method strings (CP-015-3)
@@ -198,13 +198,13 @@ Typed SDK (daemon-as-gateway), the renderer's user projection, CLI commands, and
   - Files: `apps/desktop/src/renderer/src/store/user/` (CREATE), with its tests beside it
   - **Spec coverage:** Spec-016 §Required Behavior (display state, partial)
   - **Verifies invariant:** I-015-5
-  - Consumes: `window.desktopBridge` daemon bridge (Spec-021); `user.*` methods (CP-015-3)
-  - Note: RTL component tests ship beside the projection (`@testing-library/react` `render`/`screen` + `installMockBridge` `{ daemon: { call, subscribe } }` + bridge-projection assertion). Live user-state E2E defers to the Playwright harness (Plan-020).
+  - Consumes: the `services/daemon/` client (Spec-021); `user.*` methods (CP-015-3)
+  - Note: unit tests ship beside the projection: a projection has no component to render, so they drive it over the fixture bridge, with the suite deciding the `user.*` answers through `bridgeAnswering` or `withDaemonCall` in `apps/desktop/tests/helpers/fixture-bridge.ts`, and assert the projected state. Live user-state E2E defers to the Playwright harness (Plan-020).
 - **T4.3 — `users/` CLI commands.**
   - Files: `apps/cli/src/users/` (CREATE)
   - **Spec coverage:** Spec-016 §Required Behavior (partial), Spec-016 §Default Behavior
   - **Verifies invariant:** I-015-4
-  - Consumes: T4.1 `userClient`; the `apps/cli` scaffold (Plan-005 Phase R3, T-005r-3-1)
+  - Consumes: T4.1's `user-client.ts`; the `apps/cli` scaffold (Plan-005 Phase R3, T-005r-3-1)
   - Waits on: Plan-005 Phase R3's `apps/cli` scaffold.
 - **T4.4 — `RelayConnectionTokenIssuer` (relay connection-token custody, Plan-015-owned).**
   - Files: `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE) + `packages/control-plane/src/identity/__tests__/relay-connection-token-issuer.test.ts` (CREATE — `FixtureRelayConnectionTokenIssuer` test double)
@@ -217,7 +217,7 @@ Typed SDK (daemon-as-gateway), the renderer's user projection, CLI commands, and
 - **T4.5 — `user.*` daemon-side IPC handlers (daemon-as-gateway proxy).**
   - Files: `packages/runtime-daemon/src/ipc/handlers/user-projection-read.ts` (CREATE), `packages/runtime-daemon/src/ipc/handlers/user-state-update.ts` (CREATE) + register on the Plan-005 namespace `registry.ts` (EXTEND — `user.*` namespace) + `packages/runtime-daemon/src/ipc/handlers/__tests__/user-*.test.ts` (CREATE)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (the read and the update the handlers answer), Spec-016 §State And Data Implications (daemon-as-gateway transport boundary, ADR-008)
-  - **Verifies invariant:** I-015-4 (daemon-as-gateway single transport — the **daemon-side** half: the handlers that ANSWER the `user.*` calls T4.1's `userClient` makes)
+  - **Verifies invariant:** I-015-4 (daemon-as-gateway single transport — the **daemon-side** half: the handlers that ANSWER the `user.*` calls T4.1's `user-client.ts` makes)
   - Consumes: `user.*` method strings (CP-015-3); Plan-005's `registry.ts` namespace registry + `MethodRegistry` (shipped substrate); the control-plane user projection and state-update services (Phase-1/Phase-3 tasks — the daemon proxies to them per I-015-4); `AuthenticatedIdentityContext` (D-015-1) for gateway identity resolution
   - Provides: the daemon-side `user.projectionRead` / `user.stateUpdate` handlers — the counterpart T4.1's client invokes, closing the daemon-as-gateway loop (client → daemon handler → control-plane service); registered under Plan-005's `ipc/handlers/`
   - Note: mirrors the shipped `presence.*` handler-registration precedent (`packages/runtime-daemon/src/ipc/handlers/{presence-subscribe,presence-read}.ts`) — each plan that adds a daemon-proxied namespace registers explicit handler files under `handlers/`. **Without this task the `user.*` method strings T4.1 registers (CP-015-3) have no daemon-side responder — the SDK call resolves to `method-not-found` at runtime**. Independent of T4.1–T4.3 and T4.4 for unit-test purposes (handlers test against a stubbed control-plane service), but completes the runtime transport loop the client half assumes.
