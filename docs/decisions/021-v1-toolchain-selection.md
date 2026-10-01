@@ -11,7 +11,7 @@
 
 ## Context
 
-[Container Architecture §Implementation Topology](../architecture/container-architecture.md#implementation-topology) gives the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-session-core.md) is the first plan built on the toolchain and owns the one schema of each database, the daemon's and the control plane's, to which Plans 004, 015, 019 and 025 add their tables and columns.
+[Container Architecture §Implementation Topology](../architecture/container-architecture.md#implementation-topology) gives the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, and `apps/cli/`, which Plan-005 Phase R3 creates). [Plan-001](../plans/001-session-core.md) is the first plan built on the toolchain and owns the one schema of each database, the daemon's and the control plane's, to which Plans 004, 015, 019 and 025 add their tables and columns.
 
 Constraints from accepted ADRs:
 
