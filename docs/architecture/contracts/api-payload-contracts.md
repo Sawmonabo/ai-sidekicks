@@ -3190,7 +3190,9 @@ interface RunStateChangeEvent {
   // driver. The refusal member carries the refusing model and the provider's words.
   failureCause?: {
     cause: "refused";
-    origin: string; // where the cause arose; the closed vocabulary lives with the union in packages/contracts
+    // `provider` where the driver normalized the provider's own cause; `daemon` where the app's own
+    // refusal or failure ended the run.
+    origin: "provider" | "daemon";
     model: string;
     sentence?: string; // the provider's own sentence, absent when it sent none
     explanation?: string; // the provider's explanation, shown verbatim
