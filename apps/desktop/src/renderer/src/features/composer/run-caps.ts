@@ -18,16 +18,6 @@ export const RUN_STATUS_ROW_CAP = 32;
 export const PROJECTED_RUN_CAP = 200;
 
 /**
- * Rows drawn from the session's own record before the remainder is a count. Well under
- * `PROJECTED_RUN_CAP`: these runs are folded from the log, never evicted, carry less than a
- * projected row (no run version, status history or controls), and sit at the list's end,
- * newest-touched first, so the coldest fall off.
- *
- * @consumedBy the composer's run reading
- */
-export const RECORDED_RUN_ROW_CAP = 50;
-
-/**
  * Run ids named in the awaiting-projection sentence before the rest is a count. The sentence
  * tells a person which rows are not live; past a handful of ids it stops being a lookup. The
  * count still covers every run.
