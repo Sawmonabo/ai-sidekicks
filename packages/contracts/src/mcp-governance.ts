@@ -252,11 +252,6 @@ export type McpConfigWriteConflictCode = "mcp.config_write_conflict";
 export const MCP_CONFIG_WRITE_CONFLICT_CODE: McpConfigWriteConflictCode =
   "mcp.config_write_conflict";
 
-/** A request key was reused with a different request; the first one stands. */
-export type McpIdempotencyConflictCode = "mcp.idempotency_conflict";
-/** The value of {@link McpIdempotencyConflictCode}. */
-export const MCP_IDEMPOTENCY_CONFLICT_CODE: McpIdempotencyConflictCode = "mcp.idempotency_conflict";
-
 /**
  * No mechanism reaches what was asked at this scope: a Codex `enabled` or
  * `approvalMode` tool override on a `project` binding.
