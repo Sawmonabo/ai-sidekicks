@@ -17,6 +17,7 @@ import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc
 import { MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerNameSchema } from "./mcp.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
@@ -442,41 +443,44 @@ export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferin
   .strict();
 
 /** Takes nothing: the list is the machine's, read when a confirm opens. */
-export type SessionTerminalCodexListRequest = Record<string, never>;
-/** Parses a {@link SessionTerminalCodexListRequest}; any member is refused. */
-export const SessionTerminalCodexListRequestSchema: z.ZodType<
-  SessionTerminalCodexListRequest,
-  SessionTerminalCodexListRequest
+export type SessionTerminalProviderSessionListRequest = Record<string, never>;
+/** Parses a {@link SessionTerminalProviderSessionListRequest}; any member is refused. */
+export const SessionTerminalProviderSessionListRequestSchema: z.ZodType<
+  SessionTerminalProviderSessionListRequest,
+  SessionTerminalProviderSessionListRequest
 > = z.object({}).strict();
 
-/** One Codex session typed in a terminal inside the shared Codex service. */
-export interface TerminalCodexSession {
+/** One provider session a person typed in a terminal, inside that provider's shared service. */
+export interface TerminalProviderSession {
+  provider: ProviderName;
   name: string;
   threadId: string;
   state: "working" | "idle" | "unreachable";
 }
 
 /**
- * The Codex sessions typed in a terminal, read off the same directory entries the agents'
+ * The provider sessions typed in a terminal, read off the same directory entries the agents'
  * `ListSessions` names. Empty while `Reach Codex sessions started in a terminal` is off.
  */
-export interface SessionTerminalCodexListResponse {
-  sessions: TerminalCodexSession[];
+export interface SessionTerminalProviderSessionListResponse {
+  sessions: TerminalProviderSession[];
 }
-/** Parses a {@link SessionTerminalCodexListResponse}. */
-export const SessionTerminalCodexListResponseSchema: z.ZodType<SessionTerminalCodexListResponse> = z
-  .object({
-    sessions: z.array(
-      z
-        .object({
-          name: composedTextSchema,
-          threadId: composedTextSchema,
-          state: z.enum(["working", "idle", "unreachable"]),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
+/** Parses a {@link SessionTerminalProviderSessionListResponse}. */
+export const SessionTerminalProviderSessionListResponseSchema: z.ZodType<SessionTerminalProviderSessionListResponse> =
+  z
+    .object({
+      sessions: z.array(
+        z
+          .object({
+            provider: ProviderNameSchema,
+            name: composedTextSchema,
+            threadId: composedTextSchema,
+            state: z.enum(["working", "idle", "unreachable"]),
+          })
+          .strict(),
+      ),
+    })
+    .strict();
 
 /**
  * The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence:
@@ -678,10 +682,10 @@ export interface SessionControlMethodDescriptors {
     SessionMaxStepsUpdateRequest,
     SessionMaxStepsUpdateResponse
   >;
-  readonly "session.terminalCodexList": MethodDescriptor<
-    "session.terminalCodexList",
-    SessionTerminalCodexListRequest,
-    SessionTerminalCodexListResponse
+  readonly "session.terminalProviderSessionList": MethodDescriptor<
+    "session.terminalProviderSessionList",
+    SessionTerminalProviderSessionListRequest,
+    SessionTerminalProviderSessionListResponse
   >;
 }
 
@@ -767,11 +771,11 @@ export const SESSION_CONTROL_METHOD_DESCRIPTORS: SessionControlMethodDescriptors
       requestSchema: SessionMaxStepsUpdateRequestSchema,
       responseSchema: SessionMaxStepsUpdateResponseSchema,
     },
-    "session.terminalCodexList": {
-      method: "session.terminalCodexList",
+    "session.terminalProviderSessionList": {
+      method: "session.terminalProviderSessionList",
       procedureType: "query",
       mutating: false,
-      requestSchema: SessionTerminalCodexListRequestSchema,
-      responseSchema: SessionTerminalCodexListResponseSchema,
+      requestSchema: SessionTerminalProviderSessionListRequestSchema,
+      responseSchema: SessionTerminalProviderSessionListResponseSchema,
     },
   });

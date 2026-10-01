@@ -13,6 +13,7 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 
 /** The bytes in one 100 ms frame of 16 kHz 16-bit mono audio. */
@@ -36,12 +37,25 @@ export const VOICE_UNAVAILABLE_CODE = "voice.unavailable" as const;
 /** The type of {@link VOICE_UNAVAILABLE_CODE}. */
 export type VoiceUnavailableCode = typeof VOICE_UNAVAILABLE_CODE;
 
-const VOICE_UNAVAILABLE_REASON_VALUES = ["claude_sign_in_required"] as const;
+const VOICE_UNAVAILABLE_REASON_VALUES = ["provider_sign_in_required"] as const;
 /** Why {@link VOICE_UNAVAILABLE_CODE} refused. */
 export type VoiceUnavailableReason = (typeof VOICE_UNAVAILABLE_REASON_VALUES)[number];
 /** Every {@link VoiceUnavailableReason}, as a value. */
 export const VOICE_UNAVAILABLE_REASONS: readonly VoiceUnavailableReason[] =
   VOICE_UNAVAILABLE_REASON_VALUES;
+
+/**
+ * The refusal's details: why, and the session's provider, so the screen draws that provider's own
+ * sentence and remedy.
+ */
+export interface VoiceUnavailableDetails {
+  reason: VoiceUnavailableReason;
+  provider: ProviderName;
+}
+/** Parses {@link VoiceUnavailableDetails}. */
+export const VoiceUnavailableDetailsSchema: z.ZodType<VoiceUnavailableDetails> = z
+  .object({ reason: z.enum(VOICE_UNAVAILABLE_REASON_VALUES), provider: ProviderNameSchema })
+  .strict();
 
 /** Codex could not start the call. */
 export const VOICE_CALL_START_FAILED_CODE = "voice.call_start_failed" as const;

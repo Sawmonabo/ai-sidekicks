@@ -196,7 +196,7 @@ export const SessionAutoMemoryUpdateResponseSchema: z.ZodType<SessionAutoMemoryU
  * One hook Codex loaded for the session's folder. `event`, `source` and `trustStatus` are
  * Codex's own words, carried as sent.
  */
-export interface SessionCodexHook {
+export interface SessionProviderHook {
   key: string;
   event: string;
   handlerType: "command" | "mcpTool" | "prompt" | "agent";
@@ -212,9 +212,9 @@ export interface SessionCodexHook {
 }
 
 /** One folder's hooks, with the errors and warnings Codex reported for it. */
-export interface SessionCodexHookFolder {
+export interface ProviderHookSource {
   folder: string;
-  hooks: SessionCodexHook[];
+  hooks: SessionProviderHook[];
   errors: { path: string; message: string }[];
   warnings: string[];
 }
@@ -224,7 +224,7 @@ export interface SessionCodexHookFolder {
  * so its arm lists the files it reads hooks from. The daemon's own hooks are never listed.
  */
 export type SessionHookListResponse =
-  | { sessionId: SessionId; provider: "codex"; folders: SessionCodexHookFolder[] }
+  | { sessionId: SessionId; provider: "codex"; folders: ProviderHookSource[] }
   | { sessionId: SessionId; provider: "claude"; files: { path: string }[] };
 /** Parses a {@link SessionHookListResponse}. */
 export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =

@@ -158,7 +158,7 @@ export type ServiceUpdateStep = "checking" | "downloading" | "verifying" | "wait
 
 /**
  * The running work a service update waits for: the sessions and workflow runs by title, and
- * the terminal Codex sessions inside the service as a count.
+ * the provider sessions typed in a terminal inside the service as a count.
  */
 export interface ServiceUpdateWaitingOn {
   readonly sessions: readonly { readonly sessionId: SessionId; readonly title: string }[];
@@ -166,7 +166,7 @@ export interface ServiceUpdateWaitingOn {
     readonly workflowRunId: WorkflowRunId;
     readonly title: string;
   }[];
-  readonly terminalCodexSessionCount: number;
+  readonly terminalProviderSessionCount: number;
 }
 
 /** How a service update ended. */

@@ -1,8 +1,9 @@
-// A session's tasks in its provider's own cloud. The daemon only calls the provider's cloud
-// verbs and never runs the remote work, so a task's state is only what its provider
-// reported: Codex reports `pending`, `ready`, `applied` or `error`; Claude Code's command
-// line reads no status, so its task stays `submitted`. The task shape is split by provider
-// so neither can carry the other's states.
+// A session's work in its provider's own cloud. The daemon only calls the provider's cloud
+// verbs and never runs the remote work, so the work's state is only what its provider reported.
+// Cloud work is one of two kinds, with the provider as data: a task with attempts, which reports
+// `pending`, `ready`, `applied` or `error` (Codex's), or a cloud session, which reads no status
+// and stays `submitted` (Claude Code's). The shape is split by kind so neither carries the
+// other's states.
 //
 // Nothing imported here may reach `./event.js`, which imports the task update payload from
 // this module: a cycle among eager module-scope schemas throws at load.
@@ -14,6 +15,7 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
@@ -30,7 +32,7 @@ export const CLOUD_ENVIRONMENT_LABEL_MAX_LEN = 256;
 /** The most attempts one Codex cloud task runs: Codex's own bound. */
 export const CLOUD_TASK_ATTEMPTS_MAX = 4;
 
-/** The id the provider gave a cloud task: Codex's task id, or Claude Code's cloud session id. */
+/** The id the provider gave its cloud work: a task's id, or a cloud session's id. */
 export type CloudTaskId = string & { readonly __brand: "CloudTaskId" };
 /** Parses a {@link CloudTaskId}: a non-empty string up to {@link CLOUD_TASK_ID_MAX_LEN}. */
 export const CloudTaskIdSchema: z.ZodType<CloudTaskId, CloudTaskId> = z
@@ -39,7 +41,7 @@ export const CloudTaskIdSchema: z.ZodType<CloudTaskId, CloudTaskId> = z
   .max(CLOUD_TASK_ID_MAX_LEN)
   .brand<"CloudTaskId">() as unknown as z.ZodType<CloudTaskId, CloudTaskId>;
 
-// One attempt of a Codex task, counted from 1.
+// One attempt of a cloud task, counted from 1.
 const CloudTaskAttemptSchema = z.number().int().min(1).max(CLOUD_TASK_ATTEMPTS_MAX);
 
 // The label of a Codex cloud environment, as the account's tasks name it or as typed.
@@ -60,8 +62,8 @@ export const CLOUD_UNAVAILABLE_CODE = "cloud.unavailable" as const;
 export type CloudUnavailableCode = typeof CLOUD_UNAVAILABLE_CODE;
 
 const CLOUD_UNAVAILABLE_REASON_VALUES = [
-  "chatgpt_sign_in_required",
-  "claude_subscription_required",
+  "provider_sign_in_required",
+  "provider_subscription_required",
   "github_remote_required",
 ] as const;
 /** Why {@link CLOUD_UNAVAILABLE_CODE} refused. */
@@ -70,90 +72,104 @@ export type CloudUnavailableReason = (typeof CLOUD_UNAVAILABLE_REASON_VALUES)[nu
 export const CLOUD_UNAVAILABLE_REASONS: readonly CloudUnavailableReason[] =
   CLOUD_UNAVAILABLE_REASON_VALUES;
 
-// The task
+/**
+ * The refusal's details: why, and the session's provider, so the screen draws that provider's own
+ * sentence and remedy.
+ */
+export interface CloudUnavailableDetails {
+  reason: CloudUnavailableReason;
+  provider: ProviderName;
+}
+/** Parses {@link CloudUnavailableDetails}. */
+export const CloudUnavailableDetailsSchema: z.ZodType<CloudUnavailableDetails> = z
+  .object({ reason: z.enum(CLOUD_UNAVAILABLE_REASON_VALUES), provider: ProviderNameSchema })
+  .strict();
+
+// The work
 
 /**
- * What Codex reported when an attempt was applied to the session's folder: all of
- * it, part of it with the paths it skipped and the paths in conflict, or an error in
- * Codex's own words.
+ * What the provider reported when a task's attempt was applied to the session's folder: all of
+ * it, part of it with the paths it skipped and the paths in conflict, or an error in the
+ * provider's own words.
  */
-export type CodexCloudBringBack =
+export type CloudBringBack =
   | { outcome: "applied" }
   | { outcome: "partial"; skippedPaths: string[]; conflictingPaths: string[] }
   | { outcome: "error"; message: string };
-/** Parses a {@link CodexCloudBringBack}. */
-export const CodexCloudBringBackSchema: z.ZodType<CodexCloudBringBack> = z.discriminatedUnion(
-  "outcome",
-  [
-    z.object({ outcome: z.literal("applied") }).strict(),
-    z
-      .object({
-        outcome: z.literal("partial"),
-        skippedPaths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
-        conflictingPaths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
-      })
-      .strict(),
-    z.object({ outcome: z.literal("error"), message: z.string().min(1) }).strict(),
-  ],
-);
+/** Parses a {@link CloudBringBack}. */
+export const CloudBringBackSchema: z.ZodType<CloudBringBack> = z.discriminatedUnion("outcome", [
+  z.object({ outcome: z.literal("applied") }).strict(),
+  z
+    .object({
+      outcome: z.literal("partial"),
+      skippedPaths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
+      conflictingPaths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
+    })
+    .strict(),
+  z.object({ outcome: z.literal("error"), message: z.string().min(1) }).strict(),
+]);
 
-interface CodexCloudTaskBase {
+interface CloudTaskBase {
+  kind: "task";
   taskId: CloudTaskId;
   sessionId: SessionId;
-  provider: "codex";
+  provider: ProviderName;
   environment: string;
   attempts: number;
   /** The last bring-back of this task, or null before the first. */
-  bringBack: CodexCloudBringBack | null;
+  bringBack: CloudBringBack | null;
 }
 
 /**
- * A Codex cloud task. `errorMessage` is Codex's own message, present exactly when
- * Codex reported the task as `error`.
+ * A cloud task with attempts. `errorMessage` is the provider's own message, present exactly when
+ * the provider reported the task as `error`.
  */
-export type CodexCloudTask =
-  | (CodexCloudTaskBase & { state: "pending" | "ready" | "applied" })
-  | (CodexCloudTaskBase & { state: "error"; errorMessage: string });
+export type CloudTask =
+  | (CloudTaskBase & { state: "pending" | "ready" | "applied" })
+  | (CloudTaskBase & { state: "error"; errorMessage: string });
 
 /**
- * A Claude Code cloud task. Its state is `submitted` for its whole life, and `url` is
- * the cloud session's address on claude.ai.
+ * A cloud session. Its state is `submitted` for its whole life, and `url` is its address on the
+ * provider's site.
  */
-export interface ClaudeCloudTask {
+export interface CloudSession {
+  kind: "session";
   taskId: CloudTaskId;
   sessionId: SessionId;
-  provider: "claude";
+  provider: ProviderName;
   state: "submitted";
   url: string;
 }
 
-/** One cloud task of a session, with only the state its provider reported. */
-export type CloudTask = CodexCloudTask | ClaudeCloudTask;
+/** One piece of a session's cloud work, with only the state its provider reported. */
+export type CloudWork = CloudTask | CloudSession;
 
-const codexCloudTaskBaseShape = {
+const cloudTaskBaseShape = {
+  kind: z.literal("task"),
   taskId: CloudTaskIdSchema,
   sessionId: SessionIdSchema,
-  provider: z.literal("codex"),
+  provider: ProviderNameSchema,
   environment: CloudEnvironmentLabelSchema,
   attempts: CloudTaskAttemptSchema,
-  bringBack: CodexCloudBringBackSchema.nullable(),
+  bringBack: CloudBringBackSchema.nullable(),
 };
 
-/** Parses a {@link CloudTask}. */
-export const CloudTaskSchema: z.ZodType<CloudTask> = z.union([
-  z.object({ ...codexCloudTaskBaseShape, state: z.enum(["pending", "ready", "applied"]) }).strict(),
+/** Parses a {@link CloudWork}. */
+export const CloudWorkSchema: z.ZodType<CloudWork> = z.union([
+  z.object({ ...cloudTaskBaseShape, state: z.enum(["pending", "ready", "applied"]) }).strict(),
   z
     .object({
-      ...codexCloudTaskBaseShape,
+      ...cloudTaskBaseShape,
       state: z.literal("error"),
       errorMessage: z.string().min(1),
     })
     .strict(),
   z
     .object({
+      kind: z.literal("session"),
       taskId: CloudTaskIdSchema,
       sessionId: SessionIdSchema,
-      provider: z.literal("claude"),
+      provider: ProviderNameSchema,
       state: z.literal("submitted"),
       url: z.url({ protocol: /^https$/ }),
     })
@@ -163,9 +179,9 @@ export const CloudTaskSchema: z.ZodType<CloudTask> = z.union([
 // cloud.taskStart
 
 /**
- * Sends one message to the session's provider's cloud as a new task instead of to
- * the agent. `environment` and `attempts` are Codex's: the environment's label and
- * how many attempts to run.
+ * Sends one message to the session's provider's cloud instead of to the agent. `environment` and
+ * `attempts` belong to a task with attempts: the environment's label and how many attempts to
+ * run.
  */
 export interface CloudTaskStartRequest {
   sessionId: SessionId;
@@ -184,7 +200,7 @@ export const CloudTaskStartRequestSchema: z.ZodType<CloudTaskStartRequest, Cloud
     })
     .strict();
 
-/** The new task's id. */
+/** The new work's id. */
 export interface CloudTaskStartResponse {
   taskId: CloudTaskId;
 }
@@ -195,7 +211,7 @@ export const CloudTaskStartResponseSchema: z.ZodType<CloudTaskStartResponse> = z
 
 // cloud.taskList (live)
 
-/** The session whose cloud tasks a `cloud.taskList` subscription follows. */
+/** The session whose cloud work a `cloud.taskList` subscription follows. */
 export interface CloudTaskListRequest {
   sessionId: SessionId;
 }
@@ -205,21 +221,21 @@ export const CloudTaskListRequestSchema: z.ZodType<CloudTaskListRequest, CloudTa
   .strict();
 
 /**
- * The session's whole set of cloud tasks, sent first on subscribing and again on
- * each change, so a subscriber never composes changes into a set of its own.
+ * The session's whole set of cloud work, sent first on subscribing and again on each change, so a
+ * subscriber never composes changes into a set of its own.
  */
 export interface CloudTaskListFrame {
   sessionId: SessionId;
-  tasks: CloudTask[];
+  tasks: CloudWork[];
 }
 /** Parses a {@link CloudTaskListFrame}. */
 export const CloudTaskListFrameSchema: z.ZodType<CloudTaskListFrame> = z
-  .object({ sessionId: SessionIdSchema, tasks: z.array(CloudTaskSchema) })
+  .object({ sessionId: SessionIdSchema, tasks: z.array(CloudWorkSchema) })
   .strict();
 
 // cloud.taskRead
 
-/** The task to read. */
+/** The cloud work to read. */
 export interface CloudTaskReadRequest {
   taskId: CloudTaskId;
 }
@@ -230,7 +246,7 @@ export const CloudTaskReadRequestSchema: z.ZodType<CloudTaskReadRequest, CloudTa
 
 // cloud.taskDiffRead
 
-/** A ready Codex task's diff; `attempt` picks one of a task's several attempts. */
+/** A ready task's diff; `attempt` picks one of a task's several attempts. */
 export interface CloudTaskDiffReadRequest {
   taskId: CloudTaskId;
   attempt?: number | undefined;
@@ -241,7 +257,7 @@ export const CloudTaskDiffReadRequestSchema: z.ZodType<
   CloudTaskDiffReadRequest
 > = z.object({ taskId: CloudTaskIdSchema, attempt: CloudTaskAttemptSchema.optional() }).strict();
 
-/** The attempt's diff as Codex prints it, for the review pane to show read-only. */
+/** The attempt's diff as the provider prints it, for the review pane to show read-only. */
 export interface CloudTaskDiffReadResponse {
   taskId: CloudTaskId;
   attempt: number;
@@ -255,10 +271,9 @@ export const CloudTaskDiffReadResponseSchema: z.ZodType<CloudTaskDiffReadRespons
 // cloud.taskApply
 
 /**
- * Brings a task back. On Codex the daemon takes a file checkpoint and then applies
- * one attempt to the session's folder, `attempt` picking one of several; on Claude
- * Code it cuts a new worktree, pulls the cloud session into it and imports it as a
- * new session.
+ * Brings cloud work back. For a task the daemon takes a file checkpoint and then applies one
+ * attempt to the session's folder, `attempt` picking one of several; for a cloud session it cuts a
+ * new worktree, pulls the cloud session into it and imports it as a new session.
  */
 export interface CloudTaskApplyRequest {
   taskId: CloudTaskId;
@@ -269,34 +284,34 @@ export const CloudTaskApplyRequestSchema: z.ZodType<CloudTaskApplyRequest, Cloud
   z.object({ taskId: CloudTaskIdSchema, attempt: CloudTaskAttemptSchema.optional() }).strict();
 
 /**
- * What bringing a task back did: on Codex, what the apply reported; on Claude Code,
+ * What bringing cloud work back did: for a task, what the apply reported; for a cloud session,
  * the new session the returned work opened as.
  */
 export type CloudTaskApplyResponse =
-  | { provider: "codex"; bringBack: CodexCloudBringBack }
-  | { provider: "claude"; sessionId: SessionId };
+  | { kind: "task"; bringBack: CloudBringBack }
+  | { kind: "session"; sessionId: SessionId };
 /** Parses a {@link CloudTaskApplyResponse}. */
 export const CloudTaskApplyResponseSchema: z.ZodType<CloudTaskApplyResponse> = z.discriminatedUnion(
-  "provider",
+  "kind",
   [
-    z.object({ provider: z.literal("codex"), bringBack: CodexCloudBringBackSchema }).strict(),
-    z.object({ provider: z.literal("claude"), sessionId: SessionIdSchema }).strict(),
+    z.object({ kind: z.literal("task"), bringBack: CloudBringBackSchema }).strict(),
+    z.object({ kind: z.literal("session"), sessionId: SessionIdSchema }).strict(),
   ],
 );
 
 // cloud.task_updated
 
 /**
- * A task was sent, or its provider reported a new state, or it was brought back. The
- * payload is the whole task as it now stands, so the session's record of its tasks
- * is the latest of these per task.
+ * Cloud work was sent, or its provider reported a new state, or it was brought back. The payload
+ * is the whole work as it now stands, so the session's record of its cloud work is the latest of
+ * these per id.
  */
 export interface CloudTaskUpdatedPayload {
-  task: CloudTask;
+  task: CloudWork;
 }
 /** Parses a {@link CloudTaskUpdatedPayload}. */
 export const CloudTaskUpdatedPayloadSchema: z.ZodType<CloudTaskUpdatedPayload> = z
-  .object({ task: CloudTaskSchema })
+  .object({ task: CloudWorkSchema })
   .strict();
 
 // Methods
@@ -314,7 +329,7 @@ export interface CloudMethodDescriptors {
     SubscribeAckResponse,
     CloudTaskListFrame
   >;
-  readonly "cloud.taskRead": MethodDescriptor<"cloud.taskRead", CloudTaskReadRequest, CloudTask>;
+  readonly "cloud.taskRead": MethodDescriptor<"cloud.taskRead", CloudTaskReadRequest, CloudWork>;
   readonly "cloud.taskDiffRead": MethodDescriptor<
     "cloud.taskDiffRead",
     CloudTaskDiffReadRequest,
@@ -349,7 +364,7 @@ export const CLOUD_METHOD_DESCRIPTORS: CloudMethodDescriptors = defineMethodDesc
     procedureType: "query",
     mutating: false,
     requestSchema: CloudTaskReadRequestSchema,
-    responseSchema: CloudTaskSchema,
+    responseSchema: CloudWorkSchema,
   },
   "cloud.taskDiffRead": {
     method: "cloud.taskDiffRead",
