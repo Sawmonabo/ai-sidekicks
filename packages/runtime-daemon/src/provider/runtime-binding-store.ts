@@ -416,7 +416,7 @@ export class RuntimeBindingStore {
     // Only an untyped caller reaches this; writing `'{}'` would leave a posture-less record.
     if (input.spawnConfig === undefined) {
       throw new Error(
-        `RuntimeBindingStore.create: spawnConfig is required at every binding write for run ${input.runId} (driver ${input.driverName}) — the '{}' column default is a pre-B10-row artifact, never a live-write outcome`,
+        `RuntimeBindingStore.create: spawnConfig is required at every binding write for run ${input.runId} (driver ${input.driverName}) — the '{}' column default is never a write's outcome`,
       );
     }
     const spawnConfigJson: string = JSON.stringify(input.spawnConfig);
