@@ -1,6 +1,7 @@
 // The workflow run pane's body and the root of its chunk: the whole subtree (snapshot, park
-// cards) loads only when a run pane opens. `WorkflowStateStrip.css` is imported here so no chunk relies on another root having
-// loaded it. Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name.
+// cards) loads only when a run pane opens. `WorkflowStateStrip.css` is imported here so no
+// chunk relies on another root having loaded it. Named `Body` because
+// `components/LazyBody/lazy-body.ts` fixes the export name.
 
 import "../components/WorkflowStateStrip.css";
 

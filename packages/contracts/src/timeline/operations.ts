@@ -268,8 +268,9 @@ export type ReasoningSurfaceReadResponse =
 
 // Non-empty on the continuing arm only, because only a continuing page can loop on a repeated
 // cursor. A terminal page may be empty: a caller re-asking from the end of the surface has
-// reached the end of something that exists, which is not `unavailable`. The schema cannot tell a first page from a continuation, so the daemon's
-// binder (`registerTimelineMethod`) refuses a first `available` page with no entries.
+// reached the end of something that exists, which is not `unavailable`. The schema cannot tell
+// a first page from a continuation, so the daemon's binder (`registerTimelineMethod`) refuses
+// a first `available` page with no entries.
 const continuingReasoningEntriesSchema = z
   .array(ReasoningEntrySchema)
   .min(1)
