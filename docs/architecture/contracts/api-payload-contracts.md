@@ -1446,9 +1446,9 @@ interface ProviderDriver {
   // Reconstitute a conversation into a FRESH provider session from exported frames. Gated on the
   // `transcript_replay` flag and never writes to the SOURCE session; returns only after the
   // post-replay assertion passes. THIS IS THE FALLBACK PATH, not the ordinary one: a fresh process of
-  // the SAME provider reopens its own conversation, and a DIFFERENT provider is started from a
-  // hand-over brief (Spec-014 §Continuity). It is reached where a same-provider reopen does not
-  // load, and a driver whose provider refuses prior-turn content declares the flag `false`.
+  // the SAME provider reopens its own conversation. It is reached where a same-provider reopen does
+  // not load, and a driver whose provider refuses prior-turn content declares the flag `false`. No
+  // provider switch takes it: a switch settles `in_place` or `brief` (Spec-014 §Continuity).
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
   // copy of the old session and never on the live one; required of every driver (Spec-004
