@@ -2,7 +2,7 @@
 // guarded `append` that tests use to seed rows.
 //
 // `append` writes a row with a caller-chosen `sequence`, outside the per-session append lock,
-// with no sealing and no size ceiling. `EventLogService.append` is the only durable writer, so
+// with no size ceiling. `EventLogService.append` is the only durable writer, so
 // `append` refuses to run unless the service was built with `TestSeedingAppendToken`. Replay
 // does not persist snapshots; it rebuilds state from the event log each time.
 
@@ -96,11 +96,11 @@ export class SessionService {
     this.#insertStmt = db.prepare(
       `INSERT INTO session_events (
          id, session_id, sequence, occurred_at, monotonic_ns,
-         category, type, actor, payload, pii_payload,
+         category, type, actor, payload,
          correlation_id, causation_id, version
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-         @category, @type, @actor, @payload, NULL,
+         @category, @type, @actor, @payload,
          @correlation_id, @causation_id, @version
        )`,
     );
@@ -126,7 +126,7 @@ export class SessionService {
     if (!this.#allowTestSeedingAppend) {
       throw new Error(
         "SessionService.append is guarded: it writes a caller-sequenced row outside the " +
-          "append lock, with no sealing and no size ceiling. Durable production writes belong " +
+          "append lock, with no size ceiling. Durable production writes belong " +
           "to EventLogService.append. Tests seeding rows opt in explicitly with the " +
           "identity-checked capability token: new SessionService(db, " +
           "{ allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly() }).",

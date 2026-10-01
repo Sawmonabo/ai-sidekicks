@@ -27,12 +27,8 @@ CREATE TABLE session_events (
   type              TEXT NOT NULL,
   actor             TEXT,                         -- user or agent id; NULL for the system
   payload           TEXT NOT NULL DEFAULT '{}',   -- JSON
-  -- per-user AES-256-GCM
-  pii_payload       BLOB,
-  -- owner stamp: the user whose key sealed pii_payload
-  pii_user_id       TEXT,
-  -- machine-authored prose under the session content key
-  content_payload   BLOB,
+  -- machine-authored prose, kept beside the payload so a read fetches it on demand
+  content_payload   TEXT,
   correlation_id    TEXT,
   causation_id      TEXT,
   -- "MAJOR.MINOR". The GLOB is only a smoke check (its * matches anything);
@@ -131,17 +127,6 @@ CREATE TABLE session_drafts (
 CREATE TABLE user_keys (
   user_id             TEXT NOT NULL PRIMARY KEY,
   encrypted_key_blob  BLOB NOT NULL,            -- AES-256-GCM key, encrypted at rest
-  key_version         INTEGER NOT NULL DEFAULT 1,
-  created_at          TEXT NOT NULL,
-  rotated_at          TEXT
-) STRICT;
-
--- The wrapped key that seals every content_payload of one session. Stored, not
--- derived from the master key, so a master-key rotation re-wraps it instead of
--- making every body unreadable. Created on the session's first content append.
-CREATE TABLE session_content_keys (
-  session_id          TEXT NOT NULL PRIMARY KEY,
-  encrypted_key_blob  BLOB NOT NULL,
   key_version         INTEGER NOT NULL DEFAULT 1,
   created_at          TEXT NOT NULL,
   rotated_at          TEXT

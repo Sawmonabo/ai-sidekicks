@@ -1,5 +1,5 @@
 // `EventLogService`, the sole durable append path: per-session sequencing under the append lock,
-// the head read boundary, the PII split, the canonical-size ceiling, the stored-variant parse and
+// the head read boundary, the canonical-size ceiling, the stored-variant parse and
 // the terminal-run backstop, each asserted on the stored rows.
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -24,14 +24,10 @@ import { canonicalizeEvent } from "../canonicalizer.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
-import { DeterministicPiiEncryptor } from "./event-test-fixtures.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
-
-// A UUID, because the contracts' `UserIdSchema` is one, though `pii_user_id` is plain TEXT.
-const USER = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 
 let database: DatabaseType;
 
@@ -78,13 +74,10 @@ async function settlesWithin(work: Promise<unknown>, turns: number): Promise<boo
 
 interface ServiceFixture {
   readonly service: EventLogService;
-  readonly encryptor: DeterministicPiiEncryptor;
 }
 
 function buildService(): ServiceFixture {
-  const encryptor = new DeterministicPiiEncryptor();
-  const service = new EventLogService({ db: database, piiEncryptor: encryptor });
-  return { service, encryptor };
+  return { service: new EventLogService({ db: database }) };
 }
 
 let envelopeCounter = 0;
@@ -104,13 +97,6 @@ function makeEnvelope(overrides?: Partial<UnsequencedEventEnvelope>): Unsequence
   };
 }
 
-/** The stored row, hydrated into its envelope and the PII columns. */
-interface HydratedRow {
-  readonly envelope: EventEnvelope;
-  readonly piiPayload: Uint8Array | null;
-  readonly piiUserId: string | null;
-}
-
 interface RawEventRow {
   readonly id: string;
   readonly session_id: string;
@@ -120,11 +106,9 @@ interface RawEventRow {
   readonly type: string;
   readonly actor: string | null;
   readonly payload: string;
-  readonly pii_payload: Uint8Array | null;
   readonly correlation_id: string | null;
   readonly causation_id: string | null;
   readonly version: string;
-  readonly pii_user_id: string | null;
 }
 
 function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
@@ -133,8 +117,9 @@ function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
     .all(sessionId) as ReadonlyArray<RawEventRow>;
 }
 
-function hydrate(row: RawEventRow): HydratedRow {
-  const envelope: EventEnvelope = {
+/** The stored row, rebuilt into its envelope. */
+function hydrate(row: RawEventRow): EventEnvelope {
+  return {
     id: row.id,
     sessionId: SessionIdSchema.parse(row.session_id),
     sequence: row.sequence,
@@ -147,11 +132,6 @@ function hydrate(row: RawEventRow): HydratedRow {
     version: EventEnvelopeVersionSchema.parse(row.version),
     ...(row.correlation_id !== null ? { correlationId: row.correlation_id } : {}),
     ...(row.causation_id !== null ? { causationId: row.causation_id } : {}),
-  };
-  return {
-    envelope,
-    piiPayload: row.pii_payload,
-    piiUserId: row.pii_user_id,
   };
 }
 
@@ -211,40 +191,6 @@ describe("EventLogService — head read boundary", () => {
 });
 
 // ----------------------------------------------------------------------------
-// PII indirection at the persistence boundary
-// ----------------------------------------------------------------------------
-
-describe("EventLogService — PII indirection", () => {
-  it("persists the owner in its durable column and the ciphertext in pii_payload", async () => {
-    const { service, encryptor } = buildService();
-
-    const receipt = await service.append(
-      // A real `assistant.message` payload: the codec parses the composed row against that
-      // type's registered variant, which an empty payload would fail.
-      makeEnvelope({
-        category: "assistant_output",
-        type: "assistant.message",
-        payload: { sessionId: SESSION, runId: "run-1" },
-      }),
-      { pii: { userId: USER, piiPayload: { text: "secret prose" } } },
-    );
-
-    expect(encryptor.encryptCallCount).toBe(1);
-    const [row] = readRawRows(SESSION);
-    expect(row).toBeDefined();
-    if (row === undefined) return;
-    const hydrated = hydrate(row);
-
-    expect(hydrated.piiUserId).toBe(USER);
-    expect(hydrated.piiPayload).toBeInstanceOf(Uint8Array);
-
-    // The plaintext never reaches the un-shreddable `payload` column.
-    expect(row.payload).not.toContain("secret prose");
-    expect(receipt.sequence).toBe(0);
-  });
-});
-
-// ----------------------------------------------------------------------------
 // `daemon.event_canonical_bytes_exceeded` — the append ceiling
 // ----------------------------------------------------------------------------
 
@@ -277,7 +223,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
     const [row] = rows;
     if (row === undefined) return;
     // The stored row re-canonicalizes to exactly the ceiling: the bound is inclusive.
-    expect(canonicalizeEvent(hydrate(row).envelope).length).toBe(EVENT_CANONICAL_BYTES_MAX);
+    expect(canonicalizeEvent(hydrate(row)).length).toBe(EVENT_CANONICAL_BYTES_MAX);
   });
 
   it("refuses ONE byte over with the typed 400-equivalent envelope, writing nothing", async () => {
@@ -300,7 +246,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The plain branch, which seals nothing, parses what it stores (`assertRegisteredVariantParses`)
+// The plain branch parses what it stores (`assertRegisteredVariantParses`)
 // ----------------------------------------------------------------------------
 
 describe("EventLogService — the plain branch parses what it stores", () => {
@@ -346,15 +292,15 @@ describe("EventLogService — the plain branch parses what it stores", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The codec-owned content members on the plain path
+// The content description members on the plain path
 // ----------------------------------------------------------------------------
 //
-// The plain-vs-codec branch is chosen from `options.content`, not from the payload. A caller that
+// The plain-vs-content branch is chosen from `options.content`, not from the payload. A caller that
 // omits `options.content` and seeds `contentLength` would take the plain branch and store a row
 // whose account of its own body describes prose the column does not hold. The reader echoes those
 // members instead of recomputing them, so the refusal has to happen at the write.
 
-describe("EventLogService — codec-owned content keys are refused on the plain path", () => {
+describe("EventLogService — content description members are refused on the plain path", () => {
   const forgeableMembers: ReadonlyArray<readonly [string, unknown]> = [
     [CONTENT_LENGTH_PAYLOAD_KEY, 4096],
     [CONTENT_TRUNCATED_PAYLOAD_KEY, true],
@@ -362,7 +308,7 @@ describe("EventLogService — codec-owned content keys are refused on the plain 
 
   it.each(forgeableMembers)("refuses a payload pre-seeding %s", async (key, value) => {
     // Both members are the row's own account of how much prose there was and whether the bound
-    // fired; `SessionContentReader` echoes them from the stored payload, so a lie would be read
+    // fired; the body read echoes them from the stored payload, so a lie would be read
     // back as truth.
     const { service } = buildService();
 

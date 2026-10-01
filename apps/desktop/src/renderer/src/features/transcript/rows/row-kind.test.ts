@@ -14,9 +14,9 @@ const TRUNCATED_BODY: HydratedSessionEventContent = {
   contentLength: 4096,
   contentTruncated: true,
 };
-const UNREADABLE_BODY: HydratedSessionEventContent = {
+const ABSENT_BODY: HydratedSessionEventContent = {
   status: "unavailable",
-  reason: "decrypt_failed",
+  reason: "absent",
 };
 
 describe("the row kind classifier", () => {
@@ -41,12 +41,12 @@ describe("the tool result state", () => {
   it("ranks a tool error above every body condition", () => {
     // A truncated error is still an error, and a collapsed row may not hide one.
     expect(toolResultState("tool.error", TRUNCATED_BODY)).toBe("error");
-    expect(toolResultState("tool.error", UNREADABLE_BODY)).toBe("error");
+    expect(toolResultState("tool.error", ABSENT_BODY)).toBe("error");
     expect(toolResultState("tool.error", undefined)).toBe("error");
   });
 
   it("tells an unreadable body from a successful one", () => {
-    expect(toolResultState("tool.result", UNREADABLE_BODY)).toBe("body-unavailable");
+    expect(toolResultState("tool.result", ABSENT_BODY)).toBe("body-unavailable");
     expect(toolResultState("tool.result", AVAILABLE_BODY)).toBe("ok");
   });
 });

@@ -378,8 +378,8 @@ export type ApprovalApprovedEvent = SessionEventVariant<
   ApprovalResolvedPayload
 >;
 /**
- * `approval.reviewer_denied` carries the provider's own denial as its sealed body,
- * so its payload takes the codec's content members beside the owner's.
+ * `approval.reviewer_denied` carries the provider's own denial as its body, so its
+ * payload takes the append path's content members beside the owner's.
  */
 export type ApprovalReviewerDeniedEvent = SessionEventVariant<
   "approval.reviewer_denied",

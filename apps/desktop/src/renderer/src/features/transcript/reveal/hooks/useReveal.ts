@@ -21,8 +21,8 @@ export interface RevealBinding {
   readonly isDraining: boolean;
   /**
    * Take one lane's delta. Nothing calls it yet: event payloads carry only a media type and byte
-   * length, and the body is sealed behind a daemon read no bridge namespace serves; that read
-   * will feed this.
+   * length, and the body sits behind a daemon read no bridge namespace serves; that read will
+   * feed this.
    */
   readonly ingest: (delta: RevealDelta) => void;
   /**

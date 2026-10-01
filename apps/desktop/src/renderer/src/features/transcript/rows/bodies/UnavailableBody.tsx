@@ -1,35 +1,16 @@
-// A machine-authored body that could not be read, rendered at its position. The sentence table
-// is total over `HydratedContentUnavailableReason`, and the marker name is a wire value, so it
-// renders as a wire figure bound to `DeclaredLossKind`.
+// A machine-authored turn recorded without content, rendered at its position. The marker name is
+// a wire value, so it renders as a wire figure bound to `DeclaredLossKind`.
 
-import type { DeclaredLossKind, HydratedContentUnavailableReason } from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
-/** The loss this console names when a stored body could not be read. */
+/** The loss this console names when a turn carries no content. */
 const UNAVAILABLE_LOSS_KIND: DeclaredLossKind = "turn_content_unavailable";
 
-/**
- * A sentence per unavailability reason, total over the union so a reason added to the contract
- * fails to compile here. The sentences say what happened, never what to do: several are
- * node-operator conditions the card cannot diagnose.
- */
-const REASON_SENTENCES: Readonly<Record<HydratedContentUnavailableReason, string>> = {
-  absent: "This turn was recorded without a body.",
-  purged: "This turn's content was deleted with its session.",
-  master_key_unavailable: "This turn's body is sealed and the key could not be obtained.",
-  wrapped_key_missing: "This turn's body is sealed and this session holds no key for it.",
-  decrypt_failed: "This turn's body is sealed and did not open.",
-};
-
-/** The reason a stored body could not be read. */
-export interface UnavailableBodyProps {
-  readonly reason: HydratedContentUnavailableReason;
-}
-
-/** The turn, at its position, with an empty body and the reason it is empty. */
-export function UnavailableBody(props: UnavailableBodyProps): React.JSX.Element {
+/** The turn, at its position, with no content and the sentence saying so. */
+export function UnavailableBody(): React.JSX.Element {
   return (
     <div className="meridian-machine-body meridian-machine-body--unavailable">
       {/* Present as an element so the row keeps a turn's height and structure. */}
@@ -38,8 +19,8 @@ export function UnavailableBody(props: UnavailableBodyProps): React.JSX.Element 
       <Nothing
         kind="empty"
         placement="block"
-        title={REASON_SENTENCES[props.reason]}
-        detail="The turn is shown at its position with an empty body."
+        title="This turn was recorded without content."
+        detail="The turn is shown at its position with no content."
         action={<WireFigure value={UNAVAILABLE_LOSS_KIND} title="Declared loss" />}
       />
     </div>

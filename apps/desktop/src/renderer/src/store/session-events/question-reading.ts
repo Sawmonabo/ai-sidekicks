@@ -2,7 +2,7 @@
 // `wire-payload.ts`; an absent or wrongly-typed member reads as `undefined`.
 //
 // The payload is the plain half of the question record: which question, the run holding it,
-// and its page count. The questions themselves are sealed apart from it, so the card takes
+// and its page count. The questions themselves are kept apart from it, so the card takes
 // their text and options as a prop. A question has no deadline on either provider and no
 // terminal event: the answer lands as the person's own turn and the card closes when the
 // question's attention entry resolves.

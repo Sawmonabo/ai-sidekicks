@@ -27,7 +27,7 @@ import type {
   TimelineMethodResponse,
 } from "@ai-sidekicks/contracts";
 
-import type { SessionContentReader, StoredEventContentRow } from "../../events/content-read.js";
+import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content-read.js";
 import { RegistryDispatchError } from "../registry.js";
 
 // ----------------------------------------------------------------------------
@@ -257,7 +257,7 @@ export function registerTimelineMethod<MethodName extends TimelineMethodName>(
 }
 
 /**
- * What `timeline.bodyRead` reads through: the stored event row and the body opener.
+ * What `timeline.bodyRead` reads through: the stored event row.
  *
  * @consumedBy the daemon's method wiring for the timeline's full-body read
  */
@@ -271,14 +271,12 @@ export interface TimelineBodyReadDependencies {
     sessionId: SessionId,
     eventId: string,
   ) => Promise<StoredEventContentRow | undefined>;
-  /** Opens a stored row's sealed body. */
-  readonly contentReader: Pick<SessionContentReader, "hydrate">;
 }
 
 /**
  * Binds `timeline.bodyRead`, which returns a row's large body or full output. The row id is the
- * stored event's id; the answer is the body or the closed reason it cannot be opened. An id the
- * session does not hold is refused on the `rowId` path, so it differs from an unreadable body.
+ * stored event's id; the answer is the body, or `absent` for a row that carries none. An id the
+ * session does not hold is refused on the `rowId` path, so it differs from a row with no body.
  *
  * @consumedBy the daemon's method wiring for the timeline's full-body read
  */
@@ -297,8 +295,7 @@ export function registerTimelineBodyRead(
           [{ code: "custom", path: ["rowId"], message: "the session holds no row with this id" }],
         );
       }
-      const hydrated = await dependencies.contentReader.hydrate(storedRow);
-      return hydrated.content;
+      return hydrateStoredEvent(storedRow).content;
     },
   });
 }

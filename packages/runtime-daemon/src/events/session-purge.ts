@@ -3,9 +3,9 @@
 // naming every session that lost rows.
 //
 // It is the only operation in this package that mutates a committed row of the append-only log.
-// Nothing in the background calls it, and the compactor never rewrites a committed column. The
-// caller chooses the sessions and owns the precondition that each is archived or closed and locked
-// against new work while the purge runs; this module does not read session state.
+// Nothing in the background calls it. The caller chooses the sessions and owns the precondition
+// that each is archived or closed and locked against new work while the purge runs; this module
+// does not read session state.
 //
 //   - `event_maintenance` rows are never purged: the selector excludes them in SQL, and they
 //     record maintenance, this purge's own receipt included.
@@ -53,7 +53,6 @@ import type {
   UnsequencedEventEnvelope,
 } from "./event-log-service.js";
 import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./session-append-lock.js";
-import type { SessionContentKeyDisposer } from "./session-content-key-store.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /** The `retention_class` value a purged row carries. */
@@ -85,7 +84,7 @@ const LIVE_PURGEABLE_WHERE = `retention_class IS NULL
  *   - `targetPosition`: the rewind target on `run.rolled_back` rows.
  *   - `sourceEpoch` + `sourcePosition`: the epoch stamp, so the stub of a stale-epoch row stays
  *     attributed to its source epoch.
- *   - `contentLength` + `contentTruncated`: the shape of the sealed body the same UPDATE destroys.
+ *   - `contentLength` + `contentTruncated`: the shape of the body the same UPDATE destroys.
  */
 const PRESERVED_PAYLOAD_KEYS: readonly string[] = [
   "runId",
@@ -133,8 +132,8 @@ export interface SessionPurgeOutcome {
   readonly fromSequence?: number | undefined;
   readonly toSequence?: number | undefined;
   /**
-   * Present iff this session was refused or its content key could not be retired. A refusal among
-   * its rows leaves the rows already stubbed as stubs, and the receipt names exactly those.
+   * Present iff this session was refused. A refusal among its rows leaves the rows already
+   * stubbed as stubs, and the receipt names exactly those.
    */
   readonly refusedReason?: string | undefined;
 }
@@ -169,11 +168,6 @@ export interface SessionPurgeDeps {
   readonly nodeId: NodeId;
   /** Where the receipt is appended. */
   readonly eventLog: SessionPurgeEventLog;
-  /**
-   * Retires the session's wrapped content key once the purge has cleared the last body it sealed.
-   * Required: a no-op default would let dead wrapped keys accumulate silently.
-   */
-  readonly contentKeyDisposer: SessionContentKeyDisposer;
   /** One clock for the stub's `purgedAt` and the receipt's timestamps. */
   readonly now?: () => Date;
   /** Mints the receipt's `operationId`. Defaults to `mintUuidV7`. */
@@ -214,7 +208,6 @@ class SessionPurgeRefusal extends Error {
 export class SessionPurge {
   readonly #nodeId: NodeId;
   readonly #eventLog: SessionPurgeEventLog;
-  readonly #contentKeyDisposer: SessionContentKeyDisposer;
   readonly #now: () => Date;
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
@@ -228,7 +221,6 @@ export class SessionPurge {
   constructor(deps: SessionPurgeDeps) {
     this.#nodeId = deps.nodeId;
     this.#eventLog = deps.eventLog;
-    this.#contentKeyDisposer = deps.contentKeyDisposer;
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
@@ -258,17 +250,15 @@ export class SessionPurge {
     );
 
     // The destruction. `payload` is rewritten, never nulled: the column is NOT NULL and a reader
-    // must still find the stub. The PII ciphertext, its owner stamp, the sealed body and the
-    // correlation links go. `monotonic_ns`, `version`, `category` and `type` stay, because the
-    // terminal-key trigger requires `category` and `type` unchanged and the stub mirrors them. The
-    // `retention_class IS NULL` guard makes a repeated UPDATE a zero-row no-op, not a double stub.
+    // must still find the stub. The body and the correlation links go. `monotonic_ns`, `version`,
+    // `category` and `type` stay, because the terminal-key trigger requires `category` and `type`
+    // unchanged and the stub mirrors them. The `retention_class IS NULL` guard makes a repeated
+    // UPDATE a zero-row no-op, not a double stub.
     this.#stubUpdateStmt = deps.db.prepare(
       `UPDATE session_events
           SET payload = ?,
               correlation_id = NULL,
               causation_id = NULL,
-              pii_payload = NULL,
-              pii_user_id = NULL,
               content_payload = NULL,
               retention_class = ?
         WHERE id = ?
@@ -279,7 +269,7 @@ export class SessionPurge {
 
   /**
    * Replaces every live purgeable row of each session in `sessionIds` with an audit stub, appends
-   * one receipt naming every session that lost rows, and retires each such session's content key.
+   * one receipt naming every session that lost rows.
    *
    * Never throws: every failure becomes a `refusedReason`, on the session it belongs to or on the
    * deletion.
@@ -326,18 +316,7 @@ export class SessionPurge {
       }
     }
 
-    // The stub UPDATE clears `content_payload`, so the purge may have cleared the last body a
-    // session's wrapped key sealed. The store re-checks under its own exclusion and is a no-op
-    // while any body survives. A failure here is reported, and is a delay rather than a leak: the
-    // compactor's tick sweeps every unreferenced key.
-    const settledOutcomes: SessionPurgeOutcome[] = [];
-    for (const outcome of outcomes) {
-      settledOutcomes.push(
-        outcome.rowsStubbed > 0 ? await this.#disposeContentKey(outcome) : outcome,
-      );
-    }
-
-    return { operationId, outcomes: settledOutcomes, refusedReason };
+    return { operationId, outcomes, refusedReason };
   }
 
   async #purgeSession(sessionId: SessionId, purgeInstant: Date): Promise<SessionPurgeOutcome> {
@@ -361,16 +340,6 @@ export class SessionPurge {
         toSequence,
         refusedReason: describeError(error),
       };
-    }
-  }
-
-  async #disposeContentKey(outcome: SessionPurgeOutcome): Promise<SessionPurgeOutcome> {
-    try {
-      await this.#contentKeyDisposer.deleteIfUnreferenced(outcome.sessionId);
-      return outcome;
-    } catch (error) {
-      const disposalFailure = `session content-key disposal failed after ${String(outcome.rowsStubbed)} rows were stubbed: ${describeError(error)}`;
-      return { ...outcome, refusedReason: appendReason(outcome.refusedReason, disposalFailure) };
     }
   }
 
@@ -568,12 +537,6 @@ function canonicalizeBoundedStubProjection(
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-// A later failure keeps the earlier cause, because the first explains why the session's purge
-// stopped where it did.
-function appendReason(existing: string | undefined, next: string): string {
-  return existing === undefined ? next : `${existing}; ${next}`;
 }
 
 function parsePayload(storedPayload: string, eventId: string): Record<string, unknown> {

@@ -1,5 +1,5 @@
-// The whole-session purge stubs every purgeable row, clears its PII and sealed body, disposes the
-// session's content key, and never runs inside an append-lock hold. Rows are seeded raw to sit at
+// The whole-session purge stubs every purgeable row, clears its body, and never runs inside an
+// append-lock hold. Rows are seeded raw to sit at
 // an exact sequence, under a real `EventCategory`, since the stub projection parses it.
 
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -16,10 +16,6 @@ import {
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
-import type {
-  SessionContentKeyDisposer,
-  SessionContentKeySweepResult,
-} from "../session-content-key-store.js";
 import {
   AUDIT_STUB_RETENTION_CLASS,
   SessionPurge,
@@ -64,20 +60,6 @@ class RecordingEventLog implements SessionPurgeEventLog {
   }
 }
 
-/** Records the per-session key disposal the purge owes. */
-class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
-  readonly disposedSessions: string[] = [];
-
-  async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
-    this.disposedSessions.push(sessionId);
-    return true;
-  }
-
-  async sweepUnreferenced(): Promise<SessionContentKeySweepResult> {
-    throw new Error("the purge never runs the table-wide sweep");
-  }
-}
-
 let database: DatabaseType;
 let nextSequence: number;
 
@@ -98,8 +80,8 @@ interface SeedOptions {
   readonly payload: Record<string, unknown> | string;
   readonly sessionId?: SessionId;
   readonly sequence?: number;
-  /** The sealed machine-authored body, when this row carries one. */
-  readonly contentPayload?: Uint8Array;
+  /** The machine-authored body, when this row carries one. */
+  readonly contentPayload?: string;
 }
 
 function seed(options: SeedOptions): { readonly id: string; readonly sequence: number } {
@@ -109,8 +91,8 @@ function seed(options: SeedOptions): { readonly id: string; readonly sequence: n
     .prepare(
       `INSERT INTO session_events
          (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
-          pii_payload, correlation_id, causation_id, version, pii_user_id, content_payload)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          correlation_id, causation_id, version, content_payload)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
       id,
@@ -122,12 +104,10 @@ function seed(options: SeedOptions): { readonly id: string; readonly sequence: n
       options.type,
       null,
       typeof options.payload === "string" ? options.payload : JSON.stringify(options.payload),
-      Buffer.from([1, 2, 3]),
       "corr-1",
       "caus-1",
       "1.0",
-      "user-abc",
-      options.contentPayload === undefined ? null : Buffer.from(options.contentPayload),
+      options.contentPayload ?? null,
     );
   return { id, sequence };
 }
@@ -142,9 +122,7 @@ interface StoredEventRow {
   readonly retention_class: string | null;
   readonly correlation_id: string | null;
   readonly causation_id: string | null;
-  readonly pii_payload: Uint8Array | null;
-  readonly pii_user_id: string | null;
-  readonly content_payload: Uint8Array | null;
+  readonly content_payload: string | null;
   readonly monotonic_ns: number;
   readonly version: string;
 }
@@ -180,7 +158,6 @@ function stubProjection(id: string): StoredStubProjection {
 }
 
 interface BuildOptions {
-  readonly contentKeyDisposer?: SessionContentKeyDisposer;
   readonly eventLog?: SessionPurgeEventLog;
 }
 
@@ -189,7 +166,6 @@ function buildPurge(options?: BuildOptions): SessionPurge {
     db: database,
     nodeId: NODE,
     eventLog: options?.eventLog ?? new RecordingEventLog(),
-    contentKeyDisposer: options?.contentKeyDisposer ?? new RecordingContentKeyDisposer(),
     now: () => new Date(PURGE_INSTANT),
   });
 }
@@ -240,8 +216,6 @@ describe("SessionPurge — the whole session", () => {
       expect(stubbed.retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
       expect(stubbed.correlation_id).toBeNull();
       expect(stubbed.causation_id).toBeNull();
-      expect(stubbed.pii_payload).toBeNull();
-      expect(stubbed.pii_user_id).toBeNull();
     }
 
     // The row's own columns outside the payload are untouched.
@@ -472,9 +446,9 @@ describe("SessionPurge — a purge entered inside an append-lock hold is refused
   });
 });
 
-describe("SessionPurge — the sealed machine-authored body", () => {
-  function sealedBody(byteLength: number): Uint8Array {
-    return new Uint8Array(byteLength).fill(0xa7);
+describe("SessionPurge — the machine-authored body", () => {
+  function storedBody(length: number): string {
+    return "b".repeat(length);
   }
 
   it("destroys the body, keeping only its shape", async () => {
@@ -482,7 +456,7 @@ describe("SessionPurge — the sealed machine-authored body", () => {
       category: "assistant_output",
       type: "assistant.message",
       payload: { runId: "run-1", contentLength: 4_096 },
-      contentPayload: sealedBody(1_024),
+      contentPayload: storedBody(1_024),
     });
     const truncated = seed({
       category: "tool_activity",
@@ -493,7 +467,7 @@ describe("SessionPurge — the sealed machine-authored body", () => {
         contentLength: 900_000,
         contentTruncated: true,
       },
-      contentPayload: sealedBody(1_024),
+      contentPayload: storedBody(1_024),
     });
     const bodiless = seedMessage("no body here");
 
@@ -506,23 +480,5 @@ describe("SessionPurge — the sealed machine-authored body", () => {
     expect(stubProjection(truncated.id).contentLength).toBe(900_000);
     expect(stubProjection(truncated.id).contentTruncated).toBe(true);
     expect(stubProjection(bodiless.id).contentLength).toBeUndefined();
-  });
-});
-
-describe("SessionPurge — the session's content key", () => {
-  it("disposes the purged session's key once, not once per row", async () => {
-    const disposer = new RecordingContentKeyDisposer();
-    for (const fill of [4, 5]) {
-      seed({
-        category: "assistant_output",
-        type: "assistant.message",
-        payload: { contentType: "text/markdown" },
-        contentPayload: new Uint8Array(64).fill(fill),
-      });
-    }
-
-    await buildPurge({ contentKeyDisposer: disposer }).purge([SESSION]).then(onlyOutcome);
-
-    expect(disposer.disposedSessions).toEqual([SESSION]);
   });
 });

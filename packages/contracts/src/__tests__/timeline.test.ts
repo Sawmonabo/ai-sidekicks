@@ -987,7 +987,7 @@ describe("timeline.bodyRead", () => {
     });
     expectRoundTrip(TimelineBodyReadResponseSchema, {
       status: "unavailable",
-      reason: "wrapped_key_missing",
+      reason: "absent",
     });
   });
 

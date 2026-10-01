@@ -114,8 +114,7 @@ export function compareEventEnvelopeVersion(
 // a reader with no registry rows for a category cannot route it; a new category is a MINOR bump
 // that ships with code. The top-level member set is closed (`.strict()`) at the eleven fields
 // below: stripping an unknown member would desync the parsed value from the stored canonical
-// bytes, and new data goes in `payload`. `pii_payload` is a storage column, not an envelope
-// member.
+// bytes, and new data goes in `payload`.
 
 /**
  * The largest `sequence` an envelope may carry: accepted at this value, refused one above it.
@@ -277,8 +276,7 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
       .pipe(z.record(z.string(), z.unknown())),
   })
   // Membership is closed although the carrier is otherwise tolerant: stripping an unknown member
-  // would desync the parsed value from the stored canonical bytes. `pii_payload` is a storage
-  // column, never a member.
+  // would desync the parsed value from the stored canonical bytes.
   .strict();
 
 // `sourceEpoch` + `sourcePosition` are the one cross-cutting payload pair. A non-lifecycle row
@@ -425,26 +423,14 @@ export function withEpochStamp<
 // to ask whether the body opened.
 
 /**
- * Why a body is not available: a closed set, so a caller gets a reason to act on instead of
- * assuming loss from a missing key. `absent` and `purged` are distinguishable only from the
- * row's retention class, which is why the reader takes it as input.
+ * Why a body is not available: the row never carried one. Nothing is sealed, so no other reason
+ * exists; the member stays a closed union so a caller reads a reason, not a missing key.
  */
-export type HydratedContentUnavailableReason =
-  /** The row never carried a body: live row, NULL column. */
-  | "absent"
-  /** The session was deleted; its row is a stub and the body went with it. */
-  | "purged"
-  /** The daemon master key could not be obtained, so no wrapped key opens. */
-  | "master_key_unavailable"
-  /** The session has a sealed body but no wrapped key row to open it with. */
-  | "wrapped_key_missing"
-  /**
-   * Sealed material refused to open: the session key's own envelope (wrong master, a blob moved
-   * between rows, a replay under a superseded key version) or the body ciphertext failing its
-   * AEAD tag or decoding to invalid UTF-8. The AEAD refuses these identically, so no cause is
-   * guessed here.
-   */
-  | "decrypt_failed";
+export type HydratedContentUnavailableReason = "absent";
+
+/** Parses a {@link HydratedContentUnavailableReason}. */
+export const HydratedContentUnavailableReasonSchema: z.ZodType<HydratedContentUnavailableReason> =
+  z.literal("absent");
 
 /** The closed two-arm content union of a {@link HydratedSessionEvent}. */
 export type HydratedSessionEventContent =

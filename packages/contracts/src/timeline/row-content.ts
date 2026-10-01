@@ -1,14 +1,13 @@
 // The reads that fetch what a transcript row did not carry: a row's large body or full output
 // (`timeline.bodyRead`), and every file patch a tool call left out (`timeline.patchRead`). A
 // surface asks only when its control is pressed or its diff is drawn. Both answer with the
-// stored text or a closed reason it cannot be read: the body never existed, or this daemon
-// cannot open it. A deleted session's rows are stubs no transcript draws, so "purged" is not a
-// reason either read gives.
+// stored text, or `absent` when the row carries none.
 import { z } from "zod";
 
 import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "../event-declared-variants.js";
 import {
   EVENT_FIELD_MAX_LEN,
+  HydratedContentUnavailableReasonSchema,
   type HydratedContentUnavailableReason,
   type HydratedSessionEventContent,
 } from "../event-envelope.js";
@@ -21,21 +20,6 @@ import {
 } from "../session.js";
 
 import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
-
-/** Why stored text cannot be read back. */
-export type StoredContentUnavailableReason = Exclude<HydratedContentUnavailableReason, "purged">;
-
-/** Every {@link StoredContentUnavailableReason}, as a value. */
-export const STORED_CONTENT_UNAVAILABLE_REASONS = [
-  "absent",
-  "master_key_unavailable",
-  "wrapped_key_missing",
-  "decrypt_failed",
-] as const;
-
-/** Parses a {@link StoredContentUnavailableReason}. */
-export const StoredContentUnavailableReasonSchema: z.ZodType<StoredContentUnavailableReason> =
-  z.enum(STORED_CONTENT_UNAVAILABLE_REASONS);
 
 /**
  * Refuse stored text a reply could not carry inside one frame. A frame past the bound closes
@@ -105,7 +89,7 @@ export const TimelineBodyReadResponseSchema: z.ZodType<TimelineBodyReadResponse>
     z
       .object({
         status: z.literal("unavailable"),
-        reason: StoredContentUnavailableReasonSchema,
+        reason: HydratedContentUnavailableReasonSchema,
       })
       .strict(),
   ]);
@@ -132,7 +116,7 @@ export const TimelinePatchReadRequestSchema: z.ZodType<
 /** One file's patch, or why it cannot be read. */
 export type TimelinePatchFile =
   | { path: string; patch: string }
-  | { path: string; unavailable: StoredContentUnavailableReason };
+  | { path: string; unavailable: HydratedContentUnavailableReason };
 
 /**
  * Every patch the call left out, in one reply, so a call with several missing
@@ -153,7 +137,7 @@ export const TimelinePatchReadResponseSchema: z.ZodType<TimelinePatchReadRespons
           .object({ path: patchPathSchema, patch: z.string().max(CONTENT_PAYLOAD_PLAINTEXT_MAX) })
           .strict(),
         z
-          .object({ path: patchPathSchema, unavailable: StoredContentUnavailableReasonSchema })
+          .object({ path: patchPathSchema, unavailable: HydratedContentUnavailableReasonSchema })
           .strict(),
       ]),
     ),

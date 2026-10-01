@@ -547,8 +547,8 @@ describe("canonicalizeJson — lone surrogates", () => {
   });
 
   it("reports the code unit and index but NEVER the offending string", () => {
-    // The PII codec calls `canonicalizeJson(input.piiPayload)` directly, so this guard runs over
-    // PII plaintext and its message reaches logs. The locator must not quote the value.
+    // A payload can carry a person's words and this message reaches logs, so the locator must not
+    // quote the value.
     const secret = `patient-record-4417-${LONE_HIGH_SURROGATE}`;
     const message = captureThrownMessage(() => canonicalizeJson({ note: secret }));
     expect(message).toMatch(/\(U\+D800\) at index 20/);
@@ -610,9 +610,8 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
   });
 
   it("locates the offender by NESTING DEPTH and never by property path", () => {
-    // Like `assertNoLoneSurrogate`: the PII codec calls `canonicalizeJson(input.piiPayload)`
-    // directly, so property names are caller data and this message reaches logs. Depth is
-    // structure, which the depth refusal already discloses.
+    // Like `assertNoLoneSurrogate`: property names are caller data and this message reaches logs.
+    // Depth is structure, which the depth refusal already discloses.
     const message = captureThrownMessage(() =>
       canonicalizeJson({ record: { "patient-record-4417": new Date(0) } }),
     );

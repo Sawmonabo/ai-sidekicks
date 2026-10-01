@@ -7,10 +7,8 @@
 // - The log supplies order, identity and pairing (sequence, event type, run, tool names, tool
 //   call ids) from the clear payload of each event.
 // - Every body (user text, assistant text, reasoning blocks, tool arguments, tool results) comes
-//   from `TranscriptContentSource`, which this module declares and does not implement. Assistant
-//   and tool payloads carry metadata only, and user text sits in the encrypted `pii_payload`
-//   envelope that the clear read path does not expose, so reading `payload.message` here would
-//   silently erase every user turn.
+//   from `TranscriptContentSource`, which this module declares and does not implement. Payloads
+//   carry metadata only, so reading `payload.message` here would silently erase every user turn.
 
 import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 

@@ -630,7 +630,7 @@ export const ApprovalRuleRevokedPayloadSchema: z.ZodType<ApprovalRuleRevokedPayl
 
 /**
  * `approval.reviewer_denied`: a provider's own reviewer blocked an action. The
- * provider's denial is sealed in the row's content part, which is what lets the
+ * provider's denial is kept in the row's content part, which is what lets the
  * override hold across a restart. `eventId` names the blocked call's own row,
  * whose reason line reads `Blocked · <reason>`. `overridable` is false where the
  * provider lets no person overrule the block, and no `Allow once` is drawn.

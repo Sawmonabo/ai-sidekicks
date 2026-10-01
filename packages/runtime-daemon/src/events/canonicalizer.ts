@@ -1,6 +1,6 @@
 // RFC 8785 JSON Canonicalization Scheme (JCS): the single source of canonical bytes.
 //
-// The append path, the PII codec and the purge stub all serialize through `canonicalizeJson` /
+// The append path and the purge stub both serialize through `canonicalizeJson` /
 // `canonicalizeEvent`, so two implementations never disagree on one value.
 // `canonicalizeJson` refuses excess nesting, a callable `toJSON` and an unpaired surrogate;
 // `canonicalizeEvent` also refuses an unsafe-integer `sequence`.

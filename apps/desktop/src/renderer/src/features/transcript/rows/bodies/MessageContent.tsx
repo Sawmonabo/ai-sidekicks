@@ -49,7 +49,7 @@ export function MessageContent(props: MessageContentProps): React.JSX.Element {
   }
 
   if (props.content.status === "unavailable") {
-    return <UnavailableBody reason={props.content.reason} />;
+    return <UnavailableBody />;
   }
 
   const body = props.content.body;

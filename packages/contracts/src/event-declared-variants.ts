@@ -294,9 +294,9 @@ export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
 // Machine-authored content: `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
 // `tool.result` and `tool.error`.
 //
-// The body is not a payload member. It lives in `session_events.content_payload`, sealed under the
-// session's content key and left out of the canonical bytes like `pii_payload`; `payload` carries
-// only its length and whether it was cut. A reader pairs the event with the opened body
+// The body is not a payload member. It lives in `session_events.content_payload`, left out of the
+// canonical bytes; `payload` carries only its length and whether it was cut. A reader pairs the
+// event with the body
 // ({@link HydratedSessionEvent}). The schemas are `.strict()`, so a body spliced into `payload`
 // fails validation.
 //
@@ -304,10 +304,10 @@ export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
 // tool trio has a required `toolName` beside optional `toolCallId` and `durationMs`, and no
 // `contentType`.
 //
-// Member ownership splits at the sealing codec. `contentType` is the producer's, which knows the
-// media type. The two {@link MachineContentDescriptor} members are the codec's: facts about what
-// it sealed, determined after the plaintext bound was applied. A producer that pre-carries either
-// is refused at the write path.
+// Member ownership splits at the append path. `contentType` is the producer's, which knows the
+// media type. The two {@link MachineContentDescriptor} members are the append path's: facts about
+// what it stored, determined after the plaintext bound was applied. A producer that pre-carries
+// either is refused at the write path.
 //
 // All five are run-scoped (`runId`), so each takes the epoch stamp.
 
@@ -339,13 +339,13 @@ export const CONTENT_PAYLOAD_PLAINTEXT_MAX: number = 262_144;
 // TypeScript gives an implicit index signature to object-literal types but never to an interface,
 // so an interface payload could not satisfy the envelope it extends.
 /**
- * The two codec-owned descriptive members every body-bearing payload carries. Each is optional:
- * a row with no body (an `assistant.message` whose body the driver could not read, a
- * `tool.invoked` with no arguments) is valid, and requiring them would make its producer invent a
- * length for bytes that do not exist.
+ * The two descriptive members the append path owns, carried by every body-bearing payload. Each
+ * is optional: a row with no body (an `assistant.message` whose body the driver could not read,
+ * a `tool.invoked` with no arguments) is valid, and requiring them would make its producer invent
+ * a length for bytes that do not exist.
  */
 export type MachineContentDescriptor = {
-  /** Pre-truncation UTF-8 byte length of the body that was sealed. */
+  /** Pre-truncation UTF-8 byte length of the body that was stored. */
   contentLength?: number | undefined;
   /** Present as `true` only when the stored body is a prefix; never `false`. */
   contentTruncated?: true | undefined;
@@ -355,7 +355,7 @@ export type MachineContentDescriptor = {
 export type AssistantOutputPayload = MachineContentDescriptor & {
   sessionId: SessionId;
   runId: string;
-  /** Media type of the body, set by the PRODUCER and not by the codec. */
+  /** Media type of the body, set by the producer and not by the append path. */
   contentType?: string | undefined;
   sourceEpoch?: SourceEpoch | undefined;
   sourcePosition?: SourcePosition | undefined;
@@ -365,7 +365,7 @@ export type AssistantOutputPayload = MachineContentDescriptor & {
 export type ToolActivityPayload = MachineContentDescriptor & {
   sessionId: SessionId;
   runId: string;
-  /** Required: a tool row with no name cannot be attributed, and the codec cannot supply it. */
+  /** Required: a tool row with no name cannot be attributed, and the append path cannot add it. */
   toolName: string;
   toolCallId?: string | undefined;
   durationMs?: number | undefined;
@@ -373,7 +373,7 @@ export type ToolActivityPayload = MachineContentDescriptor & {
   sourcePosition?: SourcePosition | undefined;
 };
 
-/** The codec-owned members shared by the five payload schemas and the union. */
+/** The append-path members shared by the five payload schemas and the union. */
 export const buildMachineContentDescriptorShape = (): {
   contentLength: z.ZodOptional<z.ZodNumber>;
   contentTruncated: z.ZodOptional<z.ZodLiteral<true>>;
@@ -428,7 +428,7 @@ export const toolErrorPayloadSchema: z.ZodType<ToolErrorEvent["payload"]> = with
   z.object(buildToolActivityPayloadShape()).strict(),
 );
 
-/** Emitted when the assistant produces a message; its body is sealed apart from the payload. */
+/** Emitted when the assistant produces a message; its body is kept apart from the payload. */
 export interface AssistantMessageEvent extends EventEnvelope {
   type: "assistant.message";
   category: "assistant_output";
@@ -444,7 +444,7 @@ export const AssistantMessageEventSchema: z.ZodType<AssistantMessageEvent> = z
   })
   .strict();
 
-/** Emitted when the assistant reports a reasoning update; its body is sealed apart. */
+/** Emitted when the assistant reports a reasoning update; its body is kept apart. */
 export interface AssistantThinkingUpdateEvent extends EventEnvelope {
   type: "assistant.thinking_update";
   category: "assistant_output";
@@ -460,7 +460,7 @@ export const AssistantThinkingUpdateEventSchema: z.ZodType<AssistantThinkingUpda
   })
   .strict();
 
-/** Emitted when a tool call starts; its arguments are sealed apart from the payload. */
+/** Emitted when a tool call starts; its arguments are kept apart from the payload. */
 export interface ToolInvokedEvent extends EventEnvelope {
   type: "tool.invoked";
   category: "tool_activity";
@@ -476,7 +476,7 @@ export const ToolInvokedEventSchema: z.ZodType<ToolInvokedEvent> = z
   })
   .strict();
 
-/** Emitted when a tool call returns; its result is sealed apart from the payload. */
+/** Emitted when a tool call returns; its result is kept apart from the payload. */
 export interface ToolResultEvent extends EventEnvelope {
   type: "tool.result";
   category: "tool_activity";
@@ -492,7 +492,7 @@ export const ToolResultEventSchema: z.ZodType<ToolResultEvent> = z
   })
   .strict();
 
-/** Emitted when a tool call fails; its error body is sealed apart from the payload. */
+/** Emitted when a tool call fails; its error body is kept apart from the payload. */
 export interface ToolErrorEvent extends EventEnvelope {
   type: "tool.error";
   category: "tool_activity";
