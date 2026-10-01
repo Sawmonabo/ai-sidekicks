@@ -114,10 +114,11 @@ Every namespace below follows the same rules:
 
 ### Session
 
-| Code                     | Description                                            | HTTP Status |
-| ------------------------ | ------------------------------------------------------ | ----------- |
-| `session.not_found`      | Session does not exist or is not accessible            | 404         |
-| `session.already_closed` | Session has already been closed and cannot be modified | 409         |
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `session.not_found` | Session does not exist or is not accessible | 404 |
+| `session.already_closed` | Session has already been closed and cannot be modified | 409 |
+| `session.permission_level_unavailable` | A permission level the session's provider, its account or its model cannot run, sent on `session.permissionLevelUpdate` or as `plan.resolve`'s `fresh.level`. The screen never offers such a level, so only a stale or raced client sends one; nothing changes and no session is minted ([Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts); `data.fields`: `level`) | 400 |
 
 ### Auth
 

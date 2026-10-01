@@ -4018,7 +4018,8 @@ interface PlanResolveRequest {
     driverName: string;
     // The planning session's level, or the level the person picked in the `Fresh session with` list
     // where that provider cannot give it. A level that provider, its account or the model cannot run
-    // is refused and no session is minted.
+    // is refused with `session.permission_level_unavailable`, naming the level, and no session is
+    // minted.
     level: ExecutionPostureMode;
   };
 }
