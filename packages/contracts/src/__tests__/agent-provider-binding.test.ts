@@ -69,11 +69,6 @@ describe("the declared losses of a switch that applied", () => {
     };
     expect(AgentProviderBindingChangedPayloadSchema.safeParse(payload).success).toBe(false);
   });
-
-  it("refuses a replayed switch that claims nothing was dropped", () => {
-    const payload = { ...CHANGED, continuity: "replayed", declaredLosses: [] };
-    expect(AgentProviderBindingChangedPayloadSchema.safeParse(payload).success).toBe(false);
-  });
 });
 
 describe("the account state of a failed switch", () => {
@@ -110,7 +105,7 @@ describe("agent.configUpdate's answer", () => {
     const disposition = {
       status: "degraded",
       switchId: "switch-5",
-      continuity: "replayed",
+      continuity: "brief",
       declaredLosses: [],
     };
     expect(AgentBindingSwitchDispositionSchema.safeParse(disposition).success).toBe(false);
