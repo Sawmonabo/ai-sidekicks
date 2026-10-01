@@ -3851,11 +3851,12 @@ interface PermissionCheckResponse {
   allowed: boolean;
   reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
   // D-010-17 semantics: policy_allow = Cedar/own-node-envelope permit with no human approval
-  // artifact (Spec-010 §Required Behavior); remembered_rule = the session's own answers carry a rule
+  // artifact (Spec-010 §Required Behavior); remembered_rule = the session's own answers carry an allow
   // on this subject that the daemon answers for a provider with no verb of its own (a Codex session
-  // allow after a restart, a host blocked for a Codex session); approved = a recorded approved resolution covers this exact request;
+  // allow after a restart); approved = a recorded approved resolution covers this exact request;
   // pending_approval = request created/open (allowed=false); denied = Cedar forbid, a rejected
-  // resolution, or fail-closed refusal (the typed `approval.persistence_unavailable`
+  // resolution, a host the session blocked on Codex, which has no session block of its own, or
+  // fail-closed refusal (the typed `approval.persistence_unavailable`
   // error additionally surfaces on fail-closed paths so audit can distinguish them).
   // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
   approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval': the one request
