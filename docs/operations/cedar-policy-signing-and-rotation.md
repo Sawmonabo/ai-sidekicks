@@ -36,7 +36,7 @@ Publish, verify, rotate and retire the signed approval-rules bundles the service
 
 ### Scenario A — Publish a new approval-rules bundle
 
-1. Change the YAML policy sources under `packages/runtime-daemon/policies/`, merge the change, and tag the release (`v<major>.<minor>.<patch>`); the release workflow runs on the tag, and only a run on a release tag produces a record the service accepts.
+1. Change the `.cedar` rules under `packages/runtime-daemon/policies/`, merge the change, and tag the release (`v<major>.<minor>.<patch>`); the release workflow runs on the tag, and only a run on a release tag produces a record the service accepts.
 2. Approve the workflow's use of the protected environment as the required reviewer.
 3. The workflow compiles the policies and builds `approval-rules-<version>.bundle`, with a `version` higher than any published and a current `builtAt`, and the service's Cedar version as `cedarVersion`.
 4. The workflow signs the canonical manifest with the `current` pair's Ed25519 and ML-DSA-65 keys, then signs the bundle keyless through Sigstore, which puts an entry in the transparency log, and writes the Sigstore record beside the bundle.

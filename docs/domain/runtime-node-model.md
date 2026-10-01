@@ -33,7 +33,7 @@ It is the "one machine executing" half of the product model. A session runs on e
 - Execution remains local to the runtime node; the control plane does not become the code-execution authority.
 - Machine reachability and run state are separate concerns.
 - A runtime node may host multiple agents and runs, subject to explicit capacity policy.
-- A runtime node is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start; the key is sealed under the master key and never leaves the machine, and it is minted again only at `sidekicks rotate-keys` and when a removed machine is linked again.
+- A runtime node is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start; the key is kept as its own item in the machine's credential store and never leaves the machine, and it is minted again only when a removed machine is linked again.
 
 ## Relationships To Adjacent Concepts
 
@@ -61,7 +61,7 @@ Reachability is read from the machine's relay connection and from nothing else, 
 
 - A session stays valid while its machine is not reachable; the user's devices show the machine as `Not reachable · last seen <when>`, and nothing queues on their behalf.
 - A runtime node can be reachable even when it is currently hosting no agents.
-- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only by linking again, as a new computer joins. Linked again, it first mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id, as a rotation does; its store, sessions and id stay. Removing a machine does not touch the account.
+- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only by linking again, as a new computer joins. Linked again, it first mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
 
 ## Related Domain Docs
 

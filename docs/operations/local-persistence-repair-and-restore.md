@@ -25,30 +25,18 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 ### Backup Constraints
 
-The daemon master key that wraps every session's content key and seals every daemon private key has a deliberately narrow custody model (see [Spec-020 §Daemon Master Key](../specs/020-data-retention-and-gdpr.md#daemon-master-key)). This creates backup constraints that diverge from normal database-backup hygiene.
+A backup is a plain copy of what it lists — the service's database, copied online; the machine's settings file; each chat session's workspace; each kept session's file checkpoint copies; each kept session's conversation files in every account home it ran in; and the agent memory folder ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)) — and holds no credential. The daemon keeps each secret as its own item in the operating system's credential store, never in its database or in a backup.
 
-**Separation rule**:
+**Backups the person makes with other tools**: on macOS, exclude `~/Library/Keychains/` from Time Machine via `tmutil addexclusion`; on Linux with libsecret, exclude `~/.local/share/keyrings/` from home-directory backups. On Windows every item's `CRED_PERSIST_LOCAL_MACHINE` keeps it out of File History and OneDrive Folder Backup roaming.
 
-- The plaintext daemon master key is never present in any backup. It lives only in `sodium_mlock`-locked memory while the service runs ([Spec-020 §Daemon Master Key](../specs/020-data-retention-and-gdpr.md#daemon-master-key)).
-- The app's own backups never carry the master key's day-to-day custody — its hardware wrap, its keychain entry or its passphrase file `daemon-master.<key id>.enc`. Once the person sets `Recovery passphrase` on Settings › Runtime, every backup after that carries the 98-byte envelope, which opens only with that passphrase.
-- Backups the person makes with other tools: on macOS, exclude `~/Library/Keychains/` from Time Machine via `tmutil addexclusion`; on Linux with libsecret, exclude `~/.local/share/keyrings/` from home-directory backups. On Windows the entry's `CRED_PERSIST_LOCAL_MACHINE` keeps it out of File History and OneDrive Folder Backup.
+**Restore**:
 
-**Restore recovery path (normal case)**:
-
-- When a host is restored from an operating-system backup, the database may be present but the daemon master key is NOT recovered from it (per separation rule above): the key that opens the data day to day is bound to the machine that made it.
-- Restore the app's own backup instead: `Restore…` on Settings › Runtime, or `sidekicks db restore <backup>` on a machine with no app, refused while the service holds the data folder. On the machine that wrote it, the restore reads everything: a rotation or a custody change keeps each replaced key id `retired` in this machine's custody until the last backup sealed under it ages out, and drops it at once when no backup names it. The restore brings back the backup's `master_keys` and, before the service starts on it, adds a `retired` row for each other key in this machine's custody that a backup still names.
-- On another computer the restore finds the master key the backup was sealed with by the key id in the backup's manifest: on a Mac from the person's iCloud Keychain, when `Keep the backup key in iCloud Keychain` was on, with nothing asked; then with the recovery passphrase against the 98-byte envelope a backup carries once a passphrase was set, typed once in the restore's in-place confirm. Once the key is found, every backup in the folder sealed with it opens, those taken before the passphrase was set included ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)).
-
-**Restore failure mode (crypto-shred preservation)**:
-
-- If no recovery passphrase was set and no iCloud Keychain copy of the key exists, a backup made on another computer cannot be opened: `Restore…` reads `Made on <computer> without a recovery passphrase, so only that computer can open it.` and offers no `Restore`. The session content keys in `session_content_keys` remain ciphertext under a master that nothing on this machine can unwrap.
-- **This is the correct crypto-shred outcome, not a recovery bug**. If `Erase all data` destroyed the original master on the machine that made it, no copy of it is left there: a backup taken earlier opens again only through the recovery passphrase, where a backup sealed with that key carries its envelope, and otherwise stays ciphertext. Do not attempt to "fix" this by extracting the master from any other location. There is no other location; the master was designed to live only where a valid credential can reach it.
-- Operational signal: the daemon logs `daemon_master_key_unavailable` at startup. What follows is the person's decision — whether that data was meant to be gone — not a technical repair.
-- If the machine that wrote the backups is still available, set a recovery passphrase there and let it take one more backup: that backup carries the envelope, and once the new machine finds the key through it, every backup sealed with the same key opens there too.
+- Restore the app's own backup: `Restore…` on Settings › Runtime, or `sidekicks db restore <backup>` on a machine with no app, refused while the service holds the data folder. Restoring on the machine that wrote it needs nothing more.
+- A restore on another computer reads the backup directly; the person then signs in to providers and links devices again ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)). A Windows computer is one machine whichever side runs its service, so a backup made on one side restores on the other as a same-machine restore.
 
 **Validation**:
 
-- After a successful restore, `sidekicks daemon status` reads the service as running with its store open, which it reaches only once the master key has unwrapped, and a restored session opens with its history.
+- After a successful restore, `sidekicks daemon status` reads the service as running with its store open, and a restored session opens with its history.
 
 ## Recovery Steps
 

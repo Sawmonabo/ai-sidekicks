@@ -23,13 +23,13 @@ Approval logic written inside application code cannot be audited, and no policy 
 
 ## Decision
 
-Use Cedar (CNCF sandbox) as the approval policy engine. Policies are written in YAML, compiled to Cedar at the release build, and shipped in one signed bundle form that carries the built-in approval rules and every later one: the set built into the service is the first bundle, and a later bundle arrives on the update feed, so an approval rule is fixed without a service update. Every bundle passes the same verifier (§Policy Chain of Custody) and is evaluated in-process by the resident `@cedar-policy/cedar-wasm` authorizer — each verified bundle's set is parsed once and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale. Decision caching is rejected for this local in-process authorizer: it buys nothing at in-process latency and adds policy-update staleness.
+Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval rules are `.cedar` files in the service's own source, compiled into the service with it, and shipped in one signed bundle form that carries the built-in approval rules and every later one: the set built into the service is the first bundle, and a later bundle arrives on the update feed, so an approval rule is fixed without a service update. Every bundle passes the same verifier (§Policy Chain of Custody) and is evaluated in-process by the resident `@cedar-policy/cedar-wasm` authorizer — each verified bundle's set is parsed once and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale. Decision caching is rejected for this local in-process authorizer: it buys nothing at in-process latency and adds policy-update staleness.
 
 ## Alternatives Considered
 
-### Option A: Cedar with YAML Policy Definitions (Chosen)
+### Option A: Cedar with rules written in Cedar (Chosen)
 
-- **What:** Define approval policies in YAML, compile them to Cedar policy sets shipped as signed bundles, and evaluate in-process with the resident Cedar WASM authorizer; the built-in set and every later bundle go through one verifier.
+- **What:** Write the approval rules as `.cedar` files in the service's own source, compile them into the service with it, ship them as signed bundles, and evaluate in-process with the resident Cedar WASM authorizer; the built-in set and every later bundle go through one verifier.
 - **Steel man:** Cedar's principal-action-resource-context model is purpose-built for authorization. CNCF backing signals longevity. WASM target enables in-process evaluation without native FFI.
 
 ### Option B: OPA / Rego (Rejected)
@@ -57,7 +57,7 @@ Use Cedar (CNCF sandbox) as the approval policy engine. Policies are written in 
 | --- | --- | --- | --- | --- |
 | A policy category cannot be expressed cleanly in Cedar | Med | Med | Policy review during spec implementation; unit tests against reference cases | Extend Cedar context attributes or fall back to an application-level pre-check for that category |
 | Cedar WASM has a correctness bug that allows or denies unintended actions | Low | High | Policy test suite plus canary evaluation comparing WASM vs reference interpreter | Pin Cedar versions, add dual-evaluation for sensitive categories, and fix forward with a newer bundle — versions only rise, so a fix is never a rollback |
-| Policy authoring (YAML→Cedar) produces an unexpected refusal or an unexpected allow | Med | Med | The policy test suite's reference cases for every category, run by the release workflow before a bundle is signed | Fix forward with a newer bundle on the update feed |
+| A rule written in Cedar produces an unexpected refusal or an unexpected allow | Med | Med | The policy test suite's reference cases for every category, run by the release workflow before a bundle is signed | Fix forward with a newer bundle on the update feed |
 | Cedar upstream introduces breaking changes that invalidate stored policies | Low | Med | Upstream release notes and pinned CI on new Cedar versions | Each bundle's manifest names its `cedarVersion`, and the service refuses a bundle built for another; a Cedar upgrade ships with a service update and a bundle rebuilt for it |
 
 ## Reversibility Assessment

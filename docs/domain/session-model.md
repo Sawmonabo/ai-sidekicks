@@ -59,7 +59,7 @@ A session is the durable container that holds:
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
 | `purge_requested` | The person has pressed `Delete old data` and the session is among those it removes. The session is locked against further modification while purge processing is pending. |
-| `purged` | Event payloads containing PII have been destroyed via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
+| `purged` | The session's rows have been deleted with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log has been checkpointed with `TRUNCATE` once the delete committed. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
 
 Allowed transitions:
 
@@ -98,7 +98,7 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — the session lifecycle meets the trust lifecycle at the session's own content key, which is wrapped under the machine's master key; a purge overwrites that key with zeros and deletes it before the session's rows, with a `TRUNCATE` checkpoint after commit. No session event rotates the master key: it rotates only through `sidekicks rotate-keys`. The encryption between a device and a machine is not a session's: one Noise channel joins a device and a machine and carries every session on that machine, with a fresh handshake on every connection and every 10 minutes on a long one and the old keys erased ([security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption)). A channel's keys belong to a connection, not a session, so no key is tied to a session's end.
+- [Trust And Identity](./trust-and-identity.md) — a session owns no key: its rows sit in the daemon's database as plain text, and a purge deletes them with SQLite's `secure_delete` on, with a `TRUNCATE` checkpoint after commit. No session event rotates a key. The encryption between a device and a machine is not a session's: one Noise channel joins a device and a machine and carries every session on that machine, with a fresh handshake on every connection and every 10 minutes on a long one and the old keys erased ([security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption)). A channel's keys belong to a connection, not a session, so no key is tied to a session's end.
 
 ## Related Specs
 

@@ -17,7 +17,7 @@ On a Windows computer a person may keep Claude Code and Codex inside a WSL 2 dis
 
 The background service is the person's own long-running process: it starts providers, holds their sessions, runs terminals and workflows, and outlives the desktop app ([Spec-006 §Required Behavior](../specs/006-local-ipc-and-daemon-control.md#required-behavior)). A daemon running on Windows cannot run a provider installed inside a distribution as the provider expects, and a daemon and sessions on different sides cannot see each other's inboxes or session registries. Its local clients — the desktop app's main process and the CLI — reach it over an OS-local transport, a named pipe on Windows ([ADR-008](./008-default-transports-and-relay-boundaries.md)), with loopback rejected as a weaker local boundary. A computer is one machine to the person's other devices: it is listed once and has one identity key ([Spec-028](../specs/028-remote-control.md)).
 
-WSL imposes its own rules. A distribution's instance ends when its last client closes, after `instanceIdleTimeout` (15 seconds by default) and the virtual machine after `vmIdleTimeout` (60 seconds, Windows 11 only); systemd services inside it do not keep it alive; an instance ends with the Windows session that created it; and WSL cannot run as LocalSystem. A killed `wsl.exe` closes its program's standard streams and sends it no signal. After a sleep, a new `wsl.exe` can hang until a reboot while running ones keep working. Several jobs the service owes while the app is quit are Windows-only: keeping the machine awake, waking it for a reset, posting and withdrawing banners, scanning incoming files with the machine's antivirus, and custody in the TPM and Credential Manager. None of them can be done from a Linux process.
+WSL imposes its own rules. A distribution's instance ends when its last client closes, after `instanceIdleTimeout` (15 seconds by default) and the virtual machine after `vmIdleTimeout` (60 seconds, Windows 11 only); systemd services inside it do not keep it alive; an instance ends with the Windows session that created it; and WSL cannot run as LocalSystem. A killed `wsl.exe` closes its program's standard streams and sends it no signal. After a sleep, a new `wsl.exe` can hang until a reboot while running ones keep working. Several jobs the service owes while the app is quit are Windows-only: keeping the machine awake, waking it for a reset, posting and withdrawing banners, scanning incoming files with the machine's antivirus, and custody in Credential Manager. None of them can be done from a Linux process.
 
 ## Problem Statement
 
@@ -41,7 +41,7 @@ We will run one background service per Windows computer, on the side where Claud
 - **One channel, not a link per connection.** Every client is one stream on one HTTP/2 connection over the `wsl.exe` the Windows half already holds, so a new client costs no process and cannot hit the hang a new `wsl.exe` can meet after a sleep. HTTP/2 brings multiplexing, flow control and backpressure from maintained implementations — Node's own `http2.performServerHandshake` and the `h2` crate — rather than a framing of our own. Measured over a real child's standard streams: 50 MB up in 148 ms and 20 concurrent 1 MB downloads in 81 ms; a 50 MB echo fails at Node's default session memory and passes at 128 MB, which the channel sets.
 - **One implementation per Windows job.** The Windows half does custody, keep-awake, the wake timer, banner withdrawal and the antivirus scan on a WSL computer, and the same binary does them as the daemon's child on native Windows. It also serves the native daemon's pipe, because libuv's pipe server creates its pipe with a null security descriptor and without refusing remote clients.
 - **No Windows path crosses for a dropped file.** Files dropped on the composer are staged to the daemon as bytes ([Spec-012 §Ingest Validation And Payload Bounds (V1)](../specs/012-artifacts-files-and-attachments.md#ingest-validation-and-payload-bounds-v1)), so no path crosses.
-- **Custody stays on Windows for both sides**, so the master key, the machine's identity and the store are the same on either side, and a move between sides is not a move between machines.
+- **Custody stays on Windows for both sides**: the daemon inside the distribution keeps its secrets in Windows' Credential Manager through the Windows half, so a Windows computer has one place for secrets on either side, the machine's identity and the store are the same on either side, and a move between sides is not a move between machines.
 
 ---
 
@@ -85,7 +85,7 @@ We will run one background service per Windows computer, on the side where Claud
 
 - **What:** Everything inside the distribution, with the app's main process holding WSL open while it runs and doing the Windows jobs itself.
 - **Steel man:** One less binary; the daemon is identical to a Linux machine's.
-- **Why rejected:** A quit would end WSL and the service with it, breaking the rule that a quit leaves the service running; keep-awake, the wake timer and banners owed while the app is quit need a live Windows process; and a Linux process cannot reach the TPM, Credential Manager or AMSI.
+- **Why rejected:** A quit would end WSL and the service with it, breaking the rule that a quit leaves the service running; keep-awake, the wake timer and banners owed while the app is quit need a live Windows process; and a Linux process cannot reach Credential Manager or AMSI.
 - **What would change the answer:** WSL keeping an instance alive on its own for a service inside it, with a supported way for a Linux process to reach those Windows facilities.
 
 ### Option G: Run the Windows copy of a provider from inside the distribution (Rejected)
@@ -159,6 +159,6 @@ We will run one background service per Windows computer, on the side where Claud
 ### Related ADRs
 
 - [ADR-008](./008-default-transports-and-relay-boundaries.md) — the OS-local default and the rejection of loopback, which this decision keeps on a WSL computer.
-- [ADR-021](./021-cli-identity-key-storage-custody.md) — the custody tiers; this decision puts their Windows arm in the Windows half for both sides.
+- [ADR-021](./021-cli-identity-key-storage-custody.md) — every daemon secret as its own credential-store item; this decision puts the Windows store's calls in the Windows half for both sides.
 - [ADR-028](./028-provider-credential-custody-posture.md) — provider credentials; a move carries each account's sign-in file, moved and never copied.
 - [ADR-036](./036-embedded-browser-for-preview.md) — Preview; the Windows half carries a dev server's port when WSL cannot, the one listening port Preview opens.

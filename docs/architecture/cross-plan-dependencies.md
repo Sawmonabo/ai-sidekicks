@@ -92,11 +92,9 @@ flowchart TD
  n021_3["Plan-019 Phase 3 — enforcement wiring"]
  n021_4["Plan-019 Phase 4 — rate-limit observability and rollout"]
  %% Plan-020
- n022_1["Plan-020 Phase 1 — daemon master-key custody"]
- n022_2["Plan-020 Phase 2 — per-user crypto primitives"]
- n022_3["Plan-020 Phase 3 — write-path integration"]
+ n022_1["Plan-020 Phase 1 — the daemon's secrets"]
  n022_4["Plan-020 Phase 4 — the data acts"]
- n022_5["Plan-020 Phase 5 — the purge's key step and the account-deletion alignment"]
+ n022_5["Plan-020 Phase 5 — the purge's erasure step and the account-deletion alignment"]
  %% Plan-021
  n023_2["Plan-021 Phase 2 — IPC bridge registry and handlers"]
  n023_3["Plan-021 Phase 3 — daemon supervisor and crash reporter"]
@@ -209,10 +207,7 @@ flowchart TD
  n021_1 --> n021_2
  n021_2 --> n021_3
  n021_3 --> n021_4
- n022_1 --> n022_2
- n022_2 --> n022_3
  n022_1 --> n022_4
- n022_3 --> n022_5
  n022_4 --> n022_5
  n007_R1 --> n022_5
  n023_2 --> n023_3
@@ -350,7 +345,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-015 Phase 2B](../plans/015-workflow-authoring-and-execution.md) | usage-limit park and durable pacing. | Plan-015 Phase 2 |
 |  | [Plan-028 Phase 8](../plans/028-remote-control.md) | self-host deployment. | Plan-028 Phase 3 |
 |  | [Plan-025 Phase 5](../plans/025-mcp-server-configuration-and-governance.md) | MCP sign-in, the daemon's client and route, and client delivery. | Plan-025 Phase 4 |
-| 5 | [Plan-020 Phase 1](../plans/020-data-retention-and-gdpr.md) | daemon master-key custody. | Plan-006 Phase R2, Plan-006 Phase R4 |
+| 5 | [Plan-020 Phase 1](../plans/020-data-retention-and-gdpr.md) | the daemon's secrets. | Plan-006 Phase R2, Plan-006 Phase R4 |
 |  | [Plan-028 Phase 6](../plans/028-remote-control.md) | per-device event attestation. | Plan-028 Phase 5 |
 |  | [Plan-007 Phase 2B](../plans/007-repo-attachment-and-workspace-binding.md) | repo identity keying and resolution. | Plan-008 Phase 3 |
 |  | [Plan-030 Phase 1](../plans/030-skills.md) | skill contracts and the read over three origins. | Plan-006 Phase R1, Plan-027 Phase 2 |
@@ -360,8 +355,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-026 Phase 4](../plans/026-provider-accounts-and-credential-homes.md) | cost attribution and client surfaces. | Plan-026 Phase 3 |
 |  | [Plan-015 Phase 5C](../plans/015-workflow-authoring-and-execution.md) | always-on engine event record. | Plan-015 Phase 2B, Plan-018 Phase 2 |
 |  | [Plan-003 Phase 3B](../plans/003-queue-steer-pause-resume.md) | the run side of an undo. | Plan-003 Phase 4 |
-| 6 | [Plan-020 Phase 2](../plans/020-data-retention-and-gdpr.md) | per-user crypto primitives. | Plan-020 Phase 1 |
-|  | [Plan-020 Phase 4](../plans/020-data-retention-and-gdpr.md) | the data acts. | Plan-020 Phase 1 |
+| 6 | [Plan-020 Phase 4](../plans/020-data-retention-and-gdpr.md) | the data acts. | Plan-020 Phase 1 |
 |  | [Plan-028 Phase 7](../plans/028-remote-control.md) | Remote Control frontend. | Plan-028 Phase 4, Plan-028 Phase 6 |
 |  | [Plan-007 Phase 3](../plans/007-repo-attachment-and-workspace-binding.md) | repo IPC namespace and SDK. | Plan-007 Phase 2B |
 |  | [Plan-030 Phase 2](../plans/030-skills.md) | folder write, availability record, widening scan. | Plan-030 Phase 1 |
@@ -369,14 +363,13 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-011 Phase 2](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | projection and replay-aware subscription. | Plan-003 Phase 3B, Plan-006 Phase 2D |
 |  | [Plan-027 Phase 3](../plans/027-agent-definitions-and-peer-invocation.md) | resolution when a run starts. | Plan-004 Phase 3, Plan-014 Phase 2, Plan-026 Phase 2, Plan-027 Phase 2 |
 |  | [Plan-014 Phase 3](../plans/014-multi-agent-orchestration.md) | orchestration wire namespace and SDK. | Plan-014 Phase 2 |
-| 7 | [Plan-020 Phase 3](../plans/020-data-retention-and-gdpr.md) | write-path integration. | Plan-020 Phase 2 |
+| 7 | [Plan-020 Phase 5](../plans/020-data-retention-and-gdpr.md) | the purge's erasure step and the account-deletion alignment. | Plan-006 Phase R1, Plan-020 Phase 4 |
 |  | [Plan-021 Phase 6](../plans/021-desktop-app-and-renderer.md) | renderer layout, router, composer. | Plan-006 Phase 2D, Plan-021 Phase 5 |
 |  | [Plan-011 Phase 4](../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) | desktop timeline rendering. | Plan-011 Phase 2, Plan-011 Phase 3 |
 |  | [Plan-017 Phase 2](../plans/017-notifications-and-attention-model.md) | the projection, the gate and the mute. | Plan-011 Phase 2, Plan-017 Phase 1 |
 |  | [Plan-015 Phase 3](../plans/015-workflow-authoring-and-execution.md) | multi-agent and human steps. | Plan-014 Phase 3, Plan-015 Phase 2 |
 |  | [Plan-014 Phase 4](../plans/014-multi-agent-orchestration.md) | desktop child-run surface. | Plan-014 Phase 3 |
-| 8 | [Plan-020 Phase 5](../plans/020-data-retention-and-gdpr.md) | the purge's key step and the account-deletion alignment. | Plan-006 Phase R1, Plan-020 Phase 3, Plan-020 Phase 4 |
-|  | [Plan-021 Phase 7](../plans/021-desktop-app-and-renderer.md) | build pipeline and release signing. | Plan-021 Phase 6 |
+| 8 | [Plan-021 Phase 7](../plans/021-desktop-app-and-renderer.md) | build pipeline and release signing. | Plan-021 Phase 6 |
 |  | [Plan-027 Phase 5](../plans/027-agent-definitions-and-peer-invocation.md) | desktop library and editor. | Plan-021 Phase 6, Plan-027 Phase 3 |
 |  | [Plan-017 Phase 3](../plans/017-notifications-and-attention-model.md) | notification emission and delivery. | Plan-011 Phase 4, Plan-017 Phase 2 |
 |  | [Plan-015 Phase 4](../plans/015-workflow-authoring-and-execution.md) | parallel steps and memory admission. | Plan-015 Phase 3 |
