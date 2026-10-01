@@ -77,7 +77,6 @@ export type SessionEventType =
   | "session.reactivated"
   | "session.closed"
   | "session.purge_requested"
-  | "session.purged"
   | "session.goal_updated"
   | "session.goal_cleared"
   | "session.provider_status"
@@ -349,7 +348,6 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.reactivated",
   "session.closed",
   "session.purge_requested",
-  "session.purged",
   "session.goal_updated",
   "session.goal_cleared",
   "session.provider_status",

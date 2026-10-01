@@ -35,10 +35,6 @@ CREATE TABLE session_events (
   -- the writer parses the real shape. TEXT, because comparison parses the parts.
   version           TEXT NOT NULL DEFAULT '1.0'
                     CHECK(version GLOB '[0-9]*.[0-9]*'),
-  -- NULL = live row; 'audit_stub' = purged. A column, not a payload member, so
-  -- a reader can branch on it without parsing the payload.
-  retention_class   TEXT
-                    CHECK(retention_class IS NULL OR retention_class = 'audit_stub'),
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -46,11 +42,6 @@ CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequen
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
--- Keeps replay and the purge's candidate scan off the stub suffix, which
--- grows without bound while the live set stays bounded.
-CREATE INDEX idx_session_events_live ON session_events(session_id, sequence)
-  WHERE retention_class IS NULL;
-
 -- At most one terminal event per (runId, runVersion). The key lives in the JSON
 -- payload, so the index is partial over terminal run_lifecycle rows only.
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once

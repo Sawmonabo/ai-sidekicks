@@ -8,7 +8,6 @@
 // just before the INSERT, because a better-sqlite3 transaction cannot span an `await`. The append
 // lock is keyed on `sessionId`, so a producer whose event depends on its own row re-checks that
 // state as the prelude's first statement and throws if it moved; an abort consumes no sequence.
-// This service does not write `retention_class`; the purge owns it.
 
 import type { EventEnvelope, SessionId } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";

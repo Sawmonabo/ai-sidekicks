@@ -521,9 +521,9 @@ describe("EventLogService — terminal-key backstop", () => {
     ).toThrow(/must preserve runId/);
 
     // Dropping the key makes both `json_extract` values NULL, which the value-equality check
-    // cannot see and the NULL-distinct index allows. A purge that rebuilds `payload` from a key
-    // list and forgets the run key would silently reopen the duplicate-terminal bypass.
-    for (const droppedPayload of [{ runVersion: 1 }, { runId: "run-1" }, { summary: "purged" }]) {
+    // cannot see and the NULL-distinct index allows, so a rewrite that forgets the run key would
+    // silently reopen the duplicate-terminal bypass.
+    for (const droppedPayload of [{ runVersion: 1 }, { runId: "run-1" }, { note: "rewritten" }]) {
       expect(
         () =>
           database

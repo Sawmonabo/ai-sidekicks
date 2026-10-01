@@ -209,8 +209,7 @@ function describeStrictLayerIssues(issues: readonly StrictLayerParseIssue[]): st
 /**
  * Throws unless the envelope about to be stored parses against its registered `SessionEventSchema`
  * variant. It is the last check on both append branches; a type with no registered variant is
- * skipped (a reader must persist an unknown type as a version stub, never reject it), and the
- * purge's stub projection is deliberately not covered.
+ * skipped (a reader must persist an unknown type as a version stub, never reject it).
  */
 export function assertRegisteredVariantParses(envelope: EventEnvelope, refuser: string): void {
   if (!REGISTERED_STRICT_VARIANT_EVENT_TYPES.has(envelope.type)) {

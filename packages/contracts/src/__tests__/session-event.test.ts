@@ -1,7 +1,7 @@
 // The event log's wire guards. A type parses only under its own category; an envelope string
 // refuses a NUL byte; the category lookup never walks the prototype chain; envelope versions
 // order numerically and exactly; the tolerant carrier keeps a newer producer's types and payload
-// keys but refuses an own `__proto__` key; a compaction's stubbed range never runs backwards; and
+// keys but refuses an own `__proto__` key; a deletion's range never runs backwards; and
 // neither a machine-authored body nor a person's words ride in the plain payload. Every category
 // has a registered type, and a registered type keeps its name and its category.
 import { describe, expect, it } from "vitest";
@@ -382,7 +382,7 @@ describe("event_maintenance payload variant", () => {
     expect(firstPass).toStrictEqual(original);
   });
 
-  it("event.compacted refuses a stubbed range that ends before it starts", () => {
+  it("event.compacted refuses a deleted range that ends before it starts", () => {
     const event = buildEventCompacted();
     expect(
       SessionEventSchema.safeParse({

@@ -4,12 +4,9 @@
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
-/**
- * The two states that are audit stubs rather than sessions a person can work in. Typed as a
- * subset of the wire union so a rename in `packages/contracts` fails here. The list renders
- * them and offers no action.
- */
-export const AUDIT_STUB_SESSION_STATES: readonly SessionState[] = ["purge_requested", "purged"];
+// The state of a session whose deletion has started. Typed against the wire union so a rename in
+// `packages/contracts` fails here.
+const DELETING_SESSION_STATE: SessionState = "purge_requested";
 
 /**
  * One row. `state` is the wire's own string, rendered verbatim. There is no `title`:
@@ -26,9 +23,9 @@ export interface SessionListRow {
   readonly userIds: readonly string[];
 }
 
-/** True when the state is an audit stub, one a person can do nothing with. False on `undefined`. */
-export function isAuditStubSession(state: string | undefined): boolean {
-  return state !== undefined && (AUDIT_STUB_SESSION_STATES as readonly string[]).includes(state);
+/** True when the session is being deleted, so the list offers no way to open it. */
+export function isSessionBeingDeleted(state: string | undefined): boolean {
+  return state === DELETING_SESSION_STATE;
 }
 
 /**
