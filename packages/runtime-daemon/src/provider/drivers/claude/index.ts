@@ -70,21 +70,17 @@ type ClaudeDriverOperations = Pick<
 /** The composition root's dependencies: the lifecycle's plus the model-catalog exchange. */
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies & {
   /**
-   * The live `list_models` read backing `listModels()`, or an explicit `null` when none is bound,
-   * in which case the driver answers the declared catalog in `./capabilities.ts`.
-   *
-   * Required so a construction site cannot fall back to the declared catalog by forgetting to bind
-   * it. It lives here, not on the lifecycle dependencies, because only this class reads it. No
-   * production code binds an exchange yet, since nothing constructs this driver outside tests.
+   * The live `list_models` read backing `listModels()`. It lives here, not on the lifecycle
+   * dependencies, because only this class reads it.
    */
-  readonly modelCatalogExchange: ClaudeModelCatalogExchange | null;
+  readonly modelCatalogExchange: ClaudeModelCatalogExchange;
 };
 
 /** The Claude provider driver: routes each contract operation to the lifecycle or dispatcher. */
 export class ClaudeDriver implements ClaudeDriverOperations {
   readonly #lifecycle: ClaudeSessionLifecycle;
   readonly #interventionDispatcher: ClaudeInterventionDispatcher;
-  readonly #modelCatalogExchange: ClaudeModelCatalogExchange | null;
+  readonly #modelCatalogExchange: ClaudeModelCatalogExchange;
 
   constructor(dependencies: ClaudeDriverDependencies) {
     this.#modelCatalogExchange = dependencies.modelCatalogExchange;
@@ -126,7 +122,7 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     return await this.#lifecycle.probeAuth();
   }
 
-  /** The selectable model catalog, live when an exchange is bound and declared otherwise. */
+  /** The selectable model catalog, read live from the provider. */
   async listModels(): Promise<ProviderModel[]> {
     return await resolveClaudeModelCatalog(this.#modelCatalogExchange);
   }

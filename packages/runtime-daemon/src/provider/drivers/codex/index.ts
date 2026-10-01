@@ -94,7 +94,7 @@ export {
 } from "./transport-diagnostics.js";
 
 // Only the model-catalog symbols: `listModels` is the one operation from `./capabilities.ts`.
-export { CODEX_DECLARED_MODEL_CATALOG, type CodexModelCatalogExchange } from "./capabilities.js";
+export { type CodexModelCatalogExchange } from "./capabilities.js";
 
 export { CodexInterventionDispatcher, CODEX_INTERVENTION_FALLBACK_ACTION } from "./intervention.js";
 
@@ -108,14 +108,8 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
    * opens gets the same selection.
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
-  /**
-   * The live `model/list` read backing `listModels()`, or an explicit `null` when the composition
-   * binds none, in which case the driver answers the provenance-stamped declaration in
-   * `./capabilities.ts`. Required so a declared catalog is never served by accident as a live
-   * reading.
-   * No production code constructs this driver yet, so no exchange is bound.
-   */
-  readonly modelCatalogExchange: CodexModelCatalogExchange | null;
+  /** The live `model/list` read backing `listModels()`. */
+  readonly modelCatalogExchange: CodexModelCatalogExchange;
 }
 
 /** The Codex provider driver: lifecycle operations plus intervention dispatch. */
@@ -138,7 +132,7 @@ export class CodexDriver implements Pick<
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
-  readonly #modelCatalogExchange: CodexModelCatalogExchange | null;
+  readonly #modelCatalogExchange: CodexModelCatalogExchange;
 
   readonly #transportSelection: CodexTransportSelection;
 
@@ -212,7 +206,7 @@ export class CodexDriver implements Pick<
     return this.#lifecycle.probeAuth();
   }
 
-  /** The selectable model catalog; `./capabilities.ts` owns the declared list and parsing. */
+  /** The selectable model catalog, read live; `./capabilities.ts` owns the parsing. */
   listModels(): Promise<ProviderModel[]> {
     return resolveCodexModelCatalog(this.#modelCatalogExchange);
   }

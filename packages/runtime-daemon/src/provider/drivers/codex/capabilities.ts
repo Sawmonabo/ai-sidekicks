@@ -179,67 +179,6 @@ export async function refreshCodexCapabilities(
   });
 }
 
-// `capabilities` stays empty: the provider's per-model axes (modalities, speed tiers) cannot share
-// one string list.
-function declaredCodexModel(
-  id: string,
-  name: string,
-  effortLevels: readonly string[],
-): ProviderModel {
-  return Object.freeze({
-    id,
-    name,
-    capabilities: freezeDeclaredModelArray([]),
-    effortLevels: freezeDeclaredModelArray([...effortLevels]),
-    fast: true,
-  });
-}
-
-// Freezes at runtime only: `ProviderModel` declares mutable `string[]`, and `readonly` would
-// ripple through every driver catalog.
-function freezeDeclaredModelArray(values: string[]): string[] {
-  Object.freeze(values);
-  return values;
-}
-
-// The two effort vocabularies shared by several models; the pinned build publishes a third for one
-// row, written inline there. Levels are per model because a provider-wide list would be wrong.
-const CODEX_EXTENDED_EFFORT_LEVELS: readonly string[] = Object.freeze([
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-]);
-const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-]);
-
-/**
- * The catalog used when no live {@link CodexModelCatalogExchange} is bound, in the provider's
- * order. Read from one zero-turn `model/list` at codex-cli 0.150.1; reads at 0.155.1 and 0.159.2
- * gave every model the one `priority` tier, so every row is `fast`.
- */
-export const CODEX_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
-  declaredCodexModel("gpt-5.6-sol", "GPT-5.6-Sol", CODEX_EXTENDED_EFFORT_LEVELS),
-  declaredCodexModel("gpt-5.6-terra", "GPT-5.6-Terra", CODEX_EXTENDED_EFFORT_LEVELS),
-  // `max` without `ultra`: the one row that splits the two shared vocabularies.
-  declaredCodexModel(
-    "gpt-5.6-luna",
-    "GPT-5.6-Luna",
-    Object.freeze(["low", "medium", "high", "xhigh", "max"]),
-  ),
-  declaredCodexModel("gpt-daybreak-blue-latest", "Daybreak Blue", CODEX_EXTENDED_EFFORT_LEVELS),
-  declaredCodexModel("gpt-5.5", "GPT-5.5", CODEX_BASE_EFFORT_LEVELS),
-  declaredCodexModel("gpt-5.4", "GPT-5.4", CODEX_BASE_EFFORT_LEVELS),
-  declaredCodexModel("gpt-5.4-mini", "GPT-5.4-Mini", CODEX_BASE_EFFORT_LEVELS),
-  declaredCodexModel("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark", CODEX_BASE_EFFORT_LEVELS),
-]);
-
 /**
  * One `model/list` request on the driver's existing connection, returning `unknown` because the
  * reply is untrusted. It starts no turn, so a billed turn is unrepresentable.
@@ -350,21 +289,11 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
 }
 
 /**
- * Answers `listModels()`. `exchange` is required (`null` binds none) so no caller reaches the
- * declaration by never deciding; a bound exchange that fails propagates, never a stale catalog.
+ * Answers `listModels()` from the live `model/list` read. A failed read propagates: no stored list
+ * stands in for the provider's.
  */
 export async function resolveCodexModelCatalog(
-  exchange: CodexModelCatalogExchange | null,
+  exchange: CodexModelCatalogExchange,
 ): Promise<ProviderModel[]> {
-  if (exchange === null) {
-    // Fresh copies: the constant is shared process-wide and `ProviderModel` has mutable arrays.
-    return CODEX_DECLARED_MODEL_CATALOG.map((model) => ({
-      id: model.id,
-      name: model.name,
-      capabilities: [...model.capabilities],
-      fast: model.fast,
-      ...(model.effortLevels === undefined ? {} : { effortLevels: [...model.effortLevels] }),
-    }));
-  }
   return normalizeCodexModelCatalog(await exchange());
 }

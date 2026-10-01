@@ -245,52 +245,6 @@ export class ClaudeCapabilityReporter {
   }
 }
 
-// `capabilities` is always `[]`: it has no registered vocabulary and nothing reads it.
-function declaredClaudeModel(
-  id: string,
-  name: string,
-  fast: boolean,
-  effortLevels?: readonly string[],
-): ProviderModel {
-  return Object.freeze({
-    id,
-    name,
-    capabilities: freezeDeclaredModelArray([]),
-    fast,
-    ...(effortLevels === undefined
-      ? {}
-      : { effortLevels: freezeDeclaredModelArray([...effortLevels]) }),
-  });
-}
-
-// Freezing the entry alone is shallow; a deep-readonly contract type would ripple through every
-// driver's catalog.
-function freezeDeclaredModelArray(values: string[]): string[] {
-  Object.freeze(values);
-  return values;
-}
-
-/** The effort levels every effort-bearing model in the declared catalog publishes. */
-const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
-/**
- * The declared catalog for a composition with no live `list_models` exchange; prefer the live read.
- * Ids, names and effort levels are what Claude Code 2.1.251 answered, alias rows collapsed as
- * {@link normalizeClaudeModelCatalog} does; effort levels are per model (Haiku has none).
- */
-const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
-  declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", true, CLAUDE_PINNED_EFFORT_LEVELS),
-  declaredClaudeModel("claude-fable-5", "Fable", false, CLAUDE_PINNED_EFFORT_LEVELS),
-  declaredClaudeModel("claude-sonnet-5", "Sonnet", false, CLAUDE_PINNED_EFFORT_LEVELS),
-  // No `effortLevels`: this row publishes no effort selection.
-  declaredClaudeModel("claude-haiku-4-5-20251001", "Haiku", false),
-]);
-
 /**
  * One `list_models` control request against the spawned build. Returns `unknown`: the reply is
  * untrusted provider output that this module validates.
@@ -384,21 +338,11 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
 }
 
 /**
- * Answers `listModels()`: the live read when `exchange` is bound, else the declared catalog. A
- * bound exchange that fails propagates; a stale catalog must not pass for a live read.
+ * Answers `listModels()` from the live `list_models` read. A failed read propagates: no stored list
+ * stands in for the provider's.
  */
 export async function resolveClaudeModelCatalog(
-  exchange: ClaudeModelCatalogExchange | null,
+  exchange: ClaudeModelCatalogExchange,
 ): Promise<ProviderModel[]> {
-  if (exchange === null) {
-    // Fresh copies, so a caller gets ordinary mutable arrays and never touches the frozen constant.
-    return CLAUDE_DECLARED_MODEL_CATALOG.map((model) => ({
-      id: model.id,
-      name: model.name,
-      capabilities: [...model.capabilities],
-      fast: model.fast,
-      ...(model.effortLevels === undefined ? {} : { effortLevels: [...model.effortLevels] }),
-    }));
-  }
   return normalizeClaudeModelCatalog(await exchange());
 }

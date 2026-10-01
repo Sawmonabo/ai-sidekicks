@@ -31,7 +31,7 @@ function buildHarness(): DriverHarness {
   });
   const driver = new ClaudeDriver({
     transport,
-    modelCatalogExchange: null,
+    modelCatalogExchange: () => Promise.resolve({ models: [] }),
     runDispatchResolver,
     diagnostics: makeSilentDriverDiagnostics(),
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,

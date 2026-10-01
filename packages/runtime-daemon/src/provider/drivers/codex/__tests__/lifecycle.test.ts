@@ -71,8 +71,8 @@ import {
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
   type CodexTransportSelection,
+  type CodexModelCatalogExchange,
   CODEX_INTERVENTION_FALLBACK_ACTION,
-  CODEX_DECLARED_MODEL_CATALOG,
 } from "../index.js";
 // Imported from the module, not the driver barrel: these are internal enforcement details, and
 // exporting them would make them look like part of the driver's public surface.
@@ -479,6 +479,9 @@ function makeCapabilities(steer: boolean): DriverCapabilities {
   return { flags, contractVersion: "1.0.0" };
 }
 
+/** A live `model/list` read that answers an empty catalog, for tests that never list models. */
+const STUB_MODEL_CATALOG_READ: CodexModelCatalogExchange = () =>
+  Promise.resolve({ data: [], nextCursor: null });
 const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
 const SECOND_RUN_ID = "33333333-3333-4333-8333-333333333333" as RunId;
@@ -569,7 +572,7 @@ function createHarness(
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
-    modelCatalogExchange: null,
+    modelCatalogExchange: STUB_MODEL_CATALOG_READ,
     onTextNeutralizationFailure: (sessionId, runId, failure) => {
       textNeutralizationFailures.push({
         sessionId,
@@ -4010,9 +4013,7 @@ describe("CodexDriver transport construction", () => {
   function buildDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
     return {
       ptyHost: new FakeCodexAppServer(),
-      // Explicit `null`: these tests bind no live `model/list` read, so `listModels()`
-      // answers the module's declared catalog.
-      modelCatalogExchange: null,
+      modelCatalogExchange: STUB_MODEL_CATALOG_READ,
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: () => () => undefined,
       reportDiagnostic: () => undefined,
@@ -4115,7 +4116,7 @@ async function routedAskHarness(
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driver = new CodexDriver({
     ptyHost: server,
-    modelCatalogExchange: null,
+    modelCatalogExchange: STUB_MODEL_CATALOG_READ,
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
     reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -5138,7 +5139,7 @@ describe("CodexDriver model catalog", () => {
   function buildCatalogDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
     return {
       ptyHost: new FakeCodexAppServer(),
-      modelCatalogExchange: null,
+      modelCatalogExchange: STUB_MODEL_CATALOG_READ,
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: () => () => undefined,
       reportDiagnostic: () => undefined,
@@ -5152,33 +5153,7 @@ describe("CodexDriver model catalog", () => {
     };
   }
 
-  it("serves the declared catalog through the composed entry", async () => {
-    const driver = new CodexDriver(buildCatalogDriverOptions());
-
-    const models = await driver.listModels();
-
-    expect(models.map((model) => model.id)).toEqual(
-      CODEX_DECLARED_MODEL_CATALOG.map((model) => model.id),
-    );
-    // The two models publish different effort vocabularies, as the pinned build does, and both are
-    // reachable from the driver object.
-    expect(models.find((model) => model.id === "gpt-5.6-sol")?.effortLevels).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]);
-    expect(models.find((model) => model.id === "gpt-5.5")?.effortLevels).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]);
-  });
-
-  it("serves a bound exchange's reading instead of the declaration", async () => {
+  it("serves the live read's catalog", async () => {
     const driver = new CodexDriver({
       ...buildCatalogDriverOptions(),
       modelCatalogExchange: async () => ({
@@ -5208,7 +5183,7 @@ describe("CodexDriver model catalog", () => {
     ]);
   });
 
-  it("propagates a bound exchange's failure rather than serving the declaration", async () => {
+  it("propagates a failed live read", async () => {
     const driver = new CodexDriver({
       ...buildCatalogDriverOptions(),
       modelCatalogExchange: async () => ({ data: [], nextCursor: "page-2" }),
