@@ -456,37 +456,22 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "governance_inline",
   "unknown_key",
   "secret_outside_sensitive_field",
-  "code_packages_unresolved",
 ] as const;
 /** One of {@link WORKFLOW_DEFINITION_FINDING_RULES}. */
 export type WorkflowDefinitionFindingRule = (typeof WORKFLOW_DEFINITION_FINDING_RULES)[number];
 
-/**
- * One finding. Only a Code node's package lock carries `detail`, and always does: bun's
- * or uv's own error, which names the package that did not resolve.
- */
-export type WorkflowDefinitionFinding =
-  | {
-      rule: Exclude<WorkflowDefinitionFindingRule, "code_packages_unresolved">;
-      nodeIds: WorkflowNodeId[];
-    }
-  | { rule: "code_packages_unresolved"; nodeIds: WorkflowNodeId[]; detail: string };
+/** One finding: the rule broken and the nodes it marks. */
+export interface WorkflowDefinitionFinding {
+  rule: WorkflowDefinitionFindingRule;
+  nodeIds: WorkflowNodeId[];
+}
 /** Wire schema for {@link WorkflowDefinitionFinding}. */
-export const WorkflowDefinitionFindingSchema: z.ZodType<WorkflowDefinitionFinding> = z.union([
-  z
-    .object({
-      rule: z.enum(WORKFLOW_DEFINITION_FINDING_RULES).exclude(["code_packages_unresolved"]),
-      nodeIds: z.array(WorkflowNodeIdSchema),
-    })
-    .strict(),
-  z
-    .object({
-      rule: z.literal("code_packages_unresolved"),
-      nodeIds: z.array(WorkflowNodeIdSchema).min(1),
-      detail: z.string().min(1),
-    })
-    .strict(),
-]);
+export const WorkflowDefinitionFindingSchema: z.ZodType<WorkflowDefinitionFinding> = z
+  .object({
+    rule: z.enum(WORKFLOW_DEFINITION_FINDING_RULES),
+    nodeIds: z.array(WorkflowNodeIdSchema),
+  })
+  .strict();
 
 /** The details of {@link WORKFLOW_DEFINITION_REFUSED_CODE}: the whole list of findings. */
 export interface WorkflowDefinitionRefusedDetails {
