@@ -2,6 +2,7 @@
 // operation, the compaction result, the provider-command enumeration and the output-speed state.
 
 import { z } from "zod";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
@@ -136,7 +137,7 @@ export interface ProviderCommandEntry {
   // Claude handshake enumeration draws no such distinction). Absent means no distinction on this
   // surface, never an unknown state, and never a driver-synthesized `true`.
   enabled?: boolean | undefined;
-  binding: { driverName: string; providerAccountId: string | null };
+  binding: { driverName: ProviderName; providerAccountId: string | null };
 }
 
 /**
@@ -160,7 +161,7 @@ export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, Provide
     enabled: z.boolean().optional(),
     binding: z
       .object({
-        driverName: z.string().min(1),
+        driverName: ProviderNameSchema,
         // Nullable, not `.optional()`: an account-less session is real (the account registry is a
         // spawn-time binding not every leg carries) and `null` states that none was bound. An
         // absent key would look like a driver that forgot to report one, and a placeholder (`""`,
@@ -196,7 +197,7 @@ export interface ProviderCommandBindingGroup {
   // fallback is rejected: a never-cleared id naming a retired run is false provenance, worse than
   // the honest `null`.
   runId: RunId | null;
-  binding: { driverName: string; providerAccountId: string | null };
+  binding: { driverName: ProviderName; providerAccountId: string | null };
   entries: ProviderCommandEntry[];
   complete: boolean;
 }

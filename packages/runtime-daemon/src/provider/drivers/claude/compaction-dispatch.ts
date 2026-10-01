@@ -4,7 +4,7 @@
 import type { DriverCompactionResult, SessionId } from "@ai-sidekicks/contracts";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type { OutboundTextFrameWriter } from "../outbound-frame.js";
+import type { OutboundTextFrameWriter } from "../../outbound-frame.js";
 import {
   CLAUDE_COMPACTION_COMMAND_TEXT,
   CLAUDE_COMPACTION_FRAME_ORIGIN,

@@ -18,7 +18,13 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
+import {
+  ProviderAccountIdSchema,
+  PROVIDER_NAMES,
+  ProviderNameSchema,
+  type ProviderAccountId,
+  type ProviderName,
+} from "./provider-account.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
@@ -45,7 +51,7 @@ export const AgentIdSchema: z.ZodType<AgentId, AgentId> = brandedUuidIdSchema<Ag
 
 // The provider binding
 
-/** A provider's own vocabulary token: a driver key, a model id, an effort or a speed. */
+/** A provider's own vocabulary token: a model id, an effort or a speed. */
 const providerTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
@@ -64,7 +70,7 @@ const providerTokenSchema = (label: string): z.ZodString =>
  *   saved definition's bindings leave it absent, because the editor authors no speed.
  */
 export interface AgentProviderBinding {
-  driverName: string;
+  driverName: ProviderName;
   modelId: string;
   providerAccountId: ProviderAccountId | null;
   effort: string | null;
@@ -73,7 +79,7 @@ export interface AgentProviderBinding {
 /** Parses an {@link AgentProviderBinding}. */
 export const AgentProviderBindingSchema: z.ZodType<AgentProviderBinding, AgentProviderBinding> = z
   .object({
-    driverName: providerTokenSchema("AgentProviderBinding.driverName"),
+    driverName: ProviderNameSchema,
     modelId: providerTokenSchema("AgentProviderBinding.modelId"),
     providerAccountId: ProviderAccountIdSchema.nullable(),
     effort: providerTokenSchema("AgentProviderBinding.effort").nullable(),
@@ -106,7 +112,7 @@ function refineOneBindingPerDriver(
   bindings: { default: AgentProviderBinding; overrides?: AgentProviderBinding[] | undefined },
   context: z.RefinementCtx,
 ): void {
-  const seenDrivers = new Set<string>([bindings.default.driverName]);
+  const seenDrivers = new Set<ProviderName>([bindings.default.driverName]);
   for (const [index, override] of (bindings.overrides ?? []).entries()) {
     if (seenDrivers.has(override.driverName)) {
       context.addIssue({
@@ -240,7 +246,11 @@ export const AgentDefinitionSchema: z.ZodType<AgentDefinition> = z
 // Where a definition lives, as the list serves it
 
 /** Which files a definition came from: ours, a provider's own, or a plugin's. */
-export const AGENT_DEFINITION_ORIGINS = ["ours", "claude", "codex", "plugin"] as const;
+export const AGENT_DEFINITION_ORIGINS: readonly ["ours", ...ProviderName[], "plugin"] = [
+  "ours",
+  ...PROVIDER_NAMES,
+  "plugin",
+];
 /** One of {@link AGENT_DEFINITION_ORIGINS}. */
 export type AgentDefinitionOrigin = (typeof AGENT_DEFINITION_ORIGINS)[number];
 
@@ -665,7 +675,7 @@ export type AgentResolutionRefusedDetails =
   | {
       definitionId: AgentDefinitionId;
       reason: "model_unavailable";
-      driverName: string;
+      driverName: ProviderName;
       modelId: string | null;
     }
   | {
@@ -692,7 +702,7 @@ export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefus
       .object({
         definitionId: AgentDefinitionIdSchema,
         reason: z.literal("model_unavailable"),
-        driverName: providerTokenSchema("driverName"),
+        driverName: ProviderNameSchema,
         modelId: providerTokenSchema("modelId").nullable(),
       })
       .strict(),

@@ -14,7 +14,12 @@ import {
   type AgentId,
   type AgentProviderBinding,
 } from "./agent-definition.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
+import {
+  ProviderAccountIdSchema,
+  ProviderNameSchema,
+  type ProviderAccountId,
+  type ProviderName,
+} from "./provider-account.js";
 import { DeclaredLossKindSchema, type DeclaredLossKind } from "./provider-driver-transcript.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
@@ -133,7 +138,7 @@ export type AgentBindingSwitchStatus = (typeof AGENT_BINDING_SWITCH_STATUSES)[nu
  * driver default, so there is no third state to encode.
  */
 export interface AgentBindingSwitchTarget {
-  driverName?: string | undefined;
+  driverName?: ProviderName | undefined;
   modelId?: string | undefined;
   providerAccountId?: ProviderAccountId | undefined;
   effort?: string | undefined;
@@ -142,7 +147,7 @@ export interface AgentBindingSwitchTarget {
 /** Parses an {@link AgentBindingSwitchTarget}. */
 export const AgentBindingSwitchTargetSchema: z.ZodType<AgentBindingSwitchTarget> = z
   .object({
-    driverName: bindingTokenSchema("driverName").optional(),
+    driverName: ProviderNameSchema.optional(),
     modelId: bindingTokenSchema("modelId").optional(),
     providerAccountId: ProviderAccountIdSchema.optional(),
     effort: bindingTokenSchema("effort").optional(),

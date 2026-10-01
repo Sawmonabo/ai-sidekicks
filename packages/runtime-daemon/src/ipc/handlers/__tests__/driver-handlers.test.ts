@@ -74,7 +74,7 @@ function driverDouble(operations: Partial<ProviderDriver>): ProviderDriver {
   return operations as ProviderDriver;
 }
 
-function capabilityReport(driverName: string): DriverCapabilityReport {
+function capabilityReport(driverName: ProviderName): DriverCapabilityReport {
   // The result schema's flag record is total, so a partial literal would fail validation.
   const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
     DriverCapabilityFlag,
@@ -284,7 +284,7 @@ function listProviderCommandsDeps(
 }
 
 /** One binding's group as its driver composes it; the handler must pass it through untouched. */
-function commandGroup(driverName: string, complete = true): ProviderCommandBindingGroup {
+function commandGroup(driverName: ProviderName, complete = true): ProviderCommandBindingGroup {
   return {
     runId: TEST_RUN_ID,
     binding: { driverName, providerAccountId: null },
@@ -385,7 +385,7 @@ describe("driver.listCapabilities", () => {
     registerDriverListCapabilities(registry, {
       providerRegistry: { listAvailable: () => ["claude", "codex"] },
       capabilityCache: {
-        read: (driverName: string) => {
+        read: (driverName: ProviderName) => {
           if (driverName === "codex") {
             throw new DriverUnavailableError(driverName);
           }

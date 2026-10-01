@@ -5,7 +5,7 @@
 import { type SessionId } from "@ai-sidekicks/contracts";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
-import type { RuntimeBindingQuarantine } from "../outbound-frame.js";
+import type { RuntimeBindingQuarantine } from "../../outbound-frame.js";
 import {
   codexCompactionWaitKey,
   type CodexLifecycleOptions,

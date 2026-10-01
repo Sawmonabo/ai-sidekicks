@@ -5,7 +5,7 @@
 
 import { SessionIdSchema, type ExecutionPosture, type SessionId } from "@ai-sidekicks/contracts";
 import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../spawn-env.js";
-import { type CallerDeclaredFrameOrigin } from "../outbound-frame.js";
+import { type CallerDeclaredFrameOrigin } from "../../outbound-frame.js";
 import { CodexDriverConfigError } from "./session-errors.js";
 import {
   isPlainObject,

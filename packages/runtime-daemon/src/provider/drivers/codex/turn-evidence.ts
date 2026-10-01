@@ -9,7 +9,7 @@ import {
   observedTurnEvidence,
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 
 // This module is the sole terminal-emission boundary for the Codex leg. It stamps `intendedClose`
 // on a daemon-initiated close's terminal payload so recovery reads a clean shutdown, and it

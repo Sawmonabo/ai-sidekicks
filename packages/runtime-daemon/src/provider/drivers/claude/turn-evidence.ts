@@ -9,7 +9,7 @@ import {
   observedTurnEvidence,
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import { CLAUDE_WIRE_FRAME_KINDS } from "./event-normalizer.js";
 
 // Terminal emission, as in the Codex normalizer, except `ClaudeChannelDisposalReason` carries an

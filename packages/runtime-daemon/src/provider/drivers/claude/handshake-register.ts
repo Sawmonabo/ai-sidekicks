@@ -178,7 +178,7 @@ export class ClaudeHandshakeRegister {
   #composeProviderCommandEntries(
     sessionId: SessionId,
     declaration: ClaudeHandshakeDeclaration,
-    binding: { driverName: string; providerAccountId: string | null },
+    binding: ProviderCommandEntry["binding"],
   ): ProviderCommandEntry[] {
     const entries: ProviderCommandEntry[] = [];
     const admit = (candidate: ProviderCommandEntry): void => {

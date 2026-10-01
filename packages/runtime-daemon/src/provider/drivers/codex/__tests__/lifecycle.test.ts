@@ -28,7 +28,7 @@ import {
 import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   TextNeutralizationRefusedError,
-} from "../../outbound-frame.js";
+} from "../../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";

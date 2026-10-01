@@ -21,7 +21,7 @@ import {
 import {
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import { type ClaudeTranscriptReplaySurfaceReader } from "./capabilities.js";
 import type {
   ClaudeHandshakeDeclaration,

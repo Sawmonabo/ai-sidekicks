@@ -50,14 +50,12 @@ const relativeFilePathSchema = (label: string): z.ZodString =>
  * both, one found in a provider's own folder is on that provider alone, and a
  * plugin's is on the provider the plugin was installed for.
  */
-export interface SkillAvailability {
-  claude: boolean;
-  codex: boolean;
-}
-/** Parses a {@link SkillAvailability}. */
-export const SkillAvailabilitySchema: z.ZodType<SkillAvailability> = z
-  .object({ claude: z.boolean(), codex: z.boolean() })
-  .strict();
+export type SkillAvailability = Record<ProviderName, boolean>;
+/** Parses a {@link SkillAvailability}; every provider is present and no other key is. */
+export const SkillAvailabilitySchema: z.ZodType<SkillAvailability> = z.record(
+  ProviderNameSchema,
+  z.boolean(),
+);
 
 /**
  * One file in a skill folder, `SKILL.md` included. `size` is in bytes; `readable`
@@ -85,17 +83,12 @@ export const SkillFileSchema: z.ZodType<SkillFile> = z
  * (`/sidekicks:review-diff`), and a plugin's skill on Claude Code takes the
  * plugin's namespace. The daemon derives it; the composer inserts it.
  */
-export interface SkillCallForms {
-  claude?: string | undefined;
-  codex?: string | undefined;
-}
-/** Parses {@link SkillCallForms}. */
-export const SkillCallFormsSchema: z.ZodType<SkillCallForms> = z
-  .object({
-    claude: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "SkillCallForms.claude").optional(),
-    codex: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "SkillCallForms.codex").optional(),
-  })
-  .strict();
+export type SkillCallForms = Partial<Record<ProviderName, string>>;
+/** Parses {@link SkillCallForms}; a key that is not a provider is refused. */
+export const SkillCallFormsSchema: z.ZodType<SkillCallForms> = z.partialRecord(
+  ProviderNameSchema,
+  wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "SkillCallForms entry"),
+);
 
 /**
  * One skill as the list serves it. Each fact is its own member and none excludes

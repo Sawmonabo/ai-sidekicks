@@ -11,17 +11,12 @@ import { AgentTreeMemberSchema, type AgentTreeMember } from "./agent.js";
 import {
   BillingModeSchema,
   ProviderAccountIdSchema,
+  ProviderNameSchema,
   type BillingMode,
   type ProviderAccountId,
+  type ProviderName,
 } from "./provider-account.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
-import {
-  SessionIdSchema,
-  UserIdSchema,
-  wireFreeFormString,
-  type SessionId,
-  type UserId,
-} from "./session.js";
+import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "./session.js";
 
 /** A cost in whole micro-dollars, the one money unit on the wire. */
 export const UsdMicrosSchema: z.ZodType<number, number> = z.number().int().nonnegative();
@@ -136,7 +131,7 @@ export interface SessionCostReceiptVoiceRow {
  * session made voice calls on it, and a subtotal the daemon computes.
  */
 export interface SessionCostReceiptProvider {
-  driverName: string;
+  driverName: ProviderName;
   accounts: SessionCostReceiptAccountRow[];
   voice?: SessionCostReceiptVoiceRow | undefined;
   subtotalUsdMicros: number;
@@ -144,7 +139,7 @@ export interface SessionCostReceiptProvider {
 /** Parses a {@link SessionCostReceiptProvider}. */
 export const SessionCostReceiptProviderSchema: z.ZodType<SessionCostReceiptProvider> = z
   .object({
-    driverName: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "driverName"),
+    driverName: ProviderNameSchema,
     accounts: z.array(SessionCostReceiptAccountRowSchema),
     voice: z
       .object({ seconds: z.number().int().nonnegative(), usdMicros: UsdMicrosSchema })

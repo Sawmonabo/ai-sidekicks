@@ -7,25 +7,25 @@ import { describe, expect, it, vi } from "vitest";
 import type { DriverCapabilities, RunId } from "@ai-sidekicks/contracts";
 import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
 
-import { classifyClaudeTurnEvidence } from "../claude/turn-evidence.js";
+import { classifyClaudeTurnEvidence } from "../drivers/claude/turn-evidence.js";
 import {
   CLAUDE_API_ERRORED_TURN_RESULT_FRAME,
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
   CLAUDE_ZERO_TURN_RESULT_FRAME,
-} from "../claude/__fixtures__/turn-evidence-transcripts.js";
+} from "../drivers/claude/__fixtures__/turn-evidence-transcripts.js";
 import {
   codexCommandDispatchResponse,
   codexQuotaExhaustedTurn,
   codexTurnWithModelOutput,
-} from "../codex/__fixtures__/turn-evidence-transcripts.js";
+} from "../drivers/codex/__fixtures__/turn-evidence-transcripts.js";
 import {
   classifyCodexTurnEvidence,
   classifyCodexTurnEvidenceObservation,
-} from "../codex/turn-evidence.js";
+} from "../drivers/codex/turn-evidence.js";
 import {
   CodexInterventionDispatcher,
   type CodexInterventionRuntime,
-} from "../codex/intervention.js";
+} from "../drivers/codex/intervention.js";
 import {
   composeTextNeutralizationRunFailure,
   isCommandShapedText,

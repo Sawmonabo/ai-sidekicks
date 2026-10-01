@@ -40,7 +40,7 @@ import {
   OutboundTextFrameWriter,
   RuntimeBindingQuarantine,
   type OutboundTextFrame,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
 import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 import {

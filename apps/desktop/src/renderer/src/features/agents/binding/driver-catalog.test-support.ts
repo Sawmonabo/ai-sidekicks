@@ -2,7 +2,11 @@
 // effort vocabulary and one without; the second's drivers overlap on purpose, for the
 // dependent-axis chain. The flag record is derived from the contract's closed list.
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  PROVIDER_NAMES,
+  type DriverCapabilityFlag,
+} from "@ai-sidekicks/contracts";
 
 import type { DriverCatalogReading } from "./driver-catalog.js";
 
@@ -91,7 +95,7 @@ export const OVERLAPPING_DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
     ],
   },
   capabilities: {
-    drivers: ["claude", "codex"].map((driverName) => ({
+    drivers: PROVIDER_NAMES.map((driverName) => ({
       driverName,
       capabilities: {
         flags: driverCapabilityFlags({ model_mutation: true }),

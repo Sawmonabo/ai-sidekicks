@@ -256,7 +256,7 @@ export default tseslint.config(
       // In-memory subscription id, alive for one transport connection.
       "packages/runtime-daemon/src/ipc/streaming-primitive.ts",
       // In-flight correlation token for one outbound frame.
-      "packages/runtime-daemon/src/provider/drivers/outbound-frame.ts",
+      "packages/runtime-daemon/src/provider/outbound-frame.ts",
       // Host-local PTY handle; the Rust sidecar backend mints `s-{n}` here.
       "packages/runtime-daemon/src/pty/node-pty-host.ts",
     ],
