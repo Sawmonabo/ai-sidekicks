@@ -141,11 +141,6 @@ export type McpConfigWriteConflictCode = "mcp.config_write_conflict";
 export const MCP_CONFIG_WRITE_CONFLICT_CODE: McpConfigWriteConflictCode =
   "mcp.config_write_conflict";
 
-/** The policy denied the governance change, checked before whether the binding exists. */
-export type McpGovernanceDeniedCode = "mcp.governance_denied";
-/** The value of {@link McpGovernanceDeniedCode}. */
-export const MCP_GOVERNANCE_DENIED_CODE: McpGovernanceDeniedCode = "mcp.governance_denied";
-
 /** The sign-in could not be started. A failure after it started arrives as an event. */
 export type McpOauthFlowFailedCode = "mcp.oauth_flow_failed";
 /** The value of {@link McpOauthFlowFailedCode}. */
