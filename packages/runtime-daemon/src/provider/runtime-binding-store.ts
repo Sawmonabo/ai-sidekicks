@@ -7,10 +7,17 @@
 // - `spawn_config` is required at create; recovery re-reads it to rebuild `ResumeSessionParams`
 //   without the original client request. `cliVersion` is one optional member, so the DDL's
 //   both-or-neither CHECK holds at the type level.
-// - `runId`, `driverName`, `id` and the content of `runtime_metadata` are daemon-controlled: no
-//   CHECK and no Zod guard. `update` runs IMMEDIATE (see the `#updateTxn` field).
+// - `runId`, `id` and the content of `runtime_metadata` are daemon-controlled: no CHECK and no Zod
+//   guard. `driverName` is typed at the write and parsed as a provider name on every read.
+//   `update` runs IMMEDIATE (see the `#updateTxn` field).
 
-import type { ExecutionPosture, SessionCallbackTool, SessionId } from "@ai-sidekicks/contracts";
+import {
+  ProviderNameSchema,
+  type ExecutionPosture,
+  type ProviderName,
+  type SessionCallbackTool,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
@@ -55,7 +62,7 @@ export interface RuntimeBindingSpawnConfig {
 export interface RuntimeBinding {
   readonly id: string;
   readonly runId: string;
-  readonly driverName: string;
+  readonly driverName: ProviderName;
   readonly contractVersion: string;
   // `null` unless both columns are set; a half pair exists only through out-of-band corruption.
   readonly cliVersion: DriverCliVersionReport | null;
@@ -72,7 +79,7 @@ export interface RuntimeBinding {
  */
 export interface CreateRuntimeBindingInput {
   readonly runId: string;
-  readonly driverName: string;
+  readonly driverName: ProviderName;
   readonly contractVersion: string;
   readonly cliVersion?: DriverCliVersionReport;
   readonly resumeHandle?: string | null;
@@ -139,10 +146,16 @@ interface RuntimeBindingRow {
   readonly updated_at: string;
 }
 
-/** `#updateTxn`'s result: the raw row plus the `spawn_config` parsed inside the transaction. */
+/** The stored columns a read parses rather than casts. */
+interface ParsedRuntimeBindingColumns {
+  readonly driverName: ProviderName;
+  readonly spawnConfig: RuntimeBindingSpawnConfig;
+}
+
+/** `#updateTxn`'s result: the raw row plus the columns parsed inside the transaction. */
 interface UpdatedRuntimeBindingRow {
   readonly row: RuntimeBindingRow;
-  readonly spawnConfig: RuntimeBindingSpawnConfig;
+  readonly parsedColumns: ParsedRuntimeBindingColumns;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -330,10 +343,7 @@ export class RuntimeBindingStore {
         }
         // Parse first: a patch committed onto an unreadable record would hide the corruption
         // behind a fresh `updated_at`.
-        const parsedSpawnConfig: RuntimeBindingSpawnConfig = this.#parseSpawnConfig(
-          existing.id,
-          existing.spawn_config,
-        );
+        const parsedColumns: ParsedRuntimeBindingColumns = this.#parseStoredColumns(existing);
         // An absent key keeps the existing value and `resumeHandle: null` clears it, which
         // COALESCE cannot express.
         const mergedContractVersion: string =
@@ -362,7 +372,7 @@ export class RuntimeBindingStore {
             runtime_metadata: mergedRuntimeMetadata,
             updated_at: updatedAt,
           },
-          spawnConfig: parsedSpawnConfig,
+          parsedColumns,
         };
       },
     );
@@ -467,7 +477,7 @@ export class RuntimeBindingStore {
   /**
    * Lists many runs' bindings in one flat query ordered `run_id, created_at, id`, superseded ones
    * included; the caller groups by run. Synchronous, since it feeds the ack barrier and a promise
-   * would move it across a microtask boundary. Throws if any row's `spawn_config` is unreadable.
+   * would move it across a microtask boundary. Throws if any row is unreadable.
    */
   findByRuns(runIds: readonly string[]): RuntimeBinding[] {
     if (runIds.length === 0) {
@@ -480,7 +490,7 @@ export class RuntimeBindingStore {
   /**
    * Patches a binding's mutable columns and bumps `updated_at`; returns the updated binding, or
    * `undefined` when `id` is absent. An invalid patch throws even for an absent id, and an
-   * unreadable stored `spawn_config` throws and rolls back.
+   * unreadable stored row throws and rolls back.
    */
   update(id: string, patch: UpdateRuntimeBindingPatch): RuntimeBinding | undefined {
     if (patch.contractVersion !== undefined) {
@@ -495,7 +505,7 @@ export class RuntimeBindingStore {
       return undefined;
     }
     // Reuses the record the commit was gated on, so the result cannot disagree with it.
-    return this.#rowToDomain(updated.row, updated.spawnConfig);
+    return this.#rowToDomain(updated.row, updated.parsedColumns);
   }
 
   /** Deletes a binding by primary key; returns whether a row was removed. */
@@ -506,7 +516,7 @@ export class RuntimeBindingStore {
 
   /**
    * Lists every binding with a non-null `resume_handle`, for recovery. Throws for the whole list
-   * if a `spawn_config` is unreadable: dropping the row would read as nothing to recover.
+   * if a row is unreadable: dropping the row would read as nothing to recover.
    */
   findResumableBindings(): RuntimeBinding[] {
     const rows = this.#selectResumableStmt.all() as RuntimeBindingRow[];
@@ -515,27 +525,43 @@ export class RuntimeBindingStore {
 
   /**
    * Maps a raw row to the public type. The CLI-version pair folds only when both columns are set;
-   * a half-present row (out-of-band corruption) reports `null`. `update()` passes the parsed
-   * record.
+   * a half-present row (out-of-band corruption) reports `null`. `update()` passes the columns it
+   * parsed inside its transaction.
    */
   #rowToDomain(
     row: RuntimeBindingRow,
-    parsedSpawnConfig?: RuntimeBindingSpawnConfig,
+    parsedColumns: ParsedRuntimeBindingColumns = this.#parseStoredColumns(row),
   ): RuntimeBinding {
     return {
       id: row.id,
       runId: row.run_id,
-      driverName: row.driver_name,
+      driverName: parsedColumns.driverName,
       contractVersion: row.contract_version,
       cliVersion:
         row.cli_version_raw !== null && row.cli_version_semver !== null
           ? { raw: row.cli_version_raw, semver: row.cli_version_semver }
           : null,
       resumeHandle: row.resume_handle,
-      spawnConfig: parsedSpawnConfig ?? this.#parseSpawnConfig(row.id, row.spawn_config),
+      spawnConfig: parsedColumns.spawnConfig,
       runtimeMetadata: JSON.parse(row.runtime_metadata) as Record<string, unknown>,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    };
+  }
+
+  /**
+   * Parses the row's `driver_name` and `spawn_config`. A `driver_name` naming no provider throws a
+   * plain `Error` naming the binding, as an unreadable `spawn_config` does, rather than passing a
+   * corrupt name on as a `ProviderName`.
+   */
+  #parseStoredColumns(row: RuntimeBindingRow): ParsedRuntimeBindingColumns {
+    const driverName = ProviderNameSchema.safeParse(row.driver_name);
+    if (!driverName.success) {
+      throw new Error(`runtime_bindings.driver_name names no provider (binding id ${row.id}).`);
+    }
+    return {
+      driverName: driverName.data,
+      spawnConfig: this.#parseSpawnConfig(row.id, row.spawn_config),
     };
   }
 

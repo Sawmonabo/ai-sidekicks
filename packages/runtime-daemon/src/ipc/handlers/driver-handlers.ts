@@ -237,7 +237,7 @@ function refuseNoLiveBinding(): never {
  */
 function requireDriverOperation(
   driver: ProviderDriver,
-  driverName: string,
+  driverName: ProviderName,
   operation: keyof ProviderDriver,
 ): void {
   if (typeof driver[operation] !== "function") {
@@ -255,7 +255,7 @@ function requireDriverOperation(
  * resolves an id to bytes (the Codex dispatcher builds `steerRun` without them), so the steer
  * would answer `applied` with them dropped. Same shape as `requireDriverOperation`.
  */
-function refuseAttachmentDeliveryUnsupported(driverName: string): never {
+function refuseAttachmentDeliveryUnsupported(driverName: ProviderName): never {
   throw new DaemonDomainError(
     "Attachment references on a steer cannot be delivered yet, so the whole intervention is refused rather than applied with its attachments dropped. Re-send the steer without attachments; delivery arrives with the daemon's attachment-reference resolver.",
     {

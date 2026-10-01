@@ -128,10 +128,10 @@ export class DriverCapabilitiesWriter {
   readonly #refreshCliVersionPairStmt: Statement;
   // One DEFERRED transaction so the three SELECTs share a snapshot; autocommit would let a
   // refresh tear the read.
-  readonly #readTxn: Transaction<(driverName: string) => CachedDriverCapabilityRead>;
+  readonly #readTxn: Transaction<(driverName: ProviderName) => CachedDriverCapabilityRead>;
   readonly #declareTxn: Transaction<
     (
-      driverName: string,
+      driverName: ProviderName,
       newSnapshot: CapabilityDetails,
       declaredCliVersion: DriverCliVersionReport,
     ) => DeclareDriverCapabilitiesResult
@@ -194,11 +194,11 @@ export class DriverCapabilitiesWriter {
     );
 
     this.#readTxn = db.transaction(
-      (driverName: string): CachedDriverCapabilityRead => this.#cachedRead(driverName),
+      (driverName: ProviderName): CachedDriverCapabilityRead => this.#cachedRead(driverName),
     );
     this.#declareTxn = db.transaction(
       (
-        driverName: string,
+        driverName: ProviderName,
         newSnapshot: CapabilityDetails,
         declaredCliVersion: DriverCliVersionReport,
       ): DeclareDriverCapabilitiesResult =>
@@ -296,7 +296,7 @@ export class DriverCapabilitiesWriter {
   // Runs inside `#declareTxn`; calls `#cachedRead` directly because better-sqlite3 rejects nested
   // transactions.
   #readDecideWrite(
-    driverName: string,
+    driverName: ProviderName,
     newSnapshot: CapabilityDetails,
     declaredCliVersion: DriverCliVersionReport,
   ): DeclareDriverCapabilitiesResult {
@@ -390,7 +390,7 @@ export class DriverCapabilitiesWriter {
   }
 
   // Runs inside `#readTxn` or `#declareTxn`, so both halves share one read snapshot.
-  #cachedRead(driverName: string): CachedDriverCapabilityRead {
+  #cachedRead(driverName: ProviderName): CachedDriverCapabilityRead {
     const contractMeta: DriverContractMetaRow | undefined = this.#selectContractMetaStmt.get(
       driverName,
     ) as DriverContractMetaRow | undefined;
@@ -409,7 +409,7 @@ export class DriverCapabilitiesWriter {
 
   // Throws a plain `Error` naming the keys when the stored flag rows are not the canonical set.
   #snapshotFromContractMeta(
-    driverName: string,
+    driverName: ProviderName,
     contractMeta: DriverContractMetaRow,
   ): CapabilityDetails {
     // The column's CHECK is a superset whitelist, so a stored name is not by itself a

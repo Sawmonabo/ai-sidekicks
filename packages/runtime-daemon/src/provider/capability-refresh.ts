@@ -265,7 +265,7 @@ export class CapabilityRefreshScheduler {
   readonly #nodes: Map<string, ScheduledNode> = new Map();
   // nodeId → driverName → latest probe record. Dropped on detach so a re-attach never answers
   // admission with a previous lifetime's credential state.
-  readonly #authStates: Map<string, Map<string, DriverAuthStateRecord>> = new Map();
+  readonly #authStates: Map<string, Map<ProviderName, DriverAuthStateRecord>> = new Map();
   // Keyed by (nodeId, generation): a tick outliving the interval must not stack a second poll, and
   // a detached lifetime's poll must not block the re-attached one.
   readonly #pollsInFlight: Set<string> = new Set();
@@ -319,7 +319,7 @@ export class CapabilityRefreshScheduler {
   }
 
   /** The admission-side read of the latest probe result for one driver. */
-  getAuthState(nodeId: string, driverName: string): DriverAuthStateRecord | undefined {
+  getAuthState(nodeId: string, driverName: ProviderName): DriverAuthStateRecord | undefined {
     return this.#authStates.get(nodeId)?.get(driverName);
   }
 

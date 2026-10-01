@@ -191,7 +191,7 @@ const TEST_BINDING_ID = "binding-1";
  */
 function capabilityGate(
   flagsByDriver: Record<string, Partial<Record<DriverCapabilityFlag, boolean>>>,
-): (driverId: string, flag: DriverCapabilityFlag) => void {
+): (driverId: ProviderName, flag: DriverCapabilityFlag) => void {
   return (driverId, flag) => {
     if (flagsByDriver[driverId]?.[flag] !== true) {
       throw new DriverCapabilityUnsupportedError(driverId, flag);
