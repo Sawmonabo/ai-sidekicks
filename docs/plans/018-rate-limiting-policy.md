@@ -88,7 +88,7 @@ interface RateLimitResponse {
 }
 ```
 
-Code-level home: `packages/contracts/src/rate-limiter.ts` (T21.1-1) exports the interface + `RateLimitResponseSchema` so its consumers assert against a typed export instead of a doc shape. The api-payload-contracts.md shape is anchored by symbol (`interface RateLimitResponse` under §Error Responses); T21.1-2 verifies doc-vs-export parity at implementation time. Every refusal carries both timing fields, so `RateLimitResponseSchema` requires both and an envelope missing either fails parse (T21.1-4).
+Code-level home: `packages/contracts/src/rate-limiter.ts`, which T21.1-1 creates, exports the interface + `RateLimitResponseSchema` so its consumers assert against a typed export instead of a doc shape. The api-payload-contracts.md shape is anchored by symbol (`interface RateLimitResponse` under §Error Responses); T21.1-2 verifies doc-vs-export parity at implementation time. Every refusal carries both timing fields, so `RateLimitResponseSchema` requires both and an envelope missing either fails parse (T21.1-4).
 
 ## API And Transport Changes
 
@@ -116,7 +116,7 @@ export interface RateLimiter {
 }
 ```
 
-- `RateLimiter` and its check types live in the control plane's package: only the relay's control plane and the self-host relay node check a limit, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` envelope, which devices read, ships in `packages/contracts/src/rate-limiter.ts` as interface + Zod schema per the `runtime-node.ts` wire-shape convention.
+- `RateLimiter` and its check types live in the control plane's package: only the relay's control plane and the self-host relay node check a limit, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` envelope, which devices read, will ship in `packages/contracts/src/rate-limiter.ts` as interface + Zod schema per the `runtime-node.ts` wire-shape convention.
 
 ### Admission pipeline (D-018-1)
 

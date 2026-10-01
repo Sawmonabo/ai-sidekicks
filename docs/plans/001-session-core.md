@@ -100,7 +100,7 @@ Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": 
 
 The daemon and the command line run on Node 24.16 or later, because the memory gate that decides when a step starts reads `process.availableMemory()`; every package shares that one floor, and the desktop app runs the Node its Electron pin bundles.
 
-Vitest test-file discovery is owned by each package's own standalone `vitest.config.ts` — a plain `defineConfig` with no workspace-level config above it and no single project-wide test path; the suites aggregate through Turbo's `test` task (`turbo run test`), which invokes each package's own `vitest run`. The prevailing discovery glob is `src/**/__tests__/**/*.test.ts`; the exceptions are `packages/client-sdk/` (that glob plus `test/**/*.test.ts` for cross-workspace integration tests) and `apps/desktop/` (whose config declares two in-package `projects` — a Node `main` project on `test/**/*.test.ts` and a happy-dom `renderer` project on `src/renderer/**/__tests__/**/*.test.{ts,tsx}`). Several config headers name a root-level `vitest.config.ts` with `projects: [...]` as the longer-term shape per [ADR-021](../decisions/021-v1-toolchain-selection.md); it has not been authored. The Phase 1 sanity test lives at `packages/contracts/src/__tests__/sanity.test.ts`.
+Vitest test-file discovery is owned by each package's own standalone `vitest.config.ts` — a plain `defineConfig` with no workspace-level config above it and no single project-wide test path; the suites aggregate through Turbo's `test` task (`turbo run test`), which invokes each package's own `vitest run`. The prevailing discovery glob is `src/**/__tests__/**/*.test.ts`; the exceptions are `packages/client-sdk/` (that glob plus `test/**/*.test.ts` for cross-workspace integration tests) and `apps/desktop/` (whose config declares two in-package `projects` — a Node `main` project on `test/**/*.test.ts` and a happy-dom `renderer` project on `src/renderer/**/__tests__/**/*.test.{ts,tsx}`). Several config headers name a root-level `vitest.config.ts` with `projects: [...]` as the longer-term shape per [ADR-021](../decisions/021-v1-toolchain-selection.md); it has not been authored.
 
 ## Data And Storage Changes
 
@@ -197,12 +197,12 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 **Ship-gate:** [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The CI workflow files, lefthook + commitlint pre-commit framework, Renovate dependency-update config, Gitleaks secret scanner, `CODEOWNERS`, and code-signing custody scaffolding authored by ADR-022 land in this PR.
 
 - Create root scaffolding (per § Repo Layout And Bootstrap above)
-- Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports). At Phase 1, `apps/desktop/` is scaffolded as a placeholder workspace package only (single `src/index.ts` with the forward-declaration comment "split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention"); the substrate split (`apps/desktop/src/{main,preload,renderer}/`) is owned by [Plan-020's partial](./020-desktop-app-and-renderer.md#partial-pr-sequence) and lands as a separate PR before Plan-001 Phase 5. The `apps/desktop/src/renderer/src/session-bootstrap/` extension at Phase 5 lands once Plan-020's partial repositions the placeholder.
+- Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports). At Phase 1, `apps/desktop/` is scaffolded as a placeholder workspace package only (single `src/index.ts` with the forward-declaration comment "split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention"); the substrate split (`apps/desktop/src/{main,preload,renderer}/`) is owned by [Plan-020's partial](./020-desktop-app-and-renderer.md#partial-pr-sequence) and lands as a separate PR before Plan-001 Phase 5.
 - Install `better-sqlite3` at exactly `13.0.3` ([Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)) as a workspace dep on `packages/runtime-daemon/` per [ADR-021](../decisions/021-v1-toolchain-selection.md). Even without imports, this exercises the postinstall native-binding rebuild path for the daemon target under `node-linker=isolated` at bootstrap time, surfacing native-rebuild integration risk before behavior PRs land.
 - Install `pg` 8.20+ as a workspace dep on `packages/control-plane/` per [ADR-021](../decisions/021-v1-toolchain-selection.md)
 - Wire engineering CI surface per [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.15 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship). The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the three workflow files is the Phase 1 PR's authoring scope; [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision) pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
 - Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally
-- Single passing test (in `packages/contracts/src/__tests__/sanity.test.ts`): trivial sanity check that Vitest is wired (test ID **W1** per § Test And Verification Plan)
+- Single passing test (a Vitest sanity test in `packages/contracts/src/__tests__/`): trivial sanity check that Vitest is wired (test ID **W1** per § Test And Verification Plan)
 
 #### Tasks
 
@@ -212,7 +212,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.2 — Per-package skeletons (`apps/desktop/` ships placeholder; Plan-020's partial delivery repositions)
 
-**Files:** `packages/{contracts,client-sdk,runtime-daemon,control-plane}/{package.json,tsconfig.json,src/index.ts}` + `apps/desktop/{package.json,tsconfig.json,src/index.ts}` (placeholder) **Acceptance:** each `package.json` has `"type": "module"`, `engines.node` per ADR-021 two-tier rule (lower for `contracts`/`client-sdk`/`runtime-daemon`/`apps/desktop`, upper for `control-plane`); each `tsconfig.json` extends `../../tsconfig.base.json`; each `src/index.ts` is empty (no exports). The `apps/desktop/src/index.ts` placeholder carries a forward-declaration comment ("split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention") that [Plan-020's partial T-020p-1-1](./020-desktop-app-and-renderer.md#partial-pr-sequence) repositions during the substrate-split PR. **Spec coverage:** none (per-package scaffold) **Verifies invariant:** none
+**Files:** `packages/{contracts,client-sdk,runtime-daemon,control-plane}/{package.json,tsconfig.json,src/index.ts}` + `apps/desktop/{package.json,tsconfig.json}` and a placeholder entry file **Acceptance:** each `package.json` has `"type": "module"`, `engines.node` per ADR-021 two-tier rule (lower for `contracts`/`client-sdk`/`runtime-daemon`/`apps/desktop`, upper for `control-plane`); each `tsconfig.json` extends `../../tsconfig.base.json`; each `src/index.ts` is empty (no exports). The desktop's placeholder entry file carries a forward-declaration comment ("split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention") that [Plan-020's partial T-020p-1-1](./020-desktop-app-and-renderer.md#partial-pr-sequence) repositions during the substrate-split PR. **Spec coverage:** none (per-package scaffold) **Verifies invariant:** none
 
 ##### T1.3 — Native-binding installation surface
 
@@ -228,7 +228,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.6 — Vitest sanity test
 
-**File:** `packages/contracts/src/__tests__/sanity.test.ts` **Acceptance:** `vitest run` returns exit 0; W1 (per § Tests below) green. **Spec coverage:** none (tooling readiness) **Verifies invariant:** none (tooling readiness)
+**File:** a Vitest sanity test in `packages/contracts/src/__tests__/` **Acceptance:** `vitest run` returns exit 0; W1 (per § Tests below) green. **Spec coverage:** none (tooling readiness) **Verifies invariant:** none (tooling readiness)
 
 #### Tests
 
@@ -249,7 +249,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T2.1 — `SessionId`, `SessionCreate`, `SessionRead`, `SessionSubscribe` payload schemas
 
-**Files:** `packages/contracts/src/session.ts`, `packages/contracts/src/__tests__/session-id.test.ts`, `packages/contracts/src/__tests__/session-create.test.ts`, `packages/contracts/src/__tests__/session-read.test.ts`, `packages/contracts/src/__tests__/session-subscribe.test.ts` **Spec coverage:** Spec-001 AC1, AC3; Spec-001 §Interfaces And Contracts (the main agent named on create and the resolved binding echoed in the reply) **Verifies invariant:** none (contract layer)
+**Files:** `packages/contracts/src/session.ts`, `packages/contracts/src/__tests__/session-id.test.ts`, `packages/contracts/src/__tests__/session-read.test.ts`, `packages/contracts/src/__tests__/session-subscribe.test.ts` **Spec coverage:** Spec-001 AC1, AC3; Spec-001 §Interfaces And Contracts (the main agent named on create and the resolved binding echoed in the reply) **Verifies invariant:** none (contract layer)
 
 ##### T2.2 — `SessionEvent` discriminated union
 
