@@ -2152,8 +2152,9 @@ type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 // their tool calls flow through the same approval pipeline. `maxConcurrent` is the person's
 // `Helpers at once` for that provider: absent, the default, is no limit, and the daemon lifts the
 // provider's own built-in limit; `0` runs none, and the daemon withholds the provider's helper tool;
-// any other number is passed as Codex's own limit, `agents.max_concurrent_threads_per_session`, and on Claude
-// Code, which has no such setting, the daemon's pre-tool hook on the Agent tool holds a new helper's start
+// any other number N is passed as Codex's own limit, `features.multi_agent_v2.max_concurrent_threads_per_session` set to N + 1,
+// because Codex counts the lead among those threads (its helper limit is that setting minus one), and
+// on Claude Code, which has no such setting, the daemon's pre-tool hook on the Agent tool holds a new helper's start
 // until one of that session's running helpers finishes.
 // There is no ceiling of the app's own (Spec-004 §Parity Capability Mechanism Grades; Spec-014
 // §Provider-Native Subagents).
