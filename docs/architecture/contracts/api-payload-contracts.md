@@ -109,13 +109,7 @@ interface RateLimitResponse {
 ## Shared Enums
 
 ```ts
-type SessionState =
-  | "provisioning"
-  | "active"
-  | "archived"
-  | "closed"
-  | "purge_requested"
-  | "purged";
+type SessionState = "provisioning" | "active" | "archived" | "closed" | "purge_requested";
 type PresenceState = "online" | "idle" | "reconnecting" | "offline"; // per-device liveness
 
 type RunState =
@@ -190,7 +184,6 @@ type DriverCapabilityFlag =
   | "session_goals" // setSessionGoal / clearSessionGoal
   | "callback_tools" // daemon-curated callback-tool registry
   | "subagents" // provider-native in-session subagents under subagentPolicy
-  | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (ADR-029; the Claude cell is probe-declared, not statically true — Spec-004 §Per-Driver Capability Matrix)
   | "context_compaction" // compacts the bound session's own provider-side context on user request via compactContext (Spec-004 §User-triggered context compaction)
   | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (Spec-004 §The provider command and skill surface)
   | "output_speed"; // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it, and detectionSource is STATIC on both because reading the declared state is not zero-turn (Spec-004 §The output-speed axis). Claude realizes the axis through its own fast-output setting; Codex realizes it through the participant-settable per-turn `serviceTier` override on `turn/start` — present in the default, non-field-gated generation — against the speed tiers its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name, description }`, with a `Fast` tier carried in upstream source), behind the provider's own `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard` control and the `/fast` word
@@ -893,8 +886,8 @@ interface SessionSnapshot {
   // This session's OWN bound on how many steps one turn may take, absent where the person set none —
   // in which case the machine's own Runtime value applies, and where that is unset the turn is
   // unbounded and each provider does what it does on its own. What the bound does and how each
-  // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget and not an
-  // intervention, and reaching it ends a TURN rather than the run.
+  // provider realizes it is Spec-003 §The Step Bound On A Turn's; it is not a budget, and reaching
+  // it ends the turn and then the run, as run.interrupted with trigger "step_limit".
   maxStepsPerTurn?: number;
   // The address another session writes to when it messages this one — what the session inspector
   // offers as `Copy address`. It names the inbox the daemon holds for the session — one socket (a named
@@ -1440,17 +1433,6 @@ interface ProviderDriver {
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
-  // Render the run's canonical transcript into this provider's replay frames (
-  // ADR-029; Spec-004 §Canonical Transcript Export And Replay). Pure with respect to session
-  // state: it mutates nothing, writes nothing, and starts no turn.
-  exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
-  // Reconstitute a conversation into a FRESH provider session from exported frames. Gated on the
-  // `transcript_replay` flag and never writes to the SOURCE session; returns only after the
-  // post-replay assertion passes. THIS IS THE FALLBACK PATH, not the ordinary one: a fresh process of
-  // the SAME provider reopens its own conversation. It is reached where a same-provider reopen does
-  // not load, and a driver whose provider refuses prior-turn content declares the flag `false`. No
-  // provider switch takes it: a switch settles `in_place` or `brief` (Spec-014 §Continuity).
-  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
   // copy of the old session and never on the live one; required of every driver (Spec-004
   // §Interfaces And Contracts; Spec-014 §Continuity, and what is declared rather than dropped).
@@ -1636,14 +1618,14 @@ interface ProviderCommandsUpdate {
   entries: ProviderCommandEntry[];
 }
 
-// Transcript export/replay shapes (ADR-029). The canonical transcript is a PROJECTION
-// the daemon rebuilds per call and caches nowhere, so it is passed IN rather than fetched by the
-// driver: a driver holding a transcript handle would be holding a second record of the log, which
-// is the divergence ADR-029 exists to eliminate.
+// The canonical transcript (ADR-029) is a PROJECTION the daemon rebuilds per call and caches
+// nowhere; the hand-over brief's one-line notes, its word-for-word tail and its transcript file are
+// read from it (Spec-004 §The Canonical Transcript And The Hand-Over Brief). No transcript is
+// replayed into a fresh provider session, so no driver operation takes it.
 // The daemon-side fold of a run's normalized events into ordered turns (Spec-004 §The canonical
 // transcript is a projection, never a store). It never crosses a wire and is never persisted, so
 // only its IDENTITY is mirrored here: the per-turn element shape is authored by Plan-004 T3.19 in
-// `packages/runtime-daemon/src/provider/provider-driver.ts` and is bounded by the Spec-005 normalized taxonomy,
+// `packages/runtime-daemon/src/provider/transcript/canonical-transcript.ts` and is bounded by the Spec-005 normalized taxonomy,
 // which is what makes "anything that never became an event is not in the transcript" true by
 // construction rather than by discipline.
 interface CanonicalTranscriptProjection {
@@ -1653,38 +1635,6 @@ interface CanonicalTranscriptProjection {
   // one taken after an appended event does not — the projection-not-a-store property, asserted.
   builtAtPosition: number;
   turns: readonly CanonicalTranscriptTurn[]; // element shape owned by Plan-004 T3.19, above
-}
-
-interface ExportTranscriptParams {
-  sessionId: SessionId;
-  // The daemon-supplied canonical projection, folded from normalized events. Its content is
-  // bounded by the Spec-005 taxonomy — anything a provider held that never became an event is by
-  // construction absent, which is what the declared-loss list exists to surface.
-  transcript: CanonicalTranscriptProjection;
-  // Export up to and including this normalized session position — the same position vocabulary
-  // `DriverResumeResult.sessionPosition` reports.
-  boundary: number;
-}
-interface DriverTranscriptExportResult {
-  // Provider-shaped replay frames, deliberately untyped at this boundary: the pinned Codex
-  // injection surface takes an untyped array and validates neither shape nor tool-call pairing, so
-  // the DAEMON owns both and a type here would be a false assurance.
-  frames: unknown[];
-  // What steps 3 and 4 of the ordered pipeline stripped or repaired, by class. An empty array is
-  // the positive assertion that nothing was dropped (Spec-014 §Same-Agent Provider Switch).
-  declaredLosses: DeclaredLossKind[];
-}
-interface ReplayTranscriptParams {
-  // A FRESH session handle. Replay never writes to the session the transcript came from.
-  target: ProviderSessionHandle;
-  frames: unknown[];
-}
-interface DriverTranscriptReplayResult {
-  // "degraded" is the conversation having been restarted from text rather than continued: it moved,
-  // and the losses say what came along. It is not a failure result — a target that cannot be reached
-  // at all throws.
-  status: "applied" | "degraded";
-  declaredLosses: DeclaredLossKind[];
 }
 
 interface CreateSessionParams {
@@ -1724,8 +1674,8 @@ interface CreateSessionParams {
   // where that is unset each provider does what it does on its own. The driver carries the number
   // onto its own realization: `--max-turns` on the Claude leg, where the provider enforces it, and
   // the daemon's own per-turn count on the Codex leg, that provider publishing no cap. Spawn-bound
-  // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends a
-  // TURN and leaves the run where it was, so it is neither a budget nor an intervention.
+  // like posture and speed, so `ResumeSessionParams` re-realizes it below; reaching the bound ends
+  // the turn and then the run, as run.interrupted with trigger "step_limit". It is not a budget.
   maxStepsPerTurn?: number;
   onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher; the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-010's Cedar pipeline (CP-004-7 / B13 T2.8). See CallbackToolInvocation below
   onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink; the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate. Producer-only at Plan-004 — the consumer is Plan-025's status normalizer (§Plan-025 — MCP Governance Contract Surfaces below; Spec-025). See McpServerStatusEmission below
@@ -2858,6 +2808,8 @@ interface DaemonStatusReadResult {
       lastFrameOutAgeMs?: number;
       lastFrameInAgeMs?: number;
       reconnectCount: number;
+      // Counts each frame the relay refuses as malformed or unauthenticated; there is no per-device quota.
+      rejectedFrameCount: number;
     }>;
   };
 }
@@ -5154,7 +5106,15 @@ interface AttentionSeenUpdateResponse {}
 // log or an error.
 interface AttentionDeliveryOutcome {
   at: string;
-  result: "delivered" | "refused" | "unreachable" | "timedOut" | "signInRefused" | "notEncrypted";
+  // notAnAddress: a test of saved web-address text with no scheme and host; nothing was sent.
+  result:
+    | "delivered"
+    | "refused"
+    | "unreachable"
+    | "timedOut"
+    | "signInRefused"
+    | "notEncrypted"
+    | "notAnAddress";
   httpStatus?: number;
   undelivered: number;
 }
@@ -5947,7 +5907,7 @@ type DeclaredLossKind =
   | "tool_output_bodies" // earlier steps travel as one-line notes, so the bodies of their output do not. Files touched on disk are unchanged
   | "live_tool_calls" // tool calls arrive as history and never as work in flight; a call that was about to run does not run
   | "provider_skill_and_command_names" // the old provider's own skills and commands name nothing on the new one
-  | "turn_content_unavailable"; // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The one member produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentBindingSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
+  | "turn_content_unavailable"; // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. Produced by the fold, which is daemon-side and upstream of the driver: it reaches AgentBindingSwitchOutcome.declaredLosses through the canonical projection
 
 // agent.provider_binding_changed — a switch landed (Spec-005 §Agent Lifecycle). A change
 // of model, effort or speed alone settles `in_place` with no declared losses and draws no transcript
@@ -7824,7 +7784,7 @@ type McpServerConfigInput =
     }
   | {
       transport: "http" | "sse"; // "sse" is Claude-only (Claude-native transport kind)
-      url: string; // absolute http(s) URL; userinfo (embedded credentials) rejected. Query-string VALUES are write-only credential-equivalent material (a ?api_key=… credential passes no-userinfo validation): accepted, passed to the provider write path — never round-tripped (the view serves query param NAMES)
+      url: string; // absolute http(s) URL, taken as typed and passed to the provider write path as typed, a user name or password in it included. That user name and password and the query-string VALUES are write-only credential-equivalent material: accepted, passed on — never round-tripped (the view serves query param NAMES)
       headers?: Record<string, string>; // write-only values (see above)
       bearerTokenEnvVar?: string; // Codex-only `bearer_token_env_var` — the env-var NAME, never the value
       envHttpHeaders?: Record<string, string>; // Codex-only `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
@@ -7855,7 +7815,7 @@ type McpServerConfigView =
     }
   | {
       transport: "http" | "sse";
-      url: string; // QUERY-REDACTED: scheme + host + path only (userinfo already rejected at input; query values are credential-equivalent and never round-trip)
+      url: string; // QUERY-REDACTED: scheme + host + path only (a user name or password, like the query values, is credential-equivalent and never round-trips)
       urlQueryParamNames?: string[]; // the query string's parameter NAMES when one existed; values never round-trip (the env/header names-not-values discipline)
       headerNames?: string[]; // the header map's KEYS; values never round-trip
       bearerTokenEnvVar?: string; // an env-var NAME (Codex-only), safe to serve
@@ -7880,7 +7840,7 @@ interface McpServerLegStatus {
 
 // Inventory read model (mcp.list / mcp.get): four merged sources per binding — provider-declared
 // config, live status (McpServerStatus, §Plans 004, 005 And 006 seam), the binding row, the override
-// rows. A DISCRIMINATED PAIR on trustUnavailable (Spec-025 §Fallback Behavior): the normal arm serves
+// rows. A DISCRIMINATED PAIR on bindingStoreUnavailable (Spec-025 §Fallback Behavior): the normal arm serves
 // all four sources; the degraded arm (binding store unreachable) serves the provider-observed sources
 // only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (toolOverrides and
 // the Claude enabled overlay live in the unreachable store).
@@ -7894,12 +7854,12 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
 } & (
     | {
-        trustUnavailable?: never; // the normal (binding-store-available) arm
+        bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
         enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the binding row)
         toolOverrides: McpToolOverride[];
       }
     | {
-        trustUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-025 §Fallback Behavior)
+        bindingStoreUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-025 §Fallback Behavior)
         enabled?: boolean; // the provider-native enabled field only (Codex); ABSENT for Claude bindings — the daemon enabled overlay lives in the unreachable store, and a fabricated value would be a lie
       }
   );
@@ -8394,7 +8354,10 @@ interface ProviderAccountRemoveResponse {
 // `agent.provider_binding_change_failed`, reason `account_unavailable`: the session stays on the
 // account it had — where the new login fails at the next request, the daemon hands the previous
 // account back — and the transcript gains one system message naming the switch and the reason.
-// Those events are the settlement; this reply is not.
+// Those events are the settlement; this reply is not. A session at a level its new account cannot run
+// (`Reviewed` on a Claude Code account whose plan lacks auto mode) moves with the rest and runs at
+// `Ask`; it gains one `session.notice` of kind `level_unavailable` naming the level it left, whose
+// flow row reads "Reviewed isn't available on this Claude Code account". Nothing is blocked.
 //
 // NO PER-SESSION SWITCH VERB EXISTS. `agent.configUpdate` carries no account member (§Plan-014): one
 // control setting one fact is what stops a session sitting on an account the provider surface says

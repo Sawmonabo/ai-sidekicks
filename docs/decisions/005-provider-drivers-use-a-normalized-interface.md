@@ -25,7 +25,7 @@ Provider capability and recovery behavior are foundational to Local Runtime Daem
 
 We will require every provider integration to implement a normalized driver interface with explicit capability advertisement.
 
-Transcript replay is part of that boundary. A driver either accepts a canonical transcript replayed into a fresh provider session or declares that it cannot and runs on the hand-over brief floor; the `exportTranscript` and `replayTranscript` operations and the `transcript_replay` capability flag are specified in [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md).
+The hand-over brief is part of that boundary, and transcript replay is not. Every driver composes the brief a session on a different provider starts from, on a throwaway copy of the session, and no driver replays a transcript into a fresh provider session; the `exportHandoverBrief` operation is specified in [Spec-004 §The Canonical Transcript And The Hand-Over Brief](../specs/004-provider-driver-contract-and-capabilities.md#the-canonical-transcript-and-the-hand-over-brief).
 
 ### Thesis — Why This Option
 
