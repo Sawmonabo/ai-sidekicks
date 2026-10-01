@@ -4009,15 +4009,16 @@ interface PlanProposedPayload {
 interface PlanResolveRequest {
   planId: PlanId;
   verdict: "keep" | "build" | "fresh";
-  // The session to mint, present exactly on `fresh`. Its one member is the provider it runs. The
-  // account is not one and no client names one — a minted session runs on its provider's current
-  // account, the way every session does (§Plan-026 — Provider Accounts And Credential Homes).
-  // Everything else is the planning session's — same project, same worktree, the planning session's
-  // permission level, and the plan as the seed. Where that provider, its account and the model cannot
-  // run that level, the verdict is refused `session.level_unavailable` naming the level, and no
-  // session is minted.
+  // The session to mint, present exactly on `fresh`: the provider it runs and the level it starts
+  // at. The account is not one and no client names one — a minted session runs on its provider's
+  // current account, the way every session does (§Plan-026 — Provider Accounts And Credential Homes).
+  // Everything else is the planning session's — same project, same worktree, and the plan as the seed.
   fresh?: {
     driverName: string;
+    // The planning session's level, or the level the person picked in the `Fresh session with` list
+    // where that provider cannot give it. A level that provider, its account or the model cannot run
+    // is refused and no session is minted.
+    level: ExecutionPostureMode;
   };
 }
 interface PlanResolveResponse {
