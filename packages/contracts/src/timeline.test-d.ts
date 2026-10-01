@@ -134,13 +134,10 @@ type _ContinuingReasoningRequiresCursor = AssertExtends<
   "availability" | "reasoningEntries" | "hasMore" | "nextCursor"
 >;
 
-/** The non-`available` reasoning states carry no `hasMore`, `nextCursor` or entries at all. */
+/** The `unavailable` reasoning state carries no `hasMore`, `nextCursor` or entries at all. */
 type _UnpagedReasoningStatesHaveNoContinuation = AssertNever<
   Extract<
-    keyof Extract<
-      ReasoningSurfaceReadResponse,
-      { availability: "unavailable" | "policy_redacted" }
-    >,
+    keyof Extract<ReasoningSurfaceReadResponse, { availability: "unavailable" }>,
     "hasMore" | "nextCursor" | "reasoningEntries"
   >
 >;

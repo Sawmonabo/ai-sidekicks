@@ -1,4 +1,4 @@
-// The three arms, the tail, and the one control — each rendered as itself.
+// The availability arms, the tail, and the one control — each rendered as itself.
 
 import type { ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -43,23 +43,12 @@ function availableReply(bodies: readonly string[]): ReasoningSurfaceReadResponse
   };
 }
 
-describe("the three availability arms", () => {
+describe("the availability arms", () => {
   it("renders the entries on the available arm", () => {
     const container = renderThinkingRow({
       reading: { status: "read", response: availableReply(["weighed the two branches"]) },
     });
     expect(container.textContent).toContain("weighed the two branches");
-  });
-
-  it("says a redaction is a withholding and shows the daemon's own reason", () => {
-    const container = renderThinkingRow({
-      reading: {
-        status: "read",
-        response: { availability: "policy_redacted", policyReason: "org-policy-7" },
-      },
-    });
-    expect(container.textContent).toContain("withheld by policy");
-    expect(container.textContent).toContain("org-policy-7");
   });
 });
 

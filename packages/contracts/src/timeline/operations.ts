@@ -213,9 +213,6 @@ export const REASONING_SURFACE_ENTRIES_MAX = 256;
 /** Cap on one normalized reasoning entry's `content`. */
 export const REASONING_ENTRY_CONTENT_MAX_LEN = 16384;
 
-/** Cap on `policyReason`, the operator-facing redaction explanation. */
-export const REASONING_POLICY_REASON_MAX_LEN = 512;
-
 /**
  * The read is run-scoped, with the same cursor continuation the timeline window carries.
  * `afterCursor` is an event position, not a `sequence` offset, because a reasoning entry is
@@ -249,11 +246,10 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
   .strict();
 
 /**
- * The three-state reasoning reply, each state its own `.strict()` arm so a state-inconsistent
+ * The two-state reasoning reply, each state its own `.strict()` arm so a state-inconsistent
  * field set fails to parse. `available` requires `reasoningEntries`, carries `hasMore` and, on
- * its continuing arm, `nextCursor`. `policy_redacted` requires `policyReason` and no entries.
- * `unavailable` carries neither. The union nests, outer on `availability` and inner on
- * `hasMore`, so the three states stay three.
+ * its continuing arm, `nextCursor`; `unavailable` carries neither. The union nests, outer on
+ * `availability` and inner on `hasMore`, so the two states stay two.
  */
 export type ReasoningSurfaceReadResponse =
   | {
@@ -268,13 +264,11 @@ export type ReasoningSurfaceReadResponse =
       hasMore: false;
       nextCursor?: EventCursor | undefined;
     }
-  | { availability: "unavailable" }
-  | { availability: "policy_redacted"; policyReason: string };
+  | { availability: "unavailable" };
 
 // Non-empty on the continuing arm only, because only a continuing page can loop on a repeated
 // cursor. A terminal page may be empty: a caller re-asking from the end of the surface has
-// reached the end of something that exists, which is neither `unavailable` nor
-// `policy_redacted`. The schema cannot tell a first page from a continuation, so the daemon's
+// reached the end of something that exists, which is not `unavailable`. The schema cannot tell a first page from a continuation, so the daemon's
 // binder (`registerTimelineMethod`) refuses a first `available` page with no entries.
 const continuingReasoningEntriesSchema = z
   .array(ReasoningEntrySchema)
@@ -318,15 +312,6 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
   z.discriminatedUnion("availability", [
     reasoningAvailableArmSchema,
     z.object({ availability: z.literal("unavailable") }).strict(),
-    z
-      .object({
-        availability: z.literal("policy_redacted"),
-        policyReason: wireFreeFormString(
-          REASONING_POLICY_REASON_MAX_LEN,
-          "ReasoningSurfaceReadResponse.policyReason",
-        ),
-      })
-      .strict(),
   ]);
 
 /**
@@ -334,7 +319,7 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
  * exhaustive. `available` contributes one entry: its `hasMore` split is paging, not a state.
  */
 export const REASONING_AVAILABILITY_STATES: readonly ReasoningSurfaceReadResponse["availability"][] =
-  Object.freeze(["available", "unavailable", "policy_redacted"] as const);
+  Object.freeze(["available", "unavailable"] as const);
 
 // timeline.childRunExpand
 

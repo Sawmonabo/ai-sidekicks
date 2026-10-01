@@ -1,7 +1,6 @@
 // The reasoning row's model: the sentence for each availability arm, and how the tail is cut.
 // The copy table is total over the contract's `availability` union, so a new state fails to
-// compile here instead of rendering blank. `unavailable` (never captured) and `policy_redacted`
-// (withheld) are different facts and must never read alike. There is no per-session toggle.
+// compile here instead of rendering blank. There is no per-session toggle.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ReasoningSurfaceReadResponse, RunId, TimelineRow } from "@ai-sidekicks/contracts";
@@ -71,11 +70,7 @@ export const REASONING_AVAILABILITY_COPY: Readonly<
   },
   unavailable: {
     title: "No reasoning was captured for this turn.",
-    detail: "The provider recorded none. Nothing is being withheld here.",
-  },
-  policy_redacted: {
-    title: "This turn's reasoning is withheld by policy.",
-    detail: "It was captured and is not shown here. The stated reason follows.",
+    detail: "The provider recorded none.",
   },
 };
 

@@ -156,8 +156,8 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
           "a first reasoning read carried no cursor, so an empty available surface has no " +
           "continuation to explain it: the client renders a surface that exists and shows " +
           "nothing, which is indistinguishable from the unavailable state while asserting the " +
-          "opposite — a producer with nothing to serve must answer with the state that is true " +
-          "(unavailable, purged, or policy_redacted) rather than with an empty page",
+          "opposite — a producer with nothing to serve must answer unavailable rather than " +
+          "with an empty page",
       },
     ];
   },

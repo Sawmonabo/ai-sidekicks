@@ -377,16 +377,11 @@ describe("the reasoning surface's availability and paging", () => {
       nextCursor: "seq-42",
     });
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, { availability: "unavailable" });
-    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
-      availability: "policy_redacted",
-      policyReason: "withheld by organization policy",
-    });
   });
 
   it("a terminal `available` page accepts an empty entry list", () => {
     // This arm is how a continuation says it reached the end of a surface that exists:
-    // `unavailable` would say no reasoning was captured and `policy_redacted` that it was
-    // withheld, both wrong for a cursor that simply ran out.
+    // `unavailable` would say no reasoning was captured, wrong for a cursor that simply ran out.
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [],
@@ -429,23 +424,11 @@ describe("the reasoning surface's availability and paging", () => {
     ).toBe(false);
   });
 
-  it("`policy_redacted` without `policyReason` fails", () => {
-    expect(
-      ReasoningSurfaceReadResponseSchema.safeParse({ availability: "policy_redacted" }).success,
-    ).toBe(false);
-  });
-
-  it("entries or a policy reason on `unavailable` fail strict parse", () => {
+  it("entries on `unavailable` fail strict parse", () => {
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "unavailable",
         reasoningEntries: [reasoningEntry],
-      }).success,
-    ).toBe(false);
-    expect(
-      ReasoningSurfaceReadResponseSchema.safeParse({
-        availability: "unavailable",
-        policyReason: "withheld",
       }).success,
     ).toBe(false);
   });
@@ -458,12 +441,6 @@ describe("the reasoning surface's availability and paging", () => {
       }).success,
     ).toBe(false);
     expect(ReasoningSurfaceReadResponseSchema.safeParse({ available: false }).success).toBe(false);
-    expect(
-      ReasoningSurfaceReadResponseSchema.safeParse({
-        available: false,
-        policyReason: "withheld",
-      }).success,
-    ).toBe(false);
   });
 
   it("a continuing `available` page refuses an empty entry list", () => {

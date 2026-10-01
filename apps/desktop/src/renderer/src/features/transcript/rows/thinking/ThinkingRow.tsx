@@ -4,7 +4,6 @@
 // and a disabled control would claim an action that exists but is not permitted.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { ReasoningEntry, ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
 import {
   REASONING_AVAILABILITY_COPY,
@@ -124,19 +123,7 @@ function renderAvailabilityArm(response: ReasoningSurfaceReadResponse): React.Re
     );
   }
   const copy = REASONING_AVAILABILITY_COPY[response.availability];
-  return (
-    <Nothing
-      kind="empty"
-      placement="block"
-      title={copy.title}
-      detail={copy.detail}
-      {...(response.availability === "policy_redacted"
-        ? // Verbatim, in the wire's own figure: the reason is the daemon's sentence about its own
-          // policy, and paraphrasing it would make a redaction read as the console's opinion.
-          { action: <WireFigure value={response.policyReason} title="Policy reason" /> }
-        : {})}
-    />
-  );
+  return <Nothing kind="empty" placement="block" title={copy.title} detail={copy.detail} />;
 }
 
 /** The entries themselves, ordered by the sequence the daemon put them in. */
