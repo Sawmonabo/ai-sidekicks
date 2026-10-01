@@ -81,7 +81,11 @@ const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
   resume: "Resuming a run",
 };
 
-/** One version a resume may re-pin onto, as the caller resolved it from the chain. */
+/**
+ * One version a resume may re-pin onto, as the caller resolved it from the chain.
+ *
+ * @consumedBy the run header's pinned-version chip
+ */
 export interface WorkflowVersionChoice {
   /** Opaque and wire-verbatim. Passed through, never parsed. */
   readonly workflowVersionId: string;
