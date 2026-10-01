@@ -27,12 +27,10 @@ const RunReachedBySchema: z.ZodType<RunReachedBy> = z.enum([
  */
 export interface EffectiveRunConfig {
   tokenLimit?: number | undefined;
-  idleTimeoutMs?: number | undefined;
 }
 const EffectiveRunConfigSchema: z.ZodType<EffectiveRunConfig> = z
   .object({
     tokenLimit: z.number().int().positive().optional(),
-    idleTimeoutMs: z.number().int().positive().optional(),
   })
   .strict();
 
