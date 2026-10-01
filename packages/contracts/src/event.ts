@@ -228,7 +228,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   // security_events
   "security.update.available": "security_events",
   "daemon.master_key_source": "security_events",
-  "daemon.pii_split_ambiguous": "security_events",
   "relay.pin_refused": "security_events",
   // event_maintenance
   "event.compacted": "event_maintenance",

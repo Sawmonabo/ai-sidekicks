@@ -119,7 +119,7 @@ interface AssistantOutputInput {
   readonly kind: string;
   /** Media type of the body, which the producer sets and the codec does not. */
   readonly contentType: string;
-  /** Pre-truncation UTF-8 byte length of the body that was sealed. */
+  /** Pre-truncation UTF-8 byte length of the stored body. */
   readonly contentLength: number;
 }
 
@@ -208,7 +208,7 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
 /**
  * One assistant turn, carrying its body's media type and length and never the body.
  *
- * The body lives in `session_events.content_payload`, sealed per session, and the strict
+ * The body lives in `session_events.content_payload`, and the strict
  * schema rejects prose on the payload.
  */
 export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {

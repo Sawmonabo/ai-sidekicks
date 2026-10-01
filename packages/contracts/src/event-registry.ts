@@ -132,7 +132,6 @@ export type SessionEventType =
   // security_events
   | "security.update.available"
   | "daemon.master_key_source"
-  | "daemon.pii_split_ambiguous"
   | "relay.pin_refused"
   // event_maintenance
   | "event.compacted"
@@ -415,7 +414,6 @@ export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
 export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
   "security.update.available",
   "daemon.master_key_source",
-  "daemon.pii_split_ambiguous",
   "relay.pin_refused",
 ] as const;
 

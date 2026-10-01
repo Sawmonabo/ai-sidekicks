@@ -32,7 +32,7 @@
 //
 // Ids are UUIDs, as the strict layer requires. `session.created` carries no title, because
 // its `.strict()` payload rejects one. Assistant and tool payloads describe their body and
-// never carry it; the body is sealed in `content_payload`.
+// never carry it; the body is stored in `content_payload`.
 
 import {
   composeScriptBeats,

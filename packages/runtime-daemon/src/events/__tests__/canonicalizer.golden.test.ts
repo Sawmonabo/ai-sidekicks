@@ -311,20 +311,20 @@ describe("canonicalizeEvent — the canonical envelope", () => {
   });
 
   it("projects only the canonical set — a runtime-only member is not serialized", () => {
-    // `pii_payload` is a storage column, not an envelope member: crypto-shred clears it, so the
-    // canonical bytes must not depend on it. The explicit projection in `canonicalizeEvent`
+    // `content_payload` is a storage column, not an envelope member, so the canonical bytes must
+    // not depend on it. The explicit projection in `canonicalizeEvent`
     // keeps a runtime-only member out of the bytes.
     const withStorageOnlyMember: EventEnvelope = {
       ...GOLDEN_ENVELOPE,
-      ...{ pii_payload: "ciphertext-that-must-not-be-serialized" },
+      ...{ content_payload: "a body that must not be serialized" },
     };
     // Guards the fixture: the inner spread lets the excess member past the object-literal check.
     // If the member stopped landing on the runtime object, the assertions below would pass while
     // testing nothing.
-    expect(Object.keys(withStorageOnlyMember)).toContain("pii_payload");
+    expect(Object.keys(withStorageOnlyMember)).toContain("content_payload");
     const canonicalText = decodeUtf8(canonicalizeEvent(withStorageOnlyMember));
     expect(canonicalText).toBe(GOLDEN_ENVELOPE_CANONICAL_TEXT);
-    expect(canonicalText).not.toContain("pii_payload");
+    expect(canonicalText).not.toContain("content_payload");
   });
 
   it("normalizes occurredAt inside canonicalization — one instant, one byte string", () => {

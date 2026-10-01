@@ -3,7 +3,7 @@
 // module-level state below cannot be read before it is initialized.
 //
 // - `session_events.sequence` is the previous row's plus one, and the append path awaits between
-//   reading the head and writing the row (key resolution, PII encryption). Two concurrent appends
+//   reading the head and writing the row. Two concurrent appends
 //   on one session would derive the same sequence and one would fail on
 //   `UNIQUE(session_id, sequence)`. A better-sqlite3 transaction cannot span an `await`.
 // - The scope is one session, so a slow key ceremony on one session never blocks another.

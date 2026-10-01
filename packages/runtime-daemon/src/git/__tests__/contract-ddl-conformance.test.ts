@@ -138,8 +138,8 @@ describe("contract enums against the daemon schema", () => {
     db.prepare(
       `INSERT INTO interventions
          (id, target_run_id, type, state, expected_run_version, client_idempotency_key, origin,
-          created_at)
-       VALUES (?, 'run-1', ?, ?, 1, ?, 'user', ?)`,
+          device_id, created_at)
+       VALUES (?, 'run-1', ?, ?, 1, ?, 'user', 'device-1', ?)`,
     ).run(newId("intervention"), type, state, newId("key"), TIMESTAMP);
   }
 
