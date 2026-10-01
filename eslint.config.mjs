@@ -278,7 +278,7 @@ export default defineConfig(
   // import ban it displaces, and the `no-restricted-properties` half of that guard still applies.
   //
   // Known gap: `no-restricted-imports` does not see a dynamic `import("node:fs")` (measured on
-  // ESLint 10.2.1), and the `no-restricted-syntax` rule that could is already configured for this
+  // ESLint 10.11.0), and the `no-restricted-syntax` rule that could is already configured for this
   // scope by the append guard; a second invocation would drop that guard here and a hand-synced
   // copy is worse. A lazy import into a pure fold is a review finding.
   {
