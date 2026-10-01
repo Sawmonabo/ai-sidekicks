@@ -84,7 +84,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 
 ### Root Scaffolding
 
-- `package.json` — workspace root with `"private": true`, `packageManager` and `engines.node` constraints per [ADR-022](../decisions/022-v1-toolchain-selection.md)
+- `package.json` — workspace root with `"private": true` and the `packageManager` pin per [ADR-022](../decisions/022-v1-toolchain-selection.md), and no `engines` install gate
 - `pnpm-workspace.yaml` — declares `packages/*` and `apps/*`
 - `turbo.json` — `build`, `test`, `lint`, `typecheck`, and `dev` task pipelines at scaffold time; later tasks (`test:coverage`, for one) are added by the work that owns them
 - `tsconfig.base.json` — strict + `isolatedDeclarations: true` + ESM-only; per-package `tsconfig.json` extends base
@@ -96,7 +96,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 
 ### Per-Package Scaffolding
 
-Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the workspace floor `>=24.16.0` per [ADR-022](../decisions/022-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory.
+Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the packages' floor `>=24.16.0` per [ADR-022](../decisions/022-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory.
 
 The daemon and the command line run on Node 24.16 or later, because the memory gate that decides when a step starts reads `process.availableMemory()`; every package shares that one floor, and the desktop app runs the Node its Electron pin bundles.
 

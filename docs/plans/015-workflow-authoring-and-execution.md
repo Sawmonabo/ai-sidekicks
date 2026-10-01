@@ -839,7 +839,7 @@ The **eighteen** non-security invariants are exercised alongside: I-015-8 (SA-20
 
 **Replay-testing contract (SA-31).** Temporal `runReplayHistory` pattern: replay executor consumes `session_events` history and asserts `DeterminismViolationError` is not thrown; final state is `deepEqual` to original. Every one of the `workflow.*` event types enumerated in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration) has at least one replay-correctness test ([Temporal TS SDK testing](https://docs.temporal.io/develop/typescript/testing-suite)). The contract is gated at Phase 5 (T5.1), which is why `## Rollout Order` item 5 orders resumption ahead of the UI.
 
-**CI budget.** PR pipeline ≤ 30 min wall-clock; nightly ≤ 8 h; weekly unbounded real-time integration. Fuzz crashers are minimized, checked in under `corpus/<target>/regressions/`, and promoted to named `vitest` regression tests.
+**CI cadence.** Fuzzing runs nightly and the real-time integration weekly, with no time budget on either. Fuzz crashers are minimized, checked in under `corpus/<target>/regressions/`, and promoted to named `vitest` regression tests.
 
 ### What each layer proves
 
