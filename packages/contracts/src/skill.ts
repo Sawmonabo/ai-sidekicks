@@ -59,8 +59,8 @@ export const SkillAvailabilitySchema: z.ZodType<SkillAvailability> = z.record(
 
 /**
  * One file in a skill folder, `SKILL.md` included. `size` is in bytes; `readable`
- * is false for a file the daemon will not open in the editor (a binary, or one too
- * large), which is still listed, because the folder travels whole.
+ * is false for a binary file, which the editor does not open but the folder still
+ * lists, because the folder travels whole.
  */
 export interface SkillFile {
   path: string;
