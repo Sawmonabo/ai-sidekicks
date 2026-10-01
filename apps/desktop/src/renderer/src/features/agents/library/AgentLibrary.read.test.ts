@@ -39,6 +39,6 @@ describe("the agent library — a row", () => {
       "Reviewer",
     );
     expect(saved.textContent ?? "").toContain("definition-1");
-    expect(saved.querySelectorAll(".meridian-saved-definition-row__axis")).toHaveLength(10);
+    expect(saved.querySelectorAll(".meridian-saved-definition-row__axis")).toHaveLength(9);
   });
 });
