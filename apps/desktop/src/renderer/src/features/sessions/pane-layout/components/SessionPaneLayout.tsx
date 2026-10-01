@@ -9,12 +9,10 @@
 // move and close are chords, and resize is on the separator, which the arrow keys operate.
 //
 // `react-resizable-panels` owns the resize gesture, the flex arithmetic and the
-// window-splitter ARIA, but not the layout: the group reports back to the store. Its crossed
-// `aria-valuemin` / `aria-valuemax` on later separators is corrected in
-// `separator-value-bounds.ts`. A pane's floor rides the panel's `minSize` in pixels; upstream
-// reports a pixel floor being rescaled as a percentage across a window resize, so
-// `PaneLayoutStore.applyLayout` clamps again over a freshly measured layout, and only the
-// store's clamp is written to disk.
+// window-splitter ARIA, but not the layout: the group reports back to the store. A pane's
+// floor rides the panel's `minSize` in pixels; upstream reports a pixel floor being rescaled
+// as a percentage across a window resize, so `PaneLayoutStore.applyLayout` clamps again over
+// a freshly measured layout, and only the store's clamp is written to disk.
 //
 // `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture as the browser's own
 // HTML5 drag, so no React render happens per frame. It has no keyboard drag by design, so the
@@ -53,7 +51,6 @@ import { SessionPaneSlot } from "./SessionPaneSlot.js";
 import { type TrackedRect } from "../pane-rect-geometry.js";
 import { usePaneRectSources } from "../hooks/usePaneRectSources.js";
 import { usePaneRectTracker } from "../hooks/usePaneRectTracker.js";
-import { useSeparatorValueBoundsCorrection } from "../hooks/useSeparatorValueBoundsCorrection.js";
 
 /** What the pane layout needs: its layout store, its pane registry, and each pane's context. */
 export interface SessionPaneLayoutProps {
@@ -82,7 +79,6 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     ...(props.onPaneRects === undefined ? {} : { onRects: props.onPaneRects }),
   });
   usePaneRectSources(tracker, containerReference, state.revision);
-  useSeparatorValueBoundsCorrection(containerReference, state.revision);
 
   // Read here, in the component with the context: outside `LiveAnnouncerProvider` this throws
   // instead of reordering panes in a silence nobody can detect.
