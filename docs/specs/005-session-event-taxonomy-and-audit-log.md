@@ -506,7 +506,7 @@ Payload shape: `{sessionId, workflowRunId, definitionId, workflowVersionId, node
 
 ### Device And Machine List (control plane)
 
-The person's linked devices and registered machines are the account's, not any session's. The control plane records events about them, carried by the `device.list` live read: one for each statement in the account's statement chain, carrying the statement's kind as its name, beside `device.forgotten` and `runtimenode.registered` ([Spec-028 §Interfaces And Contracts](./028-remote-control.md#interfaces-and-contracts)) — event-driven, with no polling — and none of them is appended to any session's log: a machine's registration is keyed by the machine and its owning user ([ADR-017 §Machine Identity And Reachability](../decisions/017-shared-event-sourcing-scope.md#machine-identity-and-reachability)), and a device is linked to the account ([Spec-028 §Device registration and revocation](./028-remote-control.md#device-registration-and-revocation)). Keys enter and are learned only through that chain: a device's key with its `device.linked`, a machine's with its `runtimenode.added`, and a machine's replaced key is kept and refused from its `runtimenode.key_rotated` on. They are outside §Event Type Summary, which covers session events.
+The person's linked devices and registered machines are the account's, not any session's. The control plane records events about them, carried by the `device.list` live read: one for each statement in the account's statement chain, carrying the statement's kind as its name, beside `device.forgotten` and `runtimenode.registered` ([Spec-028 §Interfaces And Contracts](./028-remote-control.md#interfaces-and-contracts)) — event-driven, with no polling — and none of them is appended to any session's log: a machine's registration is keyed by the machine and its owning user ([ADR-017 §Machine Identity And Reachability](../decisions/017-shared-event-sourcing-scope.md#machine-identity-and-reachability)), and a device is linked to the account ([Spec-028 §Device registration and revocation](./028-remote-control.md#device-registration-and-revocation)). Keys enter and are learned only through that chain: a device's key with its `device.linked`, a machine's with its `runtimenode.added`. They are outside §Event Type Summary, which covers session events.
 
 | Type | Description | Payload |
 | --- | --- | --- |
@@ -520,7 +520,6 @@ The person's linked devices and registered machines are the account's, not any s
 | `runtimenode.registered` | A machine registered with the control plane at its first connection. | `{nodeId, name, platform, serviceVersion}` |
 | `runtimenode.renamed` | A machine was renamed. | `{nodeId, name}` |
 | `runtimenode.removed` | A machine was removed from the account. | `{nodeId}` |
-| `runtimenode.key_rotated` | A machine's identity key was replaced; every device moves its pin for the machine. | `{nodeId}` |
 
 ### Voice
 

@@ -32,7 +32,7 @@ Every V1 feature has a governing spec; feature #24 (Remote Control) is governed 
 | 23 | Voice (`/voice`) | [Spec-014 §Design Decisions](../specs/014-multi-agent-orchestration.md#design-decisions) (voice ships on both providers, with no reservation and no gate) + [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (each provider's voice leg) + [Spec-021](../specs/021-desktop-app-and-renderer.md) (the composer's capture and the voice mode in the machine settings file): dictation into the composer through Anthropic's speech service on a Claude Code session, and Codex's own realtime voice call on a Codex session, talking started on both by holding Space or, after `/voice tap`, tapping it |
 | 24 | Remote Control — linked devices, device liveness, and full parity from any device | [Spec-028](../specs/028-remote-control.md) |
 
-A human step's timeout and every data act (export, erase, purge, key rotation) ship in V1, as ADR-015 states after its V1 table.
+A human step's timeout and every data act (export, erase, purge) ship in V1, as ADR-015 states after its V1 table.
 
 ## Out of Scope
 

@@ -1606,7 +1606,7 @@ The attention service's entries carry the state its two deliveries beyond the ap
 
 ## Remote Control Tables (Plan-028)
 
-Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, the pushes it has sent them, and the ports it shares with them ([Spec-028](../../specs/028-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked`, `passkey.added` and `runtimenode.key_rotated` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed`, `passkey.removed` or `runtimenode.key_rotated` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
+Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, the pushes it has sent them, and the ports it shares with them ([Spec-028](../../specs/028-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
 
 ```sql
 -- Owner: Plan-028
@@ -1618,8 +1618,7 @@ CREATE TABLE trust_statements (
   kind              TEXT NOT NULL
                     CHECK(kind IN ('device.linked', 'device.renamed', 'device.revoked',
                                    'passkey.added', 'passkey.removed',
-                                   'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed',
-                                   'runtimenode.key_rotated')),
+                                   'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
   statement         BLOB NOT NULL                 -- the signed statement as verified, signed by a machine key, a device key or a passkey
 );
 
