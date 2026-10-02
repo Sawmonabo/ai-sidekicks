@@ -43,7 +43,7 @@ describe("workflow.runRead", () => {
     startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
     chainRoot: {
       runId: PARENT_RUN_ID,
-      workflowId: "wfd-0",
+      definitionId: "wfd-0",
       workflowName: "Summarize folder",
       startedAt: "2026-09-29T06:00:00Z",
     },

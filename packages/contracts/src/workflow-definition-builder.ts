@@ -102,7 +102,7 @@ export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefiniti
  * body, so a change mints no version.
  */
 export interface WorkflowPermissionLevelUpdateRequest {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   level: ExecutionPostureMode;
 }
 /** Wire schema for {@link WorkflowPermissionLevelUpdateRequest}. */
@@ -110,17 +110,19 @@ export const WorkflowPermissionLevelUpdateRequestSchema: z.ZodType<
   WorkflowPermissionLevelUpdateRequest,
   WorkflowPermissionLevelUpdateRequest
 > = z
-  .object({ workflowId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
+  .object({ definitionId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
   .strict();
 
 /** The level the workflow now runs at. */
 export interface WorkflowPermissionLevelUpdateResponse {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   level: ExecutionPostureMode;
 }
 /** Wire schema for {@link WorkflowPermissionLevelUpdateResponse}. */
 export const WorkflowPermissionLevelUpdateResponseSchema: z.ZodType<WorkflowPermissionLevelUpdateResponse> =
-  z.object({ workflowId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema }).strict();
+  z
+    .object({ definitionId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
+    .strict();
 
 /**
  * The `workflow.pinDataSet` input: pin items onto one node as test data, or unpin with
