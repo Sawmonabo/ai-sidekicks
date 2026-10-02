@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
+import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import {
   buildFixtureEnvironment as buildHermeticFixtureEnvironment,
@@ -1157,9 +1158,7 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     // An escaped rejection is reported outside any case and fails the run with a non-zero exit
     // (verified against an unguarded build), so surviving this macrotask is the containment
     // assertion.
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
+    await drainMicrotasks();
     expect(observed).toHaveLength(1);
     expect(result).toEqual({
       outcome: "failed",

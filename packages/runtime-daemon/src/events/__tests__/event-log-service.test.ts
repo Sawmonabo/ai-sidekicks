@@ -13,6 +13,7 @@ import {
   type SessionId,
 } from "@ai-sidekicks/contracts";
 
+import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
 import { withSessionAppendLock } from "../session-append-lock.js";
@@ -38,13 +39,6 @@ afterEach(() => {
 // Fixtures
 // ----------------------------------------------------------------------------
 
-/** One macrotask — later than every pending microtask. */
-function tick(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
-}
-
 /**
  * Whether `work` settles within `turns` macrotasks.
  *
@@ -57,7 +51,7 @@ async function settlesWithin(work: Promise<unknown>, turns: number): Promise<boo
     settled = true;
   };
   void work.then(observe, observe);
-  for (let turn = 0; turn < turns; turn += 1) await tick();
+  for (let turn = 0; turn < turns; turn += 1) await drainMicrotasks();
   return settled;
 }
 
@@ -281,7 +275,7 @@ describe("EventLogService — the append lock", () => {
     const holding = withSessionAppendLock(SESSION, async () => {
       await parked;
     });
-    await tick();
+    await drainMicrotasks();
 
     // The lock is keyed on `sessionId`; a global mutex would make this pend.
     await expect(service.append(makeEnvelope({ sessionId: OTHER_SESSION }))).resolves.toMatchObject(
