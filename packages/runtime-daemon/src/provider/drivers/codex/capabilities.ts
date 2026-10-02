@@ -63,6 +63,8 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // Fork at an inclusive turn boundary; not probeable at the parameter level, so it resolves from
     // the matrix (a build that refuses the boundary field fails at fork dispatch).
     rollback: true,
+    // `forkConversation`: a new provider conversation, the source untouched.
+    session_fork: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
     // The daemon's tools reach the model through its per-session MCP `url` entry.

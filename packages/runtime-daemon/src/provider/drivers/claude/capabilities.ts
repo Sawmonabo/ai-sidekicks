@@ -65,6 +65,8 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     structured_output: true,
     // Composed from resume-at plus `--fork-session`.
     rollback: true,
+    // `forkConversation`: a new provider conversation, the source untouched.
+    session_fork: true,
     session_goals: false,
     callback_tools: true,
     // `--agents` AgentDefinitions (provider-native in-session subagents).

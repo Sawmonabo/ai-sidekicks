@@ -176,7 +176,7 @@ CREATE TABLE driver_capabilities (
                     CHECK(capability_flag IN (
                       'resume', 'steer', 'interactive_requests', 'mcp',
                       'tool_calls', 'reasoning_stream', 'model_mutation',
-                      'structured_output', 'rollback', 'session_goals',
+                      'structured_output', 'rollback', 'session_fork', 'session_goals',
                       'callback_tools', 'subagents', 'context_compaction',
                       'provider_commands', 'output_speed'
                     )),

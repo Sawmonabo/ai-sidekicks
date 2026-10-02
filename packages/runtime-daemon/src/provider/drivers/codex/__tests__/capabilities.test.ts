@@ -40,6 +40,7 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   model_mutation: true,
   structured_output: true,
   rollback: true,
+  session_fork: true,
   session_goals: true,
   callback_tools: true,
   subagents: true,

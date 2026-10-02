@@ -96,6 +96,9 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "model_mutation",
   "structured_output",
   "rollback",
+  // Forks the bound conversation into a new provider conversation through `forkConversation`,
+  // leaving the source untouched; never an undo.
+  "session_fork",
   "session_goals",
   "callback_tools",
   "subagents",

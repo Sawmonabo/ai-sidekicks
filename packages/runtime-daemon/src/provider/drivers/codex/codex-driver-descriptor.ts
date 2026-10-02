@@ -70,6 +70,14 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     rationale:
       "The enumeration establishes that `thread/fork` is accepted, not that `ThreadForkParams.lastTurnId` is present — the wire reference verifies that field at the 0.150.1 pin rather than at the 0.141.0 admission floor. The flag resolves from the matrix until a parameter-level probe exists, and the gap is closed at INVOCATION instead: a build that accepts the method and then refuses the boundary field is classified at `CodexLifecycleManager.forkConversation`'s fork dispatch as `driver.capability_unsupported`, rather than surfacing as an opaque provider fault the caller would have to read a deserializer message to understand. That classification covers the refusing build only — one that instead IGNORES an unrecognized boundary field forks the whole thread and is answered by that same leg's turn-ledger check, which is a diagnostic and not a refusal.",
   },
+  session_fork: {
+    detectionSource: "static",
+    failingConjuncts: ["decisive-at-consumption-granularity"],
+    rationale:
+      "The enumeration establishes that `thread/fork` is accepted, not that its inclusive-turn " +
+      "boundary field is; a build that refuses the field is classified at fork dispatch as " +
+      "`driver.capability_unsupported`.",
+  },
   session_goals: {
     detectionSource: "probed",
     probe: {

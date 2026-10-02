@@ -70,6 +70,7 @@ describe("Claude capability declaration", () => {
       model_mutation: true,
       structured_output: true,
       rollback: true,
+      session_fork: true,
       session_goals: false,
       callback_tools: true,
       subagents: true,
