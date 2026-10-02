@@ -7,7 +7,7 @@
 
 import type { App } from "electron";
 
-import { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "@shared/shutdown-budget.js";
+import { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "./shutdown-budget.js";
 
 /** Injection seams for the logger and the hard cap, so tests need no wall-clock wait. */
 export interface SidecarLifecycleDeps {
