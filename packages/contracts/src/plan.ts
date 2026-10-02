@@ -16,6 +16,7 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
+import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */
 export type PlanId = string & { readonly __brand: "PlanId" };
@@ -99,13 +100,14 @@ export const PlanHandedOffPayloadSchema: z.ZodType<PlanHandedOffPayload> = z
   .strict();
 
 /**
- * The session a `fresh` verdict mints: the provider it runs. It starts at the planning session's
- * level or, where that provider cannot give it, at one of that provider's levels the person picks;
- * the rest is the planning session's: the same project and worktree, the provider's current
- * account, and the plan as the seed.
+ * The session a `fresh` verdict mints: the provider it runs and the level it starts at, the
+ * planning session's level or, where that provider cannot give it, one of that provider's levels
+ * the person picks. The rest is the planning session's: the same project and worktree, the
+ * provider's current account, and the plan as the seed.
  */
 export interface PlanFreshSession {
   driverName: ProviderName;
+  level: ExecutionPostureMode;
 }
 
 /** The verdict on one plan. `fresh` is present exactly on the `fresh` verdict. */
@@ -119,7 +121,10 @@ export const PlanResolveRequestSchema: z.ZodType<PlanResolveRequest, PlanResolve
   .object({
     planId: PlanIdSchema,
     verdict: PlanVerdictSchema,
-    fresh: z.object({ driverName: ProviderNameSchema }).strict().optional(),
+    fresh: z
+      .object({ driverName: ProviderNameSchema, level: ExecutionPostureModeSchema })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((request, context) => {
@@ -136,20 +141,21 @@ export const PlanResolveRequestSchema: z.ZodType<PlanResolveRequest, PlanResolve
   });
 
 /**
- * The plan's state after the verdict, or the state an earlier verdict settled.
+ * The plan's state after the verdict, or the state an earlier verdict settled; never
+ * `waiting`, which is the record's state only before its first verdict.
  * `freshSessionId` is present exactly when the plan was handed off, so the caller
  * switches to the minted session without another read.
  */
 export interface PlanResolveResponse {
   planId: PlanId;
-  state: PlanState;
+  state: Exclude<PlanState, "waiting">;
   freshSessionId?: SessionId | undefined;
 }
 /** Parses a {@link PlanResolveResponse}. */
 export const PlanResolveResponseSchema: z.ZodType<PlanResolveResponse> = z
   .object({
     planId: PlanIdSchema,
-    state: PlanStateSchema,
+    state: z.enum(["accepted", "handed_off", "open"]),
     freshSessionId: SessionIdSchema.optional(),
   })
   .strict()
