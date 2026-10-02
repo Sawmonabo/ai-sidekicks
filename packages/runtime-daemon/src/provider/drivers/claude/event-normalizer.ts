@@ -1,8 +1,8 @@
 // Claude half of the driver normalize boundary, mirroring `../codex/event-normalizer.ts`: a pure,
-// total mapping from a pinned stream-json or control-channel frame kind to its event family.
+// total mapping from a pinned stream-json or control-channel frame kind to its event category.
 //
 // Rows come from the version-pinned Claude wire census (pin `2.1.251`; vectors in `__fixtures__/`,
-// so a re-pin fails a test). A row that names a normalized kind takes its family and event type
+// so a re-pin fails a test). A row that names a normalized kind takes its category and event type
 // from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
 //
 // Left out on purpose, so the diagnostic default branch reports them instead of a guessed row:
@@ -93,21 +93,21 @@ function resolveClaudeEmissionReadiness(eventType: SessionEventType): ClaudeEmis
 }
 
 /**
- * A frame that normalizes into one event family. `normalizedKind` is `null` for a member the
+ * A frame that normalizes into one event category. `normalizedKind` is `null` for a member the
  * census does not name (`worker_shutting_down`). Entries are frozen shared singletons.
  */
-export interface ClaudeNormalizedFamilyEmission {
+export interface ClaudeNormalizedCategoryEmission {
   readonly disposition: "normalized";
   readonly frameKind: ClaudeWireFrameKind;
   readonly channel: ClaudeWireChannel;
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
   readonly normalizedKind: NormalizedEventKind | null;
   readonly emissionReadiness: ClaudeEmissionReadiness;
 }
 
 /**
- * A known frame that carries no timeline capability, so it normalizes to no family. The non-empty
+ * A known frame that carries no timeline capability, so it normalizes to no category. The non-empty
  * `reason` is mandatory, and the `?: never` keys forbid a taxonomy target.
  */
 interface ClaudeNotEventedFrameDisposition {
@@ -115,7 +115,7 @@ interface ClaudeNotEventedFrameDisposition {
   readonly frameKind: ClaudeWireFrameKind;
   readonly channel: ClaudeWireChannel;
   readonly reason: string;
-  readonly family?: never;
+  readonly category?: never;
   readonly eventType?: never;
   readonly normalizedKind?: never;
   readonly emissionReadiness?: never;
@@ -123,19 +123,19 @@ interface ClaudeNotEventedFrameDisposition {
 
 /** The total result of normalizing one pinned Claude inbound frame kind. */
 export type ClaudeFrameNormalization =
-  | ClaudeNormalizedFamilyEmission
+  | ClaudeNormalizedCategoryEmission
   | ClaudeNotEventedFrameDisposition;
 
 // A table row before its derived members are put on it, so no row states a second copy: a row
-// naming a kind takes `family` and `eventType` from the disposition table, and every row's
+// naming a kind takes `category` and `eventType` from the disposition table, and every row's
 // `emissionReadiness` follows from its event type.
 type ClaudeFrameNormalizationTableRow =
-  | (Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness" | "family" | "eventType"> & {
+  | (Omit<ClaudeNormalizedCategoryEmission, "emissionReadiness" | "category" | "eventType"> & {
       readonly normalizedKind: NormalizedEventKind;
-      readonly family?: never;
+      readonly category?: never;
       readonly eventType?: never;
     })
-  | (Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness"> & {
+  | (Omit<ClaudeNormalizedCategoryEmission, "emissionReadiness"> & {
       readonly normalizedKind: null;
     })
   | ClaudeNotEventedFrameDisposition;
@@ -148,7 +148,7 @@ function composeClaudeFrameNormalization(
   }
   const target =
     row.normalizedKind === null
-      ? { family: row.family, eventType: row.eventType }
+      ? { category: row.category, eventType: row.eventType }
       : resolveAdoptedEventTarget(row.normalizedKind);
   return {
     ...row,
@@ -222,7 +222,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "system/worker_shutting_down",
     channel: "stream",
-    family: "run_lifecycle",
+    category: "run_lifecycle",
     eventType: "run.worker_shutdown",
     normalizedKind: null,
   },
@@ -522,7 +522,7 @@ export function normalizeClaudeCanUseToolRequest(toolName: string): ClaudeFrameN
 
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type ClaudeFrameEmissionRoute =
-  | { readonly route: "emit"; readonly normalization: ClaudeNormalizedFamilyEmission }
+  | { readonly route: "emit"; readonly normalization: ClaudeNormalizedCategoryEmission }
   | { readonly route: "not-evented"; readonly normalization: ClaudeNotEventedFrameDisposition }
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
@@ -585,7 +585,7 @@ export interface ClaudeSubagentLifecycleSignal {
 
 /** The normalized subagent-lifecycle emission plus its router registration. */
 export interface ClaudeSubagentLifecycleNormalization {
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
   readonly subagentId: string;
   readonly parentToolUseId: string | null;
@@ -607,7 +607,7 @@ export function normalizeClaudeSubagentLifecycle(
 ): ClaudeSubagentLifecycleNormalization {
   if (lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
     return Object.freeze({
-      family: "tool_activity",
+      category: "tool_activity",
       eventType: "subagent.started",
       subagentId: lifecycleSignal.subagentId,
       parentToolUseId: lifecycleSignal.parentToolUseId,
@@ -619,7 +619,7 @@ export function normalizeClaudeSubagentLifecycle(
     });
   }
   return Object.freeze({
-    family: "tool_activity",
+    category: "tool_activity",
     eventType: "subagent.completed",
     subagentId: lifecycleSignal.subagentId,
     parentToolUseId: lifecycleSignal.parentToolUseId,

@@ -17,13 +17,15 @@ import {
   normalizeClaudeWireFrame,
   resolveClaudeFrameEmissionRoute,
   type ClaudeFrameNormalization,
-  type ClaudeNormalizedFamilyEmission,
+  type ClaudeNormalizedCategoryEmission,
 } from "../event-normalizer.js";
 import { classifyClaudeUsageLimitSignal } from "../usage-limit-signal.js";
 import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
 
 /** Narrow to the emitting arm, failing the test rather than silently skipping. */
-function expectNormalized(normalization: ClaudeFrameNormalization): ClaudeNormalizedFamilyEmission {
+function expectNormalized(
+  normalization: ClaudeFrameNormalization,
+): ClaudeNormalizedCategoryEmission {
   expect(normalization.disposition).toBe("normalized");
   if (normalization.disposition !== "normalized") {
     throw new Error("unreachable: assertion above already failed");
@@ -52,13 +54,13 @@ describe("control-request asks", () => {
         ),
       ),
     ).toMatchObject({
-      family: "approval_flow",
+      category: "approval_flow",
       eventType: "approval.requested",
       normalizedKind: "approval_request",
     });
     expect(expectNormalized(normalizeClaudeWireFrame("control_request/elicitation"))).toMatchObject(
       {
-        family: "interactive_request",
+        category: "interactive_request",
         eventType: "question.asked",
         normalizedKind: "user_input_request",
       },
@@ -71,13 +73,13 @@ describe("control-request asks", () => {
   it("splits Claude Code's question tool off the permission ask by tool name", () => {
     expect(expectNormalized(normalizeClaudeCanUseToolRequest("AskUserQuestion"))).toMatchObject({
       frameKind: "control_request/can_use_tool",
-      family: "interactive_request",
+      category: "interactive_request",
       eventType: "question.asked",
       normalizedKind: "user_input_request",
       emissionReadiness: "envelope-constructible",
     });
     expect(expectNormalized(normalizeClaudeCanUseToolRequest("Bash"))).toMatchObject({
-      family: "approval_flow",
+      category: "approval_flow",
       eventType: "approval.requested",
       normalizedKind: "approval_request",
     });
@@ -109,7 +111,7 @@ describe("pinned stream surface", () => {
     const [fromKind, toKind] = CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM;
     const from = expectNormalized(normalizeClaudeWireFrame(fromKind));
     const to = expectNormalized(normalizeClaudeWireFrame(toKind));
-    expect(from.family).toBe(to.family);
+    expect(from.category).toBe(to.category);
     expect(from.eventType).toBe(to.eventType);
     expect(from.normalizedKind).toBe(to.normalizedKind);
     expect(to.eventType).toBe("usage.api_retry");
@@ -117,7 +119,7 @@ describe("pinned stream surface", () => {
 });
 
 describe("unknown frame handling", () => {
-  it("refuses an unmapped kind with a typed error rather than dropping it or fabricating a family", () => {
+  it("refuses an unmapped kind with a typed error rather than dropping it or fabricating a category", () => {
     let thrown: unknown;
     try {
       normalizeClaudeWireFrame("system/zzq_nonexistent_subtype");

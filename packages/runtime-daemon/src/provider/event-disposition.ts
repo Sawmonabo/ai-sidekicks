@@ -310,7 +310,7 @@ const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDispo
 
 /** The session event a normalizer row emits: its category and its registered type. */
 export interface AdoptedEventTarget {
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
 }
 
@@ -323,5 +323,5 @@ export function resolveAdoptedEventTarget(kind: NormalizedEventKind): AdoptedEve
   if (disposition?.disposition !== "adopt") {
     throw new Error(`normalized kind '${kind}' is not adopted by the disposition table`);
   }
-  return { family: disposition.category, eventType: disposition.eventType };
+  return { category: disposition.category, eventType: disposition.eventType };
 }

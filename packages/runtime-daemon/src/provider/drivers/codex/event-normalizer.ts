@@ -1,4 +1,4 @@
-// Codex event normalizer: answers "which normalized event family does this native frame belong
+// Codex event normalizer: answers "which normalized event category does this native frame belong
 // to". It parses no payload, builds no envelope and touches no session state.
 //
 // The table covers the server-originated JSON-RPC methods of the pinned `codex-cli 0.150.1`
@@ -115,23 +115,23 @@ function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissi
 }
 
 /**
- * A frame that normalizes into one family and names the event type it emits. `normalizedKind` is
+ * A frame that normalizes into one category and names the event type it emits. `normalizedKind` is
  * `null` for a member with no census kind (such as `thread/goal/updated`), whose row states its
  * own target; a row naming a kind takes its target from the disposition table. Both, and
  * `emissionReadiness`, are put on the row when the map is built.
  */
-interface CodexNormalizedFamilyEmission {
+interface CodexNormalizedCategoryEmission {
   readonly disposition: "normalized";
   readonly nativeMethod: CodexInboundFrameMethod;
   readonly transport: CodexInboundFrameTransport;
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
   readonly normalizedKind: NormalizedEventKind | null;
   readonly emissionReadiness: CodexEmissionReadiness;
 }
 
 /**
- * A known frame with no session-timeline capability, so no family. The `reason` is required so a
+ * A known frame with no session-timeline capability, so no category. The `reason` is required so a
  * non-emission is always justified; an unknown method throws instead.
  */
 interface CodexNotEventedFrameDisposition {
@@ -139,24 +139,24 @@ interface CodexNotEventedFrameDisposition {
   readonly nativeMethod: CodexInboundFrameMethod;
   readonly transport: CodexInboundFrameTransport;
   readonly reason: string;
-  readonly family?: never;
+  readonly category?: never;
   readonly eventType?: never;
   readonly normalizedKind?: never;
   readonly emissionReadiness?: never;
 }
 
 /** The total result of normalizing one pinned Codex inbound frame method. */
-type CodexFrameNormalization = CodexNormalizedFamilyEmission | CodexNotEventedFrameDisposition;
+type CodexFrameNormalization = CodexNormalizedCategoryEmission | CodexNotEventedFrameDisposition;
 
 // A row before its derived members are put on it. Stating one by hand is a compile error (TS2353),
 // but only for fresh object literals, which every row here is.
 type CodexFrameNormalizationTableRow =
-  | (Omit<CodexNormalizedFamilyEmission, "emissionReadiness" | "family" | "eventType"> & {
+  | (Omit<CodexNormalizedCategoryEmission, "emissionReadiness" | "category" | "eventType"> & {
       readonly normalizedKind: NormalizedEventKind;
-      readonly family?: never;
+      readonly category?: never;
       readonly eventType?: never;
     })
-  | (Omit<CodexNormalizedFamilyEmission, "emissionReadiness"> & { readonly normalizedKind: null })
+  | (Omit<CodexNormalizedCategoryEmission, "emissionReadiness"> & { readonly normalizedKind: null })
   | CodexNotEventedFrameDisposition;
 
 function composeCodexFrameNormalization(
@@ -167,7 +167,7 @@ function composeCodexFrameNormalization(
   }
   const target =
     row.normalizedKind === null
-      ? { family: row.family, eventType: row.eventType }
+      ? { category: row.category, eventType: row.eventType }
       : resolveAdoptedEventTarget(row.normalizedKind);
   return {
     ...row,
@@ -279,7 +279,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "guardianWarning",
     transport: "server-notification",
-    family: "approval_flow",
+    category: "approval_flow",
     eventType: "moderation.review_flagged",
     normalizedKind: null,
   },
@@ -287,7 +287,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "thread/goal/updated",
     transport: "server-notification",
-    family: "session_lifecycle",
+    category: "session_lifecycle",
     eventType: "session.goal_updated",
     normalizedKind: null,
   },
@@ -295,7 +295,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "thread/goal/cleared",
     transport: "server-notification",
-    family: "session_lifecycle",
+    category: "session_lifecycle",
     eventType: "session.goal_cleared",
     normalizedKind: null,
   },
@@ -336,7 +336,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "item/autoApprovalReview/completed",
     transport: "server-notification",
-    family: "approval_flow",
+    category: "approval_flow",
     eventType: "approval.reviewer_denied",
     normalizedKind: null,
   },
@@ -373,7 +373,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "autoApprovalReview/strictReviewRequired",
     transport: "server-notification",
-    family: "approval_flow",
+    category: "approval_flow",
     eventType: "moderation.review_flagged",
     normalizedKind: null,
   },
@@ -448,7 +448,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
 } as const satisfies Record<CodexInboundFrameMethod, CodexFrameNormalizationTableRow>;
 
 /**
- * The mapping from native method to normalized family. A `Map` because the key is an untrusted
+ * The mapping from native method to normalized category. A `Map` because the key is an untrusted
  * string and an object lookup would resolve `__proto__`; entries are frozen singletons.
  */
 const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
@@ -468,7 +468,7 @@ const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
 
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type CodexFrameEmissionRoute =
-  | { readonly route: "emit"; readonly normalization: CodexNormalizedFamilyEmission }
+  | { readonly route: "emit"; readonly normalization: CodexNormalizedCategoryEmission }
   | { readonly route: "not-evented"; readonly normalization: CodexNotEventedFrameDisposition }
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
