@@ -494,6 +494,29 @@ export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> =
   })
   .strict();
 
+/** A write the skill cannot take; nothing is written. */
+export type SkillWriteRefusedCode = "skill.write_refused";
+/** The code of a refused write. */
+export const SKILL_WRITE_REFUSED_CODE: SkillWriteRefusedCode = "skill.write_refused";
+
+/**
+ * Why a write was refused: every operation that writes refuses a plugin's skill,
+ * which is read-only, and `skill.recordReattach` refuses a record that is not
+ * orphaned.
+ */
+export const SKILL_WRITE_REFUSED_REASONS = ["plugin_read_only", "not_orphaned"] as const;
+/** One of {@link SKILL_WRITE_REFUSED_REASONS}. */
+export type SkillWriteRefusedReason = (typeof SKILL_WRITE_REFUSED_REASONS)[number];
+
+/** Why the write was refused. */
+export interface SkillWriteRefusedDetails {
+  reason: SkillWriteRefusedReason;
+}
+/** Parses {@link SkillWriteRefusedDetails}. */
+export const SkillWriteRefusedDetailsSchema: z.ZodType<SkillWriteRefusedDetails> = z
+  .object({ reason: z.enum(SKILL_WRITE_REFUSED_REASONS) })
+  .strict();
+
 /**
  * A save whose `name` would rename a folder of ours onto a name another folder of
  * ours already holds in the same place; nothing is renamed and nothing is written.

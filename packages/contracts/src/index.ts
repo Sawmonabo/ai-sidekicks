@@ -2560,6 +2560,8 @@ export {
   SKILL_NAME_TAKEN_CODE,
   SKILL_PATH_REFUSED_CODE,
   SKILL_PATH_REFUSED_REASONS,
+  SKILL_WRITE_REFUSED_CODE,
+  SKILL_WRITE_REFUSED_REASONS,
   SkillAvailabilitySchema,
   SkillAvailabilityUpdateRequestSchema,
   SkillAvailabilityUpdateResponseSchema,
@@ -2587,6 +2589,7 @@ export {
   SkillScanResponseSchema,
   SkillUpdateRequestSchema,
   SkillUpdateResponseSchema,
+  SkillWriteRefusedDetailsSchema,
 } from "./skill.js";
 export type {
   SkillAvailability,
@@ -2620,6 +2623,9 @@ export type {
   SkillScanResponse,
   SkillUpdateRequest,
   SkillUpdateResponse,
+  SkillWriteRefusedCode,
+  SkillWriteRefusedDetails,
+  SkillWriteRefusedReason,
 } from "./skill.js";
 // The timeline contracts, in their one-way import order (child-run-summary, row, operations,
 // row-content and search, methods), which keeps the eager Zod initializers acyclic.
