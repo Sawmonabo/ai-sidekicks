@@ -81,15 +81,9 @@ function distinctReasons(
 }
 
 /**
- * The daemon's reason for one part that did not go back. Throws when the result carries none,
- * since a row that hides why would mislead.
+ * The daemon's reason for one asked-for part that did not go back. The result's schema refuses a
+ * result that leaves such a part without one, so it is always there.
  */
 function reasonFor(result: SessionRestoreFinished, part: SessionRestorePart): string {
-  const failure = result.failures?.[part];
-  if (failure === undefined) {
-    throw new Error(
-      `the undo result reports the ${part} not restored and carries no reason for it: ${JSON.stringify(result)}`,
-    );
-  }
-  return failure.reason;
+  return result.failures![part]!.reason;
 }
