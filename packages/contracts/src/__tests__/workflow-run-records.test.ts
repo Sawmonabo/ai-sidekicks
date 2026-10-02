@@ -22,6 +22,7 @@ const WAITING_RUN_ID = "55555555-5555-4555-8555-555555555555";
 
 const ROW = {
   workflowRunId: RUN_ID,
+  sessionId: SESSION_ID,
   definitionId: "wfd-1",
   definitionName: "Summarize subfolder",
   status: "running",

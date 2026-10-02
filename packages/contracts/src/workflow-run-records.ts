@@ -169,11 +169,13 @@ export interface WorkflowLiveStep {
 
 /**
  * One row of the runs table, in the order the row reads it. It names the definition
- * the run came from, because a list answers with runs nobody named. While the run is
- * going it carries its live step and no duration; a waiting run names its cause.
+ * the run came from, because a list answers with runs nobody named, and the run's
+ * session, which the row opens. While the run is going it carries its live step and no
+ * duration; a waiting run names its cause.
  */
 export interface WorkflowRunSummary {
   workflowRunId: WorkflowRunId;
+  sessionId: SessionId;
   definitionId: WorkflowDefinitionId;
   definitionName: string;
   status: WorkflowRunStatus;
@@ -191,6 +193,7 @@ export interface WorkflowRunSummary {
 export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
+    sessionId: SessionIdSchema,
     definitionId: WorkflowDefinitionIdSchema,
     definitionName: z.string().min(1),
     status: WorkflowRunStatusSchema,
