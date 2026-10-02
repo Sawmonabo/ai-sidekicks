@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
+  DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
@@ -145,7 +146,7 @@ export const ProviderCommandBindingSchema: z.ZodType<
   .strict();
 
 /**
- * One enumerated provider command or skill. `binding` is the routing key, carried with the data so
+ * One enumerated provider command, skill or working tool server's prompt. `binding` is the routing key, carried with the data so
  * a consumer cannot lose it by filtering a held list instead of re-reading. The driver does not
  * filter: a disabled entry is returned, since dropping it would stop the result being the
  * provider's enumeration as observed and hide the difference between a disabled command and one
@@ -155,13 +156,16 @@ export const ProviderCommandBindingSchema: z.ZodType<
  */
 export interface ProviderCommandEntry {
   name: string;
-  // Distinguishes the two things providers publish under one syntax.
-  kind: "command" | "skill";
+  // Distinguishes the things published under one syntax: a provider's command, a skill, and a
+  // working tool server's prompt.
+  kind: "command" | "skill" | "prompt";
   // Omitted, never an empty string, when the provider publishes none. Codex types a skill's
   // description as required, so a skill with none arrives as "", which the schema's
   // `wireFreeFormString` rejects; forwarding it verbatim would fail the enumeration on an honest
   // reading. Omission also says the truth: no description was published, not a blank one.
   description?: string | undefined;
+  // The provider's own hint for what follows the word, present only where it publishes one.
+  argumentHint?: string | undefined;
   // Present only where the provider declares one (Codex skills do; the Claude handshake
   // enumeration does not), so absence means no scope was stated, never that it is unknown.
   scope?: string | undefined;
@@ -169,31 +173,46 @@ export interface ProviderCommandEntry {
   // Claude handshake enumeration draws no such distinction). Absent means no distinction on this
   // surface, never an unknown state, and never a driver-synthesized `true`.
   enabled?: boolean | undefined;
+  // The tool server that publishes a prompt, which the list groups it under; present exactly on a
+  // `prompt` entry.
+  server?: string | undefined;
   binding: ProviderCommandBinding;
 }
 
 /**
  * Validates a {@link ProviderCommandEntry}. Strict, siding with the result envelopes: the driver
- * builds it from what its provider published, so an unknown key is a driver bug. Both
- * provider-authored strings are `wireFreeFormString`-bounded because a local skill file's front
+ * builds it from what its provider published, so an unknown key is a driver bug. Every
+ * provider-authored string is `wireFreeFormString`-bounded because a local skill file's front
  * matter is the person's to write and the assembled list travels to a client.
  */
 export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, ProviderCommandEntry> = z
   .object({
     name: wireFreeFormString(DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN, "ProviderCommandEntry.name"),
-    kind: z.enum(["command", "skill"]),
+    kind: z.enum(["command", "skill", "prompt"]),
     description: wireFreeFormString(
       DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
       "ProviderCommandEntry.description",
+    ).optional(),
+    argumentHint: wireFreeFormString(
+      DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
+      "ProviderCommandEntry.argumentHint",
     ).optional(),
     scope: wireFreeFormString(
       DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
       "ProviderCommandEntry.scope",
     ).optional(),
     enabled: z.boolean().optional(),
+    server: wireFreeFormString(
+      DRIVER_MCP_SERVER_NAME_MAX_LEN,
+      "ProviderCommandEntry.server",
+    ).optional(),
     binding: ProviderCommandBindingSchema,
   })
-  .strict();
+  .strict()
+  .refine((entry) => (entry.kind === "prompt") === (entry.server !== undefined), {
+    message: "server is present exactly on a prompt entry",
+    path: ["server"],
+  });
 
 /**
  * One live binding's enumeration. `runId` and `binding` together are provenance a client can read
