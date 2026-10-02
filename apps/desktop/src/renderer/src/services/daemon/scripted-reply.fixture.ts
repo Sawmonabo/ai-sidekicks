@@ -15,7 +15,7 @@ import {
 
 import type { ScenarioNotice, ScenarioRefusalEnvelope } from "./scenario-reply.fixture.js";
 import { daemonMethodBindingFor } from "./daemon-reply-registry.js";
-import type { ScenarioEngine } from "./engine.fixture.js";
+import type { DeliveredNotice, ScenarioEngine } from "./engine.fixture.js";
 import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "./refusal.fixture.js";
 import {
   MCP_NOTICE_STREAM,
@@ -52,8 +52,8 @@ export type ScriptedReplySettlement =
  * `ScenarioComputedReply` reads to answer per entity.
  *
  * A scripted daemon refusal travels back as a value and the caller throws it, keeping the wire's
- * `{code, message}` envelope unwrapped. It rejects on an authoring error in what a resolved
- * answer pushes: a notice off its stream's contract, or one past the backlog cap. A scripted
+ * `{code, message}` envelope unwrapped. It rejects when a resolved answer pushes a notice past the
+ * backlog cap, or one due at once that is off its stream's contract. A scripted
  * latency is spent by parking the reply, never by advancing the clock here, or the loading state
  * would not be observable and beats inside the delay would be delivered as a side effect of a read.
  */
@@ -167,19 +167,28 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
 }
 
 /**
- * Schedule one notice a resolved answer pushes, held to its stream's registered emission shape
- * first, so a drifted notice fails the call that pushed it rather than reaching a subscriber that
- * would read it as nothing.
+ * Schedule one notice a resolved answer pushes. Its payload is composed when it comes due and
+ * held to its stream's registered emission shape then, so a drifted notice fails whoever moved
+ * the clock rather than reaching a subscriber that would read it as nothing.
  */
 function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: ScenarioNotice): void {
-  if (!MACHINE_NOTICE_EMISSION_SCHEMAS[notice.stream].safeParse(notice.payload).success) {
-    throw new FixtureBridgeError(
-      call,
-      "reply-off-contract",
-      `the scenario pushes a ${notice.stream} notice this build does not register for that stream. Script the registered shape rather than teaching a view a frame the daemon cannot send.`,
+  const composeAtDelivery = (): DeliveredNotice | undefined => {
+    const payload = notice.payloadAtDelivery((answeredCall) =>
+      engine.answeredRequests(answeredCall),
     );
-  }
-  if (!engine.scheduleNotice(notice)) {
+    if (payload === undefined) {
+      return undefined;
+    }
+    if (!MACHINE_NOTICE_EMISSION_SCHEMAS[notice.stream].safeParse(payload).success) {
+      throw new FixtureBridgeError(
+        call,
+        "reply-off-contract",
+        `the scenario pushes a ${notice.stream} notice this build does not register for that stream. Script the registered shape rather than teaching a view a frame the daemon cannot send.`,
+      );
+    }
+    return { stream: notice.stream, payload };
+  };
+  if (!engine.scheduleNotice(notice.afterMs, composeAtDelivery)) {
     throw new FixtureBridgeError(
       call,
       "reply-backlog-full",

@@ -79,14 +79,19 @@ export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply | Sc
 
 /**
  * One live notice a settled reply pushes on a machine stream, as the daemon pushes one after an
- * edit or when a sign-in it brokered finishes. The payload is held to the stream's registered
- * emission shape when it is scheduled.
+ * edit or when a sign-in it brokered finishes. The payload is composed when the notice comes due,
+ * from the writes the playback has answered by then, so a later write can withdraw it: a sign-in
+ * canceled before it finishes reports no completion. It is held to the stream's registered
+ * emission shape as it is delivered.
  */
 export interface ScenarioNotice {
   readonly stream: MachineNoticeStreamName;
   /** Scenario time after the reply settles; zero pushes it at once. */
   readonly afterMs: number;
-  readonly payload: unknown;
+  /** The frame to push, or `undefined` when a write since the reply means there is none. */
+  readonly payloadAtDelivery: (
+    answeredRequestsFor: (call: string) => readonly unknown[],
+  ) => unknown;
 }
 
 /** What every canned reply carries, whichever way it settles. */

@@ -2,7 +2,7 @@
 // its registry read and its sign-in start reaching the scenario's scripted replies through
 // `callDaemon`, and the registry's tail reaching the body.
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -70,5 +70,31 @@ describe("AccountsFixtureMount", () => {
       fixture.scenarioEngine.advance(5000);
     });
     expect(container.textContent).not.toContain("provider.example.test/device");
+  });
+
+  it("reports no completion for a sign-in canceled before it finishes", async () => {
+    const { container, fixture } = await mountProvidersPage();
+    const registryFrames: unknown[] = [];
+    fixture.bridge.daemon.subscribe("providerAccount.subscribe", {}, (frame) => {
+      registryFrames.push(frame);
+    });
+    pressFirstStartControl(container);
+    await settle(() => {
+      fixture.scenarioEngine.advance(200);
+    });
+    const [cancelControl] = [...container.querySelectorAll("button")].filter(
+      (button) => button.textContent === "Cancel sign-in",
+    );
+    if (cancelControl === undefined) {
+      throw new Error("the running sign-in rendered no control to cancel it");
+    }
+    fireEvent.click(cancelControl);
+    await settle(() => undefined);
+
+    // Past the moment the scripted sign-in would have finished on its own.
+    await settle(() => {
+      fixture.scenarioEngine.advance(5000);
+    });
+    expect(registryFrames).toStrictEqual([]);
   });
 });

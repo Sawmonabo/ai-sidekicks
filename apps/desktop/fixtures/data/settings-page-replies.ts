@@ -10,7 +10,7 @@
 //
 // The two pages' writes behave as the daemon's do: a switched binding reads back switched and is
 // announced on `mcp.subscribe`, and a sign-in the page started finishes on its own a few seconds
-// later, reported on `providerAccount.subscribe`.
+// later, reported on `providerAccount.subscribe`, unless it was canceled first.
 
 import type {
   McpListResponse,
@@ -243,7 +243,7 @@ function announceMcpEdit(request: unknown): readonly ScenarioNotice[] {
     ...bindingRefOf(server),
     type: "mcp.server_config_changed",
   };
-  return [{ stream: "mcp.subscribe", afterMs: 0, payload }];
+  return [{ stream: "mcp.subscribe", afterMs: 0, payloadAtDelivery: () => payload }];
 }
 
 /** The scripted inventory row a request's binding fields address, or `undefined`. */
@@ -298,7 +298,8 @@ function answerSignIn(
 
 /**
  * The completion the daemon reports once the person has finished the provider's flow: the
- * attempt the answer minted, for the account the request named.
+ * attempt the answer minted, for the account the request named. Composed when it comes due, so
+ * an attempt canceled in the meantime reports nothing.
  */
 function finishSignIn(request: unknown, answer: unknown): readonly ScenarioNotice[] {
   const account = ACCOUNT_REGISTRY.accounts.find(
@@ -314,7 +315,18 @@ function finishSignIn(request: unknown, answer: unknown): readonly ScenarioNotic
     accountId: account.accountId,
     outcome: "succeeded",
   };
-  return [{ stream: "providerAccount.subscribe", afterMs: SIGN_IN_FINISHES_AFTER_MS, payload }];
+  return [
+    {
+      stream: "providerAccount.subscribe",
+      afterMs: SIGN_IN_FINISHES_AFTER_MS,
+      payloadAtDelivery: (answeredRequestsFor) =>
+        answeredRequestsFor("providerAccount.loginCancel").some(
+          (cancel) => fieldOf(cancel, "attemptId") === attemptId,
+        )
+          ? undefined
+          : payload,
+    },
+  ];
 }
 
 /**

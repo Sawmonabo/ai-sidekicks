@@ -20,7 +20,7 @@ import {
   type ScenarioSink,
   type ScenarioSubscribeOptions,
 } from "./event-delivery.fixture.js";
-import type { ScenarioNotice, ScenarioReply } from "./scenario-reply.fixture.js";
+import type { ScenarioReply } from "./scenario-reply.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /**
@@ -40,6 +40,13 @@ export interface ScenarioProgress {
   readonly isComplete: boolean;
 }
 
+/** A machine notice as its stream's subscribers are handed it. */
+export interface DeliveredNotice {
+  /** The stream name it is pushed on. */
+  readonly stream: string;
+  readonly payload: unknown;
+}
+
 /** How a `ScenarioEngine` is built: the scenario to play, and optionally its clock. */
 export interface ScenarioEngineOptions {
   readonly scenario: Scenario;
@@ -56,7 +63,7 @@ export class ScenarioEngine {
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
   // Notices parked on the clock, apart from replies so `pendingReplyCount` counts requests only.
   readonly #heldNotices = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
-  readonly #notices = new Emitter<ScenarioNotice>("scenario notice");
+  readonly #notices = new Emitter<DeliveredNotice>("scenario notice");
   // How many computed answers this playback has produced for each call name.
   readonly #computedRepliesByCall = new Map<string, number>();
   // The requests each write has been answered for, in settle order.
@@ -222,21 +229,31 @@ export class ScenarioEngine {
   }
 
   /**
-   * Push one machine notice to its stream's subscribers once the frozen clock has moved
-   * `afterMs` further, or at once for no delay. `false` when the backlog of parked notices is
-   * already at its cap. A disposed engine pushes nothing.
+   * Push one machine notice once the frozen clock has moved `afterMs` further, or at once for no
+   * delay. `composeAtDelivery` is asked for the notice when it comes due and answers `undefined`
+   * for none. `false` when the backlog of parked notices is already at its cap. A disposed engine
+   * pushes nothing.
    */
-  public scheduleNotice(notice: ScenarioNotice): boolean {
+  public scheduleNotice(
+    afterMs: number,
+    composeAtDelivery: () => DeliveredNotice | undefined,
+  ): boolean {
     if (this.#disposed) {
       return true;
     }
-    if (notice.afterMs <= 0) {
-      this.#notices.emit(notice);
+    const deliver = (): void => {
+      const notice = composeAtDelivery();
+      if (notice !== undefined) {
+        this.#notices.emit(notice);
+      }
+    };
+    if (afterMs <= 0) {
+      deliver();
       return true;
     }
-    return this.#heldNotices.hold(this.#elapsedMs + notice.afterMs, (outcome) => {
+    return this.#heldNotices.hold(this.#elapsedMs + afterMs, (outcome) => {
       if (outcome === "due") {
-        this.#notices.emit(notice);
+        deliver();
       }
     });
   }
