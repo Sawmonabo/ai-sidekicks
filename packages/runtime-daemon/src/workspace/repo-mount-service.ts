@@ -37,6 +37,7 @@ import {
   RepoMountNotFoundError,
 } from "./repo-errors.js";
 import { RepoRootResolver } from "./repo-root-resolver.js";
+import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { computeRepoMountHealth, type FilesystemPathProbe } from "./workspace-projector.js";
 import { createDefaultPathProbe, type FilesystemPathProbeFn } from "./workspace-row-guards.js";
@@ -467,7 +468,7 @@ export class RepoMountService {
         now: fields.attachedAt,
       });
     } catch (error) {
-      if (!isConstraintViolation(error)) {
+      if (!hasSqliteErrorCode(error, "SQLITE_CONSTRAINT")) {
         throw error;
       }
       const conflict = this.#selectActiveMountByRootStmt.get({
@@ -556,13 +557,4 @@ export class RepoMountService {
       );
     }
   }
-}
-
-/** Prefix-matches `SQLITE_CONSTRAINT`; the caller's conflict lookup is the real discrimination. */
-function isConstraintViolation(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const code: unknown = (error as Error & { code?: unknown }).code;
-  return typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT");
 }

@@ -25,7 +25,8 @@ interface WorktreeGitInvocationOptions {
 
 /**
  * The git process seam: takes the complete argv (including `-C <dir>`) and no working directory.
- * Rejections are opaque, since git `stderr` is exactly what the typed errors must not carry.
+ * A rejection carries git's `stdout` and `stderr`; only git's branch-name refusal is read from it,
+ * since any other `stderr` line can name a filesystem path.
  */
 export type WorktreeGitRunner = (
   argv: readonly string[],

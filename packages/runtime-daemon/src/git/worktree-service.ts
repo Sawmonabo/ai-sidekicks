@@ -3,14 +3,10 @@
 // attached checkout. It holds no `workspaces` write; its caller wraps these calls.
 //
 //   * The main checkout is never mutated: git runs only `symbolic-ref --quiet --short HEAD`,
-//     `worktree add -b`, `worktree prune` (the only thing that unregisters what `add` wrote) and
-//     `status --porcelain`.
+//     `check-ref-format --branch`, `for-each-ref`, `worktree add -b`, `worktree prune` (the only
+//     thing that unregisters what `add` wrote) and `status --porcelain`.
 //   * `cleanupPass` removes the directory, prunes, then stamps `cleaned_at`, so a crash between
 //     steps is retried and never recorded as a cleanup that did not happen.
-//   * Known gap: removing a worktree keeps its branch, so a later `worktree add -b <same-name>`
-//     fails (exit 255 on git 2.50.1) while the index says free; `refuse` then reports
-//     `worktree.create_failed`, not a collision, and `suffix` cannot advance. A second arbiter
-//     would race, and git's stderr has paths.
 
 import { join } from "node:path";
 import type { Database, Statement } from "better-sqlite3";
@@ -40,6 +36,20 @@ import {
   type WorktreeGitRunner,
 } from "./worktree-git.js";
 import { MAX_BRANCH_NAME_ORDINAL } from "./worktree-branch-name.js";
+import {
+  assertSingleWorktreeRowChanged,
+  type AttachedMountRow,
+  type BranchLookupParams,
+  type HoldingWorkspaceRow,
+  type InsertWorktreeParams,
+  type MountLookupParams,
+  type WorktreeIdRow,
+  type WorktreeLookupParams,
+  type WorktreeRootRow,
+  type WorktreeRow,
+  type WorktreeTransitionParams,
+} from "./worktree-rows.js";
+import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 
 /** Dependencies of {@link WorktreeService}; only the first three are required. */
 export interface WorktreeServiceDeps {
@@ -75,11 +85,15 @@ export interface CreateWorktreeInput {
   readonly sessionId: string;
   /** `null` records a prepare before any run. Provenance only; the `run-` fallback is elsewhere. */
   readonly runId?: string | null;
-  /** The branch to create, resolved by the caller (see {@link deriveWorktreeBranchName}). */
+  /**
+   * The branch to create, resolved by the caller (see {@link deriveWorktreeBranchName}). Git's own
+   * branch-name rule judges it before anything else runs; a refusal carries git's line.
+   */
   readonly branchName: string;
   /**
    * `refuse` (a caller-supplied name) raises {@link WorktreeBranchCollisionError}; `suffix` (a
-   * daemon-derived name) takes the first free ordinal. Explicit: every call arrives with a name.
+   * daemon-derived name) takes the first ordinal free both in the index and among the
+   * repository's branches. Explicit: every call arrives with a name.
    */
   readonly onCollision: "refuse" | "suffix";
   /** Base ref for the new branch; omitted, the mount's HEAD branch. A leading `-` is refused. */
@@ -168,71 +182,12 @@ class WorktreeAlreadyRetiredError extends Error {
   }
 }
 
-// Type arguments on `prepare<Bind, Result>` make query/shape drift a type error, not a cast.
-
-interface WorktreeRow {
-  readonly id: string;
-  readonly repo_mount_id: string;
-  readonly created_by_session_id: string;
-  readonly created_by_run_id: string | null;
-  readonly branch_name: string;
-  readonly fs_root: string;
-  readonly state: string;
-  readonly cleaned_at: string | null;
-}
-
-interface AttachedMountRow {
-  readonly id: string;
-  readonly canonical_root: string;
-}
-
-interface WorktreeIdRow {
-  readonly id: string;
-}
-
-interface WorktreeRootRow {
-  readonly id: string;
-  readonly fs_root: string;
-  /** The owning mount's root for the prune; nullable because the read LEFT-joins. */
-  readonly canonical_root: string | null;
-}
-
-interface HoldingWorkspaceRow {
-  readonly workspace_id: string;
-}
-
-interface MountLookupParams {
-  readonly repo_mount_id: string;
-}
-
-interface WorktreeLookupParams {
-  readonly worktree_id: string;
-}
-
-interface BranchLookupParams {
-  readonly repo_mount_id: string;
-  readonly branch_name: string;
-}
-
-interface InsertWorktreeParams {
-  readonly id: string;
-  readonly repo_mount_id: string;
-  readonly created_by_session_id: string;
-  readonly created_by_run_id: string | null;
-  readonly branch_name: string;
-  readonly fs_root: string;
-  readonly now: string;
-}
-
-interface WorktreeTransitionParams {
-  readonly worktree_id: string;
-  readonly now: string;
-}
-
 /** One `create` call's arbitration-loop state; the name and policy stay on `input`. */
 interface CreatingRowAttempt {
   readonly worktreeId: string;
   readonly fsRoot: string;
+  /** The mount's root, where `suffix` asks git whether a candidate branch already exists. */
+  readonly canonicalRoot: string;
   readonly input: CreateWorktreeInput;
 }
 
@@ -419,6 +374,7 @@ export class WorktreeService {
     const mount = this.#requireAttachedMount(input.repoMountId);
 
     const baseRef = await this.#resolveBaseRef(mount.canonical_root, input.baseRef);
+    await this.#requireValidBranchName(mount.canonical_root, input.branchName);
 
     // Minted once, before the arbitration loop: the id is the last segment of `fs_root`.
     const worktreeId = this.#newWorktreeId();
@@ -429,7 +385,12 @@ export class WorktreeService {
     );
     const fsRoot = join(worktreeRootsDirectory, worktreeId);
 
-    const branchName = await this.#insertCreatingRow({ worktreeId, fsRoot, input });
+    const branchName = await this.#insertCreatingRow({
+      worktreeId,
+      fsRoot,
+      canonicalRoot: mount.canonical_root,
+      input,
+    });
 
     try {
       await this.#materializeWorktree({
@@ -456,7 +417,7 @@ export class WorktreeService {
         actor: input.actor ?? null,
         ...(input.correlationId != null ? { correlationId: input.correlationId } : {}),
         transactionalPrelude: () => {
-          assertSingleRowChanged(
+          assertSingleWorktreeRowChanged(
             this.#markReadyStmt.run({ worktree_id: worktreeId, now: this.#now() }),
             worktreeId,
             "mark ready",
@@ -624,6 +585,15 @@ export class WorktreeService {
       const candidateBranchName =
         ordinal === 1 ? input.branchName : `${input.branchName}-${ordinal}`;
 
+      // A removed worktree keeps its branch, so the index alone would call that name free and
+      // `worktree add -b` would fail on it; `suffix` moves past a branch git already has.
+      if (
+        input.onCollision === "suffix" &&
+        (await this.#repositoryHasBranch(attempt.canonicalRoot, candidateBranchName))
+      ) {
+        continue;
+      }
+
       try {
         await this.#events.emitWorktreeCreated({
           sessionId: input.sessionId,
@@ -648,7 +618,7 @@ export class WorktreeService {
         // Only a confirmed live-branch collision is handled. The code check refuses non-UNIQUE
         // failures (an id collision raises SQLITE_CONSTRAINT_PRIMARYKEY); the live-row read refuses
         // a UNIQUE failure this (mount, branch) cannot explain.
-        if (!isUniqueConstraintViolation(appendFailure)) {
+        if (!hasSqliteErrorCode(appendFailure, "SQLITE_CONSTRAINT_UNIQUE")) {
           throw appendFailure;
         }
         const liveRow = this.#selectLiveWorktreeOnBranchStmt.get({
@@ -717,7 +687,7 @@ export class WorktreeService {
           throw new WorktreeRetireConflictError(row.id, holder.workspace_id);
         }
 
-        assertSingleRowChanged(
+        assertSingleWorktreeRowChanged(
           this.#retireStmt.run({ worktree_id: row.id, now: this.#now() }),
           row.id,
           "retire",
@@ -804,6 +774,44 @@ export class WorktreeService {
   }
 
   /**
+   * Git's own branch-name rule, run before any row or event exists. A name starting with `-` would
+   * otherwise reach `worktree add -b` as an option (`-D` deletes the branch named as the base).
+   * The refusal carries git's `fatal:` line as git printed it, which names only the branch.
+   */
+  async #requireValidBranchName(canonicalRoot: string, branchName: string): Promise<void> {
+    try {
+      await this.#runGit(["-C", canonicalRoot, "check-ref-format", "--branch", branchName]);
+    } catch (refusal) {
+      const gitRefusalLine = readGitFatalLine(refusal);
+      if (gitRefusalLine === null) {
+        throw new WorktreeCreateFailedError("git_invocation_failed");
+      }
+      throw new WorktreeCreateFailedError("branch_name_invalid", gitRefusalLine);
+    }
+  }
+
+  /**
+   * Whether the repository already has a local branch at this name, or one nested under it. A
+   * query that does not complete is a creation failure, never read as "free".
+   */
+  async #repositoryHasBranch(canonicalRoot: string, branchName: string): Promise<boolean> {
+    let result: WorktreeGitInvocationResult;
+    try {
+      result = await this.#runGit([
+        "-C",
+        canonicalRoot,
+        "for-each-ref",
+        "--count=1",
+        "--format=%(refname)",
+        `refs/heads/${branchName}`,
+      ]);
+    } catch {
+      throw new WorktreeCreateFailedError("git_invocation_failed");
+    }
+    return result.stdout.trim().length > 0;
+  }
+
+  /**
    * Creates only the parent directory: `git worktree add` refuses a non-empty existing target, and
    * creating the leaf would make this module predict what git tolerates.
    */
@@ -849,34 +857,14 @@ export class WorktreeService {
   }
 }
 
-/**
- * Whether a thrown value is a SQLite UNIQUE violation, narrowed with `in` rather than cast. The
- * code alone is not proof of a branch collision; the caller confirms with a live-row read.
- */
-function isUniqueConstraintViolation(thrown: unknown): boolean {
-  if (typeof thrown !== "object" || thrown === null) {
-    return false;
+/** The `fatal:` line of a rejected git call's `stderr`, without git's `hint:` lines; else `null`. */
+function readGitFatalLine(thrown: unknown): string | null {
+  if (typeof thrown !== "object" || thrown === null || !("stderr" in thrown)) {
+    return null;
   }
-  if (!("code" in thrown)) {
-    return false;
+  const stderr: unknown = thrown.stderr;
+  if (typeof stderr !== "string") {
+    return null;
   }
-  const code: unknown = thrown.code;
-  return code === "SQLITE_CONSTRAINT_UNIQUE";
-}
-
-/**
- * Asserts a compare-and-swap moved exactly one row. Called inside a `transactionalPrelude`, where
- * a throw aborts the transaction and the event row with it. A plain `Error`: an internal
- * consistency failure with no caller repair.
- */
-function assertSingleRowChanged(
-  result: { readonly changes: number },
-  worktreeId: string,
-  attemptedAction: string,
-): void {
-  if (result.changes !== 1) {
-    throw new Error(
-      `cannot ${attemptedAction} worktree "${worktreeId}": it left its expected state before the write committed`,
-    );
-  }
+  return stderr.split("\n").find((line) => line.startsWith("fatal:")) ?? null;
 }

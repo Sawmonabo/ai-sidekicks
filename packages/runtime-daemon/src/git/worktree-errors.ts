@@ -6,9 +6,9 @@
 // - Prepare-time unavailability is `worktree.create_failed`; a select-time capability refusal is
 //   `workspace.mode_unsupported`, so no `worktree.unsupported` code exists.
 // - Only `WorktreeNotFoundError` sets `jsonRpcCode` (`-32602`); the rest default to `-32603`.
-// - No filesystem path reaches a message and no class accepts a caller-supplied message: reasons
-//   are closed enums looked up in a table, so a git `stderr` capture has no way in, and the other
-//   carriers interpolate only opaque ids and git ref names.
+// - No filesystem path reaches a message: reasons are closed enums looked up in a table, and the
+//   other carriers interpolate only opaque ids and git ref names. The one git line a message
+//   carries is git's refusal of a branch name, which names nothing but that branch.
 // - `workspace.busy` and `repo.not_found` stay with `WorkspaceBusyError` and
 //   `RepoMountNotFoundError`, so `instanceof` never depends on which module a throw site imported.
 
@@ -47,14 +47,22 @@ type WorkspaceErrorCode =
  * `branchName`, so it cannot reach it.
  */
 export type WorktreeCreateFailureReason =
+  | WorktreeCreateFailureTableReason
+  | "branch_name_invalid"
+  | "branch_name_underivable";
+
+/** The reasons whose message comes from the table; `branch_name_invalid` carries git's line. */
+type WorktreeCreateFailureTableReason =
   | "base_ref_option_like"
   | "base_ref_unresolved"
   | "branch_name_unavailable"
   | "execution_root_unavailable"
-  | "git_invocation_failed"
-  | "branch_name_underivable";
+  | "git_invocation_failed";
 
-const WORKTREE_CREATE_FAILURE_MESSAGES: Record<WorktreeCreateFailureReason, string> = {
+const WORKTREE_CREATE_FAILURE_MESSAGES: Record<
+  WorktreeCreateFailureTableReason | "branch_name_underivable",
+  string
+> = {
   base_ref_option_like:
     "worktree creation failed: the supplied base ref begins with '-' and would be read as a git option rather than as a commit-ish",
   base_ref_unresolved:
@@ -110,19 +118,26 @@ export class WorktreeNotFoundError extends DaemonDomainError {
 }
 
 /**
- * `worktree.create_failed` (HTTP 500); the workspace goes `stale` via `failRootPreparation`. Only
- * the closed reason is taken, so git's `stderr` never enters the message; the failure persists as
- * a `worktrees` row in state `failed`, readable through `repo.worktreeStatusRead`.
+ * `worktree.create_failed` (HTTP 500); the workspace goes `stale` via `failRootPreparation`. The
+ * message is the closed reason's, except `branch_name_invalid`, whose message is git's own
+ * `fatal:` line refusing the name, shown as git prints it.
  */
 export class WorktreeCreateFailedError extends DaemonDomainError {
   readonly reason: WorktreeCreateFailureReason;
 
-  constructor(reason: WorktreeCreateFailureReason) {
-    super(WORKTREE_CREATE_FAILURE_MESSAGES[reason], {
-      code: "worktree.create_failed" satisfies WorktreeErrorCode,
-      httpStatus: 500,
-      detail: { reason },
-    });
+  constructor(reason: "branch_name_invalid", gitRefusalLine: string);
+  constructor(reason: Exclude<WorktreeCreateFailureReason, "branch_name_invalid">);
+  constructor(reason: WorktreeCreateFailureReason, gitRefusalLine?: string) {
+    super(
+      reason === "branch_name_invalid"
+        ? (gitRefusalLine ?? "")
+        : WORKTREE_CREATE_FAILURE_MESSAGES[reason],
+      {
+        code: "worktree.create_failed" satisfies WorktreeErrorCode,
+        httpStatus: 500,
+        detail: { reason },
+      },
+    );
     this.reason = reason;
   }
 }

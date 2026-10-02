@@ -1013,6 +1013,58 @@ describe("derived-name collisions against real git", () => {
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
+  it(
+    "suffixes past a branch git still holds after its worktree was removed",
+    async () => {
+      const derivedName = deriveWorktreeBranchName({
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        taskSummary: "Fix login",
+      });
+      await ctx.repository.git(["branch", derivedName]);
+
+      const created = await createWorktree(derivedName, "suffix");
+
+      expect(created.branchName).toBe(`${derivedName}-2`);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+});
+
+// ----------------------------------------------------------------------------
+// A branch name git refuses
+// ----------------------------------------------------------------------------
+
+describe("a branch name git refuses", () => {
+  it(
+    "refuses an option-like name with git's line and deletes no branch",
+    async () => {
+      // `worktree add -b -D <path> feature` would hand `-D` to git as an option and delete
+      // `feature`; git's own name check refuses it before any worktree command runs.
+      await ctx.repository.git(["branch", "feature"]);
+
+      const failure = await captureRejection(() =>
+        ctx.worktrees.create({
+          repoMountId: REPO_MOUNT_ID,
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          branchName: "-D",
+          onCollision: "refuse",
+          baseRef: "feature",
+        }),
+      );
+
+      expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
+      expect(failure).toMatchObject({
+        reason: "branch_name_invalid",
+        message: "fatal: '-D' is not a valid branch name",
+      });
+      const branches = await ctx.repository.git(["for-each-ref", "--format=%(refname:short)"]);
+      expect(branches.split("\n")).toContain("feature");
+      expect(readWorktreeRows()).toEqual([]);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
 });
 
 // ----------------------------------------------------------------------------
@@ -1054,7 +1106,7 @@ describe("the main checkout across every failure path", () => {
   it(
     "leaves the working tree, HEAD and the branch roster byte-identical",
     async () => {
-      // Setup for the four failure paths (a)-(d), all before the snapshot.
+      // Setup for the three failure paths (a)-(c), all before the snapshot.
       await ctx.repository.git(["branch", "feature/taken"]);
       const live = await createWorktree("feature/live");
       writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
@@ -1065,11 +1117,7 @@ describe("the main checkout across every failure path", () => {
       expect(await captureRejection(() => createWorktree("feature/taken"))).toBeInstanceOf(
         WorktreeCreateFailedError,
       );
-      // (b) the same divergence under the suffix posture.
-      expect(
-        await captureRejection(() => createWorktree("feature/taken", "suffix")),
-      ).toBeInstanceOf(WorktreeCreateFailedError);
-      // (c) an unacknowledged dirty reuse.
+      // (b) an unacknowledged dirty reuse.
       expect(
         await captureRejection(() =>
           ctx.worktrees.validateReuse({
@@ -1079,7 +1127,7 @@ describe("the main checkout across every failure path", () => {
           }),
         ),
       ).toBeInstanceOf(WorktreeReuseConflictError);
-      // (d) a reuse whose branch disagrees, acknowledgement notwithstanding.
+      // (c) a reuse whose branch disagrees, acknowledgement notwithstanding.
       expect(
         await captureRejection(() =>
           ctx.worktrees.validateReuse({
