@@ -2775,7 +2775,8 @@ describe("CodexDriver forkConversation (native `thread/fork`)", () => {
 
   // The `rollback` flag's static detection leaves a parameter-level gap: the method list
   // shows `thread/fork` is accepted but says nothing about `ThreadForkParams.lastTurnId`,
-  // which is verified at the `0.150.1` pin and not at the `0.141.0` admission floor. A build
+  // which is verified at the wire reference's pin and not at every older build the driver may
+  // admit. A build
   // in that gap passes the capability gate and refuses at the parameter, so the refusal is
   // classified at invocation. The success path is covered by the applied-arm test above.
   const BOUNDARY_FIELD_REFUSALS: readonly string[] = [
