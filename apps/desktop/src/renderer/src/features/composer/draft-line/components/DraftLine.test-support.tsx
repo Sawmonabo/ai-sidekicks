@@ -16,6 +16,8 @@ import { DraftLine } from "./DraftLine.js";
 import { agentPane, inertBridge } from "../../composer.test-support.js";
 import { SendButton } from "./SendButton.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
+import type { WorkflowStartOperations } from "../../command-list/workflow-command/start-workflow-from-line.js";
+import { fixtureWorkflowStartOperations } from "../../command-list/workflow-command/workflow-command.test-support.js";
 
 /** An initialized, empty session store for the default session. */
 export function openSessionStore(): SessionStore {
@@ -35,6 +37,8 @@ export function mountDraftLine(options: {
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
   readonly focusedPane?: PaneAddress | undefined;
+  /** The workflow calls a typed `/workflow start <name>` makes; an empty catalog by default. */
+  readonly workflowStartOperations?: WorkflowStartOperations;
 }): MountedDraftLine {
   const frameStore = new WindowStore();
   const result = render(
@@ -48,6 +52,7 @@ export function mountDraftLine(options: {
         focusedPane: options.focusedPane,
       }}
       calls={options.calls}
+      workflowStartOperations={options.workflowStartOperations ?? fixtureWorkflowStartOperations()}
     />,
   );
   const line = result.container.querySelector("textarea");
@@ -78,11 +83,16 @@ function sendButton(container: HTMLElement): HTMLButtonElement {
 function LineAndSend(props: {
   readonly composerProps: ComposerProps;
   readonly calls: ComposerSendCalls;
+  readonly workflowStartOperations: WorkflowStartOperations;
 }): React.JSX.Element {
   return (
     <>
       <DraftLine {...props.composerProps} />
-      <SendButton {...props.composerProps} calls={props.calls} />
+      <SendButton
+        {...props.composerProps}
+        calls={props.calls}
+        workflowStartOperations={props.workflowStartOperations}
+      />
     </>
   );
 }
@@ -160,6 +170,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
   const sessionStore = storeWithTwoTrippedAgents();
   const frameStore = new WindowStore();
   const bridge = inertBridge();
+  const workflowStartOperations = fixtureWorkflowStartOperations();
   const barFor = (agentId: string): React.JSX.Element => (
     <LineAndSend
       composerProps={{
@@ -171,6 +182,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
         focusedPane: agentPane(agentId),
       }}
       calls={calls}
+      workflowStartOperations={workflowStartOperations}
     />
   );
   const result = render(barFor(FIRST_AGENT_ID));
