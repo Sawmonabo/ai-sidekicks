@@ -404,16 +404,16 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Accounts wake helper not installed | The helper that wakes this computer not installed, so the wake switch stays off and says the administrator password was not given |
 | Accounts usage not known | An account whose usage cannot be read, drawing one quiet line in place of its meters |
 | Accounts warned | A warning the service reports about one provider, drawn as its own strip in that section |
-| Providers, WSL | A Windows computer with WSL 2: the row saying where Claude Code and Codex are installed, reading the distribution with both versions, and every provider line that says where a provider is naming it |
+| Providers, WSL | A Windows computer with WSL 2: the row `Where Claude Code and Codex are installed` reading `Ubuntu (WSL)` with both versions under `Your sidekicks use the Claude Code and Codex installed here.`, and every provider line that says where a provider is naming it, such as `Runs one Codex service in Ubuntu while it is on, so your sidekicks can message a Codex session you typed in an Ubuntu terminal.` |
 | Providers, WSL places | `Change…` open over every place, a WSL 1 distribution dimmed `Needs WSL 2` and one still `Checking…` |
 | Providers, WSL on Windows | The service on Windows, the lines reading `on Windows`, and Codex's line saying it is installed only in the distribution beside `Install on Windows` |
-| Providers, WSL not installed | Neither provider installed in the distribution and both on Windows, with the distribution's install control and the grayed lines naming it |
-| Providers, WSL move confirm | A move to the distribution confirming in place under `Cancel` and `Move`, with the stop's terminal Codex line and the tool-server line |
-| Providers, WSL moving | A move at its first step over a bar, with `Cancel` and `Change…` grayed |
-| Providers, WSL copying | A move copying with its byte count, past the point `Cancel` stands |
-| Providers, WSL moved | A move settled, the row reading the distribution, every account still signed in because its sign-in file moved with it, and the tool servers that ran a Windows program reading failed |
-| Providers, WSL move failed | A move that did not finish and changed nothing, still on Windows, with `Try again` |
-| Providers, WSL move part failed | A move whose undo could not reconnect two worktrees, still naming Windows as in use, with `Try again` |
+| Providers, WSL not installed | Neither provider installed in the distribution and both on Windows: `Not installed in Ubuntu.` with `Install in Ubuntu`, the line `Codex 0.156.0 is installed on Windows. Install it in Ubuntu, or pick Windows above.` beside it, and the grayed lines `Codex is not installed in Ubuntu.` and `Claude Code is not installed in Ubuntu.` |
+| Providers, WSL move confirm | A move to the distribution confirming in place under `Cancel` and `Move` with `Use the Claude Code and Codex in Ubuntu? The background service restarts there, so work in flight stops.` and the rest of its confirm, the stop's terminal Codex line and `2 tool servers run a Windows program and need setting up again in Ubuntu.` |
+| Providers, WSL moving | A move at its first step, `Installing in Ubuntu` over a bar, with `Cancel` and `Change…` grayed |
+| Providers, WSL copying | A move reading `Copying your work · 1.2 GB of 3.4 GB`, past the point `Cancel` stands |
+| Providers, WSL moved | A move settled, reading `Your sidekicks now use the Claude Code and Codex in Ubuntu.` and the row reading the distribution, every account still signed in because its sign-in file moved with it, and the tool servers that ran a Windows program reading failed |
+| Providers, WSL move failed | A move that did not finish and changed nothing, reading `The move did not finish: <reason>. Nothing changed; your sidekicks still use the ones on Windows.` with `Try again` |
+| Providers, WSL move part failed | A move whose undo could not reconnect two worktrees, reading `The move did not finish: <reason>. Your sidekicks still use the ones on Windows, but 2 worktrees could not be reconnected; Runtime lists them.` with `Try again` |
 | MCP degraded | The binding store unreachable, the per-tool controls absent and every other one offered |
 | MCP reading | The server list still being read: nothing drawn at once, and after the short delay `Reading the server list…` in its place |
 | MCP none | No tool servers set up for that provider |
@@ -455,12 +455,12 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Runtime exported | An export done, naming where and how large with its show-in-folder control, and saying the export is not encrypted |
 | Runtime export failed | An export that failed, naming its cause, with `Try again` as the faint word |
 | Runtime WSL | Runtime with the service in the distribution: a worktree on the Windows disk with the other-disk line, and the backup folder in the Windows home |
-| Runtime WSL not responding | The service cannot start because WSL is not responding, saying restarting Windows brings it back |
-| Runtime WSL restarts failed | Five failed restarts, with the error the service gave under the line, word for word |
-| Runtime WSL place gone | The distribution the service ran in gone, its act opening Providers' place row reading that it is no longer on this computer with the list open |
-| Runtime WSL connection taken | Another program holding the service's connection name |
-| Runtime WSL signed-out password changed | The service no longer running while signed out because the Windows password changed, the line naming `sidekicks daemon install --while-signed-out` |
-| Runtime WSL signed in only | A computer where Windows runs no service with no one signed in, saying the service runs only while the person is signed in |
+| Runtime WSL not responding | The service cannot start because WSL is not responding: `The background service cannot start. Restarting Windows brings it back.` |
+| Runtime WSL restarts failed | Five failed restarts: `The background service stopped and could not start again. Restarting Windows usually brings it back.`, with the error the service gave under it, word for word |
+| Runtime WSL place gone | The distribution the service ran in gone: `The background service cannot start because the Claude Code and Codex it used are no longer on this computer. Choose where they are installed in Settings › Providers, then restore your latest backup here.`, its act opening Providers' place row reading `Ubuntu (WSL) · No longer on this computer` with the list open |
+| Runtime WSL connection taken | Another program holding the service's connection name: `The background service cannot start because another program on this computer is using its connection. Restarting Windows usually clears it.` |
+| Runtime WSL signed-out password changed | The service no longer running while signed out because the Windows password changed: `The background service no longer runs while you are signed out, because your Windows password changed. Run sidekicks daemon install --while-signed-out again.` |
+| Runtime WSL signed in only | A computer where Windows runs no service with no one signed in: `On this computer the background service runs only while you are signed in to it.` |
 | Devices nothing linked | Nothing linked yet: this machine alone under the machines, the devices holding their line and `Link a device`, the passkeys holding their line alone, and the shared ports holding their line and the share-a-port field alone |
 | Devices linking | `Link a device` pressed: the code to scan with its line, the link in a read-only field with `Copy link`, the expiry counting down, and `Cancel` |
 | Devices compare | The new device has read the link: the two-screens line over the number, with `It matches` and `It doesn't match` |
