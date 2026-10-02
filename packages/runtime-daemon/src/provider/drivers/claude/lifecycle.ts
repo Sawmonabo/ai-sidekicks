@@ -766,10 +766,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     if (live === undefined) {
       return;
     }
-    void this.#disposeHeldChannel(sessionId, live.channel).catch(() => {
-      // Recorded there: a rejected dispose has already moved the slot to `quarantined` with the
-      // channel retained for a later close. Rethrowing would be an unhandled rejection out of a
-      // terminal listener.
+    // A rejected dispose has already moved the slot to `quarantined` with the channel kept for a
+    // later close; rethrowing would be an unhandled rejection out of a terminal listener.
+    void this.#disposeHeldChannel(sessionId, live.channel).catch((cause: unknown) => {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "quarantined_session_dispose_failed",
+        rawWireType: null,
+        dispositionReason: describeFailure(cause),
+        details: { sessionId },
+      });
     });
   }
 

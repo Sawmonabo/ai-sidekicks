@@ -79,6 +79,9 @@ export type DriverDiagnosticKind =
   // The tripwire swallowed a provider-bound text frame and the run-terminal consumer threw; the
   // trip and the disposal stand, but the terminal the person sees may not have landed.
   | "text_neutralization_trip_report_failed"
+  // Disposing the channel a tripwire trip condemned failed; the slot stays quarantined with the
+  // channel kept for a later close.
+  | "quarantined_session_dispose_failed"
   // The wait for the typed compaction frame ended without it (per-driver bound elapsed, or the
   // binding stopped being live); records which fired. Never emitted when compaction applied.
   | "compaction_wait_terminal"
@@ -143,6 +146,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     subagent_definition_disabled: "driver.subagent.definition_disabled",
     subagent_concurrency_breach: "driver.subagent.concurrency_breach",
     text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
+    quarantined_session_dispose_failed: "driver.session.quarantined_dispose_failed",
     compaction_wait_terminal: "driver.compaction.wait_terminal",
     provider_command_entries_truncated: "driver.provider_commands.entries_truncated",
     provider_command_entry_rejected: "driver.provider_commands.entry_rejected",
