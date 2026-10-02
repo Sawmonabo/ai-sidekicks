@@ -297,8 +297,8 @@ export type WorkflowControlDeniedCode = "workflow.control_denied";
 export const WORKFLOW_CONTROL_DENIED_CODE: WorkflowControlDeniedCode = "workflow.control_denied";
 
 /**
- * A cancel on a run that already ended `succeeded`, `failed` or `crashed`: there is
- * nothing left to cancel. A run already `canceled` is not refused; the cancel replays.
+ * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on
+ * Resume has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
  */
 export type WorkflowRunNotCancelableCode = "workflow.run_not_cancelable";
 /** The code of a cancel on a run that already ended. */

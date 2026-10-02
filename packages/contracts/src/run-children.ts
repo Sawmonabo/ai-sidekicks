@@ -91,7 +91,7 @@ export const ChildPauseSetRequestSchema: z.ZodType<ChildPauseSetRequest, ChildPa
 
 /**
  * Where the child stands after the set. `holdLost` says the hold that paused it
- * was gone before the continue reached it (the provider cancelled the held
+ * was gone before the continue reached it (the provider canceled the held
  * call): the child is not paused, and it was not released by the person.
  */
 export interface ChildPauseSetResponse {

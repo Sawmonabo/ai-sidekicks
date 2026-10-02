@@ -234,9 +234,9 @@ export const WorkflowSecretNotFoundDetailsSchema: z.ZodType<WorkflowSecretNotFou
   .strict();
 
 /**
- * A keychain that is locked or unavailable. A create or replace is refused, and a step
- * fails and offers `Retry from this step`; nothing waits on the keychain indefinitely,
- * and nothing falls back to a plaintext value or to an encrypted file.
+ * A keychain that is locked or unavailable: a create or replace is refused, and a step fails and
+ * offers `Retry from this step`, never waiting on the keychain or keeping the value anywhere else.
+ * A Linux machine with no Secret Service keeps its secrets in the service's own file instead.
  */
 export const WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE = "workflow.secret_store_unavailable" as const;
 /** The type of {@link WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE}. */
