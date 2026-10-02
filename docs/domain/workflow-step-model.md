@@ -39,7 +39,7 @@ The kinds that run an agent or ask a person ([Spec-015 §Node-Kind Taxonomy](../
 
 | Kind | What its step does |
 | --- | --- |
-| `agent.run` | Calls the run admission with the agent definition its `definition` param names, and the provider account, permission level and allowlist resolved from that definition under any per-node `binding` override. |
+| `agent.run` | Calls the run admission with the agent definition its `definition` param names, and the provider account and allowlist resolved from that definition under any per-node `binding` override, at the run's permission level. |
 | `agent.multi-agent` | Runs a lead and the helpers it starts in the run's own session through the orchestration path (`orchestration.runCreate`); what the orchestration run returns becomes the step's output. |
 | `human.approval` | Raises a request through the approval pipeline and Cedar and waits with cause `approval`; the answer routes the step's items down its `approved` or `rejected` output. |
 | `human.form` | Waits with cause `form` for a person to fill its fields, keeping the draft in the form-state store as it is typed; the submission becomes the step's output. |
