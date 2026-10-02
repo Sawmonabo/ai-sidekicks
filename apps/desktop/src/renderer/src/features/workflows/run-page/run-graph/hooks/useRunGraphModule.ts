@@ -53,7 +53,7 @@ export function useRunGraphModule(
         if (isMounted) {
           setGraphModule({
             status: "failed",
-            // The console's one reader of a caught value: `instanceof` or `String()` here throw
+            // The app's one reader of a caught value: `instanceof` or `String()` here throw
             // on a revoked Proxy or a null-prototype object, leaving the graph stuck at `loading`.
             refusal: normalizeWireRejection("run-graph-chunk", loadError),
           });

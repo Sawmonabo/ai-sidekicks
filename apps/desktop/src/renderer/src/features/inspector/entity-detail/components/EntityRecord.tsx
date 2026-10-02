@@ -18,9 +18,9 @@ import type { EntityFacet } from "../entity-facets.js";
 
 /** What one entity record draws: identity, facets, and the wording of its empty-state arms. */
 export interface EntityRecordProps {
-  /** The kind's glyph, from the console's glyph set. */
+  /** The kind's glyph, from the app's glyph set. */
   readonly glyph: GlyphName;
-  /** What this kind is called, in the console's own words — "Run", "Workflow run". */
+  /** What this kind is called, in the app's own words — "Run", "Workflow run". */
   readonly heading: string;
   /** The identifier the pane layout addressed, wire-verbatim. */
   readonly entityId: string;
