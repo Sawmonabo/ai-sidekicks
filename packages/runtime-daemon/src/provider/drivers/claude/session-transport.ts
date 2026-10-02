@@ -18,7 +18,7 @@ import {
   type SpawnEnvPair,
 } from "../../spawn-env.js";
 import { type ProviderRequestFailureObservation } from "../../transcript/failure-mapping.js";
-import { type CallerDeclaredFrameOrigin, type OutboundTextFrame } from "../../outbound-frame.js";
+import { type OutboundTextFrame } from "../../outbound-frame.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import { type ClaudeSubagentLifecycleSignal } from "./event-normalizer.js";
 import type {
@@ -34,12 +34,6 @@ import type {
   SubagentPolicy,
 } from "../../provider-driver.js";
 
-/**
- * How long a user-triggered compaction waits for typed evidence before it is reported failed; the
- * provider is never canceled and a late boundary frame keeps its ordinary route.
- */
-export const CLAUDE_COMPACTION_WAIT_MS: number = 120_000;
-
 /** Bare name: `system/init` lists `slash_commands` without the leading slash. */
 export const CLAUDE_COMPACTION_COMMAND_NAME = "compact";
 
@@ -51,9 +45,6 @@ export const CLAUDE_COMPACTION_COMMAND_TEXT: string = `/${CLAUDE_COMPACTION_COMM
  * neutralization tripwire, so a caller-supplied value would let user words through.
  */
 export const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
-
-/** One outbound user-authored text frame; nominal, so only the frame writer can produce one. */
-export type ClaudeUserTextFrame = OutboundTextFrame;
 
 /**
  * How far a failed `sendUserText` got; `indeterminate` is anything at or after the hand-off, since
@@ -157,7 +148,7 @@ export interface ClaudeProviderProcess {
    * Writes one frame. Report a failure as a `failed` attempt, not a rejection: only the transport
    * knows whether it came before the first byte, and a rejection is treated as `indeterminate`.
    */
-  sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt>;
+  sendUserText(frame: OutboundTextFrame): Promise<ClaudeUserTextWriteAttempt>;
 
   sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse>;
 
@@ -193,7 +184,6 @@ export interface ClaudeSpawnBoundLegs {
   readonly sessionId: SessionId;
   /** The session's model, passed as `--model` on every spawn. */
   readonly model: string;
-  readonly admittedCostCapUsdMicros: number | undefined;
   readonly executionPosture: ExecutionPosture | undefined;
   readonly callbackTools: SessionCallbackTool[] | undefined;
   /** The policy as realized: unmediatable definitions are withheld and `maxDepth` is clamped. */
@@ -256,20 +246,18 @@ export interface ClaudeSessionAttachment {
   readonly channel: ClaudeProviderProcess;
 }
 
-/** An attachment produced by a resume, carrying the position it resumed at. */
+/**
+ * An attachment produced by a resume or a rewind, carrying the position the process landed at: for
+ * a rewind, where the fork landed, not the requested position.
+ */
 export interface ClaudeResumedSessionAttachment extends ClaudeSessionAttachment {
   // Required, so a transport cannot report a resume it cannot evidence.
   readonly sessionPosition: number;
 }
 
-/** A completed rewind; `sessionPosition` is where the fork landed, not the requested position. */
-export interface ClaudeRewoundSessionAttachment extends ClaudeSessionAttachment {
-  readonly sessionPosition: number;
-}
-
 /** A usable credential found by the zero-turn auth probe; the negative outcomes throw. */
 export interface ClaudeAuthProbeReading {
-  /** Non-PII diagnostics only, never credential material or a seat email; bounded by the driver. */
+  /** Non-PII diagnostics only, never credential material or an account email; bounded by the driver. */
   readonly detail?: string | undefined;
 }
 
@@ -321,7 +309,7 @@ export interface ClaudeSessionTransport {
    * a different session id is a failure while a rewind landing on the same id is one; it carries
    * `spawnSession`'s obligations.
    */
-  rewindSession(request: ClaudeSessionRewindRequest): Promise<ClaudeRewoundSessionAttachment>;
+  rewindSession(request: ClaudeSessionRewindRequest): Promise<ClaudeResumedSessionAttachment>;
   /**
    * The zero-turn authentication probe; reaching a working `system/init` is the evidence (no
    * authless probe exists, measured). The transport spends no turn, leaks no credential material,
@@ -330,9 +318,6 @@ export interface ClaudeSessionTransport {
    */
   probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading>;
 }
-
-/** A constant, not a port member: the opening text is the user's own message. */
-export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 /** The daemon-owned facts `startRun` needs that `StartRunParams` lacks. */
 export interface ClaudeRunDispatch {
@@ -347,7 +332,7 @@ export interface ClaudeRunDispatchResolver {
 
 /**
  * The read `ClaudeInterventionDispatcher` needs. It throws for a run whose binding a
- * text-neutralization trip disposed: `undefined` ("no channel yet") would invite a retry into a
+ * text-neutralization trip disposed: `undefined` ("no channel bound") would invite a retry into a
  * process that swallowed the user's words.
  */
 export interface ClaudeRunProcessLookup {
@@ -375,9 +360,4 @@ export class ClaudeControlRequestRefusedError extends Error {
     this.name = "ClaudeControlRequestRefusedError";
     this.fields = { driverId: CLAUDE_DRIVER_NAME, subtype, providerError };
   }
-}
-
-/** Fails the waiters of a session whose process is going away; both teardown paths call it. */
-export function disposeSubagentAdmission(legs: ClaudeSpawnBoundLegs): void {
-  legs.subagentAdmission?.dispose();
 }

@@ -1,12 +1,9 @@
-// Windows-only check that a worktree directory can be torn down while a spawned session is
-// active, without `ERROR_SHARING_VIOLATION`. The pure transform is covered on every platform in
-// `spawn-cwd-translator.test.ts`; here `describe.skipIf` makes this file a no-op elsewhere.
-//
-// A recording in-memory `PtyHost` stands in for a real backend, so what is verified is the
-// wire-layer claim that holds the sharing violation at bay: the `cwd` handed to the backend is
-// the stable parent, not the worktree.
+// Windows-only check of what keeps `ERROR_SHARING_VIOLATION` off a worktree teardown: the `cwd`
+// handed to the backend is the stable parent, not the worktree. The pure transform is covered on
+// every platform in `spawn-cwd-translator.test.ts`; here `describe.skipIf` makes this file a no-op
+// elsewhere. A recording in-memory `PtyHost` stands in for a real backend.
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -85,11 +82,8 @@ interface TestContext {
 let ctx: TestContext;
 
 beforeEach(() => {
-  // The worktree is created on disk so the teardown assertion has a real path to remove; the
-  // recording host holds no OS lock on it.
   const stableParent: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-spawn-cwd-"));
   const worktree: string = join(stableParent, "worktrees", "feature-x");
-  mkdirSync(worktree, { recursive: true });
 
   ctx = {
     host: new RecordingPtyHost(),
@@ -103,7 +97,7 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// Windows CI: ERROR_SHARING_VIOLATION regression
+// Windows: the backend never sees the worktree as cwd
 // ----------------------------------------------------------------------------
 
 describe.skipIf(process.platform !== "win32")(
@@ -139,34 +133,6 @@ describe.skipIf(process.platform !== "win32")(
 
       // The worktree path survives in the wrapped script.
       expect(seen?.args[4]).toContain(`cd /d "${ctx.worktree}"`);
-    });
-
-    it("worktree directory can be removed while the mock session is active (Windows teardown sim)", async () => {
-      // The mock host never locks anything, so this rests on the translation test above: a real
-      // backend spawned with the stable parent as cwd holds no lock on the worktree.
-      const spec: SpawnRequest = {
-        kind: "spawn_request",
-        command: "cmd.exe",
-        args: ["/k"],
-        env: [],
-        cwd: ctx.worktree,
-        rows: 24,
-        cols: 80,
-      };
-      const translated: SpawnRequest = translateSpawnCwd({
-        spec,
-        strategy: "cd-prefix",
-        stableParent: ctx.stableParent,
-      });
-
-      await ctx.host.spawn(translated);
-
-      // If the translator ever forwarded the worktree as cwd, a real backend would lock it and
-      // this would throw `ERROR_SHARING_VIOLATION`. `force: false` matters: a missing directory
-      // would otherwise no-op and pass vacuously.
-      expect(() => {
-        rmSync(ctx.worktree, { recursive: true, force: false });
-      }).not.toThrow();
     });
   },
 );

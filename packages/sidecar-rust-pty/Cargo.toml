@@ -16,12 +16,9 @@ portable-pty = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_with = { version = "3.7", features = ["base64"] }
 serde_json = "1.0"
-# `sync` is required by `pty_session::PtySessionRegistry` for `tokio::sync::{Mutex, mpsc}`. `time`
-# is used by the `pty_session` integration tests for `tokio::time::{sleep, timeout}`; production
-# code does not depend on it, but enabling it crate-wide is simpler than a
-# `[dev-dependencies] tokio` re-export and keeps a single tokio declaration. `rt` is pulled in
-# transitively by `rt-multi-thread`, so it is not listed.
-tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync", "time"] }
+# `sync` is required by `pty_session::PtySessionRegistry` for `tokio::sync::{Mutex, mpsc}`. `rt` is
+# pulled in transitively by `rt-multi-thread`, so it is not listed.
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "sync"] }
 clap = { version = "4.5", features = ["derive"] }
 
 # POSIX `kill(2)` for `pty_session::kill()`. `portable-pty`'s default `ChildKiller` on unix
@@ -31,3 +28,7 @@ clap = { version = "4.5", features = ["derive"] }
 # version.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Only the tests use `tokio::time` (`sleep`, `timeout`).
+[dev-dependencies]
+tokio = { version = "1.40", features = ["time"] }

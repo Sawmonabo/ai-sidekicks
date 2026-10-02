@@ -1,5 +1,6 @@
-// A second `applyMigrations()` call must be a no-op that leaves stored rows untouched; re-running
-// the DDL would fail with `42P07 relation already exists`.
+// A second `applyMigrations()` call must be a no-op that leaves stored rows untouched, and two
+// calls racing on a fresh database must both resolve: the loser re-probes inside the lock and finds
+// the winner's schema. Re-running the DDL would fail with `42P07 relation already exists`.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,10 +8,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyMigrations, type Querier } from "../migration-runner.js";
 
 // PGlite -> Querier adapter
-
-function adaptPGlite(pg: PGlite): Querier {
-  return wrap(pg);
-}
 
 function wrap(handle: PGlite | Transaction): Querier {
   return {
@@ -55,7 +52,7 @@ let ctx: TestContext;
 
 beforeEach(() => {
   const pg: PGlite = new PGlite();
-  const querier: Querier = adaptPGlite(pg);
+  const querier: Querier = wrap(pg);
   ctx = { pg, querier };
 });
 
@@ -77,5 +74,11 @@ describe("applyMigrations", () => {
       "SELECT COUNT(*)::text AS count FROM users",
     );
     expect(users.rows).toEqual([{ count: "1" }]);
+  });
+
+  it("lets two boots racing on a fresh database both succeed", async () => {
+    await expect(
+      Promise.all([applyMigrations(ctx.querier), applyMigrations(ctx.querier)]),
+    ).resolves.toEqual([undefined, undefined]);
   });
 });

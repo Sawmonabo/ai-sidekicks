@@ -5,33 +5,7 @@
 
 import type { Database } from "better-sqlite3";
 
-/**
- * Stdio of one successful git call. `stdout` is a Buffer because `-z` listings are bytes. `stderr`
- * is unread: `update-index` prints `Ignoring path nested/` and exits 0, so failure is by exit
- * status.
- */
-export interface TurnSnapshotGitInvocationResult {
-  readonly stdout: Buffer;
-  readonly stderr: string;
-}
-
-/** The per-call options for one git invocation. */
-export interface TurnSnapshotGitInvocationOptions {
-  readonly timeoutMs: number;
-  /**
-   * Layered over the stripped environment. Per call: the embedded-repository `rev-parse HEAD` must
-   * not get the scratch `GIT_INDEX_FILE`.
-   */
-  readonly environmentOverrides?: Readonly<Record<string, string>>;
-  /** Written to stdin, which is always closed (`commit-tree -F -` hangs on an open one). */
-  readonly stdin?: Buffer;
-}
-
-/** The git process seam: the full argv, `-C <dir>` included; failure is by exit status only. */
-export type TurnSnapshotGitRunner = (
-  argv: readonly string[],
-  options: TurnSnapshotGitInvocationOptions,
-) => Promise<TurnSnapshotGitInvocationResult>;
+import type { GitRunner } from "./git-process.js";
 
 /**
  * The filesystem-mutation seam; both verbs are idempotent, so cleanup in a `finally` cannot turn a
@@ -73,8 +47,8 @@ export type TurnSnapshotRetentionSkipReason =
   /** Enumeration succeeded but an `update-ref -d` did not; refs already deleted still count. */
   | "ref-delete-failed";
 
-/** One run the sweep declined to finish. */
-export interface TurnSnapshotRetentionSkip {
+/** Why one run's prune stopped. */
+interface TurnSnapshotRetentionSkip {
   readonly runId: string;
   readonly reason: TurnSnapshotRetentionSkipReason;
   readonly detail: string;
@@ -117,42 +91,33 @@ export type TurnSnapshotDiagnostic =
       readonly detail: string;
     }
   | {
-      /**
-       * One per sweep pass that skipped a run. Carries no `runId`, `epoch` or `turnOrdinal`;
-       * {@link warnDiagnostic} branches on that.
-       */
-      readonly kind: "retention-prune-skipped";
-      /** Every skip of the pass. Never empty: the sweep does not emit an empty enumeration. */
-      readonly skipped: readonly TurnSnapshotRetentionSkip[];
-      readonly examinedRunCount: number;
-    }
-  | {
-      /**
-       * A retention read failed: the sweep's candidate read or clock (no `runId`; the timer-driven
-       * sweep never throws, so this is its only signal), or one run's row (carries `runId`).
-       */
-      readonly kind: "retention-sweep-failed";
+      /** One run's context row could not be read, so its refs were not pruned. */
+      readonly kind: "run-context-read-failed";
+      readonly runId: string;
       readonly detail: string;
-      readonly runId?: string;
     };
 
 /** Constructor dependencies of {@link TurnSnapshotService}. */
 export interface TurnSnapshotServiceDeps {
   /** Absolute; holds the hook-neutralization and scratch-index directories. */
   readonly executionRootsDirectory: string;
-  /** Retention only. Without it the sweep methods throw `TypeError`, not "nothing to prune". */
+  /**
+   * Needed by the prune only. Without it `pruneSnapshotsForRun` throws `TypeError`, not "nothing
+   * to prune".
+   */
   readonly database?: Database;
-  /** How long refs outlive a run's terminal release, in ms; defaults to a week. */
-  readonly retentionWindowMs?: number;
-  /** Git process seam; defaults to {@link runTurnSnapshotGitWithExecFile}. */
-  readonly git?: TurnSnapshotGitRunner;
+  /**
+   * Git process seam; defaults to `execFile` against `git`. Failure is by exit status alone:
+   * `update-index` prints `Ignoring path nested/` and exits 0.
+   */
+  readonly git?: GitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
   readonly filesystem?: TurnSnapshotFilesystem;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /**
    * The turn-boundary instant in `toISOString()` form. It becomes a fixed `+0000` commit date so
-   * the OID never depends on the host timezone; retention compares it as text with `released_at`.
+   * the OID never depends on the host timezone.
    */
   readonly now?: () => string;
   /** Defaults to `console.warn`; a sink that throws or rejects is contained. */
@@ -218,15 +183,4 @@ export interface TurnSnapshotRetentionPruneResult {
   readonly deletedRefs: readonly string[];
   /** `null` when the prune completed; otherwise why it stopped. */
   readonly skipped: TurnSnapshotRetentionSkip | null;
-}
-
-/** What one {@link TurnSnapshotService.sweepPrunableRuns} pass did. */
-export interface TurnSnapshotRetentionSweepResult {
-  /** Every run whose window had closed at the cutoff, skips included. */
-  readonly examinedRunIds: readonly string[];
-  /** The subset that completed with no skip. */
-  readonly prunedRunIds: readonly string[];
-  readonly deletedRefs: readonly string[];
-  /** The enumeration the `retention-prune-skipped` diagnostic carries. */
-  readonly skipped: readonly TurnSnapshotRetentionSkip[];
 }

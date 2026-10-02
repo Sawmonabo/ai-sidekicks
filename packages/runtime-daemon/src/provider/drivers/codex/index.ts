@@ -33,6 +33,7 @@ import { CodexLifecycleManager } from "./lifecycle.js";
 import {
   resolveCodexTransportSelection,
   type CodexTransportSelection,
+  type DriverTransportConfig,
 } from "./transport-selection.js";
 import { type CodexLifecycleOptions } from "./session-state.js";
 import type {
@@ -43,13 +44,13 @@ import type {
   DriverAuthProbeResult,
   DriverResumeResult,
   ForkConversationResult,
-  DriverTransportConfig,
   ListProviderCommandsParams,
   ProviderDriver,
   ProviderSessionHandle,
   ResumeSessionParams,
   ForkConversationParams,
   SetSessionGoalParams,
+  DriverGoalResult,
   StartRunParams,
 } from "../../provider-driver.js";
 
@@ -87,14 +88,13 @@ export { type CodexCredentialEnvPolicyResolver } from "./session-state.js";
 export {
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
-  type CodexScheduleTimeout,
   type CodexTransportDiagnostic,
 } from "./transport-diagnostics.js";
 
 // Only the model-catalog symbols: `listModels` is the one operation from `./capabilities.ts`.
 export { type CodexModelCatalogExchange } from "./capabilities.js";
 
-export { CodexInterventionDispatcher, CODEX_INTERVENTION_FALLBACK_ACTION } from "./intervention.js";
+export { CodexInterventionDispatcher } from "./intervention.js";
 
 /** Construction inputs for the Codex driver. */
 export interface CodexDriverOptions extends CodexLifecycleOptions {
@@ -134,8 +134,8 @@ export class CodexDriver implements Pick<
   readonly #transportSelection: CodexTransportSelection;
 
   constructor(options: CodexDriverOptions) {
-    // Selection first: a misconfigured transport fails construction, not the first session.
     this.#modelCatalogExchange = options.modelCatalogExchange;
+    // Selection first: a misconfigured transport fails construction, not the first session.
     this.#transportSelection = resolveCodexTransportSelection(options.transportConfig);
     if (this.#transportSelection.transport === "websocket") {
       if (options.resolveBearerCredential === undefined) {
@@ -163,42 +163,52 @@ export class CodexDriver implements Pick<
     });
   }
 
+  /** Spawns a provider process and starts a fresh thread for the session. */
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     return this.#lifecycle.createSession(params);
   }
 
+  /** Relaunches the session's process on its thread; a failure is the typed `failed` result. */
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     return this.#lifecycle.resumeSession(params);
   }
 
+  /** Starts one provider turn for the run. */
   startRun(params: StartRunParams): Promise<void> {
     return this.#lifecycle.startRun(params);
   }
 
+  /** Interrupts the run's live turn. */
   interruptRun(params: InterruptRunParams): Promise<void> {
     return this.#lifecycle.interruptRun(params);
   }
 
+  /** Unsubscribes and tears down the session's process; closing an unknown session resolves. */
   closeSession(params: CloseSessionParams): Promise<void> {
     return this.#lifecycle.closeSession(params);
   }
 
+  /** Routes a steer, interrupt or cancel onto the provider, or returns `degraded`. */
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     return this.#interventions.applyIntervention(params);
   }
 
+  /** Forks the thread at a recorded turn boundary and moves the session onto the fork. */
   forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     return this.#lifecycle.forkConversation(params);
   }
 
-  setSessionGoal(params: SetSessionGoalParams): Promise<void> {
+  /** Sets the thread's goal on the provider. */
+  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
     return this.#lifecycle.setSessionGoal(params);
   }
 
-  clearSessionGoal(params: ClearSessionGoalParams): Promise<void> {
+  /** Clears the thread's goal on the provider. */
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     return this.#lifecycle.clearSessionGoal(params);
   }
 
+  /** Asks a throwaway process whether the credential is signed in; never throws. */
   probeAuth(): Promise<DriverAuthProbeResult> {
     return this.#lifecycle.probeAuth();
   }
@@ -208,10 +218,12 @@ export class CodexDriver implements Pick<
     return resolveCodexModelCatalog(this.#modelCatalogExchange);
   }
 
+  /** Compacts the thread's context and settles on the provider's compaction frame. */
   compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     return this.#lifecycle.compactContext(params);
   }
 
+  /** The provider's commands and skills for the session, held until the provider signals change. */
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
     return this.#lifecycle.listProviderCommands(params);
   }

@@ -8,19 +8,17 @@
 //
 // Routing is by family:
 // - A thread-scoped family routes by the explicit thread identity on the frame.
-// - A connection- or account-scoped family (Claude `system/api_retry`, `rate_limits`, the
-//   capability and initialization frames) routes without a thread identity, because its shape
-//   has none.
+// - A connection- or account-scoped family (retry notices, rate limits, the capability and
+//   initialization frames) routes without a thread identity, because its shape has none.
 // - An unrecognized family is quarantined; an unlisted shape is never presumed connection-scoped.
 //
 // A thread identity is recognized by registration: the session's own thread at establishment, or
-// a child announced with a provider-declared parent (Codex `thread/started` with `parentThreadId`
-// and a subagent source kind; Claude `SubagentStart` with `parent_tool_use_id`). It is never
-// inferred from arrival order.
+// a child announced with a provider-declared parent (each driver reads the parent linkage off its
+// own child-start frame). It is never inferred from arrival order.
 //
 // Two bounded held states differ in meaning:
-// - Pending-registration hold: a frame naming a thread that is present but not yet registered
-//   (child traffic racing its announcement). It is released when the registration lands and shed
+// - Pending-registration hold: a frame naming a thread that is present but unregistered (child
+//   traffic racing its announcement). It is released when the registration lands and shed
 //   with a diagnostic on timeout.
 // - Quarantine: a frame with no identity where its family needs one, or naming a thread no
 //   registration admits. It is a capped diagnostic buffer, oldest shed first, not a delivery
@@ -82,8 +80,7 @@ export interface ChildThreadAnnouncement {
   /** The parent linkage the provider itself declared, or `null` if it named none. */
   readonly declaredParentThreadId: string | null;
   /**
-   * The provider-attributed subagent identity (a Codex subagent source item, a Claude
-   * `SubagentStart` `parent_tool_use_id` pairing), or `null` for an internal child such as a
+   * The provider-attributed subagent identity, or `null` for an internal child such as a
    * compaction thread, whose spend attributes to the parent run.
    */
   readonly subagentId: string | null;
@@ -124,8 +121,7 @@ export interface SubagentLifecycleEmission {
   /** The provider-attributed subagent identity, verbatim off the wire. */
   readonly subagentId: string;
   /**
-   * The provider's own parent linkage, verbatim (Claude `parent_tool_use_id`, Codex
-   * `parentThreadId`), or `null` where the announcement named none.
+   * The provider's own parent linkage, verbatim, or `null` where the announcement named none.
    */
   readonly parentReference: string | null;
 }
@@ -188,9 +184,9 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
 
   /**
    * Registers the session's own thread at establishment and returns the frames held pending it.
-   * Session traffic can arrive before the identity is known (Codex learns its thread id from
-   * `thread/started` while frames are in flight), so the caller must re-route the returned
-   * frames; discarding them sheds session traffic unrecoverably.
+   * Session traffic can arrive before the identity is known (a provider may announce its thread
+   * id while frames are in flight), so the caller must re-route the returned frames; discarding
+   * them sheds session traffic unrecoverably.
    */
   registerSessionThread(threadId: string): readonly TFrame[] {
     this.#sessionThreadId = threadId;
@@ -244,10 +240,10 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   }
 
   /**
-   * Releases a completed child thread's state so the attribution map and suppression ledger do
-   * not grow with every child a long session spawns. Call it from the driver's child-terminal
-   * path (Codex child `turn/completed`, Claude `SubagentStop`). Completion is terminal for the
-   * identity: a later frame naming it is pending-unregistered again and ends in the timeout shed.
+   * Releases a completed child thread's state so the attribution map and the
+   * suppression-diagnosed set do not grow with every child a long session spawns. Call it from the
+   * driver's child-terminal path. Completion is terminal for the identity: a later frame naming it
+   * is pending-unregistered again and ends in the timeout shed.
    */
   completeChildThread(childThreadId: string): ChildCompletionResult<TFrame> {
     const wasRegistered = this.#childAttributionsByThreadId.delete(childThreadId);
@@ -388,11 +384,6 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   /** How many frames are currently held pending registration. */
   pendingHeldFrameCount(): number {
     return this.#pendingHolds.length;
-  }
-
-  /** Frames currently retained in the quarantine buffer (oldest first). */
-  quarantinedFrames(): readonly TFrame[] {
-    return [...this.#quarantinedFrames];
   }
 
   #quarantine(frame: TFrame, reason: string): ThreadFrameRoute {

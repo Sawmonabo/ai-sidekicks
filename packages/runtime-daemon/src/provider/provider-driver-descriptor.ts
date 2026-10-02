@@ -12,7 +12,7 @@ import type {
 
 /**
  * What a version handshake reply says: the provider's own version text, or the reply text that
- * carried none, which the version gate reports as unparseable.
+ * carried none, which the version gate keeps as the printed version with no parse.
  */
 export type ReportedVersionReading =
   | { readonly version: string }

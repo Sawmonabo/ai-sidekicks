@@ -1,6 +1,6 @@
 /**
  * The pending-compaction wait, shared by both driver legs. Both mechanisms answer before the work
- * is done (Codex with an empty acknowledgement, Claude's command frame never), so `applied` is
+ * is done (an empty acknowledgement, or no answer to the command frame at all), so `applied` is
  * admitted only by the provider's typed compaction frame: dispatch, then wait for it.
  *
  * - The wait ends when the driver's bound elapses (one timer per waiter, no polling) or the
@@ -19,6 +19,13 @@ export interface CompactionWaitSettlement {
   readonly terminal: CompactionWaitTerminal;
   readonly boundaryPosition: number | null;
 }
+
+/**
+ * How long a user-triggered compaction waits for typed evidence before it is reported failed: a
+ * bound the daemon publishes, not a provider figure, and longer than a request deadline because
+ * compaction is model work. The provider is never canceled; a late frame keeps its ordinary route.
+ */
+export const COMPACTION_WAIT_MS = 120_000;
 
 /** Schedules a one-shot callback and returns its canceler; injected so tests skip real waits. */
 export type CompactionWaitScheduler = (callback: () => void, delayMs: number) => () => void;
@@ -42,8 +49,9 @@ export interface ArmedCompactionWait {
 /**
  * The pending compactions of one driver, keyed by the driver's own address for a live binding.
  * The key must name the binding a wait was dispatched under, so a path that replaces the binding
- * can release its stranded waits: Claude keys on session id; Codex on session id and thread id
- * (a fork re-points the record, a resume installs a new one) and releases the old key at both.
+ * can release its stranded waits: a driver keys on session id, or on session id and thread id
+ * where a fork re-points the record and a resume installs a new one, releasing the old key at
+ * both.
  */
 export class PendingCompactionRegistry {
   readonly #waitsByKey: Map<string, Set<RegisteredCompactionWait>> = new Map();

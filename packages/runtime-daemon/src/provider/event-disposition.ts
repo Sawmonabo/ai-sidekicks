@@ -21,8 +21,10 @@ import type { EventCategory, SessionEventType } from "@ai-sidekicks/contracts";
 // branch until the owning surface registers the payload variant in `SessionEventSchema`, so
 // emission turns on variant by variant.
 
-// The closed set of normalized kinds. Blocks group related kinds; order is not load-bearing.
-/** One kind in the normalized vocabulary that the provider drivers map their wires into. */
+/**
+ * One kind in the closed normalized vocabulary that the provider drivers map their wires into.
+ * Blocks group related kinds; order is not load-bearing.
+ */
 export type NormalizedEventKind =
   // Inline timeline.
   | "init"
@@ -103,10 +105,8 @@ type EventKindDisposition =
       readonly eventType?: never;
     };
 
-// Internal record behind the exported map. The `satisfies
-// Record<NormalizedEventKind, EventKindDisposition>` check makes a missing, unregistered or
-// duplicate key a compile error, and the `EventKindDisposition` arms reject a `reason` beside a
-// taxonomy target, or a taxonomy target on a correlate or discard. Each entry names its kind's primary target; fan-out is the
+// Internal record behind the exported map; the `satisfies` check makes a missing, unregistered or
+// duplicate key a compile error. Each entry names its kind's primary target; fan-out is the
 // normalizer's concern.
 const EVENT_DISPOSITION_RECORD = {
   // Inline timeline.
@@ -310,7 +310,7 @@ const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDispo
 
 /** The session event a normalizer row emits: its category and its registered type. */
 export interface AdoptedEventTarget {
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
 }
 
@@ -323,5 +323,5 @@ export function resolveAdoptedEventTarget(kind: NormalizedEventKind): AdoptedEve
   if (disposition?.disposition !== "adopt") {
     throw new Error(`normalized kind '${kind}' is not adopted by the disposition table`);
   }
-  return { family: disposition.category, eventType: disposition.eventType };
+  return { category: disposition.category, eventType: disposition.eventType };
 }

@@ -1,5 +1,5 @@
-// Duck-typed `ZodType` mocks shared by the IPC test suites. The registry only reads `safeParse`,
-// so a matching shape stands in for a real schema and tests need no zod import.
+// `ZodType` doubles shared by the IPC test suites. The registry only reads `safeParse`, so each
+// double implements only that and no real schema is built.
 
 import type { ZodType } from "@ai-sidekicks/contracts";
 

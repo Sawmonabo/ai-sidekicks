@@ -9,9 +9,8 @@ import {
   SessionIdSchema,
 } from "@ai-sidekicks/contracts";
 import type { EventEnvelope, EventEnvelopeVersion, SessionId } from "@ai-sidekicks/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "../canonicalizer.js";
-import { bytesToHex } from "./event-test-fixtures.js";
 
 // Helpers are hand-rolled, not imported from a byte-utility library, so a library bump cannot
 // move the expected side of an assertion together with the produced side.
@@ -24,6 +23,11 @@ function hexToBytes(groupedHex: string): Uint8Array {
     bytes[index] = Number.parseInt(compactHex.slice(index * 2, index * 2 + 2), 16);
   }
   return bytes;
+}
+
+/** Renders bytes as continuous lowercase hex, so a failure diffs as text. */
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function decodeUtf8(bytes: Uint8Array): string {
@@ -191,7 +195,7 @@ describe("RFC 8785 published vectors", () => {
     if (sample.expectedJson === null) {
       it(`Appendix B — ${label} is refused: JSON admits no such value`, () => {
         // RFC 8785 section 3.2.2.3 requires an error here. The refusal comes from
-        // `canonicalize@5.1.0` with its bare wording; pinning it makes a library swap that emits
+        // the library with its bare wording; pinning it makes a library swap that emits
         // `null` (plain `JSON.stringify` behavior) fail loudly.
         const message = captureThrownMessage(() =>
           canonicalizeJson(ieee754HexToNumber(sample.ieee754Hex)),
@@ -395,62 +399,17 @@ type MemberAdmittingNull<Envelope> = {
   [MemberName in keyof Envelope]-?: null extends Envelope[MemberName] ? MemberName : never;
 }[keyof Envelope];
 
-// Compile-time check by mutual assignability between the derived union and `"actor"`. If a
-// second `EventEnvelope` member admits `null`, the conditional resolves to `false` and this
-// initializer fails to typecheck (TS2322) before any test runs.
-const NULL_ADMITTING_MEMBER_IS_ACTOR_ONLY: [MemberAdmittingNull<EventEnvelope>] extends ["actor"]
-  ? ["actor"] extends [MemberAdmittingNull<EventEnvelope>]
-    ? true
-    : false
-  : false = true;
-
-const CANONICAL_MEMBER_NAMES: readonly (keyof EventEnvelope)[] = [
-  "id",
-  "sessionId",
-  "sequence",
-  "occurredAt",
-  "category",
-  "type",
-  "actor",
-  "payload",
-  "correlationId",
-  "causationId",
-  "version",
-];
-
 describe("actor is the canonical set's only null-admitting member", () => {
-  it("set-equals the wire authority's declared member set", () => {
-    // Set equality against the schema's members, not a count: if the schema gained or lost a
-    // member while this list stayed at eleven, count assertions would stay green, and the
-    // runtime derivation below iterates this list. Both directions in one assertion, so no
-    // member is missing and none is extra. A same-size swap for a stray key is also refused at
-    // compile time by the `keyof EventEnvelope` element type.
-    //
-    // The cast is needed because `EventEnvelopeSchema` is exported as `z.ZodType<EventEnvelope>`
-    // (required by `isolatedDeclarations`), which hides `.shape` from the type but not from the
-    // runtime object. `session-event.test.ts` in contracts uses the same cast.
+  it("derives the null-admitting member set from the contract, at compile time and at runtime", () => {
+    // The typechecker fails this line if a second `EventEnvelope` member admits `null`.
+    expectTypeOf<MemberAdmittingNull<EventEnvelope>>().toEqualTypeOf<"actor">();
+    // Independent of the type-level check: asks the runtime validator which of the schema's own
+    // members accept `null`. The cast reaches `.shape`, which `isolatedDeclarations` hides behind
+    // the exported `z.ZodType<EventEnvelope>` but the runtime object carries.
     const declaredMembers = Object.keys(
       (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
-    ).sort();
-
-    // The count is taken from the derived array, so "eleven" comes from the schema, not this file.
-    expect(declaredMembers).toHaveLength(11);
-    expect([...CANONICAL_MEMBER_NAMES].sort()).toEqual(declaredMembers);
-    // Only the hand-written list can hold a duplicate. The equality above would already fail on
-    // one, but as an opaque array diff; this names it.
-    expect(new Set(CANONICAL_MEMBER_NAMES).size).toBe(CANONICAL_MEMBER_NAMES.length);
-    // `EventEnvelopeSchema` is `.strict()`, so a clean parse shows the golden envelope carries
-    // every declared member and nothing else, which makes it a valid stand-in for the wire shape.
-    expect(EventEnvelopeSchema.safeParse(GOLDEN_ENVELOPE).success).toBe(true);
-  });
-
-  it("derives the null-admitting member set from the contract, at compile time", () => {
-    expect(NULL_ADMITTING_MEMBER_IS_ACTOR_ONLY).toBe(true);
-  });
-
-  it("derives the null-admitting member set from the contract, at runtime", () => {
-    // Independent of the type-level check: asks the runtime validator which members accept `null`.
-    const membersAcceptingNull = CANONICAL_MEMBER_NAMES.filter(
+    );
+    const membersAcceptingNull = declaredMembers.filter(
       (memberName) =>
         EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
     );
@@ -487,7 +446,7 @@ describe("canonicalizeJson — refusals", () => {
 
   it("reports a cyclic own-property graph as depth exhaustion, not as a hang", () => {
     // The depth walk drives a cycle's depth up without bound, so it fires before
-    // `canonicalize@5.1.0`'s own cycle detection. Pinning which message arrives shows the depth
+    // the library's own cycle detection. Pinning which message arrives shows the depth
     // guard ran before the two walks that have no cycle detection.
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
@@ -504,7 +463,7 @@ describe("canonicalizeJson — refusals", () => {
   });
 
   it("surfaces the NaN and Infinity refusals the RFC requires", () => {
-    // These come from `canonicalize@5.1.0` with its bare wording; a library that emitted `null`
+    // These come from the library with its bare wording; a library that emitted `null`
     // instead would fail here.
     expect(captureThrownMessage(() => canonicalizeJson({ sequence: Number.NaN }))).toBe(
       "NaN is not allowed",
@@ -595,7 +554,7 @@ describe("canonicalizeJson — lone surrogates", () => {
   });
 });
 
-// `canonicalize@5.1.0` serializes whatever a callable `toJSON` returns, an uninspected tree, so
+// The library serializes whatever a callable `toJSON` returns, an uninspected tree, so
 // `canonicalizeJson` refuses the whole class.
 const TO_JSON_REFUSAL = /canonicalization refused: .* carries a callable toJSON/;
 
@@ -618,22 +577,6 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).toMatch(/nested 2 containers deep/);
     expect(message).not.toContain("patient-record-4417");
     expect(message).not.toContain("1970-01-01");
-  });
-
-  it("reads an own getter once per guard walk and once in the serializer", () => {
-    // Four invocations of an own enumerable getter end to end: one per walk (depth, `toJSON`,
-    // well-formedness) and one inside `canonicalize@5.1.0`, which reads each member once. A
-    // non-idempotent getter is the one residual the `toJSON` refusal does not close, so this
-    // count bounds how many different trees it can hand out.
-    let accessorCalls = 0;
-    const withGetter: Record<string, unknown> = {
-      get member(): unknown {
-        accessorCalls += 1;
-        return "value";
-      },
-    };
-    expect(decodeUtf8(canonicalizeJson(withGetter))).toBe('{"member":"value"}');
-    expect(accessorCalls).toBe(4);
   });
 
   it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {

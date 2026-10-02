@@ -91,6 +91,8 @@ export interface BriefDeliverySettlement {
   readonly withheldReason?: BriefWithheldReason | undefined;
   /** What was rendered, whether or not it was sent. Held in memory only. */
   readonly rendering: BriefRendering;
+  /** The gateway error behind an unreadable target or an ambiguous send, when one was thrown. */
+  readonly cause?: unknown;
 }
 
 /**
@@ -167,6 +169,7 @@ export class BriefDeliveryCoordinator {
     return established;
   }
 
+  /** Delivers the brief into the established target at most once and settles what happened. */
   async deliver(request: BriefDeliveryRequest): Promise<BriefDeliverySettlement> {
     // Before anything is rendered, read or sent. Thrown, not settled `withheld`, which would assert
     // the target was never sent to.
@@ -233,13 +236,19 @@ export class BriefDeliveryCoordinator {
       priorTurns = await this.#gateway.readTurnsForMarkerReconciliation(
         request.target.providerSessionId,
       );
-    } catch {
+    } catch (readFailure) {
       // Unreadable: nothing is sent, since a duplicate corrupts the conversation and a missing
       // brief only degrades it. With a send outstanding the honest arm is unconfirmed, not
       // withheld.
       return priorSendUnconfirmed
-        ? settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering))
-        : settle(rendering, "withheld", "target-unreadable", thisDeliveryLosses(rendering));
+        ? settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering), readFailure)
+        : settle(
+            rendering,
+            "withheld",
+            "target-unreadable",
+            thisDeliveryLosses(rendering),
+            readFailure,
+          );
     }
 
     const attributableBriefIdentityKeys: Set<string> = new Set<string>(
@@ -292,7 +301,7 @@ export class BriefDeliveryCoordinator {
         }),
       });
       return settle(rendering, "delivered", undefined, thisDeliveryLosses(rendering));
-    } catch {
+    } catch (sendFailure) {
       // Ambiguous; registered before anything can throw. The barrier is not consulted here: nothing
       // proves a send just made has settled, and an unobserved resolve would clear the register and
       // let the next call send a duplicate.
@@ -303,7 +312,14 @@ export class BriefDeliveryCoordinator {
           request.target.providerSessionId,
         );
       } catch {
-        return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
+        // The send's error explains the ambiguity; the failed readback only leaves it standing.
+        return settle(
+          rendering,
+          "unconfirmed",
+          undefined,
+          thisDeliveryLosses(rendering),
+          sendFailure,
+        );
       }
       if (targetTurnsCarryBriefMarker(turnsAfterSend, rendering.briefIdentityKey)) {
         // The brief is visibly there, so the unacknowledged send applied; no ordering is needed.
@@ -318,7 +334,13 @@ export class BriefDeliveryCoordinator {
         );
       }
       // One absent snapshot while the provider may still be applying is not evidence.
-      return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
+      return settle(
+        rendering,
+        "unconfirmed",
+        undefined,
+        thisDeliveryLosses(rendering),
+        sendFailure,
+      );
     }
   }
 }
@@ -350,6 +372,7 @@ function settle(
   disposition: BriefDeliveryDisposition,
   withheldReason: BriefWithheldReason | undefined,
   lossRecord: BriefDeclaredLossRecord,
+  cause?: unknown,
 ): BriefDeliverySettlement {
   return {
     status: "degraded",
@@ -359,6 +382,7 @@ function settle(
     declaredLossSource: lossRecord.source,
     withheldReason,
     rendering,
+    ...(cause === undefined ? {} : { cause }),
   };
 }
 

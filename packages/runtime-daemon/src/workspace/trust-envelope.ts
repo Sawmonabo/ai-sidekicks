@@ -52,8 +52,7 @@ export interface PlatformPathModule {
 export interface TrustEnvelopeValidatorDeps {
   /**
    * Defaults to `node:fs/promises.realpath`, which returns on-disk spelling. The callback form
-   * keeps the caller's spelling and collapses `..` before a symlink's target, reopening the escape;
-   * `DEFAULT_REALPATH` is pinned by identity for that reason.
+   * keeps the caller's spelling and collapses `..` before a symlink's target, reopening the escape.
    */
   readonly realpath: PathRealpathResolver;
   /**
@@ -72,7 +71,7 @@ export interface TrustEnvelopeValidatorDeps {
 /** `path.win32.sep`. The discriminator for case-folded comparison and win32 path rules. */
 export const WINDOWS_PATH_SEPARATOR = "\\";
 
-/** The realpath used when no seam is injected; exported so a test can pin it by identity. */
+/** The realpath used when no seam is injected; the repo-root resolver defaults to it too. */
 export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
 
 /**

@@ -405,36 +405,6 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // `SessionService.append` is the test-seeding append: it writes a caller-sequenced row outside
-  // the append lock, with no sealing and no size ceiling, so tests may seed through it and
-  // production code never may. The nominal `TestSeedingAppendToken` cannot be manufactured from
-  // config or env data, but in-package code could still gate a `forTestsOnly()` call behind an
-  // environment check. This rule closes that: outside `__tests__/`, runtime-daemon sources may not
-  // call or name the factory, in static and computed (`["forTestsOnly"]`) member forms. An
-  // aliased-class bypass is left to review, where the loud name is the signal (see the token's
-  // class doc in `session/session-service.ts`).
-  {
-    files: ["packages/runtime-daemon/src/**/*.ts"],
-    ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        ENUM_DECLARATION,
-        {
-          selector:
-            "MemberExpression[object.name='TestSeedingAppendToken'][property.name='forTestsOnly']",
-          message:
-            "TestSeedingAppendToken.forTestsOnly() is TEST-ONLY: it lets a test seed events through SessionService.append, which writes outside the append lock with no sealing, and production code must never enable it. Durable writes belong to EventLogService.append.",
-        },
-        {
-          selector:
-            "MemberExpression[object.name='TestSeedingAppendToken'][property.value='forTestsOnly']",
-          message:
-            "TestSeedingAppendToken['forTestsOnly'] is TEST-ONLY: it lets a test seed events through SessionService.append, which writes outside the append lock with no sealing, and production code must never enable it. Durable writes belong to EventLogService.append.",
-        },
-      ],
-    },
-  },
   // `crypto.randomUUID()` emits a v4 UUID: 122 random bits, no time ordering. Daemon-assigned ids
   // are UUID v7 (contracts `session.ts` and `event.ts`), and the wire schemas accept any version on
   // purpose (control-plane rows are Postgres `gen_random_uuid()` v4), so nothing downstream rejects

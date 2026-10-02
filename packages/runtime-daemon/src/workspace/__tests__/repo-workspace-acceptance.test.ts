@@ -14,17 +14,21 @@ import type { NodeId, RepoAttachResponse, SessionId } from "@ai-sidekicks/contra
 import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService, TestSeedingAppendToken } from "../../session/session-service.js";
+import { SessionService } from "../../session/session-service.js";
 import { RepoMountService } from "../repo-mount-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import { WorkspaceService } from "../workspace-service.js";
 import { WorkspaceStaleError } from "../workspace-service-errors.js";
 
 import {
+  bindReadyWorkspace,
   buildFixtureEnvironment,
   captureRejection,
+  readLifecycleEnvelopes,
+  readLifecycleEventTypes,
+  requireMountRow,
+  requireWorkspaceRow,
   runFixtureGit,
   seedSession,
   steppingClock,
@@ -44,25 +48,6 @@ const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
  * root still comes from preparation, not from this path.
  */
 const BOUND_SUBDIRECTORY: string = "packages";
-
-interface StoredMountRow {
-  readonly id: string;
-  readonly node_id: string;
-  readonly local_path: string;
-  readonly canonical_root: string;
-  readonly vcs_type: string;
-  readonly state: string;
-  readonly attached_at: string;
-  readonly updated_at: string;
-}
-
-interface StoredWorkspaceRow {
-  readonly id: string;
-  readonly repo_mount_id: string;
-  readonly execution_mode: string;
-  readonly fs_root: string | null;
-  readonly state: string;
-}
 
 // Real-git fixtures
 
@@ -132,9 +117,7 @@ function buildDaemonStack(database: DatabaseType, now: () => string): DaemonStac
     }),
   });
   // The production id sources run; assertions name ids by identity or set membership.
-  const sessions = new SessionService(database, {
-    allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
-  });
+  const sessions = new SessionService(database);
   const workspaces = new WorkspaceService({ database, events: emitter, sessions, now });
   return {
     emitter,
@@ -189,54 +172,14 @@ beforeEach(async () => {
     boundRootCheckout,
   };
 
-  seedSession(harness.stack.sessions, SESSION_ID);
-  seedSession(harness.stack.sessions, OTHER_SESSION_ID);
+  seedSession(database, SESSION_ID);
+  seedSession(database, OTHER_SESSION_ID);
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a leftover entry would stall the next
-  // case on the same session id as an unrelated timeout.
-  __resetSessionAppendLocksForTest();
   harness.db.close();
   rmSync(harness.tmpDir, { recursive: true, force: true });
 });
-
-// Row and event readers use raw SQL, not a service call: durability is a claim about what is on
-// disk, and reading back through the writing service would prove only that it agrees with itself.
-
-function readMountRow(repoMountId: string): StoredMountRow | undefined {
-  return harness.db
-    .prepare(
-      `SELECT id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at
-         FROM repo_mounts WHERE id = ?`,
-    )
-    .get(repoMountId) as StoredMountRow | undefined;
-}
-
-function requireMountRow(repoMountId: string): StoredMountRow {
-  const row = readMountRow(repoMountId);
-  if (row === undefined) {
-    throw new Error(`repo mount ${repoMountId} is absent; the caller expected a row`);
-  }
-  return row;
-}
-
-function readWorkspaceRow(workspaceId: string): StoredWorkspaceRow | undefined {
-  return harness.db
-    .prepare(
-      `SELECT id, repo_mount_id, execution_mode, fs_root, state
-         FROM workspaces WHERE id = ?`,
-    )
-    .get(workspaceId) as StoredWorkspaceRow | undefined;
-}
-
-function requireWorkspaceRow(workspaceId: string): StoredWorkspaceRow {
-  const row = readWorkspaceRow(workspaceId);
-  if (row === undefined) {
-    throw new Error(`workspace ${workspaceId} is absent; the caller expected a row`);
-  }
-  return row;
-}
 
 function countRows(table: "workspaces" | "repo_mounts"): number {
   return (
@@ -246,37 +189,6 @@ function countRows(table: "workspaces" | "repo_mounts"): number {
   ).total;
 }
 
-/**
- * The session's event types without the seeded `session.created` anchor, which exists only
- * because `replay` refuses a chain that does not start with it.
- */
-function readLifecycleEventTypes(sessionId: string = SESSION_ID): readonly string[] {
-  return (
-    harness.db
-      .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY sequence ASC")
-      .all(sessionId) as ReadonlyArray<{ readonly type: string }>
-  )
-    .map((row) => row.type)
-    .filter((type) => type !== "session.created");
-}
-
-interface StoredEventEnvelopeRow {
-  readonly type: string;
-  readonly actor: string | null;
-  readonly payload: string;
-}
-
-function readLifecycleEnvelopes(): readonly StoredEventEnvelopeRow[] {
-  return (
-    harness.db
-      .prepare(
-        `SELECT type, actor, payload FROM session_events
-          WHERE session_id = ? ORDER BY sequence ASC`,
-      )
-      .all(SESSION_ID) as readonly StoredEventEnvelopeRow[]
-  ).filter((row) => row.type !== "session.created");
-}
-
 interface LifecycleEventPayload {
   readonly repoMountId?: string;
   readonly workspaceId?: string;
@@ -284,7 +196,7 @@ interface LifecycleEventPayload {
 }
 
 function readPayloadsOfType(type: string): readonly LifecycleEventPayload[] {
-  return readLifecycleEnvelopes()
+  return readLifecycleEnvelopes(harness.db, SESSION_ID)
     .filter((row) => row.type === type)
     .map((row) => JSON.parse(row.payload) as LifecycleEventPayload);
 }
@@ -292,20 +204,6 @@ function readPayloadsOfType(type: string): readonly LifecycleEventPayload[] {
 /** Make `directory` a real git repository, so an attach of it resolves. */
 async function initRepository(directory: string): Promise<void> {
   await runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
-}
-
-/** Bind a workspace and complete its preparation at `fsRoot`, so it is `ready`. */
-async function bindReadyWorkspace(
-  repoMountId: RepoAttachResponse["repoMountId"],
-  fsRoot: string,
-): Promise<string> {
-  const bound = await harness.stack.workspaces.bind({
-    sessionId: SESSION_ID,
-    repoMountId,
-    executionMode: "bound-root",
-  });
-  await harness.stack.workspaces.completeRootPreparation(bound.workspaceId, fsRoot);
-  return String(bound.workspaceId);
 }
 
 // The shared setup
@@ -365,7 +263,7 @@ describe("attaching yields a durable repo mount with canonical-root metadata", (
     ];
 
     for (const expected of expectedMounts) {
-      const mount = requireMountRow(expected.attachResponse.repoMountId);
+      const mount = requireMountRow(harness.db, expected.attachResponse.repoMountId);
       expect(mount.canonical_root).toBe(expected.canonicalRoot);
       // The entered path survives alongside the resolved root.
       expect(mount.local_path).toBe(expected.enteredPath);
@@ -376,11 +274,11 @@ describe("attaching yields a durable repo mount with canonical-root metadata", (
     }
 
     // Alpha shows the entered path and the resolved root differ.
-    const alphaMount = requireMountRow(attached.alpha.repoMountId);
+    const alphaMount = requireMountRow(harness.db, attached.alpha.repoMountId);
     expect(alphaMount.local_path).not.toBe(alphaMount.canonical_root);
 
     // Attaching writes no event to a session log.
-    expect(readLifecycleEventTypes()).toEqual([]);
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([]);
   });
 
   it("answers reads through a stack rebuilt on the reopened handle, appending nothing", async () => {
@@ -400,7 +298,7 @@ describe("attaching yields a durable repo mount with canonical-root metadata", (
     expect(alphaRead.health.status).toBe("healthy");
 
     // Reads are not transitions.
-    expect(readLifecycleEventTypes()).toEqual([]);
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([]);
   });
 });
 
@@ -429,7 +327,7 @@ describe("one session binds workspaces across multiple repo mounts", () => {
     // Every bind lands `preparing` with no execution root until preparation supplies one.
     for (const bound of [rootWorkspace, subdirectoryWorkspace, betaWorkspace]) {
       expect(bound.state).toBe("preparing");
-      expect(requireWorkspaceRow(bound.workspaceId).fs_root).toBeNull();
+      expect(requireWorkspaceRow(harness.db, bound.workspaceId).fs_root).toBeNull();
     }
 
     const listed = await harness.stack.workspaces.list({ sessionId: SESSION_ID });
@@ -468,7 +366,7 @@ describe("one session binds workspaces across multiple repo mounts", () => {
 
     const otherSession = await harness.stack.workspaces.list({ sessionId: OTHER_SESSION_ID });
     expect(otherSession.workspaces).toEqual([]);
-    expect(readLifecycleEventTypes(OTHER_SESSION_ID)).toEqual([]);
+    expect(readLifecycleEventTypes(harness.db, OTHER_SESSION_ID)).toEqual([]);
   });
 });
 
@@ -484,12 +382,12 @@ describe("the full-lifecycle event sequence", () => {
       repoMountId: alpha.repoMountId,
       executionMode: "provisioned-worktree",
     });
-    expect(requireWorkspaceRow(alphaWorkspace.workspaceId).state).toBe("preparing");
+    expect(requireWorkspaceRow(harness.db, alphaWorkspace.workspaceId).state).toBe("preparing");
     await harness.stack.workspaces.completeRootPreparation(
       alphaWorkspace.workspaceId,
       harness.provisionedWorktreeRoot,
     );
-    expect(requireWorkspaceRow(alphaWorkspace.workspaceId).fs_root).toBe(
+    expect(requireWorkspaceRow(harness.db, alphaWorkspace.workspaceId).fs_root).toBe(
       harness.provisionedWorktreeRoot,
     );
     const subdirectoryWorkspace = await harness.stack.workspaces.bind({
@@ -518,11 +416,11 @@ describe("the full-lifecycle event sequence", () => {
     );
 
     // A second read of the same state is not a second transition.
-    const eventsBeforeSecondRead = readLifecycleEventTypes();
+    const eventsBeforeSecondRead = readLifecycleEventTypes(harness.db, SESSION_ID);
     await harness.stack.workspaces.list({ sessionId: SESSION_ID });
-    expect(readLifecycleEventTypes()).toEqual(eventsBeforeSecondRead);
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(eventsBeforeSecondRead);
 
-    const mountBeforeDetach = requireMountRow(alpha.repoMountId);
+    const mountBeforeDetach = requireMountRow(harness.db, alpha.repoMountId);
     const detached = await harness.stack.mounts.detach({ repoMountId: alpha.repoMountId });
     expect(detached.state).toBe("detached");
     expect([...detached.archivedWorkspaceIds].sort()).toEqual(
@@ -531,7 +429,7 @@ describe("the full-lifecycle event sequence", () => {
 
     // Detach keeps the record: `updated_at` moves forward and `attached_at` stays. The stepping
     // clock keeps the two stamps from tying.
-    const mountAfterDetach = requireMountRow(alpha.repoMountId);
+    const mountAfterDetach = requireMountRow(harness.db, alpha.repoMountId);
     expect(mountAfterDetach.state).toBe("detached");
     expect(Date.parse(mountAfterDetach.updated_at)).toBeGreaterThan(
       Date.parse(mountBeforeDetach.updated_at),
@@ -544,7 +442,7 @@ describe("the full-lifecycle event sequence", () => {
     expect(secondDetach.archivedWorkspaceIds).toEqual([]);
 
     // The mount announces nothing; each archival follows the commit that made it true.
-    expect(readLifecycleEventTypes()).toEqual([
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
       "workspace.preparing",
       "workspace.ready",
       "workspace.preparing",
@@ -569,24 +467,31 @@ describe("the full-lifecycle event sequence", () => {
     expect(stalePayloads[0]?.workspaceId).toBe(String(alphaWorkspace.workspaceId));
 
     // The cascade stopped at the mount boundary.
-    expect(requireMountRow(beta.repoMountId).state).toBe("attached");
-    expect(requireWorkspaceRow(betaWorkspace.workspaceId).state).toBe("preparing");
-    expect(requireWorkspaceRow(alphaWorkspace.workspaceId).state).toBe("archived");
-    expect(requireWorkspaceRow(subdirectoryWorkspace.workspaceId).state).toBe("archived");
+    expect(requireMountRow(harness.db, beta.repoMountId).state).toBe("attached");
+    expect(requireWorkspaceRow(harness.db, betaWorkspace.workspaceId).state).toBe("preparing");
+    expect(requireWorkspaceRow(harness.db, alphaWorkspace.workspaceId).state).toBe("archived");
+    expect(requireWorkspaceRow(harness.db, subdirectoryWorkspace.workspaceId).state).toBe(
+      "archived",
+    );
   });
 });
 
 describe("a mode switch prepares the root IN PLACE", () => {
   it("keeps the id and the row through two full cycles, updating mode and root", async () => {
     const alpha = await harness.stack.mounts.attach({ localPath: fixtures.repositoryRoot });
-    const workspaceId = await bindReadyWorkspace(alpha.repoMountId, fixtures.repositoryRoot);
-    const beforeCycles = requireWorkspaceRow(workspaceId);
+    const workspaceId = await bindReadyWorkspace(
+      harness.stack.workspaces,
+      SESSION_ID,
+      alpha.repoMountId,
+      fixtures.repositoryRoot,
+    );
+    const beforeCycles = requireWorkspaceRow(harness.db, workspaceId);
     expect(beforeCycles.execution_mode).toBe("bound-root");
     expect(beforeCycles.fs_root).toBe(fixtures.repositoryRoot);
     expect(countRows("workspaces")).toBe(1);
 
     await harness.stack.workspaces.beginRootPreparation(workspaceId, "provisioned-worktree");
-    const midCycle = requireWorkspaceRow(workspaceId);
+    const midCycle = requireWorkspaceRow(harness.db, workspaceId);
     expect(midCycle.state).toBe("preparing");
     expect(midCycle.execution_mode).toBe("provisioned-worktree");
     // The old root is dropped when the switch begins, so a run is not handed a path the new mode
@@ -603,7 +508,7 @@ describe("a mode switch prepares the root IN PLACE", () => {
     await harness.stack.workspaces.beginRootPreparation(workspaceId, "bound-root");
     await harness.stack.workspaces.completeRootPreparation(workspaceId, harness.boundRootCheckout);
 
-    const afterCycles = requireWorkspaceRow(workspaceId);
+    const afterCycles = requireWorkspaceRow(harness.db, workspaceId);
     expect(afterCycles.id).toBe(workspaceId);
     expect(afterCycles.repo_mount_id).toBe(String(alpha.repoMountId));
     expect(afterCycles.state).toBe("ready");
@@ -619,7 +524,7 @@ describe("a mode switch prepares the root IN PLACE", () => {
     expect(listed.workspaces[0]?.executionMode).toBe("bound-root");
     expect(listed.workspaces[0]?.fsRoot).toBe(harness.boundRootCheckout);
 
-    expect(readLifecycleEventTypes()).toEqual([
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
       "workspace.preparing",
       "workspace.ready",
       "workspace.preparing",
@@ -636,6 +541,8 @@ describe("a root that vanishes makes its workspace stale", () => {
     // write gate refuses everything".
     const sibling = await harness.stack.mounts.attach({ localPath: fixtures.repositoryRoot });
     const siblingWorkspaceId = await bindReadyWorkspace(
+      harness.stack.workspaces,
+      SESSION_ID,
       sibling.repoMountId,
       fixtures.repositoryRoot,
     );
@@ -643,6 +550,8 @@ describe("a root that vanishes makes its workspace stale", () => {
     await initRepository(harness.disposableMountRoot);
     const victim = await harness.stack.mounts.attach({ localPath: harness.disposableMountRoot });
     const victimWorkspaceId = await bindReadyWorkspace(
+      harness.stack.workspaces,
+      SESSION_ID,
       victim.repoMountId,
       harness.disposableMountRoot,
     );
@@ -661,14 +570,14 @@ describe("a root that vanishes makes its workspace stale", () => {
       ]),
     );
     // Persisted, not merely reported: the next reader sees the row without re-probing.
-    expect(requireWorkspaceRow(victimWorkspaceId).state).toBe("stale");
+    expect(requireWorkspaceRow(harness.db, victimWorkspaceId).state).toBe("stale");
 
     // The mount read reports the loss as health, not as a lifecycle change: the row stays
     // `attached`.
     const victimMount = await harness.stack.mounts.read(victim.repoMountId);
     expect(victimMount.health.status).toBe("unreachable");
     expect(victimMount.state).toBe("attached");
-    expect(requireMountRow(victim.repoMountId).state).toBe("attached");
+    expect(requireMountRow(harness.db, victim.repoMountId).state).toBe("attached");
 
     const refusal = await captureRejection(() =>
       harness.stack.workspaces.assertWritable(victimWorkspaceId),
@@ -692,7 +601,7 @@ describe("a root that vanishes makes its workspace stale", () => {
     expect((await harness.stack.mounts.read(victim.repoMountId)).health.status).toBe("healthy");
 
     // One `workspace.stale` across all the reads.
-    expect(readLifecycleEventTypes()).toEqual([
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
       "workspace.preparing",
       "workspace.ready",
       "workspace.preparing",
@@ -702,11 +611,11 @@ describe("a root that vanishes makes its workspace stale", () => {
 
     // The run hold has no registered event type: `ready -> busy -> ready` moves the row and
     // appends nothing.
-    const eventsBeforeHold = readLifecycleEventTypes();
+    const eventsBeforeHold = readLifecycleEventTypes(harness.db, SESSION_ID);
     await harness.stack.workspaces.markBusy(siblingWorkspaceId, RUN_ID);
-    expect(requireWorkspaceRow(siblingWorkspaceId).state).toBe("busy");
+    expect(requireWorkspaceRow(harness.db, siblingWorkspaceId).state).toBe("busy");
     expect(harness.stack.workspaces.releaseBusy(siblingWorkspaceId)).toBe(true);
-    expect(requireWorkspaceRow(siblingWorkspaceId).state).toBe("ready");
-    expect(readLifecycleEventTypes()).toEqual(eventsBeforeHold);
+    expect(requireWorkspaceRow(harness.db, siblingWorkspaceId).state).toBe("ready");
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(eventsBeforeHold);
   });
 });

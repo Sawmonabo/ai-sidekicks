@@ -1,7 +1,7 @@
 # shellcheck shell=sh
-# lefthook rc file: `rc: tools/lefthook-rc.sh` in `lefthook.yml`, sourced by every generated git hook
-# right before lefthook runs. lefthook's unstaged-changes backup opens before its first job and
-# closes after its last, so only code that runs on both sides of lefthook can wrap it.
+# lefthook rc file (`rc: tools/lefthook-rc.sh` in `lefthook.yml`), sourced by every generated git
+# hook right before lefthook runs. lefthook's unstaged-changes backup opens before its first job
+# and closes after its last, so only code that runs on both sides of lefthook can wrap it.
 #
 # For `pre-commit` this takes a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) and
 # releases it from an EXIT trap, so two linked worktrees never sit inside that backup at once.
@@ -19,7 +19,7 @@ if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-
     # Fail closed: without the lock the commit would share lefthook's backup with other worktrees,
     # and the hooks need node anyway.
     echo "lefthook: node is required to serialize the pre-commit unstaged-changes backup." >&2
-    echo "lefthook: install Node >= 24.16.0 per CONTRIBUTING.md, or set LEFTHOOK=0 to skip hooks." >&2
+    echo "lefthook: install Node >= 24.16.0 (see .nvmrc), or set LEFTHOOK=0 to skip hooks." >&2
     exit 1
   fi
 

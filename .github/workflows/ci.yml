@@ -52,6 +52,7 @@ jobs:
       # `|| 'true'` is the default off a pull request: the filter step runs only there, so a push or
       # scheduled run reports every filter changed and runs unfiltered.
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
+      structure: ${{ steps.filter.outputs.structure || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
     steps:
       - uses: actions/checkout@v5
@@ -73,6 +74,18 @@ jobs:
               - 'packages/**'
               - 'pnpm-lock.yaml'
               - 'turbo.json'
+              - '.github/workflows/ci.yml'
+            # knip reads every workspace, its own config, the manifests and the files that name
+            # entries (this workflow, the lefthook config).
+            structure:
+              - 'apps/**'
+              - 'packages/**'
+              - 'tools/**'
+              - 'knip.json'
+              - '**/package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'lefthook.yml'
               - '.github/workflows/ci.yml'
             deps:
               - 'pnpm-lock.yaml'
@@ -271,10 +284,9 @@ jobs:
           Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
             3>"$display_file" >"$xvfb_log" 2>&1 &
           xvfb_pid=$!
-          # Deliberately no teardown step: the display is meant to outlive every
-          # test in the job, and the runner reclaims the VM afterwards. This is
-          # also what removes the per-spawn teardown race the old `xvfb-run`
-          # posture had, where each spawn tore its own X server down.
+          # Deliberately no teardown step: the display outlives every test in the
+          # job, and the runner reclaims the VM afterwards. One shared display
+          # means no spawn tears an X server down under another.
           for attempt in $(seq 1 60); do
             display_number=$(tr -d '[:space:]' < "$display_file")
             if [ -n "$display_number" ]; then
@@ -420,8 +432,8 @@ jobs:
       - name: Run test-runner tool tests
         run: node tools/run-node-tests.mjs 'tools/**/*.test.mjs'
 
-  # The desktop tiers, one per runner. The three build flavours (`build`, `build:smoke`,
-  # `build:fixtures`) all write `apps/desktop/out/**`, so a tier must run against the flavour its
+  # The desktop tiers, one per runner. The three build flavors (`build`, `build:smoke`,
+  # `build:fixtures`) all write `apps/desktop/out/**`, so a tier must run against the flavor its
   # own turbo edge produced. A matrix leg has its own checkout and `out/**`, so the tiers run in
   # parallel without colliding.
   #
@@ -559,10 +571,9 @@ jobs:
           Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
             3>"$display_file" >"$xvfb_log" 2>&1 &
           xvfb_pid=$!
-          # Deliberately no teardown step: the display is meant to outlive every
-          # test in the job, and the runner reclaims the VM afterwards. This is
-          # also what removes the per-spawn teardown race the old `xvfb-run`
-          # posture had, where each spawn tore its own X server down.
+          # Deliberately no teardown step: the display outlives every test in the
+          # job, and the runner reclaims the VM afterwards. One shared display
+          # means no spawn tears an X server down under another.
           for attempt in $(seq 1 60); do
             display_number=$(tr -d '[:space:]' < "$display_file")
             if [ -n "$display_number" ]; then
@@ -623,7 +634,7 @@ jobs:
   structure:
     name: structure (knip)
     needs: [changes]
-    if: needs.changes.outputs.desktop == 'true' || github.event_name == 'schedule'
+    if: needs.changes.outputs.structure == 'true' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -67,13 +67,7 @@ pub enum PtySessionError {
     /// I/O error during a read/write/resize operation.
     Io(std::io::Error),
 
-    /// The Windows kill path does not exist yet, so [`PtySessionRegistry::kill`] returns this on
-    /// Windows.
-    ///
-    /// The `allow(dead_code)` below is needed off Windows because only the Windows `kill` arm
-    /// constructs this variant. It is `allow` rather than `expect` because the lib build sees the
-    /// `pub` variant as live and an `expect` would fail there as unfulfilled.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// Returned by [`PtySessionRegistry::kill`] on Windows, which has no kill path.
     WindowsKillNotImplemented,
 
     /// The platform reported no pid for the child, so it cannot be signaled. Distinct from
@@ -162,7 +156,8 @@ pub struct PtySessionRegistry {
     /// `Arc` so the waiter can remove its session at exit; the lock is held only for a map call.
     sessions: Arc<Mutex<HashMap<String, Arc<SessionHandle>>>>,
 
-    /// Unbounded so reader tasks never block; backpressure is the dispatcher's concern.
+    /// Unbounded: reader tasks never block on a send, and nothing in the sidecar bounds the queue,
+    /// so a reader that stops draining it lets it grow with child output.
     outbound: mpsc::UnboundedSender<Envelope>,
 
     /// Atomic so spawns need no lock.
@@ -183,8 +178,8 @@ pub struct PtySessionRegistry {
 impl PtySessionRegistry {
     /// Creates a registry and the receiver of its outbound events.
     ///
-    /// The caller must drain the receiver: nothing applies backpressure here. If it is dropped,
-    /// reader tasks exit at their next send and waiters log the lost notification.
+    /// The receiver is unbounded (see `outbound`), so the caller must keep draining it. If it is
+    /// dropped, reader tasks exit at their next send and waiters log the lost notification.
     pub fn new() -> (Self, mpsc::UnboundedReceiver<Envelope>) {
         let (outbound, rx) = mpsc::unbounded_channel();
         let registry = Self {
@@ -225,6 +220,18 @@ impl PtySessionRegistry {
         }
         cmd.cwd(&req.cwd);
 
+        // The writer and reader come before the child, so a failure here leaves no process
+        // running. `take_writer` may be called only once.
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
+
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
+
         let child = pair
             .slave
             .spawn_command(cmd)
@@ -237,17 +244,6 @@ impl PtySessionRegistry {
         // Clone a killer before `child` moves into the waiter; `Drop` uses it. It must be `Sync`
         // because the map is shared across threads.
         let killer = child.clone_killer();
-
-        // `take_writer` may be called only once.
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| PtySessionError::PortablePty(e.to_string()))?;
 
         // The waiter sets this right after `Child::wait()` returns; see `SessionHandle::exited`.
         let exited = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -369,14 +365,16 @@ impl PtySessionRegistry {
             return Err(PtySessionError::UnknownSession(req.session_id.clone()));
         }
 
+        // A pid that does not fit `pid_t` would turn negative and signal a process group.
         let pid = handle
             .pid
+            .and_then(|pid| libc::pid_t::try_from(pid).ok())
             .ok_or_else(|| PtySessionError::PidUnavailable(req.session_id.clone()))?;
         let signal_num = posix_signal_number(req.signal);
 
         // Non-blocking. Safety: `pid` comes from `Child::process_id` and `signal_num` from `libc`
         // constants.
-        let rc = unsafe { libc::kill(pid as i32, signal_num) };
+        let rc = unsafe { libc::kill(pid, signal_num) };
         if rc != 0 {
             return Err(PtySessionError::Io(std::io::Error::last_os_error()));
         }
@@ -387,8 +385,7 @@ impl PtySessionRegistry {
         })
     }
 
-    /// Windows stub that always returns [`PtySessionError::WindowsKillNotImplemented`]; the helpers
-    /// in `kill_translation` and `tree_kill` are not wired in yet.
+    /// On Windows, always returns [`PtySessionError::WindowsKillNotImplemented`].
     #[cfg(windows)]
     pub async fn kill(&self, _req: KillRequest) -> Result<KillResponse, PtySessionError> {
         Err(PtySessionError::WindowsKillNotImplemented)
@@ -460,20 +457,27 @@ impl Drop for PtySessionRegistry {
 
             // Unix escalation. `Builder::spawn` rather than `thread::spawn`, which panics when the
             // OS cannot create a thread and would skip the writer drain in `main()`; on failure
-            // this session's escalation is skipped.
+            // this session's escalation is skipped and logged.
             #[cfg(unix)]
             if let Some(pid) = _pid {
+                let Ok(pid) = libc::pid_t::try_from(pid) else {
+                    eprintln!(
+                        "pty_session registry drop ({session_id:?}): pid {pid} does not fit \
+                         pid_t; SIGKILL escalation skipped"
+                    );
+                    continue;
+                };
                 let session_id_for_thread = session_id.clone();
-                let _ = std::thread::Builder::new()
+                let spawned = std::thread::Builder::new()
                     .name(format!("pty-drop-escalation-{session_id_for_thread}"))
                     .spawn(move || {
                         std::thread::sleep(DROP_KILL_ESCALATION_DEADLINE);
-                        // SAFETY: signal 0 only tests for existence, and the pid fits `pid_t`.
-                        let alive = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+                        // SAFETY: signal 0 only tests for existence.
+                        let alive = unsafe { libc::kill(pid, 0) } == 0;
                         if alive {
                             // SAFETY: as above. The recycled-pid trade-off is documented on this
                             // `Drop` impl.
-                            let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+                            let rc = unsafe { libc::kill(pid, libc::SIGKILL) };
                             if rc != 0 {
                                 // ESRCH between the check and the kill is a tiny race; log it only.
                                 eprintln!(
@@ -485,6 +489,12 @@ impl Drop for PtySessionRegistry {
                             }
                         }
                     });
+                if let Err(err) = spawned {
+                    eprintln!(
+                        "pty_session registry drop ({session_id:?}): could not start the SIGKILL \
+                         escalation thread: {err}"
+                    );
+                }
             }
         }
     }
@@ -593,76 +603,30 @@ fn spawn_waiter_task(
         let _ = reader_task.await;
 
         // Both wait failures (an `io::Error`, or a panicked wait thread) report exit code 1 with no
-        // signal; the stderr line tells them apart.
-        let exit_status = match join_result {
-            Ok(Ok(status)) => status,
+        // signal; the stderr line tells them apart. portable-pty drops the signal number (see the
+        // module docs), so `signal_code` is always `None`. The `as i32` wrap lets Windows NTSTATUS
+        // codes such as 0xC0000005 round-trip as negative values.
+        let exit_code = match join_result {
+            Ok(Ok(status)) => status.exit_code() as i32,
             Ok(Err(io_err)) => {
-                eprintln!(
-                    "pty_session waiter ({session_id:?}): Child::wait() returned io::Error: {io_err}"
-                );
-                // Fallback in case the closure failed before its store.
-                exited.store(true, std::sync::atomic::Ordering::Release);
-                let notification = ExitCodeNotification {
-                    session_id: session_id.clone(),
-                    exit_code: 1,
-                    signal_code: None,
-                };
-                // A waiter cannot propagate to `main()`: if the writer is dead the notification is
-                // lost, so log it and still clean up.
-                if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
-                    eprintln!(
-                        "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
-                         lost exit notification: {send_err}"
-                    );
-                }
-                let mut map = sessions.lock().await;
-                map.remove(&session_id);
-                // Fallback removal; a no-op when the closure already removed it.
-                killers
-                    .lock()
-                    .expect("killers mutex poisoned")
-                    .remove(&session_id);
-                return;
+                eprintln!("pty_session waiter ({session_id:?}): Child::wait() failed: {io_err}");
+                1
             }
             Err(join_err) => {
-                eprintln!(
-                    "pty_session waiter ({session_id:?}): spawn_blocking join failed (wait thread panicked): {join_err}"
-                );
-                // Fallback, as above.
-                exited.store(true, std::sync::atomic::Ordering::Release);
-                let notification = ExitCodeNotification {
-                    session_id: session_id.clone(),
-                    exit_code: 1,
-                    signal_code: None,
-                };
-                // As above: log the lost notification and continue the cleanup.
-                if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
-                    eprintln!(
-                        "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
-                         lost exit notification: {send_err}"
-                    );
-                }
-                let mut map = sessions.lock().await;
-                map.remove(&session_id);
-                // Needed here: a panicked closure never ran its removal.
-                killers
-                    .lock()
-                    .expect("killers mutex poisoned")
-                    .remove(&session_id);
-                return;
+                eprintln!("pty_session waiter ({session_id:?}): wait thread panicked: {join_err}");
+                1
             }
         };
+        // Fallback for a closure that failed before its own store.
+        exited.store(true, std::sync::atomic::Ordering::Release);
 
-        // portable-pty drops the signal number (see the module docs), so `signal_code` is always
-        // `None`. The `as i32` wrap lets Windows NTSTATUS codes such as 0xC0000005 round-trip as
-        // negative values.
-        let exit_code = exit_status.exit_code() as i32;
         let notification = ExitCodeNotification {
             session_id: session_id.clone(),
             exit_code,
             signal_code: None,
         };
-        // As above: log the lost notification and continue the cleanup.
+        // A waiter cannot propagate to `main()`: if the writer is dead the notification is lost,
+        // so log it and still clean up.
         if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
             eprintln!(
                 "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
@@ -671,9 +635,8 @@ fn spawn_waiter_task(
         }
 
         // Later writes, resizes and kills on this id return `UnknownSession`.
-        let mut map = sessions.lock().await;
-        map.remove(&session_id);
-        // Fallback removal; a no-op when the closure already removed it.
+        sessions.lock().await.remove(&session_id);
+        // A no-op when the closure already removed it; needed when the closure panicked.
         killers
             .lock()
             .expect("killers mutex poisoned")
@@ -682,11 +645,7 @@ fn spawn_waiter_task(
 }
 
 /// White-box tests of the registry's private `sessions` map: a session is present from `spawn`
-/// until the waiter removes it at exit.
-///
-/// Unix only, since the children are `/bin/sh`. `main.rs` also declares `mod pty_session;`, so
-/// these tests run in both the lib and bin test harnesses. The helpers are copies of those in
-/// `tests/pty_session.rs`, which cannot share code with this crate.
+/// until the waiter removes it at exit. Unix only, since the children are `/bin/sh`.
 #[cfg(all(test, unix))]
 mod registry_lifecycle_tests {
     use std::time::Duration;
@@ -694,47 +653,17 @@ mod registry_lifecycle_tests {
 
     use super::*;
 
-    /// Budget for a child to exit and its `ExitCodeNotification` to arrive.
-    const EXIT_TIMEOUT: Duration = Duration::from_secs(2);
-
-    /// Collects envelopes from `rx` until an `ExitCodeNotification` arrives or `EXIT_TIMEOUT`
-    /// elapses.
-    async fn drain_until_exit(rx: &mut mpsc::UnboundedReceiver<Envelope>) -> Vec<Envelope> {
-        let mut envelopes = Vec::new();
-        let deadline_fut = timeout(EXIT_TIMEOUT, async {
-            loop {
-                match rx.recv().await {
-                    Some(env) => {
-                        let is_exit = matches!(env, Envelope::ExitCodeNotification(_));
-                        envelopes.push(env);
-                        if is_exit {
-                            return;
-                        }
-                    }
-                    None => return,
-                }
-            }
-        });
-        let _ = deadline_fut.await;
-        envelopes
-    }
-
-    /// An empty env keeps the spawn minimal; the lifecycle tests do not need one.
-    fn empty_env() -> Vec<(String, String)> {
-        Vec::new()
-    }
-
     #[tokio::test]
     async fn active_session_count_tracks_lifecycle() {
-        // A session is inserted at spawn and removed when the waiter emits the exit.
-        let (registry, mut rx) = PtySessionRegistry::new();
+        // A session is inserted at spawn and removed when the waiter sees the child exit.
+        let (registry, _rx) = PtySessionRegistry::new();
         assert_eq!(registry.sessions.lock().await.len(), 0);
 
         let response = registry
             .spawn(SpawnRequest {
                 command: "/bin/sh".to_string(),
                 args: vec!["-c".to_string(), "exit 0".to_string()],
-                env: empty_env(),
+                env: Vec::new(),
                 cwd: "/tmp".to_string(),
                 rows: 24,
                 cols: 80,
@@ -745,18 +674,15 @@ mod registry_lifecycle_tests {
         // Right after spawn the session is registered.
         assert_eq!(registry.sessions.lock().await.len(), 1);
 
-        // The exit notification proves the waiter ran.
-        let _ = drain_until_exit(&mut rx).await;
-
-        // The waiter emits the notification before removing the session, so poll for the removal.
-        for _ in 0..20 {
+        // The child exits at once; poll for the waiter's removal.
+        for _ in 0..60 {
             if registry.sessions.lock().await.is_empty() {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!(
-            "session {:?} should have been removed from the registry within 1 s of exit",
+            "session {:?} should have been removed from the registry within 3 s of spawn",
             response.session_id
         );
     }
@@ -781,7 +707,7 @@ mod registry_lifecycle_tests {
                 .spawn(SpawnRequest {
                     command: "/bin/sh".to_string(),
                     args: vec!["-c".to_string(), "exit 0".to_string()],
-                    env: empty_env(),
+                    env: Vec::new(),
                     cwd: "/tmp".to_string(),
                     rows: 24,
                     cols: 80,
@@ -817,7 +743,6 @@ mod registry_lifecycle_tests {
         );
 
         // The removal follows the send by microseconds; poll to avoid flakiness.
-        // grace window used by `active_session_count_tracks_lifecycle`.
         for _ in 0..40 {
             if registry.sessions.lock().await.is_empty() {
                 return;

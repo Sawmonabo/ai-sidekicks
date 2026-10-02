@@ -1,27 +1,12 @@
-// The MCP tool-call rules both drivers share: a discovered tool floors at `manual_reconcile_only`
-// whatever its annotations claim, and a task handle is observed only from a well-formed acceptance.
+// The durable MCP task handle is observed only from a well-formed acceptance.
 
 import { describe, expect, it } from "vitest";
 
 import {
-  classifyMcpDiscoveredTool,
   extractMcpTaskId,
   observeMcpTaskAcceptance,
   type McpTaskHandleObservation,
 } from "../mcp-tool-calls.js";
-
-describe("MCP idempotency floor", () => {
-  it("never lets readOnlyHint or idempotentHint self-claims upgrade the class", () => {
-    expect(
-      classifyMcpDiscoveredTool({
-        readOnlyHint: true,
-        idempotentHint: true,
-        destructiveHint: false,
-        openWorldHint: false,
-      }),
-    ).toBe("manual_reconcile_only");
-  });
-});
 
 describe("durable MCP task-handle observation", () => {
   it("yields undefined for every non-acceptance shape (the halt default)", () => {

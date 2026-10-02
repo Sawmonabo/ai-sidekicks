@@ -18,20 +18,17 @@ export class CodexRunRoutes {
     return this.#sessionIdByRunId.get(runId);
   }
 
-  /** The run a join key names when there is no record (matched against the run axis, not cast). */
+  /** The run a join key names when there is no record, if it is routed to `sessionId`. */
   runIdBoundToSession(joinKey: string, sessionId: SessionId): RunId | undefined {
-    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
-      if (runId === joinKey && boundSessionId === sessionId) {
-        return runId;
-      }
-    }
-    return undefined;
+    // Looked up as a plain string: a key found in the map is a run id by construction.
+    const sessionIdByRunKey: ReadonlyMap<string, SessionId> = this.#sessionIdByRunId;
+    return sessionIdByRunKey.get(joinKey) === sessionId ? (joinKey as RunId) : undefined;
   }
 
   /**
    * The run an abandoned frame's join key names: a live turn's route, an interrupted turn's
    * correlation, or the run id the frame was registered under when the provider never named a
-   * turn (matched against the run axis, not cast).
+   * turn.
    */
   runIdForAbandonedFrame(record: CodexSessionRecord, joinKey: string): RunId | undefined {
     const routed = record.runIdByActiveTurnId.get(joinKey);
@@ -42,12 +39,7 @@ export class CodexRunRoutes {
     if (interrupted !== undefined) {
       return interrupted;
     }
-    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
-      if (runId === joinKey && boundSessionId === record.sessionId) {
-        return runId;
-      }
-    }
-    return undefined;
+    return this.runIdBoundToSession(joinKey, record.sessionId);
   }
 
   /**

@@ -18,7 +18,10 @@ async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
     refusalLogger: (msg) => logs.push(msg),
     requestIdGenerator: () => "req-test-1",
   });
-  const response = await handler(new Request("https://control-plane.test/trpc/session.read"), env);
+  const response = await handler(
+    new Request("https://control-plane.test/trpc/unknown.procedure"),
+    env,
+  );
   return {
     status: response.status,
     body: await response.text(),
@@ -72,7 +75,7 @@ describe("environment gate: an allow-list of 'development'", () => {
       expect(result.status).toBe(503);
       expect(result.body).toBe("Service Unavailable");
       expect(result.logs).toHaveLength(1);
-      // The log names the key and the only passing value, so an operator needs no source.
+      // The log names the key and the only passing value, so the person reading it needs no source.
       expect(result.logs[0]).toContain("ENVIRONMENT");
       expect(result.logs[0]).toContain("'development'");
     });

@@ -1,9 +1,8 @@
-// The ordering barrier `session.subscribe` sends its frames through
-// (`handlers/session-subscribe.ts`). It guarantees the subscribe-init response
-// `{ subscriptionId }` reaches the wire before the first `$/subscription/notify` frame for that
-// subscription.
+// The ordering barrier every subscribe handler sends its frames through. It guarantees the
+// subscribe-init response `{ subscriptionId }` reaches the wire before the first
+// `$/subscription/notify` frame for that subscription.
 //
-// * Why a barrier: the session stream may replay history synchronously inside the handler body,
+// * Why a barrier: a source may replay history synchronously inside the handler body,
 //   so its emit callback can fire before the handler returns. The gateway writes the init response
 //   in the dispatch promise's `.then` microtask, so an emission sent straight to the producer
 //   would reach the socket ahead of the response. The SDK registers a subscription only after the
@@ -22,7 +21,7 @@ import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
 
 /**
  * The producer surface a barrier drives: `LocalSubscriptionProducer<EmissionType>` narrowed to
- * emitting, cancelling and naming the subscription in diagnostics.
+ * emitting, canceling and naming the subscription in diagnostics.
  */
 export interface AckBarrierProducer<EmissionType> {
   readonly subscriptionId: string;

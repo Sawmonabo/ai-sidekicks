@@ -1,9 +1,9 @@
 // Turns a provider's cumulative token counters into per-turn usage deltas.
 //
-// Both pinned providers report usage as a running total for the provider session. The counter
+// Both providers report usage as a running total for the provider session. The counter
 // resets at no turn boundary, no context compaction and no resume, so forwarding each reading as
 // a per-turn figure re-counts every earlier turn (measured: 22x overstatement of session spend on
-// a long thread). Each session's lifecycle band meters every usage frame through one accountant.
+// a long thread). Each session's lifecycle module meters every usage frame through one accountant.
 //
 //   - One base register per provider thread and axis, advanced in stream order as each reading
 //     is consumed. A base copied at turn dispatch would let two interleaved turns each re-count
@@ -15,16 +15,16 @@
 //     cumulative sum for the thread, never at the first post-resume reading.
 //   - There is no compaction re-base: compaction does not touch the provider's counter, and a
 //     re-base would forgive every pre-boundary token.
-//   - Where the wire declares a per-turn figure beside the cumulative one (the Codex breakdown's
-//     `last`), the derived interval is compared with it. A mismatch is a diagnostic, never a
-//     substitution, because the other pinned surface declares none and the declared figure's
-//     behavior across resume and compaction is unprobed.
+//   - Where the wire declares a per-turn figure beside the cumulative one, the derived interval is
+//     compared with it. A mismatch is a diagnostic, never a substitution, because not every
+//     provider declares one and the declared figure's behavior across resume and compaction is
+//     unprobed.
 //   - A declared-cumulative axis never decreases within a session, so a decrease is a falsified
 //     declaration: floored at zero, re-based at the observed value, and reported.
 //   - The normalized input axis is uncached input. The cached count is subtracted only where the
 //     breakdown's sum identity shows it sits inside the input figure (the vendor schema places
 //     it beside the input member and proves nothing about nesting); otherwise input is emitted
-//     unsubtracted with a diagnostic. Cache-read and cache-write stay on the diagnostic band,
+//     unsubtracted with a diagnostic. Cache-read and cache-write stay on the diagnostic channel,
 //     because the `usage_telemetry` payload has no per-cache-axis member.
 
 import type { ProviderName } from "@ai-sidekicks/contracts";
@@ -36,10 +36,9 @@ import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 // --------------------------------------------------------------------------
 
 /**
- * The declared-cumulative token axes a provider reading may carry. The five non-total axes
- * mirror the Codex `TokenUsageBreakdown` members (`inputTokens`, `cachedInputTokens`,
- * `cacheWriteInputTokens`, `outputTokens`, `reasoningOutputTokens`); `total` is its
- * `totalTokens`. The Claude driver carries a subset of the same axes.
+ * The declared-cumulative token axes a provider reading may carry: uncached input, cached input,
+ * cache-write input, output, reasoning output, and the total. A driver maps its own wire members
+ * onto them and may carry a subset.
  */
 export type UsageTokenAxis =
   | "input"
@@ -99,10 +98,9 @@ function partitionCumulativeAxisEntries(readings: CumulativeAxisReadings): Parti
 /**
  * One cumulative usage reading, as consumed at the normalize boundary.
  *
- * `namedTurnId` is the turn the frame itself names (the Codex usage notification carries a
- * required `turnId`), or `null` where the wire names none; attribution then stays thread-scoped
- * and the consumer resolves the turn from its own dispatch scope. `declaredPerTurn` is the
- * wire's own per-turn figure (the Codex breakdown's `last`), used only as a cross-check.
+ * `namedTurnId` is the turn the frame itself names, or `null` where the wire names none;
+ * attribution then stays thread-scoped and the consumer resolves the turn from its own dispatch
+ * scope. `declaredPerTurn` is the wire's own per-turn figure, used only as a cross-check.
  */
 export interface CumulativeUsageReading {
   readonly threadId: string;
@@ -386,7 +384,7 @@ export interface DerivedCostQuote {
 }
 
 /**
- * The resolved outcome for one usage frame's cost. A model the price list does not yet price is
+ * The resolved outcome for one usage frame's cost. A model the price list does not price is
  * not a `usage.cost_update`: its request is held with its exact tokens until the list prices it,
  * never given a made-up or zero cost.
  */
@@ -503,12 +501,12 @@ export type WindowTelemetry =
     };
 
 /**
- * Derive one window-telemetry update at the normalize boundary. The Codex driver supplies its
- * session baseline (a constant-overhead reading of about 12k tokens, taken from its capability
- * read) and the Claude driver supplies zero. A frame carrying only half the pair yields the
- * counts-absent arm, which fabricates no denominator and ships no lone numerator. There
- * `exceeded` is the caller's, taken from the wire's own limit signal, because a hard-coded
- * `false` would claim a window that was never measured is not exceeded.
+ * Derive one window-telemetry update at the normalize boundary. Each driver supplies its own
+ * session baseline: the constant overhead its provider counts before the first turn, or zero.
+ * A frame carrying only half the pair yields the counts-absent arm, which fabricates no
+ * denominator and ships no lone numerator. On that arm `exceeded` is the caller's, taken from the
+ * wire's own limit signal, because a hard-coded `false` would claim a window that was never
+ * measured is not exceeded.
  */
 export function deriveWindowTelemetry(options: {
   readonly windowSource: WindowSource;
@@ -516,7 +514,7 @@ export function deriveWindowTelemetry(options: {
   readonly rawUsedTokens: number | null;
   /** The window ceiling, or null where neither wire nor model declares one. */
   readonly windowMaxTokens: number | null;
-  /** Session-constant overhead subtracted before use (Codex ~12k; Claude 0). */
+  /** Session-constant overhead the driver declares, subtracted before use. */
   readonly sessionBaselineTokens: number;
   /** The wire's own limit signal, used only on the counts-absent arm. */
   readonly exceededWhenCountsAbsent: boolean;

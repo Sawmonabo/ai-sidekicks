@@ -2,9 +2,6 @@
 // (`observeMcpTaskAcceptance` in `./mcp-tool-calls.ts`) writes through this sink, the only writer
 // of `command_receipts.mcp_task_id`.
 //
-// Nothing in the daemon yet hands it an acceptance response (the provider CLIs are the MCP clients
-// and the daemon is not on the MCP wire), so only this module's tests construct the recorder.
-//
 //   * The 256 bound repeats the column's CHECK so a violation is refused with a diagnostic naming
 //     the server, tool and length, not an opaque SQLITE_CONSTRAINT.
 //   * An over-bound handle is refused, never truncated (a truncated one names another task).

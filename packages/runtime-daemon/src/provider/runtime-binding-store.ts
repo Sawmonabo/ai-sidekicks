@@ -5,8 +5,8 @@
 //   provider-declared: the SQL CHECKs bound length and NULs, `provider-output-validation.ts` adds
 //   the semantic layer. The pair is spawn-scoped, so it is validated at INSERT only.
 // - `spawn_config` is required at create; recovery re-reads it to rebuild `ResumeSessionParams`
-//   without the original client request. `cliVersion` is one optional member, so the DDL's
-//   both-or-neither CHECK holds at the type level.
+//   without the original client request. `cliVersion` is one optional member, so the DDL's rule
+//   that a parse never stands without its printed version holds at the type level.
 // - `runId`, `id` and the content of `runtime_metadata` are daemon-controlled: no CHECK and no Zod
 //   guard. `driverName` is typed at the write and parsed as a provider name on every read.
 //   `update` runs IMMEDIATE (see the `#updateTxn` field).
@@ -21,19 +21,19 @@ import {
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
-  assertValidCliVersionReport,
-  ProviderOutputValidationError,
   assertValidContractVersion,
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
-import type {
-  CallbackToolInvocation,
-  CallbackToolResult,
-  DriverCliVersionReport,
-  McpServerStatusProducer,
-  ResumeSessionParams,
-  SubagentPolicy,
+import { isPlainObject } from "./record-readers.js";
+import {
+  type CallbackToolInvocation,
+  type CallbackToolResult,
+  type DriverCliVersionReport,
+  type McpServerStatusProducer,
+  type ResumeSessionParams,
+  type SubagentPolicy,
+  readCliVersionColumns,
 } from "./provider-driver.js";
 
 /**
@@ -47,7 +47,6 @@ export interface RuntimeBindingSpawnConfig {
   readonly callbackTools?: SessionCallbackTool[] | undefined;
   readonly subagentPolicy?: SubagentPolicy | undefined;
   readonly outputSchema?: Record<string, unknown> | undefined;
-  readonly admittedCostCapUsdMicros?: number | undefined;
   // Bound for the run's lifetime, so a resume never re-resolves to the current default account;
   // server-resolved, never client-supplied.
   readonly providerAccountId?: string | undefined;
@@ -64,7 +63,7 @@ export interface RuntimeBinding {
   readonly runId: string;
   readonly driverName: ProviderName;
   readonly contractVersion: string;
-  // `null` unless both columns are set; a half pair exists only through out-of-band corruption.
+  // `null` when no version was recorded; `semver` is absent when the printed version did not parse.
   readonly cliVersion: DriverCliVersionReport | null;
   readonly resumeHandle: string | null;
   readonly spawnConfig: RuntimeBindingSpawnConfig;
@@ -75,7 +74,8 @@ export interface RuntimeBinding {
 
 /**
  * `create` input. The store mints `id`, because a run has many bindings. `cliVersion` carries the
- * pair or neither, so a half pair cannot be expressed; `spawnConfig` is required.
+ * printed version and its parse together, so a parse without a version cannot be expressed;
+ * `spawnConfig` is required.
  */
 export interface CreateRuntimeBindingInput {
   readonly runId: string;
@@ -158,10 +158,6 @@ interface UpdatedRuntimeBindingRow {
   readonly parsedColumns: ParsedRuntimeBindingColumns;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * The closed key set of `spawn_config`, each with a one-level check on its stored value (an
  * `executionPosture` of `{}` passes, so recovery must validate inner shapes). `satisfies` makes a
@@ -172,8 +168,6 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
   callbackTools: (value) => Array.isArray(value),
   subagentPolicy: isPlainObject,
   outputSchema: isPlainObject,
-  // Whole micro-dollars; NaN and Infinity serialize to `null` in JSON, so they are refused too.
-  admittedCostCapUsdMicros: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
   outputSpeed: (value) => typeof value === "string",
@@ -201,7 +195,6 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   callbackTools: "resume-leg",
   subagentPolicy: "resume-leg",
   outputSchema: "resume-leg",
-  admittedCostCapUsdMicros: "resume-leg",
   // Handed to the driver, so a resume stays on the account it was admitted against.
   providerAccountId: "resume-leg",
   resolvedExecutablePath: "relaunch-input",
@@ -255,7 +248,6 @@ export function composeResumeSessionParams(
     callbackTools: spawnConfig.callbackTools,
     subagentPolicy: spawnConfig.subagentPolicy,
     outputSchema: spawnConfig.outputSchema,
-    admittedCostCapUsdMicros: spawnConfig.admittedCostCapUsdMicros,
     // Read back verbatim, never re-resolved.
     providerAccountId: spawnConfig.providerAccountId,
     outputSpeed: spawnConfig.outputSpeed,
@@ -390,28 +382,8 @@ export class RuntimeBindingStore {
     if (input.resumeHandle != null) {
       assertValidResumeHandle(input.resumeHandle);
     }
-    // The report is provider input: copy each member once and validate, bind and return that
-    // snapshot, since a getter or Proxy could otherwise persist an unvalidated string. A throwing
-    // accessor becomes the typed refusal below, with the thrown value discarded.
-    let cliVersion: DriverCliVersionReport | null;
-    try {
-      const reportedCliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
-      cliVersion = isPlainObject(reportedCliVersion)
-        ? ({
-            raw: reportedCliVersion["raw"],
-            semver: reportedCliVersion["semver"],
-          } as DriverCliVersionReport)
-        : reportedCliVersion;
-    } catch {
-      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
-        driverName: input.driverName,
-        field: "cliVersion",
-        reason: "a property accessor on the report threw during the defensive copy",
-      });
-    }
-    if (cliVersion !== null) {
-      assertValidCliVersionReport(input.driverName, cliVersion);
-    }
+    // Validated where the daemon read it off the spawned build, so it is trusted here.
+    const cliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
 
     const id: string = this.#newId();
     const timestamp: string = this.#now();
@@ -437,9 +409,8 @@ export class RuntimeBindingStore {
       run_id: input.runId,
       driver_name: input.driverName,
       contract_version: input.contractVersion,
-      // Bound as a pair from one source, so the both-or-neither CHECK sees two NULLs or two values.
       cli_version_raw: cliVersion === null ? null : cliVersion.raw,
-      cli_version_semver: cliVersion === null ? null : cliVersion.semver,
+      cli_version_semver: cliVersion?.semver ?? null,
       resume_handle: resumeHandle,
       spawn_config: spawnConfigJson,
       runtime_metadata: runtimeMetadataJson,
@@ -452,7 +423,6 @@ export class RuntimeBindingStore {
       runId: input.runId,
       driverName: input.driverName,
       contractVersion: input.contractVersion,
-      // The validated snapshot, never a re-read of the caller's object.
       cliVersion,
       resumeHandle,
       // The parser's output, never the caller's object.
@@ -527,9 +497,8 @@ export class RuntimeBindingStore {
   }
 
   /**
-   * Maps a raw row to the public type. The CLI-version pair folds only when both columns are set;
-   * a half-present row (out-of-band corruption) reports `null`. `update()` passes the columns it
-   * parsed inside its transaction.
+   * Maps a raw row to the public type; the CLI version folds from its printed column. `update()`
+   * passes the columns it parsed inside its transaction.
    */
   #rowToDomain(
     row: RuntimeBindingRow,
@@ -541,9 +510,9 @@ export class RuntimeBindingStore {
       driverName: parsedColumns.driverName,
       contractVersion: row.contract_version,
       cliVersion:
-        row.cli_version_raw !== null && row.cli_version_semver !== null
-          ? { raw: row.cli_version_raw, semver: row.cli_version_semver }
-          : null,
+        row.cli_version_raw === null
+          ? null
+          : readCliVersionColumns(row.cli_version_raw, row.cli_version_semver),
       resumeHandle: row.resume_handle,
       spawnConfig: parsedColumns.spawnConfig,
       runtimeMetadata: JSON.parse(row.runtime_metadata) as Record<string, unknown>,

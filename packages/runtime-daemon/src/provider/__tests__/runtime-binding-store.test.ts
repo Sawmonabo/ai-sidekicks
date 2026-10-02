@@ -13,6 +13,7 @@ import {
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { captureThrow } from "../__fixtures__/capture-throw.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
@@ -70,11 +71,10 @@ const EXECUTION_POSTURE: ExecutionPosture = {
 const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
   executionPosture: EXECUTION_POSTURE,
   callbackTools: [
-    { name: "ask_human", description: "Ask the operator", inputSchema: { type: "object" } },
+    { name: "ask_human", description: "Ask the person", inputSchema: { type: "object" } },
   ],
   subagentPolicy: { enabled: false },
   outputSchema: { type: "object", properties: { answer: { type: "string" } } },
-  admittedCostCapUsdMicros: 25_000_000,
   providerAccountId: "acct-01J0ND0000NN5J5J5J5J5J5J",
   resolvedExecutablePath: "/opt/homebrew/bin/claude",
   outputSpeed: "on",
@@ -83,7 +83,7 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
 // Direct-SQL insert that bypasses the write seam: the only way to stage a corrupt
-// `spawn_config` or `driver_name`, or a half-present CLI-version pair.
+// `spawn_config` or `driver_name`, or a CLI-version parse with no printed version.
 function insertRawBinding(overrides: {
   id?: string;
   driverName?: string;
@@ -320,17 +320,14 @@ describe("RuntimeBindingStore — contract_version is canonical semver and lengt
   for (const version of rejectedVersions) {
     it(`rejects non-canonical / loose / malformed ${JSON.stringify(version)}`, () => {
       const store = makeStore();
-      let thrown: unknown;
-      try {
+      const thrown = captureThrow(() => {
         store.create({
           runId: RUN_ID,
           driverName: DRIVER_NAME,
           contractVersion: version,
           spawnConfig: {},
         });
-      } catch (error) {
-        thrown = error;
-      }
+      });
       expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
       const validationError = thrown as ProviderOutputValidationError;
       expect(validationError.fields?.["field"]).toBe("contract_version");
@@ -355,8 +352,7 @@ describe("RuntimeBindingStore — resume_handle", () => {
 
   it("rejects a whitespace-only resume_handle (the /\\S/ hardening beyond the DB CHECK)", () => {
     const store = makeStore();
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
@@ -364,9 +360,7 @@ describe("RuntimeBindingStore — resume_handle", () => {
         spawnConfig: {},
         resumeHandle: "   ",
       });
-    } catch (error) {
-      thrown = error;
-    }
+    });
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("resume_handle");
   });
@@ -474,12 +468,9 @@ describe("RuntimeBindingStore — update revalidation", () => {
     });
     corruptSpawnConfigOutOfBand(created.id, "{not json at all");
 
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
     // provider input.
@@ -567,11 +558,6 @@ describe("RuntimeBindingStore — spawn_config", () => {
     { label: "an unknown member", raw: '{"executionPostures":{"mode":"trusted"}}' },
     { label: "a string where an object belongs", raw: '{"executionPosture":"trusted"}' },
     { label: "an object where an array belongs", raw: '{"callbackTools":{}}' },
-    { label: "a string where a number belongs", raw: '{"admittedCostCapUsdMicros":"25000000"}' },
-    {
-      label: "a fractional amount where whole micro-dollars belong",
-      raw: '{"admittedCostCapUsdMicros":2500.5}',
-    },
     { label: "a number where a string belongs", raw: '{"resolvedExecutablePath":42}' },
     { label: "a null-valued known member", raw: '{"providerAccountId":null}' },
   ];
@@ -584,12 +570,9 @@ describe("RuntimeBindingStore — spawn_config", () => {
       const store = makeStore();
       const rawId = insertRawBinding({ id: "corrupt-row-1", spawnConfig: raw });
 
-      let thrown: unknown;
-      try {
+      const thrown = captureThrow(() => {
         store.findById(rawId);
-      } catch (error) {
-        thrown = error;
-      }
+      });
 
       expect(thrown).toBeInstanceOf(Error);
       // A plain internal-invariant Error, not the provider-output type: this is daemon-written
@@ -609,12 +592,9 @@ describe("RuntimeBindingStore — driver_name", () => {
     const store = makeStore();
     const rawId = insertRawBinding({ id: "corrupt-driver-1", driverName: "gemini" });
 
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       store.findById(rawId);
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
@@ -624,32 +604,6 @@ describe("RuntimeBindingStore — driver_name", () => {
 });
 
 describe("RuntimeBindingStore — cliVersion pair", () => {
-  it("rejects a bounded-but-unparseable semver and a non-canonical form at the seam", () => {
-    // A bounded garbage semver stored now would poison floor comparison far from the row that
-    // produced it. The seam applies the module's one semver predicate (`semver.valid(v) === v`,
-    // the floor gate's), so the layers cannot disagree.
-    const store = makeStore();
-    for (const unparseableSemver of ["not-a-version", "v1.2.3", " 1.2.3", "1.2"]) {
-      let thrown: unknown;
-      try {
-        store.create({
-          runId: RUN_ID,
-          driverName: DRIVER_NAME,
-          contractVersion: CONTRACT_VERSION,
-          cliVersion: { raw: CLI_VERSION.raw, semver: unparseableSemver },
-          spawnConfig: {},
-        });
-      } catch (e) {
-        thrown = e;
-      }
-      expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
-      expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe(
-        "cli_version_semver",
-      );
-    }
-    expect(countBindings()).toBe(0);
-  });
-
   it("round-trips the pair and stores BOTH columns", () => {
     const store = makeStore();
     const created = store.create({
@@ -668,17 +622,28 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     });
   });
 
-  it("the DDL CHECK rejects a HALF-PRESENT pair written directly via SQL", () => {
-    // The seam makes a half-pair unrepresentable (one optional member carries both values), so
-    // this is the only way to test the column-layer guarantee. Both directions, because the
-    // CHECK is an equality of two IS NULL tests.
+  it("keeps a printed version that did not parse, and refuses a parse with no printed version", () => {
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      cliVersion: { raw: "Claude Code (unknown build)" },
+      spawnConfig: {},
+    });
+    expect(store.findById(created.id)?.cliVersion).toStrictEqual({
+      raw: "Claude Code (unknown build)",
+    });
+    expect(readRawCliVersion(created.id)).toEqual({
+      cli_version_raw: "Claude Code (unknown build)",
+      cli_version_semver: null,
+    });
+
+    // The seam cannot express a parse without its printed version, so only SQL can stage one.
     expect(() =>
-      insertRawBinding({ id: "half-1", cliVersionRaw: CLI_VERSION.raw, cliVersionSemver: null }),
+      insertRawBinding({ id: "parse-only", cliVersionRaw: null, cliVersionSemver: "2.1.245" }),
     ).toThrow(/CHECK constraint failed/);
-    expect(() =>
-      insertRawBinding({ id: "half-2", cliVersionRaw: null, cliVersionSemver: CLI_VERSION.semver }),
-    ).toThrow(/CHECK constraint failed/);
-    expect(countBindings()).toBe(0);
+    expect(countBindings()).toBe(1);
   });
 
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
@@ -715,7 +680,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 describe("RuntimeBindingStore — spawned-version carriers", () => {
   // `version-gate.test.ts` proves the reading is taken from the dereferenced build. This proves
   // that value is what a later reader gets back out of the database, through `create()`'s
-  // report validation, the both-or-neither DDL CHECK and the `spawn_config` parser, none of
+  // report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none of
   // which the in-memory projection helpers exercise: the version compared, the version
   // recorded and the version run are one reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
@@ -808,7 +773,6 @@ describe("composeResumeSessionParams", () => {
       callbackTools: FULL_SPAWN_CONFIG.callbackTools,
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
       outputSchema: FULL_SPAWN_CONFIG.outputSchema,
-      admittedCostCapUsdMicros: 25_000_000,
       providerAccountId: FULL_SPAWN_CONFIG.providerAccountId,
       outputSpeed: "on",
       onCallbackToolCall: undefined,
@@ -822,7 +786,6 @@ describe("composeResumeSessionParams", () => {
     const store = makeStore();
     const unboundSpawnConfig: RuntimeBindingSpawnConfig = {
       executionPosture: EXECUTION_POSTURE,
-      admittedCostCapUsdMicros: 25_000_000,
     };
     const binding = store.create({
       runId: RUN_ID,
@@ -872,12 +835,9 @@ describe("composeResumeSessionParams", () => {
       spawnConfig: FULL_SPAWN_CONFIG,
     });
 
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS);
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     expect(thrown).toBeInstanceOf(RuntimeBindingNotResumableError);
     expect((thrown as RuntimeBindingNotResumableError).runId).toBe(RUN_ID);

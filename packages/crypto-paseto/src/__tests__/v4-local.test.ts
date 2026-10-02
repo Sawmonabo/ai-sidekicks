@@ -38,12 +38,8 @@ describe("v4.local encrypt / decrypt", () => {
     bodyBytes[bodyBytes.length - 1]! ^= 0x01;
     const tampered = head + Buffer.from(bodyBytes).toString("base64url");
     expect(() => decryptV4Local(tampered, key)).toThrow(MacMismatchError);
-    // MacMismatchError extends InvalidTokenError, so callers can catch broadly.
-    try {
-      decryptV4Local(tampered, key);
-    } catch (e) {
-      expect(e instanceof InvalidTokenError).toBe(true);
-    }
+    // Callers catch every refusal as an InvalidTokenError.
+    expect(() => decryptV4Local(tampered, key)).toThrow(InvalidTokenError);
   });
 
   it("rejects a key that is not 32 bytes", () => {

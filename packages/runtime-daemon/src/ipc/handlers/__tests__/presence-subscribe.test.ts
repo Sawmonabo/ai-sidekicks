@@ -5,12 +5,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  HandlerContext,
   JsonRpcNotification,
   MachinePresence,
   PresenceSubscribeResponse,
   SessionId,
-  SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION, SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts";
 
@@ -20,7 +18,6 @@ import { StreamingPrimitive } from "../../streaming-primitive.js";
 import { registerPresenceSubscribe, type PresenceSubscribeDeps } from "../presence-subscribe.js";
 
 // A fixed id, so a failure prints the same value every run.
-
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 
 /** A `MachinePresence` with one connected device. */
@@ -43,90 +40,102 @@ const MALFORMED_PRESENCE = {
   sessionId: TEST_SESSION_ID,
 } as unknown as MachinePresence;
 
+/**
+ * Binds `presence.subscribe` on a fresh registry and primitive. `pushUpdate` calls the `onUpdate`
+ * the handler handed the source; `beforeReturn` runs inside the source's subscribe call, the place
+ * a source reports synchronously.
+ */
+function setupPresence(
+  options: { readonly beforeReturn?: (onUpdate: (update: MachinePresence) => void) => void } = {},
+) {
+  const registry = new MethodRegistryImpl();
+  const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+  const primitive = new StreamingPrimitive({ registry, send });
+  const unsubscribe = vi.fn<() => void>();
+  let capturedOnUpdate: ((update: MachinePresence) => void) | null = null;
+  const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
+    capturedOnUpdate = onUpdate;
+    options.beforeReturn?.(onUpdate);
+    return unsubscribe;
+  });
+  registerPresenceSubscribe(registry, { streamingPrimitive: primitive, subscribeToPresence });
+
+  return {
+    registry,
+    send,
+    primitive,
+    unsubscribe,
+    subscribeToPresence,
+    subscribe: async (
+      transportId: number,
+    ): Promise<PresenceSubscribeResponse["subscriptionId"]> => {
+      const reply = (await registry.dispatch(
+        "presence.subscribe",
+        {},
+        { transportId },
+      )) as PresenceSubscribeResponse;
+      return reply.subscriptionId;
+    },
+    pushUpdate: (update: MachinePresence): void => {
+      if (capturedOnUpdate === null) {
+        throw new Error("the handler never subscribed to the presence source");
+      }
+      capturedOnUpdate(update);
+    },
+  };
+}
+
+/** Lets the barrier's `setImmediate` flush run. */
+async function nextCheckPhase(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 describe("presence.subscribe — push slice round-trip + wire-frame emission", () => {
-  it("dispatches subscribe; returns `{subscriptionId}`; sub.next(update) routes as a `$/subscription/notify` frame validated against MachinePresenceSchema", async () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-
-    // Captures the `onUpdate` the handler passes to `subscribeToPresence`. A holder object,
-    // because TypeScript narrows a closure-assigned `let` to `null` at the outer read.
-    const onUpdateHolder: { current: ((update: MachinePresence) => void) | null } = {
-      current: null,
-    };
-    const unsubscribe = vi.fn<() => void>();
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
-      onUpdateHolder.current = onUpdate;
-      return unsubscribe;
-    });
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
+  it("dispatches subscribe; returns `{subscriptionId}`; a pushed update routes as a `$/subscription/notify` frame validated against MachinePresenceSchema", async () => {
+    const presence = setupPresence();
     const transportId = 42;
-    const ctx: HandlerContext = { transportId };
-    const result = (await registry.dispatch(
-      "presence.subscribe",
-      {},
-      ctx,
-    )) as PresenceSubscribeResponse;
+    const subscriptionId = await presence.subscribe(transportId);
 
-    expect(typeof result.subscriptionId).toBe("string");
-    expect(result.subscriptionId).toMatch(
+    expect(subscriptionId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
-
-    expect(subscribeToPresence).toHaveBeenCalledTimes(1);
-    expect(onUpdateHolder.current).not.toBeNull();
+    expect(presence.subscribeToPresence).toHaveBeenCalledTimes(1);
 
     // Nothing is pushed before the response is written.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(send).not.toHaveBeenCalled();
+    await nextCheckPhase();
+    expect(presence.send).not.toHaveBeenCalled();
 
-    const onUpdate = onUpdateHolder.current;
-    if (onUpdate === null) throw new Error("unreachable — onUpdate captured above");
     const update = buildMachinePresence();
-    onUpdate(update);
+    presence.pushUpdate(update);
 
-    expect(send).toHaveBeenCalledTimes(1);
-    const call = send.mock.calls[0];
-    if (call === undefined) throw new Error("unreachable");
-    const [actualTransportId, frame] = call;
-    expect(actualTransportId).toBe(transportId);
-    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
-    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-    const params = frame.params as SubscriptionNotifyParams<MachinePresence>;
-    expect(params.subscriptionId).toBe(result.subscriptionId);
-    expect(params.value).toStrictEqual(update);
+    expect(presence.send).toHaveBeenCalledExactlyOnceWith(transportId, {
+      jsonrpc: JSONRPC_VERSION,
+      method: SUBSCRIPTION_NOTIFY_METHOD,
+      params: { subscriptionId, value: update },
+    });
   });
 
   it("buffers updates fired synchronously during setup and flushes them AFTER the init response (wire-ordering invariant)", async () => {
     // The source fires an update during setup. The handler holds it until after the response,
     // or the client would receive a notify for an id it does not know yet and drop it.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-
     const syncUpdate = buildMachinePresence();
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
-      onUpdate(syncUpdate);
-      return vi.fn<() => void>();
+    const presence = setupPresence({
+      beforeReturn: (onUpdate) => {
+        onUpdate(syncUpdate);
+      },
     });
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
-    const ctx: HandlerContext = { transportId: 7 };
-    await registry.dispatch("presence.subscribe", {}, ctx);
+    const subscriptionId = await presence.subscribe(7);
 
     // The update is still held.
-    expect(send).not.toHaveBeenCalled();
+    expect(presence.send).not.toHaveBeenCalled();
 
     // The held update is sent on the next `setImmediate`.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(send).toHaveBeenCalledTimes(1);
-    const call = send.mock.calls[0];
-    if (call === undefined) throw new Error("unreachable");
-    const params = call[1].params as SubscriptionNotifyParams<MachinePresence>;
-    expect(params.value).toStrictEqual(syncUpdate);
+    await nextCheckPhase();
+    expect(presence.send).toHaveBeenCalledExactlyOnceWith(7, {
+      jsonrpc: JSONRPC_VERSION,
+      method: SUBSCRIPTION_NOTIFY_METHOD,
+      params: { subscriptionId, value: syncUpdate },
+    });
   });
 });
 
@@ -137,93 +146,54 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
     vi.restoreAllMocks();
   });
 
+  /** The one log line a canceled subscription writes: the subscription id, then the error. */
+  function expectCanceledWithLog(
+    consoleErrorSpy: ReturnType<typeof vi.spyOn>,
+    path: "replay" | "live-tail",
+    subscriptionId: string,
+  ): void {
+    expect(consoleErrorSpy).toHaveBeenCalledExactlyOnceWith(
+      `[presence.subscribe] ${path} event validation/emission failed for ` +
+        `subscriptionId=${subscriptionId}; subscription canceled`,
+      expect.objectContaining({ name: "StreamingValidationError" }),
+    );
+  }
+
   it("replay-flush: a malformed update in the replay buffer is caught; subscription canceled; daemon survives", async () => {
     // A bad update fired during setup is held, then fails validation when the `setImmediate`
-    // flush sends it. Without the handler's catch that throw would be uncaught and stop the
-    // daemon; with it, the subscription is canceled and the failure logged.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
+    // flush sends it. Without a catch that throw would be uncaught and stop the daemon; with it,
+    // the subscription is canceled and the failure logged.
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const malformed = MALFORMED_PRESENCE;
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
-      onUpdate(malformed);
-      return () => undefined;
+    const presence = setupPresence({
+      beforeReturn: (onUpdate) => {
+        onUpdate(MALFORMED_PRESENCE);
+      },
     });
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
-    const ctx: HandlerContext = { transportId: 7 };
-    const result = (await registry.dispatch(
-      "presence.subscribe",
-      {},
-      ctx,
-    )) as PresenceSubscribeResponse;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    const subscriptionId = await presence.subscribe(7);
+    await nextCheckPhase();
 
     // The subscription is already canceled, so canceling it again finds nothing.
-    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
-    expect(send).not.toHaveBeenCalled();
-    // The log carries the subscription id, then the validation error.
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const errCall = consoleErrorSpy.mock.calls[0];
-    if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
-    const [prefix, err] = errCall;
-    expect(typeof prefix).toBe("string");
-    expect(prefix).toContain("[presence.subscribe] replay update validation/emission failed");
-    expect(prefix).toContain(result.subscriptionId);
-    expect(err).toBeInstanceOf(Error);
-    if (err instanceof Error) {
-      expect(err.name).toBe("StreamingValidationError");
-    }
+    expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
+    expect(presence.send).not.toHaveBeenCalled();
+    expectCanceledWithLog(consoleErrorSpy, "replay", subscriptionId);
   });
 
   it("live-tail: a malformed update after replay drain is caught; subscription canceled; daemon survives", async () => {
-    // A bad update pushed after the first flush takes the live path. Without the handler's
-    // catch, the validation throw would escape the source's call as an uncaught exception.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
+    // A bad update pushed after the first flush takes the live path. Without a catch, the
+    // validation throw would escape the source's call as an uncaught exception.
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const onUpdateHolder: { current: ((update: MachinePresence) => void) | null } = {
-      current: null,
-    };
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
-      onUpdateHolder.current = onUpdate;
-      return () => undefined;
-    });
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
-    const ctx: HandlerContext = { transportId: 7 };
-    const result = (await registry.dispatch(
-      "presence.subscribe",
-      {},
-      ctx,
-    )) as PresenceSubscribeResponse;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const onUpdate = onUpdateHolder.current;
-    if (onUpdate === null) throw new Error("unreachable — onUpdate captured above");
+    const presence = setupPresence();
+    const subscriptionId = await presence.subscribe(7);
+    await nextCheckPhase();
 
     // `not.toThrow` makes a missing catch fail this test instead of aborting the suite.
-    const malformed = MALFORMED_PRESENCE;
-    expect(() => onUpdate(malformed)).not.toThrow();
+    expect(() => {
+      presence.pushUpdate(MALFORMED_PRESENCE);
+    }).not.toThrow();
 
-    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
-    expect(send).not.toHaveBeenCalled();
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const errCall = consoleErrorSpy.mock.calls[0];
-    if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
-    const [prefix, err] = errCall;
-    expect(typeof prefix).toBe("string");
-    expect(prefix).toContain("[presence.subscribe] live-tail update validation/emission failed");
-    expect(prefix).toContain(result.subscriptionId);
-    expect(err).toBeInstanceOf(Error);
-    if (err instanceof Error) {
-      expect(err.name).toBe("StreamingValidationError");
-    }
+    expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
+    expect(presence.send).not.toHaveBeenCalled();
+    expectCanceledWithLog(consoleErrorSpy, "live-tail", subscriptionId);
   });
 });
 
@@ -231,57 +201,29 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
   it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
     // Without the handler's `sub.onCancel(unsubscribe)`, the subscription would be removed but
     // the presence source's watcher would leak.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const unsubscribe = vi.fn<() => void>();
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>(
-      () => unsubscribe,
-    );
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
+    const presence = setupPresence();
     const transportId = 13;
-    const ctx: HandlerContext = { transportId };
-    const result = (await registry.dispatch(
-      "presence.subscribe",
-      {},
-      ctx,
-    )) as PresenceSubscribeResponse;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(unsubscribe).not.toHaveBeenCalled();
+    const subscriptionId = await presence.subscribe(transportId);
+    await nextCheckPhase();
+    expect(presence.unsubscribe).not.toHaveBeenCalled();
 
     // The cancel handler checks that the subscription belongs to the calling transport.
-    const cancelResult = await registry.dispatch(
-      "$/subscription/cancel",
-      { subscriptionId: result.subscriptionId },
-      { transportId },
-    );
-
-    expect((cancelResult as { canceled: boolean }).canceled).toBe(true);
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    await expect(
+      presence.registry.dispatch("$/subscription/cancel", { subscriptionId }, { transportId }),
+    ).resolves.toStrictEqual({ canceled: true });
+    expect(presence.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it("transport-disconnect (`cleanupTransport`) fires the upstream unsubscribe", async () => {
     // A closed connection calls `cleanupTransport`; the test calls it directly.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const unsubscribe = vi.fn<() => void>();
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>(
-      () => unsubscribe,
-    );
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
+    const presence = setupPresence();
     const transportId = 21;
-    const ctx: HandlerContext = { transportId };
-    await registry.dispatch("presence.subscribe", {}, ctx);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(unsubscribe).not.toHaveBeenCalled();
+    await presence.subscribe(transportId);
+    await nextCheckPhase();
+    expect(presence.unsubscribe).not.toHaveBeenCalled();
 
-    primitive.cleanupTransport(transportId);
+    presence.primitive.cleanupTransport(transportId);
 
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(presence.unsubscribe).toHaveBeenCalledTimes(1);
   });
 });

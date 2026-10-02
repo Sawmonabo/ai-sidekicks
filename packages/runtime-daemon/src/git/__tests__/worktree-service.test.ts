@@ -13,20 +13,13 @@ import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { EventLogAppendReceipt } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import type { DaemonDomainError } from "../../ipc/domain-error.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
 import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import type { EmitWorktreeEventInput } from "../worktree-event-emitter.js";
 import {
-  WorkspaceBranchMismatchError,
-  WorkspaceBranchNameRequiredError,
-  WorkspaceExecutionRootUnresolvedError,
-  WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
-  WorktreeNotFoundError,
   WorktreeRetireConflictError,
   WorktreeReuseConflictError,
 } from "../worktree-errors.js";
@@ -38,11 +31,8 @@ import type {
   CreatedWorktree,
   WorktreeServiceDeps,
 } from "../worktree-service.js";
-import type {
-  WorktreeFilesystem,
-  WorktreeGitInvocationResult,
-  WorktreeGitRunner,
-} from "../worktree-git.js";
+import type { WorktreeFilesystem } from "../worktree-git.js";
+import type { GitInvocationResult, GitRunner } from "../git-process.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -54,7 +44,6 @@ const REPO_MOUNT_ID: string = "0190f8b2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 const OTHER_REPO_MOUNT_ID: string = "0190f8b5-5a7b-7c9d-8e54-6f0a9e82d354";
 const WORKSPACE_ID: string = "0190f8b3-3e5f-7a8c-8b43-4e9f8d60c132";
 const RUN_ID: string = "0190f8b4-4f60-7b9d-9c54-5f0a9e71c243";
-const UNKNOWN_WORKTREE_ID: string = "0190f8b7-7c9d-7e1f-9a76-8b2c1a04f576";
 
 // `idx_repo_mounts_active_root` is UNIQUE over (node_id, canonical_root) for attached rows, so a
 // second mount on the same node needs a root of its own.
@@ -78,13 +67,14 @@ interface RecordedGitInvocation {
   readonly argv: readonly string[];
 }
 
-function resolveGit(stdout: string): Promise<WorktreeGitInvocationResult> {
-  return Promise.resolve({ stdout, stderr: "" });
+function resolveGit(stdout: string): Promise<GitInvocationResult> {
+  return Promise.resolve({ stdout: Buffer.from(stdout, "utf8"), stderr: "" });
 }
 
 /**
- * Records every invocation and answers the verbs the service issues: `symbolic-ref`, `status`,
- * and `worktree` with `add` or `prune`.
+ * Records every invocation and answers the verbs the service issues: `symbolic-ref`,
+ * `check-ref-format` (every name valid), `for-each-ref` (no branch exists), `status`, and
+ * `worktree` with `add` or `prune`.
  *
  * `worktree add` creates the target directory, because the cleanup pass must be seen removing a
  * real root. An unrecognized verb or `worktree` subcommand rejects, so an unexpected git call
@@ -95,7 +85,7 @@ class FakeGit {
   statusFails: boolean = false;
   statusOutput: string = "";
 
-  readonly run: WorktreeGitRunner = (argv) => {
+  readonly run: GitRunner = (argv) => {
     this.invocations.push({ argv: [...argv] });
     // argv is `-c core.hooksPath=… -c core.fsmonitor=false -C <dir> <verb> …`: the verb is
     // index 6 and a `worktree` subcommand is index 7.
@@ -103,6 +93,10 @@ class FakeGit {
 
     if (verb === "symbolic-ref") {
       return resolveGit(`${HEAD_BRANCH}\n`);
+    }
+
+    if (verb === "check-ref-format" || verb === "for-each-ref") {
+      return resolveGit("");
     }
 
     if (verb === "worktree") {
@@ -183,9 +177,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a leftover queue entry would stall the
-  // next case on the same session id.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -358,8 +349,8 @@ const SLUG_CASES: ReadonlyArray<readonly [string, string | null, string]> = [
   ],
   [
     "truncates at the last boundary inside 40 characters",
-    "Add support for cross machine dispatch routing tables",
-    "add-support-for-cross-machine-dispatch",
+    "Add support for reading project files with tables",
+    "add-support-for-reading-project-files",
   ],
   ["falls back to the run short id when the summary is punctuation", "---", "run-9e71c243"],
 ];
@@ -550,7 +541,7 @@ describe("WorktreeService.validateReuse", () => {
     const conflict = thrown as WorktreeReuseConflictError;
     expect(conflict.reason).toBe("mount_mismatch");
     // The mount check runs before any git call, so git was not spawned for it.
-    expect(ctx.git.verbs()).toEqual(["symbolic-ref", "worktree"]);
+    expect(ctx.git.verbs()).toEqual(["symbolic-ref", "check-ref-format", "worktree"]);
   });
 
   it("refuses a retired candidate as no longer live", async () => {
@@ -679,6 +670,35 @@ describe("WorktreeService.cleanupPass", () => {
     expect(existsSync(survivor.fsRoot)).toBe(false);
   });
 
+  it("refuses to remove a stored root this service did not mint", async () => {
+    const service = makeService();
+    const created = await createReadyWorktree(service);
+    await service.retire(created.worktreeId);
+    // A row whose root was rewritten out of band to the hooks directory beside the mount roots.
+    ctx.db
+      .prepare(`UPDATE worktrees SET fs_root = ? WHERE id = ?`)
+      .run(ctx.hookNeutralizationDirectory, created.worktreeId);
+    const removedPaths: string[] = [];
+    const recordingFilesystem: WorktreeFilesystem = {
+      createDirectory: (path: string): Promise<void> => {
+        mkdirSync(path, { recursive: true });
+        return Promise.resolve();
+      },
+      removeDirectory: (path: string): Promise<void> => {
+        removedPaths.push(path);
+        return Promise.resolve();
+      },
+    };
+
+    const refusal = await captureRejection(() =>
+      makeService({ filesystem: recordingFilesystem }).cleanupPass(),
+    );
+
+    expect(refusal).toBeInstanceOf(Error);
+    expect(removedPaths).toEqual([]);
+    expect(readWorktreeRow(created.worktreeId).cleaned_at).toBeNull();
+  });
+
   it("leaves a live worktree on an attached mount alone", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
@@ -695,70 +715,13 @@ describe("WorktreeService.cleanupPass", () => {
 // The typed error vocabulary
 // ----------------------------------------------------------------------------
 
-interface CarrierCase {
-  readonly error: DaemonDomainError;
-  readonly code: string;
-  readonly httpStatus: number;
-}
-
-function allCarriers(): readonly CarrierCase[] {
-  return [
-    {
-      error: new WorktreeNotFoundError(UNKNOWN_WORKTREE_ID),
-      code: "worktree.not_found",
-      httpStatus: 404,
-    },
-    {
-      error: new WorktreeCreateFailedError("git_invocation_failed"),
-      code: "worktree.create_failed",
-      httpStatus: 500,
-    },
-    {
-      error: new WorktreeBranchCollisionError(REPO_MOUNT_ID, "feature/login"),
-      code: "worktree.branch_collision",
-      httpStatus: 409,
-    },
-    {
-      error: new WorktreeReuseConflictError(UNKNOWN_WORKTREE_ID, "not_live"),
-      code: "worktree.reuse_conflict",
-      httpStatus: 409,
-    },
-    {
-      error: new WorktreeRetireConflictError(UNKNOWN_WORKTREE_ID, WORKSPACE_ID),
-      code: "worktree.retire_conflict",
-      httpStatus: 409,
-    },
-    {
-      error: new WorkspaceBranchMismatchError(WORKSPACE_ID, "feature/login", HEAD_BRANCH),
-      code: "workspace.branch_mismatch",
-      httpStatus: 409,
-    },
-    {
-      error: new WorkspaceExecutionRootUnresolvedError(WORKSPACE_ID, "worktree.create_failed"),
-      code: "workspace.execution_root_unresolved",
-      httpStatus: 409,
-    },
-    {
-      error: new WorkspaceBranchNameRequiredError(WORKSPACE_ID),
-      code: "workspace.branch_name_required",
-      httpStatus: 400,
-    },
-  ];
-}
-
 describe("error vocabulary", () => {
-  it("carries its code and status on every class", () => {
-    for (const carrier of allCarriers()) {
-      expect(carrier.error.code).toBe(carrier.code);
-      expect(carrier.error.httpStatus).toBe(carrier.httpStatus);
-    }
-  });
-
   it("never echoes a filesystem path in a creation-failure message", () => {
     // A total `Record` makes the compiler enforce coverage: a reason added to the union without a
     // row here fails to typecheck. `Object.values` keeps the union type where `Object.keys`
     // would widen to `string`.
-    const reasons: Record<WorktreeCreateFailureReason, WorktreeCreateFailureReason> = {
+    type TableReason = Exclude<WorktreeCreateFailureReason, "branch_name_invalid">;
+    const reasons: Record<TableReason, TableReason> = {
       base_ref_option_like: "base_ref_option_like",
       base_ref_unresolved: "base_ref_unresolved",
       branch_name_unavailable: "branch_name_unavailable",

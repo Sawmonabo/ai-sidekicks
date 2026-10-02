@@ -62,7 +62,7 @@ export type CodexTransportDiagnostic =
    * be waiting for an answer that never comes.
    */
   | { kind: "server-request-answer-write-failed"; method: string; detail: string }
-  | { kind: "notification-write-failed"; method: string }
+  | { kind: "notification-write-failed"; method: string; detail: string }
   | { kind: "unconsumed-server-notification"; method: string }
   /**
    * The notification consumer (the daemon's own pure normalizer) threw; the notification is
@@ -72,6 +72,20 @@ export type CodexTransportDiagnostic =
   | { kind: "process-exited"; exitCode: number; signalCode: number | null }
   /** A disposer threw during teardown with no caller to rethrow to; `detail` is normalized. */
   | { kind: "subscription-dispose-failed"; detail: string }
+  /**
+   * A teardown step threw where the teardown carries on without it: a failed `pty-kill` or
+   * `pty-close` may leave the child running. `detail` is normalized.
+   */
+  | {
+      kind: "teardown-step-failed";
+      step: "pty-kill" | "pty-close" | "thread-unsubscribe" | "session-disposal";
+      detail: string;
+    }
+  /**
+   * The auth read that classifies a failed resume threw, so the resume reads `recovery-needed`.
+   * `detail` is normalized.
+   */
+  | { kind: "resume-auth-classification-failed"; detail: string }
   /**
    * A `thread/fork` response's turn list did not corroborate the rewind (an absent list reads as
    * zero). Reported, not fatal.

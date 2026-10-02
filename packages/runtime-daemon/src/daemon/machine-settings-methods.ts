@@ -17,7 +17,8 @@ import {
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";
-import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import { createSubscriptionAckBarrier } from "../ipc/subscription-ack-barrier.js";
 
 import type { MachineSettingsFile } from "./machine-settings-file.js";
 
@@ -84,44 +85,21 @@ export function registerMachineSettingsMethods(
       subscribeDescriptor.emissionSchema,
     );
 
-    // The first reading arrives while this call is still answering, so it is
-    // held and sent after the acknowledgement: a reading that reached the client
-    // before its subscription id would be dropped there as unknown.
-    const heldReadings: MachineSettingsReading[] = [];
-    let acknowledged = false;
-    const emit = (reading: MachineSettingsReading): void => {
-      // A reading the emission schema refuses is the service's own fault, and
-      // the file's writer must not fail because one listener did: this
-      // subscription ends and says why, and every other one keeps listening.
-      try {
-        subscription.next(reading);
-      } catch (error) {
-        cancelAfterDetachedFailure(
-          subscription,
-          `[daemon.machineSettingsSubscribe] emission failed for subscriptionId=${subscription.subscriptionId}; subscription canceled`,
-          error,
-        );
-      }
-    };
+    // The first reading arrives while this call is still answering, so the barrier holds it
+    // until the acknowledgement is written: a reading that reached the client before its
+    // subscription id would be dropped there as unknown. A reading the emission schema refuses
+    // ends this subscription only, so the file's writer never fails because one listener did.
+    const barrier = createSubscriptionAckBarrier(subscription, subscribeDescriptor.method);
     try {
       const unsubscribe = await deps.settingsFile.subscribe((reading) => {
-        if (acknowledged) {
-          emit(reading);
-        } else {
-          heldReadings.push(reading);
-        }
+        barrier.emit(reading);
       });
       subscription.onCancel(unsubscribe);
     } catch (error) {
       subscription.cancel();
       throw error;
     }
-    setImmediate(() => {
-      acknowledged = true;
-      for (const reading of heldReadings.splice(0)) {
-        emit(reading);
-      }
-    });
+    barrier.release();
     return { subscriptionId: subscription.subscriptionId };
   };
   registry.register(

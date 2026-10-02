@@ -24,13 +24,16 @@ import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
   assertValidCapabilityFlags,
-  assertValidCliVersionReport,
   assertValidContractVersion,
   assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
 } from "./provider-output-validation.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "./provider-driver.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  readCliVersionColumns,
+} from "./provider-driver.js";
 
 // One driver's stored capabilities: every flag, the contract version and the normalized tools.
 interface CapabilityDetails {
@@ -90,18 +93,18 @@ interface DriverToolRow {
 
 interface DriverContractMetaRow {
   readonly contract_version: string;
-  // Both or neither: the table's CHECK never admits a half-populated pair.
+  // The table's CHECK never admits a parse without its printed version.
   readonly cli_version_raw: string | null;
   readonly cli_version_semver: string | null;
 }
 
-// `snapshot` undefined: never written. `storedCliVersion` undefined: the row's pair is NULL.
+// `snapshot` undefined: never written. `storedCliVersion` undefined: the row has no version.
 interface CachedDriverCapabilityRead {
   readonly snapshot: CapabilityDetails | undefined;
   readonly storedCliVersion: DriverCliVersionReport | undefined;
 }
 
-// Absent versus present is a difference, so a row with a NULL pair heals on the next declare.
+// Absent versus present is a difference, so a row with no version heals on the next declare.
 function cliVersionReportsEqual(
   left: DriverCliVersionReport | undefined,
   right: DriverCliVersionReport | undefined,
@@ -184,7 +187,7 @@ export class DriverCapabilitiesWriter {
                        cli_version_semver = excluded.cli_version_semver,
                        refreshed_at       = excluded.refreshed_at`,
     );
-    // Both pair columns are written together, matching the table's both-or-neither CHECK.
+    // Both version columns are written together, so a parse never outlives its printed version.
     this.#refreshCliVersionPairStmt = db.prepare(
       `UPDATE driver_contract_meta
           SET cli_version_raw    = @cli_version_raw,
@@ -209,34 +212,16 @@ export class DriverCapabilitiesWriter {
   /**
    * Declares (or refreshes) a driver's capabilities in one IMMEDIATE transaction; an identical
    * re-declare writes no capability row. Throws `ProviderOutputValidationError`, before any
-   * transaction opens, for an invalid version, a bad flag key set, or a malformed or duplicate
-   * tool.
+   * transaction opens, for an invalid contract version, a bad flag key set, or a malformed or
+   * duplicate tool.
    */
   async declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
     // The declared type is erased at runtime, so a malformed driver can ship null or a primitive;
     // this guard keeps the accesses below from raw-throwing a TypeError.
     assertValidGetCapabilitiesResultShape(input.result);
 
-    // The report is untrusted: copy it to two plain strings before validating, so a getter or
-    // Proxy cannot persist a string that never passed validation. A throwing accessor becomes the
-    // typed refusal with the thrown value dropped.
-    let declaredCliVersion: DriverCliVersionReport;
-    try {
-      const reportedCliVersion: DriverCliVersionReport = input.result.cliVersion;
-      declaredCliVersion =
-        typeof reportedCliVersion === "object" &&
-        reportedCliVersion !== null &&
-        !Array.isArray(reportedCliVersion)
-          ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
-          : reportedCliVersion;
-    } catch {
-      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
-        driverName: input.driverName,
-        field: "cliVersion",
-        reason: "a property accessor on the report threw during the defensive copy",
-      });
-    }
-    assertValidCliVersionReport(input.driverName, declaredCliVersion);
+    // Validated where the daemon read it off the spawned build, so it is trusted here.
+    const declaredCliVersion: DriverCliVersionReport = input.result.cliVersion;
 
     // Reject a bad contract_version here so the SQL CHECK never fires mid-transaction.
     assertValidContractVersion(input.result.capabilities.contractVersion);
@@ -315,7 +300,7 @@ export class DriverCapabilitiesWriter {
         this.#refreshCliVersionPairStmt.run({
           driver_name: driverName,
           cli_version_raw: declaredCliVersion.raw,
-          cli_version_semver: declaredCliVersion.semver,
+          cli_version_semver: declaredCliVersion.semver ?? null,
           refreshed_at: this.#now(),
         });
       }
@@ -349,7 +334,7 @@ export class DriverCapabilitiesWriter {
       driver_name: driverName,
       contract_version: newSnapshot.contractVersion,
       cli_version_raw: declaredCliVersion.raw,
-      cli_version_semver: declaredCliVersion.semver,
+      cli_version_semver: declaredCliVersion.semver ?? null,
       refreshed_at: refreshedAt,
     });
 
@@ -399,11 +384,10 @@ export class DriverCapabilitiesWriter {
     }
     return {
       snapshot: this.#snapshotFromContractMeta(driverName, contractMeta),
-      // A half-populated pair (out-of-band corruption only) degrades to a miss.
       storedCliVersion:
-        contractMeta.cli_version_raw !== null && contractMeta.cli_version_semver !== null
-          ? { raw: contractMeta.cli_version_raw, semver: contractMeta.cli_version_semver }
-          : undefined,
+        contractMeta.cli_version_raw === null
+          ? undefined
+          : readCliVersionColumns(contractMeta.cli_version_raw, contractMeta.cli_version_semver),
     };
   }
 

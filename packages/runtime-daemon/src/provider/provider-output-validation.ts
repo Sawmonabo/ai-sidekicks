@@ -1,6 +1,6 @@
-// Write-seam validation for provider-declared strings that cross into local SQLite, on top of
-// the SQL CHECK constraints in `session/daemon-schema.ts`. The bounds govern both
-// `runtime_bindings` and `driver_contract_meta`, so they live here once. Every rejection is a
+// Validation for provider-declared strings that cross into local SQLite, on top of the SQL CHECK
+// constraints in `session/daemon-schema.ts`. The bounds govern both `runtime_bindings` and
+// `driver_contract_meta`, so they live here once. Every rejection is a
 // `ProviderOutputValidationError`, never a raw Zod or SQLite error.
 
 import {
@@ -11,6 +11,9 @@ import {
 } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
+import type { DriverCliVersionReport } from "./provider-driver.js";
+import { isPlainObject } from "./record-readers.js";
+
 /** Maximum length of a provider-owned opaque `resume_handle`; equals the SQL CHECK bound. */
 export const RESUME_HANDLE_MAX_LEN = 4096;
 
@@ -18,7 +21,7 @@ export const RESUME_HANDLE_MAX_LEN = 4096;
  * Maximum length of `DriverCliVersionReport.raw`; equals the SQL CHECK bound. SQLite counts
  * characters and Zod counts UTF-16 code units, which is safe because Zod is the stricter layer.
  */
-export const CLI_VERSION_RAW_MAX_LEN = 128;
+const CLI_VERSION_RAW_MAX_LEN = 128;
 
 /** Maximum length of `DriverCliVersionReport.semver`; equals the SQL CHECK bound. */
 const CLI_VERSION_SEMVER_MAX_LEN = 64;
@@ -55,8 +58,7 @@ const contractVersionSchema = wireFreeFormString(
 // Rejects whitespace-only handles, which the SQL CHECK would accept.
 const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_handle");
 
-// The driver's handshake refusal (`driver.cli_version_unparseable`) stays the parse authority;
-// the canonical `semver` refinement keeps a bounded but unparseable string out of storage.
+// The storage bounds of a version report; the parse itself is `parseCliVersionReport`'s.
 const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");
 const cliVersionSemverSchema = wireFreeFormString(
   CLI_VERSION_SEMVER_MAX_LEN,
@@ -92,27 +94,23 @@ export function assertValidResumeHandle(value: string): void {
 }
 
 /**
- * Validates a provider-declared `DriverCliVersionReport`; throws `ProviderOutputValidationError`
- * naming `driverName` but never the values, since a raw CLI version can carry an install path.
- * The parameter is `unknown` because a malformed driver can send a non-object.
+ * Validates a `DriverCliVersionReport` against the storage bounds, once, where the daemon reads
+ * the version off the spawned build; the capability writer and the binding store trust the typed
+ * report after that. Throws `ProviderOutputValidationError` naming `driverName` but never the
+ * values, since a raw CLI version can carry an install path.
  */
-export function assertValidCliVersionReport(driverName: ProviderName, report: unknown): void {
-  if (typeof report !== "object" || report === null || Array.isArray(report)) {
-    throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
-      driverName,
-      field: "cliVersion",
-      reason: "report must be an object carrying both `raw` and `semver`",
-    });
-  }
-  const reportRecord = report as Record<string, unknown>;
-  if (!cliVersionRawSchema.safeParse(reportRecord["raw"]).success) {
+export function assertValidCliVersionReport(
+  driverName: ProviderName,
+  report: DriverCliVersionReport,
+): void {
+  if (!cliVersionRawSchema.safeParse(report.raw).success) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cli_version_raw",
       reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
     });
   }
-  if (!cliVersionSemverSchema.safeParse(reportRecord["semver"]).success) {
+  if (report.semver !== undefined && !cliVersionSemverSchema.safeParse(report.semver).success) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cli_version_semver",
@@ -127,21 +125,20 @@ export function assertValidCliVersionReport(driverName: ProviderName, report: un
  * dereferences at once; flags, version and tool entries keep their own validators.
  */
 export function assertValidGetCapabilitiesResultShape(result: unknown): void {
-  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+  if (!isPlainObject(result)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "result",
       reason: "result must be an object",
     });
   }
-  const resultRecord = result as Record<string, unknown>;
-  const capabilities = resultRecord["capabilities"];
-  if (typeof capabilities !== "object" || capabilities === null || Array.isArray(capabilities)) {
+  const capabilities = result["capabilities"];
+  if (!isPlainObject(capabilities)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "capabilities",
       reason: "capabilities must be an object",
     });
   }
-  const tools = resultRecord["tools"];
+  const tools = result["tools"];
   if (!Array.isArray(tools)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "tools",
@@ -166,14 +163,13 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * CHECK mid-transaction and an inherited flag beside a typo'd key would pass a prototype lookup.
  */
 export function assertValidCapabilityFlags(flags: unknown): void {
-  if (typeof flags !== "object" || flags === null || Array.isArray(flags)) {
+  if (!isPlainObject(flags)) {
     throw new ProviderOutputValidationError("Invalid driver capability flags.", {
       field: "flags",
       reason: "flags must be an object",
     });
   }
-  const flagRecord = flags as Record<string, unknown>;
-  const keys = Object.keys(flagRecord);
+  const keys = Object.keys(flags);
   if (keys.length !== DRIVER_CAPABILITY_FLAGS.length) {
     throw new ProviderOutputValidationError("Invalid driver capability flags.", {
       field: "flags",
@@ -181,10 +177,7 @@ export function assertValidCapabilityFlags(flags: unknown): void {
     });
   }
   for (const flag of DRIVER_CAPABILITY_FLAGS) {
-    if (
-      !Object.prototype.hasOwnProperty.call(flagRecord, flag) ||
-      typeof flagRecord[flag] !== "boolean"
-    ) {
+    if (!Object.prototype.hasOwnProperty.call(flags, flag) || typeof flags[flag] !== "boolean") {
       throw new ProviderOutputValidationError("Invalid driver capability flags.", {
         field: "flags",
         reason: "each canonical capability flag must be present and boolean",

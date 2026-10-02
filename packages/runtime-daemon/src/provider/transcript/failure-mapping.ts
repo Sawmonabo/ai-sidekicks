@@ -13,7 +13,7 @@
 /**
  * How far a failed request's bytes got, as the transport can place them. `unsent` is a positive
  * claim that the failure landed ahead of the first byte; only `consumed-and-refused` can carry a
- * refusal shape (Claude never reports it: its user-text write is one-way stdin and the provider
+ * refusal shape (a transport whose text write is one-way never reports it, since the provider
  * answers a turn, not the write); `indeterminate` alone never justifies a retry.
  */
 export type ProviderRequestDeliveryClass = "unsent" | "consumed-and-refused" | "indeterminate";
@@ -118,7 +118,12 @@ export type UserTurnReadbackReader = (targetProviderSessionId: string) => Promis
 export type AmbiguousDeliverySettlement =
   | { readonly settlement: "delivered"; readonly userOriginatedTurns: number }
   | { readonly settlement: "cleared-for-retry"; readonly userOriginatedTurns: number }
-  | { readonly settlement: "unrecoverable"; readonly reason: string };
+  | {
+      readonly settlement: "unrecoverable";
+      readonly reason: string;
+      /** What the user-turn reader threw, when the read failed rather than answered unreadable. */
+      readonly cause?: unknown;
+    };
 
 /** The reason reported when a leg binds no user-turn reader at all. */
 export const NO_USER_TURN_READER_BOUND: string =
@@ -194,9 +199,10 @@ export class AmbiguousDeliveryReconciler {
     let readback: UserTurnReadback;
     try {
       readback = await readUserTurns(request.targetProviderSessionId);
-    } catch {
-      // A throwing reader is an unreadable target; the caller needs a settlement, not an exception.
-      return { settlement: "unrecoverable", reason: USER_TURN_READ_FAILED };
+    } catch (readFailure) {
+      // A throwing reader is an unreadable target; the caller needs a settlement, not an exception,
+      // so the error rides on it.
+      return { settlement: "unrecoverable", reason: USER_TURN_READ_FAILED, cause: readFailure };
     }
     if (readback.kind === "unreadable") {
       return { settlement: "unrecoverable", reason: readback.reason };

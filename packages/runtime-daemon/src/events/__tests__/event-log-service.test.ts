@@ -15,7 +15,7 @@ import {
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
-import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
+import { withSessionAppendLock } from "../session-append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
@@ -28,13 +28,9 @@ beforeEach(() => {
   // The production migration runner, not hand-rolled DDL: the terminal-key triggers and the
   // `UNIQUE(session_id, sequence)` key are part of what these tests assert.
   database = openDatabase(":memory:");
-  // The append lock is a module singleton that outlives the database; a leftover queue entry
-  // would surface as an unrelated timeout in the next test.
-  __resetSessionAppendLocksForTest();
 });
 
 afterEach(() => {
-  __resetSessionAppendLocksForTest();
   database.close();
 });
 

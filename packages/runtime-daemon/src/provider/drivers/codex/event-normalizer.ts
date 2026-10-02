@@ -1,22 +1,23 @@
-// Codex event normalizer: answers "which normalized event family does this native frame belong
+// Codex event normalizer: answers "which normalized event category does this native frame belong
 // to". It parses no payload, builds no envelope and touches no session state.
 //
 // The table covers the server-originated JSON-RPC methods of the pinned `codex-cli 0.150.1`
 // app-server protocol, named as its generated schema names them.
 //
-// - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name in
-//   `./lifecycle.ts`), the experimental `mcpServer/event/stream/notification`, and replies to
-//   daemon-issued requests such as `account/rateLimits/read`.
+// - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name at `initialize`),
+//   the experimental `mcpServer/event/stream/notification`, and replies to daemon-issued requests
+//   such as `account/rateLimits/read`.
 // - `artifact_publication` has no row: no Codex frame maps to it. `turn/diff/updated` is a
 //   `tool.result` row.
-// - An unmapped method throws `UnknownCodexInboundFrameError`; `resolveCodexFrameEmissionRoute`
-//   emits an `unmapped_wire_kind` diagnostic instead. Neither drops the frame silently.
+// - An unmapped method gets an `unmapped_wire_kind` diagnostic from
+//   `resolveCodexFrameEmissionRoute`; the frame is never dropped silently.
 
 import {
   SESSION_EVENT_TYPES,
   type EventCategory,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
@@ -106,7 +107,7 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
   SESSION_EVENT_TYPES,
 );
 
-/** Says whether `eventType` may be built into a `SessionEvent` envelope today. */
+/** Says whether `eventType` may be built into a `SessionEvent` envelope. */
 function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
@@ -114,23 +115,23 @@ function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissi
 }
 
 /**
- * A frame that normalizes into one family and names the event type it emits. `normalizedKind` is
+ * A frame that normalizes into one category and names the event type it emits. `normalizedKind` is
  * `null` for a member with no census kind (such as `thread/goal/updated`), whose row states its
  * own target; a row naming a kind takes its target from the disposition table. Both, and
  * `emissionReadiness`, are put on the row when the map is built.
  */
-interface CodexNormalizedFamilyEmission {
+interface CodexNormalizedCategoryEmission {
   readonly disposition: "normalized";
   readonly nativeMethod: CodexInboundFrameMethod;
   readonly transport: CodexInboundFrameTransport;
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
   readonly normalizedKind: NormalizedEventKind | null;
   readonly emissionReadiness: CodexEmissionReadiness;
 }
 
 /**
- * A known frame with no session-timeline capability, so no family. The `reason` is required so a
+ * A known frame with no session-timeline capability, so no category. The `reason` is required so a
  * non-emission is always justified; an unknown method throws instead.
  */
 interface CodexNotEventedFrameDisposition {
@@ -138,26 +139,24 @@ interface CodexNotEventedFrameDisposition {
   readonly nativeMethod: CodexInboundFrameMethod;
   readonly transport: CodexInboundFrameTransport;
   readonly reason: string;
-  readonly family?: never;
+  readonly category?: never;
   readonly eventType?: never;
   readonly normalizedKind?: never;
   readonly emissionReadiness?: never;
 }
 
 /** The total result of normalizing one pinned Codex inbound frame method. */
-export type CodexFrameNormalization =
-  | CodexNormalizedFamilyEmission
-  | CodexNotEventedFrameDisposition;
+type CodexFrameNormalization = CodexNormalizedCategoryEmission | CodexNotEventedFrameDisposition;
 
 // A row before its derived members are put on it. Stating one by hand is a compile error (TS2353),
 // but only for fresh object literals, which every row here is.
 type CodexFrameNormalizationTableRow =
-  | (Omit<CodexNormalizedFamilyEmission, "emissionReadiness" | "family" | "eventType"> & {
+  | (Omit<CodexNormalizedCategoryEmission, "emissionReadiness" | "category" | "eventType"> & {
       readonly normalizedKind: NormalizedEventKind;
-      readonly family?: never;
+      readonly category?: never;
       readonly eventType?: never;
     })
-  | (Omit<CodexNormalizedFamilyEmission, "emissionReadiness"> & { readonly normalizedKind: null })
+  | (Omit<CodexNormalizedCategoryEmission, "emissionReadiness"> & { readonly normalizedKind: null })
   | CodexNotEventedFrameDisposition;
 
 function composeCodexFrameNormalization(
@@ -168,31 +167,13 @@ function composeCodexFrameNormalization(
   }
   const target =
     row.normalizedKind === null
-      ? { family: row.family, eventType: row.eventType }
+      ? { category: row.category, eventType: row.eventType }
       : resolveAdoptedEventTarget(row.normalizedKind);
   return {
     ...row,
     ...target,
     emissionReadiness: resolveCodexEmissionReadiness(target.eventType),
   };
-}
-
-/**
- * Thrown when a Codex inbound method resolves to no census row. `nativeMethod` is untrusted data,
- * never interpolated into anything that executes.
- */
-export class UnknownCodexInboundFrameError extends Error {
-  readonly nativeMethod: string;
-
-  constructor(nativeMethod: string) {
-    super(
-      `Unmapped Codex inbound frame method: ${JSON.stringify(nativeMethod)}. ` +
-        "The pinned census does not cover it; the daemon diagnostic default branch " +
-        "replaces this refusal on the routed normalize path.",
-    );
-    this.name = "UnknownCodexInboundFrameError";
-    this.nativeMethod = nativeMethod;
-  }
 }
 
 // Keyed by the closed union, so a missing or extra method is a compile error.
@@ -256,7 +237,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "attestation/generate",
     transport: "server-request",
     reason:
-      "control-plane request answered on the transport (the initialize-declared requestAttestation capability, codex.md); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
+      "control-plane request answered on the transport (the initialize-declared requestAttestation capability); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
   },
   "account/chatgptAuthTokens/refresh": {
     disposition: "not-evented",
@@ -298,7 +279,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "guardianWarning",
     transport: "server-notification",
-    family: "approval_flow",
+    category: "approval_flow",
     eventType: "moderation.review_flagged",
     normalizedKind: null,
   },
@@ -306,7 +287,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "thread/goal/updated",
     transport: "server-notification",
-    family: "session_lifecycle",
+    category: "session_lifecycle",
     eventType: "session.goal_updated",
     normalizedKind: null,
   },
@@ -314,7 +295,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "thread/goal/cleared",
     transport: "server-notification",
-    family: "session_lifecycle",
+    category: "session_lifecycle",
     eventType: "session.goal_cleared",
     normalizedKind: null,
   },
@@ -355,7 +336,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "item/autoApprovalReview/completed",
     transport: "server-notification",
-    family: "approval_flow",
+    category: "approval_flow",
     eventType: "approval.reviewer_denied",
     normalizedKind: null,
   },
@@ -392,7 +373,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "autoApprovalReview/strictReviewRequired",
     transport: "server-notification",
-    family: "approval_flow",
+    category: "approval_flow",
     eventType: "moderation.review_flagged",
     normalizedKind: null,
   },
@@ -404,7 +385,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/reverted",
     transport: "server-notification",
     reason:
-      'correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, which the V1 driver does not drive at all: binds the Codex rewind to `thread/fork` at an inclusive `lastTurnId` (amended 2026-08-26), and `thread/revert` is separately `#[experimental("thread/revert")]` and paginated-threads-only at the pin, so this frame is off the V1 rewind path rather than on its hot path. Where it does arrive it correlates a revert the daemon requested, and the rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused',
+      'correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, which the driver does not drive: the Codex rewind is `thread/fork` at an inclusive `lastTurnId`, and `thread/revert` is `#[experimental("thread/revert")]` and paginated-threads-only at the pin, so this frame is off the rewind path. Where it does arrive it correlates a revert the daemon requested, and the rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused',
   },
   "thread/queue/changed": {
     disposition: "not-evented",
@@ -467,7 +448,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
 } as const satisfies Record<CodexInboundFrameMethod, CodexFrameNormalizationTableRow>;
 
 /**
- * The mapping from native method to normalized family. A `Map` because the key is an untrusted
+ * The mapping from native method to normalized category. A `Map` because the key is an untrusted
  * string and an object lookup would resolve `__proto__`; entries are frozen singletons.
  */
 const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
@@ -485,28 +466,9 @@ const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
   ]),
 );
 
-// The driver core uses `resolveCodexFrameEmissionRoute`, which emits a diagnostic instead.
-function refuseUnmappedCodexInboundFrame(nativeMethod: string): never {
-  throw new UnknownCodexInboundFrameError(nativeMethod);
-}
-
-/**
- * Normalizes one Codex inbound method into its family disposition (the identical frozen
- * singleton for the same input). Throws {@link UnknownCodexInboundFrameError} if it is unmapped.
- */
-export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNormalization {
-  const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(
-    nativeMethod as CodexInboundFrameMethod,
-  );
-  if (normalization === undefined) {
-    refuseUnmappedCodexInboundFrame(nativeMethod);
-  }
-  return normalization;
-}
-
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type CodexFrameEmissionRoute =
-  | { readonly route: "emit"; readonly normalization: CodexNormalizedFamilyEmission }
+  | { readonly route: "emit"; readonly normalization: CodexNormalizedCategoryEmission }
   | { readonly route: "not-evented"; readonly normalization: CodexNotEventedFrameDisposition }
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
@@ -524,7 +486,7 @@ export function resolveCodexFrameEmissionRoute(
   );
   if (normalization === undefined) {
     const record: DriverDiagnosticRecord = {
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "unmapped_wire_kind",
       rawWireType: nativeMethod,
       dispositionReason:
@@ -539,7 +501,7 @@ export function resolveCodexFrameEmissionRoute(
   }
   if (normalization.emissionReadiness === "payload-variant-pending") {
     const record: DriverDiagnosticRecord = {
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "payload_variant_pending",
       rawWireType: nativeMethod,
       dispositionReason:

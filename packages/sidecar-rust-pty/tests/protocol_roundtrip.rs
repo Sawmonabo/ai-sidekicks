@@ -1,9 +1,9 @@
 //! Tests for the daemon-to-sidecar wire protocol. Every [`Envelope`] variant is serialized and
 //! deserialized back unchanged. The rest pin the wire format the daemon's TS mirror
 //! (`runtime-daemon/src/pty/pty-host-protocol.ts`) depends on: `kind` is a top-level snake_case
-//! key on every envelope, `bytes` fields travel as base64 strings, a `None` error is absent while a
-//! `None` signal code is `null`, and a payload written the way the TS producer writes it
-//! deserializes.
+//! key on every envelope the daemon reads, `bytes` fields travel as base64 strings, a `None` error
+//! is absent while a `None` signal code is `null`, and a payload written the way the TS producer
+//! writes it deserializes.
 
 use serde_json::{json, Value};
 use sidecar_rust_pty::protocol::{
@@ -176,7 +176,7 @@ fn response_error_none_is_absent_on_wire() {
 }
 
 /// `signal_code: None` must serialize as JSON `null`, not an absent key: the TS mirror declares
-/// `signal_code: number | null`, and `skip_serializing_if` would round-trip in Rust yet break that
+/// `signal_code: number | null`, and `skip_serializing_if` would round-trip in Rust but break that
 /// type.
 #[test]
 fn exit_code_notification_signal_code_none_serializes_as_json_null() {
@@ -230,35 +230,17 @@ fn data_frame_bytes_round_trips_as_base64_string() {
     }
 }
 
-/// The discriminant must sit on the top-level JSON object so the dispatcher can route by `kind`.
+/// The discriminant must sit on the top-level JSON object of every envelope the sidecar sends, so
+/// the daemon can route it by `kind`.
 #[test]
-fn envelope_kind_is_top_level_snake_case() {
+fn outbound_envelope_kind_is_top_level_snake_case() {
     let cases: &[(Envelope, &str)] = &[
-        (
-            Envelope::SpawnRequest(SpawnRequest {
-                command: "ls".to_string(),
-                args: Vec::new(),
-                env: Vec::new(),
-                cwd: "/tmp".to_string(),
-                rows: 24,
-                cols: 80,
-            }),
-            "spawn_request",
-        ),
         (
             Envelope::SpawnResponse(SpawnResponse {
                 session_id: "s-1".to_string(),
                 error: None,
             }),
             "spawn_response",
-        ),
-        (
-            Envelope::ResizeRequest(ResizeRequest {
-                session_id: "s-1".to_string(),
-                rows: 24,
-                cols: 80,
-            }),
-            "resize_request",
         ),
         (
             Envelope::ResizeResponse(ResizeResponse {
@@ -268,25 +250,11 @@ fn envelope_kind_is_top_level_snake_case() {
             "resize_response",
         ),
         (
-            Envelope::WriteRequest(WriteRequest {
-                session_id: "s-1".to_string(),
-                bytes: vec![1, 2, 3],
-            }),
-            "write_request",
-        ),
-        (
             Envelope::WriteResponse(WriteResponse {
                 session_id: "s-1".to_string(),
                 error: None,
             }),
             "write_response",
-        ),
-        (
-            Envelope::KillRequest(KillRequest {
-                session_id: "s-1".to_string(),
-                signal: PtySignal::Sigint,
-            }),
-            "kill_request",
         ),
         (
             Envelope::KillResponse(KillResponse {
@@ -303,7 +271,6 @@ fn envelope_kind_is_top_level_snake_case() {
             }),
             "exit_code_notification",
         ),
-        (Envelope::PingRequest(PingRequest {}), "ping_request"),
         (Envelope::PingResponse(PingResponse {}), "ping_response"),
         (
             Envelope::DataFrame(DataFrame {

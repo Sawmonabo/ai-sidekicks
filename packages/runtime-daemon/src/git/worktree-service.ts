@@ -3,16 +3,12 @@
 // attached checkout. It holds no `workspaces` write; its caller wraps these calls.
 //
 //   * The main checkout is never mutated: git runs only `symbolic-ref --quiet --short HEAD`,
-//     `worktree add -b`, `worktree prune` (the only thing that unregisters what `add` wrote) and
-//     `status --porcelain`.
+//     `check-ref-format --branch`, `for-each-ref`, `worktree add -b`, `worktree prune` (the only
+//     thing that unregisters what `add` wrote) and `status --porcelain`.
 //   * `cleanupPass` removes the directory, prunes, then stamps `cleaned_at`, so a crash between
 //     steps is retried and never recorded as a cleanup that did not happen.
-//   * Known gap: removing a worktree keeps its branch, so a later `worktree add -b <same-name>`
-//     fails (exit 255 on git 2.50.1) while the index says free; `refuse` then reports
-//     `worktree.create_failed`, not a collision, and `suffix` cannot advance. A second arbiter
-//     would race, and git's stderr has paths.
 
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { Database, Statement } from "better-sqlite3";
 import {
   WorktreeIdSchema,
@@ -30,16 +26,30 @@ import {
 } from "./worktree-errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { DEFAULT_WORKTREE_FILESYSTEM, type WorktreeFilesystem } from "./worktree-git.js";
 import {
-  DEFAULT_WORKTREE_FILESYSTEM,
-  DEFAULT_WORKTREE_GIT_TIMEOUT_MS,
-  HOOK_NEUTRALIZATION_SEGMENT,
+  createHookNeutralizedGitCommand,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   runGitWithExecFile,
-  type WorktreeFilesystem,
-  type WorktreeGitInvocationResult,
-  type WorktreeGitRunner,
-} from "./worktree-git.js";
+  type GitCommand,
+  type GitInvocationResult,
+  type GitRunner,
+} from "./git-process.js";
 import { MAX_BRANCH_NAME_ORDINAL } from "./worktree-branch-name.js";
+import {
+  assertSingleWorktreeRowChanged,
+  type AttachedMountRow,
+  type BranchLookupParams,
+  type HoldingWorkspaceRow,
+  type InsertWorktreeParams,
+  type MountLookupParams,
+  type WorktreeIdRow,
+  type WorktreeLookupParams,
+  type WorktreeRootRow,
+  type WorktreeRow,
+  type WorktreeTransitionParams,
+} from "./worktree-rows.js";
+import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 
 /** Dependencies of {@link WorktreeService}; only the first three are required. */
 export interface WorktreeServiceDeps {
@@ -56,7 +66,7 @@ export interface WorktreeServiceDeps {
    */
   readonly executionRootsDirectory: string;
   /** Git process seam; defaults to `execFile` against `git`. */
-  readonly git?: WorktreeGitRunner;
+  readonly git?: GitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
   readonly filesystem?: WorktreeFilesystem;
   /** Per-invocation git timeout; defaults to two minutes. */
@@ -75,11 +85,15 @@ export interface CreateWorktreeInput {
   readonly sessionId: string;
   /** `null` records a prepare before any run. Provenance only; the `run-` fallback is elsewhere. */
   readonly runId?: string | null;
-  /** The branch to create, resolved by the caller (see {@link deriveWorktreeBranchName}). */
+  /**
+   * The branch to create, resolved by the caller (see {@link deriveWorktreeBranchName}). Git's own
+   * branch-name rule judges it before anything else runs; a refusal carries git's line.
+   */
   readonly branchName: string;
   /**
    * `refuse` (a caller-supplied name) raises {@link WorktreeBranchCollisionError}; `suffix` (a
-   * daemon-derived name) takes the first free ordinal. Explicit: every call arrives with a name.
+   * daemon-derived name) takes the first ordinal free both in the index and among the
+   * repository's branches. Explicit: every call arrives with a name.
    */
   readonly onCollision: "refuse" | "suffix";
   /** Base ref for the new branch; omitted, the mount's HEAD branch. A leading `-` is refused. */
@@ -168,71 +182,12 @@ class WorktreeAlreadyRetiredError extends Error {
   }
 }
 
-// Type arguments on `prepare<Bind, Result>` make query/shape drift a type error, not a cast.
-
-interface WorktreeRow {
-  readonly id: string;
-  readonly repo_mount_id: string;
-  readonly created_by_session_id: string;
-  readonly created_by_run_id: string | null;
-  readonly branch_name: string;
-  readonly fs_root: string;
-  readonly state: string;
-  readonly cleaned_at: string | null;
-}
-
-interface AttachedMountRow {
-  readonly id: string;
-  readonly canonical_root: string;
-}
-
-interface WorktreeIdRow {
-  readonly id: string;
-}
-
-interface WorktreeRootRow {
-  readonly id: string;
-  readonly fs_root: string;
-  /** The owning mount's root for the prune; nullable because the read LEFT-joins. */
-  readonly canonical_root: string | null;
-}
-
-interface HoldingWorkspaceRow {
-  readonly workspace_id: string;
-}
-
-interface MountLookupParams {
-  readonly repo_mount_id: string;
-}
-
-interface WorktreeLookupParams {
-  readonly worktree_id: string;
-}
-
-interface BranchLookupParams {
-  readonly repo_mount_id: string;
-  readonly branch_name: string;
-}
-
-interface InsertWorktreeParams {
-  readonly id: string;
-  readonly repo_mount_id: string;
-  readonly created_by_session_id: string;
-  readonly created_by_run_id: string | null;
-  readonly branch_name: string;
-  readonly fs_root: string;
-  readonly now: string;
-}
-
-interface WorktreeTransitionParams {
-  readonly worktree_id: string;
-  readonly now: string;
-}
-
 /** One `create` call's arbitration-loop state; the name and policy stay on `input`. */
 interface CreatingRowAttempt {
   readonly worktreeId: string;
   readonly fsRoot: string;
+  /** The mount's root, where `suffix` asks git whether a candidate branch already exists. */
+  readonly canonicalRoot: string;
   readonly input: CreateWorktreeInput;
 }
 
@@ -264,10 +219,8 @@ interface WorktreeMaterialization {
 export class WorktreeService {
   readonly #events: WorktreeEventEmitter;
   readonly #executionRootsDirectory: string;
-  readonly #hookNeutralizationDirectory: string;
-  readonly #git: WorktreeGitRunner;
+  readonly #runGit: GitCommand;
   readonly #filesystem: WorktreeFilesystem;
-  readonly #gitCommandTimeoutMs: number;
   readonly #now: () => string;
   readonly #newWorktreeId: () => string;
 
@@ -286,13 +239,13 @@ export class WorktreeService {
   constructor(deps: WorktreeServiceDeps) {
     this.#events = deps.events;
     this.#executionRootsDirectory = deps.executionRootsDirectory;
-    this.#hookNeutralizationDirectory = join(
-      deps.executionRootsDirectory,
-      HOOK_NEUTRALIZATION_SEGMENT,
-    );
-    this.#git = deps.git ?? runGitWithExecFile;
     this.#filesystem = deps.filesystem ?? DEFAULT_WORKTREE_FILESYSTEM;
-    this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_WORKTREE_GIT_TIMEOUT_MS;
+    this.#runGit = createHookNeutralizedGitCommand({
+      git: deps.git ?? runGitWithExecFile,
+      createDirectory: (path) => this.#filesystem.createDirectory(path),
+      executionRootsDirectory: deps.executionRootsDirectory,
+      timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newWorktreeId = deps.newWorktreeId ?? mintUuidV7;
 
@@ -355,7 +308,7 @@ export class WorktreeService {
     // land after retirement, and the next pass would delete a tree a live run just received.
     // Deferred, not excluded: `releaseBusy` frees it and a later pass reclaims it.
     this.#selectUncleanedRetiredStmt = database.prepare<[], WorktreeRootRow>(
-      `SELECT worktrees.id, worktrees.fs_root, repo_mounts.canonical_root
+      `SELECT worktrees.id, worktrees.repo_mount_id, worktrees.fs_root, repo_mounts.canonical_root
          FROM worktrees
          LEFT JOIN repo_mounts ON repo_mounts.id = worktrees.repo_mount_id
         WHERE worktrees.state = 'retired' AND worktrees.cleaned_at IS NULL
@@ -419,6 +372,7 @@ export class WorktreeService {
     const mount = this.#requireAttachedMount(input.repoMountId);
 
     const baseRef = await this.#resolveBaseRef(mount.canonical_root, input.baseRef);
+    await this.#requireValidBranchName(mount.canonical_root, input.branchName);
 
     // Minted once, before the arbitration loop: the id is the last segment of `fs_root`.
     const worktreeId = this.#newWorktreeId();
@@ -429,7 +383,12 @@ export class WorktreeService {
     );
     const fsRoot = join(worktreeRootsDirectory, worktreeId);
 
-    const branchName = await this.#insertCreatingRow({ worktreeId, fsRoot, input });
+    const branchName = await this.#insertCreatingRow({
+      worktreeId,
+      fsRoot,
+      canonicalRoot: mount.canonical_root,
+      input,
+    });
 
     try {
       await this.#materializeWorktree({
@@ -456,7 +415,7 @@ export class WorktreeService {
         actor: input.actor ?? null,
         ...(input.correlationId != null ? { correlationId: input.correlationId } : {}),
         transactionalPrelude: () => {
-          assertSingleRowChanged(
+          assertSingleWorktreeRowChanged(
             this.#markReadyStmt.run({ worktree_id: worktreeId, now: this.#now() }),
             worktreeId,
             "mark ready",
@@ -594,6 +553,7 @@ export class WorktreeService {
       if (this.#selectBusyHolderStmt.get({ worktree_id: row.id }) !== undefined) {
         continue;
       }
+      this.#requireMintedWorktreeRoot(row);
       await this.#filesystem.removeDirectory(row.fs_root);
       // After the removal: `worktree prune` only drops entries whose directory is missing.
       await this.#pruneWorktreeAdministrativeEntries(row.canonical_root);
@@ -602,6 +562,27 @@ export class WorktreeService {
     }
 
     return { retiredWorktreeIds, cleanedWorktreeIds };
+  }
+
+  /**
+   * Refuses a stored root that is not `<executionRootsDirectory>/<mount>/worktrees/<id>`, the only
+   * shape `create` mints: the path comes from the database, and a recursive removal must not reach
+   * the hooks directory, another mount's tree or anything outside the execution-roots directory.
+   */
+  #requireMintedWorktreeRoot(row: WorktreeRootRow): void {
+    const segments: readonly string[] = relative(this.#executionRootsDirectory, row.fs_root).split(
+      sep,
+    );
+    if (
+      segments.length !== 3 ||
+      segments[0] !== row.repo_mount_id ||
+      segments[1] !== WORKTREE_ROOTS_SEGMENT ||
+      segments[2] !== row.id
+    ) {
+      throw new Error(
+        `cannot clean worktree "${row.id}": its stored root is not one this service minted`,
+      );
+    }
   }
 
   #requireAttachedMount(repoMountId: string): AttachedMountRow {
@@ -623,6 +604,15 @@ export class WorktreeService {
     for (let ordinal = 1; ordinal <= MAX_BRANCH_NAME_ORDINAL; ordinal += 1) {
       const candidateBranchName =
         ordinal === 1 ? input.branchName : `${input.branchName}-${ordinal}`;
+
+      // A removed worktree keeps its branch, so the index alone would call that name free and
+      // `worktree add -b` would fail on it; `suffix` moves past a branch git already has.
+      if (
+        input.onCollision === "suffix" &&
+        (await this.#repositoryHasBranch(attempt.canonicalRoot, candidateBranchName))
+      ) {
+        continue;
+      }
 
       try {
         await this.#events.emitWorktreeCreated({
@@ -648,7 +638,7 @@ export class WorktreeService {
         // Only a confirmed live-branch collision is handled. The code check refuses non-UNIQUE
         // failures (an id collision raises SQLITE_CONSTRAINT_PRIMARYKEY); the live-row read refuses
         // a UNIQUE failure this (mount, branch) cannot explain.
-        if (!isUniqueConstraintViolation(appendFailure)) {
+        if (!hasSqliteErrorCode(appendFailure, "SQLITE_CONSTRAINT_UNIQUE")) {
           throw appendFailure;
         }
         const liveRow = this.#selectLiveWorktreeOnBranchStmt.get({
@@ -717,37 +707,13 @@ export class WorktreeService {
           throw new WorktreeRetireConflictError(row.id, holder.workspace_id);
         }
 
-        assertSingleRowChanged(
+        assertSingleWorktreeRowChanged(
           this.#retireStmt.run({ worktree_id: row.id, now: this.#now() }),
           row.id,
           "retire",
         );
       },
     });
-  }
-
-  /**
-   * The single git entry point. It prepends `-c core.hooksPath=<empty dir>` and `-c
-   * core.fsmonitor=false` so no call skips hook neutralization; a command-line `-c` outranks all
-   * config, and the fsmonitor hook is named by config value so `hooksPath` never governs it.
-   */
-  async #runGit(argv: readonly string[]): Promise<WorktreeGitInvocationResult> {
-    // Created per call: a temp-file reaper that removed it would silently restore the repository's
-    // hooks. Checkout filter drivers are not neutralized: their commands come from git config, and
-    // disabling smudge would corrupt LFS. Probed, no flag needed: uploadpack.packObjectsHook is
-    // honored only from protected config, and core.alternateRefsCommand fires only on receive-pack,
-    // which no verb here engages.
-    await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(
-      [
-        "-c",
-        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
-        "-c",
-        "core.fsmonitor=false",
-        ...argv,
-      ],
-      { timeoutMs: this.#gitCommandTimeoutMs },
-    );
   }
 
   /**
@@ -782,7 +748,7 @@ export class WorktreeService {
       return suppliedBaseRef;
     }
 
-    let result: WorktreeGitInvocationResult;
+    let result: GitInvocationResult;
     try {
       result = await this.#runGit([
         "-C",
@@ -792,15 +758,53 @@ export class WorktreeService {
         "--short",
         "HEAD",
       ]);
-    } catch {
-      throw new WorktreeCreateFailedError("base_ref_unresolved");
+    } catch (gitFailure) {
+      throw new WorktreeCreateFailedError("base_ref_unresolved", gitFailure);
     }
 
-    const headBranch = result.stdout.trim();
+    const headBranch = result.stdout.toString("utf8").trim();
     if (headBranch.length === 0) {
       throw new WorktreeCreateFailedError("base_ref_unresolved");
     }
     return headBranch;
+  }
+
+  /**
+   * Git's own branch-name rule, run before any row or event exists. A name starting with `-` would
+   * otherwise reach `worktree add -b` as an option (`-D` deletes the branch named as the base).
+   * The refusal carries git's `fatal:` line as git printed it, which names only the branch.
+   */
+  async #requireValidBranchName(canonicalRoot: string, branchName: string): Promise<void> {
+    try {
+      await this.#runGit(["-C", canonicalRoot, "check-ref-format", "--branch", branchName]);
+    } catch (refusal) {
+      const gitRefusalLine = readGitBranchNameRefusal(refusal);
+      if (gitRefusalLine === null) {
+        throw new WorktreeCreateFailedError("git_invocation_failed", refusal);
+      }
+      throw new WorktreeCreateFailedError("branch_name_invalid", gitRefusalLine, refusal);
+    }
+  }
+
+  /**
+   * Whether the repository already has a local branch at this name, or one nested under it. A
+   * query that does not complete is a creation failure, never read as "free".
+   */
+  async #repositoryHasBranch(canonicalRoot: string, branchName: string): Promise<boolean> {
+    let result: GitInvocationResult;
+    try {
+      result = await this.#runGit([
+        "-C",
+        canonicalRoot,
+        "for-each-ref",
+        "--count=1",
+        "--format=%(refname)",
+        `refs/heads/${branchName}`,
+      ]);
+    } catch (gitFailure) {
+      throw new WorktreeCreateFailedError("git_invocation_failed", gitFailure);
+    }
+    return result.stdout.toString("utf8").trim().length > 0;
   }
 
   /**
@@ -810,8 +814,8 @@ export class WorktreeService {
   async #materializeWorktree(materialization: WorktreeMaterialization): Promise<void> {
     try {
       await this.#filesystem.createDirectory(materialization.worktreeRootsDirectory);
-    } catch {
-      throw new WorktreeCreateFailedError("execution_root_unavailable");
+    } catch (filesystemFailure) {
+      throw new WorktreeCreateFailedError("execution_root_unavailable", filesystemFailure);
     }
 
     try {
@@ -827,9 +831,9 @@ export class WorktreeService {
         materialization.fsRoot,
         materialization.baseRef,
       ]);
-    } catch {
-      // git `stderr` stops here: it is the value most likely to name a filesystem path.
-      throw new WorktreeCreateFailedError("git_invocation_failed");
+    } catch (gitFailure) {
+      // git's `stderr` rides only on `cause`: it is the value most likely to name a path.
+      throw new WorktreeCreateFailedError("git_invocation_failed", gitFailure);
     }
   }
 
@@ -839,44 +843,28 @@ export class WorktreeService {
    * unknown verdict is a silent bind.
    */
   async #isWorkingTreeDirty(worktreeId: string, fsRoot: string): Promise<boolean> {
-    let result: WorktreeGitInvocationResult;
+    let result: GitInvocationResult;
     try {
       result = await this.#runGit(["-C", fsRoot, "status", "--porcelain"]);
-    } catch {
-      throw new WorktreeReuseConflictError(worktreeId, "cleanliness_unresolved");
+    } catch (gitFailure) {
+      throw new WorktreeReuseConflictError(worktreeId, "cleanliness_unresolved", gitFailure);
     }
-    return result.stdout.trim().length > 0;
+    return result.stdout.toString("utf8").trim().length > 0;
   }
 }
 
-/**
- * Whether a thrown value is a SQLite UNIQUE violation, narrowed with `in` rather than cast. The
- * code alone is not proof of a branch collision; the caller confirms with a live-row read.
- */
-function isUniqueConstraintViolation(thrown: unknown): boolean {
-  if (typeof thrown !== "object" || thrown === null) {
-    return false;
-  }
-  if (!("code" in thrown)) {
-    return false;
-  }
-  const code: unknown = thrown.code;
-  return code === "SQLITE_CONSTRAINT_UNIQUE";
-}
+// Git's refusal of a branch name, printed under `LC_ALL=C`. Any other `fatal:` line (a missing
+// mount directory, say) can name a path, so it never becomes the message.
+const GIT_BRANCH_NAME_REFUSAL_PATTERN = /^fatal: '.*' is not a valid branch name$/;
 
-/**
- * Asserts a compare-and-swap moved exactly one row. Called inside a `transactionalPrelude`, where
- * a throw aborts the transaction and the event row with it. A plain `Error`: an internal
- * consistency failure with no caller repair.
- */
-function assertSingleRowChanged(
-  result: { readonly changes: number },
-  worktreeId: string,
-  attemptedAction: string,
-): void {
-  if (result.changes !== 1) {
-    throw new Error(
-      `cannot ${attemptedAction} worktree "${worktreeId}": it left its expected state before the write committed`,
-    );
+/** Git's line refusing a branch name from a rejected call's `stderr`, else `null`. */
+function readGitBranchNameRefusal(thrown: unknown): string | null {
+  if (typeof thrown !== "object" || thrown === null || !("stderr" in thrown)) {
+    return null;
   }
+  const stderr: unknown = thrown.stderr;
+  if (typeof stderr !== "string") {
+    return null;
+  }
+  return stderr.split("\n").find((line) => GIT_BRANCH_NAME_REFUSAL_PATTERN.test(line)) ?? null;
 }

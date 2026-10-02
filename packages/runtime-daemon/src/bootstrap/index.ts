@@ -14,7 +14,7 @@ import { SecureDefaults } from "./secure-defaults.js";
  * any IPC entry point is reachable.
  *
  * Throws `SecureDefaultsValidationError` on any validation failure and keeps
- * the previously loaded settings; a later successful call replaces them.
+ * the settings already loaded; a later successful call replaces them.
  */
 export function bootstrap(config: SecureDefaultsConfig): void {
   SecureDefaults.load(config);

@@ -151,29 +151,3 @@ export function targetTurnsCarryBriefMarker(
 ): boolean {
   return readBriefContinuityMarkerOccurrences(targetTurns, briefIdentityKey).length > 0;
 }
-
-/**
- * The union of the loss kinds the brief already in the target recorded as dropped, or `undefined`
- * with no marker or any occurrence lacking a readable record; the caller then owes the
- * conservative answer.
- */
-export function readDeliveredBriefDeclaredLosses(
-  targetTurns: readonly string[],
-  briefIdentityKey: string,
-): readonly DeclaredLossKind[] | undefined {
-  const occurrences: readonly BriefContinuityMarkerOccurrence[] =
-    readBriefContinuityMarkerOccurrences(targetTurns, briefIdentityKey);
-  if (occurrences.length === 0) {
-    return undefined;
-  }
-  const recorded: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
-  for (const occurrence of occurrences) {
-    if (occurrence.form !== "recorded") {
-      return undefined;
-    }
-    for (const kind of occurrence.kinds) {
-      recorded.add(kind);
-    }
-  }
-  return DECLARED_LOSS_KINDS.filter((kind) => recorded.has(kind));
-}

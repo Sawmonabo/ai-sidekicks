@@ -14,28 +14,12 @@ import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "
 
 import type { ProviderName } from "@ai-sidekicks/contracts";
 
-import {
-  DriverCliVersionUnparseableError,
-  assertCliVersionMeetsFloor,
-  parseCliVersionReport,
-} from "./capability-refresh.js";
+import { assertCliVersionMeetsFloor, parseCliVersionReport } from "./capability-refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
-
-/**
- * Composes the handshake child's environment with the auto-update opt-out applied last, so an
- * inherited `DISABLE_AUTOUPDATER=0` cannot re-enable it. Sessions use `buildProviderSpawnEnv`.
- */
-export function composeProviderChildEnvironment(
-  driverName: ProviderName,
-  baseEnvironment: Readonly<Record<string, string | undefined>>,
-): Record<string, string | undefined> {
-  return {
-    ...baseEnvironment,
-    ...PROVIDER_DRIVER_DESCRIPTORS[driverName].autoUpdateOptOutEnvironment,
-  };
-}
+import { assertValidCliVersionReport } from "./provider-output-validation.js";
+import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "./spawn-env.js";
 
 /**
  * Thrown when the configured provider command names no runnable executable, or one whose real
@@ -208,7 +192,7 @@ export interface ProviderVersionHandshakeRequest {
   readonly driverName: ProviderName;
   /** Absolute, symlink-dereferenced; spawn this, never the configured name. */
   readonly resolvedExecutablePath: string;
-  /** Auto-update suppression already applied ({@link composeProviderChildEnvironment}). */
+  /** Auto-update suppression already applied ({@link buildProviderSpawnEnv}). */
   readonly environment: Readonly<Record<string, string | undefined>>;
   /** The client name to send; one value for the transport and the version reader to compare. */
   readonly clientName: string;
@@ -259,9 +243,16 @@ export async function readSpawnedProviderVersion(
     requestedCommand,
     request.resolver ?? {},
   );
-  const environment = composeProviderChildEnvironment(
-    driverName,
-    request.baseEnvironment ?? process.env,
+  // The same builder as a session spawn, so the opt-out wins under the host's name matching.
+  const baseEnvironment = request.baseEnvironment ?? process.env;
+  const environment = Object.fromEntries(
+    buildProviderSpawnEnv({
+      driverName,
+      baseEnv: Object.entries(baseEnvironment).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+      hostEnvNameMatch: hostEnvNameMatchForPlatform(request.resolver?.platform ?? process.platform),
+    }),
   );
 
   const payload = await request.handshake({
@@ -272,11 +263,15 @@ export async function readSpawnedProviderVersion(
   });
 
   const reading = PROVIDER_DRIVER_DESCRIPTORS[driverName].readReportedVersion(payload, clientName);
-  if ("unreadableReply" in reading) {
-    throw new DriverCliVersionUnparseableError(driverName, reading.unreadableReply);
-  }
-
-  const report = parseCliVersionReport(driverName, reading.version);
+  // A reply that carried no version text keeps that text as the printed version, unparsed: its
+  // version-shaped tokens may name something else, such as the caller's own client version.
+  const report =
+    "unreadableReply" in reading
+      ? { raw: reading.unreadableReply }
+      : parseCliVersionReport(reading.version);
+  // The one place the version enters the daemon, so the storage bounds are checked here too; an
+  // empty reply has no printed version and is refused as invalid provider output.
+  assertValidCliVersionReport(driverName, report);
   assertCliVersionMeetsFloor(driverName, report);
   return { driverName, resolvedExecutablePath: resolved.resolvedExecutablePath, report };
 }
@@ -286,7 +281,7 @@ export function toBindingVersionCarriers(
   reading: SpawnedProviderVersionReading,
 ): SpawnedVersionBindingCarriers {
   return {
-    cliVersion: { raw: reading.report.raw, semver: reading.report.semver },
+    cliVersion: { ...reading.report },
     resolvedExecutablePath: reading.resolvedExecutablePath,
   };
 }

@@ -390,7 +390,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/leg"
           # The verdict comes from what the probes RECORDED, not from
-          # `job.status`. Two reasons. (1) A drifted leg no longer fails its
+          # `job.status`. Two reasons. (1) A drifted leg does not fail its
           # job, so `job.status` would read `success` on real drift. (2) The
           # recorded files are unambiguous about which kind of failure it was:
           # `drift.txt` is a moved channel (the report decides whether that is
@@ -617,7 +617,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/leg"
           # The verdict comes from what the probes RECORDED, not from
-          # `job.status`. Two reasons. (1) A drifted leg no longer fails its
+          # `job.status`. Two reasons. (1) A drifted leg does not fail its
           # job, so `job.status` would read `success` on real drift. (2) The
           # recorded files are unambiguous about which kind of failure it was:
           # `drift.txt` is a moved channel (the report decides whether that is
@@ -868,7 +868,7 @@ jobs:
                 if [ "$channel" != "latest" ]; then fatal=true; fi
                 ;;
               *)
-                # `broken`, or any status this classifier does not recognise.
+                # `broken`, or any status this classifier does not recognize.
                 # Neither is provider drift, and both are fatal on EVERY
                 # channel: a leg that cannot measure reports clean, so
                 # softening it by channel is the actual hazard.

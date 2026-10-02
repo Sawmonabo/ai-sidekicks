@@ -11,6 +11,8 @@ import {
   SessionEventSchema,
 } from "@ai-sidekicks/contracts";
 
+import { findUnpairedSurrogateIndex } from "./canonicalizer.js";
+
 /** The `payload` members only this module may set; `contentType` is the producer's. */
 const CONTENT_DESCRIPTION_PAYLOAD_KEYS: readonly string[] = [
   CONTENT_LENGTH_PAYLOAD_KEY,
@@ -83,25 +85,6 @@ function utf8ByteWidth(codePoint: number): number {
   if (codePoint <= 0x7ff) return 2;
   if (codePoint <= 0xffff) return 3;
   return 4;
-}
-
-// Returns an index because the refusal names it; `isWellFormed()` only answers yes or no.
-function findUnpairedSurrogateIndex(value: string): number {
-  for (let unitIndex = 0; unitIndex < value.length; unitIndex += 1) {
-    const unit = value.charCodeAt(unitIndex);
-    if (unit < 0xd800 || unit > 0xdfff) {
-      continue;
-    }
-    if (unit > 0xdbff) {
-      return unitIndex;
-    }
-    const trailingUnit = unitIndex + 1 < value.length ? value.charCodeAt(unitIndex + 1) : -1;
-    if (trailingUnit < 0xdc00 || trailingUnit > 0xdfff) {
-      return unitIndex;
-    }
-    unitIndex += 1;
-  }
-  return -1;
 }
 
 /**

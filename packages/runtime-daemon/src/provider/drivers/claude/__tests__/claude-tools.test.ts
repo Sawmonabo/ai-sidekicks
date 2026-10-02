@@ -46,19 +46,13 @@ describe("Claude tool metadata — the conservative default", () => {
 });
 
 describe("Claude tool catalog", () => {
-  it("annotates exactly the pure local reads as idempotent", () => {
+  it("annotates only the pure local reads as idempotent and floors every other tool", () => {
     // `idempotent` means a pure read; adding a name here lets recovery re-execute that tool.
-    const idempotent = CLAUDE_TOOL_CATALOG.filter(
-      (tool) => tool.idempotency_class === "idempotent",
-    ).map((tool) => tool.name);
-    expect(idempotent.slice().sort()).toStrictEqual(["Glob", "Grep", "Read"]);
-  });
-
-  it("floors every effectful tool, including the plausible-but-unproven ones", () => {
-    for (const name of ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "TodoWrite", "Task"]) {
-      const entry = CLAUDE_TOOL_CATALOG.find((tool) => tool.name === name);
-      expect(entry, `${name} must be cataloged`).toBeDefined();
-      expect(entry?.idempotency_class, `${name} must floor`).toBe("manual_reconcile_only");
+    const pureLocalReads = ["Glob", "Grep", "Read"];
+    for (const tool of CLAUDE_TOOL_CATALOG) {
+      expect(tool.idempotency_class, tool.name).toBe(
+        pureLocalReads.includes(tool.name) ? "idempotent" : "manual_reconcile_only",
+      );
     }
   });
 });

@@ -8,7 +8,7 @@ import {
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
   wireFreeFormString,
 } from "@ai-sidekicks/contracts";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 
 // Ask choice sets: providers publish an ask's choices in provider-specific shapes, so they are
 // normalized here, where session and run identity is stamped, for the input-ask card. The reading

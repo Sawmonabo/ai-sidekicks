@@ -85,9 +85,9 @@ interface WriteResponse {
 }
 
 /**
- * Signal a session's child process. On Windows the sidecar's kill currently returns an error; the
- * intended mapping is `SIGINT` to `CTRL_C_EVENT`, `SIGTERM` to `CTRL_BREAK_EVENT` then
- * `taskkill /T /F` on timeout, and `SIGKILL` or `SIGHUP` to `taskkill /T /F` directly.
+ * Signal a session's child process. On Windows the sidecar's kill returns an error; its Windows
+ * mapping is `SIGINT` to `CTRL_C_EVENT`, `SIGTERM` to `CTRL_BREAK_EVENT` then `taskkill /T /F` on
+ * timeout, and `SIGKILL` or `SIGHUP` to `taskkill /T /F` directly.
  */
 interface KillRequest {
   kind: "kill_request";
@@ -117,8 +117,8 @@ export interface ExitCodeNotification {
   session_id: string;
   exit_code: number;
   /**
-   * Signal number of a signal-terminated child, or `null`. The sidecar currently sends `null` for
-   * every exit because `portable-pty` discards the signal number.
+   * Signal number of a signal-terminated child, or `null`. The sidecar sends `null` for every
+   * exit because `portable-pty` discards the signal number.
    */
   signal_code: number | null;
 }

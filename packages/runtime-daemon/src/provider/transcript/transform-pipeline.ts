@@ -74,7 +74,7 @@ export function segmentContentIsUnavailable(segment: CanonicalTranscriptSegment)
 }
 
 /**
- * Step 1: seat the folded turns the projection carries, declaring the loss for any body the
+ * Step 1: place the folded turns the projection carries, declaring the loss for any body the
  * fold could not read, so no consumer reads an empty loss list as "nothing was dropped".
  */
 export const foldTurns: TranscriptPipelineStep = (state) => {
@@ -249,7 +249,7 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
     string,
     CanonicalTranscriptSegment
   >();
-  // Results already emitted beside their call, so the walk skips them where they used to sit.
+  // Results already emitted beside their call, so the walk skips them at their original positions.
   const alreadyEmittedResultOrdinals: Set<number> = new Set<number>();
   let emitOrdinal = 0;
 

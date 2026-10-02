@@ -1,8 +1,7 @@
 // The `driver.*` handlers through the real method registry and streaming primitive. The four
-// lifecycle and four daemon-internal operations are registered nowhere, and a second binding of
-// either provider-command verb is refused. Refusals are read through `mapJsonRpcError`, because the client
-// sees the wire envelope: an untranslated provider error would be a bare `-32603` that looks like
-// a daemon crash.
+// lifecycle and four daemon-internal operations are registered nowhere. Refusals are read through
+// `mapJsonRpcError`, because the client sees the wire envelope: an untranslated provider error
+// would be a bare `-32603` that looks like a daemon crash.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,22 +22,13 @@ import type {
 import { DRIVER_CAPABILITY_FLAGS, JsonRpcErrorCode, PROVIDER_NAMES } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
-import {
-  MethodRegistryImpl,
-  RegistryDispatchError,
-  RegistryRegistrationError,
-} from "../../registry.js";
+import { MethodRegistryImpl, RegistryDispatchError } from "../../registry.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
 import {
   DriverCapabilityUnsupportedError,
   DriverUnavailableError,
   ProviderRegistry,
 } from "../../../provider/provider-registry.js";
-import {
-  CodexInterventionDispatcher,
-  type CodexSteerAcknowledgement,
-  type CodexSteerRunRequest,
-} from "../../../provider/drivers/codex/intervention.js";
 
 import {
   registerDriverApplyIntervention,
@@ -343,22 +333,6 @@ describe("driver.* registration surface", () => {
       );
     }
   });
-
-  it("REFUSES a duplicate binding of driver.compactContext or driver.listProviderCommands", () => {
-    const registry = new MethodRegistryImpl();
-    const drivers = { claude: driverDouble({}) };
-    const compactDeps = compactContextDeps(drivers);
-    registerDriverCompactContext(registry, compactDeps);
-    expect(() => {
-      registerDriverCompactContext(registry, compactDeps);
-    }).toThrowError(RegistryRegistrationError);
-
-    const listDeps = listProviderCommandsDeps(drivers);
-    registerDriverListProviderCommands(registry, listDeps);
-    expect(() => {
-      registerDriverListProviderCommands(registry, listDeps);
-    }).toThrowError(RegistryRegistrationError);
-  });
 });
 
 describe("driver.listCapabilities", () => {
@@ -561,48 +535,23 @@ describe("driver.applyIntervention", () => {
     ).resolves.toStrictEqual({ status: "degraded", fallbackAction: "queue_and_interrupt" });
   });
 
-  // The next tests use the real `CodexInterventionDispatcher`. It builds `steerRun` from
-  // the content and ids and never reads `payload.attachments`, so a steer with attachments must
-  // be refused before it, or the attachments would be dropped silently.
+  // No driver resolves an attachment id to bytes, so the handler refuses a steer carrying
+  // attachments before the driver runs; otherwise the attachments would be dropped silently.
 
-  /** A real Codex dispatcher whose only fake is the provider runtime port. */
-  function codexDriverWithSpiedSteer(): {
+  /** A driver whose `applyIntervention` applies and records each call. */
+  function driverWithSpiedIntervention(): {
     driver: ProviderDriver;
-    steerRun: ReturnType<typeof vi.fn>;
+    applyIntervention: ReturnType<typeof vi.fn>;
   } {
-    const steerRun = vi.fn(
-      async (request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
-        const targetedTurnId = request.expectedTurnId ?? "turn-live";
-        return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
-      },
-    );
-    const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
-      DriverCapabilityFlag,
-      boolean
-    >;
-    const dispatcher = new CodexInterventionDispatcher({
-      runtime: {
-        steerRun,
-        interruptRun: async (): Promise<void> => {},
-        textNeutralizationDecisionForTurn: (): { readonly refused: boolean } => ({
-          refused: false,
-        }),
-      },
-      readCapabilities: () => ({ flags, contractVersion: "1.0.0" }),
-    });
-    return {
-      driver: driverDouble({
-        applyIntervention: (params) => dispatcher.applyIntervention(params),
-      }),
-      steerRun,
-    };
+    const applyIntervention = vi.fn(async () => ({ status: "applied" as const }));
+    return { driver: driverDouble({ applyIntervention }), applyIntervention };
   }
 
   const ARTIFACT_ID = "018f3a4c-7b21-7e55-9c04-2b6d9f1e77a0";
 
   it("REFUSES a steer carrying attachment references, before any driver method runs", async () => {
     const registry = new MethodRegistryImpl();
-    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    const { driver, applyIntervention } = driverWithSpiedIntervention();
     registerDriverApplyIntervention(
       registry,
       dispatchDeps({ codex: driver }, () => "codex"),
@@ -620,12 +569,12 @@ describe("driver.applyIntervention", () => {
       driverId: "codex",
       operation: "applyIntervention",
     });
-    expect(steerRun).not.toHaveBeenCalled();
+    expect(applyIntervention).not.toHaveBeenCalled();
   });
 
   it("dispatches a steer whose attachment list is EMPTY or omitted", async () => {
     const registry = new MethodRegistryImpl();
-    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    const { driver, applyIntervention } = driverWithSpiedIntervention();
     registerDriverApplyIntervention(
       registry,
       dispatchDeps({ codex: driver }, () => "codex"),
@@ -638,12 +587,12 @@ describe("driver.applyIntervention", () => {
         NO_TRANSPORT,
       ),
     ).resolves.toStrictEqual({ status: "applied" });
-    expect(steerRun).toHaveBeenCalledTimes(1);
+    expect(applyIntervention).toHaveBeenCalledTimes(1);
 
     await expect(
       registry.dispatch("driver.applyIntervention", steer, NO_TRANSPORT),
     ).resolves.toStrictEqual({ status: "applied" });
-    expect(steerRun).toHaveBeenCalledTimes(2);
+    expect(applyIntervention).toHaveBeenCalledTimes(2);
   });
 });
 

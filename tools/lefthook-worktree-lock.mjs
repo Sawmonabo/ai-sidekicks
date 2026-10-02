@@ -22,7 +22,6 @@ import {
   linkSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -30,7 +29,6 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const LOCK_FILE_NAME = "lefthook-unstaged-backup.lock";
 const BREAK_SLOT_SUFFIX = ".break";
@@ -215,11 +213,6 @@ function releaseLock({ lockPath, ownerPid }) {
   return { released: true, reason: "released" };
 }
 
-/** Returns the current holder record and file age, or `null` when the lock is free. */
-function readLockStatus({ lockPath }) {
-  return readLockHolder(lockPath);
-}
-
 function parseCommandLine(argv) {
   const [command, ...rest] = argv;
   const options = {};
@@ -286,7 +279,7 @@ function runCommandLine(argv, { stderr = process.stderr } = {}) {
   }
 
   if (command === "status") {
-    const holder = readLockStatus({ lockPath });
+    const holder = readLockHolder(lockPath);
     process.stdout.write(`${lockPath}: ${describeHolder(holder)}\n`);
     return holder === null ? 0 : 1;
   }
@@ -296,24 +289,7 @@ function runCommandLine(argv, { stderr = process.stderr } = {}) {
   );
 }
 
-/**
- * Whether this module is the process entry point. Comparing `import.meta.url` to
- * `file://${process.argv[1]}` fails for a path with a space, `#`, `?` or non-ASCII (encoded URL
- * against a raw path), and the CLI would exit 0 without taking the lock. `realpathSync` on both
- * sides also survives a symlinked invocation.
- */
-function isDirectlyInvoked() {
-  const invokedPath = process.argv[1];
-  if (typeof invokedPath !== "string") return false;
-  try {
-    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    // A path that does not resolve was not this module's entry point.
-    return false;
-  }
-}
-
-if (isDirectlyInvoked()) {
+if (import.meta.main) {
   try {
     process.exitCode = runCommandLine(process.argv.slice(2));
   } catch (error) {

@@ -1,86 +1,27 @@
-// ProviderRegistry, DriverCapabilitiesWriter and RuntimeBindingStore composed over one real SQLite
-// handle, with the driver as the only double: capability gating agrees between the live registry,
-// a registry re-seeded from the durable cache after a restart, and a refreshed registry, and a
-// binding's opaque resume handle survives a cold read beside the driver identity it names.
+// ProviderRegistry and DriverCapabilitiesWriter composed over one real SQLite handle, with the
+// driver as the only double: capability gating agrees between the live registry, a registry
+// re-seeded from the durable cache after a restart, and a refreshed registry.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  type DriverCapabilityFlag,
-  type ExecutionPosture,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+import { captureThrow } from "../__fixtures__/capture-throw.js";
+import type { ProviderName } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
-  DriverCapabilitiesWriter,
-  type DriverCapabilityHydrationResult,
-} from "../driver-capabilities-writer.js";
+  CLI_VERSION_REPORT,
+  CONTRACT_VERSION,
+  expectHydrationHit,
+  makeFlags,
+  makeResult,
+} from "../__fixtures__/capability-results.js";
+import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../provider-registry.js";
-import { RuntimeBindingStore, type RuntimeBindingSpawnConfig } from "../runtime-binding-store.js";
-import type {
-  DriverCliVersionReport,
-  GetCapabilitiesResult,
-  ProviderDriver,
-} from "../provider-driver.js";
+import type { GetCapabilitiesResult, ProviderDriver } from "../provider-driver.js";
 
 const DRIVER_NAME: ProviderName = "claude";
-// One shared version makes the binding and the capability cache agree by construction.
-const CONTRACT_VERSION: string = "1.2.3";
-
-// Every flag defaults false, then `resume` and `tool_calls` are true, then the overrides apply.
-function makeFlags(
-  overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
-): Record<DriverCapabilityFlag, boolean> {
-  const base = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
-    DriverCapabilityFlag,
-    boolean
-  >;
-  return { ...base, resume: true, tool_calls: true, ...overrides };
-}
-
-// The writer persists the reading, so a cold-start re-seed carries it out of the cache instead of
-// re-attaching it from the live driver.
-const CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "mock-provider-cli 2.1.234 (build 7)",
-  semver: "2.1.234",
-};
-
-const EXECUTION_POSTURE: ExecutionPosture = {
-  networkAccess: "none",
-  writableRoots: ["/workspace/repo"],
-  mode: "trusted",
-};
-
-const SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
-  executionPosture: EXECUTION_POSTURE,
-  resolvedExecutablePath: "/opt/homebrew/bin/claude",
-};
-
-// Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
-// round-trip is an identity check.
-function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
-  return {
-    capabilities: {
-      flags: makeFlags(),
-      contractVersion: CONTRACT_VERSION,
-    },
-    tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
-    cliVersion: CLI_VERSION_REPORT,
-    ...overrides,
-  };
-}
-
-// Throws on a miss, naming its reason, so a hit that became a miss cannot pass silently.
-function expectHydrationHit(hydrated: DriverCapabilityHydrationResult): GetCapabilitiesResult {
-  if (!hydrated.hit) {
-    throw new Error(`expected a hydration HIT; got a miss with reason "${hydrated.reason}"`);
-  }
-  return hydrated.result;
-}
 
 // The registry caches `getCapabilities()` once per registration, so each registration gets its own
 // driver. Every other method rejects, so a stray call fails the test.
@@ -139,20 +80,14 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): ProviderDriv
 
 interface Stack {
   readonly writer: DriverCapabilitiesWriter;
-  readonly bindingStore: RuntimeBindingStore;
   readonly registry: ProviderRegistry;
 }
 
 let db: DatabaseType;
 
 function makeStack(): Stack {
-  let bindingIdCounter: number = 0;
   return {
     writer: new DriverCapabilitiesWriter(db, makeAdvancingClock()),
-    bindingStore: new RuntimeBindingStore(db, {
-      now: makeAdvancingClock(),
-      newId: () => `binding-${(bindingIdCounter++).toString()}`,
-    }),
     registry: new ProviderRegistry(),
   };
 }
@@ -172,8 +107,11 @@ describe("capability gating across the registry, the durable cache and a restart
     const { writer, registry } = makeStack();
 
     // steer:false, resume:true, tool_calls:true, and a non-empty tools array.
+    // Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
+    // round-trip is an identity check.
     const advertised: GetCapabilitiesResult = makeResult({
       capabilities: { flags: makeFlags({ steer: false }), contractVersion: CONTRACT_VERSION },
+      tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
     });
     const driver = makeMockDriver(advertised);
 
@@ -182,17 +120,11 @@ describe("capability gating across the registry, the durable cache and a restart
     // A declared-true flag returns void.
     expect(registry.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
     // A declared-false flag throws.
-    expect(() => registry.checkCapability(DRIVER_NAME, "steer")).toThrow(
-      DriverCapabilityUnsupportedError,
+    const refusal = captureThrow(() => registry.checkCapability(DRIVER_NAME, "steer"));
+    expect(refusal).toBeInstanceOf(DriverCapabilityUnsupportedError);
+    expect((refusal as DriverCapabilityUnsupportedError).code).toBe(
+      "driver.capability_unsupported",
     );
-    try {
-      registry.checkCapability(DRIVER_NAME, "steer");
-      expect.unreachable("checkCapability(steer) must throw");
-    } catch (error) {
-      expect((error as DriverCapabilityUnsupportedError).code).toBe(
-        "driver.capability_unsupported",
-      );
-    }
 
     // Persist the snapshot to the durable cache.
     expect(
@@ -220,15 +152,11 @@ describe("capability gating across the registry, the durable cache and a restart
     // mask a cache that dropped it.
     await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
     expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
-    try {
-      registryB.checkCapability(DRIVER_NAME, "steer");
-      expect.unreachable("registry-B checkCapability(steer) must throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(DriverCapabilityUnsupportedError);
-      expect((error as DriverCapabilityUnsupportedError).code).toBe(
-        "driver.capability_unsupported",
-      );
-    }
+    const refusalB = captureThrow(() => registryB.checkCapability(DRIVER_NAME, "steer"));
+    expect(refusalB).toBeInstanceOf(DriverCapabilityUnsupportedError);
+    expect((refusalB as DriverCapabilityUnsupportedError).code).toBe(
+      "driver.capability_unsupported",
+    );
   });
 
   it("steer false→true reports changed and the refreshed registry passes steer", async () => {
@@ -269,55 +197,5 @@ describe("capability gating across the registry, the durable cache and a restart
     // Handed across unmodified, as for registry B above.
     await refreshedRegistry.register(DRIVER_NAME, makeMockDriver(refreshed));
     expect(refreshedRegistry.checkCapability(DRIVER_NAME, "steer")).toBeUndefined();
-  });
-});
-
-describe("a runtime binding beside the registered driver", () => {
-  it("a runtime binding round-trips through findById/findByRun AND a FRESH store over the same db, cohering with the registered + hydrated driver identity", async () => {
-    const { writer, bindingStore, registry } = makeStack();
-
-    // Establish the driver in the registry, the capability cache and the binding over one db.
-    const advertised: GetCapabilitiesResult = makeResult();
-    await registry.register(DRIVER_NAME, makeMockDriver(advertised));
-    await writer.declare({
-      driverName: DRIVER_NAME,
-      result: advertised,
-    });
-    const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
-
-    // The provider contributes only opaque strings, here the `resumeHandle`; the run-to-driver
-    // binding stays daemon-local. The spawn config carries real content (posture and executable
-    // path) so the cold read shows the record survives, not merely parses.
-    const created = bindingStore.create({
-      runId: "run-1",
-      driverName: DRIVER_NAME,
-      contractVersion: CONTRACT_VERSION,
-      resumeHandle: "opaque-provider-resume-handle-abc",
-      spawnConfig: SPAWN_CONFIG,
-    });
-
-    // Read back through both accessors on the live store.
-    expect(bindingStore.findById(created.id)).toEqual(created);
-    expect(bindingStore.findByRun("run-1")).toEqual([created]);
-
-    // A fresh store over the same db reads the binding from SQLite, not from in-memory state.
-    const freshStore: RuntimeBindingStore = new RuntimeBindingStore(db, {});
-    const reread = freshStore.findById(created.id);
-    expect(reread).toBeDefined();
-    if (reread === undefined) return;
-
-    // The binding, the capability cache and the registry resolve to the same driver identity.
-    expect(reread.driverName).toBe(DRIVER_NAME);
-    expect(registry.lookup(DRIVER_NAME)).toBeDefined();
-    // The contract version agrees across the binding and the capability cache.
-    expect(reread.contractVersion).toBe(CONTRACT_VERSION);
-    expect(reread.contractVersion).toBe(hydrated.capabilities.contractVersion);
-    // The opaque provider handle survived the cold read...
-    expect(reread.resumeHandle).toBe("opaque-provider-resume-handle-abc");
-    // ...and so did the daemon-owned spawn config that recovery re-reads to rebuild the resume
-    // params. `toStrictEqual` so an absent member cannot pass as `undefined`: a resume without its
-    // posture would relaunch unsandboxed.
-    expect(reread.spawnConfig).toStrictEqual(SPAWN_CONFIG);
-    expect(reread.spawnConfig.executionPosture).toStrictEqual(EXECUTION_POSTURE);
   });
 });

@@ -17,9 +17,9 @@ type WorkspaceServiceErrorCode =
   | "workspace.busy";
 
 /**
- * `workspace.not_found` — the named workspace does not exist (notional HTTP 404). The only
- * carrier here that sets `jsonRpcCode` (`-32602`, as `repo.not_found` does); the others take the
- * mapper's `-32603` default.
+ * `workspace.not_found` — the named workspace does not exist. The only carrier here that sets
+ * `jsonRpcCode` (`-32602`, as `repo.not_found` does); the others take the mapper's `-32603`
+ * default.
  */
 export class WorkspaceNotFoundError extends DaemonDomainError {
   /** The workspace id that did not resolve. Projects to `data.fields.workspaceId`. */
@@ -29,7 +29,6 @@ export class WorkspaceNotFoundError extends DaemonDomainError {
     super(`workspace ${workspaceId} does not exist`, {
       code: "workspace.not_found" satisfies WorkspaceServiceErrorCode,
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 404,
       detail: { workspaceId },
     });
     this.workspaceId = workspaceId;
@@ -37,9 +36,9 @@ export class WorkspaceNotFoundError extends DaemonDomainError {
 }
 
 /**
- * `workspace.mode_unsupported` — the execution mode is unavailable on this mount (notional HTTP
- * 400). Carries the capability matrix's own bounded reason. `availableModes` is copied so a caller
- * that keeps mutating its array cannot rewrite an error already thrown.
+ * `workspace.mode_unsupported` — the execution mode is unavailable on this mount. Carries the
+ * capability matrix's own bounded reason. `availableModes` is copied so a caller that keeps
+ * mutating its array cannot rewrite an error already thrown.
  */
 export class WorkspaceModeUnsupportedError extends DaemonDomainError {
   /** The refused mode. Projects to `data.fields.executionMode`. */
@@ -54,7 +53,6 @@ export class WorkspaceModeUnsupportedError extends DaemonDomainError {
   ) {
     super(`execution mode ${executionMode} is unavailable on this repo mount: ${reason}`, {
       code: "workspace.mode_unsupported" satisfies WorkspaceServiceErrorCode,
-      httpStatus: 400,
       detail: { executionMode, availableModes: [...availableModes], reason },
     });
     this.executionMode = executionMode;
@@ -63,9 +61,9 @@ export class WorkspaceModeUnsupportedError extends DaemonDomainError {
 }
 
 /**
- * `workspace.stale` — the execution root is gone (notional HTTP 409). Also raised by
- * {@link WorkspaceService.bind} with a `null` subject when the mount root is unreachable. No path
- * is echoed, since a daemon error can reach a remote caller.
+ * `workspace.stale` — the execution root is gone. Also raised by {@link WorkspaceService.bind}
+ * with a `null` subject when the mount root is unreachable. No path is echoed, since a daemon
+ * error can reach a remote caller.
  */
 export class WorkspaceStaleError extends DaemonDomainError {
   /** The stale workspace, or `null` when the subject is a not-yet-created bind. */
@@ -78,7 +76,6 @@ export class WorkspaceStaleError extends DaemonDomainError {
         : `workspace ${workspaceId} is stale: its execution root is no longer reachable`,
       {
         code: "workspace.stale" satisfies WorkspaceServiceErrorCode,
-        httpStatus: 409,
         detail: workspaceId === null ? {} : { workspaceId },
       },
     );
@@ -87,8 +84,8 @@ export class WorkspaceStaleError extends DaemonDomainError {
 }
 
 /**
- * `workspace.busy` — the workspace is held by a run (notional HTTP 409). Names the holding run,
- * the caller's only repair affordance, or `null` when the row carries no attribution.
+ * `workspace.busy` — the workspace is held by a run. Names the holding run, the caller's only
+ * repair affordance, or `null` when the row carries no attribution.
  */
 export class WorkspaceBusyError extends DaemonDomainError {
   /** The busy workspace. Projects to `data.fields.workspaceId`. */
@@ -103,7 +100,6 @@ export class WorkspaceBusyError extends DaemonDomainError {
         : `workspace ${workspaceId} is busy: held by run ${holdingRunId}`,
       {
         code: "workspace.busy" satisfies WorkspaceServiceErrorCode,
-        httpStatus: 409,
         detail: holdingRunId === null ? { workspaceId } : { workspaceId, holdingRunId },
       },
     );

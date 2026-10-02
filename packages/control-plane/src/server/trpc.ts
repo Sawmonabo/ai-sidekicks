@@ -5,14 +5,14 @@
 import { initTRPC, type TRPCRootObject, type TRPCRuntimeConfigOptions } from "@trpc/server";
 
 /** The per-request context every control-plane procedure receives. */
-export interface SessionRouterContext {
+export interface ControlPlaneContext {
   /** Stable per-request identifier; stamped at host fetch entry. */
   readonly requestId: string;
 }
 
 /** The shared tRPC builder every control-plane router is built on. */
 export const t: TRPCRootObject<
-  SessionRouterContext,
+  ControlPlaneContext,
   object,
-  TRPCRuntimeConfigOptions<SessionRouterContext, object>
-> = initTRPC.context<SessionRouterContext>().create();
+  TRPCRuntimeConfigOptions<ControlPlaneContext, object>
+> = initTRPC.context<ControlPlaneContext>().create();

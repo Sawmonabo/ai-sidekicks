@@ -113,17 +113,6 @@ CREATE TABLE session_drafts (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
--- Key custody.
--- ---------------------------------------------------------------------------
-CREATE TABLE user_keys (
-  user_id             TEXT NOT NULL PRIMARY KEY,
-  encrypted_key_blob  BLOB NOT NULL,            -- AES-256-GCM key, encrypted at rest
-  key_version         INTEGER NOT NULL DEFAULT 1,
-  created_at          TEXT NOT NULL,
-  rotated_at          TEXT
-) STRICT;
-
--- ---------------------------------------------------------------------------
 -- This machine's registration: one row per machine and owning user.
 -- ---------------------------------------------------------------------------
 CREATE TABLE node_trust_state (
@@ -150,9 +139,9 @@ CREATE TABLE runtime_bindings (
   cli_version_raw     TEXT                      -- verbatim provider-reported CLI version
     CHECK(cli_version_raw IS NULL OR (length(cli_version_raw) > 0
       AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
-  -- Parsed form of the pair. The leading conjunct is the both-or-neither rule.
+  -- Parsed form, present only when the printed version parses, and never without it.
   cli_version_semver  TEXT
-    CHECK((cli_version_semver IS NULL) = (cli_version_raw IS NULL)
+    CHECK((cli_version_semver IS NULL OR cli_version_raw IS NOT NULL)
       AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0
         AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   resume_handle       TEXT                      -- provider-owned opaque handle
@@ -209,7 +198,7 @@ CREATE TABLE driver_contract_meta (
     CHECK(cli_version_raw IS NULL OR (length(cli_version_raw) > 0
       AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0)),
   cli_version_semver  TEXT
-    CHECK((cli_version_semver IS NULL) = (cli_version_raw IS NULL)
+    CHECK((cli_version_semver IS NULL OR cli_version_raw IS NOT NULL)
       AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0
         AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   refreshed_at        TEXT NOT NULL

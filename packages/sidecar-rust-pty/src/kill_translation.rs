@@ -6,8 +6,7 @@
 //! - `SIGTERM` -> `CTRL_BREAK_EVENT`, which the caller escalates if the child does not exit.
 //! - `SIGKILL` and `SIGHUP` -> tree kill (`taskkill /T /F`), with no console event.
 //!
-//! The mapping is pure, so it lives in one place and its tests need no Win32 mock. The Windows kill
-//! path in `pty_session` does not call it yet.
+//! The mapping is pure, so it lives in one place and its tests need no Win32 mock.
 
 #![cfg(target_os = "windows")]
 

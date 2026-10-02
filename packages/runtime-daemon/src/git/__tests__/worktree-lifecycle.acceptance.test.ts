@@ -2,7 +2,6 @@
 // actually did, that the user's main checkout and branches are never touched, and that no
 // repository-controlled hook runs.
 
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -23,16 +22,18 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService } from "../../session/session-service.js";
 import { ExecutionRootService } from "../../workspace/execution-root-service.js";
-import type {
-  ExecutionRootGitRunner,
-  WorkspaceLifecyclePrimitives,
-} from "../../workspace/execution-root-service.js";
+import type { WorkspaceLifecyclePrimitives } from "../../workspace/execution-root-service.js";
 import { WorkspaceEventEmitter } from "../../workspace/workspace-event-emitter.js";
-import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
+import {
+  buildFixtureEnvironment,
+  captureRejection,
+  requireWorkspaceRow,
+  spawnFixtureGit,
+  type FixtureGitResult,
+} from "../../workspace/__tests__/workspace.test-support.js";
 import { computeExecutionModeCapabilities } from "../../workspace/workspace-projector.js";
 import { WorkspaceService } from "../../workspace/workspace-service.js";
 import {
@@ -45,6 +46,7 @@ import {
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import { WorktreeService } from "../worktree-service.js";
 import { deriveWorktreeBranchName } from "../worktree-branch-name.js";
+import { runGitWithExecFile } from "../git-process.js";
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -60,9 +62,6 @@ const RUN_ID: string = "0191a2b0-7777-7b9d-9c54-5f0a9e71c243";
 
 const DEFAULT_BRANCH: string = "main";
 const EPOCH_MS: number = Date.UTC(2026, 7, 4, 0, 0, 0);
-
-/** Wall-clock ceiling for fixture-side git. Generous: these are cold processes. */
-const FIXTURE_GIT_TIMEOUT_MS: number = 30_000;
 
 /**
  * Per-test ceiling: well above a fixture build plus several git processes (vitest's 5s default is
@@ -96,78 +95,6 @@ const FSMONITOR_SENTINEL_MARKER: string = "fsmonitor-hook";
 // ----------------------------------------------------------------------------
 // Real git, fixture side
 // ----------------------------------------------------------------------------
-
-interface FixtureGitResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-/**
- * The environment fixture git runs under. Hermetic: system and global config are off, `HOME` and
- * `XDG_CONFIG_HOME` point inside the fixture, and inherited discovery redirectors are stripped (a
- * `GIT_DIR` leaking in from the harness would point fixture commands at the repository under
- * development).
- */
-function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_PARAMETERS",
-  ]) {
-    delete environment[key];
-  }
-  environment["HOME"] = fixtureRoot;
-  environment["XDG_CONFIG_HOME"] = join(fixtureRoot, "xdg");
-  environment["GIT_CONFIG_NOSYSTEM"] = "1";
-  environment["GIT_CONFIG_GLOBAL"] = join(fixtureRoot, "absent-global-gitconfig");
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  environment["GIT_AUTHOR_NAME"] = "Fixture Author";
-  environment["GIT_AUTHOR_EMAIL"] = "fixture@example.invalid";
-  environment["GIT_COMMITTER_NAME"] = "Fixture Author";
-  environment["GIT_COMMITTER_EMAIL"] = "fixture@example.invalid";
-  return environment;
-}
-
-/**
- * Spawns git and resolves on any exit status, rejecting only when there is none. `merge-base
- * --is-ancestor` reports its answer as an exit code, so a helper that threw on non-zero could not
- * ask it. A missing binary or killed process carries a string `code` (or none): a harness fault.
- */
-function spawnGit(
-  argv: readonly string[],
-  environment: NodeJS.ProcessEnv,
-  cwd: string,
-): Promise<FixtureGitResult> {
-  return new Promise<FixtureGitResult>((resolve, reject) => {
-    execFile(
-      "git",
-      [...argv],
-      { encoding: "utf8", env: environment, cwd, timeout: FIXTURE_GIT_TIMEOUT_MS },
-      (error, stdout, stderr) => {
-        if (error === null) {
-          resolve({ exitCode: 0, stdout, stderr });
-          return;
-        }
-        // `ExecFileException.code` admits `null` and string spawn-failure codes; only a number is
-        // an exit status.
-        const reportedCode: number | string | null | undefined = error.code;
-        if (typeof reportedCode !== "number") {
-          reject(new Error(`fixture git ${argv.join(" ")} did not run: ${String(error.message)}`));
-          return;
-        }
-        resolve({ exitCode: reportedCode, stdout, stderr });
-      },
-    ).on("error", reject);
-  });
-}
 
 /**
  * One real git repository under a temporary root, plus the sentinel-hook apparatus. Fixture-side
@@ -205,7 +132,7 @@ class FixtureRepository {
 
   /** Hook-neutralized invocation; the caller inspects the exit status itself. */
   gitCapturing(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
-    return spawnGit(
+    return spawnFixtureGit(
       [
         "-c",
         `core.hooksPath=${this.#hookNeutralizationDirectory}`,
@@ -223,7 +150,7 @@ class FixtureRepository {
    * are armed.
    */
   gitWithHooksLive(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
-    return spawnGit([...argv], this.#environment, cwd);
+    return spawnFixtureGit([...argv], this.#environment, cwd);
   }
 
   /**
@@ -412,37 +339,6 @@ function advanceClock(milliseconds: number): void {
   ctx.currentInstantMs += milliseconds;
 }
 
-/**
- * `ExecutionRootService`'s git seam, wired to the real binary. The service takes it with no
- * default, so the suite supplies it. It reports an exit code because bound-root mode's
- * `symbolic-ref --quiet` answers "detached HEAD" by exiting 1 with empty output, which is a
- * legitimate answer, not a failure.
- */
-function buildExecutionRootGitRunner(environment: NodeJS.ProcessEnv): ExecutionRootGitRunner {
-  return (argv, options) =>
-    new Promise((resolve, reject) => {
-      execFile(
-        "git",
-        [...argv],
-        { encoding: "utf8", env: environment, timeout: options.timeoutMs },
-        (error, stdout, stderr) => {
-          if (error === null) {
-            resolve({ exitCode: 0, stdout, stderr });
-            return;
-          }
-          // `ExecFileException.code` admits `null` and string spawn-failure codes; only a number
-          // is an exit status.
-          const reportedCode: number | string | null | undefined = error.code;
-          if (typeof reportedCode !== "number") {
-            reject(new Error(`git ${argv.join(" ")} did not run: ${String(error.message)}`));
-            return;
-          }
-          resolve({ exitCode: reportedCode, stdout, stderr });
-        },
-      ).on("error", reject);
-    });
-}
-
 beforeEach(async () => {
   // `realpathSync` because macOS hands out `/var/...` symlinks for the temporary directory while
   // git reports the resolved `/private/var/...`; comparing service-minted paths with
@@ -498,7 +394,7 @@ beforeEach(async () => {
     workspaces: workspacePrimitives,
     worktrees,
     executionRootsDirectory,
-    git: buildExecutionRootGitRunner(environment),
+    git: runGitWithExecFile,
     filesystem: {
       createDirectory: async (path: string): Promise<void> => {
         await mkdir(path, { recursive: true });
@@ -525,9 +421,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a leftover queue entry would stall the next
-  // case on the same session id.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -613,27 +506,6 @@ function readWorktreeRows(): readonly WorktreeTestRow[] {
     .all();
 }
 
-interface WorkspaceTestRow {
-  readonly id: string;
-  readonly execution_mode: string;
-  readonly fs_root: string | null;
-  readonly state: string;
-  readonly metadata: string;
-}
-
-function readWorkspaceRow(workspaceId: string): WorkspaceTestRow {
-  const row = ctx.db
-    .prepare<
-      [string],
-      WorkspaceTestRow
-    >(`SELECT id, execution_mode, fs_root, state, metadata FROM workspaces WHERE id = ?`)
-    .get(workspaceId);
-  if (row === undefined) {
-    throw new Error(`expected a workspaces row for ${workspaceId}`);
-  }
-  return row;
-}
-
 interface BranchContextTestRow {
   readonly id: string;
   readonly workspace_id: string;
@@ -669,7 +541,7 @@ function requireValue(value: string | undefined, label: string): string {
   return value;
 }
 
-/** The happy-path create layer, with `refuse` (the wire posture). */
+/** The happy-path create layer; the collision policy defaults to `refuse`. */
 function createWorktree(branchName: string, onCollision: "refuse" | "suffix" = "refuse") {
   return ctx.worktrees.create({
     repoMountId: REPO_MOUNT_ID,
@@ -743,7 +615,7 @@ describe("a run on a git repository defaults to provisioned-worktree mode", () =
         head_branch: branchName,
       });
 
-      expect(readWorkspaceRow(WORKSPACE_ID)).toMatchObject({
+      expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID)).toMatchObject({
         execution_mode: "provisioned-worktree",
         fs_root: prepared.executionRoot,
         state: "ready",
@@ -1013,6 +885,61 @@ describe("derived-name collisions against real git", () => {
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
+  it(
+    "suffixes past a branch git still holds after its worktree was removed",
+    async () => {
+      const derivedName = deriveWorktreeBranchName({
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        taskSummary: "Fix login",
+      });
+      const first = await createWorktree(derivedName, "suffix");
+      await ctx.worktrees.retire(first.worktreeId);
+      await ctx.worktrees.cleanupPass();
+      expect(existsSync(first.fsRoot)).toBe(false);
+
+      const second = await createWorktree(derivedName, "suffix");
+
+      expect(second.branchName).toBe(`${derivedName}-2`);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+});
+
+// ----------------------------------------------------------------------------
+// A branch name git refuses
+// ----------------------------------------------------------------------------
+
+describe("a branch name git refuses", () => {
+  it(
+    "refuses an option-like name with git's line and deletes no branch",
+    async () => {
+      // `worktree add -b -D <path> feature` would hand `-D` to git as an option and delete
+      // `feature`; git's own name check refuses it before any worktree command runs.
+      await ctx.repository.git(["branch", "feature"]);
+
+      const failure = await captureRejection(() =>
+        ctx.worktrees.create({
+          repoMountId: REPO_MOUNT_ID,
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          branchName: "-D",
+          onCollision: "refuse",
+          baseRef: "feature",
+        }),
+      );
+
+      expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
+      expect(failure).toMatchObject({
+        reason: "branch_name_invalid",
+        message: "fatal: '-D' is not a valid branch name",
+      });
+      const branches = await ctx.repository.git(["for-each-ref", "--format=%(refname:short)"]);
+      expect(branches.split("\n")).toContain("feature");
+      expect(readWorktreeRows()).toEqual([]);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
 });
 
 // ----------------------------------------------------------------------------
@@ -1054,7 +981,7 @@ describe("the main checkout across every failure path", () => {
   it(
     "leaves the working tree, HEAD and the branch roster byte-identical",
     async () => {
-      // Setup for the four failure paths (a)-(d), all before the snapshot.
+      // Setup for the three failure paths (a)-(c), all before the snapshot.
       await ctx.repository.git(["branch", "feature/taken"]);
       const live = await createWorktree("feature/live");
       writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
@@ -1065,11 +992,7 @@ describe("the main checkout across every failure path", () => {
       expect(await captureRejection(() => createWorktree("feature/taken"))).toBeInstanceOf(
         WorktreeCreateFailedError,
       );
-      // (b) the same divergence under the suffix posture.
-      expect(
-        await captureRejection(() => createWorktree("feature/taken", "suffix")),
-      ).toBeInstanceOf(WorktreeCreateFailedError);
-      // (c) an unacknowledged dirty reuse.
+      // (b) an unacknowledged dirty reuse.
       expect(
         await captureRejection(() =>
           ctx.worktrees.validateReuse({
@@ -1079,7 +1002,7 @@ describe("the main checkout across every failure path", () => {
           }),
         ),
       ).toBeInstanceOf(WorktreeReuseConflictError);
-      // (d) a reuse whose branch disagrees, acknowledgement notwithstanding.
+      // (c) a reuse whose branch disagrees, acknowledgement notwithstanding.
       expect(
         await captureRejection(() =>
           ctx.worktrees.validateReuse({
@@ -1124,7 +1047,7 @@ describe("the main checkout across every failure path", () => {
       // The run is blocked with the original typed cause (no lesser mode, no fallback root), and
       // the workspace records why.
       expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
-      const workspace = readWorkspaceRow(WORKSPACE_ID);
+      const workspace = requireWorkspaceRow(ctx.db, WORKSPACE_ID);
       expect(workspace.state).toBe("stale");
       expect(workspace.metadata).toContain("worktree.create_failed");
       expect(readBranchContexts()).toEqual([]);
@@ -1228,7 +1151,7 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
       expect(refusal).toBeInstanceOf(WorktreeBranchCollisionError);
       expect(readWorktreeRow(worktreeId).state).toBe("ready");
       expect(readBranchContexts()).toHaveLength(1);
-      expect(readWorkspaceRow(WORKSPACE_ID).state).toBe("stale");
+      expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID).state).toBe("stale");
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
@@ -1311,7 +1234,7 @@ describe("bound-root mode — the main checkout as the execution root", () => {
 
       expect(prepared.executionMode).toBe("bound-root");
       expect(prepared.executionRoot).toBe(ctx.repository.root);
-      expect(readWorkspaceRow(BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
+      expect(requireWorkspaceRow(ctx.db, BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
       // The context row fills no worktree column and self-anchors: bound-root cuts nothing, so
       // there is no cut point to record.
       const contextRow = ctx.db
@@ -1372,7 +1295,7 @@ describe("bound-root mode — the main checkout as the execution root", () => {
       });
       // Bind-only verification: the refusal switched no branch, wrote no row,
       // and left the detached checkout exactly as it found it.
-      expect(readWorkspaceRow(BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
+      expect(requireWorkspaceRow(ctx.db, BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
       expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
       expect(ctx.repository.firedHooks()).toEqual([]);
     },

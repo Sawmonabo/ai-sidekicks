@@ -1,24 +1,19 @@
-// Codex driver lifecycle and transport against a fake provider: the fake implements `PtyHost` and
-// speaks JSON-RPC over the same byte channel, so every test drives the real framing, correlation,
-// deadline and teardown code.
+// Codex driver lifecycle against a fake provider: the fake implements `PtyHost` and speaks JSON-RPC
+// over the same byte channel, so every test drives the real framing, correlation, deadline and
+// teardown code.
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-  DRIVER_CAPABILITY_FLAGS,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
   type DriverCompactionResult,
-  type RunId,
   type SessionId,
   type ApplyInterventionParams,
   type ExecutionPosture,
   type SessionCallbackTool,
 } from "@ai-sidekicks/contracts";
-
 import { bindCallbackToolsForSpawn, CallbackToolHost } from "../../../callback-tool-host.js";
 import { createCallbackToolAskResponder } from "../callback-tool-ask-responder.js";
 import {
@@ -29,9 +24,7 @@ import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   TextNeutralizationRefusedError,
 } from "../../../outbound-frame.js";
-import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
-import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
-import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
+import type { CumulativeAxisReadings } from "../../../usage-delta-accountant.js";
 import {
   PermanentStructuralRefusalError,
   type UserTurnReadbackReader,
@@ -40,7 +33,6 @@ import {
   CodexAppServerConnection,
   CodexDriver,
   CodexLifecycleManager,
-  CodexLineTooLongError,
   CodexSessionAlreadyLiveError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
@@ -49,760 +41,56 @@ import {
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
-  CODEX_MAX_LINE_LENGTH,
   CodexDriverConfigError,
   composeCodexTransportArgv,
-  type CodexServerRequestDecision,
   type CodexWebsocketBearerCredential,
-  type CodexSessionServerRequestResponder,
   describeCodexPostureDivergence,
   normalizeProviderFailureDetail,
   parseCodexSessionConfig,
-  type CodexPtySessionListeners,
-  type CodexPtySessionSubscriber,
-  type CodexCredentialEnvPolicyResolver,
-  type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
   type CodexTransportSelection,
-  type CodexModelCatalogExchange,
-  CODEX_INTERVENTION_FALLBACK_ACTION,
 } from "../index.js";
-// Imported from the module, not the driver barrel: these are internal enforcement details, and
-// exporting them would make them look like part of the driver's public surface.
+import { assertRealizedTurnPostureMembers } from "../session-config.js";
+import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "../server-requests.js";
+import { COMPACTION_WAIT_MS } from "../../../compaction-wait.js";
 import {
-  CALLER_DERIVED_TURN_POSTURE_FIELDS,
-  UNREALIZED_TURN_POSTURE_MEMBERS,
-  assertRealizedTurnPostureMembers,
-} from "../session-config.js";
-import { CODEX_ASK_OPTION_SET_MAX, readCodexAskOptionSet } from "../ask-option-sets.js";
+  type DriverResumeResult,
+  type CallbackToolInvocation,
+  STEER_FALLBACK_ACTION,
+} from "../../../provider-driver.js";
 import {
-  CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
-  CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON,
-  type CodexSessionServerRequest,
-} from "../server-requests.js";
-import { CODEX_COMPACTION_WAIT_MS } from "../provider-commands.js";
-import type { PtySignal, SpawnRequest, SpawnResponse } from "../../../../pty/pty-host-protocol.js";
-import type { PtyHost, DrainResult } from "../../../../pty/pty-host.js";
-import { type DriverResumeResult, type CallbackToolInvocation } from "../../../provider-driver.js";
-
-// --------------------------------------------------------------------------
-// Fakes
-// --------------------------------------------------------------------------
-
-interface JsonRpcAnswer {
-  result?: unknown;
-  // `data` is optional on the wire; it carries the provider's structured refusal detail.
-  error?: { code: number; message: string; data?: unknown };
-  /**
-   * Frames emitted in the same read chunk as this answer, after it. One `onData` call carrying a
-   * response and a later notification makes the driver's response continuation (a microtask) run
-   * after the notification was processed; separate emissions would hide that interleave.
-   */
-  trailingFrames?: Array<Record<string, unknown>>;
-}
-
-type MethodHandler = (params: unknown) => JsonRpcAnswer;
-
-/**
- * A `PtyHost` whose "child process" is a scripted Codex `app-server`.
- *
- * Emits the prelude's readiness sentinel on subscribe (as the real prelude does before `exec`),
- * records every written line verbatim, and answers registered methods on a microtask so promise
- * ordering stays deterministic without timers.
- */
-class FakeCodexAppServer implements PtyHost {
-  readonly spawnRequests: SpawnRequest[] = [];
-  readonly writtenLines: string[] = [];
-  readonly closedSessions: string[] = [];
-  readonly killedSessions: Array<{ sessionId: string; signal: PtySignal }> = [];
-
-  spawnResponse: SpawnResponse = { kind: "spawn_response", session_id: "pty-session-1" };
-  /**
-   * Gives every spawn its own pty session id. Needed whenever more than one connection is live:
-   * the listener registry is keyed by pty session id, so shared ids let a later subscribe
-   * displace an earlier connection's reader and make "which process was closed" unanswerable.
-   */
-  uniqueSpawnSessionIds = false;
-  emitSentinelOnSubscribe = true;
-  /**
-   * Kills the child during the next write, then fails that write. The exit rejects the request's
-   * inner promise while its caller is suspended, and the failed write makes `request()` rethrow
-   * without ever returning that promise, so nothing can attach to it. The two steps run on
-   * separate macrotasks so a full microtask drain (when Node decides a rejection is unhandled)
-   * happens between the rejection and any possible handler.
-   */
-  failWriteAfterChildExit = false;
-  /** Parks the next write on a macrotask, leaving its caller suspended. */
-  parkNextWrite = false;
-  /**
-   * Rejects the next write without killing the child. Unlike `failWriteAfterChildExit` there is
-   * no exit to record it, so this covers a write failure on a connection nothing else reports on.
-   */
-  rejectNextWriteWith: Error | undefined = undefined;
-
-  readonly #listeners = new Map<string, CodexPtySessionListeners>();
-  readonly #handlers = new Map<string, MethodHandler>();
-  readonly #heldMethods = new Set<string>();
-  readonly #heldEmissions = new Map<string, () => void>();
-  readonly #encoder = new TextEncoder();
-  #spawnSequence = 0;
-  #spawnGate: Promise<void> | null = null;
-  #closeGate: Promise<void> | null = null;
-
-  on(method: string, handler: MethodHandler): this {
-    this.#handlers.set(method, handler);
-    return this;
-  }
-
-  subscribe(ptySessionId: string, listeners: CodexPtySessionListeners): () => void {
-    this.#listeners.set(ptySessionId, listeners);
-    if (this.emitSentinelOnSubscribe) {
-      queueMicrotask(() => {
-        this.emitLine(CODEX_APP_SERVER_READY_SENTINEL);
-      });
-    }
-    return () => {
-      this.#listeners.delete(ptySessionId);
-    };
-  }
-
-  /** Server output is CRLF-terminated: output post-processing stays on. */
-  emitLine(line: string): void {
-    this.emitRaw(this.#encoder.encode(`${line}\r\n`));
-  }
-
-  emitFrame(frame: Record<string, unknown>): void {
-    this.emitLine(JSON.stringify(frame));
-  }
-
-  emitRaw(bytes: Uint8Array): void {
-    for (const listeners of this.#listeners.values()) {
-      listeners.onData(bytes);
-    }
-  }
-
-  emitExit(exitCode: number, signalCode?: number): void {
-    for (const listeners of [...this.#listeners.values()]) {
-      listeners.onExit(exitCode, signalCode);
-    }
-  }
-
-  writtenFrames(): Array<Record<string, unknown>> {
-    const frames: Array<Record<string, unknown>> = [];
-    for (const line of this.writtenLines) {
-      try {
-        const parsed: unknown = JSON.parse(line);
-        if (typeof parsed === "object" && parsed !== null) {
-          frames.push(parsed as Record<string, unknown>);
-        }
-      } catch {
-        /* not a frame */
-      }
-    }
-    return frames;
-  }
-
-  framesForMethod(method: string): Array<Record<string, unknown>> {
-    return this.writtenFrames().filter((frame) => frame["method"] === method);
-  }
-
-  /**
-   * Suspends one method's answer until the returned release is called.
-   *
-   * The handler still runs at write time, so the frame is recorded and handler side effects
-   * happen when they otherwise would; only the emission is held. That leaves a request in flight
-   * across another lifecycle transition, which `parkNextWrite` cannot (it never records the
-   * frame) and a handler cannot (it runs synchronously inside `write`).
-   *
-   * The release emits in its own tick, not on a microtask, so a test can place a response inside
-   * a synchronous block of driver code reached through a sink the driver calls from within it.
-   */
-  holdAnswers(method: string): () => void {
-    this.#heldMethods.add(method);
-    return () => {
-      this.#heldMethods.delete(method);
-      const emit = this.#heldEmissions.get(method);
-      this.#heldEmissions.delete(method);
-      emit?.();
-    };
-  }
-
-  /**
-   * Suspends every spawn until the returned release is called, so a test can hold two
-   * establishments inside their first suspension, the only window where a slot race shows.
-   */
-  holdSpawns(): () => void {
-    let release = (): void => {};
-    this.#spawnGate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    return () => {
-      this.#spawnGate = null;
-      release();
-    };
-  }
-
-  async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
-    this.spawnRequests.push(spec);
-    const gate = this.#spawnGate;
-    if (gate !== null) {
-      await gate;
-    }
-    if (!this.uniqueSpawnSessionIds) {
-      return this.spawnResponse;
-    }
-    this.#spawnSequence += 1;
-    return { kind: "spawn_response", session_id: `pty-session-${String(this.#spawnSequence)}` };
-  }
-
-  resize(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  write(sessionId: string, bytes: Uint8Array): Promise<void> {
-    if (this.parkNextWrite) {
-      this.parkNextWrite = false;
-      return new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
-    }
-    if (this.rejectNextWriteWith !== undefined) {
-      const rejection = this.rejectNextWriteWith;
-      this.rejectNextWriteWith = undefined;
-      return Promise.reject(rejection);
-    }
-    if (this.failWriteAfterChildExit) {
-      this.failWriteAfterChildExit = false;
-      return new Promise((_resolve, reject) => {
-        setTimeout(() => {
-          this.emitExit(1);
-          setTimeout(() => {
-            reject(new Error("pty write failed: broken pipe"));
-          }, 0);
-        }, 0);
-      });
-    }
-    const text = new TextDecoder().decode(bytes);
-    for (const line of text.split("\n")) {
-      if (line.length === 0) {
-        continue;
-      }
-      this.writtenLines.push(line);
-      this.#maybeAnswer(sessionId, line);
-    }
-    return Promise.resolve();
-  }
-
-  kill(sessionId: string, signal: PtySignal): Promise<void> {
-    this.killedSessions.push({ sessionId, signal });
-    return Promise.resolve();
-  }
-
-  /**
-   * Suspends every `close` until the returned release is called, after the session id is
-   * recorded. A test can then see that teardown reached the host and hold it there, the only
-   * window in which a slot freed mid-teardown is observable. Gating the `thread/unsubscribe`
-   * answer instead would prove nothing, because the driver suspends there either way.
-   */
-  holdCloses(): () => void {
-    let release = (): void => {};
-    this.#closeGate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    return () => {
-      this.#closeGate = null;
-      release();
-    };
-  }
-
-  async close(sessionId: string): Promise<void> {
-    this.closedSessions.push(sessionId);
-    const gate = this.#closeGate;
-    if (gate !== null) {
-      await gate;
-    }
-  }
-
-  shutdown(): Promise<DrainResult> {
-    return Promise.resolve({
-      sessionsDrained: 0,
-      sessionsForcedKilled: 0,
-      sidecarExitedCleanly: true,
-      taskkillEscalated: false,
-    });
-  }
-
-  onData(sessionId: string, chunk: Uint8Array): void {
-    this.#listeners.get(sessionId)?.onData(chunk);
-  }
-
-  onExit(sessionId: string, exitCode: number, signalCode?: number): void {
-    this.#listeners.get(sessionId)?.onExit(exitCode, signalCode);
-  }
-
-  #maybeAnswer(sessionId: string, line: string): void {
-    let frame: unknown;
-    try {
-      frame = JSON.parse(line);
-    } catch {
-      return;
-    }
-    if (typeof frame !== "object" || frame === null) {
-      return;
-    }
-    const record = frame as Record<string, unknown>;
-    const method = record["method"];
-    const id = record["id"];
-    if (typeof method !== "string" || id === undefined) {
-      return;
-    }
-    const handler = this.#handlers.get(method);
-    if (handler === undefined) {
-      return;
-    }
-    const answer = handler(record["params"]);
-    const emit = (): void => {
-      const frames: Array<Record<string, unknown>> = [
-        {
-          jsonrpc: "2.0",
-          id,
-          ...(answer.error === undefined ? { result: answer.result } : { error: answer.error }),
-        },
-        ...(answer.trailingFrames ?? []),
-      ];
-      // One chunk for the whole batch; see `JsonRpcAnswer.trailingFrames`.
-      const payload = frames.map((frame) => `${JSON.stringify(frame)}\r\n`).join("");
-      // Routed to the session that wrote the request, not broadcast: with several live
-      // connections a broadcast could reach a peer whose id counter has the same value.
-      this.#listeners.get(sessionId)?.onData(this.#encoder.encode(payload));
-    };
-    if (this.#heldMethods.has(method)) {
-      this.#heldEmissions.set(method, emit);
-      return;
-    }
-    queueMicrotask(emit);
-  }
-}
-
-interface ScheduledTimeout {
-  callback: () => void;
-  delayMs: number;
-  canceled: boolean;
-}
-
-function makeManualScheduler(): {
-  schedule: CodexScheduleTimeout;
-  fireAll: () => void;
-  fireDelay: (delayMs: number) => number;
-  pendingDelays: () => readonly number[];
-  firedDelays: () => readonly number[];
-  pendingCount: () => number;
-} {
-  const scheduled: ScheduledTimeout[] = [];
-  const fired: number[] = [];
-  const schedule: CodexScheduleTimeout = (callback, delayMs) => {
-    const entry: ScheduledTimeout = { callback, delayMs, canceled: false };
-    scheduled.push(entry);
-    return () => {
-      entry.canceled = true;
-    };
-  };
-  return {
-    schedule,
-    fireAll: () => {
-      for (const entry of scheduled) {
-        if (!entry.canceled) {
-          entry.canceled = true;
-          fired.push(entry.delayMs);
-          entry.callback();
-        }
-      }
-    },
-    /**
-     * Fires only the timers armed at one delay and returns how many ran. `fireAll` cannot serve
-     * an expiry assertion on a single deadline: a live session also holds the transport's request
-     * deadline, so firing everything would reject the in-flight request and settle on a transport
-     * failure. The compaction bound differs from every other deadline this driver arms, so the
-     * delay selects it unambiguously.
-     */
-    fireDelay: (delayMs: number) => {
-      let firedHere = 0;
-      for (const entry of scheduled) {
-        if (!entry.canceled && entry.delayMs === delayMs) {
-          entry.canceled = true;
-          fired.push(entry.delayMs);
-          entry.callback();
-          firedHere += 1;
-        }
-      }
-      return firedHere;
-    },
-    pendingDelays: () => scheduled.filter((entry) => !entry.canceled).map((entry) => entry.delayMs),
-    /**
-     * The delays that actually ran, as opposed to canceled. `pendingCount` cannot tell them apart
-     * (a settled wait and an expired one both cancel their timer), so a "settled without any
-     * timer firing" assertion needs this record.
-     */
-    firedDelays: () => fired,
-    pendingCount: () => scheduled.filter((entry) => !entry.canceled).length,
-  };
-}
-
-/**
- * Drains the microtask queue by yielding to the macrotask queue once. Counting
- * `await Promise.resolve()` hops instead would pin a test to the driver's exact continuation
- * sequencing and turn a real assertion into a hang when that changes.
- */
-async function drainMicrotasks(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
-}
-
-function makeCapabilities(steer: boolean): DriverCapabilities {
-  const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
-    DriverCapabilityFlag,
-    boolean
-  >;
-  flags.steer = steer;
-  return { flags, contractVersion: "1.0.0" };
-}
-
-/** The test session's model. */
-const TEST_MODEL = "gpt-5.5";
-/** A live `model/list` read that answers an empty catalog, for tests that never list models. */
-const STUB_MODEL_CATALOG_READ: CodexModelCatalogExchange = () =>
-  Promise.resolve({ data: [], nextCursor: null });
-const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
-const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
-const SECOND_RUN_ID = "33333333-3333-4333-8333-333333333333" as RunId;
-const THREAD_ID = "01a04202-0148-7ae2-8560-622babf33ed0";
-const TURN_ID = "turn-01";
-// The second run's turn. Two runs holding live turns is a state the sole-active-run fallback
-// cannot answer in and turn-keyed attribution resolves exactly.
-const SECOND_TURN_ID = "turn-02";
-const EXECUTABLE_PATH = "/opt/codex/bin/codex";
-
-const SESSION_CWD = "/work/session";
-
-// Typed as the contract types it, an opaque bag, so the tests exercise the same untyped boundary
-// the daemon hands the driver.
-const SESSION_CONFIG: Record<string, unknown> = {
-  cwd: SESSION_CWD,
-  env: [
-    ["HOME", "/home/agent"],
-    ["PATH", "/usr/bin"],
-  ],
-};
-
-const RESUME_SPAWN_CONFIG: CodexSessionConfig = {
-  cwd: "/work/resume",
-  env: [["HOME", "/home/agent"]],
-};
-
-/**
- * The daemon's stand-in policy resolver: a well-formed policy denying nothing. It is a real
- * policy, not `undefined`, because a sandboxed posture requires a resolution and the driver
- * refuses `undefined` as a wiring fault. Its `envNameMatch` is the host's because the shared
- * builder refuses a policy that declares a different one.
- */
-const resolveNoDeniedCredentialNames: CodexCredentialEnvPolicyResolver = () =>
-  Promise.resolve({
-    denyEnvVars: [],
-    envNameMatch: hostEnvNameMatchForPlatform(process.platform),
-  });
-
-interface Harness {
-  server: FakeCodexAppServer;
-  driver: CodexDriver;
-  diagnostics: CodexTransportDiagnostic[];
-  driverDiagnostics: DriverDiagnosticsEmitter;
-  textNeutralizationFailures: RecordedTextNeutralizationFailure[];
-  scheduler: ReturnType<typeof makeManualScheduler>;
-}
-
-/**
- * One run terminal a text-neutralization trip produced. The callback is a required dependency so
- * every harness binds it: the trip raises no JSON-RPC error, and an unbound sink would let a
- * swallowed turn end leave no record.
- */
-interface RecordedTextNeutralizationFailure {
-  readonly sessionId: SessionId;
-  readonly runId: RunId;
-  readonly providerFailureDetail: string;
-}
-
-/**
- * The default log sink writes to the console, which would fill test output with policy
- * diagnostics; the emitter still retains the records the assertions read.
- */
-function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({
-    logSink: { record: () => undefined },
-    counterSink: { increment: () => undefined },
-  });
-}
-
-function createHarness(
-  options: {
-    steer?: boolean;
-    subscribeToPtySession?: CodexPtySessionSubscriber;
-    resumeSpawnConfig?: CodexSessionConfig;
-    resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
-  } = {},
-): Harness {
-  const server = new FakeCodexAppServer();
-  server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-  // Answered by default so the resume-failure auth classification resolves: these tests run on a
-  // manual scheduler where its deadline never fires, and a logged-in provider is the realistic
-  // baseline. Cases that need the logged-out reading re-register this method.
-  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
-  const diagnostics: CodexTransportDiagnostic[] = [];
-  const driverDiagnostics = makeSilentDriverDiagnostics();
-  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
-  const scheduler = makeManualScheduler();
-  const driver = new CodexDriver({
-    ptyHost: server,
-    modelCatalogExchange: STUB_MODEL_CATALOG_READ,
-    onTextNeutralizationFailure: (sessionId, runId, failure) => {
-      textNeutralizationFailures.push({
-        sessionId,
-        runId,
-        providerFailureDetail: failure.providerFailureDetail,
-      });
-    },
-    diagnostics: driverDiagnostics,
-    subscribeToPtySession:
-      options.subscribeToPtySession ??
-      ((ptySessionId, listeners) => server.subscribe(ptySessionId, listeners)),
-    reportDiagnostic: (diagnostic) => {
-      diagnostics.push(diagnostic);
-    },
-    scheduleTimeout: scheduler.schedule,
-    executablePath: EXECUTABLE_PATH,
-    resumeSpawnConfig: options.resumeSpawnConfig ?? RESUME_SPAWN_CONFIG,
-    resolveCredentialEnvPolicy:
-      options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
-    newBindingId: () => "binding-abc",
-    readCapabilities: () => makeCapabilities(options.steer ?? true),
-  });
-  return { server, driver, diagnostics, driverDiagnostics, textNeutralizationFailures, scheduler };
-}
-
-function threadStartResult(turnCount = 0): JsonRpcAnswer {
-  return {
-    result: {
-      thread: {
-        id: THREAD_ID,
-        sessionId: "session-tree-1",
-        turns: Array.from({ length: turnCount }, (_unused, index) => ({ id: `turn-${index}` })),
-      },
-    },
-  };
-}
-
-async function createdSession(harness: Harness): Promise<void> {
-  harness.server.on("thread/start", () => threadStartResult());
-  await harness.driver.createSession({
-    model: TEST_MODEL,
-    sessionId: SESSION_ID,
-    config: SESSION_CONFIG,
-  });
-}
-
-interface ManagerHarness {
-  server: FakeCodexAppServer;
-  manager: CodexLifecycleManager;
-  diagnostics: CodexTransportDiagnostic[];
-  driverDiagnostics: DriverDiagnosticsEmitter;
-  textNeutralizationFailures: RecordedTextNeutralizationFailure[];
-  notifications: Array<{ method: string; params: unknown }>;
-  meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
-  subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }>;
-  scheduler: ReturnType<typeof makeManualScheduler>;
-}
-
-interface ManagerHarnessOptions {
-  onServerNotification?: boolean;
-  /**
-   * Wraps the real disposer in one that throws after disposing, so the failure is only the
-   * caller-supplied code misbehaving, not a listener left registered.
-   */
-  throwingSubscriptionDisposer?: boolean;
-  /** Overrides the binding-id minter, so a hostile mint can be driven. */
-  newBindingId?: () => string;
-  /**
-   * Called synchronously with every transport diagnostic, after it is recorded. A probe, not a
-   * recorder: several driver blocks report a diagnostic partway through otherwise atomic work,
-   * and this is the only seam from which a test can act inside one.
-   */
-  onTransportDiagnostic?: (diagnostic: CodexTransportDiagnostic) => void;
-  /**
-   * Throws from the first diagnostic and records every later one. Throwing from all of them
-   * would make "the drain survived" unobservable through the sink; the next diagnostic is the
-   * evidence.
-   */
-  throwOnFirstDiagnostic?: boolean;
-  /**
-   * Throws from the first notification delivered to the consumer, then behaves. As with the sink
-   * flag, the next notification is what proves the drain survived.
-   */
-  throwOnFirstNotification?: boolean;
-  /** Overrides the spawn context every manager-owned spawn is composed from. */
-  resumeSpawnConfig?: CodexSessionConfig;
-  /** Overrides the daemon's per-resume credential-policy resolution. */
-  resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
-  /** Supplies the daemon's prior-emitted cumulative sums for a resume base. */
-  readPriorEmittedUsage?: (
-    sessionId: SessionId,
-    threadId: string,
-  ) => CumulativeAxisReadings | undefined;
-  /** Binds the session-scoped ask responder, so a routed ask can be observed. */
-  answerServerRequest?: CodexSessionServerRequestResponder;
-  /** Overrides the untyped spawn config, so an account-bearing spawn can be built. */
-  config?: Record<string, unknown>;
-  /**
-   * Binds the user-turn readback so the positional reconcile can run. Unbound by default, as in
-   * the production composition, so tests that do not name it exercise the unreadable settlement,
-   * which tears down and replays.
-   */
-  userTurnReadback?: UserTurnReadbackReader;
-}
-
-/**
- * A harness over the manager rather than the driver facade. `hasActiveTurn` and the route
- * bookkeeping live on `CodexLifecycleManager`; the driver's `Pick<ProviderDriver, ...>` does not
- * surface them, so route-lifetime assertions have to be made here.
- */
-function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarness {
-  const server = new FakeCodexAppServer();
-  server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-  server.on("thread/start", () => threadStartResult());
-  // Answered because the manager's teardown awaits it and the manual scheduler never fires the
-  // courtesy deadline.
-  server.on("thread/unsubscribe", () => ({ result: {} }));
-  // Answered by default so the resume-failure auth classification resolves: these tests run on a
-  // manual scheduler where its deadline never fires, and a logged-in provider is the realistic
-  // baseline. Cases that need the logged-out reading re-register this method.
-  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
-  const diagnostics: CodexTransportDiagnostic[] = [];
-  const driverDiagnostics = makeSilentDriverDiagnostics();
-  const notifications: Array<{ method: string; params: unknown }> = [];
-  const meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }> = [];
-  const subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }> =
-    [];
-  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
-  const scheduler = makeManualScheduler();
-  let firstDiagnosticThrown = false;
-  let firstNotificationThrown = false;
-  const manager = new CodexLifecycleManager({
-    ptyHost: server,
-    diagnostics: driverDiagnostics,
-    subscribeToPtySession: (ptySessionId, listeners) => {
-      const dispose = server.subscribe(ptySessionId, listeners);
-      if (options.throwingSubscriptionDisposer !== true) {
-        return dispose;
-      }
-      return () => {
-        dispose();
-        throw new Error("subscription disposer failed");
-      };
-    },
-    reportDiagnostic: (diagnostic) => {
-      if (options.throwOnFirstDiagnostic === true && !firstDiagnosticThrown) {
-        firstDiagnosticThrown = true;
-        throw new Error("diagnostic sink failed");
-      }
-      diagnostics.push(diagnostic);
-      options.onTransportDiagnostic?.(diagnostic);
-    },
-    scheduleTimeout: scheduler.schedule,
-    executablePath: EXECUTABLE_PATH,
-    resumeSpawnConfig: options.resumeSpawnConfig ?? RESUME_SPAWN_CONFIG,
-    resolveCredentialEnvPolicy:
-      options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
-    newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
-    onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
-    onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
-    onTextNeutralizationFailure: (sessionId, runId, failure) => {
-      textNeutralizationFailures.push({
-        sessionId,
-        runId,
-        providerFailureDetail: failure.providerFailureDetail,
-      });
-    },
-    ...(options.readPriorEmittedUsage === undefined
-      ? {}
-      : { readPriorEmittedUsage: options.readPriorEmittedUsage }),
-    ...(options.answerServerRequest === undefined
-      ? {}
-      : { answerServerRequest: options.answerServerRequest }),
-    ...(options.userTurnReadback === undefined
-      ? {}
-      : { userTurnReadback: options.userTurnReadback }),
-    ...(options.onServerNotification === true
-      ? {
-          onServerNotification: (method: string, params: unknown): void => {
-            if (options.throwOnFirstNotification === true && !firstNotificationThrown) {
-              firstNotificationThrown = true;
-              throw new Error("normalizer consumer failed");
-            }
-            notifications.push({ method, params });
-          },
-        }
-      : {}),
-  });
-  return {
-    server,
-    manager,
-    diagnostics,
-    driverDiagnostics,
-    notifications,
-    meteredUsage,
-    subagentLifecycle,
-    textNeutralizationFailures,
-    scheduler,
-  };
-}
-
-/**
- * A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`) carrying one
- * model-output item. A `completed` turn with an empty item list is what the zero-turn check
- * catches, so a fixture without one would trip every test that only needs a turn to end and
- * dispose the session it goes on to use.
- */
-function turnCompletedFrame(turnId: string, status: string): Record<string, unknown> {
-  return {
-    jsonrpc: "2.0",
-    method: "turn/completed",
-    params: {
-      threadId: THREAD_ID,
-      turn: { id: turnId, status, items: [{ type: "agentMessage", id: "item-1" }] },
-    },
-  };
-}
-
-/**
- * A `completed` turn that produced nothing: the shape a provider answers with when its input
- * surface consumed the user's words as a client-side command.
- */
-function zeroTurnCompletedFrame(turnId: string): Record<string, unknown> {
-  return {
-    jsonrpc: "2.0",
-    method: "turn/completed",
-    params: { threadId: THREAD_ID, turn: { id: turnId, status: "completed", items: [] } },
-  };
-}
-
-/** An in-flight `item/completed` naming one model message on a turn. */
-function modelOutputItemFrame(turnId: string): Record<string, unknown> {
-  return {
-    jsonrpc: "2.0",
-    method: "item/completed",
-    params: { threadId: THREAD_ID, turnId, item: { type: "agentMessage", id: "item-1" } },
-  };
-}
+  EXECUTABLE_PATH,
+  FakeCodexAppServer,
+  type Harness,
+  type JsonRpcAnswer,
+  type ManagerHarness,
+  type ManagerHarnessOptions,
+  RESUME_SPAWN_CONFIG,
+  RUN_ID,
+  SECOND_RUN_ID,
+  SECOND_TURN_ID,
+  SESSION_CONFIG,
+  SESSION_CWD,
+  SESSION_ID,
+  STUB_MODEL_CATALOG_READ,
+  TEST_MODEL,
+  THREAD_ID,
+  TURN_ID,
+  createHarness,
+  createManagerHarness,
+  createdSession,
+  makeCapabilities,
+  modelOutputItemFrame,
+  resolveNoDeniedCredentialNames,
+  routedAskHarness,
+  threadStartResult,
+  turnCompletedFrame,
+  zeroTurnCompletedFrame,
+} from "./codex-test-doubles.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 
 // --------------------------------------------------------------------------
 // Spawn and handshake
@@ -1182,240 +470,6 @@ describe("CodexDriver resumeSession", () => {
 });
 
 // --------------------------------------------------------------------------
-// Transport behavior
-// --------------------------------------------------------------------------
-
-describe("CodexAppServerConnection transport", () => {
-  it("writes each frame as exactly one newline-terminated line", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-
-    // Far past the 1024-byte canonical-mode line limit that the spawn prelude turns off.
-    const longInput = "z".repeat(8000);
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: longInput },
-    });
-
-    const line = harness.server.writtenLines.find((candidate) => candidate.includes("turn/start"));
-    expect(line).toBeDefined();
-    expect(line).not.toContain("\n");
-    expect(JSON.parse(line ?? "{}")).toMatchObject({ method: "turn/start" });
-  });
-
-  it("reassembles a frame split across chunk boundaries", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    await pending;
-
-    // A response frame split across two reads must still parse as one line.
-    const frame = `${JSON.stringify({ jsonrpc: "2.0", id: 99, result: { note: "café" } })}\r\n`;
-    const bytes = new TextEncoder().encode(frame);
-    const splitAt = bytes.indexOf(0xc3);
-    expect(splitAt).toBeGreaterThan(0);
-    harness.server.emitRaw(bytes.slice(0, splitAt + 1));
-    harness.server.emitRaw(bytes.slice(splitAt + 1));
-
-    // Nothing correlates to id 99, so the reassembled frame surfaces as an
-    // unknown response rather than as an unparsable line.
-    expect(harness.diagnostics).toContainEqual({ kind: "unknown-response-id", responseId: "99" });
-  });
-
-  it("answers an unhandled server request exactly once, fail-closed, known method or not", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    // Attestation is declined at negotiation and deliberately unrouted, so it exercises the
-    // fail-closed default arm on a method the pinned census knows.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      id: 77,
-      method: "attestation/generate",
-      params: {},
-    });
-    await Promise.resolve();
-
-    const replies = harness.server.writtenFrames().filter((frame) => frame["id"] === 77);
-    expect(replies).toHaveLength(1);
-    // An error reply can never be mistaken for approval, and it stops the
-    // provider from hanging on an unanswered request.
-    expect(replies[0]?.["error"]).toMatchObject({ code: -32601 });
-    expect(harness.diagnostics).toContainEqual({
-      kind: "unhandled-server-request",
-      method: "attestation/generate",
-      // Recorded on the diagnostic only; the census does not gate the answer.
-      censused: true,
-    });
-
-    // A method from a newer build that the pinned census has never seen. It correlates to
-    // nothing this connection sent, so it is a server request; leaving it unanswered would hang
-    // the turn for the provider's lifetime.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      id: 4242,
-      method: "item/somethingNewer/requestApproval",
-      params: {},
-    });
-    await Promise.resolve();
-
-    const newerReplies = harness.server.writtenFrames().filter((frame) => frame["id"] === 4242);
-    expect(newerReplies).toHaveLength(1);
-    expect(newerReplies[0]?.["error"]).toMatchObject({ code: -32601 });
-    expect(harness.diagnostics).toContainEqual({
-      kind: "unhandled-server-request",
-      method: "item/somethingNewer/requestApproval",
-      censused: false,
-    });
-  });
-
-  it("never answers an echoed client frame, identified by correlation", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    // The fake never answers, so the request stays pending: an echo is a frame we sent and are
-    // still awaiting a reply to, so correlation is the only honest test.
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    await Promise.resolve();
-    const sent = harness.server.writtenFrames().find((frame) => frame["method"] === "turn/start");
-    expect(sent).toBeDefined();
-    const framesBefore = harness.server.writtenFrames().length;
-
-    // What an ECHO-enabled tty reflects: our own request, method and id intact.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      id: sent?.["id"],
-      method: "turn/start",
-      params: {},
-    });
-    await Promise.resolve();
-
-    // Never answered: a response to it would corrupt the server's correlation.
-    expect(harness.server.writtenFrames()).toHaveLength(framesBefore);
-    expect(harness.diagnostics).toContainEqual({
-      kind: "echoed-client-frame",
-      method: "turn/start",
-    });
-
-    // The echo did not consume the pending entry: the real reply still lands.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      id: sent?.["id"],
-      result: { turn: { id: TURN_ID } },
-    });
-    await expect(pending).resolves.toBeUndefined();
-  });
-
-  it("treats a frame matching a pending id but a DIFFERENT method as a server request", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    await Promise.resolve();
-    const sentId = harness.server
-      .writtenFrames()
-      .find((frame) => frame["method"] === "turn/start")?.["id"];
-
-    // The two directions mint request ids in independent namespaces, so a genuine server request
-    // may reuse an id we used. Matching on id alone would silence it; id plus method does not.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      id: sentId,
-      method: "attestation/generate",
-      params: {},
-    });
-    await Promise.resolve();
-
-    expect(
-      harness.server
-        .writtenFrames()
-        .filter((frame) => frame["id"] === sentId && frame["error"] !== undefined),
-    ).toHaveLength(1);
-
-    harness.server.emitFrame({ jsonrpc: "2.0", id: sentId, result: { turn: { id: TURN_ID } } });
-    await expect(pending).resolves.toBeUndefined();
-  });
-
-  it("quarantines a method the routing classifier does not list instead of projecting it", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    // An unlisted method reaches the classifier's `unknown` arm, and the fail-closed rule refuses
-    // it instead of presuming it belongs to the session's own thread.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      method: "thread/itemAdded",
-      params: { threadId: THREAD_ID },
-    });
-    await Promise.resolve();
-
-    // Refused, not delivered: no hand-off happened, so no unconsumed record.
-    expect(harness.diagnostics).not.toContainEqual({
-      kind: "unconsumed-server-notification",
-      method: "thread/itemAdded",
-    });
-    // The refusal is on the driver diagnostic band, never a silent drop.
-    expect(
-      harness.driverDiagnostics.recentRecordsOfKind("thread_frame_quarantined").map((record) => ({
-        kind: record.kind,
-        rawWireType: record.rawWireType,
-      })),
-    ).toContainEqual({ kind: "thread_frame_quarantined", rawWireType: "thread/itemAdded" });
-  });
-
-  it("fails a request that outlives its deadline with driver.timeout", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    await Promise.resolve();
-    harness.scheduler.fireAll();
-
-    await expect(pending).rejects.toBeInstanceOf(CodexRequestTimeoutError);
-    await expect(pending).rejects.toMatchObject({ code: "driver.timeout" });
-  });
-
-  it("rejects in-flight requests and refuses further writes when the process exits", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    await Promise.resolve();
-    harness.server.emitExit(1, 9);
-
-    await expect(pending).rejects.toMatchObject({ code: "driver.unavailable" });
-    expect(harness.diagnostics).toContainEqual({
-      kind: "process-exited",
-      exitCode: 1,
-      signalCode: 9,
-    });
-    // A write to an exited pty raises an asynchronous EIO no caller can catch,
-    // so the connection must refuse before writing.
-    await expect(
-      harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "again" },
-      }),
-    ).rejects.toMatchObject({ code: "driver.unavailable" });
-  });
-});
-
-// --------------------------------------------------------------------------
 // Session identity and process ownership
 // --------------------------------------------------------------------------
 
@@ -1663,10 +717,6 @@ describe("CodexLifecycleManager probeAuth", () => {
     expect(harness.server.framesForMethod("turn/start")).toEqual([]);
   });
 });
-
-// --------------------------------------------------------------------------
-// Spawn-environment hygiene
-// --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
 // Credential-policy strip at the spawn seam
@@ -2365,10 +1415,9 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
 });
 
 describe("CodexDriver turn posture realization", () => {
-  // These arms assert the observed wire frame, driven from `UNREALIZED_TURN_POSTURE_MEMBERS`, so
-  // a composer that emitted `permissions` fails here even if
-  // `assertRealizedTurnPostureMembers` were deleted. They do not prove the guard's placement: a
-  // second, unguarded `turn/start` composer is caught only if a test drives it.
+  // These arms assert the observed wire frame, so a composer that emitted `permissions` fails here
+  // even if `assertRealizedTurnPostureMembers` were deleted. They do not prove the guard's
+  // placement: a second, unguarded `turn/start` composer is caught only if a test drives it.
   it("realizes the sandboxPolicy member from a stamped posture and never the other", async () => {
     const harness = createHarness();
     harness.server.on("thread/start", () => threadStartResult());
@@ -2387,17 +1436,22 @@ describe("CodexDriver turn posture realization", () => {
 
     const params = firstParamsFor(harness, "turn/start");
     expect(params["sandboxPolicy"]).toBeDefined();
-    for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
-      expect(Object.keys(params)).not.toContain(member);
-    }
+    expect(Object.keys(params)).not.toContain("permissions");
+    expect(Object.keys(params)).not.toContain("permissionProfile");
   });
 
   it("refuses every posture-affecting field a caller declares, the whole class", async () => {
-    // Driven from the table so a field added to the class without a refusal path fails here.
     const harness = createHarness();
     await createdSession(harness);
 
-    for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
+    for (const field of [
+      "cwd",
+      "sandboxPolicy",
+      "permissions",
+      "permissionProfile",
+      "approvalPolicy",
+      "approvalsReviewer",
+    ]) {
       await expect(
         harness.driver.startRun({
           runId: RUN_ID,
@@ -2544,7 +1598,7 @@ describe("CodexLifecycleManager steer wire shape", () => {
     // throwing would report a live provider as unreachable.
     await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
       status: "degraded",
-      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+      fallbackAction: STEER_FALLBACK_ACTION,
     });
   });
 });
@@ -2634,115 +1688,6 @@ describe("CodexLifecycleManager establishment slot", () => {
     await closing;
 
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-});
-
-describe("CodexAppServerConnection event-callback containment", () => {
-  it("rejects every pending request even when the subscription disposer throws", async () => {
-    const server = new FakeCodexAppServer();
-    server.on("initialize", () => ({ result: {} }));
-    const scheduler = makeManualScheduler();
-    const diagnostics: CodexTransportDiagnostic[] = [];
-    const connection = new CodexAppServerConnection({
-      ptyHost: server,
-      subscribeToPtySession: (ptySessionId, listeners) => {
-        const dispose = server.subscribe(ptySessionId, listeners);
-        return () => {
-          dispose();
-          throw new Error("subscription disposer failed");
-        };
-      },
-      reportDiagnostic: (diagnostic) => {
-        diagnostics.push(diagnostic);
-      },
-      scheduleTimeout: scheduler.schedule,
-      executablePath: EXECUTABLE_PATH,
-    });
-    await connection.open(RESUME_SPAWN_CONFIG);
-
-    // Never answered: only the exit can settle it.
-    const pending = connection.request("thread/start", {});
-    const settled = pending.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-
-    // The exit callback belongs to the host, so a fault in it escapes into the host's emit loop
-    // rather than reaching a caller. Captured so an implementation that lets it escape fails on
-    // the next line instead of hanging to the 5000ms timeout.
-    let escaped: unknown;
-    try {
-      server.emitExit(7);
-    } catch (error) {
-      escaped = error;
-    }
-
-    expect(escaped).toBeUndefined();
-    expect(await settled).toBeInstanceOf(CodexTransportError);
-    // Not swallowed: a failed disposer may have left a listener registered on a dead session,
-    // and the diagnostic sink is the only surface that can say so.
-    expect(diagnostics).toContainEqual({
-      kind: "subscription-dispose-failed",
-      detail: "subscription disposer failed",
-    });
-    // Ordered after the cleanup, so the exit record still lands first.
-    expect(diagnostics[0]).toMatchObject({ kind: "process-exited", exitCode: 7 });
-  });
-
-  it("settles a response that arrives behind a notification whose consumer threw", async () => {
-    const server = new FakeCodexAppServer();
-    server.on("initialize", () => ({ result: {} }));
-    const scheduler = makeManualScheduler();
-    const diagnostics: CodexTransportDiagnostic[] = [];
-    const connection = new CodexAppServerConnection({
-      ptyHost: server,
-      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
-      reportDiagnostic: (diagnostic) => {
-        diagnostics.push(diagnostic);
-      },
-      // Wired straight to the connection with no manager interposed: the class is exported and
-      // driven standalone, so containment has to hold for that composition too.
-      onServerNotification: () => {
-        throw new Error("consumer exploded");
-      },
-      scheduleTimeout: scheduler.schedule,
-      executablePath: EXECUTABLE_PATH,
-    });
-    await connection.open(RESUME_SPAWN_CONFIG);
-
-    const pending = connection.request("thread/start", {});
-    const settled = pending.then(
-      (result) => result,
-      (error: unknown) => error,
-    );
-    await drainMicrotasks();
-    const requestId = server.framesForMethod("thread/start")[0]?.["id"];
-    expect(requestId).toBeDefined();
-
-    // The response sits behind the notification in one chunk, so a consumer that unwinds the
-    // drain takes the caller down with it.
-    const responseFrame = JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { ok: true } });
-    let escaped: unknown;
-    try {
-      server.emitRaw(
-        new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n${responseFrame}\r\n`,
-        ),
-      );
-    } catch (error) {
-      escaped = error;
-    }
-
-    expect(escaped).toBeUndefined();
-    expect(await settled).toEqual({ ok: true });
-    // Dropped, not fatal, and recorded.
-    expect(diagnostics).toEqual([
-      {
-        kind: "notification-consumer-failed",
-        method: "turn/started",
-        detail: "consumer exploded",
-      },
-    ]);
   });
 });
 
@@ -3641,157 +2586,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 });
 
 // --------------------------------------------------------------------------
-// Rejection handling — a rejection nobody is attached to kills the daemon
-// --------------------------------------------------------------------------
-
-describe("CodexAppServerConnection rejection handling", () => {
-  it("never leaves a request rejection unhandled when the child dies mid-write", async () => {
-    const unhandled: unknown[] = [];
-    const captureUnhandled = (reason: unknown): void => {
-      unhandled.push(reason);
-    };
-    process.on("unhandledRejection", captureUnhandled);
-    try {
-      const harness = createHarness();
-      await createdSession(harness);
-      // `request()` is suspended on its write, so `reject` is live in `#pending` while the
-      // returned promise has no handler; the write then fails too, so `request()` rethrows
-      // and never returns that promise, and no handler can arrive later.
-      harness.server.failWriteAfterChildExit = true;
-
-      const pending = harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-
-      // The caller still learns the truth: the write's own failure propagates.
-      await expect(pending).rejects.toThrow(/broken pipe/);
-      // Two macrotasks: Node reports an unhandled rejection only after the
-      // microtask queue drains, so a same-tick assertion would always pass.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off("unhandledRejection", captureUnhandled);
-    }
-  });
-
-  it("delivers a deadline that fires while the write is still parked", async () => {
-    const unhandled: unknown[] = [];
-    const captureUnhandled = (reason: unknown): void => {
-      unhandled.push(reason);
-    };
-    process.on("unhandledRejection", captureUnhandled);
-    try {
-      const harness = createHarness();
-      await createdSession(harness);
-      harness.server.parkNextWrite = true;
-
-      const pending = harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-      // The deadline is armed inside the executor, before the write, so firing it here
-      // rejects the inner promise while `request()` is still parked: the same handlerless
-      // window as the exit case, reached through the other rejector.
-      harness.scheduler.fireAll();
-
-      await expect(pending).rejects.toBeInstanceOf(CodexRequestTimeoutError);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off("unhandledRejection", captureUnhandled);
-    }
-  });
-});
-
-// --------------------------------------------------------------------------
-// Framing bounds — the read buffer is fed from provider-controlled input
-// --------------------------------------------------------------------------
-
-describe("CodexAppServerConnection framing bounds", () => {
-  // A well-formed frame PREFIX. If the tail were ever truncated and handed on,
-  // this would surface as a diagnostic for a frame the provider never sent.
-  const FRAME_PREFIX = '{"jsonrpc":"2.0","method":"item/started","params":{"text":"';
-
-  /** The prefix padded past the ceiling, with no line terminator anywhere. */
-  function overlongFramePrefix(): Uint8Array {
-    return new TextEncoder().encode(FRAME_PREFIX + "x".repeat(CODEX_MAX_LINE_LENGTH));
-  }
-
-  function diagnosticKinds(harness: Harness): string[] {
-    return harness.diagnostics.map((diagnostic) => diagnostic.kind);
-  }
-
-  it("fails in-flight callers with the typed error, and kills and releases the process", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    // No `turn/start` handler is registered, so the request stays in flight and
-    // the typed error has a caller to reach.
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-
-    harness.server.emitRaw(overlongFramePrefix());
-
-    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
-    // Still a transport death by `code`, so existing transport handling applies and no new
-    // error-contract row is needed.
-    await expect(pending).rejects.toBeInstanceOf(CodexTransportError);
-    await expect(pending).rejects.toMatchObject({ code: "driver.unavailable" });
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-    // `PtyHost.close` promises resource release, not child termination, and the
-    // peer producing the unbounded line is exactly the one that keeps writing.
-    expect(harness.server.killedSessions).toEqual([
-      { sessionId: "pty-session-1", signal: "SIGKILL" },
-    ]);
-  });
-
-  it("tears down on an over-long line that TERMINATES inside the same chunk", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-
-    // Crosses the ceiling and then terminates, so the retained tail is EMPTY.
-    // A ceiling enforced only on the tail would parse and dispatch this frame.
-    harness.server.emitRaw(
-      new TextEncoder().encode(`${FRAME_PREFIX + "x".repeat(CODEX_MAX_LINE_LENGTH)}"}}\r\n`),
-    );
-
-    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
-    expect(diagnosticKinds(harness)).toContain("line-too-long");
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-
-  it("bounds the pre-sentinel window instead of holding open() to the deadline", async () => {
-    const harness = createHarness();
-    // The window a refused `stty` leaves open: the prelude never reaches its
-    // `printf`, and whatever the tty emits has no line terminator to drain it.
-    harness.server.emitSentinelOnSubscribe = false;
-    const pending = harness.driver.createSession({
-      model: TEST_MODEL,
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-    });
-    // Drained, not counted, as in the prelude sentinel test above.
-    await drainMicrotasks();
-
-    harness.server.emitRaw(overlongFramePrefix());
-
-    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
-    // Failed through the readiness waiter, not by outliving the startup timer:
-    // a leftover deadline here would mean the buffer grew for the whole window.
-    expect(harness.scheduler.pendingCount()).toBe(0);
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-});
-
-// --------------------------------------------------------------------------
 // Provider refusal detail
 // --------------------------------------------------------------------------
 
@@ -4075,7 +2869,7 @@ describe("CodexDriver session goals (native)", () => {
         runId: RUN_ID,
         goalText: "land the parity legs",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toStrictEqual({ status: "applied" });
     // `status` and `tokenBudget` are provider-side goal state the daemon does not own;
     // sending either would make the driver a second author of them.
     expect(firstParamsFor(harness, "thread/goal/set")).toStrictEqual({
@@ -4095,7 +2889,7 @@ describe("CodexDriver session goals (native)", () => {
         bindingId: "binding-abc",
         runId: RUN_ID,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toStrictEqual({ status: "applied" });
     expect(firstParamsFor(harness, "thread/goal/clear")).toStrictEqual({ threadId: THREAD_ID });
   });
 });
@@ -4204,9 +2998,8 @@ describe("CodexDriver realtime suppression", () => {
       "thread/realtime/outputAudio/delta",
       "thread/realtime/transcript/delta",
       "thread/realtime/transcript/done",
-      // The `0.150.1` pin adds these beside the older `itemAdded`, `transcript/delta` and
-      // `transcript/done` spellings, which it still publishes; dropping those would
-      // un-suppress names still on the wire.
+      // The `0.150.1` pin publishes these beside the `itemAdded`, `transcript/delta` and
+      // `transcript/done` spellings, so both sets are suppressed.
       "thread/realtime/item/started",
       "thread/realtime/item/transcript/delta",
       "thread/realtime/item/completed",
@@ -4292,365 +3085,6 @@ describe("CodexDriver transport construction", () => {
     expect(connectedEndpoints).toStrictEqual([
       websocketTransportConfig.endpoint,
       websocketTransportConfig.endpoint,
-    ]);
-  });
-});
-
-// --------------------------------------------------------------------------
-// Routed server requests reach the daemon, and every path answers.
-// --------------------------------------------------------------------------
-//
-// A responder that is absent, refuses or throws answers the method's own refusal shape:
-// never `-32601` (a protocol error where a decision was asked for), never an allow, never
-// silence. An unrouted method+id frame still answers, so no provider turn hangs on a
-// method this pin never saw.
-
-interface RoutedAskHarness {
-  readonly harness: Harness;
-  readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
-  /**
-   * The records the manager emitted, distinct from `harness.diagnostics` (the
-   * transport-local sink). Both are captured because a turn-attribution refusal must reach
-   * both sinks.
-   */
-  readonly driverDiagnosticRecords: DriverDiagnosticRecord[];
-}
-
-async function routedAskHarness(
-  responder: CodexSessionServerRequestResponder | undefined,
-): Promise<RoutedAskHarness> {
-  const server = new FakeCodexAppServer();
-  server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
-  server.on("thread/start", () => threadStartResult());
-  const scheduler = makeManualScheduler();
-  const driverDiagnosticRecords: DriverDiagnosticRecord[] = [];
-  const driverDiagnostics = new DriverDiagnosticsEmitter({
-    logSink: { record: (record) => driverDiagnosticRecords.push(record) },
-    counterSink: { increment: () => undefined },
-  });
-  const diagnostics: CodexTransportDiagnostic[] = [];
-  const driver = new CodexDriver({
-    ptyHost: server,
-    modelCatalogExchange: STUB_MODEL_CATALOG_READ,
-    diagnostics: driverDiagnostics,
-    subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
-    reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-    onTextNeutralizationFailure: () => undefined,
-    scheduleTimeout: scheduler.schedule,
-    executablePath: EXECUTABLE_PATH,
-    resumeSpawnConfig: RESUME_SPAWN_CONFIG,
-    resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
-    newBindingId: () => "binding-abc",
-    readCapabilities: () => makeCapabilities(true),
-    ...(responder === undefined ? {} : { answerServerRequest: responder }),
-  });
-  await driver.createSession({ model: TEST_MODEL, sessionId: SESSION_ID, config: SESSION_CONFIG });
-  const harness: Harness = {
-    server,
-    driver,
-    diagnostics,
-    driverDiagnostics,
-    textNeutralizationFailures: [],
-    scheduler,
-  };
-
-  let nextRequestId = 9000;
-  const askProvider = async (
-    method: string,
-    params: unknown = {},
-  ): Promise<Record<string, unknown>> => {
-    const requestId = (nextRequestId += 1);
-    const before = server.writtenLines.length;
-    server.onData(
-      "pty-session-1",
-      new TextEncoder().encode(
-        `${JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params })}\r\n`,
-      ),
-    );
-    await drainMicrotasks();
-    for (const line of server.writtenLines.slice(before)) {
-      const frame = JSON.parse(line) as Record<string, unknown>;
-      if (frame["id"] === requestId) {
-        return frame;
-      }
-    }
-    throw new Error(`the driver never answered the ${method} ask`);
-  };
-  return { harness, askProvider, driverDiagnosticRecords };
-}
-
-describe("CodexAppServerConnection routed server requests", () => {
-  it("answers an allowed `item/tool/call` with the provider's own success shape", async () => {
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({
-          decision: "allow",
-          payload: { contentItems: [{ type: "inputText", text: "ok" }] },
-        }),
-    });
-    // A callback-tool ask is attributed by its own `turnId` and refused when that cannot be
-    // resolved, so the allow arm needs a live routed turn.
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
-
-    const answer = await askProvider("item/tool/call", {
-      toolName: "search",
-      arguments: {},
-      turnId: TURN_ID,
-    });
-
-    expect(answer["error"]).toBeUndefined();
-    expect(answer["result"]).toStrictEqual({
-      success: true,
-      contentItems: [{ type: "inputText", text: "ok" }],
-    });
-  });
-
-  it("REFUSES rather than truncates an answer larger than the outbound bound", async () => {
-    // `CODEX_MAX_LINE_LENGTH` also bounds a composed answer, in encoded bytes. A truncated tool
-    // output looks complete to the model; a refusal is one it can act on.
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({
-          decision: "allow",
-          payload: {
-            contentItems: [{ type: "inputText", text: "x".repeat(CODEX_MAX_LINE_LENGTH + 1) }],
-          },
-        }),
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
-
-    const answer = await askProvider("item/tool/call", {
-      toolName: "search",
-      arguments: {},
-      turnId: TURN_ID,
-    });
-
-    // The provider still gets a well-formed answer in the method's refusal shape; silence would
-    // hang the turn.
-    expect(answer["error"]).toBeUndefined();
-    expect(answer["result"]).toStrictEqual({
-      success: false,
-      contentItems: [{ type: "inputText", text: CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON }],
-    });
-    const oversized = harness.diagnostics.filter(
-      (diagnostic) => diagnostic.kind === "server-request-answer-oversized",
-    );
-    expect(oversized).toHaveLength(1);
-    expect(oversized[0]).toMatchObject({
-      kind: "server-request-answer-oversized",
-      method: "item/tool/call",
-      limit: CODEX_MAX_LINE_LENGTH,
-    });
-  }, 30_000);
-
-  it("REFUSES an approval whose named turn is unresolvable, never attributing it to another run", async () => {
-    // A request that names a turn claims which run raised it. Falling back to the sole active run
-    // would decide a retired turn's approval under a newer run; a decline is visible and retryable.
-    const attributedRuns: Array<string | null> = [];
-    const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness({
-      answer: async (request): Promise<CodexServerRequestDecision> => {
-        attributedRuns.push(request.runId);
-        return await Promise.resolve({ decision: "allow" });
-      },
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
-
-    const answer = await askProvider("item/commandExecution/requestApproval", {
-      turnId: "turn-that-already-retired",
-    });
-
-    // The method's own refusal vocabulary, not a protocol error.
-    expect(answer["result"]).toStrictEqual({ decision: "decline" });
-    // Refused before the responder ran.
-    expect(attributedRuns).toStrictEqual([]);
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([
-      {
-        kind: "routed-ask-turn-unresolved",
-        method: "item/commandExecution/requestApproval",
-        turnId: "turn-that-already-retired",
-        turnIdTruncated: false,
-        disposition: "refused",
-      },
-    ]);
-    // `callback_tool_invocation_refused` counts callback-tool refusals only; an approval refusal
-    // must not reach it.
-    expect(driverDiagnosticRecords).toStrictEqual([]);
-  });
-
-  it("REFUSES an approval whose named turn is past the reader's bound", async () => {
-    // A turn id past the bound is named but unresolvable; resolving a truncated prefix could match
-    // the wrong run.
-    const attributedRuns: Array<string | null> = [];
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (request): Promise<CodexServerRequestDecision> => {
-        attributedRuns.push(request.runId);
-        return await Promise.resolve({ decision: "allow" });
-      },
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
-
-    const answer = await askProvider("item/commandExecution/requestApproval", {
-      turnId: "t".repeat(4096),
-    });
-
-    expect(answer["result"]).toStrictEqual({ decision: "decline" });
-    expect(attributedRuns).toStrictEqual([]);
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([
-      {
-        kind: "routed-ask-turn-unresolved",
-        method: "item/commandExecution/requestApproval",
-        turnId: "t".repeat(256),
-        turnIdTruncated: true,
-        disposition: "refused",
-      },
-    ]);
-  });
-
-  it("still attributes an approval whose named turn IS live — the eligible shape stays eligible", async () => {
-    // Control for the refusals above: an approval naming its live turn reaches the responder
-    // stamped with that turn's run.
-    const attributedRuns: Array<string | null> = [];
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (request): Promise<CodexServerRequestDecision> => {
-        attributedRuns.push(request.runId);
-        return await Promise.resolve({ decision: "allow" });
-      },
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
-
-    const answer = await askProvider("item/commandExecution/requestApproval", {
-      turnId: TURN_ID,
-    });
-
-    expect(answer["result"]).toStrictEqual({ decision: "accept" });
-    expect(attributedRuns).toStrictEqual([RUN_ID]);
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([]);
-  });
-
-  it("records nothing and still ATTRIBUTES a legacy approval that publishes no turn id at all", async () => {
-    // `ExecCommandApprovalParams` has no `turnId` member, so the ask claims no turn: the
-    // sole-active fallback is its attribution and nothing is recorded.
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "allow" }),
-    });
-
-    const answer = await askProvider("execCommandApproval", { callId: "call-9" });
-
-    expect(answer["result"]).toStrictEqual({ decision: "approved" });
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([]);
-  });
-
-  it("refuses each approval spelling in that method's own vocabulary, never `-32601`", async () => {
-    // Each method has its own refusal shape (from the pinned response types); one shape shared
-    // across methods would violate the protocol on the others.
-    const { askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
-    });
-
-    const answer = await askProvider("item/commandExecution/requestApproval");
-
-    // `-32601` would be a protocol error where a decision was asked for.
-    expect(answer["error"]).toBeUndefined();
-    expect(answer["result"]).toStrictEqual({ decision: "decline" });
-
-    expect((await askProvider("execCommandApproval"))["result"]).toStrictEqual({
-      decision: { denied: { rejection: "policy denied" } },
-    });
-    expect((await askProvider("item/permissions/requestApproval"))["result"]).toStrictEqual({
-      permissions: {},
-      scope: "turn",
-    });
-    expect((await askProvider("mcpServer/elicitation/request"))["result"]).toStrictEqual({
-      action: "decline",
-    });
-  });
-
-  it("refuses when NO responder is registered rather than leaving the ask unanswered", async () => {
-    const { harness, askProvider } = await routedAskHarness(undefined);
-
-    const answer = await askProvider("item/tool/call");
-
-    expect((answer["result"] as Record<string, unknown>)["success"]).toBe(false);
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "unrouted-server-request-refused",
-      ),
-    ).toHaveLength(1);
-  });
-
-  it("treats a THROWING responder as undecided, which is a refusal", async () => {
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> => {
-        await Promise.resolve();
-        throw new Error("the approval pipeline is down");
-      },
-    });
-
-    const answer = await askProvider("item/fileChange/requestApproval");
-
-    // A throwing responder is never an allow and never leaves the ask unanswered.
-    expect(answer["result"]).toStrictEqual({ decision: "decline" });
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "server-request-responder-failed",
-      ),
-    ).toHaveLength(1);
-  });
-
-  it("records a rejected answer write rather than swallowing it", async () => {
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
-    });
-    harness.server.rejectNextWriteWith = new Error("pty write failed: broken pipe");
-
-    // The ask is never answered on the wire. The exit path records that a process died, not that
-    // this one ask will go unanswered.
-    await expect(askProvider("item/commandExecution/requestApproval")).rejects.toThrow(
-      "never answered",
-    );
-
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "server-request-answer-write-failed",
-      ),
-    ).toStrictEqual([
-      {
-        kind: "server-request-answer-write-failed",
-        method: "item/commandExecution/requestApproval",
-        detail: "pty write failed: broken pipe",
-      },
     ]);
   });
 });
@@ -5704,7 +4138,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(observed).toBe("still-waiting");
     // Non-vacuous: a wait is armed at the driver's declared bound, so the operation is open because
     // it waits, not because the request hung.
-    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.pendingDelays()).toContain(COMPACTION_WAIT_MS);
 
     emitCompactionBoundary(harness);
     await expect(compaction).resolves.toMatchObject({ status: "applied" });
@@ -5722,7 +4156,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     // Fire only the compaction bound, not `fireAll`: a live session also holds the transport's 60s
     // request deadline, and firing it would reject the in-flight request and settle
     // `provider_error` for the wrong reason.
-    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(1);
+    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(1);
 
     await expect(compaction).resolves.toStrictEqual({
       status: "failed",
@@ -5731,7 +4165,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
     expect(terminals).toHaveLength(1);
     expect(terminals[0]?.details["terminal"]).toBe("wait_expired");
-    expect(terminals[0]?.details["declaredBoundMs"]).toBe(CODEX_COMPACTION_WAIT_MS);
+    expect(terminals[0]?.details["declaredBoundMs"]).toBe(COMPACTION_WAIT_MS);
 
     // A boundary frame arriving after the wait expired settles nobody and still travels its
     // ordinary route into the normalize band; a tap written as a diversion would swallow it.
@@ -5762,13 +4196,13 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(terminals[0]?.details["terminal"]).toBe("provider_error");
 
     // The armed wait is withdrawn, not left to time out. A thrown request means the transport
-    // failed, and `CODEX_COMPACTION_WAIT_MS` is longer than the transport deadline that produces
+    // failed, and `COMPACTION_WAIT_MS` is longer than the transport deadline that produces
     // such a throw, so a leftover registration would outlive its caller.
-    expect(harness.scheduler.pendingDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.pendingDelays()).not.toContain(COMPACTION_WAIT_MS);
 
     // Nothing is left for the bound to fire, so a later elapse cannot revive a settled operation or
     // emit a second terminal.
-    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(0);
+    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(0);
     await drainMicrotasks();
     expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(
       1,
@@ -5803,11 +4237,11 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     // The child's boundary frame routed `carve-out-usage`, a different arm from the two the tap is
     // called from, so it reached neither the user's wait nor the parent's timeline.
     expect(harness.notifications).toStrictEqual([]);
-    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.pendingDelays()).toContain(COMPACTION_WAIT_MS);
 
     // The wait still runs out its own declared bound, so the child settled nothing; a tap comparing
     // nothing, or a routing regression, would already have resolved `applied`.
-    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(1);
+    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(1);
     await expect(compaction).resolves.toStrictEqual({
       status: "failed",
       reason: "wait_expired",
@@ -5831,7 +4265,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     });
     // Immediacy: the second terminal is pushed from the disposal path, not polled, so a binding
     // lost at t=0 settles at t=0. A poller could only settle when a timer ran.
-    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.firedDelays()).not.toContain(COMPACTION_WAIT_MS);
     const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
     expect(terminals).toHaveLength(1);
     expect(terminals[0]?.details["terminal"]).toBe("binding_lost");
@@ -6044,325 +4478,5 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
       providerAccountId: "account-7",
     });
     expect(result.bindings[0]?.entries[0]?.binding.providerAccountId).toBe("account-7");
-  });
-});
-
-describe("readCodexAskOptionSet (the input-ask choice set)", () => {
-  it("reads `item/tool/requestUserInput` options with value === label", () => {
-    // `ToolRequestUserInputOption` is `{ label, description }` in the pinned protocol with no value
-    // member, so the label is the answer token the provider expects back; an index or hash would be
-    // one it does not recognize.
-    const reading = readCodexAskOptionSet("item/tool/requestUserInput", {
-      threadId: THREAD_ID,
-      turnId: TURN_ID,
-      itemId: "item-1",
-      isBlocking: true,
-      questions: [
-        {
-          id: "q1",
-          header: "Pick a branch",
-          question: "Which branch?",
-          isOther: false,
-          isSecret: false,
-          options: [
-            { label: "main", description: "the default branch" },
-            { label: "develop", description: "the integration branch" },
-          ],
-        },
-      ],
-    });
-
-    expect(reading).toStrictEqual({
-      kind: "read",
-      options: [
-        { value: "main", label: "main" },
-        { value: "develop", label: "develop" },
-      ],
-    });
-  });
-
-  it("reads all three MCP single-select enum arms", () => {
-    const untitled = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: { pick: { type: "string", enum: ["a", "b"] } },
-      },
-    });
-    expect(untitled).toStrictEqual({
-      kind: "read",
-      options: [
-        { value: "a", label: "a" },
-        { value: "b", label: "b" },
-      ],
-    });
-
-    // The one arm where value and label differ, which is why `ProviderAskOption` has both.
-    const titled = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: {
-            type: "string",
-            oneOf: [
-              { const: "a", title: "Alpha" },
-              { const: "b", title: "Beta" },
-            ],
-          },
-        },
-      },
-    });
-    expect(titled).toStrictEqual({
-      kind: "read",
-      options: [
-        { value: "a", label: "Alpha" },
-        { value: "b", label: "Beta" },
-      ],
-    });
-
-    // The legacy arm pairs positionally and its names array is optional and may be short: an entry
-    // with no name falls back to its own value, since a missing caption is not a missing choice.
-    const legacy = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: { type: "string", enum: ["a", "b", "c"], enumNames: ["Alpha", "Beta"] },
-        },
-      },
-    });
-    expect(legacy).toStrictEqual({
-      kind: "read",
-      options: [
-        { value: "a", label: "Alpha" },
-        { value: "b", label: "Beta" },
-        { value: "c", label: "c" },
-      ],
-    });
-  });
-
-  it("drops a multi-question ask rather than merging two sets into one", () => {
-    const reading = readCodexAskOptionSet("item/tool/requestUserInput", {
-      questions: [
-        { id: "q1", options: [{ label: "main", description: "" }] },
-        { id: "q2", options: [{ label: "yes", description: "" }] },
-      ],
-    });
-
-    // A flat list built from two questions answers neither.
-    expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
-
-  it("drops a MIXED-QUESTION ask: one option-bearing question beside a free-text sibling", () => {
-    // Eligibility is the total ask shape, not the option-bearing count. The answer covers every
-    // declared question and `ProviderAskOption` carries no question identity, so a flat set can
-    // stand in for it only where the ask declares exactly one question. Counting only
-    // option-bearing questions would let every pick produce an answer missing a question the
-    // provider still awaits.
-    const freeTextSibling = readCodexAskOptionSet("item/tool/requestUserInput", {
-      questions: [
-        { id: "q1", question: "Which branch?", options: [{ label: "main", description: "" }] },
-        { id: "q2", question: "Why?" },
-      ],
-    });
-    // The ask's question count is what explains the drop.
-    expect(freeTextSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
-
-    // An empty option list on the sibling is the same shape: it publishes no choices, so the choice
-    // set cannot carry that question either.
-    const emptyOptionSibling = readCodexAskOptionSet("item/tool/requestUserInput", {
-      questions: [
-        { id: "q1", options: [{ label: "main", description: "" }] },
-        { id: "q2", options: [] },
-      ],
-    });
-    expect(emptyOptionSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
-
-  it("drops a MIXED-FIELD form: one single-select beside any sibling answers the form for neither", () => {
-    // Eligibility is the total form shape, not the enum count. A form's answer is one object keyed
-    // by property name and `ProviderAskOption` carries no property identity, so a flat set can
-    // stand in for it only where the form has exactly one property. Counting only enum-bearing
-    // properties would make the commonest real elicitation look answerable, and every pick would
-    // omit a field the provider awaits.
-    const requiredSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        required: ["pick", "reason"],
-        properties: {
-          pick: { type: "string", enum: ["a", "b"] },
-          reason: { type: "string" },
-        },
-      },
-    });
-    // The form's property count is what explains the drop.
-    expect(requiredSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
-
-    // Requiredness is deliberately not consulted: an optional sibling is equally unanswerable by a
-    // value with no field name, so refining on `required` would reopen the defect.
-    const optionalSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        required: ["pick"],
-        properties: {
-          pick: { type: "string", enum: ["a", "b"] },
-          note: { type: "string" },
-        },
-      },
-    });
-    expect(optionalSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
-
-  it("drops an over-large set rather than truncating it", () => {
-    const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: {
-            type: "string",
-            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
-          },
-        },
-      },
-    });
-
-    expect(reading).toMatchObject({
-      kind: "dropped",
-      declaredCount: CODEX_ASK_OPTION_SET_MAX + 1,
-    });
-  });
-
-  it("drops the WHOLE set when one option is unreadable, never a partial one", () => {
-    const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        properties: { pick: { type: "string", enum: ["fine", "   "] } },
-      },
-    });
-
-    // A partial set silently removes a choice the provider offered, so the card would look complete
-    // yet could not express the answer the provider awaits.
-    expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
-});
-
-describe("Codex ask normalization at the session seam", () => {
-  async function askHarness(
-    recorded: CodexSessionServerRequest[],
-  ): Promise<{ harness: ManagerHarness; ask: (method: string, params: unknown) => Promise<void> }> {
-    const harness = createManagerHarness({
-      onServerNotification: true,
-      answerServerRequest: {
-        answer: async (request): Promise<CodexServerRequestDecision> => {
-          recorded.push(request);
-          return await Promise.resolve({ decision: "refuse", reason: "test" });
-        },
-      },
-    });
-    await harness.manager.createSession({
-      model: TEST_MODEL,
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-    });
-    let nextRequestId = 4000;
-    const ask = async (method: string, params: unknown): Promise<void> => {
-      nextRequestId += 1;
-      harness.server.onData(
-        "pty-session-1",
-        new TextEncoder().encode(
-          `${JSON.stringify({ jsonrpc: "2.0", id: nextRequestId, method, params })}\r\n`,
-        ),
-      );
-      await drainMicrotasks();
-    };
-    return { harness, ask };
-  }
-
-  it("stamps a readable choice set onto the session-scoped ask", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { ask } = await askHarness(recorded);
-
-    await ask("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: { type: "string", oneOf: [{ const: "a", title: "Alpha" }] },
-        },
-      },
-    });
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.options).toStrictEqual([{ value: "a", label: "Alpha" }]);
-    // The verbatim payload still travels beside the options; that member is a derived projection,
-    // never a replacement.
-    expect(recorded[0]?.params).toMatchObject({ serverName: "files" });
-  });
-
-  it("drops an over-large choice set with a diagnostic while the ask STILL normalizes", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { harness, ask } = await askHarness(recorded);
-
-    await ask("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: {
-            type: "string",
-            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
-          },
-        },
-      },
-    });
-
-    // The ask still reaches the daemon: refusing to normalize it because its options did not parse
-    // would hang a turn over a decoration; the free-text arm is unconditional.
-    expect(recorded).toHaveLength(1);
-    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
-    const drops = harness.driverDiagnostics.recentRecordsOfKind(
-      "interactive_request_option_set_dropped",
-    );
-    expect(drops).toHaveLength(1);
-    expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
-    expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
-    expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
-  });
-
-  it("omits the key entirely when the ask publishes no choice set", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { ask } = await askHarness(recorded);
-
-    await ask("item/commandExecution/requestApproval", { threadId: THREAD_ID });
-
-    expect(recorded).toHaveLength(1);
-    // Key presence: under `exactOptionalPropertyTypes` a present-but-undefined key differs from an
-    // absent one, and absent is what this member's contract describes.
-    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
   });
 });

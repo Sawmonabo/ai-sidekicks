@@ -1,12 +1,10 @@
 // Turn-snapshot service: at each turn boundary, commits the project state of a run's execution
-// root under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`, and deletes a run's refs once its
-// retention window closes. Capture reads no database (the caller supplies the epoch).
+// root under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`, and deletes one run's refs when the
+// run is deleted. Nothing prunes by age. Capture reads no database (the caller supplies the epoch).
 //
 // - Ref names are built from a validated `runId` before any git call: git's own refusal of
 //   `../../heads/main` (2.50.1) would arrive as a swallowed capture failure.
 // - The capture's git steps live in `TurnSnapshotCaptureSteps`; this class orders them.
-// - Retention: nothing memoizes a pruned run, so each tick spawns `for-each-ref` for every
-//   terminal run past its window (`LIMIT` would starve the rows behind the oldest).
 
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -18,124 +16,78 @@ import type {
   TurnSnapshotCaptureStep,
   TurnSnapshotDiagnostic,
   TurnSnapshotFilesystem,
-  TurnSnapshotGitInvocationResult,
-  TurnSnapshotGitRunner,
   TurnSnapshotRetentionPruneResult,
-  TurnSnapshotRetentionSkip,
   TurnSnapshotRetentionSkipReason,
-  TurnSnapshotRetentionSweepResult,
   TurnSnapshotServiceDeps,
 } from "./turn-snapshot-types.js";
 import {
-  DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS,
   isPathProvablyAbsent,
-  MAXIMUM_RETENTION_WINDOW_MS,
   parseSnapshotRefListing,
-  type PrunableRunRow,
+  type RunContextRow,
   RETENTION_WITHOUT_DATABASE_MESSAGE,
-  type RetentionCutoffParams,
   type RunContextLookupParams,
 } from "./turn-snapshot-retention.js";
 import {
   buildRunSnapshotRefPrefix,
   buildTurnSnapshotRef,
   DEFAULT_TURN_SNAPSHOT_FILESYSTEM,
-  DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS,
   describeRejection,
   isNonNegativeInteger,
   isSafeRefComponent,
-  runTurnSnapshotGitWithExecFile,
   SNAPSHOT_INDEX_SEGMENT,
   USE_REPLACE_REFS_PIN,
   warnDiagnostic,
 } from "./turn-snapshot-git.js";
-import { HOOK_NEUTRALIZATION_SEGMENT } from "./worktree-git.js";
+import {
+  createHookNeutralizedGitCommand,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  runGitWithExecFile,
+  type GitCommand,
+  type GitInvocationResult,
+} from "./git-process.js";
 import {
   EXCLUDE_PER_DIRECTORY_GITIGNORE,
   type SparseListingPartition,
 } from "./turn-snapshot-capture.js";
-import {
-  requireObjectId,
-  TurnSnapshotCaptureSteps,
-  type TurnSnapshotGitCommandOptions,
-} from "./turn-snapshot-capture-steps.js";
+import { requireObjectId, TurnSnapshotCaptureSteps } from "./turn-snapshot-capture-steps.js";
 
 /**
  * Owns the `refs/sidekicks/runs/...` namespace and every git invocation that writes into it.
  * Stateless between calls: captures share only the (empty) hook-neutralization directory.
  */
 export class TurnSnapshotService {
-  readonly #hookNeutralizationDirectory: string;
   readonly #snapshotIndexDirectory: string;
-  readonly #git: TurnSnapshotGitRunner;
+  readonly #runGit: GitCommand;
   readonly #filesystem: TurnSnapshotFilesystem;
-  readonly #gitCommandTimeoutMs: number;
   readonly #now: () => string;
   readonly #emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic) => void;
-  readonly #retentionWindowMs: number;
   // `null` without a `database` (capture-only wiring); prepared here so a schema mismatch fails
   // at construction.
-  readonly #selectPrunableRunsStmt: Statement<RetentionCutoffParams, PrunableRunRow> | null;
-  readonly #selectRunContextStmt: Statement<RunContextLookupParams, PrunableRunRow> | null;
+  readonly #selectRunContextStmt: Statement<RunContextLookupParams, RunContextRow> | null;
   readonly #captureSteps: TurnSnapshotCaptureSteps;
 
   constructor(deps: TurnSnapshotServiceDeps) {
-    this.#hookNeutralizationDirectory = join(
-      deps.executionRootsDirectory,
-      HOOK_NEUTRALIZATION_SEGMENT,
-    );
     this.#snapshotIndexDirectory = join(deps.executionRootsDirectory, SNAPSHOT_INDEX_SEGMENT);
-    this.#git = deps.git ?? runTurnSnapshotGitWithExecFile;
     this.#filesystem = deps.filesystem ?? DEFAULT_TURN_SNAPSHOT_FILESYSTEM;
-    this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS;
+    this.#runGit = createHookNeutralizedGitCommand({
+      git: deps.git ?? runGitWithExecFile,
+      createDirectory: (path) => this.#filesystem.createDirectory(path),
+      executionRootsDirectory: deps.executionRootsDirectory,
+      timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#emitDiagnostic = deps.emitDiagnostic ?? warnDiagnostic;
-    this.#captureSteps = new TurnSnapshotCaptureSteps({
-      runGit: (argv, options) => this.#runGit(argv, options),
-      now: this.#now,
-    });
-
-    // Refuse a bad window at construction. Zero or negative would fail open (every terminal run
-    // matches and the first sweep deletes snapshots meant to be kept); NaN, Infinity or a value
-    // above the maximum make every cutoff unrepresentable.
-    const retentionWindowMs: number =
-      deps.retentionWindowMs ?? DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS;
-    if (
-      !Number.isFinite(retentionWindowMs) ||
-      retentionWindowMs <= 0 ||
-      retentionWindowMs > MAXIMUM_RETENTION_WINDOW_MS
-    ) {
-      throw new RangeError(
-        "TurnSnapshotService: retentionWindowMs must be a positive finite number of " +
-          `milliseconds no greater than ${String(MAXIMUM_RETENTION_WINDOW_MS)} ` +
-          `(received ${String(retentionWindowMs)})`,
-      );
-    }
-    this.#retentionWindowMs = retentionWindowMs;
+    this.#captureSteps = new TurnSnapshotCaptureSteps({ runGit: this.#runGit, now: this.#now });
 
     const database: Database | undefined = deps.database;
-    if (database === undefined) {
-      this.#selectPrunableRunsStmt = null;
-      this.#selectRunContextStmt = null;
-    } else {
-      // Terminal runs only: a still-open run has NULL `released_at`. The TEXT comparison is
-      // chronological because `released_at` is a fixed-width UTC ISO string; oldest release first,
-      // `run_id` breaking ties.
-      this.#selectPrunableRunsStmt = database.prepare<RetentionCutoffParams, PrunableRunRow>(
-        `SELECT run_id, git_common_dir
-           FROM run_execution_contexts
-          WHERE released_at IS NOT NULL
-            AND released_at <= @released_before
-          ORDER BY released_at ASC, run_id ASC`,
-      );
-
-      // Not filtered by `released_at`: this backs `pruneSnapshotsForRun`, which ignores the window.
-      this.#selectRunContextStmt = database.prepare<RunContextLookupParams, PrunableRunRow>(
-        `SELECT run_id, git_common_dir
-           FROM run_execution_contexts
-          WHERE run_id = @run_id`,
-      );
-    }
+    this.#selectRunContextStmt =
+      database === undefined
+        ? null
+        : database.prepare<RunContextLookupParams, RunContextRow>(
+            `SELECT run_id, git_common_dir
+               FROM run_execution_contexts
+              WHERE run_id = @run_id`,
+          );
   }
 
   /**
@@ -323,65 +275,9 @@ export class TurnSnapshotService {
   }
 
   /**
-   * Deletes the snapshot refs of every run whose retention window has closed, at startup and on a
-   * timer. Never rejects on a runtime fault (nobody awaits the timer): failures become diagnostics
-   * and skips in the result. Throws a `TypeError` when built without a `database`.
-   */
-  async sweepPrunableRuns(): Promise<TurnSnapshotRetentionSweepResult> {
-    // Outside the `try`: a wiring defect must throw; the funnel swallows runtime faults only.
-    const selectPrunableRuns = this.#selectPrunableRunsStmt;
-    if (selectPrunableRuns === null) {
-      throw new TypeError(RETENTION_WITHOUT_DATABASE_MESSAGE);
-    }
-
-    const examinedRunIds: string[] = [];
-    const prunedRunIds: string[] = [];
-    const deletedRefs: string[] = [];
-    const skipped: TurnSnapshotRetentionSkip[] = [];
-
-    try {
-      const cutoff: string | null = this.#retentionCutoff();
-      if (cutoff === null) {
-        // `null` covers a bad clock and an out-of-range difference.
-        throw new Error("turn-snapshot retention cutoff is not a representable instant");
-      }
-      const candidates: readonly PrunableRunRow[] = selectPrunableRuns.all({
-        released_before: cutoff,
-      });
-      for (const candidate of candidates) {
-        examinedRunIds.push(candidate.run_id);
-        const outcome: TurnSnapshotRetentionPruneResult = await this.#pruneRunRefs(
-          candidate.run_id,
-          candidate.git_common_dir,
-        );
-        deletedRefs.push(...outcome.deletedRefs);
-        if (outcome.skipped === null) {
-          prunedRunIds.push(candidate.run_id);
-        } else {
-          skipped.push(outcome.skipped);
-        }
-      }
-    } catch (reason: unknown) {
-      // Covers the candidate read, the clock, and anything not already converted to a skip.
-      this.#emit({ kind: "retention-sweep-failed", detail: describeRejection(reason) });
-    } finally {
-      // In a `finally` so a pass that failed halfway still enumerates the runs it skipped.
-      if (skipped.length > 0) {
-        this.#emit({
-          kind: "retention-prune-skipped",
-          skipped,
-          examinedRunCount: examinedRunIds.length,
-        });
-      }
-    }
-
-    return { examinedRunIds, prunedRunIds, deletedRefs, skipped };
-  }
-
-  /**
-   * Deletes one run's snapshot refs regardless of its retention window. Idempotent: a second call
-   * returns empty `deletedRefs` with `skipped: null`. Never rejects on a runtime fault; throws the
-   * sweep's `TypeError` when built without a `database`.
+   * Deletes one run's snapshot refs; deleting the run calls it. Idempotent: a second call returns
+   * empty `deletedRefs` with `skipped: null`. Never rejects on a runtime fault; throws a
+   * `TypeError` when built without a `database`.
    */
   async pruneSnapshotsForRun(runId: string): Promise<TurnSnapshotRetentionPruneResult> {
     const selectRunContext = this.#selectRunContextStmt;
@@ -389,15 +285,14 @@ export class TurnSnapshotService {
       throw new TypeError(RETENTION_WITHOUT_DATABASE_MESSAGE);
     }
 
-    let row: PrunableRunRow | undefined;
+    let row: RunContextRow | undefined;
     try {
       row = selectRunContext.get({ run_id: runId });
     } catch (reason: unknown) {
       // "Could not look" gets its own reason so a caller does not conclude the run has no context
-      // and skip a needed retry; it is diagnosed like the sweep's candidate read.
+      // and skip a needed retry.
       const detail: string = describeRejection(reason);
-      // `runId` attributes this emission; the sweep's pass-scoped one omits it.
-      this.#emit({ kind: "retention-sweep-failed", detail, runId });
+      this.#emit({ kind: "run-context-read-failed", detail, runId });
       return this.#skipPrune(runId, "run-context-unreadable", detail);
     }
     if (row === undefined) {
@@ -409,8 +304,8 @@ export class TurnSnapshotService {
   }
 
   /**
-   * The ref operations both entry points share. It holds the `runId` check because it is the only
-   * path to git, so no id, database-sourced ones included, reaches a ref path unvalidated.
+   * The ref operations. It holds the `runId` check because it is the only path to git, so no id,
+   * database-sourced ones included, reaches a ref path unvalidated.
    */
   async #pruneRunRefs(
     runId: string,
@@ -424,17 +319,14 @@ export class TurnSnapshotService {
     // `--git-dir=<git_common_dir>`, not the execution root, which may be gone while its refs
     // remain. The trailing slash scopes the pattern to this run (`run-A/` misses `run-AB`, git
     // 2.50.1).
-    let listing: TurnSnapshotGitInvocationResult;
+    let listing: GitInvocationResult;
     try {
-      listing = await this.#runGit(
-        [
-          `--git-dir=${gitCommonDir}`,
-          "for-each-ref",
-          "--format=%(objectname) %(refname)",
-          refPrefix,
-        ],
-        {},
-      );
+      listing = await this.#runGit([
+        `--git-dir=${gitCommonDir}`,
+        "for-each-ref",
+        "--format=%(objectname) %(refname)",
+        refPrefix,
+      ]);
     } catch (reason: unknown) {
       // A removed repository is a skip (`fatal: not a git repository`, exit 128), but the same
       // rejection covers faults (EACCES, missing `git`, hook directory failure). One `stat` on this
@@ -454,17 +346,14 @@ export class TurnSnapshotService {
         // name check and the compare-and-swap (`for-each-ref` resolves it), so without the flag it
         // deletes `refs/heads/main` and reports a clean prune (git 2.50.1). With it the symref
         // goes.
-        await this.#runGit(
-          [
-            `--git-dir=${gitCommonDir}`,
-            "update-ref",
-            "--no-deref",
-            "-d",
-            entry.ref,
-            entry.objectId,
-          ],
-          {},
-        );
+        await this.#runGit([
+          `--git-dir=${gitCommonDir}`,
+          "update-ref",
+          "--no-deref",
+          "-d",
+          entry.ref,
+          entry.objectId,
+        ]);
       } catch (reason: unknown) {
         // Stop at the first refusal: one run's refs share a lock domain, so continuing would spend
         // a doomed process per ref. Pruning is idempotent; deleted refs are still reported.
@@ -495,46 +384,6 @@ export class TurnSnapshotService {
     detail: string,
   ): TurnSnapshotRetentionPruneResult {
     return { runId, deletedRefs: [], skipped: { runId, reason, detail } };
-  }
-
-  /**
-   * `now - retentionWindow` in the ISO spelling `released_at` uses, or `null` when the clock is not
-   * ISO-8601 or the result is outside Date's range (`getTime()` detects both; it agrees with
-   * `toISOString()`'s own throw). `null`, not a throw, keeps it a reported sweep failure.
-   */
-  #retentionCutoff(): string | null {
-    const cutoff = new Date(Date.parse(this.#now()) - this.#retentionWindowMs);
-    if (Number.isNaN(cutoff.getTime())) {
-      return null;
-    }
-    return cutoff.toISOString();
-  }
-
-  /**
-   * The single git entry point. It prepends `core.hooksPath` at an empty directory and
-   * `core.fsmonitor=false` and nothing else, so no invocation can run a hook.
-   */
-  async #runGit(
-    argv: readonly string[],
-    options: TurnSnapshotGitCommandOptions,
-  ): Promise<TurnSnapshotGitInvocationResult> {
-    await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(
-      [
-        "-c",
-        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
-        "-c",
-        "core.fsmonitor=false",
-        ...argv,
-      ],
-      {
-        timeoutMs: this.#gitCommandTimeoutMs,
-        ...(options.environmentOverrides === undefined
-          ? {}
-          : { environmentOverrides: options.environmentOverrides }),
-        ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
-      },
-    );
   }
 
   /** The one place a capture failure is reported: diagnostic, then typed result. */

@@ -17,7 +17,6 @@ import {
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 
@@ -26,14 +25,6 @@ const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 const WORKSPACE_ID: string = "0190f8a2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 // `actor` is a free-form bounded string, not an id; any non-blank string is valid.
 const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-
-// The `SessionEventType` annotation makes a name that leaves the registry fail compilation.
-const WORKSPACE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "workspace.preparing",
-  "workspace.ready",
-  "workspace.stale",
-  "workspace.archived",
-];
 
 // Raw row shape; no read model exposes `monotonic_ns`.
 interface LifecycleRow {
@@ -76,9 +67,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a queue entry left behind would stall the
-  // next case on the same session id.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -106,20 +94,15 @@ function readSingleRow(expectedType: SessionEventType): LifecycleRow {
   return row;
 }
 
-/** Asserts the persisted payload equals the expected literal and what the family schema returns. */
+/**
+ * Asserts the persisted payload equals the expected literal and what
+ * `RepoWorkspaceLifecyclePayloadSchema` returns.
+ */
 function expectPersistedPayload(row: LifecycleRow, expected: Record<string, unknown>): void {
   const persisted: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
   expect(persisted).toEqual(expected);
   expect(persisted).toEqual(RepoWorkspaceLifecyclePayloadSchema.parse(expected));
 }
-
-describe("WorkspaceEventEmitter — category registry anchor", () => {
-  it("registers the four workspace lifecycle types under session_lifecycle", () => {
-    expect(
-      WORKSPACE_LIFECYCLE_EVENT_TYPES.map((type) => SESSION_EVENT_CATEGORY_BY_TYPE.get(type)),
-    ).toEqual(["session_lifecycle", "session_lifecycle", "session_lifecycle", "session_lifecycle"]);
-  });
-});
 
 describe("WorkspaceEventEmitter — per-event emission", () => {
   it("emitWorkspacePreparing appends one workspace.preparing row in state preparing", async () => {

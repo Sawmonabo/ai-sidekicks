@@ -3,6 +3,7 @@
 // decision (usage metering, compaction boundaries, child completion, the normalize hand-off).
 
 import type { SessionId } from "@ai-sidekicks/contracts";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { ThreadFrameRouter, ThreadFrameRoute } from "../../thread-frame-router.js";
 import type { CumulativeAxisReadings, UsageDeltaAccountant } from "../../usage-delta-accountant.js";
@@ -127,7 +128,7 @@ export class CodexNotificationRouting {
     dispositionReason: string,
   ): void {
     this.#options.diagnostics.emit({
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "usage_resume_base_unavailable",
       rawWireType: null,
       dispositionReason,
@@ -151,7 +152,7 @@ export class CodexNotificationRouting {
             // Re-establishing would zero the register and re-meter reported spend, and a second
             // `subagent.started` would duplicate a timeline entry.
             this.#options.diagnostics.emit({
-              provider: "codex",
+              provider: CODEX_DRIVER_NAME,
               kind: "thread_duplicate_child_announcement",
               rawWireType: method,
               dispositionReason:
@@ -251,7 +252,7 @@ export class CodexNotificationRouting {
     if (reading === null) {
       // A silent drop is spend that never reaches a receipt.
       this.#options.diagnostics.emit({
-        provider: "codex",
+        provider: CODEX_DRIVER_NAME,
         kind: "usage_axis_reading_rejected",
         rawWireType: frame.rawWireType,
         dispositionReason:

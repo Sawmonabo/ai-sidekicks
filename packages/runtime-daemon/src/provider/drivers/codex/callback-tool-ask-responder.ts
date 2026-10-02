@@ -4,6 +4,8 @@
  */
 
 import type { CallbackToolHost } from "../../callback-tool-host.js";
+import { isPlainObject } from "../../record-readers.js";
+import { normalizeProviderFailureDetail } from "./session-errors.js";
 import {
   CallbackToolInvocationSchema,
   type CallbackToolInvocation,
@@ -91,10 +93,11 @@ function readCallbackToolInvocation(
   if (request.runId === null) {
     return `The provider raised "${request.method}" with no turn active on the session, so the call cannot be attributed to a run; refusing rather than adjudicating it against an invented one.`;
   }
+  const params = isPlainObject(request.params) ? request.params : {};
   const parsedInvocation = CallbackToolInvocationSchema.safeParse({
-    toolName: readWireValue(request.params, "tool"),
-    arguments: readWireValue(request.params, "arguments"),
-    toolCallId: readWireValue(request.params, "callId"),
+    toolName: params["tool"],
+    arguments: params["arguments"],
+    toolCallId: params["callId"],
     sessionId: request.sessionId,
     runId: request.runId,
   });
@@ -104,17 +107,9 @@ function readCallbackToolInvocation(
   return parsedInvocation.data;
 }
 
-/** One member of an untrusted wire params object, or `undefined`. */
-function readWireValue(params: unknown, memberName: string): unknown {
-  if (typeof params !== "object" || params === null) {
-    return undefined;
-  }
-  return (params as Record<string, unknown>)[memberName];
-}
-
-/** The same read, narrowed to the string case, for a diagnostic's detail field. */
+/** One string member of untrusted wire params, or `null`, for a diagnostic's detail field. */
 function readOptionalWireString(params: unknown, memberName: string): string | null {
-  const value = readWireValue(params, memberName);
+  const value = isPlainObject(params) ? params[memberName] : undefined;
   return typeof value === "string" ? value : null;
 }
 
@@ -184,21 +179,23 @@ function rebuildContentItem(candidate: unknown): Record<string, string> | null {
   return { type: itemType, [requiredMemberName]: requiredMember };
 }
 
+const UNRENDERABLE_OUTPUT_TEXT =
+  "The callback tool completed with an output this daemon could not render as text.";
+
 /**
  * Renders one non-content-item output as text. An unserializable value (a cycle, a `BigInt`) still
- * yields a visible item: the call was already allowed and must not become an unanswered frame.
+ * yields a visible item that names why: the call was already allowed and must not become an
+ * unanswered frame.
  */
 function renderContentItemText(output: unknown): string {
   if (typeof output === "string") {
     return output;
   }
+  let serialized: string | undefined;
   try {
-    const serialized = JSON.stringify(output);
-    if (serialized !== undefined) {
-      return serialized;
-    }
-  } catch {
-    /* fall through to the un-renderable answer below */
+    serialized = JSON.stringify(output);
+  } catch (cause) {
+    return `${UNRENDERABLE_OUTPUT_TEXT} (${normalizeProviderFailureDetail(cause)})`;
   }
-  return "The callback tool completed with an output this daemon could not render as text.";
+  return serialized ?? UNRENDERABLE_OUTPUT_TEXT;
 }

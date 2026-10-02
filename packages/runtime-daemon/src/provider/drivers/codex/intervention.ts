@@ -16,22 +16,19 @@
  *   additive, and a new member must not degrade every interrupt.
  */
 
-import {
-  DriverInterventionResultSchema,
-  type ApplyInterventionParams,
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
-  type DriverInterventionResult,
-  type InterruptRunParams,
-  type RunId,
+import type {
+  ApplyInterventionParams,
+  DriverCapabilities,
+  DriverCapabilityFlag,
+  DriverInterventionResult,
+  InterruptRunParams,
+  RunId,
 } from "@ai-sidekicks/contracts";
 import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   type CallerDeclaredFrameOrigin,
 } from "../../outbound-frame.js";
-
-/** The fallback the orchestration layer performs when a native intervention is unavailable. */
-export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
+import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
 
 /** Capability flag governing each intervention type; `null` means no flag gates it. */
 const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
@@ -89,7 +86,7 @@ export interface CodexInterventionOptions {
 // `fallbackAction`: `queue_and_interrupt` remedies a missing steer, not an unknown type.
 function degradeUnroutedInterventionType(params: never): DriverInterventionResult {
   void params;
-  return DriverInterventionResultSchema.parse({ status: "degraded" });
+  return { status: "degraded" };
 }
 
 // A mismatched or missing acknowledged turn degrades: neither shows the targeted turn was steered.
@@ -100,18 +97,12 @@ function normalizeSteerAcknowledgement(
   // Checked first: a swallowed steer can still get a matching ack. No `fallbackAction`, since
   // re-queueing the same text fails the same way.
   if (textNeutralizationRefused) {
-    return DriverInterventionResultSchema.parse({
-      status: "degraded",
-      refusalCode: TEXT_NEUTRALIZATION_REFUSAL_CODE,
-    });
+    return { status: "degraded", refusalCode: TEXT_NEUTRALIZATION_REFUSAL_CODE };
   }
   if (acknowledgement.acknowledgedTurnId === acknowledgement.targetedTurnId) {
-    return DriverInterventionResultSchema.parse({ status: "applied" });
+    return { status: "applied" };
   }
-  return DriverInterventionResultSchema.parse({
-    status: "degraded",
-    fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
-  });
+  return { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
 }
 
 /** Routes normalized interventions onto Codex's native operations, or degrades them. */
@@ -131,10 +122,7 @@ export class CodexInterventionDispatcher {
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     const requiredFlag = CODEX_INTERVENTION_CAPABILITY_FLAGS[params.type];
     if (requiredFlag !== null && !this.#isDeclaredSupported(requiredFlag)) {
-      return DriverInterventionResultSchema.parse({
-        status: "degraded",
-        fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
-      });
+      return { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
     }
 
     switch (params.type) {
@@ -152,15 +140,10 @@ export class CodexInterventionDispatcher {
           this.#runtime.textNeutralizationDecisionForTurn(acknowledgement.targetedTurnId).refused,
         );
       }
-      case "interrupt": {
-        await this.#runtime.interruptRun({
-          runId: params.targetRunId,
-          ...(params.payload.reason === undefined ? {} : { reason: params.payload.reason }),
-        });
-        break;
-      }
+      // Cancel is the same wire operation as interrupt; the daemon differs in what it does with
+      // the run after.
+      case "interrupt":
       case "cancel": {
-        // Same wire operation as interrupt; the daemon differs in what it does with the run after.
         await this.#runtime.interruptRun({
           runId: params.targetRunId,
           ...(params.payload.reason === undefined ? {} : { reason: params.payload.reason }),
@@ -172,7 +155,7 @@ export class CodexInterventionDispatcher {
       }
     }
 
-    return DriverInterventionResultSchema.parse({ status: "applied" });
+    return { status: "applied" };
   }
 
   #isDeclaredSupported(flag: DriverCapabilityFlag): boolean {

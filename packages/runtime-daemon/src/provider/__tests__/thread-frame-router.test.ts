@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import {
   ThreadFrameRouter,
   type RoutableProviderFrame,
@@ -18,7 +18,7 @@ const routerConfigDefaults: ThreadFrameRouterConfig = {
 };
 
 function makeRouter(configOverrides?: Partial<ThreadFrameRouterConfig>) {
-  const diagnostics = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+  const diagnostics = makeSilentDriverDiagnostics();
   const router = new ThreadFrameRouter({
     provider: "codex",
     diagnostics,
@@ -68,7 +68,6 @@ describe("ThreadFrameRouter", () => {
     router.registerSessionThread("session-thread");
     const route = router.routeFrame(usageFrame(null), 0);
     expect(route.decision).toBe("quarantined");
-    expect(router.quarantinedFrames()).toHaveLength(1);
     expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(1);
   });
 
@@ -78,10 +77,6 @@ describe("ThreadFrameRouter", () => {
     router.routeFrame(usageFrame(null, "bad-frame-0"), 0);
     router.routeFrame(usageFrame(null, "bad-frame-1"), 1);
     router.routeFrame(usageFrame(null, "bad-frame-2"), 2);
-    expect(router.quarantinedFrames().map((frame) => frame.rawWireType)).toEqual([
-      "bad-frame-1",
-      "bad-frame-2",
-    ]);
     expect(diagnostics.recentRecordsOfKind("thread_quarantine_shed")).toHaveLength(1);
     expect(diagnostics.recentRecordsOfKind("thread_quarantine_shed")[0]?.rawWireType).toBe(
       "bad-frame-0",
@@ -206,7 +201,6 @@ describe("ThreadFrameRouter", () => {
     expect(router.pendingHeldFrameCount()).toBe(0);
     expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
     // A shed hold is not a quarantine entry: the two buffers stay distinct.
-    expect(router.quarantinedFrames()).toHaveLength(0);
     expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(0);
   });
 
@@ -259,7 +253,7 @@ describe("ThreadFrameRouter", () => {
 
   it("registering the SESSION's own thread releases the holds that were waiting on it", () => {
     const { router } = makeRouter();
-    // No session thread yet: the process has spawned but the provider has not announced its
+    // No session thread registered: the process has spawned but the provider has not announced its
     // thread identity, so a frame in that window names an identity the router cannot match.
     const earlyFrame = usageFrame("session-thread", "early-session-usage");
     expect(router.routeFrame(earlyFrame, 0)).toEqual({ decision: "held-pending-registration" });
@@ -285,7 +279,7 @@ describe("ThreadFrameRouter", () => {
     expect(router.pendingHeldFrameCount()).toBe(1);
   });
 
-  it("completing a child drops its attribution so a later frame no longer carves out", () => {
+  it("completing a child drops its attribution so a later frame stops carving out", () => {
     const { router } = makeRouter();
     router.registerSessionThread("session-thread");
     router.registerChildThread({

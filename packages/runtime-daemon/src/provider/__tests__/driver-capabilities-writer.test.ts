@@ -4,9 +4,9 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 import {
   DRIVER_CAPABILITY_FLAGS,
-  type DriverCapabilityFlag,
   type ProviderName,
   type ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
@@ -14,35 +14,18 @@ import {
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
-  DriverCapabilitiesWriter,
-  type DriverCapabilityHydrationResult,
-} from "../driver-capabilities-writer.js";
+  CLI_VERSION_REPORT,
+  CONTRACT_VERSION,
+  expectHydrationHit,
+  makeFlags,
+  makeResult,
+} from "../__fixtures__/capability-results.js";
+import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import { ProviderOutputValidationError } from "../provider-output-validation.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 
 const DRIVER_NAME: ProviderName = "claude";
-const CONTRACT_VERSION: string = "1.2.3";
-
-// The full flag matrix every snapshot must answer, built from `DRIVER_CAPABILITY_FLAGS`: every
-// flag false, then `resume` and `tool_calls` true, then the overrides.
-function makeFlags(
-  overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
-): Record<DriverCapabilityFlag, boolean> {
-  const base = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
-    DriverCapabilityFlag,
-    boolean
-  >;
-  return { ...base, resume: true, tool_calls: true, ...overrides };
-}
-
-// The `cliVersion` reading every snapshot carries. It describes the live reading, not a
-// capability, so the writer persists it (so `hydrate()` can return the complete result) but keeps
-// it out of change detection.
-const CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "mock-provider-cli 2.1.234 (build 7)",
-  semver: "2.1.234",
-};
 
 // A provider upgrade: the version-only cases keep the capability snapshot identical and change
 // only this.
@@ -50,18 +33,6 @@ const UPGRADED_CLI_VERSION_REPORT: DriverCliVersionReport = {
   raw: "mock-provider-cli 2.9.001 (build 12)",
   semver: "2.9.1",
 };
-
-function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
-  return {
-    capabilities: {
-      flags: makeFlags(),
-      contractVersion: CONTRACT_VERSION,
-    },
-    tools: [],
-    cliVersion: CLI_VERSION_REPORT,
-    ...overrides,
-  };
-}
 
 let db: DatabaseType;
 
@@ -141,14 +112,6 @@ function readContractMetaRefreshedAt(driverName: string): string | undefined {
     .prepare(`SELECT refreshed_at FROM driver_contract_meta WHERE driver_name = ?`)
     .get(driverName) as { readonly refreshed_at: string } | undefined;
   return row?.refreshed_at;
-}
-
-/** Narrows a hydration result to its hit, failing with the miss reason otherwise. */
-function expectHydrationHit(hydrated: DriverCapabilityHydrationResult): GetCapabilitiesResult {
-  if (!hydrated.hit) {
-    throw new Error(`expected a hydration HIT; got a miss with reason "${hydrated.reason}"`);
-  }
-  return hydrated.result;
 }
 
 describe("DriverCapabilitiesWriter — first declare", () => {
@@ -232,8 +195,7 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
 describe("DriverCapabilitiesWriter — contract_version is canonical semver", () => {
   it("rejects `1.2.3+build.5` (SemVer section 10 build metadata) with a reason that names build metadata + writes NO rows", async () => {
     const writer = makeWriter();
-    let thrown: unknown;
-    try {
+    const thrown = await captureRejection(async () => {
       await writer.declare({
         driverName: DRIVER_NAME,
         // Build metadata does not identify a version: `semver.valid` strips it, so the
@@ -243,9 +205,7 @@ describe("DriverCapabilitiesWriter — contract_version is canonical semver", ()
           capabilities: { flags: makeFlags(), contractVersion: "1.2.3+build.5" },
         }),
       });
-    } catch (error) {
-      thrown = error;
-    }
+    });
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("contract_version");
     expect((thrown as ProviderOutputValidationError).fields?.["reason"]).toMatch(/build metadata/i);

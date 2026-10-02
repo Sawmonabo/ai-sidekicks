@@ -1,8 +1,8 @@
 // Claude half of the driver normalize boundary, mirroring `../codex/event-normalizer.ts`: a pure,
-// total mapping from a pinned stream-json or control-channel frame kind to its event family.
+// total mapping from a pinned stream-json or control-channel frame kind to its event category.
 //
 // Rows come from the version-pinned Claude wire census (pin `2.1.251`; vectors in `__fixtures__/`,
-// so a re-pin fails a test). A row that names a normalized kind takes its family and event type
+// so a re-pin fails a test). A row that names a normalized kind takes its category and event type
 // from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
 //
 // Left out on purpose, so the diagnostic default branch reports them instead of a guessed row:
@@ -75,7 +75,7 @@ export type ClaudeWireFrameKind =
   | "control_response/error";
 
 /**
- * Whether a row's target type can be built into an envelope yet: it needs a payload variant in
+ * Whether a row's target type can be built into an envelope: it needs a payload variant in
  * `SessionEventSchema`. `payload-variant-pending` rows feed the diagnostic, never an envelope.
  */
 type ClaudeEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
@@ -85,7 +85,7 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
   SESSION_EVENT_TYPES,
 );
 
-/** Whether `eventType` may be built into a `SessionEvent` envelope today. Pure and total. */
+/** Whether `eventType` may be built into a `SessionEvent` envelope. Pure and total. */
 function resolveClaudeEmissionReadiness(eventType: SessionEventType): ClaudeEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
@@ -93,21 +93,21 @@ function resolveClaudeEmissionReadiness(eventType: SessionEventType): ClaudeEmis
 }
 
 /**
- * A frame that normalizes into one event family. `normalizedKind` is `null` for a member the
+ * A frame that normalizes into one event category. `normalizedKind` is `null` for a member the
  * census does not name (`worker_shutting_down`). Entries are frozen shared singletons.
  */
-export interface ClaudeNormalizedFamilyEmission {
+export interface ClaudeNormalizedCategoryEmission {
   readonly disposition: "normalized";
   readonly frameKind: ClaudeWireFrameKind;
   readonly channel: ClaudeWireChannel;
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
   readonly normalizedKind: NormalizedEventKind | null;
   readonly emissionReadiness: ClaudeEmissionReadiness;
 }
 
 /**
- * A known frame that carries no timeline capability, so it normalizes to no family. The non-empty
+ * A known frame that carries no timeline capability, so it normalizes to no category. The non-empty
  * `reason` is mandatory, and the `?: never` keys forbid a taxonomy target.
  */
 interface ClaudeNotEventedFrameDisposition {
@@ -115,7 +115,7 @@ interface ClaudeNotEventedFrameDisposition {
   readonly frameKind: ClaudeWireFrameKind;
   readonly channel: ClaudeWireChannel;
   readonly reason: string;
-  readonly family?: never;
+  readonly category?: never;
   readonly eventType?: never;
   readonly normalizedKind?: never;
   readonly emissionReadiness?: never;
@@ -123,19 +123,19 @@ interface ClaudeNotEventedFrameDisposition {
 
 /** The total result of normalizing one pinned Claude inbound frame kind. */
 export type ClaudeFrameNormalization =
-  | ClaudeNormalizedFamilyEmission
+  | ClaudeNormalizedCategoryEmission
   | ClaudeNotEventedFrameDisposition;
 
 // A table row before its derived members are put on it, so no row states a second copy: a row
-// naming a kind takes `family` and `eventType` from the disposition table, and every row's
+// naming a kind takes `category` and `eventType` from the disposition table, and every row's
 // `emissionReadiness` follows from its event type.
 type ClaudeFrameNormalizationTableRow =
-  | (Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness" | "family" | "eventType"> & {
+  | (Omit<ClaudeNormalizedCategoryEmission, "emissionReadiness" | "category" | "eventType"> & {
       readonly normalizedKind: NormalizedEventKind;
-      readonly family?: never;
+      readonly category?: never;
       readonly eventType?: never;
     })
-  | (Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness"> & {
+  | (Omit<ClaudeNormalizedCategoryEmission, "emissionReadiness"> & {
       readonly normalizedKind: null;
     })
   | ClaudeNotEventedFrameDisposition;
@@ -148,7 +148,7 @@ function composeClaudeFrameNormalization(
   }
   const target =
     row.normalizedKind === null
-      ? { family: row.family, eventType: row.eventType }
+      ? { category: row.category, eventType: row.eventType }
       : resolveAdoptedEventTarget(row.normalizedKind);
   return {
     ...row,
@@ -222,7 +222,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "system/worker_shutting_down",
     channel: "stream",
-    family: "run_lifecycle",
+    category: "run_lifecycle",
     eventType: "run.worker_shutdown",
     normalizedKind: null,
   },
@@ -252,21 +252,20 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/notification",
     channel: "stream",
     reason:
-      "distinct from the census `notification` kind (row 17, Codex-fed); the user-facing-notice capability is already carried there — this Claude system subtype is redundant transport noise",
+      "distinct from the `notification` kind, which Codex feeds; the user-facing-notice capability is already carried there — this Claude system subtype is redundant transport noise",
   },
   "system/files_persisted": {
     disposition: "not-evented",
     frameKind: "system/files_persisted",
     channel: "stream",
     reason:
-      "file-write summary; the adopted `diff` (32) / `command_output` (33) rows plus `artifact_publication` already carry the file-change capability",
+      "file-write summary; the adopted `diff` / `command_output` kinds plus `artifact_publication` already carry the file-change capability",
   },
   "system/tool_use_summary": {
     disposition: "not-evented",
     frameKind: "system/tool_use_summary",
     channel: "stream",
-    reason:
-      "aggregate over the adopted `tool_start` (3) / `tool_complete` (4) rows; no new capability",
+    reason: "aggregate over the adopted `tool_start` / `tool_complete` kinds; no new capability",
   },
   "system/memory_recall": {
     disposition: "not-evented",
@@ -279,14 +278,14 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/local_command_output",
     channel: "stream",
     reason:
-      "superseded by the adopted `command_output` (33) kind; the local variant carries no additional capability",
+      "superseded by the adopted `command_output` kind; the local variant carries no additional capability",
   },
   "system/task_progress": {
     disposition: "not-evented",
     frameKind: "system/task_progress",
     channel: "stream",
     reason:
-      "intra-task progress; the adopted `task_create` (15) / `task_update` (16) + `todo_update` snapshots carry the durable task state",
+      "intra-task progress; the adopted `task_create` / `task_update` kinds and `todo_update` snapshots carry the durable task state",
   },
 
   // A `result` frame does not end the read loop (trailing events can follow), so the loop reads
@@ -358,9 +357,9 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/mcp_message",
     channel: "control-request",
     reason:
-      "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record a plane the daemon already audits",
+      "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record events the daemon already audits",
   },
-  // Absent from the census yet observed answering at 2.1.234, 2.1.245 and 2.1.246; in the union
+  // Absent from the census but observed answering at 2.1.234, 2.1.245 and 2.1.246; in the union
   // because it dispatches, and not-evented because the daemon sends it.
   "control_request/mcp_set_servers": {
     disposition: "not-evented",
@@ -486,10 +485,6 @@ export function composeClaudeWireFrameKind(frameType: string, subtype: string | 
   return subtype === null ? frameType : `${frameType}/${subtype}`;
 }
 
-function refuseUnmappedClaudeWireFrame(frameKind: string): never {
-  throw new UnknownClaudeWireFrameError(frameKind);
-}
-
 /**
  * Normalizes one frame kind that parsed off the wire (unparseable bytes fail closed at the read
  * loop). Pure and total over the census, returning frozen singletons; throws
@@ -498,7 +493,7 @@ function refuseUnmappedClaudeWireFrame(frameKind: string): never {
 export function normalizeClaudeWireFrame(frameKind: string): ClaudeFrameNormalization {
   const normalization = CLAUDE_FRAME_NORMALIZATION_BY_KIND.get(frameKind as ClaudeWireFrameKind);
   if (normalization === undefined) {
-    refuseUnmappedClaudeWireFrame(frameKind);
+    throw new UnknownClaudeWireFrameError(frameKind);
   }
   return normalization;
 }
@@ -527,7 +522,7 @@ export function normalizeClaudeCanUseToolRequest(toolName: string): ClaudeFrameN
 
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type ClaudeFrameEmissionRoute =
-  | { readonly route: "emit"; readonly normalization: ClaudeNormalizedFamilyEmission }
+  | { readonly route: "emit"; readonly normalization: ClaudeNormalizedCategoryEmission }
   | { readonly route: "not-evented"; readonly normalization: ClaudeNotEventedFrameDisposition }
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
@@ -590,7 +585,7 @@ export interface ClaudeSubagentLifecycleSignal {
 
 /** The normalized subagent-lifecycle emission plus its router registration. */
 export interface ClaudeSubagentLifecycleNormalization {
-  readonly family: EventCategory;
+  readonly category: EventCategory;
   readonly eventType: SessionEventType;
   readonly subagentId: string;
   readonly parentToolUseId: string | null;
@@ -612,7 +607,7 @@ export function normalizeClaudeSubagentLifecycle(
 ): ClaudeSubagentLifecycleNormalization {
   if (lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
     return Object.freeze({
-      family: "tool_activity",
+      category: "tool_activity",
       eventType: "subagent.started",
       subagentId: lifecycleSignal.subagentId,
       parentToolUseId: lifecycleSignal.parentToolUseId,
@@ -624,7 +619,7 @@ export function normalizeClaudeSubagentLifecycle(
     });
   }
   return Object.freeze({
-    family: "tool_activity",
+    category: "tool_activity",
     eventType: "subagent.completed",
     subagentId: lifecycleSignal.subagentId,
     parentToolUseId: lifecycleSignal.parentToolUseId,

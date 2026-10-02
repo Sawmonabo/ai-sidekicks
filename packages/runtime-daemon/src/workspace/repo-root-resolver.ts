@@ -12,11 +12,11 @@
 //     key injected through env or `git -c` did not move it (git 2.50.1). Steps 4 and 5 refuse both
 //     with `root_mismatch`, so a dotfiles-style layout whose config points elsewhere is refused.
 
-import { execFile } from "node:child_process";
 import * as nodePath from "node:path";
 
 import type { VcsType } from "@ai-sidekicks/contracts";
 
+import { DEFAULT_GIT_EXECUTABLE, runGitWithExecFile, type GitRunner } from "../git/git-process.js";
 import { RepoRootResolutionError } from "./repo-errors.js";
 import {
   componentsEqual,
@@ -37,43 +37,14 @@ export interface RepoRootResolution {
   readonly vcsType: VcsType;
 }
 
-// Effectful primitives are injectable so tests drive failure modes. The executor rejects with the
-// raw `execFile` error, so the classifier is exercised by real Node errors.
-
-/** Successful stdio capture of the git invocation. */
-export interface GitCommandResult {
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-/** A rejected git invocation: `code` is the exit code, or an errno string if it never spawned. */
-export interface GitCommandFailure extends Error {
-  readonly code?: string | number | undefined;
-  readonly signal?: NodeJS.Signals | null | undefined;
-  readonly killed?: boolean | undefined;
-  readonly stdout?: string | undefined;
-  readonly stderr?: string | undefined;
-}
-
-/** Child-process options the resolver fixes for every git invocation. */
-export interface GitCommandOptions {
-  readonly timeout: number;
-  readonly maxBuffer: number;
-  readonly env: NodeJS.ProcessEnv;
-  readonly windowsHide: boolean;
-}
-
-/** `execFile`-shaped and argv-only (no shell option), so shell metacharacters are inert. */
-export type GitFileExecutor = (
-  file: string,
-  args: readonly string[],
-  options: GitCommandOptions,
-) => Promise<GitCommandResult>;
-
-/** Constructor-injectable primitives; every member defaults to the real one. */
+/**
+ * Constructor-injectable primitives; every member defaults to the real one, so tests drive the
+ * failure modes. The git runner rejects with the raw `execFile` error, so the classifier is
+ * exercised by real Node errors.
+ */
 export interface RepoRootResolverDeps {
-  /** Defaults to a promise wrapper over `node:child_process.execFile`. */
-  readonly executeFile: GitFileExecutor;
+  /** Defaults to the daemon's shared `execFile` runner. */
+  readonly git: GitRunner;
   /**
    * Defaults to `fs.promises.realpath`, which returns each component's on-disk casing, keeping the
    * step-4 comparison casing-safe. The callback `fs.realpath` keeps the caller's casing, so a
@@ -98,22 +69,8 @@ export interface RepoRootResolverDeps {
   readonly platformPath: PlatformPathModule;
 }
 
-/**
- * The bare name `git`, found by the platform's search. On Windows libuv looks in the daemon's
- * current directory before `PATH`, so a Windows deployment should set `gitExecutablePath` to an
- * absolute path.
- */
-export const DEFAULT_GIT_EXECUTABLE: string = "git";
-
 /** Milliseconds allowed for one `rev-parse` (a network mount can hang); a kill is `vcs_error`. */
-const DEFAULT_GIT_COMMAND_TIMEOUT_MS: number = 10_000;
-
-/**
- * Cap on captured stdio for every daemon git invocation, sized for the largest one: a `-z` path
- * listing of a whole worktree. A cap, not an allocation; overflow fails the invocation and never
- * truncates (here it lands on `vcs_error`).
- */
-export const GIT_STDIO_MAX_BUFFER_BYTES: number = 64 * 1024 * 1024;
+const DEFAULT_REV_PARSE_TIMEOUT_MS: number = 10_000;
 
 /** git's exit code for a fatal error (`die()`); half of the not-a-repository verdict. */
 export const GIT_FATAL_EXIT_CODE: number = 128;
@@ -128,87 +85,13 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
 /** The entry git's discovery looks for (a directory or a `gitdir:` file); never read. */
 const GIT_METADATA_ENTRY_NAME = ".git";
 
-/**
- * `GIT_*` variables removed from the child environment because each bends repository discovery
- * (git 2.50.1); the worktree and turn-snapshot services reuse this list. `GIT_CONFIG_GLOBAL`,
- * `GIT_CONFIG_SYSTEM` and `GIT_CONFIG_NOSYSTEM` are the person's choices and stay.
- */
-export const DISCOVERY_REDIRECTING_GIT_ENV_KEYS: readonly string[] = [
-  // With these exported, `git -C <path> rev-parse` still answers about the ambient repository.
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_COMMON_DIR",
-  "GIT_CEILING_DIRECTORIES",
-  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-  // A value naming nothing accessible makes git refuse a real repository with the anchored
-  // "not a git repository" at exit 128; an accessible one lets an object-less `.git` discover.
-  "GIT_OBJECT_DIRECTORY",
-  // Config injection, stripped as defense in depth: an injected `core.worktree` did not move the
-  // toplevel, but the same key in the repository's own config does.
-  "GIT_CONFIG_COUNT",
-  "GIT_CONFIG_PARAMETERS",
-];
-
-const DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED = new Set(
-  DISCOVERY_REDIRECTING_GIT_ENV_KEYS.map((key) => key.toUpperCase()),
-);
-
-/**
- * The environment for every git invocation: the daemon's own minus the discovery-redirecting
- * variables, with the locale pinned to `C` (the verdict is read off git's stderr) and prompts off.
- * Read at call time.
- */
-function buildGitEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  // Windows keeps an inherited key's spelling (`Git_Dir`), so compare by `toUpperCase`, not the
-  // locale variant (Turkish `I` maps to `ı`).
-  for (const [key, value] of Object.entries(process.env)) {
-    if (DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED.has(key.toUpperCase())) {
-      continue;
-    }
-    environment[key] = value;
-  }
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  return environment;
-}
-
-/** `execFile` as a promise; the rejection keeps its `code`, `signal` and `killed` plus stdio. */
-function defaultExecuteFile(
-  file: string,
-  args: readonly string[],
-  options: GitCommandOptions,
-): Promise<GitCommandResult> {
-  return new Promise<GitCommandResult>((resolve, reject) => {
-    execFile(
-      file,
-      [...args],
-      {
-        encoding: "utf8",
-        timeout: options.timeout,
-        maxBuffer: options.maxBuffer,
-        env: options.env,
-        windowsHide: options.windowsHide,
-      },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(Object.assign(error, { stdout, stderr }));
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-  });
-}
-
 function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDeps {
   return {
-    executeFile: partial.executeFile ?? defaultExecuteFile,
+    git: partial.git ?? runGitWithExecFile,
     realpath: partial.realpath ?? DEFAULT_REALPATH,
     probeDirectoryReadable: partial.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
     gitExecutablePath: partial.gitExecutablePath ?? DEFAULT_GIT_EXECUTABLE,
-    gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_REV_PARSE_TIMEOUT_MS,
     platformPath: partial.platformPath ?? nodePath,
   };
 }
@@ -360,17 +243,11 @@ export class RepoRootResolver {
   private async queryCanonicalToplevel(directory: string): Promise<ToplevelQueryOutcome> {
     let toplevelOutput: string;
     try {
-      const result = await this.deps.executeFile(
-        this.deps.gitExecutablePath,
-        ["-C", directory, "rev-parse", "--show-toplevel"],
-        {
-          timeout: this.deps.gitCommandTimeoutMs,
-          maxBuffer: GIT_STDIO_MAX_BUFFER_BYTES,
-          env: buildGitEnvironment(),
-          windowsHide: true,
-        },
-      );
-      toplevelOutput = result.stdout;
+      const result = await this.deps.git(["-C", directory, "rev-parse", "--show-toplevel"], {
+        timeoutMs: this.deps.gitCommandTimeoutMs,
+        executable: this.deps.gitExecutablePath,
+      });
+      toplevelOutput = result.stdout.toString("utf8");
     } catch (thrown: unknown) {
       if (classifyGitFailure(thrown) === "not-a-repository") {
         return { kind: "not-a-repository" };

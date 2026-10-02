@@ -24,7 +24,6 @@ import {
 } from "../../transcript/failure-mapping.js";
 import {
   CODEX_THREAD_STARTED_METHOD,
-  CODEX_TURN_COMPLETED_METHOD,
   deriveCodexChildThreadAnnouncement,
 } from "./event-normalizer.js";
 import {
@@ -37,11 +36,8 @@ import type { CodexAppServerConnection, CodexConnectionOptions } from "./app-ser
 import type { CodexSessionConfig } from "./session-config.js";
 import { CodexProviderRequestError, type CodexSessionSlotState } from "./session-errors.js";
 import type { CodexSessionServerRequestResponder } from "./server-requests.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
-
-/** The notification method that reports a finished turn. */
-export const CODEX_TURN_COMPLETED_NOTIFICATION: string = CODEX_TURN_COMPLETED_METHOD;
 
 /** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */
 export const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
@@ -280,8 +276,8 @@ export type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 // A failed `turn/start` is ambiguous unless the provider returned a clean JSON-RPC error: a
 // deadline, transport death or unusable turn id may hide an accepted turn, and leaving it running
 // unreachable (or replaying it) costs more than one re-establish. `#assertWritable`'s
-// already-closed refusal counts too. Recovery is teardown and replay; the positional reconcile in
-// `startRun` adopts no turn.
+// already-closed refusal counts too. Recovery tears the session down for a re-establish and
+// re-sends nothing; the positional reconcile in `startRun` adopts no turn.
 
 /**
  * Reduces `error.data.codexErrorInfo` to the classifier's shape (message prose is never read).

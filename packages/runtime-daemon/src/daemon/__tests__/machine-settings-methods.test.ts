@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  JsonRpcErrorCode,
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
   type JsonRpcNotification,
@@ -156,7 +157,7 @@ describe("daemon.machineSettingsUpdate", () => {
     const thrown: unknown = await dispatched.catch((error: unknown) => error);
 
     const envelope = mapJsonRpcError(thrown, 1);
-    expect(envelope.error.code).toBe(-32602);
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.error.data).toMatchObject({
       type: "daemon.environment_name_refused",
       fields: { name, reason },

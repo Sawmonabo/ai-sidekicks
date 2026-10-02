@@ -144,7 +144,7 @@ export interface CallbackToolHostOptions {
   readonly diagnostics: DriverDiagnosticsEmitter;
   readonly executor: CallbackToolExecutor;
   readonly activitySink: CallbackToolActivitySink;
-  /** Optional so the daemon can run before the approval pipeline is composed (see the header). */
+  /** Optional: without it the registry is withheld at spawn and a stray invocation is denied. */
   readonly approvalSeam?: CallbackToolApprovalSeam | undefined;
 }
 
@@ -546,7 +546,8 @@ export class CallbackToolHost {
     approvalBasis: CallbackToolApprovalOutcome["basis"] | null,
   ): void {
     // Contained: the invocation's answer is the guarantee, and the row is observability, so a
-    // throwing sink must not turn a settled invocation into an unanswered one.
+    // throwing sink must not turn a settled invocation into an unanswered one. The failure goes
+    // to the diagnostic channel instead.
     try {
       this.#activitySink.record({
         sessionId: invocation.sessionId,
@@ -556,8 +557,28 @@ export class CallbackToolHost {
         disposition,
         approvalBasis,
       });
-    } catch {
-      /* the answer is already decided; a failing sink must not unmake it */
+    } catch (recordFailure) {
+      this.#diagnostics.emit({
+        provider: this.#provider,
+        kind: "callback_tool_activity_record_failed",
+        rawWireType: null,
+        dispositionReason: `the activity sink threw: ${String(recordFailure)}`,
+        details: {
+          sessionId: invocation.sessionId,
+          runId: invocation.runId,
+          disposition,
+          ...describeBoundedWireIdentifier(
+            "toolName",
+            invocation.toolName,
+            DRIVER_TOOL_NAME_MAX_LEN,
+          ),
+          ...describeBoundedWireIdentifier(
+            "toolCallId",
+            invocation.toolCallId,
+            DRIVER_TOOL_CALL_ID_MAX_LEN,
+          ),
+        },
+      });
     }
   }
 }

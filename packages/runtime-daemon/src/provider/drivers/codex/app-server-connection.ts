@@ -3,7 +3,8 @@
  * notifications, and the process or socket underneath.
  */
 
-import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts";
+import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../spawn-env.js";
 import {
   type CodexDiagnosticSink,
@@ -33,7 +34,6 @@ import {
   type CodexRoutedServerRequestDescriptor,
   type CodexServerRequestResponder,
   type CodexServerRequestResult,
-  JSON_RPC_METHOD_NOT_FOUND,
 } from "./server-requests.js";
 import type { CodexSessionConfig } from "./session-config.js";
 import {
@@ -44,7 +44,7 @@ import {
   CodexTransportError,
   normalizeProviderFailureDetail,
 } from "./session-errors.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { SpawnRequest } from "../../../pty/pty-host-protocol.js";
 import type { PtyHost } from "../../../pty/pty-host.js";
 
@@ -210,7 +210,7 @@ export class CodexAppServerConnection {
       // consulted. Name matching follows the running platform, not the policy: whether `path` and
       // `PATH` are one variable is an OS fact, and a `trusted` posture carries no policy.
       env: buildProviderSpawnEnv({
-        driverName: "codex",
+        driverName: CODEX_DRIVER_NAME,
         baseEnv: config.env,
         hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
         credentialEnvPolicy: config.credentialEnvPolicy,
@@ -267,7 +267,10 @@ export class CodexAppServerConnection {
       );
       this.notify("initialized", {});
     } catch (cause) {
-      await this.close();
+      // A disposer fault in `close()` is reported, so it cannot replace the startup failure.
+      await this.close().catch((closeFault: unknown) => {
+        this.#reportDisposeFailure(closeFault);
+      });
       throw cause;
     }
   }
@@ -395,10 +398,14 @@ export class CodexAppServerConnection {
   /** Fire-and-forget notification. Failures surface through the diagnostic sink. */
   notify(method: string, params: unknown): void {
     this.#assertWritable(method);
-    void this.#writeFrame({ jsonrpc: "2.0", method, params }).catch(() => {
+    void this.#writeFrame({ jsonrpc: "2.0", method, params }).catch((cause: unknown) => {
       // Reported, not thrown: the caller is mid-handshake and the next request's failure is the
       // actionable signal.
-      this.#reportDiagnosticQuietly({ kind: "notification-write-failed", method });
+      this.#reportDiagnosticQuietly({
+        kind: "notification-write-failed",
+        method,
+        detail: normalizeProviderFailureDetail(cause),
+      });
     });
   }
 
@@ -431,8 +438,8 @@ export class CodexAppServerConnection {
     if (ptySessionId !== null) {
       try {
         await this.#ptyHost.close(ptySessionId);
-      } catch {
-        // The child may already be reaped; teardown must not fail on a resource that is gone.
+      } catch (cause) {
+        this.#reportTeardownStepFailure("pty-close", cause);
       }
     }
     if (disposeFault !== null) {
@@ -450,8 +457,8 @@ export class CodexAppServerConnection {
     if (ptySessionId !== null && !this.#ptyClosed) {
       try {
         await this.#ptyHost.kill(ptySessionId, "SIGKILL");
-      } catch {
-        // Already reaped, or the host lost the session; the close below still releases it.
+      } catch (cause) {
+        this.#reportTeardownStepFailure("pty-kill", cause);
       }
     }
     await this.close();
@@ -564,12 +571,12 @@ export class CodexAppServerConnection {
     // `SIGKILL`: no protocol is left for an orderly stop; the graceful path is `closeSession`.
     const ptySessionId = this.#ptySessionId;
     if (ptySessionId !== null) {
-      void this.#ptyHost.kill(ptySessionId, "SIGKILL").catch(() => {
-        /* already reaped, or the host lost it */
+      void this.#ptyHost.kill(ptySessionId, "SIGKILL").catch((cause: unknown) => {
+        this.#reportTeardownStepFailure("pty-kill", cause);
       });
     }
-    void this.close().catch(() => {
-      /* teardown of an already-doomed transport */
+    void this.close().catch((cause: unknown) => {
+      this.#reportDisposeFailure(cause);
     });
   }
 
@@ -629,11 +636,11 @@ export class CodexAppServerConnection {
         jsonrpc: "2.0",
         id,
         error: {
-          code: JSON_RPC_METHOD_NOT_FOUND,
+          code: JsonRpcErrorCode.MethodNotFound,
           message: `The driver does not handle "${method}" at this lifecycle stage.`,
         },
-      }).catch(() => {
-        /* connection gone; the exit path reports it */
+      }).catch((cause: unknown) => {
+        this.#reportAnswerWriteFailure(method, cause);
       });
       return;
     }
@@ -701,11 +708,7 @@ export class CodexAppServerConnection {
     await this.#writeEncodedFrame(encodedAnswer.ptySessionId, encodedAnswer.bytes).catch(
       (cause: unknown) => {
         // A rejected answer leaves the provider waiting on the ask forever, so it is reported.
-        this.#reportDiagnosticQuietly({
-          kind: "server-request-answer-write-failed",
-          method,
-          detail: normalizeProviderFailureDetail(cause),
-        });
+        this.#reportAnswerWriteFailure(method, cause);
       },
     );
   }
@@ -765,11 +768,7 @@ export class CodexAppServerConnection {
       return this.#encodeFrame({ jsonrpc: "2.0", id, result });
     } catch (cause) {
       // A closed connection or an unserializable `result` must not escape into the ingest loop.
-      this.#reportDiagnosticQuietly({
-        kind: "server-request-answer-write-failed",
-        method,
-        detail: normalizeProviderFailureDetail(cause),
-      });
+      this.#reportAnswerWriteFailure(method, cause);
       return null;
     }
   }
@@ -847,10 +846,7 @@ export class CodexAppServerConnection {
     this.#onReadyFailed?.(exitError);
     if (disposeFault !== null) {
       // After the cleanup, so a throwing sink cannot cost callers their rejections.
-      this.#reportDiagnosticQuietly({
-        kind: "subscription-dispose-failed",
-        detail: normalizeProviderFailureDetail(disposeFault.cause),
-      });
+      this.#reportDisposeFailure(disposeFault.cause);
     }
   }
 
@@ -860,6 +856,29 @@ export class CodexAppServerConnection {
    */
   #reportDiagnosticQuietly(diagnostic: CodexTransportDiagnostic): void {
     reportDiagnosticFromDetachedFrame(this.#reportDiagnostic, diagnostic);
+  }
+
+  #reportAnswerWriteFailure(method: string, cause: unknown): void {
+    this.#reportDiagnosticQuietly({
+      kind: "server-request-answer-write-failed",
+      method,
+      detail: normalizeProviderFailureDetail(cause),
+    });
+  }
+
+  #reportDisposeFailure(cause: unknown): void {
+    this.#reportDiagnosticQuietly({
+      kind: "subscription-dispose-failed",
+      detail: normalizeProviderFailureDetail(cause),
+    });
+  }
+
+  #reportTeardownStepFailure(step: "pty-kill" | "pty-close", cause: unknown): void {
+    this.#reportDiagnosticQuietly({
+      kind: "teardown-step-failed",
+      step,
+      detail: normalizeProviderFailureDetail(cause),
+    });
   }
 
   #clearReadyWait(): void {

@@ -5,7 +5,8 @@
 //   well-formed JSON-RPC envelopes.
 // * Every error response goes through `mapJsonRpcError`, which picks the numeric code and strips
 //   stack traces and absolute paths; the gateway only routes thrown values to it.
-// * The 1 MB message cap is fixed in the substrate; changing it changes the wire contract.
+// * The message cap, `MAX_MESSAGE_BYTES`, is fixed in the substrate; changing it changes the wire
+//   contract.
 // * `MethodRegistry` is injected at construction. `DaemonHello` version negotiation lives in
 //   `protocol-negotiation.ts` and streaming in `streaming-primitive.ts`.
 // * `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date string.
@@ -73,7 +74,6 @@ export { JSON_RPC_ID_MAX_BYTES };
  */
 interface SupervisionTransport {
   readonly id: number;
-  readonly remoteFamily: "unix" | "pipe" | "tcp" | "unknown";
 }
 
 /**
@@ -177,8 +177,12 @@ export function sanitizeErrorMessage(value: unknown): string {
  * so backtracking stays linear on pathological input such as `'/'.repeat(N)`.
  */
 export function redactPathsFromString(input: string): string {
-  // Unix: conservative character class, so it stops at whitespace, quotes and similar.
-  let sanitized = input.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
+  // Unix: conservative character class, so it stops at whitespace, quotes and similar. A path
+  // starts at a token boundary, so a slash inside a name (`feature/login`) is not one.
+  let sanitized = input.replace(
+    /(?<![A-Za-z0-9_.-])(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g,
+    "<redacted-path>",
+  );
   // UNC: the host has no spaces, the share and path segments may.
   sanitized = sanitized.replace(
     /\\\\[A-Za-z0-9_.-]+(?:\\[A-Za-z0-9_. -]+)+(?::\d+(?::\d+)?)?/g,
@@ -214,21 +218,6 @@ interface ConnectionState {
 let nextTransportId = 1;
 function allocTransportId(): number {
   return nextTransportId++;
-}
-
-function detectFamily(
-  socket: net.Socket,
-  listenPath: string,
-): SupervisionTransport["remoteFamily"] {
-  // Unix sockets and Windows pipes have no `remoteFamily`, so the listen path decides.
-  if (listenPath.startsWith("\\\\.\\pipe\\") || listenPath.startsWith("\\\\?\\pipe\\")) {
-    return "pipe";
-  }
-  if (socket.remoteFamily === "IPv4" || socket.remoteFamily === "IPv6") {
-    return "tcp";
-  }
-  // A path-style address that is not a Windows pipe is a Unix domain socket.
-  return "unix";
 }
 
 // --------------------------------------------------------------------------
@@ -284,13 +273,13 @@ export class LocalIpcGateway {
     const listenPath = settings.localIpcPath;
 
     const server = net.createServer((socket) => {
-      this.#onSocketConnect(socket, listenPath);
+      this.#onSocketConnect(socket);
     });
 
     server.on("error", (err) => {
       // Server-level errors have no connection, so supervision gets a synthetic transport (id 0).
       if (this.#hooks !== null) {
-        this.#hooks.onError({ id: 0, remoteFamily: "unknown" }, err);
+        this.#hooks.onError({ id: 0 }, err);
       }
     });
 
@@ -351,11 +340,8 @@ export class LocalIpcGateway {
   // Per-connection wiring
   // ------------------------------------------------------------------------
 
-  #onSocketConnect(socket: net.Socket, listenPath: string): void {
-    const transport: SupervisionTransport = {
-      id: allocTransportId(),
-      remoteFamily: detectFamily(socket, listenPath),
-    };
+  #onSocketConnect(socket: net.Socket): void {
+    const transport: SupervisionTransport = { id: allocTransportId() };
     const state: ConnectionState = {
       transport,
       socket,

@@ -1,10 +1,10 @@
 // The control plane's Worker entry, served through tRPC's fetch adapter.
 // Two gates run at request entry, before any router dispatch: CONTROL_PLANE_BOOTSTRAP_ENABLED must
-// be '1' and ENVIRONMENT must be 'development'. A refusal returns 503 and logs its reason so an
-// operator can diagnose a misconfigured dev instance. The router mounts no procedures yet.
+// be '1' and ENVIRONMENT must be 'development'. A refusal returns 503 and logs its reason, so a
+// misconfigured dev instance names the variable it lacks. The router mounts no procedures.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { t, type SessionRouterContext } from "../sessions/trpc.js";
+import { t, type ControlPlaneContext } from "./trpc.js";
 import { checkDevEnvironment, type DevEnvironmentEnv } from "./dev-environment-gate.js";
 import { checkFeatureFlag, type FeatureFlagEnv } from "./feature-flag-gate.js";
 
@@ -60,7 +60,7 @@ export function buildControlPlaneFetchHandler(
       endpoint,
       req: request,
       router,
-      createContext: (): SessionRouterContext => ({
+      createContext: (): ControlPlaneContext => ({
         requestId: generateRequestId(),
       }),
     });

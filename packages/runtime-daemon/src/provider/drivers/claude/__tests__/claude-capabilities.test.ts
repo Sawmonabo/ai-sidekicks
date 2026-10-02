@@ -1,33 +1,27 @@
-// Claude capability declaration: the declared flag matrix; a reporter that admits any build at or
-// above the floor and refuses a below-floor, unparseable or foreign one before the writer sees it;
-// and the model catalog read from the recorded `list_models` reply.
+// Claude capability declaration: a reporter that carries the spawned build's version and its
+// output-speed levels and refuses a foreign one before the writer sees it; and the model catalog read from the
+// recorded `list_models` reply.
 
 import { describe, expect, it } from "vitest";
-
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../../../__fixtures__/capability-probe-doubles.js";
-import {
-  DriverCliVersionBelowFloorError,
-  DriverCliVersionUnparseableError,
-} from "../../../capability-refresh.js";
+import { claudeDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
-import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import {
-  CLAUDE_CAPABILITY_CONTRACT_VERSION,
-  CLAUDE_CAPABILITY_FLAGS,
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
-  ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
   resolveClaudeModelCatalog,
 } from "../capabilities.js";
-import { CLAUDE_TOOL_CATALOG } from "../tools.js";
-import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../../provider-driver.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  ModelCatalogUnreadableError,
+} from "../../../provider-driver.js";
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
@@ -45,7 +39,9 @@ function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionRe
 
 function makeReporter(
   readCliVersion: () => Promise<DriverCliVersionReport> = () => Promise.resolve({ ...CLI_VERSION }),
-  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport("claude"),
+  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport(
+    claudeDefaultProbeReply,
+  ),
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
@@ -57,38 +53,10 @@ function makeReporter(
   });
 }
 
-describe("Claude capability declaration", () => {
-  it("declares the capability matrix values exactly", () => {
-    // The annotation makes this total: a flag added to the union breaks at compile time.
-    const matrix: Record<DriverCapabilityFlag, boolean> = {
-      resume: true,
-      steer: false,
-      interactive_requests: true,
-      mcp: true,
-      tool_calls: true,
-      reasoning_stream: true,
-      model_mutation: true,
-      structured_output: true,
-      rollback: true,
-      session_fork: true,
-      session_goals: false,
-      callback_tools: true,
-      subagents: true,
-      context_compaction: true,
-      provider_commands: true,
-      output_speed: true,
-    };
-    expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
-  });
-});
-
 describe("getCapabilities()", () => {
-  it("reports flags, contract version, tools, and the CLI version", async () => {
+  it("reports the CLI version it read and the output-speed levels", async () => {
     const result: GetCapabilitiesResult = await makeReporter().getCapabilities();
 
-    expect(result.capabilities.flags).toStrictEqual(CLAUDE_CAPABILITY_FLAGS);
-    expect(result.capabilities.contractVersion).toBe(CLAUDE_CAPABILITY_CONTRACT_VERSION);
-    expect(result.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(result.cliVersion).toStrictEqual(CLI_VERSION);
     // A declared `output_speed` needs its published set, or the gate would admit every string.
     expect("outputSpeedLevels" in result).toBe(true);
@@ -122,56 +90,6 @@ describe("refreshDeclaration()", () => {
   });
 });
 
-describe("Claude CLI-version floor", () => {
-  it("refuses a below-floor reading before any report reaches a caller or the writer", async () => {
-    // 2.1.198 is below the current 2.1.234 floor.
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
-    );
-    let thrown: unknown;
-    try {
-      await reporter.getCapabilities();
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    const error = thrown as DriverCliVersionBelowFloorError;
-    expect(error.code).toBe("driver.cli_version_below_floor");
-    expect(error.fields).toStrictEqual({
-      driverName: "claude",
-      reportedSemver: "2.1.198",
-      floor: CLAUDE_DRIVER_DESCRIPTOR.cliVersionFloor,
-    });
-
-    // The refresh path goes through the same gate, so the writer never sees the declaration.
-    const sink = new RecordingDeclarationSink();
-    await expect(reporter.refreshDeclaration(sink)).rejects.toBeInstanceOf(
-      DriverCliVersionBelowFloorError,
-    );
-    expect(sink.calls).toHaveLength(0);
-  });
-
-  it("admits a build exactly at the floor and any newer build, above the pin included", async () => {
-    const atFloor = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.234 (Claude Code)", semver: "2.1.234" }),
-    );
-    await expect(atFloor.getCapabilities()).resolves.toBeDefined();
-
-    const aboveMeasured = makeReporter(() => Promise.resolve({ raw: "3.0.0", semver: "3.0.0" }));
-    await expect(aboveMeasured.getCapabilities()).resolves.toBeDefined();
-  });
-
-  it("refuses a non-canonical reading fail-closed as unparseable", async () => {
-    // Reachable only through an untyped boundary; the gate still answers with a typed error.
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "Claude Code (unknown)", semver: "unknown" }),
-    );
-    await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
-      DriverCliVersionUnparseableError,
-    );
-  });
-});
-
 describe("Claude composition is bound to the spawned build", () => {
   it("refuses a reading taken from ANOTHER driver's build", async () => {
     // A wiring fault, not provider misbehavior: a plain Error, and the sink is never called.
@@ -182,7 +100,7 @@ describe("Claude composition is bound to the spawned build", () => {
     };
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(foreign),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
       diagnostics: makeSilentDriverDiagnostics(),
     });
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
@@ -363,7 +281,7 @@ describe("Claude model catalog", () => {
   ])("refuses %s", (_label, payload, message) => {
     // Strict: skipping a bad row would answer a short catalog that looks like a provider dropping
     // a model.
-    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ClaudeModelCatalogUnreadableError);
+    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ModelCatalogUnreadableError);
     expect(() => normalizeClaudeModelCatalog(payload)).toThrow(message);
   });
 
@@ -385,7 +303,7 @@ describe("Claude model catalog", () => {
       }),
     ).rejects.toBe(transportFailure);
     await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
-      ClaudeModelCatalogUnreadableError,
+      ModelCatalogUnreadableError,
     );
   });
 });

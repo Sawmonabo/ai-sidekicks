@@ -3,7 +3,7 @@
 // `RustSidecarPtyHost` (out-of-process Rust binary). The default is `NodePtyHost` on every
 // platform; `deps.platform` is not consulted.
 //
-// `AIS_PTY_BACKEND` is case-sensitive and matched verbatim, with no trimming:
+// `SIDEKICKS_PTY_BACKEND` is case-sensitive and matched verbatim, with no trimming:
 //   - unset: the platform default, silently (the normal path, not a warn case).
 //   - "rust-sidecar": `RustSidecarPtyHost` from the factory. A factory failure (binary missing,
 //     spawn-time crash, crash budget exhausted) is wrapped as `PtyBackendUnavailableError`; one
@@ -29,12 +29,12 @@ import type { PtyHost } from "./pty-host.js";
  * `process.env`, write to `console.warn` and construct the real hosts.
  */
 export interface PtyHostSelectorDeps {
-  /** Effective platform, default `process.platform`. Not consulted by the selection today. */
+  /** Effective platform, default `process.platform`. */
   readonly platform: NodeJS.Platform;
   /**
-   * Reader for `AIS_PTY_BACKEND`, default `() => process.env["AIS_PTY_BACKEND"]` (bracket access
-   * because `noPropertyAccessFromIndexSignature` is on). `undefined` means unset; any string,
-   * including "", means set.
+   * Reader for `SIDEKICKS_PTY_BACKEND`, default `() => process.env["SIDEKICKS_PTY_BACKEND"]`
+   * (bracket access because `noPropertyAccessFromIndexSignature` is on). `undefined` means unset;
+   * any string, including "", means set.
    */
   readonly readEnv: () => string | undefined;
   /** Sink for the unrecognized-value warning, default `console.warn`. */
@@ -64,8 +64,7 @@ interface ResolvedPtyHostSelectorDeps {
 function resolveDefaultDeps(partial: Partial<PtyHostSelectorDeps>): ResolvedPtyHostSelectorDeps {
   return {
     platform: partial.platform ?? process.platform,
-    readEnv: partial.readEnv ?? (() => process.env["AIS_PTY_BACKEND"]),
-    // TRIPWIRE: replace `console.warn` once a structured logger exists in the runtime-daemon.
+    readEnv: partial.readEnv ?? (() => process.env["SIDEKICKS_PTY_BACKEND"]),
     warn: partial.warn ?? ((msg: string) => console.warn(msg)),
     createNodePtyHost: partial.createNodePtyHost ?? ((): PtyHost => new NodePtyHost()),
     createRustSidecarPtyHost:
@@ -78,7 +77,7 @@ function resolveDefaultDeps(partial: Partial<PtyHostSelectorDeps>): ResolvedPtyH
 // --------------------------------------------------------------------------
 
 /**
- * Picks the `PtyHost` backend for this daemon process from `AIS_PTY_BACKEND` (grammar in the
+ * Picks the `PtyHost` backend for this daemon process from `SIDEKICKS_PTY_BACKEND` (grammar in the
  * file header). Throws `PtyBackendUnavailableError` when the rust-sidecar factory fails.
  */
 export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
@@ -113,7 +112,9 @@ export function selectPtyHost(deps?: Partial<PtyHostSelectorDeps>): PtyHost {
   }
 
   // Unrecognized value: warn, because a silent fallback would hide a misconfiguration.
-  resolved.warn(`AIS_PTY_BACKEND='${envValue}' unrecognized; falling back to platform default`);
+  resolved.warn(
+    `SIDEKICKS_PTY_BACKEND='${envValue}' unrecognized; falling back to platform default`,
+  );
   return platformDefault(resolved);
 }
 

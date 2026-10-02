@@ -1,5 +1,5 @@
-// The normalized surface every provider driver (Codex, Claude) implements, so the session engine
-// never sees provider-native types. Only the daemon reads these shapes; the ones a client or
+// The normalized surface every provider driver implements, so the session engine never sees
+// provider-native types. Only the daemon reads these shapes; the ones a client or
 // another contract also reads (run ids, capability flags, interventions, execution posture, models
 // and modes) are in `@ai-sidekicks/contracts`.
 //
@@ -63,9 +63,9 @@ export interface ProviderDriver {
   forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   // Both goal operations are gated on `session_goals`, like `forkConversation`. A provider that
-  // refuses the goal throws; success returns nothing.
-  setSessionGoal(params: SetSessionGoalParams): Promise<void>;
-  clearSessionGoal(params: ClearSessionGoalParams): Promise<void>;
+  // did not take the goal answers `degraded` rather than throwing an opaque failure.
+  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult>;
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult>;
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
@@ -75,7 +75,7 @@ export interface ProviderDriver {
   probeAuth(): Promise<DriverAuthProbeResult>;
   // Gated on `context_compaction`. Compacts the bound session's provider-side context on user
   // request only, settling on the provider's typed compaction evidence and never on the request
-  // being accepted (Codex answers an empty ack; Claude's `driver_command` frame only settles).
+  // being accepted (a provider may answer with an empty acknowledgement or not at all).
   // There is no prompt-injected emulation: a driver that cannot compact declares the flag `false`.
   // The wait ends at the driver's declared per-binding bound or when the binding stops being
   // live; a compaction frame that arrives after settlement still normalizes as an unsolicited one.
@@ -87,19 +87,31 @@ export interface ProviderDriver {
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
 }
 
+/**
+ * The `fallbackAction` of a steer a driver does not deliver natively: the daemon queues the steer
+ * text and interrupts the running turn.
+ */
+export const STEER_FALLBACK_ACTION = "queue_and_interrupt";
+
+/** A provider's model-list reply that could not be read as a catalog (a provider fault). */
+export class ModelCatalogUnreadableError extends Error {
+  /** `replyName` names the provider and its request, such as `Codex model/list`. */
+  constructor(replyName: string, detail: string) {
+    super(`${replyName} reply is not a readable model catalog: ${detail}`);
+    this.name = "ModelCatalogUnreadableError";
+  }
+}
+
 // ---- Method parameters and returns ----
 
 /** What the daemon hands a driver to open a session: config, spawn-bound legs and callbacks. */
 export interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
-  // The session's model. Claude Code takes it at process start as `--model`, so `switch_default`
-  // on its usage-credits prompt moves this session alone and never rewrites the account's saved
-  // default; Codex takes the model per turn.
+  // The session's model. A provider that takes it at process start applies `switch_default` on its
+  // usage-credits prompt to this session alone, never to the account's saved default; a provider
+  // that takes the model per turn reads it there.
   model: string;
-  // Realizes the native-cap-escape admitted cap at spawn for providers that bind budget caps then
-  // (Claude `--max-budget-usd`), so a cap-admitted leg is never launched capless.
-  admittedCostCapUsdMicros?: number | undefined;
   // The legs below are spawn-bound: a leg that binds at process spawn and receives nothing here
   // launches without it. Per-run carriers are `StartRunParams`; `ResumeSessionParams` repeats
   // these because resume is a fresh spawn.
@@ -110,13 +122,14 @@ export interface CreateSessionParams {
   // Requested is not granted: the provider's declared state is observed later as binding-held
   // `ProviderOutputSpeedState`, and neither value is rewritten into the other.
   outputSpeed?: string | undefined;
-  // Gated on `callback_tools`. Claude hosts the registry as a daemon-hosted ephemeral MCP server
-  // (`--mcp-config`), where the tools surface as `mcp__<server>__<tool>`.
+  // Gated on `callback_tools`. A driver may host the registry as a daemon-hosted ephemeral MCP
+  // server, where the tools surface under that server's name.
   callbackTools?: SessionCallbackTool[] | undefined;
   // Gated on the `subagents` flag.
   subagentPolicy?: SubagentPolicy | undefined;
-  // Gated on `structured_output`. A normalized JSON Schema constraining the final output. Claude
-  // binds it per session here (`--json-schema`); Codex per turn via `StartRunParams.outputSchema`.
+  // Gated on `structured_output`. A normalized JSON Schema constraining the final output, for a
+  // provider that binds it per session; one that binds it per turn reads
+  // `StartRunParams.outputSchema`.
   outputSchema?: Record<string, unknown> | undefined;
   // The provider account this leg is admitted against; omitted, the leg spawns against the node's
   // default for that provider. Opaque to the driver, which receives an already-constructed spawn
@@ -135,7 +148,7 @@ export interface CreateSessionParams {
     | undefined;
   // Daemon-injected MCP server-status sink, pre-bound to this leg's identity (session id and the
   // store-minted binding id) at spawn, so a driver cannot misattribute or spoof another leg's rows
-  // and needs no id it does not yet have for the init census it emits during `createSession`.
+  // and needs no id it lacks for the init census it emits during `createSession`.
   onMcpServerStatus?: McpServerStatusProducer | undefined;
 }
 
@@ -149,9 +162,6 @@ export interface ResumeSessionParams {
   // The session's current model, supplied by the caller rather than read from `spawn_config`: a
   // model switch after the spawn moves the session, so the spawn-time value would be stale.
   model: string;
-  // Re-threads the run.queued server-stamped admitted cap so the provider-side hard stop survives
-  // a daemon restart and session relaunch.
-  admittedCostCapUsdMicros?: number | undefined;
   // Resume is a fresh process spawn, so every spawn-bound member of `CreateSessionParams` must be
   // re-realized here or the resumed leg silently sheds it: a posture-less resume relaunches
   // unsandboxed, a schema-less one unconstrained. The data legs are rebuilt by the daemon from the
@@ -183,19 +193,16 @@ export interface ResumeSessionParams {
 export interface StartRunParams {
   runId: RunId;
   agentConfig: Record<string, unknown>;
-  // The run.queued server-stamped admitted family cap in whole micro-dollars, realized as the
-  // provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`).
-  admittedCostCapUsdMicros?: number | undefined;
   // Optionals are `?: T | undefined`, not bare `?: T`, under `exactOptionalPropertyTypes`: the
   // package idiom, which keeps an interface aligned with a schema's inferred type.
   conversationHistory?: unknown[] | undefined;
-  // The per-run effective posture, the same object the daemon stamps on `run.running`. Codex
-  // realizes it per turn (`turn/start` sandbox params); a provider that binds posture at spawn
+  // The per-run effective posture, the same object the daemon stamps on `run.running`. A provider
+  // that takes posture per turn realizes it there; a provider that binds posture at spawn
   // realizes it at session boundaries, and a mid-session change there resolves by session
   // relaunch, never a silent partial application.
   executionPosture?: ExecutionPosture | undefined;
-  // Per-turn schema-constrained final output (Codex `turn/start.outputSchema`); Claude binds the
-  // same schema at spawn via `CreateSessionParams.outputSchema`. Gated on `structured_output`.
+  // Per-turn schema-constrained final output; a provider that binds it at spawn reads
+  // `CreateSessionParams.outputSchema` instead. Gated on `structured_output`.
   outputSchema?: Record<string, unknown> | undefined;
 }
 
@@ -231,22 +238,31 @@ export interface ProviderSessionHandle {
  * Max length of `DriverAuthProbeResult.detail`, a short account or plan descriptor; a rejection
  * loses only descriptive text, never the probe `status` that carries the admission decision.
  */
-export const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
+const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
 /** Max length of `CallbackToolInvocation.toolCallId`, an opaque provider correlation id. */
 export const DRIVER_TOOL_CALL_ID_MAX_LEN = 256;
+
+/** The fixed sentence every `driver.capability_unsupported` refusal carries. */
+export const DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE =
+  "Requested capability is not supported by the driver";
 
 // ---- Capabilities ----
 
 /**
  * The provider CLI version as the spawned process reports it in-band, never from a launcher
- * symlink that may name a different build. `semver` is required so an unparseable version is
- * unrepresentable: the driver fails the report closed and attach refuses as
- * `driver.cli_version_unparseable`; a version below the configured floor refuses as
- * `driver.cli_version_below_floor`. `raw` is bounded where it is persisted, not here.
+ * symlink that may name a different build. `raw` is the printed version, always; `semver` is its
+ * canonical parse, present only when it parses. A version the parser cannot read still runs; the
+ * floor is compared only on a parsed version, and one below it refuses as
+ * `driver.cli_version_below_floor`.
  */
 export interface DriverCliVersionReport {
   raw: string;
-  semver: string;
+  semver?: string | undefined;
+}
+
+/** Rebuilds a stored report from its two columns; a NULL parse is a version that did not parse. */
+export function readCliVersionColumns(raw: string, semver: string | null): DriverCliVersionReport {
+  return semver === null ? { raw } : { raw, semver };
 }
 
 /**
@@ -256,7 +272,7 @@ export interface DriverCliVersionReport {
 export interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
-  // Required: a capability report without a parseable provider version never reaches the daemon.
+  // Required: every capability report carries the printed provider version.
   // It describes this reading rather than a capability, so it rides this wrapper and is not part
   // of the stored capability snapshot (the version floor gates attach only).
   cliVersion: DriverCliVersionReport;
@@ -291,8 +307,8 @@ export type CapabilityDetectionSource = "static" | "probed";
  * never silently create a replacement provider session under the same run. The `resumed` arm's
  * required `sessionPosition` is the driver's normalized monotonic position (a turn or event
  * ordinal, as in `ForkConversationResult`); the daemon compares it with its recorded position,
- * which catches a provider answering a resume with a fresh session (e.g. Claude on a
- * working-directory mismatch). Timestamps live on `runtime_bindings.updated_at`.
+ * which catches a provider answering a resume with a fresh session (as on a working-directory
+ * mismatch). Timestamps live on `runtime_bindings.updated_at`.
  */
 export type DriverResumeResult =
   | { status: "resumed"; bindingId: string; sessionPosition: number }
@@ -334,6 +350,21 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
       .strict(),
   ]);
 
+/**
+ * Fits failure text to `providerFailureDetail`'s rules (1..MAX characters, one non-whitespace
+ * character, no NUL): NULs are dropped and the text trimmed before it is truncated, and text left
+ * empty becomes the driver's `emptyFallback`.
+ */
+export function boundFailureDetail(detail: string, emptyFallback: string): string {
+  const trimmed = detail.replaceAll("\0", "").trim();
+  if (trimmed.length === 0) {
+    return emptyFallback;
+  }
+  return trimmed.length > DRIVER_FAILURE_DETAIL_MAX_LEN
+    ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
+    : trimmed;
+}
+
 // ---- Provider usage-limit signal ----
 
 // A driver emits a usage-limit signal only when a structured provider event it can name says the
@@ -349,11 +380,10 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
  * condition needs a human, while a spent usage allowance clears when the provider's window turns
  * over. One member on purpose: only `plan-allowance-exhausted`, the subscription allowance for a
  * rolling window, clears on its own. Excluded because a human must act or the state is not a
- * refused turn: a depleted credit balance (Codex `workspace_owner_credits_depleted` and
- * `workspace_member_credits_depleted`, restored by a purchase), a payment fault (Claude
- * `billing_error`), and a spend-control ceiling (Codex `spendControlReached`, an administrative
- * budget state on a snapshot). A turn refused for any of them settles on the driver's ordinary
- * turn-failure path. Widen the union deliberately; never with a free string.
+ * refused turn: a depleted credit balance (restored by a purchase), a payment fault, and a
+ * spend-control ceiling (an administrative budget state on a snapshot). A turn refused for any of
+ * them settles on the driver's ordinary turn-failure path. Widen the union deliberately; never
+ * with a free string.
  */
 type ProviderUsageLimitCause = "plan-allowance-exhausted";
 
@@ -406,8 +436,7 @@ export interface ForkConversationParams {
  * Discriminated on `status` like `DriverResumeResult`: `sessionPosition` is required on `applied`
  * and absent from `degraded`, so a fork without a confirmed position is unrepresentable. The schema
  * bounds shape only (integer >= 0); domain checks need session state and belong to the daemon.
- * `bindingId` is the binding the fork minted (Claude `--resume-session-at` with `--fork-session`;
- * Codex `thread/fork`), a store-minted surrogate and never a resume handle.
+ * `bindingId` is the binding the fork minted, a store-minted surrogate and never a resume handle.
  */
 export type ForkConversationResult =
   | { status: "applied"; sessionPosition: number; bindingId?: string | undefined }
@@ -439,6 +468,14 @@ export const ForkConversationResultSchema: z.ZodType<
 ]);
 
 // ---- Session goals ----
+
+/**
+ * What a goal operation did: `applied` when the provider took it, `degraded` when it did not, with
+ * the fallback the driver took instead. A success carries no fallback.
+ */
+export type DriverGoalResult =
+  | { status: "applied" }
+  | { status: "degraded"; fallbackAction?: string | undefined };
 
 /**
  * Params of `setSessionGoal` (gated on `session_goals`). `goalText` is the daemon-rendered text of
@@ -477,23 +514,38 @@ export interface ClearSessionGoalParams {
 export interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
   // Knowingly PII-bearing: a provider-reported account or plan descriptor whose observed shape is
-  // a plan name plus a seat email. Transient diagnostics for the person only: never persist it or
-  // carry it on an event without a PII classification and the erasure that obliges. Admission
+  // a plan name plus an account email. Transient diagnostics for the person only: never persist it
+  // or carry it on an event without a PII classification and the erasure that obliges. Admission
   // reads `status` for the decision and this field only to tell the person why, so dropping it
   // loses diagnostics, never correctness.
   detail?: string | undefined;
 }
 /** Validates a {@link DriverAuthProbeResult}; strict. */
-export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, DriverAuthProbeResult> =
-  z
-    .object({
-      status: z.enum(["authenticated", "unauthenticated", "indeterminate"]),
-      detail: wireFreeFormString(
-        DRIVER_AUTH_DETAIL_MAX_LEN,
-        "DriverAuthProbeResult.detail",
-      ).optional(),
-    })
-    .strict();
+const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, DriverAuthProbeResult> = z
+  .object({
+    status: z.enum(["authenticated", "unauthenticated", "indeterminate"]),
+    detail: wireFreeFormString(
+      DRIVER_AUTH_DETAIL_MAX_LEN,
+      "DriverAuthProbeResult.detail",
+    ).optional(),
+  })
+  .strict();
+
+/**
+ * Builds a probe result without throwing. `detail` is bounded to the auth cap and dropped if the
+ * envelope still refuses it, since `status` carries the decision.
+ */
+export function buildAuthProbeResult(
+  status: DriverAuthProbeResult["status"],
+  detail: string,
+): DriverAuthProbeResult {
+  const bounded =
+    detail.length > DRIVER_AUTH_DETAIL_MAX_LEN
+      ? detail.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
+      : detail;
+  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
+  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
+}
 
 // ---- Canonical transcript ----
 
@@ -502,7 +554,7 @@ export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, Drive
 // anything a provider held that never became an event is absent by construction, which is what
 // the declared-loss rule surfaces.
 
-/** Who authored a turn. The transcript carries no third author in V1. */
+/** Who authored a turn. The transcript carries no third author. */
 export type CanonicalTranscriptRole = "user" | "assistant";
 
 /**
@@ -748,9 +800,9 @@ export type SubagentPolicy =
   | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
 
 /**
- * The unified per-subagent definition each driver maps onto its provider form (Claude `--agents`
- * AgentDefinition; Codex `[agents]` config). Every field beyond `name` is optional because each leg
- * maps what its provider supports and ignores the rest, which the capability matrix grades.
+ * The unified per-subagent definition each driver maps onto its provider's own form. Every field
+ * beyond `name` is optional because each leg maps what its provider supports and ignores the
+ * rest, which the capability matrix grades.
  */
 export interface SubagentDefinition {
   name: string;
@@ -761,17 +813,3 @@ export interface SubagentDefinition {
   effort?: string | undefined;
   maxTurns?: number | undefined;
 }
-
-// ---- Driver transport configuration ----
-
-/**
- * How the daemon reaches a driver process; a daemon driver-registry setting, not an RPC payload or
- * a `ProviderDriver` member. Only the Codex leg uses it (`app-server --listen unix://|ws://`,
- * config-gated, off by default); the Claude CLI exposes no local listener. `bearerTokenRef`
- * references the ws bearer credential in daemon config, never the secret value, and is required on
- * the websocket arm so an unauthenticated ws listener is unrepresentable.
- */
-export type DriverTransportConfig =
-  | { transport: "stdio" }
-  | { transport: "unix-socket"; endpoint: string }
-  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };

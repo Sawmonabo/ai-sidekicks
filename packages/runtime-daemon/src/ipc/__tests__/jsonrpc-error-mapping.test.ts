@@ -53,6 +53,15 @@ describe("sanitizeFields — path redaction (Unix / UNC / Windows-drive)", () =>
     });
   });
 
+  it("keeps a slash inside a name, such as git's line refusing a branch", () => {
+    const out = sanitizeFields({
+      message: "fatal: 'feature/x y' is not a valid branch name; see /Users/me/repo",
+    });
+    expect(out).toEqual({
+      message: "fatal: 'feature/x y' is not a valid branch name; see <redacted-path>",
+    });
+  });
+
   it("redacts paths inside nested objects and arrays", () => {
     const out = sanitizeFields({
       issues: [{ path: ["localIpcPath"], hint: "/etc/daemon/config.toml" }],
@@ -246,14 +255,9 @@ describe("sanitizeFields — prototype-pollution defense", () => {
 describe("sanitizeFields — ReDoS / pathological input resilience", () => {
   it("handles `'a/'.repeat(50000)` and a 1MB path without throwing or hanging", () => {
     // The Unix path pattern `(?:\/[A-Za-z0-9_.-]+)+` must not backtrack catastrophically on a
-    // 100KB adversarial input.
+    // 100 KB `a/` run or a 1 MB path; a catastrophic case would hang into the test timeout.
     const adversarial = "a/".repeat(50_000);
-    const start = Date.now();
-    const out = sanitizeFields({ adversarial });
-    const elapsed = Date.now() - start;
-    expect(out).toBeDefined();
-    // A generous ceiling; a linear regex finishes in well under 50 ms.
-    expect(elapsed).toBeLessThan(5000);
+    expect(() => sanitizeFields({ adversarial })).not.toThrow();
 
     const purePath = `/${"x".repeat(1_000_000)}`;
     expect(() => sanitizeFields({ adversarial: purePath })).not.toThrow();
@@ -350,7 +354,6 @@ describe("mapJsonRpcError — DaemonDomainError wire projection", () => {
     const error = new DaemonDomainError("repo r-7 is not attached", {
       code: "repo.not_found",
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 404,
       detail: { repoId: "r-7" },
     });
 

@@ -1,5 +1,6 @@
 // Codex's static facts: what the daemon reads about it before any session exists.
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
 import type { DriverCapabilityDetectionTable, ProbeAnswer } from "../../capability-probe.js";
@@ -7,6 +8,7 @@ import type {
   ProviderDriverDescriptor,
   ReportedVersionReading,
 } from "../../provider-driver-descriptor.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CODEX_BUILT_IN_TOOLS } from "./tools.js";
 
 /**
@@ -123,18 +125,6 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
 });
 
 /**
- * Measured at the pinned build: the Codex app-server answers this for both an unaccepted name and
- * an accepted name whose payload does not deserialize, so the code alone classifies nothing.
- */
-const CODEX_INVALID_REQUEST_CODE = -32600;
-
-/**
- * The standard JSON-RPC method-not-found code. The pinned build does not emit it for an
- * unaccepted name, but a build that adopts it must not be read as acceptance.
- */
-const CODEX_METHOD_NOT_FOUND_CODE = -32601;
-
-/**
  * The deserializer's unknown-variant message: the refused variant, then the accepted set. Anchored
  * on those fragments because the `Invalid request: ` preamble does not discriminate.
  */
@@ -145,37 +135,34 @@ function parseEnumeratedWireNames(enumerationTail: string): readonly string[] {
   return [...enumerationTail.matchAll(/`([^`]*)`/g)].map((match) => match[1] ?? "");
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 /**
  * Classify one Codex reply about `probeName`. `-32600` is `unknown-name` only when the message's
  * unknown-variant enumeration names the probe as refused and its accepted set lacks it; every
  * ambiguous arm resolves toward `accepted`, since a wrong `unknown-name` disables a capability.
  */
 function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnswer {
-  const envelope = asRecord(payload);
-  if (envelope === undefined) {
+  if (!isPlainObject(payload)) {
     return "unrecognized";
   }
-  if ("result" in envelope) {
+  if ("result" in payload) {
     return "accepted";
   }
-  const error = asRecord(envelope["error"]);
-  if (error === undefined) {
+  const error = payload["error"];
+  if (!isPlainObject(error)) {
     return "unrecognized";
   }
   const code = error["code"];
   if (typeof code !== "number") {
     return "unrecognized";
   }
-  if (code === CODEX_METHOD_NOT_FOUND_CODE) {
+  // The pinned build does not emit method-not-found for an unaccepted name, but a build that
+  // adopts it must not be read as acceptance.
+  if (code === JsonRpcErrorCode.MethodNotFound) {
     return "unknown-name";
   }
-  if (code !== CODEX_INVALID_REQUEST_CODE) {
+  // The pinned build answers invalid-request both for an unaccepted name and for an accepted name
+  // whose payload does not deserialize, so the code alone classifies nothing.
+  if (code !== JsonRpcErrorCode.InvalidRequest) {
     return "accepted";
   }
   const message = error["message"];
@@ -208,7 +195,7 @@ function readCodexReportedVersion(payload: unknown, clientName: string): Reporte
       "Codex version extraction requires a daemon-supplied clientInfo.name carrying no '/' and no whitespace",
     );
   }
-  const userAgent = asRecord(payload)?.["userAgent"];
+  const userAgent = isPlainObject(payload) ? payload["userAgent"] : undefined;
   if (typeof userAgent !== "string") {
     return { unreadableReply: "" };
   }

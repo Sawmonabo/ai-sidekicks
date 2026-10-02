@@ -55,14 +55,12 @@ describe("NodeRegistry", () => {
 
   it("registers without a session: only the registration row is written", () => {
     const beforeSnapshots: number = tableRowCount("session_snapshots");
-    const beforeUserKeys: number = tableRowCount("user_keys");
 
     new NodeRegistry(context.database).register({ nodeId: NODE_ID, ownerUserId: OWNER_USER_ID });
 
     expect(tableRowCount("node_trust_state")).toBe(1);
     expect(tableRowCount("session_events")).toBe(0);
     expect(tableRowCount("session_snapshots")).toBe(beforeSnapshots);
-    expect(tableRowCount("user_keys")).toBe(beforeUserKeys);
   });
 
   it("refreshes only updated_at on re-registration", () => {

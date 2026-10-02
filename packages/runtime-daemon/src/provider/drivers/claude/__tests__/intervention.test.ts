@@ -5,7 +5,8 @@
 import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { CLAUDE_STEER_FALLBACK_ACTION, ClaudeInterventionDispatcher } from "../intervention.js";
+import { ClaudeInterventionDispatcher } from "../intervention.js";
+import { STEER_FALLBACK_ACTION } from "../../../provider-driver.js";
 import { ClaudeSessionUnavailableError } from "../session-errors.js";
 import { type ClaudeRunProcessLookup, type ClaudeProviderProcess } from "../session-transport.js";
 import {
@@ -54,9 +55,8 @@ describe("ClaudeInterventionDispatcher steer", () => {
 
     expect(result).toStrictEqual({
       status: "degraded",
-      fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
+      fallbackAction: STEER_FALLBACK_ACTION,
     });
-    expect(CLAUDE_STEER_FALLBACK_ACTION).toBe("queue_and_interrupt");
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
     // The degrade is never a partial application.
     expect(harness.channel.sentWireTexts).toStrictEqual([]);

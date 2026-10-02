@@ -5,14 +5,9 @@
 
 import { SessionIdSchema, type ExecutionPosture, type SessionId } from "@ai-sidekicks/contracts";
 import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../spawn-env.js";
-import { type CallerDeclaredFrameOrigin } from "../../outbound-frame.js";
+import { RUN_OPENING_FRAME_ORIGIN } from "../../outbound-frame.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CodexDriverConfigError } from "./session-errors.js";
-import {
-  isPlainObject,
-  readOptionalString,
-  readRecord,
-  readRequiredString,
-} from "./record-readers.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
 
 /**
@@ -37,15 +32,10 @@ export interface CodexSessionConfig {
 }
 
 /**
- * The origin declared for a run's opening frame: a fact of the code path, not a caller's claim.
- */
-export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
-
-/**
  * Posture-affecting `turn/start` fields the daemon derives; `StartRunParams.agentConfig` is
  * untyped, so this refusal keeps a caller-declared policy off the wire.
  */
-export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
+const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
   "cwd",
   "sandboxPolicy",
   "permissions",
@@ -60,10 +50,7 @@ export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
  * with `-32600`, an `experimentalApi` one accepts both), so V1 realizes `sandboxPolicy`;
  * `permissionProfile` refuses `-32602` at the pin.
  */
-export const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = [
-  "permissions",
-  "permissionProfile",
-];
+const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = ["permissions", "permissionProfile"];
 
 /**
  * Throws `CodexDriverConfigError` if a constructed `turn/start` carries an unrealized posture
@@ -365,15 +352,15 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "sessionId",
     "StartRunParams.agentConfig.sessionId",
   );
-  let sessionId: SessionId;
-  try {
-    sessionId = SessionIdSchema.parse(rawSessionId);
-  } catch {
+  const parsedSessionId = SessionIdSchema.safeParse(rawSessionId);
+  if (!parsedSessionId.success) {
     throw new CodexDriverConfigError(
       "StartRunParams.agentConfig.sessionId must be a session id.",
       "StartRunParams.agentConfig.sessionId",
+      { cause: parsedSessionId.error },
     );
   }
+  const sessionId = parsedSessionId.data;
   const input = readRequiredString(source, "input", "StartRunParams.agentConfig.input");
   const model = readOptionalString(source, "model", "StartRunParams.agentConfig.model");
   const clientUserMessageId = readOptionalString(
@@ -381,8 +368,9 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
-  // Read only to refuse: the run-opening boundary mints its own frame origin, and a
-  // caller-declared tripwire-exempt origin would deliver the user's words as a provider command.
+  // Read only to check it: the run-opening boundary mints its own frame origin, so any other value
+  // is refused; a caller-declared tripwire-exempt origin would deliver the user's words as a
+  // provider command.
   const declaredFrameOrigin = readOptionalString(
     source,
     "frameOrigin",
@@ -409,4 +397,40 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     ...(model === undefined ? {} : { model }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
   };
+}
+
+/** Returns the value as an object, or throws a configuration error naming the label. */
+function readRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw new CodexDriverConfigError(`${label} must be an object.`, label);
+  }
+  return value;
+}
+
+/** Reads a non-empty string field, or throws a configuration error naming the label. */
+function readRequiredString(source: Record<string, unknown>, key: string, label: string): string {
+  const value = source[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new CodexDriverConfigError(`${label} must be a non-empty string.`, label);
+  }
+  return value;
+}
+
+/**
+ * Reads a non-empty string field, or undefined when it is absent; throws when present but empty or
+ * not a string.
+ */
+function readOptionalString(
+  source: Record<string, unknown>,
+  key: string,
+  label: string,
+): string | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.length === 0) {
+    throw new CodexDriverConfigError(`${label} must be a non-empty string when present.`, label);
+  }
+  return value;
 }

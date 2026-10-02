@@ -4,12 +4,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TOOL = resolve(dirname(fileURLToPath(import.meta.url)), "..", "mutation-shards.mjs");
+const TOOLS_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const TOOL = join(TOOLS_DIRECTORY, "mutation-shards.mjs");
+const STRYKER_CONFIG = join(TOOLS_DIRECTORY, "..", "stryker.config.json");
 
 function mutant(testsCompleted) {
   return {
@@ -30,6 +32,10 @@ function fixtureRepository() {
     writeFileSync(join(source, name), "export const value = 1;\n");
   }
   writeFileSync(join(source, "__tests__", "sample.test.ts"), "");
+  // The repository's own config, so its exclusions are the ones the plan must apply.
+  copyFileSync(STRYKER_CONFIG, join(root, "stryker.config.json"));
+  mkdirSync(join(source, "session"));
+  writeFileSync(join(source, "session", "daemon-schema.ts"), "export const schema = '';\n");
   mkdirSync(join(root, "packages", "sample", ".stryker"));
   writeFileSync(
     join(root, "packages", "sample", ".stryker", "incremental.json"),

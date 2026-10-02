@@ -7,6 +7,7 @@ import type {
   ProviderDriverDescriptor,
   ReportedVersionReading,
 } from "../../provider-driver-descriptor.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CLAUDE_BUILT_IN_TOOLS } from "./tools.js";
 
 /**
@@ -24,7 +25,7 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "FALSE on this driver: no mid-turn content-injection subtype exists, and the steer intervention degrades to queue-plus-interrupt as a REPORTED degradation. A probe cannot grant a flag anyway (resolution is withdraw-only), so the channel has nothing to decide here.",
+      "FALSE on this driver: it sends no steer to the provider, and the steer intervention degrades to queue-plus-interrupt as a REPORTED degradation. A probe cannot grant a flag anyway (resolution is withdraw-only), so the channel has nothing to decide here.",
   },
   interactive_requests: {
     detectionSource: "static",
@@ -94,7 +95,7 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Delivered by the launch-time `--agents` definitions, which the control-request channel cannot interrogate.",
+      "Delivered by the `agents` map on the session's `initialize` request, which the control-request channel cannot interrogate afterward.",
   },
   context_compaction: {
     detectionSource: "static",
@@ -118,22 +119,16 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
 
 const CLAUDE_UNSUPPORTED_SUBTYPE_PREFIX = "Unsupported control request subtype:";
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 /**
  * Classifies one `control_response`, given the full envelope or the inner response object. The
  * refusal is name-level already, so the probe name is not read.
  */
 function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
-  const envelope = asRecord(payload);
-  if (envelope === undefined) {
+  if (!isPlainObject(payload)) {
     return "unrecognized";
   }
-  const response = asRecord(envelope["response"]) ?? envelope;
+  const inner = payload["response"];
+  const response = isPlainObject(inner) ? inner : payload;
   const subtype = response["subtype"];
   if (subtype === "success") {
     return "accepted";
@@ -154,7 +149,7 @@ function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
  * as-is.
  */
 function readClaudeReportedVersion(payload: unknown): ReportedVersionReading {
-  const version = asRecord(payload)?.["version"];
+  const version = isPlainObject(payload) ? payload["version"] : undefined;
   return typeof version === "string" ? { version } : { unreadableReply: "" };
 }
 

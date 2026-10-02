@@ -18,7 +18,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
+import { withSessionAppendLock } from "../session-append-lock.js";
 import {
   SessionPurge,
   type SessionPurgeEventLog,
@@ -69,11 +69,9 @@ let nextSequence: number;
 beforeEach(() => {
   database = openDatabase(":memory:");
   nextSequence = 0;
-  __resetSessionAppendLocksForTest();
 });
 
 afterEach(() => {
-  __resetSessionAppendLocksForTest();
   database.close();
 });
 

@@ -29,7 +29,7 @@ import {
   OutboundTextFrameWriter,
   RuntimeBindingQuarantine,
 } from "../../outbound-frame.js";
-import { ClaudeTerminalEmissionGate } from "./turn-evidence.js";
+import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
 import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 import {
   CLAUDE_COMPACTION_COMMAND_NAME,
@@ -39,7 +39,6 @@ import {
   type ClaudeProviderProcess,
   type ClaudeSessionTransport,
   composeClaudeMandatedEnvironment,
-  disposeSubagentAdmission,
   observeClaudeUserTextFailure,
 } from "./session-transport.js";
 import {
@@ -51,11 +50,11 @@ import {
   type LiveClaudeSession,
 } from "./session-state.js";
 import {
-  buildAuthProbeResult,
   CLAUDE_AUTH_PROBE_REACHED_DETAIL,
   ClaudeAuthenticationRequiredError,
   ClaudeSessionUnavailableError,
   describeFailure,
+  sanitizeFailureDetail,
 } from "./session-errors.js";
 import { assertClaudeSpawnBoundRealization, ClaudeSpawnLegComposer } from "./spawn-legs.js";
 import { ClaudeRunRoutes } from "./run-routes.js";
@@ -64,18 +63,19 @@ import { ClaudeFrameRouting } from "./frame-routing.js";
 import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session-establishment.js";
 import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
-import type {
-  CloseSessionParams,
-  CompactContextParams,
-  CreateSessionParams,
-  DriverAuthProbeResult,
-  DriverResumeResult,
-  ForkConversationResult,
-  ListProviderCommandsParams,
-  ProviderSessionHandle,
-  ResumeSessionParams,
-  ForkConversationParams,
-  StartRunParams,
+import {
+  buildAuthProbeResult,
+  type CloseSessionParams,
+  type CompactContextParams,
+  type CreateSessionParams,
+  type DriverAuthProbeResult,
+  type DriverResumeResult,
+  type ForkConversationResult,
+  type ListProviderCommandsParams,
+  type ProviderSessionHandle,
+  type ResumeSessionParams,
+  type ForkConversationParams,
+  type StartRunParams,
 } from "../../provider-driver.js";
 
 /** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
@@ -88,10 +88,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   // atomic.
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #runRoutes: ClaudeRunRoutes = new ClaudeRunRoutes();
-  // The producer half of the intended-close signal, signaled at the top of `closeSession` and
-  // consumed at the terminal-emission boundary in `event-normalizer.ts`. Keyed beside the slot map
-  // because the intent must be recordable while the slot holds no live session.
-  readonly #terminalEmissionGates: Map<SessionId, ClaudeTerminalEmissionGate> = new Map();
+  // The producer half of the intended-close signal, signaled at the top of `closeSession` before
+  // the channel is disposed, so the `result/*` it provokes reads as a clean shutdown. Keyed beside
+  // the slot map because the intent must be recordable while the slot holds no live session.
+  readonly #terminalEmissionGates: Map<SessionId, TerminalEmissionGate> = new Map();
   // A session's router and accountant, in one map so they are created and released together.
   readonly #routingBands: Map<SessionId, ClaudeSessionRoutingBand> = new Map();
   // The tripwire correlates each frame with the turn that settles it; the quarantine holds
@@ -212,6 +212,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     );
   }
 
+  /**
+   * Writes the run's opening text to its session's live channel, re-sending only a write that
+   * provably never left. Throws when the run cannot be dispatched, and rethrows the failed write's
+   * cause once the text may not be sent again.
+   */
   async startRun(params: StartRunParams): Promise<void> {
     const dispatch = await this.#runDispatchResolver.resolveRunDispatch(params);
     if (dispatch === undefined) {
@@ -296,13 +301,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       });
       return buildAuthProbeResult(
         "authenticated",
-        reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL,
+        sanitizeFailureDetail(reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL),
       );
     } catch (cause) {
       // Typed, not sniffed from the message, which provider rewording would break.
       return buildAuthProbeResult(
         cause instanceof ClaudeAuthenticationRequiredError ? "unauthenticated" : "indeterminate",
-        describeFailure(cause),
+        sanitizeFailureDetail(describeFailure(cause)),
       );
     }
   }
@@ -387,9 +392,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       });
     }
     const enumeration = this.#handshakes.enumerateProviderCommands(params.sessionId, live);
-    return await Promise.resolve({
+    return {
       bindings: [{ runId: this.#runRoutes.soleLiveRunOn(params.sessionId), ...enumeration }],
-    });
+    };
   }
 
   /**
@@ -438,7 +443,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
           // Not in `retireRunRoutes`: its terminal-path caller has just ruled the tripwire.
           this.#outboundFrameTripwire.forgetScope(params.sessionId);
           // Before the await, like the routes: a subagent would wait on a slot in a dying process.
-          disposeSubagentAdmission(slot.session.spawnBoundLegs);
+          slot.session.spawnBoundLegs.subagentAdmission?.dispose();
           await this.#disposeHeldChannel(params.sessionId, slot.session.channel);
           return;
         case "quarantined":
@@ -469,7 +474,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       // Per-session routing state; a surviving router would answer the next session with a stale
       // thread registry.
       this.#routingBands.delete(sessionId);
-      // A live read of a process that no longer exists; keeping it would be a stale registry.
+      // A live read of a process that has exited; keeping it would be a stale registry.
       this.#handshakes.forgetHandshake(sessionId);
     } catch (error) {
       // CLOSING -> QUARANTINED: nothing else references the still-running process, so keep the
@@ -483,11 +488,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   }
 
   /**
-   * The live channel a run is bound to, or `undefined` when it has none yet. Throws if a tripwire
-   * trip disposed the run's binding.
+   * The live channel a run is bound to, or `undefined` when no channel is bound to it. Throws if a
+   * tripwire trip disposed the run's binding.
    */
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
-    // Refused, not `undefined`, which would read as "no channel yet" and invite a retry into the
+    // Refused, not `undefined`, which would read as "no channel bound" and invite a retry into the
     // same swallow; the refusal carries the run terminal's code.
     this.#runtimeBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#runRoutes.sessionIdFor(runId);
@@ -501,7 +506,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
    * The terminal-emission gate for one session, read live at each terminal because a gate captured
    * before a close would miss the latch the close sets.
    */
-  terminalEmissionGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
+  terminalEmissionGateFor(sessionId: SessionId): TerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
   }
 
@@ -541,12 +546,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
 
   // Get-or-create, so the intent latch survives whichever of close and establishment reaches the
   // session first.
-  #intendedCloseGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
+  #intendedCloseGateFor(sessionId: SessionId): TerminalEmissionGate {
     const existing = this.#terminalEmissionGates.get(sessionId);
     if (existing !== undefined) {
       return existing;
     }
-    const gate = new ClaudeTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
     this.#terminalEmissionGates.set(sessionId, gate);
     return gate;
   }
@@ -567,9 +572,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     const band = this.#ensureRoutingBand(live.sessionId);
     this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
     // Discarded where all establishment paths converge, before listeners register: a resume reuses
-    // its predecessor's `providerSessionId`, so a surviving record would match. Fail-closed (none
-    // survives today); not restored on rollback, since a failed adoption already disposed its
-    // source.
+    // its predecessor's `providerSessionId`, so a surviving record would match. Not restored on
+    // rollback, since a failed adoption already disposed its source.
     this.#handshakes.forgetHandshake(live.sessionId);
     try {
       this.#registerLiveSessionHooks(band, live);
@@ -610,8 +614,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       this.#runRoutes.retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);
-    // Identity-gated the same way, and fail-closed: a frame from a channel the daemon no longer
-    // owns must not project.
+    // Identity-gated the same way, and fail-closed: a frame from a channel the daemon has released
+    // must not project.
     live.channel.onInboundFrame((observation): ThreadFrameRoute => {
       if (!this.#isChannelCurrentlyBound(live.sessionId, live.channel)) {
         return {
@@ -763,10 +767,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     if (live === undefined) {
       return;
     }
-    void this.#disposeHeldChannel(sessionId, live.channel).catch(() => {
-      // Recorded there: a rejected dispose has already moved the slot to `quarantined` with the
-      // channel retained for a later close. Rethrowing would be an unhandled rejection out of a
-      // terminal listener.
+    // A rejected dispose has already moved the slot to `quarantined` with the channel kept for a
+    // later close; rethrowing would be an unhandled rejection out of a terminal listener.
+    void this.#disposeHeldChannel(sessionId, live.channel).catch((cause: unknown) => {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "quarantined_session_dispose_failed",
+        rawWireType: null,
+        dispositionReason: describeFailure(cause),
+        details: { sessionId },
+      });
     });
   }
 
@@ -783,7 +793,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
 
     // Released after the successor is installed, so every earlier failure path is non-destructive.
     // A disposal failure does not fail the fork.
-    disposeSubagentAdmission(predecessor.spawnBoundLegs);
+    predecessor.spawnBoundLegs.subagentAdmission?.dispose();
     // The predecessor is going away, so its armed compaction waits can never see their evidence.
     // None exist for the successor: this method holds the rewind slot claim, and `compactContext`
     // needs a settled live slot.

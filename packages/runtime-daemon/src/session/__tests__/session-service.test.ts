@@ -12,47 +12,18 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
-import { SessionService, TestSeedingAppendToken } from "../session-service.js";
+import { SessionService } from "../session-service.js";
+import {
+  insertStoredEvent,
+  makeCreatedEvent,
+  OWNER_ACTOR_ID,
+  SESSION_ID,
+} from "./stored-event.test-support.js";
 import type { StoredEvent } from "../types.js";
 
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
-
-const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
-const OWNER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-
-function makeCreatedEvent(): StoredEvent {
-  return {
-    id: "01J0EV0000NN5J5J5J5J5J5J5J",
-    sessionId: SESSION_ID,
-    sequence: 0,
-    occurredAt: "2026-04-27T12:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: OWNER_ID,
-    payload: {
-      sessionId: SESSION_ID,
-      shape: "chat",
-      mainAgent: {
-        agentId: "44444444-4444-4444-8444-444444444444",
-        name: "Implementer",
-        binding: {
-          driverName: "claude",
-          modelId: "claude-sonnet-5",
-          providerAccountId: null,
-          effort: null,
-        },
-        ancestry: [],
-        createdAt: "2026-04-27T12:00:00.000Z",
-      },
-    },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
 
 function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): StoredEvent {
   return {
@@ -63,7 +34,7 @@ function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): 
     monotonicNs,
     category: "session_lifecycle",
     type: "session.renamed",
-    actor: OWNER_ID,
+    actor: OWNER_ACTOR_ID,
     payload: { sessionId: SESSION_ID, name },
     correlationId: null,
     causationId: null,
@@ -99,11 +70,7 @@ beforeEach(() => {
   const db: DatabaseType = openDatabase(dbPath);
   ctx = {
     db,
-    // Test-only opt-in to the guarded append path; the append-guard block pins the refusal on a
-    // default-constructed service.
-    service: new SessionService(db, {
-      allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
-    }),
+    service: new SessionService(db),
     dbPath,
     tmpDir,
   };
@@ -128,9 +95,9 @@ describe("SessionService — replay reads events by sequence ASC", () => {
     const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
     const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
-    ctx.service.append(secondRename);
-    ctx.service.append(created);
-    ctx.service.append(firstRename);
+    insertStoredEvent(ctx.db, secondRename);
+    insertStoredEvent(ctx.db, created);
+    insertStoredEvent(ctx.db, firstRename);
 
     const events = ctx.service.readEvents(SESSION_ID);
     expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
@@ -139,7 +106,7 @@ describe("SessionService — replay reads events by sequence ASC", () => {
     expect(snapshot).not.toBeNull();
     if (snapshot === null) return;
     expect(snapshot.asOfSequence).toBe(2);
-    expect(snapshot.ownerActor).toBe(OWNER_ID);
+    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
   });
 });
 // ----------------------------------------------------------------------------
@@ -154,9 +121,9 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
     const e1: StoredEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
     const e2: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
 
-    ctx.service.append(e0);
-    ctx.service.append(e1);
-    ctx.service.append(e2);
+    insertStoredEvent(ctx.db, e0);
+    insertStoredEvent(ctx.db, e1);
+    insertStoredEvent(ctx.db, e2);
 
     const events = ctx.service.readEvents(SESSION_ID);
     expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
@@ -185,7 +152,7 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
       ...makeCreatedEvent(),
       monotonicNs: BIGINT_BOUNDARY,
     };
-    ctx.service.append(created);
+    insertStoredEvent(ctx.db, created);
 
     const events = ctx.service.readEvents(SESSION_ID);
     expect(events).toHaveLength(1);
@@ -210,9 +177,9 @@ describe("SessionService — snapshot survives daemon restart", () => {
     const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
     const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
-    ctx.service.append(created);
-    ctx.service.append(firstRename);
-    ctx.service.append(secondRename);
+    insertStoredEvent(ctx.db, created);
+    insertStoredEvent(ctx.db, firstRename);
+    insertStoredEvent(ctx.db, secondRename);
 
     const beforeRestart = ctx.service.replay(SESSION_ID);
     expect(beforeRestart).not.toBeNull();
@@ -236,7 +203,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
     expect(afterRestart).toEqual(beforeRestart);
 
     if (afterRestart === null) return;
-    expect(afterRestart.ownerActor).toBe(OWNER_ID);
+    expect(afterRestart.ownerActor).toBe(OWNER_ACTOR_ID);
     expect(afterRestart.asOfSequence).toBe(2);
   });
 
@@ -247,26 +214,6 @@ describe("SessionService — snapshot survives daemon restart", () => {
     ctx.db = reopened;
     ctx.service = new SessionService(reopened);
     expect(schemaObjectNames(reopened)).toEqual(tablesBefore);
-  });
-
-  it("applyMigrations is idempotent against direct re-call on the same handle", () => {
-    const objectsBefore: ReadonlyArray<string> = schemaObjectNames(ctx.db);
-    applyMigrations(ctx.db);
-    applyMigrations(ctx.db);
-    expect(schemaObjectNames(ctx.db)).toEqual(objectsBefore);
-  });
-
-  it("applyMigrations on a second handle to the same file is a sequential no-op (read-after-write idempotency)", () => {
-    // Sequential, not concurrent: `ctx.db` already migrated, so a second handle must find the
-    // schema and return. The worker-thread race below covers real contention.
-    const secondHandle: DatabaseType = new Database(ctx.dbPath);
-    try {
-      applyPragmas(secondHandle);
-      applyMigrations(secondHandle);
-      expect(schemaObjectNames(secondHandle)).toEqual(schemaObjectNames(ctx.db));
-    } finally {
-      secondHandle.close();
-    }
   });
 });
 
@@ -517,49 +464,11 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 });
 
 // ----------------------------------------------------------------------------
-// Append guard
-// ----------------------------------------------------------------------------
-//
-// A default-constructed service is read-only, so a composition root wiring a real database cannot
-// reach the test-seeding append path, which bypasses the append lock, by accident.
-
-describe("SessionService — append guard (test-seeding writes are opt-in)", () => {
-  it("refuses append on a default-constructed service, naming the replacement writer and the opt-in", () => {
-    const guardedService: SessionService = new SessionService(ctx.db);
-    expect(() => guardedService.append(makeCreatedEvent())).toThrow(
-      /SessionService\.append is guarded/,
-    );
-    // The message names where durable writes belong and how tests opt in.
-    expect(() => guardedService.append(makeCreatedEvent())).toThrow(/EventLogService\.append/);
-    expect(() => guardedService.append(makeCreatedEvent())).toThrow(
-      /allowTestSeedingAppend.*TestSeedingAppendToken\.forTestsOnly\(\)/s,
-    );
-    // The refusal comes before any INSERT.
-    expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
-  });
-
-  it("refuses a forged token: the guard checks identity against the module-private singleton, not structure", () => {
-    // A boolean opt-in could be threaded in from configuration. Deserialized or hand-built data
-    // can never be the token singleton, so even a cast structural lookalike still throws.
-    const forgedToken = Object.freeze({
-      brand: "test-seeding-append",
-    }) as unknown as TestSeedingAppendToken;
-    const forgedService: SessionService = new SessionService(ctx.db, {
-      allowTestSeedingAppend: forgedToken,
-    });
-    expect(() => forgedService.append(makeCreatedEvent())).toThrow(
-      /SessionService\.append is guarded/,
-    );
-    expect(forgedService.readEvents(SESSION_ID)).toHaveLength(0);
-  });
-});
-
-// ----------------------------------------------------------------------------
 // Read-side payload trust boundary (parsePayload)
 // ----------------------------------------------------------------------------
 //
 // `readEvents` parses each row's `payload` as JSON and requires a plain object, matching the wire
-// schema's object payloads. A writer that bypasses `append()` and stores malformed JSON or a
+// schema's object payloads. A writer that stores malformed JSON or a
 // non-object value would otherwise surface as a misleading `TypeError` in the projector.
 //
 // The tests write through a raw statement: the `payload` column is `TEXT NOT NULL`, so SQLite

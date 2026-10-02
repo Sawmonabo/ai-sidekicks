@@ -5,18 +5,33 @@
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts";
 import { CodexDriverConfigError } from "./session-errors.js";
-import type { DriverTransportConfig } from "../../provider-driver.js";
 
 /**
  * Line the prelude emits once the tty is configured; nothing is written before it, because early
  * writes are echoed.
  */
+/**
+ * How the daemon reaches the Codex app server; a daemon driver-registry setting, not an RPC payload
+ * or a `ProviderDriver` member (`app-server --listen unix://|ws://`, config-gated, off by default).
+ * `bearerTokenRef` references the ws bearer credential in daemon config, never the secret value,
+ * and is required on the websocket arm so an unauthenticated ws listener is unrepresentable.
+ */
+export type DriverTransportConfig =
+  | { transport: "stdio" }
+  | { transport: "unix-socket"; endpoint: string }
+  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
+
 export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready__";
 
 /**
  * The `sh -c` script: `stty`, readiness sentinel, then `exec` of the provider; `&&` makes a failed
  * `stty` a typed startup failure, and `"$@"` passes argv words unparsed so no path becomes shell
  * syntax. Windows needs an equivalent termios step or a non-PTY transport.
+ *
+ * A PTY slave starts canonical with echo on, and `codex app-server` never calls `tcsetattr`.
+ * Canonical mode silently drops an input line over MAX_CANON (1024 bytes on Darwin; `codex-cli
+ * 0.149.1` answered a 1015-byte frame, not a 1045-byte one), and splitting a frame across writes
+ * does not help: the cap is per line, not per write.
  */
 export const CODEX_APP_SERVER_SHELL_PRELUDE: string =
   `stty -icanon -echo` +

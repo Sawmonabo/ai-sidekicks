@@ -176,23 +176,4 @@ describe("method-name format validation", () => {
       registry.register(name, passthroughSchema(), passthroughSchema(), async () => ({})),
     ).toThrow(expect.objectContaining({ registryCode: "invalid_method_name" }));
   });
-
-  it("registering a malformed method-name throws `RegistryRegistrationError(`invalid_method_name`)`", () => {
-    const registry = new MethodRegistryImpl();
-    let caught: unknown = null;
-    try {
-      registry.register(
-        "Session.create", // uppercase head — rejected
-        passthroughSchema<unknown>(),
-        passthroughSchema<unknown>(),
-        async () => undefined,
-      );
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(RegistryRegistrationError);
-    if (caught instanceof RegistryRegistrationError) {
-      expect(caught.registryCode).toBe("invalid_method_name");
-    }
-  });
 });

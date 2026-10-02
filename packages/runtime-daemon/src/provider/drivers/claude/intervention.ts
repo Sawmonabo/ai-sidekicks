@@ -4,9 +4,8 @@
 // thrown error, never a silent no-op. The degraded steer arm writes nothing to the provider, so
 // the daemon can queue the steer itself without it being applied twice.
 //
-// Claude steers degraded because it has no steer control-request subtype in the pinned build, and
-// writing the text as an ordinary user frame would start a turn the daemon never admitted.
-// `capabilities.ts` declares `steer: false` to match.
+// This driver sends no steer to the provider: the steer arm answers `degraded`, and the daemon
+// queues the message and interrupts. `capabilities.ts` declares `steer: false` to match.
 //
 // Failure polarity, for every arm:
 //   * A typed `control_response` error means the provider answered and refused: `degraded`, with
@@ -31,14 +30,9 @@ import {
   type RunId,
 } from "@ai-sidekicks/contracts";
 
+import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
 import { ClaudeSessionUnavailableError } from "./session-errors.js";
 import { type ClaudeRunProcessLookup } from "./session-transport.js";
-
-/**
- * The fallback the daemon applies for a steer this provider cannot do natively: queue the steer
- * text and interrupt the running turn. Returned as a hint; the schema bounds its length.
- */
-export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
 
 // Key of the uuids of queued user messages that outlived an interrupt. Builds without
 // `interrupt_receipt_v1` omit it, so absence means "reported nothing", not "nothing survived".
@@ -68,14 +62,18 @@ export class ClaudeInterventionDispatcher {
     this.#channelLookup = dependencies.channelLookup;
   }
 
+  /**
+   * Answers a steer with the queue-and-interrupt fallback and sends interrupt or cancel as the
+   * CLI's interrupt request. Throws `ClaudeSessionUnavailableError` when the run has no channel.
+   */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     switch (params.type) {
       case "steer": {
-        // Answered without resolving the run: the missing native steer is a fact about the
-        // driver, not the run, so it holds whether or not a channel is live. Nothing is sent.
+        // Answered without resolving the run: the driver sends no steer whether or not a channel
+        // is live. Nothing is sent.
         return DriverInterventionResultSchema.parse({
           status: "degraded",
-          fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
+          fallbackAction: STEER_FALLBACK_ACTION,
         });
       }
       case "interrupt": {

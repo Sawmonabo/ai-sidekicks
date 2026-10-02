@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { captureThrow } from "../__fixtures__/capture-throw.js";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts";
 
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
@@ -224,20 +225,18 @@ describe("provider spawn environment — host name-matching semantics", () => {
     // A policy written for another host's semantics is a wiring fault. Honoring the policy would
     // leave `path` in a child on a case-insensitive host; honoring the host would apply a deny
     // list under semantics its author never assumed.
-    expect.assertions(3);
-    try {
+    const error = captureThrow(() =>
       buildProviderSpawnEnv({
         driverName: "claude",
         baseEnv: CURATED_BASE,
         hostEnvNameMatch: host,
         credentialEnvPolicy: { denyEnvVars: ["ANTHROPIC_API_KEY"], envNameMatch: policy },
-      });
-    } catch (error) {
-      expect(error).toBeInstanceOf(ProviderSpawnEnvNameMatchMismatchError);
-      // Both values ride the error as members, so the person knows which side to fix.
-      expect((error as ProviderSpawnEnvNameMatchMismatchError).hostEnvNameMatch).toBe(host);
-      expect((error as ProviderSpawnEnvNameMatchMismatchError).policyEnvNameMatch).toBe(policy);
-    }
+      }),
+    );
+    expect(error).toBeInstanceOf(ProviderSpawnEnvNameMatchMismatchError);
+    // Both values ride the error as members, so the person knows which side to fix.
+    expect((error as ProviderSpawnEnvNameMatchMismatchError).hostEnvNameMatch).toBe(host);
+    expect((error as ProviderSpawnEnvNameMatchMismatchError).policyEnvNameMatch).toBe(policy);
   });
 });
 
@@ -254,7 +253,7 @@ describe("bound-account child environment carries no ambient credential inherita
 
   function withAmbientCredential<Result>(run: () => Result): Result {
     const previous = process.env[AMBIENT_CREDENTIAL_NAME];
-    process.env[AMBIENT_CREDENTIAL_NAME] = "sk-ambient-operator-token";
+    process.env[AMBIENT_CREDENTIAL_NAME] = "sk-ambient-person-token";
     try {
       return run();
     } finally {

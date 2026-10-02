@@ -64,7 +64,7 @@ function seedFromVector(v: PasetoV4Vector): Uint8Array {
   throw new Error(`vector ${v.name} missing secret-key / secret-key-seed`);
 }
 
-describe("PASETO v4.local RFC vector conformance (4-E-*)", () => {
+describe("PASETO v4.local vector conformance (4-E-*)", () => {
   const localVectors = FILE.tests.filter((t) => t.name.startsWith("4-E-"));
 
   for (const v of localVectors) {
@@ -96,7 +96,7 @@ describe("PASETO v4.local RFC vector conformance (4-E-*)", () => {
   }
 });
 
-describe("PASETO v4.public RFC vector conformance (4-S-*)", () => {
+describe("PASETO v4.public vector conformance (4-S-*)", () => {
   const publicVectors = FILE.tests.filter((t) => t.name.startsWith("4-S-"));
 
   for (const v of publicVectors) {
@@ -127,7 +127,7 @@ describe("PASETO v4.public RFC vector conformance (4-S-*)", () => {
   }
 });
 
-describe("PASETO v4 RFC failure-vector conformance (4-F-*)", () => {
+describe("PASETO v4 failure-vector conformance (4-F-*)", () => {
   const failVectors = FILE.tests.filter((t) => t.name.startsWith("4-F-"));
 
   for (const v of failVectors) {

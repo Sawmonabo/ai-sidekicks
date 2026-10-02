@@ -1,11 +1,11 @@
 // Tests `LocalIpcGateway` over a real local socket: Content-Length framing and its size caps, the
 // request-id and `protocolVersion` envelope gates, error sanitization, and start/stop behavior.
 //
-// `beforeEach` resets the `SecureDefaults` singleton, which vitest shares across cases in one
-// process; each gateway test bootstraps it again. Every test that binds a socket uses a fresh
-// path under `os.tmpdir()` so parallel workers never collide.
+// Each gateway test bootstraps `SecureDefaults` with its own socket path before binding; the
+// latest load wins. Every test that binds a socket uses a fresh path under `os.tmpdir()` so parallel
+// workers never collide.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -17,12 +17,9 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
 } from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { bootstrap } from "../../bootstrap/index.js";
-import { SecureDefaults } from "../../bootstrap/secure-defaults.js";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
-
 import { FramingError, parseFrame } from "../content-length-framing.js";
 import {
   encodeFrame,
@@ -49,13 +46,27 @@ function ephemeralSocketPath(label: string): string {
   return path.join(os.tmpdir(), `aisk-test-${label}-${suffix}.sock`);
 }
 
-// A connected client socket that accumulates the bytes it receives; `waitForBytes` resolves once
-// a predicate over the accumulated buffer holds.
+// A connected client socket that accumulates the bytes it receives. `waitForFrames(n)` resolves
+// with the accumulated bytes once they hold `n` complete frames; a malformed reply rejects with the
+// parser's `FramingError` instead of waiting for the test timeout.
 interface ClientHelper {
   readonly socket: net.Socket;
   readonly received: Buffer[];
-  readonly waitForBytes: (predicate: (acc: Buffer) => boolean) => Promise<Buffer>;
+  readonly waitForFrames: (count: number) => Promise<Buffer>;
   readonly close: () => Promise<void>;
+}
+
+function countCompleteFrames(acc: Buffer): number {
+  let count = 0;
+  let rest = acc;
+  for (;;) {
+    const result = parseFrame(rest, MAX_MESSAGE_BYTES);
+    if (result.frame === null) {
+      return count;
+    }
+    count += 1;
+    rest = rest.subarray(result.consumed);
+  }
 }
 
 function makeClient(socketPath: string): Promise<ClientHelper> {
@@ -63,32 +74,42 @@ function makeClient(socketPath: string): Promise<ClientHelper> {
     const sock = net.createConnection(socketPath);
     const received: Buffer[] = [];
     const waiters: Array<{
-      readonly predicate: (acc: Buffer) => boolean;
+      readonly count: number;
       readonly resolve: (value: Buffer) => void;
+      readonly reject: (reason: unknown) => void;
     }> = [];
-    sock.on("data", (chunk: Buffer) => {
-      received.push(chunk);
+    // Settles every waiter the accumulated bytes answer; a framing error rejects them all.
+    const settleWaiters = (): void => {
       const acc = Buffer.concat(received);
+      let frameCount: number;
+      try {
+        frameCount = countCompleteFrames(acc);
+      } catch (framingError) {
+        for (const waiter of waiters.splice(0)) {
+          waiter.reject(framingError);
+        }
+        return;
+      }
       for (let i = waiters.length - 1; i >= 0; i--) {
-        const w = waiters[i];
-        if (w !== undefined && w.predicate(acc)) {
+        const waiter = waiters[i];
+        if (waiter !== undefined && frameCount >= waiter.count) {
           waiters.splice(i, 1);
-          w.resolve(acc);
+          waiter.resolve(acc);
         }
       }
+    };
+    sock.on("data", (chunk: Buffer) => {
+      received.push(chunk);
+      settleWaiters();
     });
     sock.once("connect", () => {
       const helper: ClientHelper = {
         socket: sock,
         received,
-        waitForBytes(predicate) {
-          return new Promise((res) => {
-            const acc = Buffer.concat(received);
-            if (predicate(acc)) {
-              res(acc);
-              return;
-            }
-            waiters.push({ predicate, resolve: res });
+        waitForFrames(count) {
+          return new Promise((res, rej) => {
+            waiters.push({ count, resolve: res, reject: rej });
+            settleWaiters();
           });
         },
         close() {
@@ -122,14 +143,6 @@ function decodeOneFrame(acc: Buffer): unknown {
   const text = result.frame.toString("utf8");
   return JSON.parse(text);
 }
-
-beforeEach(() => {
-  SecureDefaults.__resetForTest();
-});
-
-afterEach(() => {
-  SecureDefaults.__resetForTest();
-});
 
 describe("Content-Length framing parser correctness", () => {
   it("decodes a single complete frame and reports byte-correct `consumed`", () => {
@@ -271,7 +284,7 @@ describe("Content-Length framing parser correctness", () => {
 
 describe("Unix domain socket round-trip", () => {
   it("binds, accepts a connection, dispatches a request, and returns the typed result", async () => {
-    const socketPath = ephemeralSocketPath("t2");
+    const socketPath = ephemeralSocketPath("round-trip");
     bootstrap({
       localIpcPath: socketPath,
       bannerFormat: "text",
@@ -300,16 +313,7 @@ describe("Unix domain socket round-trip", () => {
           params: { a: 3, b: 4 },
         };
         client.socket.write(encodeFrame(request));
-        const acc = await client.waitForBytes((b) => {
-          const r = (() => {
-            try {
-              return parseFrame(b, MAX_MESSAGE_BYTES);
-            } catch {
-              return { frame: null, consumed: 0 };
-            }
-          })();
-          return r.frame !== null;
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.jsonrpc).toBe(JSONRPC_VERSION);
         expect(response.id).toBe(1);
@@ -329,7 +333,7 @@ describe("Windows named pipe round-trip", () => {
   it.skipIf(process.platform !== "win32")(
     "binds a named pipe, accepts a connection, dispatches a request, and returns the typed result",
     async () => {
-      const pipeName = `\\\\?\\pipe\\aisk-test-t3-${Math.random().toString(36).slice(2, 10)}`;
+      const pipeName = `\\\\?\\pipe\\aisk-test-pipe-round-trip-${Math.random().toString(36).slice(2, 10)}`;
       bootstrap({
         localIpcPath: pipeName,
         bannerFormat: "text",
@@ -357,16 +361,7 @@ describe("Windows named pipe round-trip", () => {
             params: { ping: true },
           };
           client.socket.write(encodeFrame(request));
-          const acc = await client.waitForBytes((b) => {
-            const r = (() => {
-              try {
-                return parseFrame(b, MAX_MESSAGE_BYTES);
-              } catch {
-                return { frame: null, consumed: 0 };
-              }
-            })();
-            return r.frame !== null;
-          });
+          const acc = await client.waitForFrames(1);
           const response = decodeOneFrame(acc) as JsonRpcResponse;
           expect(response.id).toBe(1);
           expect(response.result).toStrictEqual({ pong: true });
@@ -380,9 +375,9 @@ describe("Windows named pipe round-trip", () => {
   );
 });
 
-describe("1MB max-message-size enforcement", () => {
+describe("max-message-size enforcement", () => {
   it("oversized body → connection close + `-32600` InvalidRequest error frame; reconnect succeeds", async () => {
-    const socketPath = ephemeralSocketPath("t5");
+    const socketPath = ephemeralSocketPath("oversized");
     bootstrap({
       localIpcPath: socketPath,
       bannerFormat: "text",
@@ -408,13 +403,7 @@ describe("1MB max-message-size enforcement", () => {
             resolve("closed");
           });
         });
-        const errored = client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const errored = client.waitForFrames(1);
         const racer = await Promise.race([
           closed,
           errored.then((acc) => ({ kind: "errored" as const, acc })),
@@ -453,13 +442,7 @@ describe("1MB max-message-size enforcement", () => {
           params: {},
         };
         client2.socket.write(encodeFrame(request));
-        const acc = await client2.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client2.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.id).toBe(1);
         expect(response.result).toStrictEqual({ ok: true });
@@ -475,7 +458,7 @@ describe("1MB max-message-size enforcement", () => {
 
 describe("handler-thrown error mapping", () => {
   it("unhandled handler exception → `-32603` with sanitized message; no path/stack leak", async () => {
-    const socketPath = ephemeralSocketPath("t10");
+    const socketPath = ephemeralSocketPath("error-mapping");
     bootstrap({
       localIpcPath: socketPath,
       bannerFormat: "text",
@@ -505,13 +488,7 @@ describe("handler-thrown error mapping", () => {
           params: {},
         };
         client.socket.write(encodeFrame(request));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.jsonrpc).toBe(JSONRPC_VERSION);
         expect(response.id).toBe(9);
@@ -550,7 +527,7 @@ describe("handler-thrown error mapping", () => {
   });
 
   it("supervision hooks fire on connect / disconnect with a stable transport id", async () => {
-    const socketPath = ephemeralSocketPath("t10-hooks");
+    const socketPath = ephemeralSocketPath("hooks");
     bootstrap({
       localIpcPath: socketPath,
       bannerFormat: "text",
@@ -568,21 +545,16 @@ describe("handler-thrown error mapping", () => {
     try {
       await gateway.start();
       const client = await makeClient(socketPath);
-      await new Promise<void>((res) => setTimeout(res, 25));
-      expect(onConnect).toHaveBeenCalledTimes(1);
-      const transportArg = onConnect.mock.calls[0]?.[0];
-      expect(transportArg).toBeDefined();
-      if (
-        transportArg !== null &&
-        typeof transportArg === "object" &&
-        "remoteFamily" in transportArg
-      ) {
-        const family = (transportArg as { remoteFamily: unknown }).remoteFamily;
-        expect(family).toBe("unix");
-      }
+      await vi.waitFor(() => {
+        expect(onConnect).toHaveBeenCalledTimes(1);
+      });
+      const connectedTransport = onConnect.mock.calls[0]?.[0] as { readonly id: number };
       await client.close();
-      await new Promise<void>((res) => setTimeout(res, 25));
-      expect(onDisconnect).toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+      expect(onDisconnect).toHaveBeenCalledWith(connectedTransport, "client_close");
+      expect(onError).not.toHaveBeenCalled();
     } finally {
       await gateway.stop();
       await fs.rm(socketPath, { force: true });
@@ -590,13 +562,14 @@ describe("handler-thrown error mapping", () => {
   });
 });
 
-// `beforeEach` resets `SecureDefaults` and nothing bootstraps it, so the gateway's bind check
-// must throw.
 describe("enforcement (gateway side)", () => {
-  it("LocalIpcGateway.start() throws synchronously when SecureDefaults has not been loaded", async () => {
-    const registry = new MethodRegistryImpl();
-    const gateway = new LocalIpcGateway({ registry });
-    await expect(gateway.start()).rejects.toThrow(/SecureDefaults\.load/);
+  it("LocalIpcGateway.start() throws when SecureDefaults has not been loaded", async () => {
+    // A fresh module graph, so no earlier case's load is in force.
+    vi.resetModules();
+    const { LocalIpcGateway: UnloadedGateway } = await import("../local-ipc-gateway.js");
+    const { MethodRegistryImpl: UnloadedRegistry } = await import("../registry.js");
+    const gateway = new UnloadedGateway({ registry: new UnloadedRegistry() });
+    await expect(gateway.start()).rejects.toThrow(/must complete before any listener bind/);
   });
 });
 
@@ -683,13 +656,7 @@ describe("malformed request id rejected before dispatch", () => {
           const bodyBytes = Buffer.from(bodyText, "utf8");
           const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
           client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-          const acc = await client.waitForBytes((b) => {
-            try {
-              return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-            } catch {
-              return false;
-            }
-          });
+          const acc = await client.waitForFrames(1);
           const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           // JSON-RPC 2.0 requires a null id when the request id is invalid.
@@ -747,13 +714,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
         expect(bodyBytes.byteLength).toBeLessThan(MAX_MESSAGE_BYTES);
         const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
         client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
         expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
@@ -792,13 +753,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
         const bodyBytes = Buffer.from(bodyText, "utf8");
         const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
         client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
         expect(response.id).toBeNull();
@@ -840,13 +795,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
           params: {},
         } as JsonRpcRequest);
         client.socket.write(frame);
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.id).toBe(atBoundId);
         expect(response.result).toEqual({ ok: true });
@@ -982,13 +931,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
         const client = await makeClient(socketPath);
         try {
           client.socket.write(frameWithProtocolVersion("session.create", 11, pvLiteral));
-          const acc = await client.waitForBytes((b) => {
-            try {
-              return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-            } catch {
-              return false;
-            }
-          });
+          const acc = await client.waitForFrames(1);
           const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           // The reply keeps the request id so the client can correlate it.
@@ -1023,13 +966,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
       const client = await makeClient(socketPath);
       try {
         client.socket.write(frameWithProtocolVersion("daemon.hello", 3, null));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.id).toBe(3);
         expect(response.result).toStrictEqual({ ok: true });
@@ -1053,29 +990,13 @@ describe("envelope-level protocolVersion substrate gate", () => {
       const client = await makeClient(socketPath);
       try {
         client.socket.write(frameWithProtocolVersion("session.create", 21, null));
-        const firstAcc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const firstAcc = await client.waitForFrames(1);
         const firstResponse = decodeOneFrame(firstAcc) as JsonRpcErrorResponse;
         expect(firstResponse.id).toBe(21);
         expect(firstResponse.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
         // A well-formed request on the same socket must still dispatch.
         client.socket.write(frameWithProtocolVersion("session.create", 22, '"2026-05-01"'));
-        const secondAcc = await client.waitForBytes((b) => {
-          // Wait until two frames have accumulated.
-          try {
-            const r1 = parseFrame(b, MAX_MESSAGE_BYTES);
-            if (r1.frame === null) return false;
-            const remaining = b.subarray(r1.consumed);
-            return parseFrame(remaining, MAX_MESSAGE_BYTES).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const secondAcc = await client.waitForFrames(2);
         const r1 = parseFrame(secondAcc, MAX_MESSAGE_BYTES);
         if (r1.frame === null) throw new Error("expected first frame to decode");
         const remaining = secondAcc.subarray(r1.consumed);

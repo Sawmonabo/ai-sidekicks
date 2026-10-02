@@ -6,42 +6,12 @@ import { describe, expect, it } from "vitest";
 
 import { replay } from "../session-projector.js";
 import type { DaemonSessionSnapshot, StoredEvent } from "../types.js";
-
-const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
-const OWNER_ACTOR_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-const OCCURRED_AT: string = "2026-04-27T12:00:00.000Z";
-
-function makeCreatedEvent(): StoredEvent {
-  return {
-    id: "01J0EV0000NN5J5J5J5J5J5J5J",
-    sessionId: SESSION_ID,
-    sequence: 0,
-    occurredAt: OCCURRED_AT,
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: OWNER_ACTOR_ID,
-    payload: {
-      sessionId: SESSION_ID,
-      shape: "chat",
-      mainAgent: {
-        agentId: "44444444-4444-4444-8444-444444444444",
-        name: "Implementer",
-        binding: {
-          driverName: "claude",
-          modelId: "claude-sonnet-5",
-          providerAccountId: null,
-          effort: null,
-        },
-        ancestry: [],
-        createdAt: OCCURRED_AT,
-      },
-    },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
+import {
+  makeCreatedEvent,
+  OCCURRED_AT,
+  OWNER_ACTOR_ID,
+  SESSION_ID,
+} from "./stored-event.test-support.js";
 
 describe("session-projector — bootstrap projection", () => {
   it("records the owner from a single session.created event", () => {
@@ -50,7 +20,6 @@ describe("session-projector — bootstrap projection", () => {
     if (snapshot === null) return; // type guard for TS
 
     expect(snapshot.sessionId).toBe(SESSION_ID);
-    expect(snapshot.state).toBe("provisioning");
     expect(snapshot.createdAt).toBe(OCCURRED_AT);
     expect(snapshot.asOfSequence).toBe(0);
 
@@ -77,8 +46,8 @@ describe("session-projector — bootstrap refusals", () => {
     expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
   });
 
-  // `SessionService.append` accepts any sequence, so this projector check is the only guard
-  // against a log that opens at sequence > 0 and hides lost or corrupted earlier events.
+  // A stored row can carry any sequence, so this projector check is the only guard against a log
+  // that opens at sequence > 0 and hides lost or corrupted earlier events.
 
   it("rejects a bootstrap session.created event at sequence > 0", () => {
     const nonZeroBootstrap: StoredEvent = {

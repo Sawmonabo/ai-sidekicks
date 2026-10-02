@@ -13,8 +13,6 @@
  *   would destroy the previous binding's base and head branches, which no other row records.
  */
 
-import { join } from "node:path";
-
 import type { Database, Statement } from "better-sqlite3";
 
 import {
@@ -36,7 +34,14 @@ import {
   type ReusableWorktreeCandidate,
   type ValidateWorktreeReuseInput,
 } from "../git/worktree-service.js";
-import { HOOK_NEUTRALIZATION_SEGMENT } from "../git/worktree-git.js";
+import {
+  createHookNeutralizedGitCommand,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  readGitExitStatus,
+  type GitCommand,
+  type GitInvocationResult,
+  type GitRunner,
+} from "../git/git-process.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 import { RepoMountNotFoundError } from "./repo-errors.js";
@@ -44,41 +49,14 @@ import { HOLDING_RUN_ID_METADATA_PATH } from "./workspace-row-guards.js";
 import { WorkspaceBusyError, WorkspaceNotFoundError } from "./workspace-service-errors.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
-/** Two minutes, matching the worktree service; the only git call here is a `symbolic-ref` read. */
-const DEFAULT_EXECUTION_ROOT_GIT_TIMEOUT_MS = 120_000;
-
 /** A space is illegal in a git ref, so this cannot be mistaken for a real branch name. */
 const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";
 
 /** Exit status of `symbolic-ref --quiet` on a detached HEAD; any other non-zero one is a fault. */
 const DETACHED_HEAD_EXIT_CODE = 1;
 
-/** One git invocation's captured output. */
-export interface ExecutionRootGitInvocationResult {
-  /** Exit 1 with empty output from `symbolic-ref --quiet` is a detached HEAD, an answer. */
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-/** Per-invocation bounds. */
-interface ExecutionRootGitInvocationOptions {
-  /** Wall-clock ceiling; the child is killed past it. */
-  readonly timeoutMs: number;
-}
-
-/**
- * The git process seam, local because `GitFileExecutor` (`./repo-root-resolver.ts`) takes an
- * executable and env policy this module lacks. Rejects only without an exit status, and
- * rejections stay opaque so git's `stderr` never reaches a typed error.
- */
-export type ExecutionRootGitRunner = (
-  argv: readonly string[],
-  options: ExecutionRootGitInvocationOptions,
-) => Promise<ExecutionRootGitInvocationResult>;
-
 /** The filesystem seam. One verb: create leading directories, tolerate existing. */
-export interface ExecutionRootFilesystem {
+interface ExecutionRootFilesystem {
   createDirectory(path: string): Promise<void>;
 }
 
@@ -124,8 +102,8 @@ export interface ExecutionRootServiceDeps {
    * the one the worktree services resolve.
    */
   readonly executionRootsDirectory: string;
-  /** Git process seam. Required: no sibling exports a reusable executor to default to. */
-  readonly git: ExecutionRootGitRunner;
+  /** Git process seam; required, so the composition root names the runner. */
+  readonly git: GitRunner;
   /** Filesystem seam. Required, like `git`. */
   readonly filesystem: ExecutionRootFilesystem;
   /** Per-invocation git timeout; defaults to two minutes. */
@@ -299,10 +277,7 @@ interface MaterializedRoot {
 export class ExecutionRootService {
   readonly #workspaces: WorkspaceLifecyclePrimitives;
   readonly #worktrees: ExecutionRootWorktreeProvisioner;
-  readonly #git: ExecutionRootGitRunner;
-  readonly #filesystem: ExecutionRootFilesystem;
-  readonly #hookNeutralizationDirectory: string;
-  readonly #gitCommandTimeoutMs: number;
+  readonly #runGit: GitCommand;
   readonly #now: () => string;
   readonly #newBranchContextId: () => string;
 
@@ -325,14 +300,14 @@ export class ExecutionRootService {
   constructor(deps: ExecutionRootServiceDeps) {
     this.#workspaces = deps.workspaces;
     this.#worktrees = deps.worktrees;
-    this.#git = deps.git;
-    this.#filesystem = deps.filesystem;
-    // Same `join` as the sibling services; a differing separator would name a second directory.
-    this.#hookNeutralizationDirectory = join(
-      deps.executionRootsDirectory,
-      HOOK_NEUTRALIZATION_SEGMENT,
-    );
-    this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_EXECUTION_ROOT_GIT_TIMEOUT_MS;
+    // `-c core.fsmonitor=false` is inert here (`symbolic-ref` never reaches the fsmonitor hook);
+    // the shared entry point keeps every service's argv the same.
+    this.#runGit = createHookNeutralizedGitCommand({
+      git: deps.git,
+      createDirectory: (path) => deps.filesystem.createDirectory(path),
+      executionRootsDirectory: deps.executionRootsDirectory,
+      timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newBranchContextId = deps.newBranchContextId ?? mintUuidV7;
 
@@ -741,7 +716,7 @@ export class ExecutionRootService {
    */
   async #failRootPreparation(workspaceId: string, cause: unknown): Promise<void> {
     try {
-      await this.#workspaces.failRootPreparation(workspaceId, describeFailure(cause));
+      await this.#workspaces.failRootPreparation(workspaceId, composeLastErrorDetail(cause));
     } catch {
       // Deliberate. See the docblock.
     }
@@ -791,9 +766,13 @@ export class ExecutionRootService {
     canonicalRoot: string,
     requestedBranchName: string,
   ): Promise<void> {
-    let result: ExecutionRootGitInvocationResult;
+    // Exit 1 with empty output is a detached HEAD, an answer refused as a mismatch. Any other
+    // status (git's 128) or none at all is infrastructure, and reporting it as detached would
+    // suggest an impossible repair. Status only in the message: git's diagnostics name the
+    // repository.
+    let currentBranchName: string;
     try {
-      result = await this.#runGit([
+      const result: GitInvocationResult = await this.#runGit([
         "-C",
         canonicalRoot,
         "symbolic-ref",
@@ -801,33 +780,23 @@ export class ExecutionRootService {
         "--short",
         "HEAD",
       ]);
+      currentBranchName = result.stdout.toString("utf8").trim();
     } catch (invocationFailure) {
-      throw new ExecutionRootServiceInvariantError(
-        `branch verification for workspace ${workspaceId} could not run git`,
-        {
-          kind: "branch_verification_failed",
-          workspaceId,
+      const exitStatus: number | null = readGitExitStatus(invocationFailure);
+      if (exitStatus !== DETACHED_HEAD_EXIT_CODE || !printedNothing(invocationFailure)) {
+        throw new ExecutionRootServiceInvariantError(
+          exitStatus === null
+            ? `branch verification for workspace ${workspaceId} could not run git`
+            : `branch verification for workspace ${workspaceId} exited with status ${exitStatus}`,
           // For local logs; nothing puts it on the wire.
-          cause: invocationFailure,
-        },
-      );
+          { kind: "branch_verification_failed", workspaceId, cause: invocationFailure },
+        );
+      }
+      currentBranchName = "";
     }
 
-    // Exit 1 with empty output is a detached HEAD, refused as a mismatch. Any other status (git's
-    // 128, or no status at all) is infrastructure, and reporting it as detached would suggest an
-    // impossible repair.
-    const currentBranchName = result.stdout.trim();
-    const detached = result.exitCode === DETACHED_HEAD_EXIT_CODE && currentBranchName.length === 0;
-
-    // Status only: git's diagnostics routinely name the repository.
-    if (result.exitCode !== 0 && !detached) {
-      throw new ExecutionRootServiceInvariantError(
-        `branch verification for workspace ${workspaceId} exited with status ${result.exitCode}`,
-        { kind: "branch_verification_failed", workspaceId },
-      );
-    }
-
-    if (detached || currentBranchName !== requestedBranchName) {
+    // An empty name (detached) never equals a requested one, which is never empty.
+    if (currentBranchName !== requestedBranchName) {
       throw new WorkspaceBranchMismatchError(
         workspaceId,
         requestedBranchName,
@@ -835,25 +804,15 @@ export class ExecutionRootService {
       );
     }
   }
+}
 
-  /**
-   * The single git entry point. `-c core.hooksPath=<empty dir>` keeps the user's checkout hooks
-   * from running (a command-line `-c` outranks repository config); `core.fsmonitor=false` only
-   * matches the worktree service's argv, since `symbolic-ref` never reaches the fsmonitor hook.
-   */
-  async #runGit(argv: readonly string[]): Promise<ExecutionRootGitInvocationResult> {
-    await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(
-      [
-        "-c",
-        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
-        "-c",
-        "core.fsmonitor=false",
-        ...argv,
-      ],
-      { timeoutMs: this.#gitCommandTimeoutMs },
-    );
+/** Whether a rejected git invocation printed nothing on stdout. */
+function printedNothing(rejection: unknown): boolean {
+  if (typeof rejection !== "object" || rejection === null || !("stdout" in rejection)) {
+    return true;
   }
+  const stdout: unknown = rejection.stdout;
+  return !Buffer.isBuffer(stdout) || stdout.toString("utf8").trim().length === 0;
 }
 
 /**
@@ -862,7 +821,7 @@ export class ExecutionRootService {
  * message cannot contain. It discriminates by class because `SqliteError` and `ErrnoException`
  * both carry `code` and messages with paths. `failRootPreparation` applies the normalizer.
  */
-function describeFailure(cause: unknown): string {
+function composeLastErrorDetail(cause: unknown): string {
   if (!(cause instanceof Error)) {
     return "execution root preparation failed";
   }

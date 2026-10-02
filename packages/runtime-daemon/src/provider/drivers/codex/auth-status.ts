@@ -1,17 +1,17 @@
 /**
- * Reads the account state Codex reports, turns it into an auth probe result or a resume recovery
- * condition, and normalizes a provider failure into the detail a caller can show.
+ * Reads the account state Codex reports and turns it into an auth probe result or a resume
+ * recovery condition.
  */
 
 import { type RecoveryCondition } from "@ai-sidekicks/contracts";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { CodexAppServerConnection } from "./app-server-connection.js";
-import { CodexProviderRequestError } from "./session-errors.js";
+import { CodexProviderRequestError, normalizeProviderFailureDetail } from "./session-errors.js";
 import {
-  DRIVER_AUTH_DETAIL_MAX_LEN,
-  DriverAuthProbeResultSchema,
-  type DriverAuthProbeResult,
-} from "../../provider-driver.js";
+  type CodexDiagnosticSink,
+  reportDiagnosticFromDetachedFrame,
+} from "./transport-diagnostics.js";
+import { buildAuthProbeResult, type DriverAuthProbeResult } from "../../provider-driver.js";
 
 /**
  * Zero-turn auth probe; answerable with `experimentalApi: false`. Preferred over the `codex login
@@ -27,25 +27,9 @@ export const CODEX_AUTH_PROBE_TIMEOUT_MS = 10_000;
 const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS = 2_000;
 
 /**
- * Builds a probe result without throwing. `detail` is bounded tighter than failure detail and
- * dropped if the envelope still refuses it; `status` carries the decision.
- */
-export function buildAuthProbeResult(
-  status: DriverAuthProbeResult["status"],
-  detail: string,
-): DriverAuthProbeResult {
-  const bounded =
-    detail.length > DRIVER_AUTH_DETAIL_MAX_LEN
-      ? detail.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
-      : detail;
-  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
-  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
-}
-
-/**
  * Maps a `getAuthStatus` answer onto the probe result. Only `authMethod` is read, never
  * `authToken`; it is a closed mechanism enum, safe as `detail` (unlike `account/read`, which
- * carries a plan name and seat email). A `null` method is `unauthenticated` even if no OpenAI
+ * carries a plan name and account email). A `null` method is `unauthenticated` even if no OpenAI
  * sign-in is required.
  */
 export function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResult {
@@ -96,11 +80,13 @@ export async function requestCodexAuthStatus(
  * connection is asked the credential question directly (the provider has no typed auth error),
  * and only after a `CodexProviderRequestError`, which proves the child is alive; asking a
  * wedged connection would wait out a second deadline. Anything short of a determinate
- * logged-out reading, an `indeterminate` probe included, is `recovery-needed`.
+ * logged-out reading, an `indeterminate` or failed probe included, is `recovery-needed`; a failed
+ * probe is reported to `reportDiagnostic`.
  */
 export async function classifyResumeRecoveryCondition(
   connection: CodexAppServerConnection,
   cause: unknown,
+  reportDiagnostic: CodexDiagnosticSink,
 ): Promise<RecoveryCondition> {
   if (!(cause instanceof CodexProviderRequestError) || connection.isClosed) {
     return "recovery-needed";
@@ -110,8 +96,12 @@ export async function classifyResumeRecoveryCondition(
       await requestCodexAuthStatus(connection, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS),
     );
     return reading.status === "unauthenticated" ? "reauth-required" : "recovery-needed";
-  } catch {
+  } catch (probeFault) {
     // Contained: a failed probe must not replace the typed `failed` result the resume path returns.
+    reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+      kind: "resume-auth-classification-failed",
+      detail: normalizeProviderFailureDetail(probeFault),
+    });
     return "recovery-needed";
   }
 }

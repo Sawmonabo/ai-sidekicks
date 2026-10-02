@@ -7,45 +7,15 @@
 
 #![cfg(unix)]
 
+mod common;
+
 use std::time::Duration;
 
-use sidecar_rust_pty::protocol::{
-    DataStream, Envelope, KillRequest, PtySignal, SpawnRequest, WriteRequest,
-};
+use sidecar_rust_pty::protocol::{Envelope, KillRequest, PtySignal, SpawnRequest, WriteRequest};
 use sidecar_rust_pty::pty_session::PtySessionRegistry;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::timeout;
 
-/// Budget for a child to exit and its `ExitCodeNotification` to arrive; it finishes in
-/// milliseconds, so 2 s only fails fast on a hang.
-const EXIT_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// Collects envelopes from `rx` until an `ExitCodeNotification` arrives or `EXIT_TIMEOUT` elapses,
-/// so tests can assert ordering without busy-waiting.
-async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope> {
-    let mut envelopes = Vec::new();
-    let deadline_fut = timeout(EXIT_TIMEOUT, async {
-        loop {
-            match rx.recv().await {
-                Some(env) => {
-                    let is_exit = matches!(env, Envelope::ExitCodeNotification(_));
-                    envelopes.push(env);
-                    if is_exit {
-                        return;
-                    }
-                }
-                None => return,
-            }
-        }
-    });
-    let _ = deadline_fut.await;
-    envelopes
-}
-
-/// An empty env keeps the spawn request minimal; these tests do not need one.
-fn empty_env() -> Vec<(String, String)> {
-    Vec::new()
-}
+use common::{assert_hello_then_clean_exit, drain_until_exit, empty_env};
 
 #[tokio::test]
 async fn spawn_echo_emits_data_frame_then_exit() {
@@ -65,67 +35,8 @@ async fn spawn_echo_emits_data_frame_then_exit() {
         .await
         .expect("spawn should succeed");
 
-    let session_id = response.session_id.clone();
-
     let envelopes = drain_until_exit(&mut rx).await;
-
-    // At least one `DataFrame`, then exactly one `ExitCodeNotification` at the tail.
-    let data_frames: Vec<_> = envelopes
-        .iter()
-        .filter_map(|e| match e {
-            Envelope::DataFrame(df) => Some(df),
-            _ => None,
-        })
-        .collect();
-    let exit_notifications: Vec<_> = envelopes
-        .iter()
-        .filter_map(|e| match e {
-            Envelope::ExitCodeNotification(n) => Some(n),
-            _ => None,
-        })
-        .collect();
-
-    assert!(
-        !data_frames.is_empty(),
-        "expected at least one DataFrame, got envelopes: {envelopes:?}"
-    );
-    assert_eq!(
-        exit_notifications.len(),
-        1,
-        "expected exactly one ExitCodeNotification, got envelopes: {envelopes:?}"
-    );
-
-    assert!(matches!(
-        envelopes.last().expect("non-empty"),
-        Envelope::ExitCodeNotification(_)
-    ));
-
-    // Every `DataFrame` carries the session id and `Stdout` (a PTY merges stdout and stderr).
-    for df in &data_frames {
-        assert_eq!(df.session_id, session_id);
-        assert_eq!(
-            df.stream,
-            DataStream::Stdout,
-            "every DataFrame is Stdout (the PTY merges stdout and stderr)"
-        );
-    }
-
-    // The exit notification has the same session id, exit code 0, and no signal code.
-    let exit = exit_notifications[0];
-    assert_eq!(exit.session_id, session_id);
-    assert_eq!(exit.exit_code, 0);
-    assert_eq!(exit.signal_code, None, "signal_code is None for every exit");
-
-    // The PTY may translate LF to CRLF, so assert `contains` rather than equality.
-    let mut combined: Vec<u8> = Vec::new();
-    for df in &data_frames {
-        combined.extend_from_slice(&df.bytes);
-    }
-    let combined_str = String::from_utf8_lossy(&combined);
-    assert!(
-        combined_str.contains("hello"),
-        "combined DataFrame bytes should contain 'hello', got: {combined_str:?}"
-    );
+    assert_hello_then_clean_exit(&envelopes, &response.session_id);
 }
 
 #[tokio::test]
@@ -291,7 +202,6 @@ async fn write_round_trips_through_cat() {
     assert_eq!(write_response.session_id, response.session_id);
 
     // Collect for up to 500 ms, long enough for the echo and `cat`'s output.
-    // test fast.
     let mut combined: Vec<u8> = Vec::new();
     let collect_fut = timeout(Duration::from_millis(500), async {
         while let Some(env) = rx.recv().await {

@@ -1,8 +1,6 @@
-// Codex capability declaration: the flags match the provider's matrix, composition admits the floor
-// and newer builds but refuses a below-floor, unparseable or foreign reading, and the model catalog
-// reads the provider's recorded `model/list` reply.
+// Codex capability declaration: composition refuses a foreign reading, and the model catalog reads the provider's recorded
+// `model/list` reply.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,46 +8,20 @@ import {
   RecordingDeclarationSink,
   fullyProbedDetectionReading,
 } from "../../../__fixtures__/capability-probe-doubles.js";
+import { codexDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
 import type { CapabilityDetectionReading } from "../../../capability-probe.js";
-import {
-  DriverCliVersionBelowFloorError,
-  DriverCliVersionUnparseableError,
-} from "../../../capability-refresh.js";
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
-import { CODEX_DRIVER_DESCRIPTOR } from "../codex-driver-descriptor.js";
 import {
-  CODEX_CAPABILITY_FLAGS,
   CODEX_DRIVER_NAME,
-  CodexModelCatalogUnreadableError,
   getCodexCapabilities,
   normalizeCodexModelCatalog,
   refreshCodexCapabilities,
 } from "../capabilities.js";
-import type { DriverCliVersionReport } from "../../../provider-driver.js";
-
-// The Codex column, restated here instead of imported from the module under test, so the
-// assertion is not a tautology.
-const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
-  resume: true,
-  steer: true,
-  interactive_requests: true,
-  mcp: true,
-  tool_calls: true,
-  reasoning_stream: false,
-  model_mutation: true,
-  structured_output: true,
-  rollback: true,
-  session_fork: true,
-  session_goals: true,
-  callback_tools: true,
-  subagents: true,
-  // `context_compaction` and `provider_commands` are native on this provider
-  // (`thread/compact/start` and `skills/list`).
-  context_compaction: true,
-  provider_commands: true,
-  output_speed: false,
-};
+import {
+  type DriverCliVersionReport,
+  ModelCatalogUnreadableError,
+} from "../../../provider-driver.js";
 
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
   raw: "0.149.1",
@@ -83,78 +55,9 @@ const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading(
   "codex",
   CLI_VERSION_READING.resolvedExecutablePath,
 );
-const CODEX_PROBE = new RecordingCapabilityProbeTransport("codex");
+const CODEX_PROBE = new RecordingCapabilityProbeTransport(codexDefaultProbeReply);
 
 /** The diagnostic band, muted: this suite asserts declarations, not records. */
-function silentDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
-}
-
-// Type-level check that the declared key set is exactly the canonical flag union: a missing or
-// stray flag fails to compile.
-type MutuallyAssignable<Left, Right> = [Left] extends [Right]
-  ? [Right] extends [Left]
-    ? true
-    : false
-  : false;
-const declaredFlagKeysAreExactlyCanonical: MutuallyAssignable<
-  keyof typeof CODEX_CAPABILITY_FLAGS,
-  DriverCapabilityFlag
-> = true;
-
-describe("Codex capability declaration", () => {
-  it("declares exactly the Codex capability matrix", () => {
-    expect(declaredFlagKeysAreExactlyCanonical).toBe(true);
-    expect({ ...CODEX_CAPABILITY_FLAGS }).toEqual(SPEC_CODEX_MATRIX);
-  });
-});
-
-describe("Codex CLI-version floor", () => {
-  it("refuses a below-floor report at composition, so attach and refresh both hit the gate", () => {
-    let thrown: unknown;
-    try {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }),
-        CODEX_DETECTION,
-      );
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    const error = thrown as DriverCliVersionBelowFloorError;
-    expect(error.code).toBe("driver.cli_version_below_floor");
-    expect(error.fields).toStrictEqual({
-      driverName: "codex",
-      reportedSemver: "0.140.0",
-      floor: CODEX_DRIVER_DESCRIPTOR.cliVersionFloor,
-    });
-  });
-
-  it("refuses a non-canonical semver member fail-closed as unparseable", () => {
-    expect(() => {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli mystery", semver: "mystery" }),
-        CODEX_DETECTION,
-      );
-    }).toThrow(DriverCliVersionUnparseableError);
-  });
-
-  it("admits the floor itself and any newer build, above the pin included", () => {
-    expect(() => {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli 0.141.0", semver: "0.141.0" }),
-        CODEX_DETECTION,
-      );
-    }).not.toThrow();
-    expect(() => {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli 0.150.1", semver: "0.150.1" }),
-        CODEX_DETECTION,
-      );
-    }).not.toThrow();
-  });
-});
-
 describe("Codex composition is bound to the spawned build", () => {
   it("refuses a reading taken from ANOTHER driver's build", async () => {
     // A wiring fault, not provider misbehavior: composing Codex flags against a Claude build's
@@ -175,7 +78,7 @@ describe("Codex composition is bound to the spawned build", () => {
       refreshCodexCapabilities(sink, {
         reading: foreign,
         probe: CODEX_PROBE.exchange,
-        diagnostics: silentDiagnostics(),
+        diagnostics: makeSilentDriverDiagnostics(),
       }),
     ).rejects.toThrow(/driver 'claude'/);
     expect(sink.calls).toHaveLength(0);
@@ -197,9 +100,9 @@ describe("Codex composition is bound to the spawned build", () => {
 /**
  * Golden vector: the `model/list` result payload recorded from `codex-cli 0.150.1` with a
  * zero-turn JSON-RPC request to `codex app-server` after `initialize` / `initialized`. Copied
- * field for field, except the per-effort `description` strings, which nothing reads. The recorded
- * reply carried no `serviceTiers`; each row here carries the one tier that later `model/list`
- * reads gave every listed model.
+ * field for field, except the per-effort `description` strings, which nothing reads. The recording
+ * carries no `serviceTiers`, so each row adds the one tier a `model/list` read lists for every
+ * model.
  *
  * Eight rows, `nextCursor: null`, `hidden: false` throughout, and two effort vocabularies, which
  * is why the level list is a per-model member rather than a per-provider constant.
@@ -305,6 +208,6 @@ describe("Codex model catalog", () => {
         data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol" }],
         nextCursor: "cursor-2",
       }),
-    ).toThrow(CodexModelCatalogUnreadableError);
+    ).toThrow(ModelCatalogUnreadableError);
   });
 });

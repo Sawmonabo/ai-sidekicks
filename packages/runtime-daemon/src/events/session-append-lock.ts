@@ -120,12 +120,3 @@ export function isWithinSessionAppendLockHold(): boolean {
   }
   return false;
 }
-
-/**
- * Test-only: forgets all queued per-session lock state so a case that left a queue non-empty
- * cannot stall the next one. It does not cancel in-flight critical sections, so calling it while
- * an append is running allows two concurrent holders on one session; call it between cases only.
- */
-export function __resetSessionAppendLocksForTest(): void {
-  sessionAppendQueueTails.clear();
-}

@@ -51,12 +51,9 @@ export class ClaudeRunRoutes {
 
   /** The run a join key names, checked against the session it is bound to. */
   runIdBoundToSession(joinKey: string, sessionId: SessionId): RunId | undefined {
-    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
-      if (runId === joinKey && boundSessionId === sessionId) {
-        return runId;
-      }
-    }
-    return undefined;
+    // Looked up as a plain string: a key found in the map is a run id by construction.
+    const sessionIdByRunKey: ReadonlyMap<string, SessionId> = this.#sessionIdByRunId;
+    return sessionIdByRunKey.get(joinKey) === sessionId ? (joinKey as RunId) : undefined;
   }
 
   /** Drops every run route pointing at this session; the slot is untouched. */

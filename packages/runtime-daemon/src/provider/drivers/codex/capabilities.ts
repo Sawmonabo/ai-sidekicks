@@ -17,10 +17,7 @@ import {
   type CapabilityDetectionReading,
   type CapabilityProbeExchange,
 } from "../../capability-probe.js";
-import {
-  assertCliVersionMeetsFloor,
-  emitCapabilityDetectionDiagnostics,
-} from "../../capability-refresh.js";
+import { emitCapabilityDetectionDiagnostics } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
@@ -28,9 +25,13 @@ import type {
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
-import { CODEX_DRIVER_DESCRIPTOR } from "./codex-driver-descriptor.js";
 import { getCodexToolMetadata } from "./tools.js";
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  ModelCatalogUnreadableError,
+} from "../../provider-driver.js";
+import { isPlainObject, readNonEmptyString } from "../../record-readers.js";
 
 /** Canonical driver id for Codex: the `driver_*` table key and the registry id. */
 export const CODEX_DRIVER_NAME = "codex" as const;
@@ -82,8 +83,8 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
 
 /**
  * Composes the `getCapabilities()` report from the build `reading` and probe `detection`; the
- * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws the floor
- * gate's errors for a bad version, and a plain `Error` for a foreign or mismatched reading.
+ * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws a plain
+ * `Error` for a foreign or mismatched reading; the version passed the floor gate when it was read.
  */
 export function getCodexCapabilities(
   reading: SpawnedProviderVersionReading,
@@ -107,26 +108,21 @@ export function getCodexCapabilities(
     );
   }
   const cliVersion: DriverCliVersionReport = reading.report;
-  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, cliVersion);
   return {
     capabilities: {
       flags: applyCapabilityDetection(CODEX_CAPABILITY_FLAGS, detection),
       contractVersion: CODEX_CAPABILITY_CONTRACT_VERSION,
     },
     tools: getCodexToolMetadata(),
-    cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
+    cliVersion: { ...cliVersion },
     // Fresh: the reading's record is frozen and shared.
     detectionSource: { ...detection.detectionSource },
-    // Present only when the flag is true, which it never is for this driver.
-    ...(CODEX_CAPABILITY_FLAGS.output_speed
-      ? { outputSpeedLevels: [...CODEX_DRIVER_DESCRIPTOR.outputSpeedLevels] }
-      : {}),
   };
 }
 
 /**
- * Takes one detection reading for the build `reading` describes; the floor gate runs first, so a
- * below-floor build is never probed. Withdrawals are reported here so attach and refresh meter
+ * Takes one detection reading for the build `reading` describes; the reading passed the floor gate
+ * when it was taken, so a below-floor build is never probed. Withdrawals are reported here so attach and refresh meter
  * them through one counter.
  */
 export async function readCodexCapabilityDetection(
@@ -139,7 +135,6 @@ export async function readCodexCapabilityDetection(
       `readCodexCapabilityDetection: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
     );
   }
-  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, reading.report);
   const detection = await readCapabilityDetection({
     driverName: CODEX_DRIVER_NAME,
     boundExecutablePath: reading.resolvedExecutablePath,
@@ -184,63 +179,52 @@ export async function refreshCodexCapabilities(
  */
 export type CodexModelCatalogExchange = () => Promise<unknown>;
 
-/** Thrown when a `model/list` reply is not a readable catalog; it has no registered wire code. */
-export class CodexModelCatalogUnreadableError extends Error {
-  constructor(detail: string) {
-    super(`Codex model/list reply is not a readable model catalog: ${detail}`);
-    this.name = "CodexModelCatalogUnreadableError";
-  }
-}
-
-function readNonEmptyCodexString(source: Record<string, unknown>, key: string): string | undefined {
-  const value = source[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+function codexCatalogUnreadable(detail: string): ModelCatalogUnreadableError {
+  return new ModelCatalogUnreadableError("Codex model/list", detail);
 }
 
 /**
- * Strictly normalizes one `model/list` reply, throwing {@link CodexModelCatalogUnreadableError}
+ * Strictly normalizes one `model/list` reply, throwing {@link ModelCatalogUnreadableError}
  * for the whole reply on any fault. Refuses a paginated reply, a duplicate id and a present
  * non-array effort or service-tier list; drops hidden rows.
  */
 export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
-    throw new CodexModelCatalogUnreadableError("reply is not an object");
+    throw codexCatalogUnreadable("reply is not an object");
   }
   const reply = payload as Record<string, unknown>;
   const rawModels = reply["data"];
   if (!Array.isArray(rawModels)) {
-    throw new CodexModelCatalogUnreadableError("reply has no `data` array");
+    throw codexCatalogUnreadable("reply has no `data` array");
   }
   // Answering the first page alone would publish a silently short model list.
   const nextCursor = reply["nextCursor"];
   if (nextCursor !== null && nextCursor !== undefined) {
-    throw new CodexModelCatalogUnreadableError(
-      "reply is paginated and this driver reads a single page",
-    );
+    throw codexCatalogUnreadable("reply is paginated and this driver reads a single page");
   }
 
   const models: ProviderModel[] = [];
   const seenIds = new Set<string>();
   for (const rawEntry of rawModels) {
     if (typeof rawEntry !== "object" || rawEntry === null) {
-      throw new CodexModelCatalogUnreadableError("a `data` entry is not an object");
+      throw codexCatalogUnreadable("a `data` entry is not an object");
     }
     const entry = rawEntry as Record<string, unknown>;
-    const id = readNonEmptyCodexString(entry, "id");
+    const id = readNonEmptyString(entry, "id");
     if (id === undefined) {
-      throw new CodexModelCatalogUnreadableError("a `data` entry has no `id`");
+      throw codexCatalogUnreadable("a `data` entry has no `id`");
     }
     // This surface has no alias mechanism, so a duplicate id is a malformed reply.
     if (seenIds.has(id)) {
-      throw new CodexModelCatalogUnreadableError(`model '${id}' appears twice`);
+      throw codexCatalogUnreadable(`model '${id}' appears twice`);
     }
     seenIds.add(id);
     if (entry["hidden"] === true) {
       continue;
     }
-    const displayName = readNonEmptyCodexString(entry, "displayName");
+    const displayName = readNonEmptyString(entry, "displayName");
     if (displayName === undefined) {
-      throw new CodexModelCatalogUnreadableError(`model '${id}' has no \`displayName\``);
+      throw codexCatalogUnreadable(`model '${id}' has no \`displayName\``);
     }
     const rawServiceTiers = entry["serviceTiers"];
     if (
@@ -248,9 +232,7 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
       rawServiceTiers !== null &&
       !Array.isArray(rawServiceTiers)
     ) {
-      throw new CodexModelCatalogUnreadableError(
-        `model '${id}' has an unreadable \`serviceTiers\``,
-      );
+      throw codexCatalogUnreadable(`model '${id}' has an unreadable \`serviceTiers\``);
     }
     const model: ProviderModel = {
       id,
@@ -261,22 +243,17 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     // `null` counts as absence: refusing it would cost the whole catalog, as any entry fault does.
     const rawEfforts = entry["supportedReasoningEfforts"];
     if (rawEfforts !== undefined && rawEfforts !== null && !Array.isArray(rawEfforts)) {
-      throw new CodexModelCatalogUnreadableError(
-        `model '${id}' has an unreadable \`supportedReasoningEfforts\``,
-      );
+      throw codexCatalogUnreadable(`model '${id}' has an unreadable \`supportedReasoningEfforts\``);
     }
     if (Array.isArray(rawEfforts) && rawEfforts.length > 0) {
       const effortLevels: string[] = [];
       for (const rawEffort of rawEfforts) {
         // The level rides a nested object here (`{ reasoningEffort, description }`).
-        const level =
-          typeof rawEffort === "object" && rawEffort !== null
-            ? readNonEmptyCodexString(rawEffort as Record<string, unknown>, "reasoningEffort")
-            : undefined;
+        const level = isPlainObject(rawEffort)
+          ? readNonEmptyString(rawEffort, "reasoningEffort")
+          : undefined;
         if (level === undefined) {
-          throw new CodexModelCatalogUnreadableError(
-            `model '${id}' has an unreadable reasoning-effort entry`,
-          );
+          throw codexCatalogUnreadable(`model '${id}' has an unreadable reasoning-effort entry`);
         }
         effortLevels.push(level);
       }

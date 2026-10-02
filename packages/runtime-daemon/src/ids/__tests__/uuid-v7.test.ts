@@ -74,12 +74,7 @@ describe("UuidV7Minter — RFC 9562 section 5.7 layout", () => {
   it("sets the version nibble to 7 and the variant bits to 0b10", () => {
     const minter = new UuidV7Minter();
     for (let mintIndex = 0; mintIndex < 256; mintIndex += 1) {
-      const id: string = minter.mint();
-      expect(() => {
-        assertRfc9562UuidV7(id);
-      }).not.toThrow();
-      expect(parseUuidBytes(id)[6]! >>> 4).toBe(7);
-      expect(parseUuidBytes(id)[8]! >>> 6).toBe(0b10);
+      assertRfc9562UuidV7(minter.mint());
     }
   });
 
