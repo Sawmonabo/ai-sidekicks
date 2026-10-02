@@ -53,8 +53,9 @@ export function applyMigrations(db: DatabaseType): void {
  * call again on an existing file.
  *
  * If a pragma or the schema step throws, the half-initialized handle is closed and the original
- * error is rethrown. Without the close the handle would stay open, holding its OS locks and WAL
- * file descriptor until garbage collection and making a retry flaky.
+ * error is rethrown; if the close fails too, both are thrown in one `AggregateError`. Without the
+ * close the handle would stay open, holding its OS locks and WAL file descriptor until garbage
+ * collection and making a retry flaky.
  */
 export function openDatabase(dbPath: string): DatabaseType {
   const db: DatabaseType = new Database(dbPath);
@@ -64,8 +65,12 @@ export function openDatabase(dbPath: string): DatabaseType {
   } catch (err) {
     try {
       db.close();
-    } catch {
-      // A close failure on an already-broken handle says less than the init error rethrown below.
+    } catch (closeFailure) {
+      throw new AggregateError(
+        [err, closeFailure],
+        "opening the database failed, and closing the half-open handle failed too",
+        { cause: closeFailure },
+      );
     }
     throw err;
   }

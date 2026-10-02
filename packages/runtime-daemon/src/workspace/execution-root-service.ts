@@ -474,19 +474,21 @@ export class ExecutionRootService {
     } catch (preparationFailure) {
       // A failed context write leaves a root nothing will adopt, invisible to the sweep; an unset
       // `materialized` means materialization itself failed and its own service recorded that.
-      if (materialized !== undefined) {
-        await this.#compensateOrphanedRoot(materialized, null);
-      }
-      await this.#failRootPreparation(workspace.id, preparationFailure);
-      // Rethrow the cause itself: the run-setup gate wraps by code.
-      throw preparationFailure;
+      const cleanupFailures: unknown[] =
+        materialized === undefined ? [] : await this.#compensateOrphanedRoot(materialized, null);
+      cleanupFailures.push(...(await this.#failRootPreparation(workspace.id, preparationFailure)));
+      // Rethrow the cause itself where it can carry the cleanup failures: the run-setup gate wraps
+      // by code.
+      throw withCleanupFailures(preparationFailure, cleanupFailures);
     }
 
     try {
       await this.#workspaces.completeRootPreparation(workspace.id, materialized.executionRoot);
     } catch (completionFailure) {
-      await this.#compensateOrphanedRoot(materialized, branchContextId);
-      throw completionFailure;
+      throw withCleanupFailures(
+        completionFailure,
+        await this.#compensateOrphanedRoot(materialized, branchContextId),
+      );
     }
 
     return {
@@ -710,39 +712,42 @@ export class ExecutionRootService {
   }
 
   /**
-   * Records the failure on the workspace so the run blocks in setup. A throw from
-   * `failRootPreparation` is swallowed: the caller needs the original cause, and the workspace
-   * stays `preparing`, which a later prepare treats as an open bracket.
+   * Records the failure on the workspace so the run blocks in setup, and returns the recording's
+   * own failure, if any, for the caller to attach to the original cause. A workspace whose
+   * recording failed stays `preparing`, which a later prepare treats as an open bracket.
    */
-  async #failRootPreparation(workspaceId: string, cause: unknown): Promise<void> {
+  async #failRootPreparation(workspaceId: string, cause: unknown): Promise<unknown[]> {
     try {
       await this.#workspaces.failRootPreparation(workspaceId, composeLastErrorDetail(cause));
-    } catch {
-      // Deliberate. See the docblock.
+      return [];
+    } catch (recordingFailure) {
+      return [recordingFailure];
     }
   }
 
   /**
-   * Undoes a root this call created but could not hand over; nothing else reclaims it. Faults are
-   * swallowed, so a delete followed by a faulting retire leaves a live worktree with no pair row,
-   * which a later reuse refuses and whose `(mount, branch)` stays held.
+   * Undoes a root this call created but could not hand over; nothing else reclaims it. Each step
+   * runs even after an earlier one failed, and the failures are returned for the caller to attach
+   * to the original cause: a delete followed by a failed retire leaves a live worktree with no
+   * pair row, which a later reuse refuses and whose `(mount, branch)` stays held.
    */
   async #compensateOrphanedRoot(
     materialized: MaterializedRoot,
     branchContextId: string | null,
-  ): Promise<void> {
+  ): Promise<unknown[]> {
     // Only `created`: a `reused` worktree may be bound elsewhere and its pair row may hold a
     // previous binding's provenance.
     if (materialized.provenance !== "created") {
-      return;
+      return [];
     }
 
+    const failures: unknown[] = [];
     // The preparation catch passes `null`: the context write is what failed, so no row exists.
     if (branchContextId !== null) {
       try {
         this.#deleteBranchContextStmt.run({ id: branchContextId });
-      } catch {
-        // Deliberate. See the docblock.
+      } catch (deleteFailure) {
+        failures.push(deleteFailure);
       }
     }
 
@@ -752,9 +757,10 @@ export class ExecutionRootService {
       if (materialized.worktreeId !== null) {
         await this.#worktrees.retire(materialized.worktreeId);
       }
-    } catch {
-      // Deliberate. See the docblock.
+    } catch (retireFailure) {
+      failures.push(retireFailure);
     }
+    return failures;
   }
 
   /**
@@ -804,6 +810,28 @@ export class ExecutionRootService {
       );
     }
   }
+}
+
+/**
+ * The error to throw for `original` once cleanup after it failed too: `original` itself carrying
+ * the cleanup failures as its `cause` when that is free, so its code still reaches the caller, or
+ * every failure in one `AggregateError` when it is not.
+ */
+function withCleanupFailures(original: unknown, cleanupFailures: readonly unknown[]): unknown {
+  if (cleanupFailures.length === 0) {
+    return original;
+  }
+  if (original instanceof Error && original.cause === undefined) {
+    original.cause =
+      cleanupFailures.length === 1
+        ? cleanupFailures[0]
+        : new AggregateError(cleanupFailures, "execution root cleanup failed");
+    return original;
+  }
+  return new AggregateError(
+    [original, ...cleanupFailures],
+    "execution root preparation failed, and cleaning up after it failed too",
+  );
 }
 
 /** Whether a rejected git invocation printed nothing on stdout. */
