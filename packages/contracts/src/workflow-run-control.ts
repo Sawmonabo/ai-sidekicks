@@ -289,9 +289,6 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 /** A start the policy check denied, or whose principal could not be resolved. */
 export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
 
-/** A cancel or a resume the policy check did not admit for its caller. */
-export const WORKFLOW_CONTROL_DENIED_CODE = "workflow.control_denied" as const;
-
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on
  * Resume has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
