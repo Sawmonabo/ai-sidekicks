@@ -11,10 +11,9 @@ import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "../session.j
 import { countSchema } from "../internal/wire-scalars.js";
 
 /**
- * The most raw bytes one artifact chunk may carry, either way: a chunk a caller
- * streams in, and a byte range `artifact.read` answers. Fixed rather than
- * configurable: it is the largest chunk whose base64 form plus its message envelope
- * fits the local wire's 1 MB message ceiling.
+ * The most raw bytes one artifact chunk may carry, either way: a chunk a caller streams in, and a
+ * byte range `artifact.read` answers. Fixed, so its base64 form plus the message envelope always
+ * fits within the wire's `MAX_MESSAGE_BYTES`.
  */
 export const ARTIFACT_CHUNK_MAX_BYTES: number = 512 * 1024;
 

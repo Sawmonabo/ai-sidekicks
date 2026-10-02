@@ -1,9 +1,7 @@
 // The wire shapes of a streaming subscription (`$/subscription/notify` and
-// `$/subscription/cancel`) and the server-side `LocalSubscriptionProducer` a handler emits through.
-// The runtime is `packages/runtime-daemon/src/ipc/streaming-primitive.ts`. A handler creates a
-// subscription, returns its `subscriptionId` in the ack, then calls `next(value)`; each value is
-// validated against the subscription's schema and sent as a notify frame. Only the owning
-// connection may cancel, and the daemon drops a connection's subscriptions when it closes.
+// `$/subscription/cancel`) and the `LocalSubscriptionProducer` a daemon handler emits through: it
+// returns the `subscriptionId` in the ack, then each `next(value)` is validated and sent as a
+// notify frame. Only the owning connection may cancel, and a closed connection drops its own.
 
 import { z } from "zod";
 
@@ -78,12 +76,10 @@ export function SubscriptionNotifyParamsSchema<T>(
 export const STREAM_FRAME_MAX_CHANGES = 50;
 
 /**
- * One notify's `value` on a stream that sends changes. `changes` are those since the previous
- * frame, oldest first, each carrying its own cursor. The daemon never waits for a slow connection:
- * changes that do not fit are dropped for it and `dropped` rides the next frame that fits, so the
- * screen repairs from the daemon's record by cursor. A frame with no changes exists only after a
- * drop, once the connection has caught up; it carries `dropped` and the stream's newest `cursor`.
- * A frame with changes carries no frame-level cursor.
+ * One notify's `value` on a stream of changes: those since the previous frame, oldest first, each
+ * with its own cursor. The daemon never waits for a slow connection: changes that do not fit are
+ * dropped and `dropped` rides the next frame, so the screen repairs by cursor; a frame with no
+ * changes is that caught-up frame and carries the stream's newest `cursor`.
  */
 export interface StreamFrame<Change, Cursor> {
   readonly changes: readonly Change[];
@@ -185,12 +181,12 @@ export interface LocalSubscriptionProducer<T> {
   cancel(): void;
 
   /**
-   * Registers a callback for when the subscription is cancelled from outside: by `cancel()`, by
+   * Registers a callback for when the subscription is canceled from outside: by `cancel()`, by
    * the client's cancel call, or by the connection closing. It does not fire on `complete()`. A
    * handler releases upstream resources; a throwing handler does not stop the others, and the
    * cancel then throws its failure (a closed connection has no caller, so the daemon logs it).
    * Handlers run in registration order after the subscription is removed. Registering on an
-   * already-cancelled subscription runs the handler at once and throws its failure to the
+   * already-canceled subscription runs the handler at once and throws its failure to the
    * registrant. Registering the same function twice runs it twice.
    */
   onCancel(fn: () => void): void;

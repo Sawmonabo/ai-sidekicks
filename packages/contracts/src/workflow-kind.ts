@@ -5,8 +5,8 @@
 //
 // A kind's two computed parts, the handle set derived from its params and the one-line
 // summary of a configured node, are functions and do not cross the wire:
-// `outputsDeriveFromParams` says the listed outputs are the base case, and the surface
-// that holds the kind's code composes the summary.
+// `outputsDeriveFromParams` says the listed outputs are the base case, and whatever holds
+// the kind's code composes the summary.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -23,7 +23,7 @@ const WORKFLOW_NODE_KIND_CATEGORIES = [
   "output",
 ] as const;
 
-/** The eight families the palette groups kinds under. */
+/** The categories the palette groups kinds under. */
 export type WorkflowNodeKindCategory = (typeof WORKFLOW_NODE_KIND_CATEGORIES)[number];
 
 const WORKFLOW_HANDLE_TYPES = ["main", "tool"] as const;

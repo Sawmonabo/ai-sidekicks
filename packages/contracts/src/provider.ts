@@ -1,5 +1,5 @@
-// The `provider.*` wire surface: each provider's own settings on this machine, apart from its
-// accounts (the `providerAccount.*` surface).
+// The `provider.*` methods: each provider's own settings on this machine, apart from its
+// accounts (the `providerAccount.*` methods).
 //
 // Every figure a knob is bounded by comes from the provider, never from here: the compaction stops
 // from the provider's own models, the output styles from the installed build's own listing. The
@@ -508,9 +508,9 @@ export const ProviderStandingRuleRevokeResponseSchema: z.ZodType<ProviderStandin
     .strict();
 
 // The install runs the provider's own installer where the service runs, as the person, with empty
-// input and a 15-minute limit; `provider.installStop` stops it and everything it started. The
-// install is keyed by provider so a page opened while one runs finds it, and the stream's first
-// message is that provider's last outcome.
+// input and no time limit of the app's own; `provider.installStop` stops it and everything it
+// started. The install is keyed by provider so a page opened while one runs finds it, and the
+// stream's first message is that provider's last outcome.
 
 /** Where one provider's install has got to. */
 export type ProviderInstallProgress =

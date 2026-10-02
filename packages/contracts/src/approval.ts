@@ -1,4 +1,4 @@
-// The approval surface: the calls that answer an agent's ask, list the pending asks, list and
+// The approval contract: the calls that answer an agent's ask, list the pending asks, list and
 // revoke the remembered rules, and allow once an action the provider's own reviewer blocked,
 // with the payloads of the `approval.*` events the daemon records for each.
 //
@@ -169,22 +169,21 @@ const SENSE_BY_DECISION: Readonly<Record<ApprovalDecision, RememberedRuleSense>>
 
 // approval.resolve
 
-/**
- * One answer to an ask.
- *
- * `declineReason` is the optional `why not` line a decline opens; the daemon
- * sends it to the agent through the provider's own refusal field. `editedAction`
- * is the command or path as the person changed it on the card before approving;
- * it is what goes back to the provider and what the row records as having run.
- * `clientResolutionId` is minted by the answering client and echoed on the
- * resolution event, so the device whose answer settled the ask draws nothing and
- * every other device showing the card draws that it was answered elsewhere.
- */
+/** One answer to an ask. */
 export interface ApprovalResolveRequest {
   approvalRequestId: ApprovalRequestId;
   decision: ApprovalDecision;
+  /**
+   * Minted by the answering client and echoed on the resolution event, so the device that settled
+   * the ask draws nothing and every other device draws that it was answered elsewhere.
+   */
   clientResolutionId: string;
+  /** A decline's `why not` line, sent to the agent through the provider's own refusal field. */
   declineReason?: string | undefined;
+  /**
+   * The command or path as the person changed it on the card before approving: what goes back to
+   * the provider and what the row records as having run.
+   */
   editedAction?: string | undefined;
   /** Never broader than what was asked; defaults to the ask's own scope. */
   effectiveScope?: string | undefined;
@@ -279,19 +278,8 @@ export const ApprovalProjectionReadRequestSchema: z.ZodType<
   .strict();
 
 /**
- * One ask as the card draws it.
- *
- * `subject` is the subject the daemon derived from the ask, the words the
- * standing-allow button names. `reason` is the provider's own line saying why
- * this action stopped, with control characters and escape codes stripped; it is
- * absent where the provider sent none. `standingAllowOffered` is false where the
- * provider marks the ask as one that must not carry a standing allow, and the card
- * then draws only `Decline` and `Approve once`.
- *
- * The resolved members (`resolvedAt`, `decision`, `deviceId`, `effectiveScope`) are present
- * exactly when the state is `approved` or `rejected`, and the decision is the state; `deviceId`
- * is the device that answered. `rememberedScope` is present only where the resolution minted a
- * rule, and its sense agrees with the decision.
+ * One ask as the card draws it. `resolvedAt`, `decision`, `deviceId` and `effectiveScope` are
+ * present exactly when the state is `approved` or `rejected`, and the decision is the state.
  */
 export interface ApprovalProjectionRow {
   id: ApprovalRequestId;
@@ -300,16 +288,27 @@ export interface ApprovalProjectionRow {
   category: ApprovalCategory;
   scope: string;
   resourceDescriptor: Record<string, unknown>;
+  /** The subject the daemon derived from the ask: the words the standing-allow button names. */
   subject: string;
+  /**
+   * The provider's own line saying why this action stopped, control characters and escape codes
+   * stripped; absent where the provider sent none.
+   */
   reason?: string | undefined;
+  /**
+   * False where the provider forbids a standing allow; the card then draws only `Decline` and
+   * `Approve once`.
+   */
   standingAllowOffered: boolean;
   state: ApprovalState;
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string | undefined;
   decision?: ApprovalDecision | undefined;
+  /** The device that answered. */
   deviceId?: DeviceId | undefined;
   effectiveScope?: string | undefined;
+  /** Present only where the resolution minted a rule; its sense agrees with the decision. */
   rememberedScope?: RememberedScope | undefined;
 }
 /** Parses an {@link ApprovalProjectionRow}, holding the resolved-members rule. */

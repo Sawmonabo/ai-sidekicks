@@ -52,7 +52,7 @@ export const AgentSpendSchema: z.ZodType<AgentSpend> = z
 
 /**
  * The session's two limits, its committed spend and each agent's share of it. A limit of `null`
- * is `Unlimited`. The committed figure is the one session cost every surface shows, never a sum a
+ * is `Unlimited`. The committed figure is the one session cost every screen shows, never a sum a
  * client takes over the rows it holds.
  */
 export interface OrchestrationBudgetState {

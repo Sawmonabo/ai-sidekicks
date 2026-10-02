@@ -68,21 +68,13 @@ export const ATTENTION_ID_MAX_LEN = 256;
 const attentionIdSchema = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(ATTENTION_ID_MAX_LEN, fieldLabel);
 
-/**
- * One attention item, run-scoped or the session-scoped aggregate. Scope is read off
- * `runId`: present means run-scoped, absent means the session aggregate.
- *
- * `momentId` is the stable id of the session or run and the state it is in, so a later
- * state (`Finished` after `Waiting on you`) replaces the operating-system banner in place.
- * A Notify step's moment comes from the run, the node and which execution of the node it
- * was. `stateWord` is what the line reads after `displayName` (`Waiting on you`, `Finished`,
- * `Failed`, or a Notify step's own notice text). `summary` is never a banner's body: a
- * banner says the name and the state, not what was said. `stepId` names the Notify node
- * on a `workflow_notify` item and is absent on every other; `seen` is the one seen-or-unseen
- * fact the daemon keeps, which the session's row reads too.
- */
+/** One attention item: run-scoped when it carries `runId`, else the session-scoped aggregate. */
 export interface AttentionItem {
   readonly id: string;
+  /**
+   * The session or run and the state it is in, so a later state replaces the operating-system
+   * banner in place; a Notify step's moment also names its node and execution.
+   */
   readonly momentId: string;
   readonly sessionId: string;
   /** Present on a run-scoped item; absent on the session-scoped aggregate. */
@@ -90,9 +82,11 @@ export interface AttentionItem {
   readonly trigger: AttentionTrigger;
   readonly severity: AttentionSeverity;
   readonly displayName: string;
+  /** What follows `displayName`: `Waiting on you`, `Finished`, `Failed`, or a notice. */
   readonly stateWord: string;
+  /** The Notify node, on a `workflow_notify` item only. */
   readonly stepId?: WorkflowNodeId | undefined;
-  /** One line a surface renders. Prose, not an identifier. */
+  /** One line of prose the list draws; never a banner's body, which says only name and state. */
   readonly summary: string;
   /** The canonical event that triggered this item. */
   readonly sourceEventId: string;
@@ -106,6 +100,7 @@ export interface AttentionItem {
    */
   readonly webAddressState?: AttentionWebAddressState | undefined;
   readonly webAddressAttemptCount?: number | undefined;
+  /** The one seen-or-unseen fact the daemon keeps, which the session's row reads too. */
   readonly seen: boolean;
 }
 

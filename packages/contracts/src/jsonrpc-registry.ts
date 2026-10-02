@@ -1,8 +1,7 @@
-// The typed surface of the daemon's method registry, so a package can register handlers without
-// depending on the runtime-daemon package. The implementation is
-// `packages/runtime-daemon/src/ipc/registry.ts`.
+// The types of the daemon's method registry, so a package can register handlers without depending
+// on the daemon package, which implements it.
 
-// Type-only: keeps zod out of this file's runtime surface.
+// Type-only: keeps zod out of this file's runtime code.
 import type { ZodType } from "zod";
 
 // Re-exported so the daemon's registry can name `ZodType` without listing zod as a dependency.

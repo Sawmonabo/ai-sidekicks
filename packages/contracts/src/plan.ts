@@ -49,11 +49,9 @@ export const PlanVerdictSchema: z.ZodType<PlanVerdict, PlanVerdict> = z.enum([
 ]);
 
 /**
- * `plan.proposed`: the record the screen renders. `title` is the plan's first
- * heading and `text` its Markdown as the agent wrote it, taken from the held
- * request or the plan item and never read off the disk. The two counts are the
- * daemon's own read of the plan: its top-level steps and the files it names.
- * `planFilePath` is present only where the provider wrote the plan as a file.
+ * `plan.proposed`: the plan as the agent wrote it, never read off the disk, with the daemon's
+ * count of its top-level steps and the files it names. `planFilePath` is present only where the
+ * provider wrote the plan as a file.
  */
 export type PlanProposedPayload = {
   planId: PlanId;

@@ -60,12 +60,12 @@ export const PushSendRequestSchema: z.ZodType<PushSendRequest, PushSendRequest> 
   })
   .strict();
 
-/** The push procedure the control plane serves. */
+/** The push procedure the control plane serves, keyed by method name. */
 export interface PushProcedureDescriptors {
   readonly "push.send": MethodDescriptor<"push.send", PushSendRequest, EmptyPayload>;
 }
 
-/** The push procedure the control plane serves. */
+/** The push procedure the control plane serves, with its schemas. */
 export const PUSH_PROCEDURE_DESCRIPTORS: PushProcedureDescriptors = defineMethodDescriptors({
   "push.send": {
     method: "push.send",

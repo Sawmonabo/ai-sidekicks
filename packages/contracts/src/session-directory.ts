@@ -61,7 +61,7 @@ import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
- * What a session is doing, as the daemon derives it: exactly one of five, and no surface
+ * What a session is doing, as the daemon derives it: exactly one of five, and no client
  * invents a sixth. `waiting` is waiting on the person; `failed` is a session that died, kept
  * apart from one that finished (`done`).
  */

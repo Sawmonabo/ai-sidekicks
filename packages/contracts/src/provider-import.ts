@@ -50,7 +50,7 @@ export const ProviderImportProviderRequestSchema: z.ZodType<
 > = z.object({ provider: ProviderNameSchema }).strict();
 
 /**
- * How many projects this console does not have the import would attach. A count above zero is
+ * How many projects the app does not have the import would attach. A count above zero is
  * confirmed before the import runs, because attaching a project trusts its folder for both
  * providers.
  */

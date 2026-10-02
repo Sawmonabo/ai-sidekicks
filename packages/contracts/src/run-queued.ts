@@ -36,15 +36,9 @@ const EffectiveRunConfigSchema: z.ZodType<EffectiveRunConfig> = z
   .strict();
 
 /**
- * A run created and placed in the queue. The linkage members (`agentId`, `parentRunId`,
- * `reachedBy`, `internalHelper`) and `effectiveRunConfig` ride a run that another run or a
- * workflow created; the agent index and per-run limits rebuild from them.
- *
- * `agentId` names an agent already in the session; `resolvedAgent` is one the daemon minted from
- * a saved definition with this run, with the configuration it was resolved from. A payload
- * carries one or the other, never both, and neither for the lead's run. The `admitted*` stamps
- * (model family, account) are set by the daemon, never a client. A type rather than an interface
- * so it meets the envelope's open payload record.
+ * A run created and placed in the queue. It carries `agentId` (an agent already in the session)
+ * or `resolvedAgent` (one minted from a saved definition with this run), never both, and neither
+ * for the lead's run.
  */
 export type RunQueuedPayload = {
   sessionId: SessionId;

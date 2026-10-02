@@ -1,6 +1,5 @@
-// Internal helpers for the @ai-sidekicks/contracts package — NOT re-exported
-// from `src/index.ts`. The small scalar rules several contract modules share,
-// stated once so no module keeps its own copy.
+// The small scalar rules several contract modules share. Internal: not re-exported from
+// `src/index.ts`.
 import { z } from "zod";
 
 /**

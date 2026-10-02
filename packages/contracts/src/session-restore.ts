@@ -241,11 +241,8 @@ export const SessionRestoreRequestSchema: z.ZodType<SessionRestoreRequest, Sessi
       },
     );
 
-// One undo has one result: what was asked, what went back, the files it actually put back, and
-// the daemon's reason for each asked-for part that did not. An undo can land in part: the
-// conversation cut can apply while the files cannot go back, or the reverse; `restored:
-// "nothing"` means both are as they were. When an edit and resend's undo applied and its send did
-// not, the result says so with the send's reason.
+// An undo can land in part: the conversation cut can apply while the files cannot go back, or the
+// reverse; `restored: "nothing"` means both are as they were.
 
 /** Why one asked-for part did not go back, in the daemon's words. */
 export interface SessionRestoreFailure {

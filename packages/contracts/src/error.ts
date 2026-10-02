@@ -21,9 +21,8 @@ export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBacke
 /** Type of {@link EVENT_CURSOR_UNRESOLVABLE_CODE}. */
 export type EventCursorUnresolvableCode = "event.cursor_unresolvable";
 /**
- * Error code for an `EventCursor` that cannot be resolved to a log position. It has one home
- * here because the daemon raises it and the desktop classifies on it; it carries no schema,
- * only this literal.
+ * Error code for an `EventCursor` that cannot be resolved to a log position; the daemon raises it
+ * and the desktop classifies on it.
  */
 export const EVENT_CURSOR_UNRESOLVABLE_CODE: EventCursorUnresolvableCode =
   "event.cursor_unresolvable";
@@ -72,11 +71,8 @@ export const ResourceLimitExceededErrorSchema: z.ZodType<ResourceLimitExceededEr
   .strict();
 
 /**
- * The details of {@link PtyBackendUnavailable}. `attemptedBackend` is a closed set so
- * consumers can switch exhaustively; adding a backend changes this contract and the daemon's
- * selector together. `cause` is `unknown` because producers differ (an errno object, a
- * missing-binary path, a JSON-RPC error envelope): render it opaquely and never branch on its
- * shape.
+ * The details of {@link PtyBackendUnavailable}. `attemptedBackend` is closed so a consumer can
+ * switch exhaustively; `cause` differs by producer, so render it opaquely and never branch on it.
  */
 export interface PtyBackendUnavailableDetails {
   attemptedBackend: "rust-sidecar" | "node-pty";

@@ -76,10 +76,8 @@ export type MethodDescriptorTable<Table> = {
 };
 
 /**
- * Freezes a namespace's descriptor table and each descriptor in it. Frozen
- * because it is a registry: code that could re-point a schema at start-up could
- * change what the daemon accepts on a method without touching that method's own
- * module.
+ * Freezes a namespace's descriptor table and each descriptor in it, so no code can re-point a
+ * method's schema at start-up without touching that method's own module.
  */
 export function defineMethodDescriptors<const Table extends MethodDescriptorTable<Table>>(
   table: Table,

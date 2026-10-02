@@ -75,30 +75,23 @@ export const ProjectSetupSchema: z.ZodType<ProjectSetup, ProjectSetup> = z
   })
   .strict();
 
-/**
- * One project as the Projects page and the session list's project headers draw
- * it.
- *
- * `repoMountId` is null while the project is still cloning, since the mount is
- * made when the clone attaches. `runningSessionId` names a session with an agent
- * running anywhere in the project, which is what grays `Delete`; the screen reads
- * that session's title from the session list. `environmentRows` are the
- * project's own rows, each winning over the `Every project` row of the same name.
- * `branchPattern` is null while the project follows the machine's pattern.
- * `onOtherSideDisk` marks a folder on the other side's disk of a Windows computer with WSL,
- * which the service reads more slowly.
- */
+/** One project as the Projects page and the session list's project headers draw it. */
 export interface ProjectListEntry {
   projectId: ProjectId;
+  /** `null` while the project is still cloning; the mount is made when the clone attaches. */
   repoMountId: RepoMountId | null;
   name: string;
   folderPath: string;
   state: ProjectState;
   sessionCount: number;
+  /** A session with an agent running anywhere in the project, or `null`. */
   runningSessionId: SessionId | null;
   setup: ProjectSetup;
+  /** The project's own rows, each winning over the `Every project` row of the same name. */
   environmentRows: EnvironmentRow[];
+  /** `null` while the project follows the machine's pattern. */
   branchPattern: string | null;
+  /** A folder on the other side's disk of a Windows computer with WSL, read more slowly. */
   onOtherSideDisk: boolean;
 }
 /** Wire schema for {@link ProjectListEntry}. */

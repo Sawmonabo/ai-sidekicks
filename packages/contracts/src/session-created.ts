@@ -25,11 +25,8 @@ const SessionCreatedParentSchema: z.ZodType<SessionCreatedParent> = z
   .strict();
 
 /**
- * A session's birth. The lead is born with the session, so this record brings it in:
- * `mainAgent` is the lead as the live agent list carries it. It also records the session's shape
- * at birth, the session it was forked from (`parent`, present exactly on a fork) and the saved
- * definition a scratch session tries (`scratchForDefinitionId`). `actor` is the person who
- * created it. A type rather than an interface so it meets the envelope's open payload record.
+ * A session's birth, bringing in its lead as `mainAgent`. `parent` is present exactly on a fork,
+ * and `scratchForDefinitionId` names the saved definition a scratch session tries.
  */
 export type SessionCreatedPayload = {
   sessionId: SessionId;

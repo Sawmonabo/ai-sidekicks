@@ -72,12 +72,9 @@ export interface ArtifactByteRange {
 }
 
 /**
- * Asks for one artifact. Without `includePayload` the reply carries the manifest and
- * a handle; with it, the reply carries the bytes when they fit in one message.
- * With `range`, the reply carries that window of the bytes: a payload too large for
- * one message is read whole by asking for its windows in turn, so a text body, a
- * picture or a PDF is never cut short. `version` counts from 1, oldest first;
- * without it the read answers the newest version, which is where a reader opens.
+ * Asks for one artifact: the manifest and a handle, or with `includePayload` the bytes when they
+ * fit in one message, or with `range` one window of them, so a large payload is read whole window
+ * by window. `version` counts from 1, oldest first; without it the read answers the newest.
  */
 export interface ArtifactReadRequest {
   artifactId: ArtifactId;
@@ -165,15 +162,9 @@ interface ArtifactReadInline extends ArtifactReadFacts {
 }
 
 /**
- * What a read answers: the manifest, plus either a handle to fetch the bytes with or
- * the bytes with their encoding.
- *
- * Two arms, not three independent optional members, because only these two replies
- * can be acted on. With neither a handle nor bytes there is no way to reach the
- * payload; bytes without an encoding cannot be decoded; an encoding without bytes
- * describes nothing. A read that did not ask for the payload lands on the handle arm,
- * and so does one that asked but whose encoded payload would not fit in one message:
- * that is a served answer, not a refusal.
+ * What a read answers: the manifest, plus either a handle to fetch the bytes with or the bytes with
+ * their encoding. A read whose encoded payload would not fit one message gets the handle arm, a
+ * served answer rather than a refusal.
  */
 export type ArtifactReadResponse = ArtifactReadDeferred | ArtifactReadInline;
 

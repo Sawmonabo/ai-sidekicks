@@ -41,13 +41,10 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // orchestration.runCreate
 
 /**
- * Admits a run under an agent. No console control calls it; its callers are the daemon's own
- * paths (the bridge's `run` verb, a workflow's run-an-agent step) and the SDK. No count limits
- * admission: a refusal is the provider's own or an unresolved target. A child may create a
- * child of its own to any depth.
- *
- * The target is an agent already in the session, or a saved definition with no live agent yet,
- * which the daemon resolves at the queue insert and records on the queued run.
+ * Admits a run under an agent, called by the daemon's own paths and the SDK, never by a screen
+ * control. No count limits admission or depth: a refusal is the provider's own or an unresolved
+ * target. The target is a live agent in the session, or a saved definition the daemon resolves
+ * when it queues the run.
  */
 export type OrchestrationRunCreateRequest =
   | {

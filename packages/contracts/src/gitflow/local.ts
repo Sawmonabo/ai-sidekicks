@@ -109,15 +109,8 @@ export interface PendingGitOperation {
 }
 
 /**
- * The `gitflow.branchContextRead` result: the branch's ship facts, which also carry
- * what the change-request form opens with (base, head, whether it pushes first, and
- * the host kind whose word the form prints).
- *
- * `neverLeftMachine` is true while the branch has never been pushed, so opening a
- * change request pushes it first. `countsAsOf` is when the background fetch that
- * `behindBase` comes from last succeeded. `hostKind` is absent where the daemon
- * cannot say which service the remote is. `changeRequests` lists the branch's
- * requests newest first.
+ * The `gitflow.branchContextRead` result: the branch's ship facts, which also carry what the
+ * change-request form opens with.
  */
 export interface GitflowBranchContextReadResponse {
   headBranch: string;
@@ -128,10 +121,14 @@ export interface GitflowBranchContextReadResponse {
   aheadOfBase: number;
   behindBase: number;
   unpushedCommitCount: number;
+  /** The branch was never pushed, so opening a change request pushes it first. */
   neverLeftMachine: boolean;
   pendingOperation?: PendingGitOperation | undefined;
+  /** Newest first. */
   changeRequests: ChangeRequestSummary[];
+  /** Absent where the daemon cannot say which service the remote is. */
   hostKind?: GitHostKind | undefined;
+  /** When the background fetch `behindBase` comes from last succeeded. */
   countsAsOf?: string | undefined;
 }
 /** Wire schema for {@link GitflowBranchContextReadResponse}. */
@@ -186,11 +183,9 @@ const WorkflowRunSnapshotPointSchema: z.ZodType<
 ]);
 
 /**
- * The `gitflow.diffRead` input, one arm per comparison. `changes` is the working
- * folder against its last commit, untracked files included. `branch` is the branch
- * against `base` (absent: the daemon's default base), narrowed to one commit by
- * `commitId`. `change_request` is one of the branch's change requests. `workflow_run`
- * is what a workflow run changed between two of its snapshot points.
+ * The `gitflow.diffRead` input, one arm per comparison: the working folder against its last commit
+ * (untracked files included), the branch against `base` (absent: the default base) or one of its
+ * commits, one change request, or what a workflow run changed between two of its snapshot points.
  */
 export type GitflowDiffReadRequest =
   | { sessionId: SessionId; scope: "changes" }
@@ -240,17 +235,10 @@ export const GitflowDiffReadRequestSchema: z.ZodType<
     .strict(),
 ]);
 
-/**
- * One changed path, composed into a single patch however many edits touched it.
- *
- * `oldPath` is present exactly when the file was renamed. `oldBlobId` and `newBlobId`
- * are git's blob ids for each side that exists. `binary` and `unreadable` say why the
- * lines are not shown; `patch` is the unified patch when they are. `newestTurn` is
- * the newest turn that touched the file, absent for a change made outside a turn;
- * on a workflow run's diff `stepId` names the step that changed it instead.
- */
+/** One changed path, composed into a single patch however many edits touched it. */
 export interface DiffFile {
   path: string;
+  /** Present exactly when the file was renamed. */
   oldPath?: string | undefined;
   kind: DiffFileKind;
   modeChanged?: boolean | undefined;
@@ -258,10 +246,13 @@ export interface DiffFile {
   unreadable?: DiffFileUnreadableReason | undefined;
   additions: number;
   deletions: number;
+  /** The unified patch, absent when `binary` or `unreadable` says why no lines are shown. */
   patch?: string | undefined;
   oldBlobId?: GitObjectId | undefined;
   newBlobId?: GitObjectId | undefined;
+  /** The newest turn that touched the file; absent for a change made outside a turn. */
   newestTurn?: number | undefined;
+  /** On a workflow run's diff, the step that changed the file. */
   stepId?: string | undefined;
 }
 const DiffFileSchema: z.ZodType<DiffFile> = z
@@ -521,13 +512,10 @@ export const GitflowChangeRequestTextGenerateResponseSchema: z.ZodType<GitflowCh
 // git.settled
 
 /**
- * The `git.settled` payload: one record per act that left or changed the session's
- * branch, so its row in the conversation survives a reload. Each cause carries the
- * reference its row names. `runId` is present on a commit an agent made, read from
- * the commit's run trailer, and on a request an agent's own tool call opened; a push
- * carries none, because the row names the act and not the actor.
- *
- * A type alias rather than an interface so it narrows the event envelope's payload.
+ * The `git.settled` payload: one record per act that left or changed the session's branch, so its
+ * conversation row survives a reload. `runId` marks an agent's commit (from its run trailer) or
+ * opened request; a push carries none, because its row names the act and not the actor. A type
+ * alias, not an interface, so it narrows the event envelope's payload.
  */
 export type GitSettledPayload =
   | { sessionId: SessionId; cause: "committed"; commitId: GitObjectId; runId?: RunId | undefined }

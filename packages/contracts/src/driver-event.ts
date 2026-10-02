@@ -1,17 +1,11 @@
-// `driver.subscribeEvents` streams one run's driver activity; `DriverEvent` is what may travel
-// on it: the session events of six categories. The derivation lives here once, and the
-// daemon handler filters against it.
+// `driver.subscribeEvents` streams one run's driver activity: the session events of six
+// categories. A separate module because `event.ts` reads `provider-driver.ts` values at module
+// scope, so importing `event.ts` from `provider-driver.ts` would close an eager cycle that fails
+// at runtime as an `undefined` schema.
 //
-// This is a separate module because `event.ts` and `event-core.ts` read `provider-driver.ts`
-// values at module scope. Importing `event.ts` from `provider-driver.ts` would close an eager
-// cycle, and TypeScript compiles that silently; the failure shows at runtime as an
-// `undefined` schema.
-//
-// `DRIVER_EVENT_TYPES` is the runtime membership test over every event type the six
-// categories carry, including a type with no payload variant yet, because the filter decides
-// what belongs on the stream, not what parses. `DriverEvent` and `DriverEventType` cover only
-// the variants `SessionEvent` registers, a subset of that set. The two agree by construction
-// and the driver-event test asserts it, which is what `DriverEventSchema`'s cast rests on.
+// `DRIVER_EVENT_TYPES` covers every type the six categories carry, including one with no payload
+// variant, because the filter decides what belongs on the stream, not what parses. `DriverEvent`
+// covers only the registered variants, a subset, which is what `DriverEventSchema`'s cast rests on.
 
 import { z } from "zod";
 
@@ -33,8 +27,7 @@ import {
   type DriverSubscribeEventsParams,
 } from "./provider-driver-wire.js";
 
-// The six `EventCategory` values a driver event may carry. Hand-written because nothing
-// derives the choice; everything below is derived from it.
+// The six categories a driver event may carry; everything below derives from this choice.
 type DriverEventCategory =
   | "run_lifecycle"
   | "assistant_output"
@@ -68,12 +61,8 @@ export type DriverEvent = Extract<SessionEvent, { category: DriverEventCategory 
 export type DriverEventType = DriverEvent["type"];
 
 /**
- * `SessionEventSchema` narrowed to the driver-event categories: it refuses every session event
- * whose `type` is outside {@link DRIVER_EVENT_TYPES}, such as an approval or audit row.
- *
- * It refines rather than transforms or rebuilds the union, so parsed output stays identical to
- * input and `SessionEventSchema` itself is unchanged. The cast holds because, within the
- * registered arms, type-set membership and category membership are the same predicate.
+ * `SessionEventSchema` narrowed to the driver-event categories: it refuses an event whose `type`
+ * is outside {@link DRIVER_EVENT_TYPES}. It refines rather than rebuilds, so output equals input.
  */
 export const DriverEventSchema: z.ZodType<DriverEvent> = SessionEventSchema.superRefine(
   (event, ctx) => {

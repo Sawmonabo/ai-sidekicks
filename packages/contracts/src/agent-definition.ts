@@ -56,18 +56,16 @@ const providerTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
 /**
- * Which provider runs an agent, on which model, paying from which account, at which
- * effort and speed. One shape for a saved definition's bindings and a running
- * agent's binding.
+ * Which provider runs an agent, on which model, paying from which account, at which effort and
+ * speed: one shape for a saved definition's bindings and a running agent's binding.
  *
- * - `providerAccountId` null follows the provider's current account, resolved when
- *   the run starts and followed when that mark moves. Not a foreign key: a
- *   definition may name an account later removed, which surfaces as a resolution
- *   refusal rather than a rewrite of the definition.
- * - `effort` null takes the driver's default, and is validated when a run resolves,
- *   never at save, because the vocabulary belongs to the model the run binds.
- * - `outputSpeed` is set on a running agent's binding by `agent.configUpdate`; a
- *   saved definition's bindings leave it absent, because the editor authors no speed.
+ * - `providerAccountId` null follows the provider's current account, resolved at run start and
+ *   followed when it moves. Not a foreign key: an account later removed yields a resolution
+ *   refusal, not a rewritten definition.
+ * - `effort` null takes the driver's default; it is checked when a run resolves, never at save,
+ *   because the vocabulary belongs to the model the run binds.
+ * - `outputSpeed` is set on a running agent by `agent.configUpdate`; a saved definition leaves it
+ *   absent, because the editor authors no speed.
  */
 export interface AgentProviderBinding {
   driverName: ProviderName;
@@ -242,31 +240,31 @@ const toolNameSchema: z.ZodString = wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN,
 /** The number of turns an agent may take before it is stopped. */
 const turnCapSchema = z.number().int().positive();
 
-/**
- * One saved definition.
- *
- * - `toolAllowlist` has three states: null is the driver's defaults, `[]` is no
- *   tools at all, and a list is exactly those. Collapsing the first two would make
- *   "I did not choose" read as "I chose nothing".
- * - `turnCap` null is no cap. One number on both providers: where a provider has no
- *   limit of its own the daemon counts the agent's rounds and, at the cap, denies
- *   every further tool call with words telling the agent to report what it did.
- * - `hooks` null is none; `memoryScope` null is no memory.
- */
+/** One saved definition. */
 export interface AgentDefinition {
   definitionId: AgentDefinitionId;
   name: string;
   description: string;
-  /** A glyph key from the console's icon set; null is the generic agent mark. */
+  /** A glyph key from the app's icon set; null is the generic agent mark. */
   icon: string | null;
-  /** One step of the console's twelve-step hue wheel; null is no chosen hue. */
+  /** One step of the app's twelve-step hue wheel; null is no chosen hue. */
   accentHue: string | null;
   bindings: AgentDefinitionBindings;
   instructions: string;
   goal: string | null;
+  /**
+   * Null is the driver's defaults, `[]` is no tools at all, and a list is exactly those, so "I did
+   * not choose" never reads as "I chose nothing".
+   */
   toolAllowlist: string[] | null;
+  /**
+   * Null is no cap. Where a provider has no limit of its own, the daemon counts the agent's rounds
+   * and at the cap denies every further tool call, telling the agent to report what it did.
+   */
   turnCap: number | null;
+  /** Null is none. */
   hooks: AgentHooks | null;
+  /** Null is no memory. */
   memoryScope: AgentMemoryScope | null;
   createdAt: string;
   updatedAt: string;
@@ -311,29 +309,31 @@ export const AGENT_DEFINITION_SCOPES = ["global", "project"] as const;
 export type AgentDefinitionScope = (typeof AGENT_DEFINITION_SCOPES)[number];
 
 /**
- * One definition as the list serves it: the record, where it lives, and two
- * provider facts. Each is its own member and none excludes another: an orphaned
- * record can also carry a load error. Its bindings are listed bindings, so a file
- * naming a provider the app does not run is listed too.
- *
- * - `pluginName` is present exactly on a plugin's agent, which is read-only.
- * - `projectId` is present exactly when `scope` is `project`.
- * - `sourcePath` is the file the record lives in, or for an orphaned record the last
- *   path its file was known at. Display data only, never a capability.
- * - `orphaned`: a provider's file was renamed or deleted outside the app, and the
- *   record keeps its extras until it is reattached or discarded.
- * - `disabledInProvider`: the provider's own configuration switches the agent off.
- * - `loadError`: its file failed the daemon's own parse, with the reason.
+ * One definition as the list serves it: the record, where it lives, and its provider facts, none
+ * excluding another (an orphaned record can also carry a load error).
  */
 export interface AgentDefinitionListEntry extends Omit<AgentDefinition, "bindings"> {
+  /** Listed bindings, so a file naming a provider the app does not run is listed too. */
   bindings: AgentListedBindings;
   origin: AgentDefinitionOrigin;
+  /** Present exactly on a plugin's agent, which is read-only. */
   pluginName?: string | undefined;
   scope: AgentDefinitionScope;
+  /** Present exactly when `scope` is `project`. */
   projectId?: string | undefined;
+  /**
+   * The record's file, or for an orphaned record the last path its file was known at. Display
+   * data only, never a capability.
+   */
   sourcePath: string;
+  /**
+   * A provider's file was renamed or deleted outside the app; the record keeps its extras until
+   * it is reattached or discarded.
+   */
   orphaned: boolean;
+  /** The provider's own configuration switches the agent off. */
   disabledInProvider: boolean;
+  /** Why the file failed the daemon's own parse. */
   loadError: string | null;
 }
 

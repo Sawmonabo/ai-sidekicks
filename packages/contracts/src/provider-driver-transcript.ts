@@ -55,37 +55,20 @@ export const DeclaredLossKindSchema: z.ZodType<DeclaredLossKind, DeclaredLossKin
 // ---- Compaction and provider commands ----
 
 /**
- * The result of a compaction attempt, not of the request, discriminated on `status` so no arm
- * carries a member another arm makes meaningless. `applied` is reachable only after the provider's
- * typed compaction frame is observed; `boundaryPosition` is required there, `number | null` so a
- * frame carrying no position is representable without being synthesized. `refused` means nothing
- * was sent; `failed` means something was sent and no boundary was witnessed. There is no
- * `capability_undeclared` reason: an undeclared flag refuses at the static capability gate with
- * `driver.capability_unsupported` before the driver is called, so an arm would encode one refusal
- * twice.
+ * The result of a compaction attempt. `applied` only after the provider's compaction frame was
+ * seen; `refused` means nothing was sent; `failed` means something was sent and no boundary came.
  */
 export type DriverCompactionResult =
+  // `boundaryPosition` is `null` where the provider's frame carried none.
   | { status: "applied"; boundaryPosition: number | null }
-  // `command_absent`: the pre-dispatch presence check on the emulated leg did not find the command
-  // in the provider's own enumeration for this binding. `not_permitted`: the run-control
-  // adjudication denied the caller; produced by the daemon-side gate, never by a driver (which
-  // runs no authorization), and it lives here because the refusal settles on the operation's own
-  // result rather than as a JSON-RPC error.
+  // `command_absent`: the provider's own list for this binding lacks the command.
+  // `not_permitted`: the daemon's permission check denied the caller; never a driver's.
   | { status: "refused"; reason: "command_absent" | "not_permitted" }
-  // `wait_expired`: the driver's declared per-binding compaction bound elapsed with no typed
-  // compaction frame. `binding_lost`: the binding stopped being live before one arrived.
-  // `provider_error`: the mechanism itself errored. Every arm records a diagnostic; none can
-  // settle `applied`.
+  // `wait_expired`: no compaction frame within the binding's bound. `binding_lost`: the binding
+  // ended first. `provider_error`: the provider's mechanism errored.
   | { status: "failed"; reason: "wait_expired" | "binding_lost" | "provider_error" };
 
-/**
- * Validates a {@link DriverCompactionResult} as a structural assertion, not an untrusted-result
- * envelope: the result is daemon-constructed from a settlement the daemon's own wait computed, and
- * the client SDK parses the reply with it. It keeps two structural rules mechanical: `applied`
- * without a `boundaryPosition` key does not parse, and no arm admits `capability_undeclared`. The
- * provider's own boundary position, the one untrusted number, is narrowed at the frame-normalize
- * boundary before it reaches this result.
- */
+/** Validates a {@link DriverCompactionResult}; `applied` needs a `boundaryPosition` key. */
 export const DriverCompactionResultSchema: z.ZodType<
   DriverCompactionResult,
   DriverCompactionResult
@@ -146,13 +129,8 @@ export const ProviderCommandBindingSchema: z.ZodType<
   .strict();
 
 /**
- * One enumerated provider command, skill or working tool server's prompt. `binding` is the routing key, carried with the data so
- * a consumer cannot lose it by filtering a held list instead of re-reading. The driver does not
- * filter: a disabled entry is returned, since dropping it would stop the result being the
- * provider's enumeration as observed and hide the difference between a disabled command and one
- * that does not exist. `enabled` governs offerability, not presence. This is enumeration and
- * discovery, not a dispatch channel: the only entry the driver sends is the compaction command,
- * reached through `compactContext`, which checks presence against this enumeration.
+ * One enumerated provider command, skill or working tool server's prompt, as the provider
+ * listed it: a disabled entry is returned, not dropped, and `binding` is its routing key.
  */
 export interface ProviderCommandEntry {
   name: string;
@@ -170,8 +148,8 @@ export interface ProviderCommandEntry {
   // enumeration does not), so absence means no scope was stated, never that it is unknown.
   scope?: string | undefined;
   // Present iff the provider declares one (Codex `skills/list` carries an `enabled` Boolean; the
-  // Claude handshake enumeration draws no such distinction). Absent means no distinction on this
-  // surface, never an unknown state, and never a driver-synthesized `true`.
+  // Claude handshake enumeration draws no such distinction). Absent means the provider draws no
+  // distinction, never an unknown state, and never a driver-synthesized `true`.
   enabled?: boolean | undefined;
   // The tool server that publishes a prompt, which the list groups it under; present exactly on a
   // `prompt` entry.
@@ -215,20 +193,11 @@ export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, Provide
   });
 
 /**
- * One live binding's enumeration. `runId` and `binding` together are provenance a client can read
- * and construct, not an addressing handle: neither alone is a key (a run has many bindings, and one
- * agent can hold bindings on the same provider and account across two runs). `complete: false`
- * means the provider published more entries than the cap admits and this group's tail was dropped;
- * the cap and the flag are per group.
+ * One live binding's command list, with where it came from. `complete: false` means the provider
+ * listed more entries than the per-group cap and the tail was dropped.
  */
 export interface ProviderCommandBindingGroup {
-  // Nullable, and never omitted, for the same reason as `providerAccountId`. An enumeration
-  // belongs to the binding, which outlives any one run, so no single run attributes it in two
-  // cases: zero runs are live (the ordinary pre-first-turn palette read, which succeeds with `null`
-  // rather than refusing), and two or more runs are live on the binding (picking one would be a
-  // coin flip presented as provenance). Exactly one live run answers with that run. A last-bound
-  // fallback is rejected: a never-cleared id naming a retired run is false provenance, worse than
-  // the honest `null`.
+  // The one live run on the binding; `null` when none or several are live.
   runId: RunId | null;
   binding: ProviderCommandBinding;
   entries: ProviderCommandEntry[];
@@ -236,38 +205,21 @@ export interface ProviderCommandBindingGroup {
 }
 
 /**
- * The reply of `listProviderCommands`: a list of binding groups, never a bare entry array, because
- * an agent can hold several live bindings and a flat array would strip provenance from an arbitrary
- * leg's commands. The driver operation returns exactly one group (its params name one binding); the
- * envelope is shared with the client-facing verb so the daemon's fan-out and merge across an
- * agent's bindings is a concatenation. The routing invariant (an entry is offerable and
- * dispatchable only through agents of the binding it was read under) is enforced at the daemon, not
- * here: a driver comparing the pair against itself would refuse every account-less read, since
- * `null` matches nothing by design. What each driver does enforce is a dispatch into the very
- * process whose enumeration it read, matched by that process's own identity.
+ * The reply of `listProviderCommands`: one group per live binding, so each entry keeps where it
+ * came from. A driver returns exactly one group; the daemon concatenates an agent's groups.
  */
 export interface ProviderCommandListResult {
   bindings: ProviderCommandBindingGroup[];
 }
 
 /**
- * The provider's own report of its accelerated-output state, never a probe of its own and never
- * synthesized from the request. It is binding-held driver-session state, not a spawn return: the
- * declaring handshake arrives only within a turn-bearing exchange, so neither `createSession` nor
- * `resumeSession` can carry it (neither may spend a synthetic turn or block waiting for one). The
- * driver records it when the handshake arrives, on the first turn-bearing exchange the user's own
- * work produces, and holds it for the binding's life; until then every reader sees absent, never a
- * default. It is discarded with the session and deliberately not written to
- * `runtime_bindings.spawn_config` (what was requested, for resume) or `agents.output_speed` (the
- * person's accepted choice): persisting an observation there would create a second, staler
- * record and make a mode that stopped being available look accepted after a restart. `declared`
- * is verbatim and not narrowed to `outputSpeedLevels`, which bounds what a caller may request; a
- * level the driver's table does not list is a real state under version skew, and coercing it would
- * fabricate a false reading. `reason` is the provider's own explanation, present only where it
- * gave one.
+ * The provider's own report of its accelerated-output state, held for the binding's life from the
+ * first turn that carries it; absent until then and never stored.
  */
 export interface ProviderOutputSpeedState {
+  /** The provider's level, verbatim; a level the driver does not list is kept, not coerced. */
   declared: string;
+  /** The provider's own explanation, where it gave one. */
   reason?: string | undefined;
 }
 

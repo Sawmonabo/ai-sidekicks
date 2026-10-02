@@ -111,11 +111,8 @@ import type {
 // names a run on only some causes.
 
 /**
- * A session event whose payload a contract of its own declares: the envelope with `type`,
- * `category` and `payload` narrowed to one variant. `payload` maps the payload's members into an
- * object type, because TypeScript gives the implicit index signature the envelope's record needs
- * to object types and never to interfaces, so an owning contract may declare its payload either
- * way.
+ * A session event whose payload its own contract declares: the envelope narrowed to one variant.
+ * `payload` is mapped into an object type, so the owning contract may declare it as an interface.
  */
 export interface SessionEventVariant<
   TType extends SessionEventType,
@@ -252,12 +249,9 @@ export type CommandEndedEvent = SessionEventVariant<
 >;
 
 /**
- * `usage.model_rerouted`: the provider moved a turn onto another model and the
- * turn went on. `scope` says how long the switch holds — this turn, the rest
- * of the session, or only a subagent's, a side question's or a background
- * fork's response (`local`). `sentence` and `explanation` are the provider's
- * own words when it sends them; `safetyCategory` names the check's category
- * when the provider reports one.
+ * `usage.model_rerouted`: the provider moved a turn onto another model and the turn went on.
+ * `scope` says how long the switch holds: this turn, the rest of the session, or one helper's
+ * response (`local`); `sentence`, `explanation` and `safetyCategory` are the provider's own.
  */
 export type UsageModelReroutedPayload = {
   sessionId: SessionId;
@@ -328,7 +322,7 @@ export type SessionConvertedEvent = SessionEventVariant<
   "session_lifecycle",
   SessionConvertedPayload
 >;
-/** Emitted when the branch a session's folder is on changes outside the console. */
+/** Emitted when the branch a session's folder is on changes outside the app. */
 export type SessionBranchChangedEvent = SessionEventVariant<
   "session.branch_changed",
   "session_lifecycle",

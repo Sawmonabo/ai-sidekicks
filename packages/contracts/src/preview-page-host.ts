@@ -13,11 +13,8 @@ import { FILE_PATH_MAX_LEN } from "./session.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /**
- * One debug-protocol message between the daemon's relay and a page's in-process
- * debugger in main: a command, its reply, or an event, each on the page's own
- * session or on a child session named by `sessionId`. Carried as an object, the
- * form both the relay's transport and Electron's debugger read, so neither end
- * encodes it twice.
+ * One debug-protocol message between the daemon's relay and a page's debugger in main: a
+ * command, its reply, or an event, on the page's own session or a child named by `sessionId`.
  */
 export type PreviewDebuggerMessage =
   | {
