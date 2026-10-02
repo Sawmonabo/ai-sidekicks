@@ -208,7 +208,8 @@ export class CodexAppServerConnection {
       // The caller's pairs minus what the credential policy denies, plus the binary path the
       // prelude reads (mandated, so the deny strip cannot remove it); `process.env` is never
       // consulted. Name matching follows the running platform, not the policy: whether `path` and
-      // `PATH` are one variable is an OS fact, and a `trusted` posture carries no policy.
+      // `PATH` are one variable is an OS fact, and a spawn with no declared posture carries no
+      // policy.
       env: buildProviderSpawnEnv({
         driverName: CODEX_DRIVER_NAME,
         baseEnv: config.env,

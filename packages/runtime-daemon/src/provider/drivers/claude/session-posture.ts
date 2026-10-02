@@ -28,10 +28,7 @@ function readPostureScalarAxis(
   posture: ExecutionPosture,
   axis: ClaudePostureScalarAxis,
 ): string | undefined {
-  // Read through the widened view: `credentialPolicyRef` is `never` on `trusted`, and
-  // `profileName` is optional.
-  const widened = posture as Partial<Record<ClaudePostureScalarAxis, string>>;
-  return widened[axis];
+  return posture[axis];
 }
 
 function readPostureSetAxis(

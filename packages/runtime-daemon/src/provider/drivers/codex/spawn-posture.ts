@@ -75,7 +75,7 @@ export class CodexSpawnPosture {
   /**
    * `cwd` and `env` come from the live record's spawn config, else the manager default; the
    * credential policy is entirely posture-derived, since inheriting it would relaunch a session
-   * created `trusted` and resumed sandboxed unfiltered. Members are built one by one, never spread.
+   * under a policy its new posture did not name. Members are built one by one, never spread.
    */
   async composeResumeSpawnConfig(
     existing: CodexSessionRecord | undefined,
@@ -120,8 +120,9 @@ export class CodexSpawnPosture {
 
   /**
    * Answers which credential policy filters a spawned child; create and resume both call it, and a
-   * new spawn path must too. No posture keeps the declared policy, `trusted` drops it, and an
-   * unresolved sandboxed reference is refused rather than degraded to "deny nothing".
+   * new spawn path must too. No posture keeps the declared policy; a posture's reference is
+   * resolved on every permission level, and an unresolved one is refused rather than degraded to
+   * "deny nothing".
    */
   async #resolveCredentialEnvPolicyForPosture(
     declaredPolicy: CredentialEnvPolicy | undefined,
@@ -130,9 +131,6 @@ export class CodexSpawnPosture {
   ): Promise<CredentialEnvPolicy | undefined> {
     if (posture === undefined) {
       return declaredPolicy;
-    }
-    if (posture.mode === "trusted") {
-      return undefined;
     }
     const resolved = await this.#options.resolveCredentialEnvPolicy(posture);
     if (resolved === undefined) {

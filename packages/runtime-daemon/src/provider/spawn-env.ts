@@ -3,7 +3,8 @@
  * included: strips the credential policy's denied names and always sets the provider's
  * auto-update opt-out.
  *
- * - No `credentialEnvPolicy` (a `trusted` posture) strips nothing; the opt-out always applies.
+ * - No `credentialEnvPolicy` (a spawn with no declared posture) strips nothing; the opt-out
+ *   always applies.
  * - A policy whose name matching differs from the host's is refused, not reconciled.
  */
 
@@ -35,7 +36,7 @@ export interface ProviderSpawnEnvRequest {
   readonly baseEnv: readonly SpawnEnvPair[];
   /** Every fold keys on it, even without a policy, so a base `disable_updates=0` cannot survive. */
   readonly hostEnvNameMatch: SpawnEnvNameMatch;
-  /** Absent under a `trusted` posture, which denies nothing. */
+  /** Absent for a spawn with no declared posture, which denies nothing. */
   readonly credentialEnvPolicy?: CredentialEnvPolicy | undefined;
   /**
    * Mandated like the opt-out and exempt from the deny strip; a colliding name throws. A driver

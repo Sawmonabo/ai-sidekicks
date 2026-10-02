@@ -476,7 +476,12 @@ describe("the binding carriers come from one reading", () => {
     driverName: "claude",
     contractVersion: "1.0.0",
     spawnConfig: {
-      executionPosture: { mode: "trusted", networkAccess: "none", writableRoots: [] },
+      executionPosture: {
+        mode: "yolo",
+        networkAccess: "none",
+        writableRoots: [],
+        credentialPolicyRef: "policy://default",
+      },
     },
   };
 

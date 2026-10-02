@@ -112,23 +112,24 @@ function buildHarness(
 }
 
 const SANDBOXED_POSTURE: ExecutionPosture = {
-  mode: "workspace-sandboxed",
+  mode: "sandboxed",
   credentialPolicyRef: "policy://default",
   networkAccess: "none",
   writableRoots: ["/workspace"],
 };
 
 const READONLY_POSTURE: ExecutionPosture = {
-  mode: "readonly-sandboxed",
+  mode: "readonly",
   credentialPolicyRef: "policy://default",
   networkAccess: "none",
   writableRoots: ["/workspace"],
 };
 
-const TRUSTED_POSTURE: ExecutionPosture = {
-  mode: "trusted",
+const YOLO_POSTURE: ExecutionPosture = {
+  mode: "yolo",
+  credentialPolicyRef: "policy://default",
   networkAccess: "full",
-  writableRoots: ["/workspace"],
+  writableRoots: [],
 };
 
 const RESUME_FAILURE_MECHANISMS: ReadonlyArray<{
@@ -515,7 +516,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     });
 
     await expect(
-      harness.lifecycle.startRun({ ...buildStartRunParams(), executionPosture: TRUSTED_POSTURE }),
+      harness.lifecycle.startRun({ ...buildStartRunParams(), executionPosture: YOLO_POSTURE }),
     ).rejects.toMatchObject({ fields: { reason: "execution_posture_mismatch" } });
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
@@ -565,12 +566,12 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
   });
 });
 
-// `ExecutionPosture` is an intersection of two discriminated unions, so a comparison over `mode`
+// `ExecutionPosture` carries more axes than its level and network, so a comparison over `mode`
 // and `networkAccess` alone would admit a run into a process whose sandbox differs on another
 // axis. One test per axis keeps a re-narrowing from passing on the popular ones.
 describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
-  const ALLOWED_DOMAINS_POSTURE: ExecutionPosture = {
-    mode: "workspace-sandboxed",
+  const ALLOWED_DOMAINS_POSTURE: Extract<ExecutionPosture, { networkAccess: "allowed-domains" }> = {
+    mode: "sandboxed",
     credentialPolicyRef: "policy://default",
     networkAccess: "allowed-domains",
     allowedDomains: ["api.example.com", "docs.example.com"],
@@ -1549,24 +1550,6 @@ describe("ClaudeSessionLifecycle resume credential policy", () => {
       SANDBOXED_POSTURE.credentialPolicyRef,
     );
   });
-
-  it("hands a `trusted` resume no policy ref at all", async () => {
-    // The other direction, which a "still carries a ref" assertion cannot catch: `trusted` types
-    // `credentialPolicyRef?: never`, so settings carrying one would hand the transport a policy
-    // the posture does not declare.
-    const harness = buildHarness();
-
-    await harness.lifecycle.resumeSession({
-      model: TEST_MODEL,
-      sessionId: TEST_SESSION_ID,
-      resumeHandle: "provider-session-earlier",
-      executionPosture: TRUSTED_POSTURE,
-    });
-
-    expect(
-      harness.transport.resumeRequests[0]?.sandboxSettings?.credentialPolicyRef,
-    ).toBeUndefined();
-  });
 });
 
 describe("ClaudeSessionLifecycle callback-tool registry", () => {
@@ -1879,9 +1862,9 @@ describe("ClaudeSessionLifecycle subagent admission", () => {
 });
 
 describe("composeClaudeSandboxSettings", () => {
-  it("pins the always-armed permission prompt on every sandboxed arm", () => {
-    // `supervised` maps to `on-request` unconditionally; on this provider that is realized as
-    // `allowUnsandboxedCommands: false`, so no tool call reaches the model without the daemon.
+  it("pins the always-armed permission prompt on every sandboxed level", () => {
+    // Every level below `yolo` is realized as `allowUnsandboxedCommands: false`, so no tool call
+    // reaches the model without the daemon.
     for (const posture of [SANDBOXED_POSTURE, READONLY_POSTURE]) {
       const settings = composeClaudeSandboxSettings(posture);
       expect(settings.sandbox.allowUnsandboxedCommands).toBe(false);
@@ -1892,7 +1875,7 @@ describe("composeClaudeSandboxSettings", () => {
     }
   });
 
-  it("writes nowhere on the read-only arm, with an EMPTY list rather than an omitted one", () => {
+  it("writes nowhere at `readonly`, with an EMPTY list rather than an omitted one", () => {
     // An omitted list requests the provider's default, which is not the same as "writes nowhere".
     expect(
       composeClaudeSandboxSettings(READONLY_POSTURE).sandbox.filesystem.allowWrite,
@@ -1900,11 +1883,11 @@ describe("composeClaudeSandboxSettings", () => {
   });
 
   it("omits the network restriction entirely for `full`, and empties it for `none`", () => {
-    const trusted = composeClaudeSandboxSettings(TRUSTED_POSTURE);
+    const open = composeClaudeSandboxSettings(YOLO_POSTURE);
     const denied = composeClaudeSandboxSettings(SANDBOXED_POSTURE);
 
     // The absence is the statement; an empty list would mean the opposite.
-    expect(trusted.sandbox.network).toBeUndefined();
+    expect(open.sandbox.network).toBeUndefined();
     expect(denied.sandbox.network).toStrictEqual({ allowedDomains: [] });
   });
 });

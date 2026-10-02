@@ -11,12 +11,12 @@ import { projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 
 /**
- * A posture in the contract's own shape, so the compiler holds the fixture to it. The
- * credential-policy reference belongs to a sandboxed mode; a merely posture-looking fixture
- * would pass the fold but be refused by the selector that reads it.
+ * A posture in the contract's own shape, so the compiler holds the fixture to it. Every posture
+ * carries a credential-policy reference; a merely posture-looking fixture would pass the fold but
+ * be refused by the selector that reads it.
  */
 const SANDBOXED_POSTURE: ExecutionPosture = {
-  mode: "workspace-sandboxed",
+  mode: "sandboxed",
   networkAccess: "none",
   writableRoots: ["/workspace"],
   credentialPolicyRef: "policy://workspace",

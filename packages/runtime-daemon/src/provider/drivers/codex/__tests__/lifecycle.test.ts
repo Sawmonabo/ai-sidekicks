@@ -786,14 +786,14 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
   // create and resume, and the child must follow the current one in both directions; both
   // paths resolve through the same rule, so the create and resume arms below share these.
   const SANDBOXED_POSTURE: ExecutionPosture = {
-    mode: "workspace-sandboxed",
+    mode: "sandboxed",
     credentialPolicyRef: "policy://resume",
     networkAccess: "none",
     writableRoots: [SESSION_CWD],
   };
 
   it("strips under the CREATED posture's policy though the config bag declared none", async () => {
-    // A sandboxed posture requires a `credentialPolicyRef`, but the config bag is untyped and
+    // Every posture requires a `credentialPolicyRef`, but the config bag is untyped and
     // can omit `credentialEnvPolicy`. That silence must not read as "deny nothing", which would
     // open the child holding the credential the posture withholds. Resume already re-derives the
     // policy; this is the same rule reached from the create composer.
@@ -998,7 +998,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
   });
 
   it("refuses a posture that resolves to no policy, and refuses it as a RESULT", async () => {
-    // Two properties, one guarantee. A non-`trusted` posture requires `credentialPolicyRef`, so an
+    // Two properties, one guarantee. Every posture requires `credentialPolicyRef`, so an
     // unresolved policy is a wiring fault; degrading it to "deny nothing" would launch the child
     // holding the credentials the reference exists to withhold.
     const harness = createHarness({
@@ -2670,7 +2670,7 @@ function readConfigOverrides(params: unknown): Record<string, unknown> {
 }
 
 const WORKSPACE_POSTURE_WITH_NETWORK: ExecutionPosture = {
-  mode: "workspace-sandboxed",
+  mode: "ask",
   credentialPolicyRef: "policy://default",
   networkAccess: "full",
   writableRoots: ["/work/session"],
@@ -2969,7 +2969,7 @@ describe("CodexDriver posture realization", () => {
     expect(
       describeCodexPostureDivergence(
         {
-          mode: "workspace-sandboxed",
+          mode: "ask",
           credentialPolicyRef: "policy://default",
           networkAccess: "none",
           writableRoots: [],

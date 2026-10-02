@@ -137,8 +137,8 @@ describe("provider spawn environment — credential-policy deny strip", () => {
   it("replaces a case-variant of a mandated name rather than shipping both", () => {
     // On a case-insensitive host, appending `DISABLE_UPDATES` beside an inherited
     // `disable_updates=0` would leave the winner to the process launcher. No policy is supplied
-    // (the `trusted` posture on Windows), so the fold must key on the host's mode, not the
-    // policy's.
+    // (a spawn with no declared posture, on Windows), so the fold must key on the host's mode,
+    // not the policy's.
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: [["disable_updates", "0"]],

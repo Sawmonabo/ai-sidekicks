@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { wireFreeFormString } from "./session.js";
+import type { PermissionLevel } from "./session-controls.js";
 
 // ---- Branded ID ----
 
@@ -321,20 +322,17 @@ export type ExecutionPostureNetwork =
   | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] };
 
 /**
- * The sandbox and permissions a spawn or turn runs under, stamped on `run.running`.
- * `credentialPolicyRef` names the credential deny list the run kept, required on both sandboxed
- * modes and absent under `trusted`; it is a reference, so the list itself is never embedded.
+ * The sandbox and permissions a spawn or turn runs under, stamped on `run.running`. `mode` is the
+ * session's permission level, which each driver resolves into its own provider's modes.
+ * `credentialPolicyRef` names the credential deny list handed to the provider on every level; it
+ * is a reference, so the list itself is never embedded.
  */
 export type ExecutionPosture = ExecutionPostureNetwork & {
+  mode: PermissionLevel;
   writableRoots: string[];
   profileName?: string | undefined;
-} & (
-    | { mode: "trusted"; credentialPolicyRef?: never }
-    | {
-        mode: "workspace-sandboxed" | "readonly-sandboxed";
-        credentialPolicyRef: string;
-      }
-  );
+  credentialPolicyRef: string;
+};
 
 // ---- Callback tools ----
 
