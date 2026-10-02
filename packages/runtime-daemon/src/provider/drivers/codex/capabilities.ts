@@ -17,10 +17,7 @@ import {
   type CapabilityDetectionReading,
   type CapabilityProbeExchange,
 } from "../../capability-probe.js";
-import {
-  assertCliVersionMeetsFloor,
-  emitCapabilityDetectionDiagnostics,
-} from "../../capability-refresh.js";
+import { emitCapabilityDetectionDiagnostics } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
@@ -79,8 +76,8 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
 
 /**
  * Composes the `getCapabilities()` report from the build `reading` and probe `detection`; the
- * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws the floor
- * gate's errors for a bad version, and a plain `Error` for a foreign or mismatched reading.
+ * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws a plain
+ * `Error` for a foreign or mismatched reading; the version passed the floor gate when it was read.
  */
 export function getCodexCapabilities(
   reading: SpawnedProviderVersionReading,
@@ -104,22 +101,21 @@ export function getCodexCapabilities(
     );
   }
   const cliVersion: DriverCliVersionReport = reading.report;
-  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, cliVersion);
   return {
     capabilities: {
       flags: applyCapabilityDetection(CODEX_CAPABILITY_FLAGS, detection),
       contractVersion: CODEX_CAPABILITY_CONTRACT_VERSION,
     },
     tools: getCodexToolMetadata(),
-    cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
+    cliVersion: { ...cliVersion },
     // Fresh: the reading's record is frozen and shared.
     detectionSource: { ...detection.detectionSource },
   };
 }
 
 /**
- * Takes one detection reading for the build `reading` describes; the floor gate runs first, so a
- * below-floor build is never probed. Withdrawals are reported here so attach and refresh meter
+ * Takes one detection reading for the build `reading` describes; the reading passed the floor gate
+ * when it was taken, so a below-floor build is never probed. Withdrawals are reported here so attach and refresh meter
  * them through one counter.
  */
 export async function readCodexCapabilityDetection(
@@ -132,7 +128,6 @@ export async function readCodexCapabilityDetection(
       `readCodexCapabilityDetection: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
     );
   }
-  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, reading.report);
   const detection = await readCapabilityDetection({
     driverName: CODEX_DRIVER_NAME,
     boundExecutablePath: reading.resolvedExecutablePath,

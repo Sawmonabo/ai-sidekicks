@@ -1,6 +1,5 @@
 // Claude capability declaration: a reporter that carries the spawned build's version and its
-// output-speed levels, admits any build at or above the floor and refuses a below-floor,
-// unparseable or foreign one before the writer sees it; and the model catalog read from the
+// output-speed levels and refuses a foreign one before the writer sees it; and the model catalog read from the
 // recorded `list_models` reply.
 
 import { describe, expect, it } from "vitest";
@@ -9,12 +8,7 @@ import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../../../__fixtures__/capability-probe-doubles.js";
-import {
-  DriverCliVersionBelowFloorError,
-  DriverCliVersionUnparseableError,
-} from "../../../capability-refresh.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
-import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import {
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
@@ -87,55 +81,6 @@ describe("refreshDeclaration()", () => {
     ]);
     expect(sink.calls[0]?.result.cliVersion.semver).toBe("2.1.245");
     expect(sink.calls[1]?.result.cliVersion.semver).toBe("2.1.246");
-  });
-});
-
-describe("Claude CLI-version floor", () => {
-  it("refuses a below-floor reading before any report reaches a caller or the writer", async () => {
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
-    );
-    let thrown: unknown;
-    try {
-      await reporter.getCapabilities();
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    const error = thrown as DriverCliVersionBelowFloorError;
-    expect(error.code).toBe("driver.cli_version_below_floor");
-    expect(error.fields).toStrictEqual({
-      driverName: "claude",
-      reportedSemver: "2.1.198",
-      floor: CLAUDE_DRIVER_DESCRIPTOR.cliVersionFloor,
-    });
-
-    // The refresh path goes through the same gate, so the writer never sees the declaration.
-    const sink = new RecordingDeclarationSink();
-    await expect(reporter.refreshDeclaration(sink)).rejects.toBeInstanceOf(
-      DriverCliVersionBelowFloorError,
-    );
-    expect(sink.calls).toHaveLength(0);
-  });
-
-  it("admits a build exactly at the floor and any newer build, above the pin included", async () => {
-    const atFloor = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.234 (Claude Code)", semver: "2.1.234" }),
-    );
-    await expect(atFloor.getCapabilities()).resolves.toBeDefined();
-
-    const aboveMeasured = makeReporter(() => Promise.resolve({ raw: "3.0.0", semver: "3.0.0" }));
-    await expect(aboveMeasured.getCapabilities()).resolves.toBeDefined();
-  });
-
-  it("refuses a non-canonical reading fail-closed as unparseable", async () => {
-    // Reachable only through an untyped boundary; the gate still answers with a typed error.
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "Claude Code (unknown)", semver: "unknown" }),
-    );
-    await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
-      DriverCliVersionUnparseableError,
-    );
   });
 });
 

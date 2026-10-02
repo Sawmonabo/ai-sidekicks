@@ -1,4 +1,4 @@
-// The CLI-version parse, which fails closed on anything short of a full semver, and the
+// The CLI-version parse, which leaves anything short of a full semver unparsed, and the
 // CapabilityRefresher, which reads only when asked and keeps a failed or hung read from stopping a
 // sibling's read or a later refresh.
 
@@ -10,7 +10,6 @@ import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-wri
 import {
   CAPABILITY_REFRESH_READ_TIMEOUT_MS,
   CapabilityRefresher,
-  DriverCliVersionUnparseableError,
   parseCliVersionReport,
   type CapabilityRefreshDiagnostic,
   type CapabilityRefreshDriverEntry,
@@ -18,27 +17,17 @@ import {
 
 describe("parseCliVersionReport", () => {
   it("derives the canonical semver from a prose-wrapped raw string, preserving raw verbatim", () => {
-    const report = parseCliVersionReport("codex", "codex-cli 0.149.1 (build abc123)");
+    const report = parseCliVersionReport("codex-cli 0.149.1 (build abc123)");
     expect(report).toStrictEqual({ raw: "codex-cli 0.149.1 (build abc123)", semver: "0.149.1" });
 
-    const claudeReport = parseCliVersionReport("claude", "2.1.245 (Claude Code)");
+    const claudeReport = parseCliVersionReport("2.1.245 (Claude Code)");
     expect(claudeReport).toStrictEqual({ raw: "2.1.245 (Claude Code)", semver: "2.1.245" });
   });
 
   it.each(["garbage", "2.1"])(
-    "refuses %j fail-closed as driver.cli_version_unparseable (no coercion of partial versions)",
+    "keeps %j as the printed version with no parse (no coercion of partial versions)",
     (raw) => {
-      let thrown: unknown;
-      try {
-        parseCliVersionReport("codex", raw);
-      } catch (e) {
-        thrown = e;
-      }
-      expect(thrown).toBeInstanceOf(DriverCliVersionUnparseableError);
-      expect((thrown as DriverCliVersionUnparseableError).code).toBe(
-        "driver.cli_version_unparseable",
-      );
-      expect((thrown as DriverCliVersionUnparseableError).fields.driverName).toBe("codex");
+      expect(parseCliVersionReport(raw)).toStrictEqual({ raw });
     },
   );
 });

@@ -1,6 +1,6 @@
 // Spawn-time binary resolution, the in-band version read and the floor gate: the version recorded
-// is the one the spawned build reported, a below-floor or unparseable build is refused before any
-// other use, and every provider child carries its auto-update opt-out.
+// is the one the spawned build reported, a below-floor build is refused before any other use while
+// an unparseable one runs with its printed version, and every provider child carries its auto-update opt-out.
 
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,10 +12,7 @@ import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../__fixtures__/capability-probe-doubles.js";
-import {
-  DriverCliVersionBelowFloorError,
-  DriverCliVersionUnparseableError,
-} from "../capability-refresh.js";
+import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
 import {
@@ -401,15 +398,14 @@ describe("the floor gate at the spawn", () => {
     expect(sink.calls[0]?.result.cliVersion).toStrictEqual({ raw: "9.99.0", semver: "9.99.0" });
   });
 
-  it("refuses an unparseable in-band report before the floor is ever compared", async () => {
+  it("runs an unparseable in-band report with its printed version and no parse", async () => {
     const handshake = new RecordingHandshake({
       [CODEX_EXECUTABLE]: { userAgent: "codex-cli (unknown build)" },
     });
     const sink = new RecordingDeclarationSink();
-    await expect(attachCodex(sink, handshake)).rejects.toBeInstanceOf(
-      DriverCliVersionUnparseableError,
-    );
-    expect(sink.calls).toHaveLength(0);
+    await attachCodex(sink, handshake);
+    expect(sink.calls).toHaveLength(1);
+    expect(sink.calls[0]?.result.cliVersion).toStrictEqual({ raw: "codex-cli (unknown build)" });
   });
 
   it("spawns the RESOLVED path and names the daemon's client on the request", async () => {

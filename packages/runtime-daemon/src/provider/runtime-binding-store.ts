@@ -5,8 +5,8 @@
 //   provider-declared: the SQL CHECKs bound length and NULs, `provider-output-validation.ts` adds
 //   the semantic layer. The pair is spawn-scoped, so it is validated at INSERT only.
 // - `spawn_config` is required at create; recovery re-reads it to rebuild `ResumeSessionParams`
-//   without the original client request. `cliVersion` is one optional member, so the DDL's
-//   both-or-neither CHECK holds at the type level.
+//   without the original client request. `cliVersion` is one optional member, so the DDL's rule
+//   that a parse never stands without its printed version holds at the type level.
 // - `runId`, `id` and the content of `runtime_metadata` are daemon-controlled: no CHECK and no Zod
 //   guard. `driverName` is typed at the write and parsed as a provider name on every read.
 //   `update` runs IMMEDIATE (see the `#updateTxn` field).
@@ -25,13 +25,14 @@ import {
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
-import type {
-  CallbackToolInvocation,
-  CallbackToolResult,
-  DriverCliVersionReport,
-  McpServerStatusProducer,
-  ResumeSessionParams,
-  SubagentPolicy,
+import {
+  type CallbackToolInvocation,
+  type CallbackToolResult,
+  type DriverCliVersionReport,
+  type McpServerStatusProducer,
+  type ResumeSessionParams,
+  type SubagentPolicy,
+  readCliVersionColumns,
 } from "./provider-driver.js";
 
 /**
@@ -61,7 +62,7 @@ export interface RuntimeBinding {
   readonly runId: string;
   readonly driverName: ProviderName;
   readonly contractVersion: string;
-  // `null` unless both columns are set; a half pair exists only through out-of-band corruption.
+  // `null` when no version was recorded; `semver` is absent when the printed version did not parse.
   readonly cliVersion: DriverCliVersionReport | null;
   readonly resumeHandle: string | null;
   readonly spawnConfig: RuntimeBindingSpawnConfig;
@@ -72,7 +73,8 @@ export interface RuntimeBinding {
 
 /**
  * `create` input. The store mints `id`, because a run has many bindings. `cliVersion` carries the
- * pair or neither, so a half pair cannot be expressed; `spawnConfig` is required.
+ * printed version and its parse together, so a parse without a version cannot be expressed;
+ * `spawnConfig` is required.
  */
 export interface CreateRuntimeBindingInput {
   readonly runId: string;
@@ -410,9 +412,8 @@ export class RuntimeBindingStore {
       run_id: input.runId,
       driver_name: input.driverName,
       contract_version: input.contractVersion,
-      // Bound as a pair from one source, so the both-or-neither CHECK sees two NULLs or two values.
       cli_version_raw: cliVersion === null ? null : cliVersion.raw,
-      cli_version_semver: cliVersion === null ? null : cliVersion.semver,
+      cli_version_semver: cliVersion?.semver ?? null,
       resume_handle: resumeHandle,
       spawn_config: spawnConfigJson,
       runtime_metadata: runtimeMetadataJson,
@@ -499,9 +500,8 @@ export class RuntimeBindingStore {
   }
 
   /**
-   * Maps a raw row to the public type. The CLI-version pair folds only when both columns are set;
-   * a half-present row (out-of-band corruption) reports `null`. `update()` passes the columns it
-   * parsed inside its transaction.
+   * Maps a raw row to the public type; the CLI version folds from its printed column. `update()`
+   * passes the columns it parsed inside its transaction.
    */
   #rowToDomain(
     row: RuntimeBindingRow,
@@ -513,9 +513,9 @@ export class RuntimeBindingStore {
       driverName: parsedColumns.driverName,
       contractVersion: row.contract_version,
       cliVersion:
-        row.cli_version_raw !== null && row.cli_version_semver !== null
-          ? { raw: row.cli_version_raw, semver: row.cli_version_semver }
-          : null,
+        row.cli_version_raw === null
+          ? null
+          : readCliVersionColumns(row.cli_version_raw, row.cli_version_semver),
       resumeHandle: row.resume_handle,
       spawnConfig: parsedColumns.spawnConfig,
       runtimeMetadata: JSON.parse(row.runtime_metadata) as Record<string, unknown>,

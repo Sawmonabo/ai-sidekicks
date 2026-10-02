@@ -21,10 +21,7 @@ import {
   type CapabilityDetectionReading,
   type CapabilityProbeExchange,
 } from "../../capability-probe.js";
-import {
-  assertCliVersionMeetsFloor,
-  emitCapabilityDetectionDiagnostics,
-} from "../../capability-refresh.js";
+import { emitCapabilityDetectionDiagnostics } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
@@ -103,8 +100,8 @@ export class ClaudeCapabilityReporter {
   }
 
   /**
-   * The driver's `getCapabilities()` answer; every member is a fresh object. Throws
-   * `driver.cli_version_below_floor` before any report exists, gating attach and refresh alike.
+   * The driver's `getCapabilities()` answer; every member is a fresh object. The version reading
+   * passed the floor gate when it was taken, so attach and refresh are gated alike.
    */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
     const reading = await this.#readSpawnedVersion();
@@ -115,8 +112,7 @@ export class ClaudeCapabilityReporter {
       );
     }
     const cliVersion: DriverCliVersionReport = reading.report;
-    assertCliVersionMeetsFloor(CLAUDE_DRIVER_NAME, cliVersion);
-    // Strictly after the floor gate, so a build the daemon has already refused is never probed.
+    // The reading passed the floor gate, so a build the daemon refused is never probed.
     const detection: CapabilityDetectionReading = await readCapabilityDetection({
       driverName: CLAUDE_DRIVER_NAME,
       // The executable the version handshake resolved, not resolved again, so the version and the
@@ -132,7 +128,7 @@ export class ClaudeCapabilityReporter {
     return {
       capabilities,
       tools: getClaudeToolMetadata(),
-      cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
+      cliVersion: { ...cliVersion },
       detectionSource: { ...detection.detectionSource },
       // A fresh array per reply: the freeze blocks in-place edits of the constant, the copy stays
       // mutable for the consumer.

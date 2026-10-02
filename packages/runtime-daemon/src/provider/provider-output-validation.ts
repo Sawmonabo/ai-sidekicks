@@ -57,8 +57,7 @@ const contractVersionSchema = wireFreeFormString(
 // Rejects whitespace-only handles, which the SQL CHECK would accept.
 const resumeHandleSchema = wireFreeFormString(RESUME_HANDLE_MAX_LEN, "resume_handle");
 
-// The handshake refusal (`driver.cli_version_unparseable`) stays the parse authority; these
-// schemas add the storage bounds.
+// The storage bounds of a version report; the parse itself is `parseCliVersionReport`'s.
 const cliVersionRawSchema = wireFreeFormString(CLI_VERSION_RAW_MAX_LEN, "cli_version_raw");
 const cliVersionSemverSchema = wireFreeFormString(
   CLI_VERSION_SEMVER_MAX_LEN,
@@ -110,7 +109,7 @@ export function assertValidCliVersionReport(
       reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
     });
   }
-  if (!cliVersionSemverSchema.safeParse(report.semver).success) {
+  if (report.semver !== undefined && !cliVersionSemverSchema.safeParse(report.semver).success) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cli_version_semver",

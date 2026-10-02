@@ -82,7 +82,7 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
 // Direct-SQL insert that bypasses the write seam: the only way to stage a corrupt
-// `spawn_config` or `driver_name`, or a half-present CLI-version pair.
+// `spawn_config` or `driver_name`, or a CLI-version parse with no printed version.
 function insertRawBinding(overrides: {
   id?: string;
   driverName?: string;
@@ -636,17 +636,28 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     });
   });
 
-  it("the DDL CHECK rejects a HALF-PRESENT pair written directly via SQL", () => {
-    // The seam makes a half-pair unrepresentable (one optional member carries both values), so
-    // this is the only way to test the column-layer guarantee. Both directions, because the
-    // CHECK is an equality of two IS NULL tests.
+  it("keeps a printed version that did not parse, and refuses a parse with no printed version", () => {
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      cliVersion: { raw: "Claude Code (unknown build)" },
+      spawnConfig: {},
+    });
+    expect(store.findById(created.id)?.cliVersion).toStrictEqual({
+      raw: "Claude Code (unknown build)",
+    });
+    expect(readRawCliVersion(created.id)).toEqual({
+      cli_version_raw: "Claude Code (unknown build)",
+      cli_version_semver: null,
+    });
+
+    // The seam cannot express a parse without its printed version, so only SQL can stage one.
     expect(() =>
-      insertRawBinding({ id: "half-1", cliVersionRaw: CLI_VERSION.raw, cliVersionSemver: null }),
+      insertRawBinding({ id: "parse-only", cliVersionRaw: null, cliVersionSemver: "2.1.245" }),
     ).toThrow(/CHECK constraint failed/);
-    expect(() =>
-      insertRawBinding({ id: "half-2", cliVersionRaw: null, cliVersionSemver: CLI_VERSION.semver }),
-    ).toThrow(/CHECK constraint failed/);
-    expect(countBindings()).toBe(0);
+    expect(countBindings()).toBe(1);
   });
 
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
@@ -683,7 +694,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 describe("RuntimeBindingStore — spawned-version carriers", () => {
   // `version-gate.test.ts` proves the reading is taken from the dereferenced build. This proves
   // that value is what a later reader gets back out of the database, through `create()`'s
-  // report validation, the both-or-neither DDL CHECK and the `spawn_config` parser, none of
+  // report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none of
   // which the in-memory projection helpers exercise: the version compared, the version
   // recorded and the version run are one reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";

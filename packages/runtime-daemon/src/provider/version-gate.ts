@@ -14,11 +14,7 @@ import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "
 
 import type { ProviderName } from "@ai-sidekicks/contracts";
 
-import {
-  DriverCliVersionUnparseableError,
-  assertCliVersionMeetsFloor,
-  parseCliVersionReport,
-} from "./capability-refresh.js";
+import { assertCliVersionMeetsFloor, parseCliVersionReport } from "./capability-refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
@@ -267,14 +263,16 @@ export async function readSpawnedProviderVersion(
   });
 
   const reading = PROVIDER_DRIVER_DESCRIPTORS[driverName].readReportedVersion(payload, clientName);
-  if ("unreadableReply" in reading) {
-    throw new DriverCliVersionUnparseableError(driverName, reading.unreadableReply);
-  }
-
-  const report = parseCliVersionReport(driverName, reading.version);
-  assertCliVersionMeetsFloor(driverName, report);
-  // The one place the version enters the daemon, so the storage bounds are checked here too.
+  // A reply that carried no version text keeps that text as the printed version, unparsed: its
+  // version-shaped tokens may name something else, such as the caller's own client version.
+  const report =
+    "unreadableReply" in reading
+      ? { raw: reading.unreadableReply }
+      : parseCliVersionReport(reading.version);
+  // The one place the version enters the daemon, so the storage bounds are checked here too; an
+  // empty reply has no printed version and is refused as invalid provider output.
   assertValidCliVersionReport(driverName, report);
+  assertCliVersionMeetsFloor(driverName, report);
   return { driverName, resolvedExecutablePath: resolved.resolvedExecutablePath, report };
 }
 
@@ -283,7 +281,7 @@ export function toBindingVersionCarriers(
   reading: SpawnedProviderVersionReading,
 ): SpawnedVersionBindingCarriers {
   return {
-    cliVersion: { raw: reading.report.raw, semver: reading.report.semver },
+    cliVersion: { ...reading.report },
     resolvedExecutablePath: reading.resolvedExecutablePath,
   };
 }

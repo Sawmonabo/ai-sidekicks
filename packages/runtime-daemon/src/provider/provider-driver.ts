@@ -231,14 +231,19 @@ export const DRIVER_TOOL_CALL_ID_MAX_LEN = 256;
 
 /**
  * The provider CLI version as the spawned process reports it in-band, never from a launcher
- * symlink that may name a different build. `semver` is required so an unparseable version is
- * unrepresentable: the driver fails the report closed and attach refuses as
- * `driver.cli_version_unparseable`; a version below the configured floor refuses as
- * `driver.cli_version_below_floor`. `raw` is bounded where it is persisted, not here.
+ * symlink that may name a different build. `raw` is the printed version, always; `semver` is its
+ * canonical parse, present only when it parses. A version the parser cannot read still runs; the
+ * floor is compared only on a parsed version, and one below it refuses as
+ * `driver.cli_version_below_floor`.
  */
 export interface DriverCliVersionReport {
   raw: string;
-  semver: string;
+  semver?: string | undefined;
+}
+
+/** Rebuilds a stored report from its two columns; a NULL parse is a version that did not parse. */
+export function readCliVersionColumns(raw: string, semver: string | null): DriverCliVersionReport {
+  return semver === null ? { raw } : { raw, semver };
 }
 
 /**
@@ -248,7 +253,7 @@ export interface DriverCliVersionReport {
 export interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
-  // Required: a capability report without a parseable provider version never reaches the daemon.
+  // Required: every capability report carries the printed provider version.
   // It describes this reading rather than a capability, so it rides this wrapper and is not part
   // of the stored capability snapshot (the version floor gates attach only).
   cliVersion: DriverCliVersionReport;

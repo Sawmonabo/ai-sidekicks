@@ -2,9 +2,9 @@
  * Capability refresh: the CLI-version floor gate and the refresher that re-reads capabilities. Each
  * provider's floor value is on its descriptor.
  *
- * - The floor fails closed with two 409 codes: `driver.cli_version_unparseable` (no canonical
- *   semver) and `driver.cli_version_below_floor`. Neither is `version.floor_exceeded`, which
- *   governs client and event-envelope floors. A build at or above the floor is admitted.
+ * - The floor refuses a parsed version below it as `driver.cli_version_below_floor` (409), not
+ *   `version.floor_exceeded`, which governs client and event-envelope floors. A build at or above
+ *   the floor is admitted, and so is a version the parser cannot read.
  * - The refresher reads on demand only, never on a timer, and holds no auth record: readiness to
  *   admit a run comes from the account's stored health. Change detection belongs to
  *   `DriverCapabilitiesWriter`; the refresher adds none.
@@ -16,28 +16,8 @@ import semver from "semver";
 import { type CapabilityDetectionReading, isCapabilityProbeError } from "./capability-probe.js";
 import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
-import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
-
-/**
- * Thrown when a provider-reported version yields no canonical semver (`code`
- * `driver.cli_version_unparseable`, 409). `fields.raw` is capped at `CLI_VERSION_RAW_MAX_LEN` so a
- * provider binary cannot put an oversized string on the error.
- */
-export class DriverCliVersionUnparseableError extends Error {
-  readonly code = "driver.cli_version_unparseable" as const;
-  readonly fields: { readonly driverName: ProviderName; readonly raw: string };
-
-  constructor(driverName: ProviderName, raw: string) {
-    super("The provider CLI's reported version could not be parsed to a semantic version");
-    this.name = "DriverCliVersionUnparseableError";
-    this.fields = {
-      driverName,
-      raw: raw.length > CLI_VERSION_RAW_MAX_LEN ? raw.slice(0, CLI_VERSION_RAW_MAX_LEN) : raw,
-    };
-  }
-}
 
 /** Thrown when a parsed version is below the driver's floor (`driver.cli_version_below_floor`). */
 export class DriverCliVersionBelowFloorError extends Error {
@@ -56,36 +36,29 @@ export class DriverCliVersionBelowFloorError extends Error {
 }
 
 // The first `X.Y.Z` token in prose such as `"cli-name 2.1.245 (build 7)"`. Not `semver.coerce`,
-// which would turn `"v2"` into `2.0.0`: a partial version must be unparseable.
+// which would turn `"v2"` into `2.0.0`: a partial version stays unparsed.
 const SEMVER_TOKEN_PATTERN = /\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?/;
 
 /**
- * Derives a `DriverCliVersionReport` from a provider-reported raw version. Throws
- * `DriverCliVersionUnparseableError` when no canonical semver can be extracted; `raw` is kept
- * verbatim.
+ * Derives a `DriverCliVersionReport` from a provider-reported raw version: `raw` verbatim, and
+ * `semver` only when a canonical version can be extracted.
  */
-export function parseCliVersionReport(
-  driverName: ProviderName,
-  raw: string,
-): DriverCliVersionReport {
+export function parseCliVersionReport(raw: string): DriverCliVersionReport {
   const token = SEMVER_TOKEN_PATTERN.exec(raw)?.[0];
   const canonical = token === undefined ? null : semver.valid(token);
-  if (canonical === null) {
-    throw new DriverCliVersionUnparseableError(driverName, raw);
-  }
-  return { raw, semver: canonical };
+  return canonical === null ? { raw } : { raw, semver: canonical };
 }
 
 /**
- * The floor gate: throws `DriverCliVersionBelowFloorError` below the driver's floor, and
- * `DriverCliVersionUnparseableError` for a non-canonical `semver` instead of a raw `TypeError`.
+ * The floor gate: throws `DriverCliVersionBelowFloorError` when a parsed version is below the
+ * driver's floor. A report with no parsed version passes: the floor is compared only on one.
  */
 export function assertCliVersionMeetsFloor(
   driverName: ProviderName,
   report: DriverCliVersionReport,
 ): void {
-  if (semver.valid(report.semver) !== report.semver) {
-    throw new DriverCliVersionUnparseableError(driverName, report.raw);
+  if (report.semver === undefined) {
+    return;
   }
   const floor = PROVIDER_DRIVER_DESCRIPTORS[driverName].cliVersionFloor;
   if (semver.lt(report.semver, floor)) {

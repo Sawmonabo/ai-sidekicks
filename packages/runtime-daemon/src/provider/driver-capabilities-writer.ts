@@ -29,7 +29,11 @@ import {
   ProviderOutputValidationError,
 } from "./provider-output-validation.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "./provider-driver.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  readCliVersionColumns,
+} from "./provider-driver.js";
 
 // One driver's stored capabilities: every flag, the contract version and the normalized tools.
 interface CapabilityDetails {
@@ -89,18 +93,18 @@ interface DriverToolRow {
 
 interface DriverContractMetaRow {
   readonly contract_version: string;
-  // Both or neither: the table's CHECK never admits a half-populated pair.
+  // The table's CHECK never admits a parse without its printed version.
   readonly cli_version_raw: string | null;
   readonly cli_version_semver: string | null;
 }
 
-// `snapshot` undefined: never written. `storedCliVersion` undefined: the row's pair is NULL.
+// `snapshot` undefined: never written. `storedCliVersion` undefined: the row has no version.
 interface CachedDriverCapabilityRead {
   readonly snapshot: CapabilityDetails | undefined;
   readonly storedCliVersion: DriverCliVersionReport | undefined;
 }
 
-// Absent versus present is a difference, so a row with a NULL pair heals on the next declare.
+// Absent versus present is a difference, so a row with no version heals on the next declare.
 function cliVersionReportsEqual(
   left: DriverCliVersionReport | undefined,
   right: DriverCliVersionReport | undefined,
@@ -183,7 +187,7 @@ export class DriverCapabilitiesWriter {
                        cli_version_semver = excluded.cli_version_semver,
                        refreshed_at       = excluded.refreshed_at`,
     );
-    // Both pair columns are written together, matching the table's both-or-neither CHECK.
+    // Both version columns are written together, so a parse never outlives its printed version.
     this.#refreshCliVersionPairStmt = db.prepare(
       `UPDATE driver_contract_meta
           SET cli_version_raw    = @cli_version_raw,
@@ -296,7 +300,7 @@ export class DriverCapabilitiesWriter {
         this.#refreshCliVersionPairStmt.run({
           driver_name: driverName,
           cli_version_raw: declaredCliVersion.raw,
-          cli_version_semver: declaredCliVersion.semver,
+          cli_version_semver: declaredCliVersion.semver ?? null,
           refreshed_at: this.#now(),
         });
       }
@@ -330,7 +334,7 @@ export class DriverCapabilitiesWriter {
       driver_name: driverName,
       contract_version: newSnapshot.contractVersion,
       cli_version_raw: declaredCliVersion.raw,
-      cli_version_semver: declaredCliVersion.semver,
+      cli_version_semver: declaredCliVersion.semver ?? null,
       refreshed_at: refreshedAt,
     });
 
@@ -380,11 +384,10 @@ export class DriverCapabilitiesWriter {
     }
     return {
       snapshot: this.#snapshotFromContractMeta(driverName, contractMeta),
-      // A half-populated pair (out-of-band corruption only) degrades to a miss.
       storedCliVersion:
-        contractMeta.cli_version_raw !== null && contractMeta.cli_version_semver !== null
-          ? { raw: contractMeta.cli_version_raw, semver: contractMeta.cli_version_semver }
-          : undefined,
+        contractMeta.cli_version_raw === null
+          ? undefined
+          : readCliVersionColumns(contractMeta.cli_version_raw, contractMeta.cli_version_semver),
     };
   }
 

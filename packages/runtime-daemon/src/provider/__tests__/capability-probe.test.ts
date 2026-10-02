@@ -36,7 +36,6 @@ import {
   type DriverCapabilityDetectionTable,
   type ProbeAnswer,
 } from "../capability-probe.js";
-import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
 import {
   DriverCapabilitiesWriter,
   type DeclareDriverCapabilitiesResult,
@@ -339,24 +338,6 @@ describe("capability withdrawal is per capability", () => {
 });
 
 describe("detectionSource on the capability report", () => {
-  it("PROBES ONLY AFTER the floor gate — a below-floor build is never asked", async () => {
-    // Codex is the driver that probes, so only its read can show the order. Asserted on the
-    // transport: the refusal is raised before a single request.
-    const transport = new RecordingCapabilityProbeTransport("codex");
-    await expect(
-      readCodexCapabilityDetection(
-        {
-          driverName: CODEX_DRIVER_NAME,
-          resolvedExecutablePath: "/opt/homebrew/Cellar/codex/0.140.0/bin/codex",
-          report: { raw: "codex-cli 0.140.0", semver: "0.140.0" },
-        },
-        transport.exchange,
-        silentDiagnostics(),
-      ),
-    ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
-    expect(transport.requests).toHaveLength(0);
-  });
-
   it("returns a REPORT when one probe refuses — the session survives the withdrawal", async () => {
     // Through the driver's own composition: a refusing probe is a per-capability outcome, not a
     // failed read. The declaration lands with one flag withdrawn and its provenance still

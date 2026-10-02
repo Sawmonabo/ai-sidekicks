@@ -1,5 +1,4 @@
-// Codex capability declaration: composition admits the floor and newer builds but refuses a
-// below-floor, unparseable or foreign reading, and the model catalog reads the provider's recorded
+// Codex capability declaration: composition refuses a foreign reading, and the model catalog reads the provider's recorded
 // `model/list` reply.
 
 import { describe, expect, it } from "vitest";
@@ -10,13 +9,8 @@ import {
   fullyProbedDetectionReading,
 } from "../../../__fixtures__/capability-probe-doubles.js";
 import type { CapabilityDetectionReading } from "../../../capability-probe.js";
-import {
-  DriverCliVersionBelowFloorError,
-  DriverCliVersionUnparseableError,
-} from "../../../capability-refresh.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
-import { CODEX_DRIVER_DESCRIPTOR } from "../codex-driver-descriptor.js";
 import {
   CODEX_DRIVER_NAME,
   CodexModelCatalogUnreadableError,
@@ -64,52 +58,6 @@ const CODEX_PROBE = new RecordingCapabilityProbeTransport("codex");
 function silentDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
 }
-
-describe("Codex CLI-version floor", () => {
-  it("refuses a below-floor report at composition, so attach and refresh both hit the gate", () => {
-    let thrown: unknown;
-    try {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }),
-        CODEX_DETECTION,
-      );
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    const error = thrown as DriverCliVersionBelowFloorError;
-    expect(error.code).toBe("driver.cli_version_below_floor");
-    expect(error.fields).toStrictEqual({
-      driverName: "codex",
-      reportedSemver: "0.140.0",
-      floor: CODEX_DRIVER_DESCRIPTOR.cliVersionFloor,
-    });
-  });
-
-  it("refuses a non-canonical semver member fail-closed as unparseable", () => {
-    expect(() => {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli mystery", semver: "mystery" }),
-        CODEX_DETECTION,
-      );
-    }).toThrow(DriverCliVersionUnparseableError);
-  });
-
-  it("admits the floor itself and any newer build, above the pin included", () => {
-    expect(() => {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli 0.141.0", semver: "0.141.0" }),
-        CODEX_DETECTION,
-      );
-    }).not.toThrow();
-    expect(() => {
-      getCodexCapabilities(
-        codexReading({ raw: "codex-cli 0.150.1", semver: "0.150.1" }),
-        CODEX_DETECTION,
-      );
-    }).not.toThrow();
-  });
-});
 
 describe("Codex composition is bound to the spawned build", () => {
   it("refuses a reading taken from ANOTHER driver's build", async () => {
