@@ -9,6 +9,7 @@ import type {
 } from "./method-descriptor.js";
 import type { AgentMethodDescriptors } from "./agent.js";
 import type { ApprovalMethodDescriptors } from "./approval.js";
+import type { ArtifactMethodDescriptors } from "./artifacts/methods.js";
 import type { AttentionMethodDescriptors } from "./attention.js";
 import type { BrowserMethodDescriptors } from "./browser.js";
 import type { CallbackToolMethodDescriptors } from "./callback-tool.js";
@@ -65,6 +66,7 @@ import type { WorkflowSecretMethodDescriptors } from "./workflow-secret.js";
 /** Every method the daemon answers, keyed by its name. */
 export type DaemonMethodDescriptors = AgentMethodDescriptors &
   ApprovalMethodDescriptors &
+  ArtifactMethodDescriptors &
   AttentionMethodDescriptors &
   BrowserMethodDescriptors &
   CallbackToolMethodDescriptors &

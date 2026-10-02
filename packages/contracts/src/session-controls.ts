@@ -1,8 +1,8 @@
 // A session's own controls and the reads behind its composer chips: the permission level and the
 // Build or Plan mode, the auto-compact bound, the tool servers and their resources, the live `/`
-// list, the side question, the review, the definitions reload, the step bound, and the Codex
-// sessions typed in a terminal. It also holds the payloads of the flow rows these controls write
-// and the live frame of Codex's safety hold on a turn.
+// list, the side question, the review, the definitions reload, the step bound, the spend and token
+// limits, and the Codex sessions typed in a terminal. It also holds the payloads of the flow rows
+// these controls write and the live frame of Codex's safety hold on a turn.
 //
 // Every method here names the session it acts on, and every setting it changes belongs to that
 // session alone: Settings, other sessions and future sessions are untouched.
@@ -36,6 +36,12 @@ import {
   wireUncappedFreeFormString,
   type SessionId,
 } from "./session.js";
+import {
+  OrchestrationBudgetStateSchema,
+  TokensPerRunSchema,
+  UsdMicrosSchema,
+  type OrchestrationBudgetState,
+} from "./session-cost.js";
 
 // The unbranded UUID text form, since the `agentId` brand belongs to the live agent contract.
 const agentIdSchema = uuidTextFormSchema;
@@ -399,6 +405,36 @@ export const SessionMaxStepsUpdateResponseSchema: z.ZodType<SessionMaxStepsUpdat
   .strict();
 
 /**
+ * Sets or clears this session's own `Spend limit`, in micro-dollars; `null` is `Unlimited`.
+ * Saving a higher limit carries on the turns the limit stopped.
+ */
+export interface SessionSpendLimitUpdateRequest {
+  sessionId: SessionId;
+  spendLimitUsdMicros: number | null;
+}
+/** Parses a {@link SessionSpendLimitUpdateRequest}; a fraction or a negative amount is refused. */
+export const SessionSpendLimitUpdateRequestSchema: z.ZodType<
+  SessionSpendLimitUpdateRequest,
+  SessionSpendLimitUpdateRequest
+> = z
+  .object({ sessionId: SessionIdSchema, spendLimitUsdMicros: UsdMicrosSchema.nullable() })
+  .strict();
+
+/**
+ * Sets or clears this session's own `Tokens per run`; `null` is `Unlimited`. Saving a higher
+ * limit carries on the run the limit stopped.
+ */
+export interface SessionTokensPerRunUpdateRequest {
+  sessionId: SessionId;
+  tokensPerRun: number | null;
+}
+/** Parses a {@link SessionTokensPerRunUpdateRequest}; a count below one is refused. */
+export const SessionTokensPerRunUpdateRequestSchema: z.ZodType<
+  SessionTokensPerRunUpdateRequest,
+  SessionTokensPerRunUpdateRequest
+> = z.object({ sessionId: SessionIdSchema, tokensPerRun: TokensPerRunSchema.nullable() }).strict();
+
+/**
  * The `run.step_limit_reached` payload: a turn reached the step bound and ended there, the run
  * going on. `count` is the bound reached, drawn beside `Continue`.
  */
@@ -410,6 +446,35 @@ export type RunStepLimitReachedPayload = {
 /** Parses a {@link RunStepLimitReachedPayload}. */
 export const RunStepLimitReachedPayloadSchema: z.ZodType<RunStepLimitReachedPayload> = z
   .object({ sessionId: SessionIdSchema, runId: RunIdSchema, count: z.number().int().positive() })
+  .strict();
+
+/**
+ * The `session.spend_limit_reached` payload: the session's spend passed its `Spend limit`, so
+ * every running turn in it stopped. `spendLimitUsdMicros` is the limit, drawn beside
+ * `Raise limit`.
+ */
+export type SessionSpendLimitReachedPayload = {
+  sessionId: SessionId;
+  spendLimitUsdMicros: number;
+};
+/** Parses a {@link SessionSpendLimitReachedPayload}. */
+export const SessionSpendLimitReachedPayloadSchema: z.ZodType<SessionSpendLimitReachedPayload> = z
+  .object({ sessionId: SessionIdSchema, spendLimitUsdMicros: UsdMicrosSchema })
+  .strict();
+
+/**
+ * The `run.token_limit_reached` payload: the run passed its `Tokens per run` and ended. The next
+ * message starts a new run with a fresh count. `tokenLimit` is the limit, drawn beside
+ * `Raise limit`.
+ */
+export type RunTokenLimitReachedPayload = {
+  sessionId: SessionId;
+  runId: RunId;
+  tokenLimit: number;
+};
+/** Parses a {@link RunTokenLimitReachedPayload}. */
+export const RunTokenLimitReachedPayloadSchema: z.ZodType<RunTokenLimitReachedPayload> = z
+  .object({ sessionId: SessionIdSchema, runId: RunIdSchema, tokenLimit: TokensPerRunSchema })
   .strict();
 
 /**
@@ -682,6 +747,16 @@ export interface SessionControlMethodDescriptors {
     SessionMaxStepsUpdateRequest,
     SessionMaxStepsUpdateResponse
   >;
+  readonly "session.spendLimitUpdate": MethodDescriptor<
+    "session.spendLimitUpdate",
+    SessionSpendLimitUpdateRequest,
+    OrchestrationBudgetState
+  >;
+  readonly "session.tokensPerRunUpdate": MethodDescriptor<
+    "session.tokensPerRunUpdate",
+    SessionTokensPerRunUpdateRequest,
+    OrchestrationBudgetState
+  >;
   readonly "session.terminalProviderSessionList": MethodDescriptor<
     "session.terminalProviderSessionList",
     SessionTerminalProviderSessionListRequest,
@@ -770,6 +845,20 @@ export const SESSION_CONTROL_METHOD_DESCRIPTORS: SessionControlMethodDescriptors
       mutating: true,
       requestSchema: SessionMaxStepsUpdateRequestSchema,
       responseSchema: SessionMaxStepsUpdateResponseSchema,
+    },
+    "session.spendLimitUpdate": {
+      method: "session.spendLimitUpdate",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionSpendLimitUpdateRequestSchema,
+      responseSchema: OrchestrationBudgetStateSchema,
+    },
+    "session.tokensPerRunUpdate": {
+      method: "session.tokensPerRunUpdate",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionTokensPerRunUpdateRequestSchema,
+      responseSchema: OrchestrationBudgetStateSchema,
     },
     "session.terminalProviderSessionList": {
       method: "session.terminalProviderSessionList",

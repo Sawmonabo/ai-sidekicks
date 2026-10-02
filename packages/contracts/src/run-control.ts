@@ -614,6 +614,14 @@ export const RunReadSnapshotSchema: z.ZodType<RunReadSnapshot> = z
  */
 export type RunReadAccessor = (runId: RunId) => RunReadSnapshot;
 
+/**
+ * A move the run's current state does not allow, such as a second or late answer to a choice the
+ * run already settled.
+ */
+export type RunInvalidTransitionCode = "run.invalid_transition";
+/** The code of a move the run's current state does not allow. */
+export const RUN_INVALID_TRANSITION_CODE: RunInvalidTransitionCode = "run.invalid_transition";
+
 /** The run-control methods, keyed by method name. */
 export interface RunControlMethodDescriptors {
   readonly "run.queueCreate": MethodDescriptor<

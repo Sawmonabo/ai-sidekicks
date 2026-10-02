@@ -197,7 +197,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
   });
 
   it("coalesces a burst across the whole namespace into one read", async () => {
-    // A workspace reprovisioning emits several frames in one breath: one burst, not four reads.
+    // A workspace preparing again emits several frames in one breath: one burst, not four reads.
     const clock = new ManualClock();
     const sessionStore = initializedStore(SESSION_ID);
     const reader = openReader(sessionOperations(), clock, sessionStore);

@@ -71,8 +71,10 @@ import { RunQueuedPayloadSchema } from "./run-queued.js";
 import {
   ModerationReviewFlaggedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
+  RunTokenLimitReachedPayloadSchema,
   SessionNoticePayloadSchema,
   SessionSideQuestionAnsweredPayloadSchema,
+  SessionSpendLimitReachedPayloadSchema,
 } from "./session-controls.js";
 import { SessionConvertedPayloadSchema } from "./session-convert.js";
 import { SessionCreatedPayloadSchema } from "./session-created.js";
@@ -130,6 +132,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.turn_started": "run_lifecycle",
   "run.worker_shutdown": "run_lifecycle",
   "run.step_limit_reached": "run_lifecycle",
+  "run.token_limit_reached": "run_lifecycle",
   "run.recovery_resolved": "run_lifecycle",
   "run.refusal_choice_requested": "run_lifecycle",
   "run.refusal_choice_resolved": "run_lifecycle",
@@ -183,6 +186,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.unmuted": "session_lifecycle",
   "session.converted": "session_lifecycle",
   "session.side_question_answered": "session_lifecycle",
+  "session.spend_limit_reached": "session_lifecycle",
   "session.restore_finished": "session_lifecycle",
   "agent.provider_binding_changed": "session_lifecycle",
   "agent.provider_binding_change_failed": "session_lifecycle",
@@ -422,6 +426,11 @@ const sessionSideQuestionAnsweredVariantSchema = buildSessionEventVariantSchema(
   "session_lifecycle",
   SessionSideQuestionAnsweredPayloadSchema,
 );
+const sessionSpendLimitReachedVariantSchema = buildSessionEventVariantSchema(
+  "session.spend_limit_reached",
+  "session_lifecycle",
+  SessionSpendLimitReachedPayloadSchema,
+);
 const gitSettledVariantSchema = buildSessionEventVariantSchema(
   "git.settled",
   "artifact_publication",
@@ -542,6 +551,11 @@ const runStepLimitReachedVariantSchema = buildSessionEventVariantSchema(
   "run.step_limit_reached",
   "run_lifecycle",
   RunStepLimitReachedPayloadSchema,
+);
+const runTokenLimitReachedVariantSchema = buildSessionEventVariantSchema(
+  "run.token_limit_reached",
+  "run_lifecycle",
+  RunTokenLimitReachedPayloadSchema,
 );
 const runRecoveryResolvedVariantSchema = buildSessionEventVariantSchema(
   "run.recovery_resolved",
@@ -810,6 +824,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   sessionGoalClearedVariantSchema,
   sessionNoticeVariantSchema,
   sessionSideQuestionAnsweredVariantSchema,
+  sessionSpendLimitReachedVariantSchema,
   gitSettledVariantSchema,
   relayPinRefusedVariantSchema,
   commandEndedVariantSchema,
@@ -832,6 +847,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   approvalDenialOverriddenVariantSchema,
   runQueuedVariantSchema,
   runStepLimitReachedVariantSchema,
+  runTokenLimitReachedVariantSchema,
   runRecoveryResolvedVariantSchema,
   runRefusalChoiceRequestedVariantSchema,
   runRefusalChoiceResolvedVariantSchema,

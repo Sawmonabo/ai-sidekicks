@@ -186,6 +186,8 @@ export type ServiceUpdateOutcome =
  */
 export interface ServiceUpdateProgress {
   readonly step: ServiceUpdateStep;
+  /** While downloading, the bytes received against the release's size, from 0 to 100. */
+  readonly percent: number | undefined;
   /** The work it waits on, while it waits. */
   readonly waitingOn: ServiceUpdateWaitingOn | undefined;
   readonly cancelable: boolean;

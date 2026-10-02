@@ -1,10 +1,11 @@
 // The state kept beside a workflow's versions, which saves no new version: the enabled
-// switch, the canvas layout, pinned test data, the builder's unsaved draft, the
-// expression preview, and the webhook token and listener, with the refusals they answer
-// with. The method table that lists these methods is in `workflow-definition-methods.ts`.
+// switch, the canvas layout, the permission level, pinned test data, the builder's unsaved
+// draft, the expression preview, and the webhook token and listener, with the refusals they
+// answer with. The method table that lists these methods is in `workflow-definition-methods.ts`.
 import { z } from "zod";
 
 import { countSchema } from "./internal/wire-scalars.js";
+import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowDraftDocumentSchema,
@@ -94,6 +95,34 @@ export interface WorkflowDefinitionSettingResponse {
 /** Wire schema for {@link WorkflowDefinitionSettingResponse}. */
 export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefinitionSettingResponse> =
   z.object({ definitionId: WorkflowDefinitionIdSchema, updatedAt: isoInstant }).strict();
+
+/**
+ * The `workflow.permissionLevelUpdate` input: the level every run of the workflow uses, a live
+ * run from its next step. A new workflow starts at `yolo`. The level sits outside the hashed
+ * body, so a change mints no version.
+ */
+export interface WorkflowPermissionLevelUpdateRequest {
+  definitionId: WorkflowDefinitionId;
+  level: ExecutionPostureMode;
+}
+/** Wire schema for {@link WorkflowPermissionLevelUpdateRequest}. */
+export const WorkflowPermissionLevelUpdateRequestSchema: z.ZodType<
+  WorkflowPermissionLevelUpdateRequest,
+  WorkflowPermissionLevelUpdateRequest
+> = z
+  .object({ definitionId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
+  .strict();
+
+/** The level the workflow now runs at. */
+export interface WorkflowPermissionLevelUpdateResponse {
+  definitionId: WorkflowDefinitionId;
+  level: ExecutionPostureMode;
+}
+/** Wire schema for {@link WorkflowPermissionLevelUpdateResponse}. */
+export const WorkflowPermissionLevelUpdateResponseSchema: z.ZodType<WorkflowPermissionLevelUpdateResponse> =
+  z
+    .object({ definitionId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
+    .strict();
 
 /**
  * The `workflow.pinDataSet` input: pin items onto one node as test data, or unpin with

@@ -2850,9 +2850,8 @@ interface DaemonPingResult {}
 // `settings.effectiveRead`, with which it shares no field.
 interface DaemonConfigReadParams {}
 interface DaemonConfig {
-  workflowListenerPort: number;
-  listener: { listening: boolean; reason?: "portTaken" }; // a taken port is saved, not refused, and reads here
-  runTimeLimit: "none" | "30m" | "1h" | "4h" | "12h" | "24h"; // `Stop a run after`
+  workflowListenerPort: number; // a taken port is saved, not refused; `workflow.webhookListenerRead` says whether it listens
+  runTimeLimitMinutes: 30 | 60 | 240 | 720 | 1440 | null; // `Stop a run after`; null is `No limit`
   workflowChainAskAfterRuns: number | null; // `Ask me after one start leads to`: 25, 100 (the default), 500 or 2,000 runs; null is `Never ask`
   maxStepsPerTurn: number | null; // null is `Unlimited`: each provider does what it does on its own
   spendLimitUsdMicros: number | null; // `Spend limit`, what each new session starts from; null is `Unlimited`
@@ -6641,7 +6640,7 @@ interface WorkflowRunReadResponse {
   // this run's own id.
   chainRoot: {
     runId: WorkflowRunId;
-    workflowId: WorkflowDefinitionId;
+    definitionId: WorkflowDefinitionId;
     workflowName: string;
     startedAt: string;
   };
@@ -7210,11 +7209,11 @@ interface WorkflowLayoutSetResponse {
 // wherever the run lives, a chat's session or the workflow's own, and a live run takes a change from
 // its next step. The level sits outside the hashed body, so a change mints no version.
 interface WorkflowPermissionLevelUpdateRequest {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   level: ExecutionPostureMode;
 }
 interface WorkflowPermissionLevelUpdateResponse {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   level: ExecutionPostureMode;
 }
 
@@ -7484,10 +7483,10 @@ interface WorkflowSecretDeleteResponse {
 // workflow. Kept values belong to the workflow, not to a version: saving, restoring or duplicating a
 // version leaves them, a duplicate starts with none, and deleting the workflow deletes them.
 interface WorkflowKeptVarsClearRequest {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
 }
 interface WorkflowKeptVarsClearResponse {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   clearedCount: number;
 }
 
@@ -8951,10 +8950,11 @@ interface PluginUninstallRequest {
   provider: PluginProvider;
   id: string;
 }
-interface PluginChangeResponse {
-  provider: PluginProvider;
-  id: string;
-  installed: boolean; // true after plugin.install, false after plugin.uninstall
+interface PluginInstallResponse {
+  plugin: PluginCatalogListResponse["plugins"][number]; // the installed plugin, without its `carries` counts
+}
+interface PluginUninstallResponse {
+  uninstalled: true;
 }
 // plugin.installedList — the plugins in the daemon's plugin homes, and those the person installed in
 // their own terminal (`installedInTerminal`).

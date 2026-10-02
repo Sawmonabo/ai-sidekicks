@@ -62,7 +62,7 @@ export const WorkflowRunReadRequestSchema: z.ZodType<
  */
 export interface WorkflowChainRoot {
   runId: WorkflowRunId;
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   workflowName: string;
   startedAt: string;
 }
@@ -70,7 +70,7 @@ export interface WorkflowChainRoot {
 export const WorkflowChainRootSchema: z.ZodType<WorkflowChainRoot> = z
   .object({
     runId: WorkflowRunIdSchema,
-    workflowId: WorkflowDefinitionIdSchema,
+    definitionId: WorkflowDefinitionIdSchema,
     workflowName: z.string().min(1),
     startedAt: z.iso.datetime({ offset: true }),
   })
@@ -451,22 +451,25 @@ export const WorkflowRunsPauseStateSchema: z.ZodType<WorkflowRunsPauseState> = z
  * one workflow. Kept values belong to the workflow, not to a version.
  */
 export interface WorkflowKeptVarsClearRequest {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
 }
 /** Wire schema for {@link WorkflowKeptVarsClearRequest}. */
 export const WorkflowKeptVarsClearRequestSchema: z.ZodType<
   WorkflowKeptVarsClearRequest,
   WorkflowKeptVarsClearRequest
-> = z.object({ workflowId: WorkflowDefinitionIdSchema }).strict();
+> = z.object({ definitionId: WorkflowDefinitionIdSchema }).strict();
 
 /** The `workflow.keptVarsClear` result: how many kept values went. */
 export interface WorkflowKeptVarsClearResponse {
-  workflowId: WorkflowDefinitionId;
+  definitionId: WorkflowDefinitionId;
   clearedCount: number;
 }
 /** Wire schema for {@link WorkflowKeptVarsClearResponse}. */
 export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClearResponse> = z
-  .object({ workflowId: WorkflowDefinitionIdSchema, clearedCount: z.number().int().nonnegative() })
+  .object({
+    definitionId: WorkflowDefinitionIdSchema,
+    clearedCount: z.number().int().nonnegative(),
+  })
   .strict();
 
 // workflow.subscribe

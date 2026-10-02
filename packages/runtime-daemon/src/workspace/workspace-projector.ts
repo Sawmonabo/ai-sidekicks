@@ -91,7 +91,7 @@ const NON_PROBE_BEARING_WORKSPACE_STATES: ReadonlySet<WorkspaceState> = new Set<
 /** The `workspaces` fields the health projection reads, structural like the mount row. */
 export interface WorkspaceHealthRow {
   readonly state: WorkspaceState;
-  // NULL until provisioning completes, like the `workspaces.fs_root` column.
+  // NULL until preparation completes, like the `workspaces.fs_root` column.
   readonly fsRoot: string | null;
 }
 
@@ -166,7 +166,7 @@ export function computeWorkspaceHealth(
 }
 
 // The matrix is keyed by `vcs_type` alone: worktree availability is not probed at read time, and a
-// mode that cannot be provisioned fails at provisioning.
+// mode that cannot be prepared fails at preparation.
 
 /** One mode's standing for one kind of mount; the unavailable arm requires a reason. */
 type ExecutionModeVerdict =

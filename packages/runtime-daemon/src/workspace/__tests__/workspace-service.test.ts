@@ -72,7 +72,7 @@ const KNOWN_SESSIONS: SessionExistenceReader = {
   replay: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
 };
 
-/** What a bind the provisioner then completes appends, in order. */
+/** What a bind that its preparation then completes appends, in order. */
 const READY_BIND_EVENTS: readonly string[] = ["workspace.preparing", "workspace.ready"];
 
 interface StoredWorkspaceRow {
@@ -474,7 +474,7 @@ describe("lastError normalization", () => {
     }
   });
 
-  it("scrubs the credential shapes a provisioning failure realistically carries", () => {
+  it("scrubs the credential shapes a preparation failure realistically carries", () => {
     // The vendor-prefixed suffixes are low-entropy, visibly fake stand-ins at or above the
     // pattern's `{8,}` bound. The pattern keys on the prefix, so they exercise what a real
     // token would, while real-format fixtures would trip every secret scanner that reads this

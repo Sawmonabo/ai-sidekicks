@@ -36,6 +36,7 @@ import {
   RunRefusalChoiceRequestedPayloadSchema,
   RunRefusalChoiceResolvedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
+  RunTokenLimitReachedPayloadSchema,
   RunUsageCreditsChoiceRequestedPayloadSchema,
   RunUsageCreditsChoiceResolvedPayloadSchema,
   SessionIdSchema,
@@ -107,8 +108,8 @@ const runIdentityShape = {
  * `run.subscribeState` wire projection rather than the durable payload. Not `.strict()`: what is
  * fixed for these kinds is which members are required, and refusing an invented member is
  * `beat-shape.ts`'s strict-layer leg, which reaches only kinds with a registered variant. The
- * creation row, the step bound and the recovery answer are registered, so their rows are the
- * contract's own schemas.
+ * creation row, the step and token limits and the recovery answer are registered, so their rows
+ * are the contract's own schemas.
  */
 const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecycleKind, ZodType>> =
   Object.freeze({
@@ -127,6 +128,7 @@ const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecyc
     // `{sessionId, runId, runVersion, reason?}`, the sanitized provider-supplied shutdown reason.
     "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
     "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
+    "run.token_limit_reached": RunTokenLimitReachedPayloadSchema,
     "run.recovery_resolved": RunRecoveryResolvedPayloadSchema,
     "run.refusal_choice_requested": RunRefusalChoiceRequestedPayloadSchema,
     "run.refusal_choice_resolved": RunRefusalChoiceResolvedPayloadSchema,

@@ -101,7 +101,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBeUndefined();
     // Absent, never a held key with no value: the picker asks whether there is an entry.
     expect(Object.keys(reader.snapshot.pendingModeByWorkspaceId)).toStrictEqual([]);
-    // An accepted switch re-reads because the workspace goes `ready -> provisioning -> ready`.
+    // An accepted switch re-reads because the workspace goes `ready -> preparing -> ready`.
     clock.advance(REFRESH_DEBOUNCE_MS);
     await crossMacrotaskBoundary();
     expect(reader.performCount).toBe(readsBefore + 1);

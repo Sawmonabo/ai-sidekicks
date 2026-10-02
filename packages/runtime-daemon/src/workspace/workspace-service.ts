@@ -452,9 +452,9 @@ export class WorkspaceService {
   }
 
   /**
-   * Finish the cycle, `preparing -> ready`, adopting the provisioner's execution root and clearing
-   * any recorded failure. `fsRoot` is not checked for containment (the provisioner made it under
-   * daemon control) but must be absolute, since it becomes an approval scope root.
+   * Finish the cycle, `preparing -> ready`, adopting the execution root the preparation made and
+   * clearing any recorded failure. `fsRoot` is not checked for containment (the preparation made it
+   * under daemon control) but must be absolute, since it becomes an approval scope root.
    */
   async completeRootPreparation(
     workspaceId: string,

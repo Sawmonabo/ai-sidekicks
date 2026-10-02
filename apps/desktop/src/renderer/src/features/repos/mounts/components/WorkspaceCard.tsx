@@ -75,7 +75,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         {workspace.fsRoot !== undefined ? (
           <WireFigure value={workspace.fsRoot} title={workspace.fsRoot} />
         ) : workspace.state === "preparing" ? (
-          // The root does not exist yet; it is filled when provisioning completes.
+          // The root does not exist yet; it is filled when preparation completes.
           <Nothing kind="computing" title="Root pending" />
         ) : (
           <Nothing kind="not-checked" title="This workspace reported no root." />

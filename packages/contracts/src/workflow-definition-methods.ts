@@ -42,6 +42,8 @@ import {
   WorkflowExpressionPreviewRequestSchema,
   WorkflowExpressionPreviewResponseSchema,
   WorkflowLayoutSetRequestSchema,
+  WorkflowPermissionLevelUpdateRequestSchema,
+  WorkflowPermissionLevelUpdateResponseSchema,
   WorkflowPinDataSetRequestSchema,
   WorkflowPinDataSetResponseSchema,
   WorkflowWebhookListenerReadRequestSchema,
@@ -58,6 +60,8 @@ import {
   type WorkflowExpressionPreviewRequest,
   type WorkflowExpressionPreviewResponse,
   type WorkflowLayoutSetRequest,
+  type WorkflowPermissionLevelUpdateRequest,
+  type WorkflowPermissionLevelUpdateResponse,
   type WorkflowPinDataSetRequest,
   type WorkflowPinDataSetResponse,
   type WorkflowWebhookListenerReadRequest,
@@ -687,6 +691,11 @@ export interface WorkflowDefinitionMethodDescriptors {
     WorkflowLayoutSetRequest,
     WorkflowDefinitionSettingResponse
   >;
+  readonly "workflow.permissionLevelUpdate": MethodDescriptor<
+    "workflow.permissionLevelUpdate",
+    WorkflowPermissionLevelUpdateRequest,
+    WorkflowPermissionLevelUpdateResponse
+  >;
   readonly "workflow.pinDataSet": MethodDescriptor<
     "workflow.pinDataSet",
     WorkflowPinDataSetRequest,
@@ -803,6 +812,13 @@ export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDes
       mutating: true,
       requestSchema: WorkflowLayoutSetRequestSchema,
       responseSchema: WorkflowDefinitionSettingResponseSchema,
+    },
+    "workflow.permissionLevelUpdate": {
+      method: "workflow.permissionLevelUpdate",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: WorkflowPermissionLevelUpdateRequestSchema,
+      responseSchema: WorkflowPermissionLevelUpdateResponseSchema,
     },
     "workflow.pinDataSet": {
       method: "workflow.pinDataSet",

@@ -41,7 +41,7 @@ const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
 
 /**
  * The mount-root-relative subdirectory one bind names. It is checked at bind time; the execution
- * root still comes from provisioning, not from this path.
+ * root still comes from preparation, not from this path.
  */
 const BOUND_SUBDIRECTORY: string = "packages";
 
@@ -294,7 +294,7 @@ async function initRepository(directory: string): Promise<void> {
   await runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
 }
 
-/** Bind a workspace and complete its provisioning at `fsRoot`, so it is `ready`. */
+/** Bind a workspace and complete its preparation at `fsRoot`, so it is `ready`. */
 async function bindReadyWorkspace(
   repoMountId: RepoAttachResponse["repoMountId"],
   fsRoot: string,
@@ -426,7 +426,7 @@ describe("one session binds workspaces across multiple repo mounts", () => {
       executionMode: "provisioned-worktree",
     });
 
-    // Every bind lands `preparing` with no execution root until provisioning supplies one.
+    // Every bind lands `preparing` with no execution root until preparation supplies one.
     for (const bound of [rootWorkspace, subdirectoryWorkspace, betaWorkspace]) {
       expect(bound.state).toBe("preparing");
       expect(requireWorkspaceRow(bound.workspaceId).fs_root).toBeNull();

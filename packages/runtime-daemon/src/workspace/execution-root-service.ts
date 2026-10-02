@@ -351,7 +351,7 @@ export class ExecutionRootService {
         WHERE id = @workspace_id`,
     );
 
-    // Scoped to `attached`: a detached mount is not a provisioning target.
+    // Scoped to `attached`: a detached mount is not a preparation target.
     this.#selectAttachedMountStmt = database.prepare(
       `SELECT id, canonical_root
          FROM repo_mounts
@@ -436,7 +436,7 @@ export class ExecutionRootService {
     const workspace = this.#requireWorkspace(input.workspaceId);
     const executionMode = this.#requireKnownMode(workspace);
 
-    // Open when this prepare is the bind's own provisioner (`repo.workspaceBind` creates
+    // Open when this prepare is the bind's own preparation (`repo.workspaceBind` creates
     // workspaces `preparing`) or a prior `failRootPreparation` failed (`#failRootPreparation`).
     // `assertWritable` refuses `preparing`, so this one predicate drives the gate and the bracket.
     const bracketAlreadyOpen = workspace.state === "preparing";
