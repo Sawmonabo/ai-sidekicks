@@ -1,7 +1,7 @@
 // Claude half of the driver normalize boundary, mirroring `../codex/event-normalizer.ts`: a pure,
 // total mapping from a pinned stream-json or control-channel frame kind to its event category.
 //
-// Rows come from the version-pinned Claude wire census (pin `2.1.251`; vectors in `__fixtures__/`,
+// Rows come from the version-pinned Claude wire census (recorded at `2.1.251`; vectors in `__fixtures__/`,
 // so a re-pin fails a test). A row that names a normalized kind takes its category and event type
 // from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
 //

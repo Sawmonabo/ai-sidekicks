@@ -115,18 +115,19 @@ describe("Claude composition is bound to the spawned build", () => {
 });
 
 /**
- * The verbatim `list_models` control-response payload from Claude Code 2.1.251, recorded from one
- * zero-turn `{"subtype":"list_models"}` request over `-p --input-format stream-json`. Real bytes,
- * so the two wire quirks are tested against what produced them: the `default` pointer sharing
- * `opus[1m]`'s `resolvedModel`, and the Haiku row publishing no effort surface.
+ * The verbatim `list_models` control-response payload from Claude Code 2.1.287, recorded on Oct 2,
+ * 2026 from one zero-turn `{"subtype":"list_models"}` request over `-p --input-format stream-json`.
+ * Real bytes, so the wire quirks are tested against what produced them: the `default` pointer
+ * sharing `opus`'s `resolvedModel`, two effort vocabularies, and the Haiku row publishing no effort
+ * surface.
  */
 const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
   models: [
     {
       value: "default",
-      resolvedModel: "claude-opus-5[1m]",
+      resolvedModel: "claude-opus-5-5",
       displayName: "Default (recommended)",
-      description: "Opus 5 with 1M context · Best for everyday, complex tasks",
+      description: "Opus 5.5 · Best for everyday, complex tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
@@ -134,10 +135,10 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
       supportsAutoMode: true,
     },
     {
-      value: "opus[1m]",
-      resolvedModel: "claude-opus-5[1m]",
-      displayName: "Opus (1M context)",
-      description: "Opus 5 with 1M context · Best for everyday, complex tasks",
+      value: "opus",
+      resolvedModel: "claude-opus-5-5",
+      displayName: "Opus 5.5",
+      description: "For complex work and everyday tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
@@ -145,10 +146,10 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
       supportsAutoMode: true,
     },
     {
-      value: "claude-fable-5",
-      resolvedModel: "claude-fable-5",
-      displayName: "Fable",
-      description: "Fable 5 · Most capable for your hardest and longest-running tasks",
+      value: "fable",
+      resolvedModel: "claude-fable-5-1",
+      displayName: "Fable 5.1",
+      description: "For your toughest challenges",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
@@ -156,9 +157,9 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
     },
     {
       value: "sonnet",
-      resolvedModel: "claude-sonnet-5",
-      displayName: "Sonnet",
-      description: "Sonnet 5 · Efficient for routine tasks",
+      resolvedModel: "claude-sonnet-5-5",
+      displayName: "Sonnet 5.5",
+      description: "Most efficient for simpler tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
@@ -168,40 +169,117 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
     {
       value: "haiku",
       resolvedModel: "claude-haiku-4-5-20251001",
-      displayName: "Haiku",
-      description: "Haiku 4.5 · Fastest for quick answers",
+      displayName: "Haiku 4.5",
+      description: "Fastest for quick answers",
+    },
+    {
+      value: "claude-sonnet-5",
+      resolvedModel: "claude-sonnet-5",
+      displayName: "Sonnet 5",
+      description: "Efficient for routine tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-opus-5",
+      resolvedModel: "claude-opus-5",
+      displayName: "Opus 5",
+      description: "Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-fable-5",
+      resolvedModel: "claude-fable-5",
+      displayName: "Fable 5",
+      description: "Most capable for your hardest and longest-running tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-opus-4-8",
+      resolvedModel: "claude-opus-4-8",
+      displayName: "Opus 4.8",
+      description: "Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-opus-4-7",
+      resolvedModel: "claude-opus-4-7",
+      displayName: "Opus 4.7",
+      description: "Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-opus-4-6",
+      resolvedModel: "claude-opus-4-6",
+      displayName: "Opus 4.6",
+      description: "Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-sonnet-4-6",
+      resolvedModel: "claude-sonnet-4-6",
+      displayName: "Sonnet 4.6",
+      description: "Efficient for routine tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
     },
   ],
 });
 
 describe("Claude model catalog", () => {
-  it("reads the recorded reply into four models by resolvedModel, with names, effort and fast mode", () => {
+  it("reads the recorded reply into eleven models by resolvedModel, with names, effort and fast mode", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // Five wire rows, four models: `default` and `opus[1m]` resolve to one.
+    // Twelve wire rows, eleven models: `default` and `opus` resolve to one.
     expect(models.map((model) => model.id)).toEqual([
-      "claude-opus-5[1m]",
-      "claude-fable-5",
-      "claude-sonnet-5",
+      "claude-opus-5-5",
+      "claude-fable-5-1",
+      "claude-sonnet-5-5",
       "claude-haiku-4-5-20251001",
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-fable-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
     ]);
     // Alias values never become ids: a provider switch validates its model against this list,
     // and an alias like `sonnet` or `default` can move underneath the user who chose it.
-    for (const aliasValue of ["default", "opus[1m]", "sonnet", "haiku"]) {
+    for (const aliasValue of ["default", "opus", "fable", "sonnet", "haiku"]) {
       expect(models.map((model) => model.id)).not.toContain(aliasValue);
     }
 
     // Not "Default (recommended)": that names the current default and would re-label whichever
     // model is promoted next.
-    expect(models.find((model) => model.id === "claude-opus-5[1m]")?.name).toBe(
-      "Opus (1M context)",
-    );
+    expect(models.find((model) => model.id === "claude-opus-5-5")?.name).toBe("Opus 5.5");
 
-    for (const modelId of ["claude-opus-5[1m]", "claude-fable-5", "claude-sonnet-5"]) {
-      const model = models.find((candidate) => candidate.id === modelId);
-      // Levels, `xhigh` included, are read from the build, not from a fixed vocabulary.
-      expect(model?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    }
+    // Levels are read from the build, not from a fixed vocabulary: `xhigh` is on some rows only.
+    const levelsFor = (id: string): string[] | undefined =>
+      models.find((model) => model.id === id)?.effortLevels;
+    expect(levelsFor("claude-opus-5-5")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(levelsFor("claude-opus-4-6")).toEqual(["low", "medium", "high", "max"]);
 
     // Absent, not empty: absence means "no effort selection"; an empty array would claim an axis.
     const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
@@ -209,12 +287,11 @@ describe("Claude model catalog", () => {
     expect(haiku && "effortLevels" in haiku).toBe(false);
     expect(haiku?.effortLevels).toBeUndefined();
 
-    // Only the Opus row publishes a fast mode in the recorded reply; a row with no flag has none.
-    expect(models.map((model) => [model.id, model.fast])).toEqual([
-      ["claude-opus-5[1m]", true],
-      ["claude-fable-5", false],
-      ["claude-sonnet-5", false],
-      ["claude-haiku-4-5-20251001", false],
+    // Only rows carrying `supportsFastMode: true` publish a fast mode; a row with no flag has none.
+    expect(models.filter((model) => model.fast).map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-opus-4-8",
     ]);
   });
 
@@ -230,7 +307,7 @@ describe("Claude model catalog", () => {
 
     // The recorded build sends the pointer first; the rule must not depend on that order.
     expect(models).toHaveLength(1);
-    expect(models[0]?.name).toBe("Opus (1M context)");
+    expect(models[0]?.name).toBe("Opus 5.5");
   });
 
   it("keeps the pointer row when it is a model's only row", () => {
@@ -242,7 +319,7 @@ describe("Claude model catalog", () => {
 
     // Dropping it would lose the model, which is worse than carrying the pointer's name.
     expect(models).toHaveLength(1);
-    expect(models[0]?.id).toBe("claude-opus-5[1m]");
+    expect(models[0]?.id).toBe("claude-opus-5-5");
   });
 
   it("suppresses effortLevels when the row explicitly denies effort support", () => {

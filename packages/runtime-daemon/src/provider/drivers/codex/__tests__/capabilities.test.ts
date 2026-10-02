@@ -98,67 +98,103 @@ describe("Codex composition is bound to the spawned build", () => {
 // --------------------------------------------------------------------------
 
 /**
- * Golden vector: the `model/list` result payload recorded from `codex-cli 0.150.1` with a
- * zero-turn JSON-RPC request to `codex app-server` after `initialize` / `initialized`. Copied
- * field for field, except the per-effort `description` strings, which nothing reads. The recording
- * carries no `serviceTiers`, so each row adds the one tier a `model/list` read lists for every
- * model.
+ * Golden vector: the `model/list` result payload recorded from `codex-cli 0.160.0` on Oct 2, 2026
+ * with a zero-turn JSON-RPC request to `codex app-server` after `initialize` / `initialized`.
+ * Copied field for field for the members listed in `codexRecordedModel`; the per-effort
+ * `description` strings and the other members of each row, which nothing reads, are left out.
  *
- * Eight rows, `nextCursor: null`, `hidden: false` throughout, and two effort vocabularies, which
+ * Nine rows, `nextCursor: null`, `hidden: false` throughout, and three effort vocabularies, which
  * is why the level list is a per-model member rather than a per-provider constant.
  */
 const CODEX_RECORDED_MODEL_LIST_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
   data: [
-    codexRecordedModel("gpt-5.6-sol", "GPT-5.6-Sol", true, [
+    codexRecordedModel(
+      "gpt-6.1-sol",
+      "GPT-6.1-Sol",
+      true,
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
       "low",
+      "2x speed, increased usage",
+    ),
+    codexRecordedModel(
+      "gpt-6-astra",
+      "GPT-6-Astra",
+      false,
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
       "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]),
-    codexRecordedModel("gpt-5.6-terra", "GPT-5.6-Terra", false, [
+      "2x speed, increased usage",
+    ),
+    codexRecordedModel(
+      "gpt-6-sol",
+      "GPT-6-Sol",
+      false,
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "medium",
+      "1.5x speed",
+    ),
+    codexRecordedModel(
+      "gpt-6-luna",
+      "GPT-6-Luna",
+      false,
+      ["low", "medium", "high", "xhigh", "max"],
+      "medium",
+      "1.5x speed",
+    ),
+    codexRecordedModel(
+      "gpt-5.6-sol",
+      "GPT-5.6-Sol",
+      false,
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
       "low",
+      "1.5x speed, increased usage",
+    ),
+    codexRecordedModel(
+      "gpt-5.6-terra",
+      "GPT-5.6-Terra",
+      false,
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
       "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]),
-    codexRecordedModel("gpt-5.6-luna", "GPT-5.6-Luna", false, [
+      "1.5x speed, increased usage",
+    ),
+    codexRecordedModel(
+      "gpt-5.6-luna",
+      "GPT-5.6-Luna",
+      false,
+      ["low", "medium", "high", "xhigh", "max"],
+      "medium",
+      "1.5x speed, increased usage",
+    ),
+    codexRecordedModel(
+      "gpt-daybreak-blue-latest",
+      "Daybreak Blue",
+      false,
+      ["low", "medium", "high", "xhigh", "max", "ultra"],
       "low",
+      null,
+    ),
+    codexRecordedModel(
+      "gpt-5.5",
+      "GPT-5.5",
+      false,
+      ["low", "medium", "high", "xhigh"],
       "medium",
-      "high",
-      "xhigh",
-      "max",
-    ]),
-    codexRecordedModel("gpt-daybreak-blue-latest", "Daybreak Blue", false, [
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]),
-    codexRecordedModel("gpt-5.5", "GPT-5.5", false, ["low", "medium", "high", "xhigh"]),
-    codexRecordedModel("gpt-5.4", "GPT-5.4", false, ["low", "medium", "high", "xhigh"]),
-    codexRecordedModel("gpt-5.4-mini", "GPT-5.4-Mini", false, ["low", "medium", "high", "xhigh"]),
-    codexRecordedModel("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark", false, [
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]),
+      "1.5x speed, increased usage",
+    ),
   ],
   nextCursor: null,
 });
 
-/** One recorded row, in the reply's own shape (levels ride nested objects). */
+/**
+ * One recorded row, in the reply's own shape (levels ride nested objects). `fastTierDescription`
+ * is the description of the row's one `priority` tier, or `null` for a row listing no tier.
+ */
 function codexRecordedModel(
   id: string,
   displayName: string,
   isDefault: boolean,
   efforts: readonly string[],
+  defaultReasoningEffort: string,
+  fastTierDescription: string | null,
 ): Record<string, unknown> {
   return {
     id,
@@ -167,37 +203,41 @@ function codexRecordedModel(
     hidden: false,
     isDefault,
     supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort })),
-    defaultReasoningEffort: efforts[0],
-    inputModalities: ["text"],
-    serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
+    defaultReasoningEffort,
+    inputModalities: ["text", "image"],
+    serviceTiers:
+      fastTierDescription === null
+        ? []
+        : [{ id: "priority", name: "Fast", description: fastTierDescription }],
   };
 }
 
 describe("Codex model catalog", () => {
-  it("reads the recorded reply into eight models, in order, each with its own effort levels", () => {
+  it("reads the recorded reply into nine models, in order, each with its own effort levels", () => {
     const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
 
     // The provider lists its recommended model first; re-ordering would silently re-rank what a
     // client renders.
     expect(models.map((model) => model.id)).toEqual([
+      "gpt-6.1-sol",
+      "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
       "gpt-daybreak-blue-latest",
       "gpt-5.5",
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "gpt-5.3-codex-spark",
     ]);
-    expect(models.map((model) => model.name)).toContain("GPT-5.3-Codex-Spark");
+    expect(models.map((model) => model.name)).toContain("Daybreak Blue");
 
     const levelsFor = (id: string): string[] | undefined =>
       models.find((model) => model.id === id)?.effortLevels;
 
     // This spread is why the contract carries the list per model: one provider-wide vocabulary
     // cannot describe these rows.
-    expect(levelsFor("gpt-5.6-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
-    expect(levelsFor("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(levelsFor("gpt-6.1-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(levelsFor("gpt-6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(levelsFor("gpt-5.5")).toEqual(["low", "medium", "high", "xhigh"]);
   });
 
