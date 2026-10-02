@@ -1770,6 +1770,18 @@ export type {
   SessionImportMethodDescriptors,
 } from "./provider-import.js";
 export {
+  ListSessionsArgumentsSchema,
+  SendToSessionArgumentsSchema,
+  TaskOutputArgumentsSchema,
+  TaskStopArgumentsSchema,
+} from "./provider-tools.js";
+export type {
+  ListSessionsArguments,
+  SendToSessionArguments,
+  TaskOutputArguments,
+  TaskStopArguments,
+} from "./provider-tools.js";
+export {
   PROVIDER_COMMAND_NOT_RUNNABLE_CODE,
   PROVIDER_INSTALL_COMMAND_MAX_LEN,
   PROVIDER_INSTALL_FAILURE_REASON_MAX_LEN,
@@ -2364,6 +2376,8 @@ export {
   SessionListChangeSchema,
   SessionListEntrySchema,
   SessionListRequestSchema,
+  SessionOverviewReadRequestSchema,
+  SessionOverviewReadResponseSchema,
   SessionSetWorkingFolderRequestSchema,
   SessionSetWorkingFolderResponseSchema,
   sessionActivityAsOf,
@@ -2382,6 +2396,10 @@ export type {
   SessionListEntry,
   SessionListEntryPlace,
   SessionListRequest,
+  SessionOverviewAgent,
+  SessionOverviewReadRequest,
+  SessionOverviewReadResponse,
+  SessionOverviewSession,
   SessionSetWorkingFolderRequest,
   SessionSetWorkingFolderResponse,
 } from "./session-directory.js";
