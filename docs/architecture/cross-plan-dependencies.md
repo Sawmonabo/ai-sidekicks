@@ -330,7 +330,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-008 Phase 5](../plans/008-gitflow-pr-and-diff-attribution.md) | the review surface. | Plan-008 Phase 1 |
 |  | [Plan-008 Phase 2](../plans/008-gitflow-pr-and-diff-attribution.md) | ship facts and the diff read. | Plan-008 Phase 1 |
 | 3 | [Plan-002 Phase 3](../plans/002-queue-steer-pause-resume.md) | run-engine orchestration. | Plan-002 Phase 2, Plan-005 Phase 2B |
-|  | [Plan-005 Phase R3](../plans/005-local-ipc-and-daemon-control.md) | CLI package and daemon-status delivery. | Plan-005 Phase R2 |
+|  | [Plan-005 Phase R3](../plans/005-local-ipc-and-daemon-control.md) | CLI package and daemon-status delivery; its self-update tasks are Phase 11's. | Plan-005 Phase R2 |
 |  | [Plan-009 Phase 3](../plans/009-approvals-permissions-and-trust-boundaries.md) | approval IPC, SDK, projection. | Plan-009 Phase 2 |
 |  | [Plan-011 Phase 3](../plans/011-artifacts-files-and-attachments.md) | derivatives, events and deletion. | Plan-011 Phase 2 |
 |  | [Plan-012 Phase 3](../plans/012-persistence-recovery-and-replay.md) | runtime-binding recovery and resume. | Plan-012 Phase 2 |
