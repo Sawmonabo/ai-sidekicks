@@ -49,7 +49,7 @@ Coloring in the renderer is the library's common deployment, it keeps typing lat
 
 ### Synthesis — Why It Still Holds [T2]
 
-Nothing in the console is a code editor: every surface that draws code draws text that already exists in a file or a reply, so there is no typing latency to protect. The round trip is hidden by the two rules above: a diff colors itself from its own lines first, and spans are cached against the file's content. The daemon's work is bounded by the same cache, and its budget is written and measured like every other. The wire format is the token kinds' class names, which is the smallest stable contract available. The coarse vocabulary is a design choice: code takes its colors from the console's own theme tokens, so a finer vocabulary would have nothing to map to.
+Nothing in the console is a code editor: every surface that draws code draws text that already exists in a file or a reply, so there is no typing latency to protect. The round trip is hidden by the two rules above: a diff colors itself from its own lines first, and spans are cached against the file's content. The daemon's work is bounded by the same cache, and its budget is written and measured like every other. The cache is `lru-cache`'s `LRUCache`, bounded by bytes: `maxSize` with a `sizeCalculation` per entry. The wire format is the token kinds' class names, which is the smallest stable contract available. The coarse vocabulary is a design choice: code takes its colors from the console's own theme tokens, so a finer vocabulary would have nothing to map to.
 
 ---
 

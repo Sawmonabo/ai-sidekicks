@@ -89,13 +89,13 @@ Every linked device can do everything the desktop can, bounded only by the sessi
 - type into the session — feedback, direction, correction
 - steer agents through conversation — redirect mid-task, question plans, queue follow-ups
 - queue prompts while an agent is mid-run
-- start runs and orchestrations — including multi-agent workflows with autonomous subagent dispatch — on the machine that executes the session, under the user's own provider subscription
+- start runs and orchestrations — including multi-agent workflows with autonomous subagent dispatch — on the machine that executes the session, under the user's own provider account
 - approve or refuse what an agent asks to do, read the diff, and use the terminal
 
 ### Remote Control Invariants
 
 - provider-agnostic: agents keep full native capability — orchestration, autonomous subagent dispatch, tool use — regardless of provider; capabilities are normalized where providers match and honestly surfaced where they differ
-- credentials never travel: every agent runs on the user's own machine and bills the user's own subscription
+- credentials never travel: every agent works under the user's own provider account, with credentials that never leave the machine
 - the relay is a courier, not a reader: session content — messages, events, artifacts — is end-to-end encrypted between the user's own devices and their executing machine, so the hosted service never sees readable content (the control plane keeps only each device's connected state and last-seen time, which carry no content)
 - agent activation is by addressing: the session's lead answers the person, and any other agent acts when named or dispatched — never by interjecting unbidden
 - no screen mirroring, no keyboard forwarding: every surface a device drives is a typed session event, and remote terminal control rides the same E2E channel and exclusive write-lease as a local write
