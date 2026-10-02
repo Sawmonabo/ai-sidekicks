@@ -13,7 +13,6 @@ import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { EventLogAppendReceipt } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
 import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
@@ -32,11 +31,8 @@ import type {
   CreatedWorktree,
   WorktreeServiceDeps,
 } from "../worktree-service.js";
-import type {
-  WorktreeFilesystem,
-  WorktreeGitInvocationResult,
-  WorktreeGitRunner,
-} from "../worktree-git.js";
+import type { WorktreeFilesystem } from "../worktree-git.js";
+import type { GitInvocationResult, GitRunner } from "../git-process.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -71,8 +67,8 @@ interface RecordedGitInvocation {
   readonly argv: readonly string[];
 }
 
-function resolveGit(stdout: string): Promise<WorktreeGitInvocationResult> {
-  return Promise.resolve({ stdout, stderr: "" });
+function resolveGit(stdout: string): Promise<GitInvocationResult> {
+  return Promise.resolve({ stdout: Buffer.from(stdout, "utf8"), stderr: "" });
 }
 
 /**
@@ -89,7 +85,7 @@ class FakeGit {
   statusFails: boolean = false;
   statusOutput: string = "";
 
-  readonly run: WorktreeGitRunner = (argv) => {
+  readonly run: GitRunner = (argv) => {
     this.invocations.push({ argv: [...argv] });
     // argv is `-c core.hooksPath=… -c core.fsmonitor=false -C <dir> <verb> …`: the verb is
     // index 6 and a `worktree` subcommand is index 7.
@@ -181,9 +177,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a leftover queue entry would stall the
-  // next case on the same session id.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -356,8 +349,8 @@ const SLUG_CASES: ReadonlyArray<readonly [string, string | null, string]> = [
   ],
   [
     "truncates at the last boundary inside 40 characters",
-    "Add support for cross machine dispatch routing tables",
-    "add-support-for-cross-machine-dispatch",
+    "Add support for reading project files with tables",
+    "add-support-for-reading-project-files",
   ],
   ["falls back to the run short id when the summary is punctuation", "---", "run-9e71c243"],
 ];
@@ -675,6 +668,35 @@ describe("WorktreeService.cleanupPass", () => {
     const released = await service.cleanupPass();
     expect(released.cleanedWorktreeIds).toEqual([survivor.worktreeId]);
     expect(existsSync(survivor.fsRoot)).toBe(false);
+  });
+
+  it("refuses to remove a stored root this service did not mint", async () => {
+    const service = makeService();
+    const created = await createReadyWorktree(service);
+    await service.retire(created.worktreeId);
+    // A row whose root was rewritten out of band to the hooks directory beside the mount roots.
+    ctx.db
+      .prepare(`UPDATE worktrees SET fs_root = ? WHERE id = ?`)
+      .run(ctx.hookNeutralizationDirectory, created.worktreeId);
+    const removedPaths: string[] = [];
+    const recordingFilesystem: WorktreeFilesystem = {
+      createDirectory: (path: string): Promise<void> => {
+        mkdirSync(path, { recursive: true });
+        return Promise.resolve();
+      },
+      removeDirectory: (path: string): Promise<void> => {
+        removedPaths.push(path);
+        return Promise.resolve();
+      },
+    };
+
+    const refusal = await captureRejection(() =>
+      makeService({ filesystem: recordingFilesystem }).cleanupPass(),
+    );
+
+    expect(refusal).toBeInstanceOf(Error);
+    expect(removedPaths).toEqual([]);
+    expect(readWorktreeRow(created.worktreeId).cleaned_at).toBeNull();
   });
 
   it("leaves a live worktree on an attached mount alone", async () => {

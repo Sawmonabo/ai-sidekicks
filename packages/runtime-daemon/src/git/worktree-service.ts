@@ -8,7 +8,7 @@
 //   * `cleanupPass` removes the directory, prunes, then stamps `cleaned_at`, so a crash between
 //     steps is retried and never recorded as a cleanup that did not happen.
 
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { Database, Statement } from "better-sqlite3";
 import {
   WorktreeIdSchema,
@@ -26,15 +26,15 @@ import {
 } from "./worktree-errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { DEFAULT_WORKTREE_FILESYSTEM, type WorktreeFilesystem } from "./worktree-git.js";
 import {
-  DEFAULT_WORKTREE_FILESYSTEM,
-  DEFAULT_WORKTREE_GIT_TIMEOUT_MS,
-  HOOK_NEUTRALIZATION_SEGMENT,
+  createHookNeutralizedGitCommand,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   runGitWithExecFile,
-  type WorktreeFilesystem,
-  type WorktreeGitInvocationResult,
-  type WorktreeGitRunner,
-} from "./worktree-git.js";
+  type GitCommand,
+  type GitInvocationResult,
+  type GitRunner,
+} from "./git-process.js";
 import { MAX_BRANCH_NAME_ORDINAL } from "./worktree-branch-name.js";
 import {
   assertSingleWorktreeRowChanged,
@@ -66,7 +66,7 @@ export interface WorktreeServiceDeps {
    */
   readonly executionRootsDirectory: string;
   /** Git process seam; defaults to `execFile` against `git`. */
-  readonly git?: WorktreeGitRunner;
+  readonly git?: GitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
   readonly filesystem?: WorktreeFilesystem;
   /** Per-invocation git timeout; defaults to two minutes. */
@@ -219,10 +219,8 @@ interface WorktreeMaterialization {
 export class WorktreeService {
   readonly #events: WorktreeEventEmitter;
   readonly #executionRootsDirectory: string;
-  readonly #hookNeutralizationDirectory: string;
-  readonly #git: WorktreeGitRunner;
+  readonly #runGit: GitCommand;
   readonly #filesystem: WorktreeFilesystem;
-  readonly #gitCommandTimeoutMs: number;
   readonly #now: () => string;
   readonly #newWorktreeId: () => string;
 
@@ -241,13 +239,13 @@ export class WorktreeService {
   constructor(deps: WorktreeServiceDeps) {
     this.#events = deps.events;
     this.#executionRootsDirectory = deps.executionRootsDirectory;
-    this.#hookNeutralizationDirectory = join(
-      deps.executionRootsDirectory,
-      HOOK_NEUTRALIZATION_SEGMENT,
-    );
-    this.#git = deps.git ?? runGitWithExecFile;
     this.#filesystem = deps.filesystem ?? DEFAULT_WORKTREE_FILESYSTEM;
-    this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_WORKTREE_GIT_TIMEOUT_MS;
+    this.#runGit = createHookNeutralizedGitCommand({
+      git: deps.git ?? runGitWithExecFile,
+      createDirectory: (path) => this.#filesystem.createDirectory(path),
+      executionRootsDirectory: deps.executionRootsDirectory,
+      timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+    });
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newWorktreeId = deps.newWorktreeId ?? mintUuidV7;
 
@@ -310,7 +308,7 @@ export class WorktreeService {
     // land after retirement, and the next pass would delete a tree a live run just received.
     // Deferred, not excluded: `releaseBusy` frees it and a later pass reclaims it.
     this.#selectUncleanedRetiredStmt = database.prepare<[], WorktreeRootRow>(
-      `SELECT worktrees.id, worktrees.fs_root, repo_mounts.canonical_root
+      `SELECT worktrees.id, worktrees.repo_mount_id, worktrees.fs_root, repo_mounts.canonical_root
          FROM worktrees
          LEFT JOIN repo_mounts ON repo_mounts.id = worktrees.repo_mount_id
         WHERE worktrees.state = 'retired' AND worktrees.cleaned_at IS NULL
@@ -555,6 +553,7 @@ export class WorktreeService {
       if (this.#selectBusyHolderStmt.get({ worktree_id: row.id }) !== undefined) {
         continue;
       }
+      this.#requireMintedWorktreeRoot(row);
       await this.#filesystem.removeDirectory(row.fs_root);
       // After the removal: `worktree prune` only drops entries whose directory is missing.
       await this.#pruneWorktreeAdministrativeEntries(row.canonical_root);
@@ -563,6 +562,27 @@ export class WorktreeService {
     }
 
     return { retiredWorktreeIds, cleanedWorktreeIds };
+  }
+
+  /**
+   * Refuses a stored root that is not `<executionRootsDirectory>/<mount>/worktrees/<id>`, the only
+   * shape `create` mints: the path comes from the database, and a recursive removal must not reach
+   * the hooks directory, another mount's tree or anything outside the execution-roots directory.
+   */
+  #requireMintedWorktreeRoot(row: WorktreeRootRow): void {
+    const segments: readonly string[] = relative(this.#executionRootsDirectory, row.fs_root).split(
+      sep,
+    );
+    if (
+      segments.length !== 3 ||
+      segments[0] !== row.repo_mount_id ||
+      segments[1] !== WORKTREE_ROOTS_SEGMENT ||
+      segments[2] !== row.id
+    ) {
+      throw new Error(
+        `cannot clean worktree "${row.id}": its stored root is not one this service minted`,
+      );
+    }
   }
 
   #requireAttachedMount(repoMountId: string): AttachedMountRow {
@@ -697,30 +717,6 @@ export class WorktreeService {
   }
 
   /**
-   * The single git entry point. It prepends `-c core.hooksPath=<empty dir>` and `-c
-   * core.fsmonitor=false` so no call skips hook neutralization; a command-line `-c` outranks all
-   * config, and the fsmonitor hook is named by config value so `hooksPath` never governs it.
-   */
-  async #runGit(argv: readonly string[]): Promise<WorktreeGitInvocationResult> {
-    // Created per call: a temp-file reaper that removed it would silently restore the repository's
-    // hooks. Checkout filter drivers are not neutralized: their commands come from git config, and
-    // disabling smudge would corrupt LFS. Probed, no flag needed: uploadpack.packObjectsHook is
-    // honored only from protected config, and core.alternateRefsCommand fires only on receive-pack,
-    // which no verb here engages.
-    await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
-    return this.#git(
-      [
-        "-c",
-        `core.hooksPath=${this.#hookNeutralizationDirectory}`,
-        "-c",
-        "core.fsmonitor=false",
-        ...argv,
-      ],
-      { timeoutMs: this.#gitCommandTimeoutMs },
-    );
-  }
-
-  /**
    * Drops the `$GIT_DIR/worktrees/<name>` entries of worktrees whose directory is gone; nothing
    * else clears what `worktree add` leaves in the user's repository. Best-effort: the directory
    * removal already succeeded, and a detached mount's root may be unreadable. A `null` root: skip.
@@ -752,7 +748,7 @@ export class WorktreeService {
       return suppliedBaseRef;
     }
 
-    let result: WorktreeGitInvocationResult;
+    let result: GitInvocationResult;
     try {
       result = await this.#runGit([
         "-C",
@@ -762,11 +758,11 @@ export class WorktreeService {
         "--short",
         "HEAD",
       ]);
-    } catch {
-      throw new WorktreeCreateFailedError("base_ref_unresolved");
+    } catch (gitFailure) {
+      throw new WorktreeCreateFailedError("base_ref_unresolved", gitFailure);
     }
 
-    const headBranch = result.stdout.trim();
+    const headBranch = result.stdout.toString("utf8").trim();
     if (headBranch.length === 0) {
       throw new WorktreeCreateFailedError("base_ref_unresolved");
     }
@@ -784,9 +780,9 @@ export class WorktreeService {
     } catch (refusal) {
       const gitRefusalLine = readGitBranchNameRefusal(refusal);
       if (gitRefusalLine === null) {
-        throw new WorktreeCreateFailedError("git_invocation_failed");
+        throw new WorktreeCreateFailedError("git_invocation_failed", refusal);
       }
-      throw new WorktreeCreateFailedError("branch_name_invalid", gitRefusalLine);
+      throw new WorktreeCreateFailedError("branch_name_invalid", gitRefusalLine, refusal);
     }
   }
 
@@ -795,7 +791,7 @@ export class WorktreeService {
    * query that does not complete is a creation failure, never read as "free".
    */
   async #repositoryHasBranch(canonicalRoot: string, branchName: string): Promise<boolean> {
-    let result: WorktreeGitInvocationResult;
+    let result: GitInvocationResult;
     try {
       result = await this.#runGit([
         "-C",
@@ -805,10 +801,10 @@ export class WorktreeService {
         "--format=%(refname)",
         `refs/heads/${branchName}`,
       ]);
-    } catch {
-      throw new WorktreeCreateFailedError("git_invocation_failed");
+    } catch (gitFailure) {
+      throw new WorktreeCreateFailedError("git_invocation_failed", gitFailure);
     }
-    return result.stdout.trim().length > 0;
+    return result.stdout.toString("utf8").trim().length > 0;
   }
 
   /**
@@ -818,8 +814,8 @@ export class WorktreeService {
   async #materializeWorktree(materialization: WorktreeMaterialization): Promise<void> {
     try {
       await this.#filesystem.createDirectory(materialization.worktreeRootsDirectory);
-    } catch {
-      throw new WorktreeCreateFailedError("execution_root_unavailable");
+    } catch (filesystemFailure) {
+      throw new WorktreeCreateFailedError("execution_root_unavailable", filesystemFailure);
     }
 
     try {
@@ -835,9 +831,9 @@ export class WorktreeService {
         materialization.fsRoot,
         materialization.baseRef,
       ]);
-    } catch {
-      // git `stderr` stops here: it is the value most likely to name a filesystem path.
-      throw new WorktreeCreateFailedError("git_invocation_failed");
+    } catch (gitFailure) {
+      // git's `stderr` rides only on `cause`: it is the value most likely to name a path.
+      throw new WorktreeCreateFailedError("git_invocation_failed", gitFailure);
     }
   }
 
@@ -847,13 +843,13 @@ export class WorktreeService {
    * unknown verdict is a silent bind.
    */
   async #isWorkingTreeDirty(worktreeId: string, fsRoot: string): Promise<boolean> {
-    let result: WorktreeGitInvocationResult;
+    let result: GitInvocationResult;
     try {
       result = await this.#runGit(["-C", fsRoot, "status", "--porcelain"]);
-    } catch {
-      throw new WorktreeReuseConflictError(worktreeId, "cleanliness_unresolved");
+    } catch (gitFailure) {
+      throw new WorktreeReuseConflictError(worktreeId, "cleanliness_unresolved", gitFailure);
     }
-    return result.stdout.trim().length > 0;
+    return result.stdout.toString("utf8").trim().length > 0;
   }
 }
 

@@ -30,6 +30,7 @@ export interface WorktreeIdRow {
 /** A retired, uncleaned worktree and the mount root its prune runs in. */
 export interface WorktreeRootRow {
   readonly id: string;
+  readonly repo_mount_id: string;
   readonly fs_root: string;
   /** The owning mount's root for the prune; nullable because the read LEFT-joins. */
   readonly canonical_root: string | null;

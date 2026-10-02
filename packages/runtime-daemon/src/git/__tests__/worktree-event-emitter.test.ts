@@ -16,10 +16,10 @@ import type { SessionEventType, WorktreeState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { UnsequencedEventEnvelope } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
-import type { EmitWorktreeEventInput, WorktreeEventLog } from "../worktree-event-emitter.js";
+import type { EmitWorktreeEventInput } from "../worktree-event-emitter.js";
+import type { LifecycleEventLog } from "../../workspace/lifecycle-event-appender.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -79,7 +79,7 @@ function payloadState(envelope: UnsequencedEventEnvelope): unknown {
  * A plain-object append seam that records the envelopes it is handed. It proves the emitter names
  * no concrete storage class and shows envelope facts SQL cannot (the correlation pair's absence).
  */
-function recordingEventLog(appended: UnsequencedEventEnvelope[]): WorktreeEventLog {
+function recordingEventLog(appended: UnsequencedEventEnvelope[]): LifecycleEventLog {
   return {
     append: (envelope) => {
       appended.push(envelope);
@@ -119,9 +119,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; reset it between cases so a leftover queue
-  // entry cannot stall the next case as an unrelated timeout.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -151,7 +148,7 @@ function readSingleRow(expectedType: SessionEventType): LifecycleRow {
 
 /**
  * Asserts the persisted payload equals the expected literal, which catches missing, extra and
- * wrong-state keys, and equals what the family schema returns for it.
+ * wrong-state keys, and equals what the lifecycle payload schema returns for it.
  */
 function expectPersistedPayload(row: LifecycleRow, expected: Record<string, unknown>): void {
   const persisted: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
@@ -220,9 +217,9 @@ describe("WorktreeEventEmitter — subject ids", () => {
 
 describe("WorktreeEventEmitter — emission-boundary rejection", () => {
   it("rejects a compiler-bypassed missing worktreeId and appends nothing", async () => {
-    // The family schema types `worktreeId` optional, so this input parses clean there and would
-    // persist a subjectless row. The emitter's own `WorktreeIdSchema.parse` refuses it; the cast
-    // models a plain-JS producer.
+    // The lifecycle payload schema types `worktreeId` optional, so this input parses clean there
+    // and would persist a subjectless row. The emitter's own `WorktreeIdSchema.parse` refuses it;
+    // the cast models a plain-JS producer.
     const subjectless = { sessionId: SESSION_ID } as unknown as EmitWorktreeEventInput;
 
     await expect(makeEmitter().emitWorktreeCreated(subjectless)).rejects.toThrow();

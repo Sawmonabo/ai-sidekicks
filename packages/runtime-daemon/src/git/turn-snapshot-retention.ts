@@ -1,18 +1,9 @@
 /**
- * What pruning old snapshot runs needs besides the service: the retention window, the snapshot ref
- * listing parser, and the database rows and parameters that pick which runs are prunable.
+ * What deleting one run's snapshot refs needs besides the service: the snapshot ref listing parser,
+ * the absence probe, and the run context row it reads.
  */
 
 import { stat } from "node:fs/promises";
-
-/** Seven days; too short a window silently loses a wanted rollback, so it errs long. */
-export const DEFAULT_TURN_SNAPSHOT_RETENTION_WINDOW_MS: number = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * ECMAScript's Date range (8.64e15 ms). A larger window makes `now - window` unrepresentable and
- * every sweep fail; a clock far from the epoch can still overflow (`#retentionCutoff` covers it).
- */
-export const MAXIMUM_RETENTION_WINDOW_MS = 8_640_000_000_000_000;
 
 /**
  * A SHA-1 or SHA-256 id, checked before it enters an argv. With `show-ref --verify` and the
@@ -64,15 +55,10 @@ export async function isPathProvablyAbsent(path: string): Promise<boolean> {
   }
 }
 
-/** One prune candidate; field names are the SQL column names. */
-export interface PrunableRunRow {
+/** One run's context row as the prune reads it; field names are the SQL column names. */
+export interface RunContextRow {
   readonly run_id: string;
   readonly git_common_dir: string;
-}
-
-/** Bound parameters for the prunable-runs query. */
-export interface RetentionCutoffParams {
-  readonly released_before: string;
 }
 
 /** Bound parameters for looking up one run's context row. */
@@ -80,7 +66,6 @@ export interface RunContextLookupParams {
   readonly run_id: string;
 }
 
-/** The refusal when a retention entry point is called on a service built without a `database`. */
+/** The refusal when the prune is called on a service built without a `database`. */
 export const RETENTION_WITHOUT_DATABASE_MESSAGE: string =
-  "TurnSnapshotService: the retention leg needs a `database` dependency " +
-  "(construct with `database` to call sweepPrunableRuns / pruneSnapshotsForRun)";
+  "TurnSnapshotService: pruneSnapshotsForRun needs a `database` dependency";

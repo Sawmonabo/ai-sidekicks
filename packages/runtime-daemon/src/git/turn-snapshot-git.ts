@@ -1,31 +1,16 @@
 /**
- * How the snapshot service talks to git: the neutralized environment, the process runner, the
- * snapshot ref names, and the diagnostics a failed step produces.
+ * The snapshot service's git vocabulary: the snapshot ref names and their safety predicate, the
+ * replace-ref pin, the real filesystem behind its seam, and the diagnostics a failed step produces.
  */
 
-import { execFile } from "node:child_process";
 import { mkdir, rm } from "node:fs/promises";
-import {
-  DEFAULT_GIT_EXECUTABLE,
-  DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
-  GIT_STDIO_MAX_BUFFER_BYTES,
-} from "../workspace/repo-root-resolver.js";
-import type {
-  TurnSnapshotDiagnostic,
-  TurnSnapshotFilesystem,
-  TurnSnapshotGitInvocationOptions,
-  TurnSnapshotGitInvocationResult,
-  TurnSnapshotGitRunner,
-} from "./turn-snapshot-types.js";
+import type { TurnSnapshotDiagnostic, TurnSnapshotFilesystem } from "./turn-snapshot-types.js";
 
 // Not `refs/heads/`, so snapshots stay out of branch history, PR preparation and diffs.
 const SNAPSHOT_REF_ROOT = "refs/sidekicks/runs";
 
 /** Outside the worktree, so scratch indexes never show up in `ls-files -o` or `git status`. */
 export const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
-
-/** Matches `./worktree-service.ts`: the staging legs walk the whole worktree. */
-export const DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
 
 /**
  * Stops `refs/replace/<oid>` swapping another object for a frozen id, on the legs that read an
@@ -40,29 +25,6 @@ const SAFE_REF_COMPONENT_CHARACTER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const CONSECUTIVE_DOTS = "..";
 
 const RESERVED_REF_LOCK_SUFFIX = ".lock";
-
-/**
- * Stripped from the git environment besides {@link DISCOVERY_REDIRECTING_GIT_ENV_KEYS}.
- * `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` stay: `-c` pins outrank every config source.
- */
-const SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS: readonly string[] = [
-  ...DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
-  // The snapshot objects must resolve from the execution root's own object store.
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  // Local ref plumbing ignores it (2.50.1); only the pack protocol applies it.
-  "GIT_NAMESPACE",
-  // Every index-touching leg sets its own scratch index.
-  "GIT_INDEX_FILE",
-];
-
-/**
- * The strip list uppercased: on Windows a `Git_Dir` variable would survive
- * `delete environment["GIT_DIR"]`. `toUpperCase`, since the locale variant maps `I` to `ı` in
- * Turkish.
- */
-const SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS_UPPERCASED = new Set(
-  SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS.map((key) => key.toUpperCase()),
-);
 
 /** The prefix retention lists; `runId` must pass {@link isSafeRefComponent}. */
 export function buildRunSnapshotRefPrefix(runId: string): string {
@@ -97,72 +59,6 @@ export function isNonNegativeInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-/**
- * The environment for every git call: the daemon's minus the strip list, `C` locale, prompts off,
- * then the caller's overlay (so an inherited `GIT_INDEX_FILE` stays stripped).
- */
-function buildTurnSnapshotGitEnvironment(
-  overrides: Readonly<Record<string, string>> | undefined,
-): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS_UPPERCASED.has(key.toUpperCase())) {
-      continue;
-    }
-    environment[key] = value;
-  }
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  // A git that prompted would block on a terminal the daemon lacks until the timeout.
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  if (overrides !== undefined) {
-    for (const [key, value] of Object.entries(overrides)) {
-      environment[key] = value;
-    }
-  }
-  return environment;
-}
-
-/** The default runner: `execFile` with an argv array, never a shell string. */
-export const runTurnSnapshotGitWithExecFile: TurnSnapshotGitRunner = (
-  argv: readonly string[],
-  options: TurnSnapshotGitInvocationOptions,
-): Promise<TurnSnapshotGitInvocationResult> => {
-  return new Promise<TurnSnapshotGitInvocationResult>((resolve, reject) => {
-    const child = execFile(
-      DEFAULT_GIT_EXECUTABLE,
-      [...argv],
-      {
-        encoding: "buffer",
-        timeout: options.timeoutMs,
-        maxBuffer: GIT_STDIO_MAX_BUFFER_BYTES,
-        env: buildTurnSnapshotGitEnvironment(options.environmentOverrides),
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        const stderrText: string = stderr.toString("utf8");
-        if (error !== null) {
-          reject(Object.assign(error, { stderr: stderrText }));
-          return;
-        }
-        resolve({ stdout, stderr: stderrText });
-      },
-    );
-    const childStdin = child.stdin;
-    if (childStdin !== null) {
-      // A child exiting before it drains stdin makes this write EPIPE; that arrives via the exit
-      // status, and an unhandled `error` event would crash the daemon.
-      childStdin.on("error", () => {
-        /* see above */
-      });
-      if (options.stdin !== undefined) {
-        childStdin.write(options.stdin);
-      }
-      childStdin.end();
-    }
-  });
-};
-
 /** The real filesystem behind the snapshot service's filesystem seam. */
 export const DEFAULT_TURN_SNAPSHOT_FILESYSTEM: TurnSnapshotFilesystem = {
   async createDirectory(path: string): Promise<void> {
@@ -175,18 +71,8 @@ export const DEFAULT_TURN_SNAPSHOT_FILESYSTEM: TurnSnapshotFilesystem = {
 
 /** Logs a diagnostic as a warning; the sink used when the service is given none. */
 export function warnDiagnostic(diagnostic: TurnSnapshotDiagnostic): void {
-  // Pass-scoped kinds carry no run or turn identity.
-  if (diagnostic.kind === "retention-prune-skipped") {
-    console.warn(
-      `turn-snapshot ${diagnostic.kind}: ` +
-        `skipped=${String(diagnostic.skipped.length)} of ` +
-        `examined=${String(diagnostic.examinedRunCount)}`,
-      diagnostic,
-    );
-    return;
-  }
-  if (diagnostic.kind === "retention-sweep-failed") {
-    console.warn(`turn-snapshot ${diagnostic.kind}: ${diagnostic.detail}`, diagnostic);
+  if (diagnostic.kind === "run-context-read-failed") {
+    console.warn(`turn-snapshot ${diagnostic.kind}: run=${diagnostic.runId}`, diagnostic);
     return;
   }
   console.warn(

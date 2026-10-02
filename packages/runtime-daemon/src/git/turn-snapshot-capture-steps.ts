@@ -17,7 +17,7 @@ import type { FileHandle } from "node:fs/promises";
 import { copyFile, open, rm } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { TurnSnapshotGitInvocationResult } from "./turn-snapshot-types.js";
+import { readGitExitStatus, type GitCommand } from "./git-process.js";
 import { OBJECT_ID_PATTERN } from "./turn-snapshot-retention.js";
 import { describeRejection, USE_REPLACE_REFS_PIN } from "./turn-snapshot-git.js";
 import {
@@ -39,24 +39,12 @@ import {
   toRawGitDate,
 } from "./turn-snapshot-capture.js";
 
-/** Per-call options of a capture step's git command: index and attribute overrides, and stdin. */
-export interface TurnSnapshotGitCommandOptions {
-  readonly environmentOverrides?: Readonly<Record<string, string>>;
-  readonly stdin?: Buffer;
-}
-
 /**
- * Runs one git command through the service's hook-neutralized entry point, which prepends the
- * `-c` pins that keep any hook from running.
+ * What the capture steps take from the service: its hook-neutralized git entry point and its
+ * clock.
  */
-export type TurnSnapshotGitCommand = (
-  argv: readonly string[],
-  options: TurnSnapshotGitCommandOptions,
-) => Promise<TurnSnapshotGitInvocationResult>;
-
-/** What the capture steps take from the service: its git entry point and its clock. */
 export interface TurnSnapshotCaptureStepsDependencies {
-  readonly runGit: TurnSnapshotGitCommand;
+  readonly runGit: GitCommand;
   readonly now: () => string;
 }
 
@@ -74,7 +62,7 @@ export function requireObjectId(stdout: Buffer): string {
  * between calls; built once per service.
  */
 export class TurnSnapshotCaptureSteps {
-  readonly #runGit: TurnSnapshotGitCommand;
+  readonly #runGit: GitCommand;
   readonly #now: () => string;
 
   constructor(dependencies: TurnSnapshotCaptureStepsDependencies) {
@@ -89,7 +77,7 @@ export class TurnSnapshotCaptureSteps {
    */
   async resolveBaseCommit(executionRoot: string): Promise<string> {
     // `--verify` prints nothing on a miss; the bare form echoes `HEAD` with a non-zero exit.
-    const result = await this.#runGit(["-C", executionRoot, "rev-parse", "--verify", "HEAD"], {});
+    const result = await this.#runGit(["-C", executionRoot, "rev-parse", "--verify", "HEAD"]);
     return requireObjectId(result.stdout);
   }
 
@@ -101,18 +89,15 @@ export class TurnSnapshotCaptureSteps {
   async detectSparseRoot(executionRoot: string): Promise<boolean> {
     // `--default=false` makes an unset key a clean false; a bare `--get` exits 1 (unset) or 128
     // (unreadable), which the exit-status-only git seam cannot tell apart.
-    const result = await this.#runGit(
-      [
-        "-C",
-        executionRoot,
-        "config",
-        "--type=bool",
-        "--default=false",
-        "--get",
-        CORE_SPARSE_CHECKOUT_KEY,
-      ],
-      {},
-    );
+    const result = await this.#runGit([
+      "-C",
+      executionRoot,
+      "config",
+      "--type=bool",
+      "--default=false",
+      "--get",
+      CORE_SPARSE_CHECKOUT_KEY,
+    ]);
     return result.stdout.toString("utf8").trim() === "true";
   }
 
@@ -128,7 +113,7 @@ export class TurnSnapshotCaptureSteps {
     // Not `<root>/.git/index`: a linked worktree keeps its index under the main git dir. Git
     // answers relative for a main checkout and absolute for a linked one (git 2.50.1).
     const reportedIndexPath: string = (
-      await this.#runGit(["-C", executionRoot, "rev-parse", "--git-path", "index"], {})
+      await this.#runGit(["-C", executionRoot, "rev-parse", "--git-path", "index"])
     ).stdout
       .toString("utf8")
       .trim();
@@ -229,19 +214,16 @@ export class TurnSnapshotCaptureSteps {
   ): Promise<readonly string[]> {
     // Replace refs pinned off: a changed path set would change the trailer, an input to the id.
     const treeListing: Buffer = (
-      await this.#runGit(
-        [
-          "-C",
-          executionRoot,
-          ...USE_REPLACE_REFS_PIN,
-          "ls-tree",
-          "-r",
-          "--name-only",
-          "-z",
-          treeObjectId,
-        ],
-        {},
-      )
+      await this.#runGit([
+        "-C",
+        executionRoot,
+        ...USE_REPLACE_REFS_PIN,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "-z",
+        treeObjectId,
+      ])
     ).stdout;
     const recordedKeys = new Set<string>(
       splitNulTerminatedListingBytes(treeListing).map(listingEntryKey),
@@ -271,11 +253,14 @@ export class TurnSnapshotCaptureSteps {
       const embeddedRoot: string = join(executionRoot, embeddedPath);
       let headStdout: Buffer;
       try {
-        headStdout = (await this.#runGit(["-C", embeddedRoot, "rev-parse", "--verify", "HEAD"], {}))
+        headStdout = (await this.#runGit(["-C", embeddedRoot, "rev-parse", "--verify", "HEAD"]))
           .stdout;
-      } catch {
-        // Only a git refusal reaches here; transient rejections are skipped too (the seam is
-        // opaque).
+      } catch (refusal) {
+        // Git's refusal (no commits yet) is a skip. A git that never reached an exit (spawn
+        // failure, timeout) throws into the funnel, so a fault is never recorded as a skip.
+        if (readGitExitStatus(refusal) === null) {
+          throw refusal;
+        }
         skipped.push(embeddedPath);
         continue;
       }
@@ -288,8 +273,7 @@ export class TurnSnapshotCaptureSteps {
       // I/O errors.
       if (superprojectObjectIdLength === null) {
         superprojectObjectIdLength = requireObjectIdHexLength(
-          (await this.#runGit(["-C", executionRoot, "rev-parse", "--show-object-format"], {}))
-            .stdout,
+          (await this.#runGit(["-C", executionRoot, "rev-parse", "--show-object-format"])).stdout,
         );
       }
       if (embeddedHead.length !== superprojectObjectIdLength) {
@@ -393,10 +377,15 @@ export class TurnSnapshotCaptureSteps {
       // referent outside the namespace and exit 0 (git 2.50.1, 2.54.0). With it, 2.50.1 replaces
       // the symref and 2.54.0 refuses (fails closed at `write-ref`); a live referent refuses on
       // both, and the id read back through it is reported as found, not as written by this service.
-      await this.#runGit(
-        ["-C", executionRoot, "update-ref", "--no-deref", ref, snapshotCommit, ""],
-        {},
-      );
+      await this.#runGit([
+        "-C",
+        executionRoot,
+        "update-ref",
+        "--no-deref",
+        ref,
+        snapshotCommit,
+        "",
+      ]);
       return null;
     } catch (reason: unknown) {
       // The probe reads the ref, not git's stderr, and runs only after the swap refuses, so a
@@ -416,10 +405,14 @@ export class TurnSnapshotCaptureSteps {
   async #readRefIfPresent(executionRoot: string, ref: string): Promise<string | null> {
     try {
       // `--verify` on a fully-qualified ref: no abbreviation, no search path, no echo on a miss.
-      const result = await this.#runGit(
-        ["-C", executionRoot, "show-ref", "--verify", "--hash", ref],
-        {},
-      );
+      const result = await this.#runGit([
+        "-C",
+        executionRoot,
+        "show-ref",
+        "--verify",
+        "--hash",
+        ref,
+      ]);
       return requireObjectId(result.stdout);
     } catch {
       return null;
