@@ -16,16 +16,15 @@ import {
 
 type ProviderUsageLimitCause = ProviderUsageLimitSignal["cause"];
 
-// `DriverResumeResult` is a `status`-discriminated union. `failed` carries the recovery condition,
-// span classification and failure detail but no `bindingId` or `sessionPosition`; `resumed`
-// carries those two and neither failure axis. A failed resume must surface the failure, never
-// quietly create a replacement session under the same run.
+// `DriverResumeResult` is a `status`-discriminated union. `failed` carries the recovery condition
+// and failure detail but no `bindingId` or `sessionPosition`; `resumed` carries those two and
+// neither failure member. A failed resume must surface the failure, never quietly create a
+// replacement session under the same run.
 describe("DriverResumeResult: a failed resume cannot carry a binding", () => {
   it("rejects silent replacement — a `failed` object carrying a bindingId", () => {
     const result = DriverResumeResultSchema.safeParse({
       status: "failed",
       recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "irreversible",
       providerFailureDetail: "provider session expired",
       bindingId: "binding-smuggled",
     });
@@ -47,13 +46,11 @@ describe("DriverResumeResult: a failed resume cannot carry a binding", () => {
     const resume: DriverResumeResult = DriverResumeResultSchema.parse({
       status: "failed",
       recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "irreversible",
       providerFailureDetail: "provider endpoint returned 410 Gone",
     });
 
     if (resume.status === "failed") {
       expect(resume.recoveryCondition).toBe("recovery-needed");
-      expect(resume.recoverySpanClassification).toBe("irreversible");
       expect(resume.providerFailureDetail).toBe("provider endpoint returned 410 Gone");
 
       // @ts-expect-error bindingId does not exist on the failed variant
@@ -76,7 +73,6 @@ describe("DriverResumeResultSchema — the recovery condition is a closed vocabu
       const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
         status: "failed",
         recoveryCondition,
-        recoverySpanClassification: "unclassifiable",
         providerFailureDetail: "provider credential expired",
       });
       if (parsed.status === "failed") {
@@ -91,7 +87,6 @@ describe("DriverResumeResultSchema — the recovery condition is a closed vocabu
     const result = DriverResumeResultSchema.safeParse({
       status: "failed",
       recoveryCondition: "all-good",
-      recoverySpanClassification: "irreversible",
       providerFailureDetail: "provider session expired",
     });
     expect(result.success).toBe(false);

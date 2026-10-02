@@ -929,8 +929,8 @@ describe("git invocation", () => {
   });
 });
 
-describe("the reprovision bracket", () => {
-  it("completes reprovision with the prepared root", async () => {
+describe("the root preparation bracket", () => {
+  it("completes root preparation with the prepared root", async () => {
     insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
 
     const prepared = await makeService().prepare({
@@ -949,7 +949,7 @@ describe("the reprovision bracket", () => {
     expect(readEventTypes()).toEqual(["workspace.preparing", "workspace.ready"]);
   });
 
-  it("fail-reprovisions on a materialization failure and records the detail", async () => {
+  it("fails root preparation on a materialization failure and records the detail", async () => {
     insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     const failure = new WorktreeCreateFailedError("base_ref_unresolved");
     ctx.worktrees.createFailure = failure;

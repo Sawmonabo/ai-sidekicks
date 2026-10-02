@@ -35,12 +35,7 @@ import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
 } from "./provider-driver-wire.js";
-import {
-  RecoveryConditionSchema,
-  RecoverySpanClassificationSchema,
-  type RecoveryCondition,
-  type RecoverySpanClassification,
-} from "./provider-driver-recovery.js";
+import { RecoveryConditionSchema, type RecoveryCondition } from "./provider-driver-recovery.js";
 import {
   ChildInterruptRequestSchema,
   ChildInterruptResponseSchema,
@@ -414,7 +409,6 @@ export interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory | undefined;
   failureCause?: RunRefusedCause | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
-  recoverySpanClassification?: RecoverySpanClassification | undefined;
   // Two producers, one field: free-form prose on a failed resume, and a fixed
   // `<registered code> origin=<arm>` form from the outbound-frame neutralization tripwire. Read
   // the cause as the substring before the first space; the whole value is not always prose.
@@ -440,7 +434,6 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     failureCategory: RunFailureCategorySchema.optional(),
     failureCause: RunRefusedCauseSchema.optional(),
     recoveryCondition: RecoveryConditionSchema.optional(),
-    recoverySpanClassification: RecoverySpanClassificationSchema.optional(),
     providerFailureDetail: wireFreeFormString(
       DRIVER_FAILURE_DETAIL_MAX_LEN,
       "RunStateChangeEvent.providerFailureDetail",

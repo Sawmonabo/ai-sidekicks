@@ -7,7 +7,7 @@ import { z } from "zod";
 // `node_id` is `TEXT NOT NULL` in every table that stores it, so a NodeId is a daemon-minted
 // opaque string, not a UUID. It follows the non-UUID branded-scalar pattern of
 // `EventCursorSchema` in `session.ts`: `z.string().min(1).max(cap)` with an inline `.brand()`
-// cast. The cap guards against pathological lengths in cross-node input. The `ZodType<NodeId,
+// cast. The cap guards against pathological lengths in wire input. The `ZodType<NodeId,
 // NodeId>` annotation makes the input type resolve to `NodeId` where the schema is composed
 // into request schemas, instead of `unknown`.
 

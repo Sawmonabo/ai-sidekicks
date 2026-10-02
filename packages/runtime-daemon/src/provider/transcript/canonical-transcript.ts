@@ -110,7 +110,7 @@ function isEventInRunScope(event: StoredEvent, runId: RunId): boolean {
 type CanonicalToolResultOutcome = "succeeded" | "failed";
 
 /**
- * Renders a tool row that has no pairing key as visible ASCII text, in the memo renderer's line
+ * Renders a tool row that has no pairing key as visible ASCII text, in the brief renderer's line
  * shape minus the identifier, so it reads as a tool line and never as prose the assistant wrote.
  */
 function renderUnkeyedToolCallText(toolName: string | undefined, argumentsJson: string): string {
@@ -343,7 +343,7 @@ export class CanonicalTranscriptFold {
      *   happened. It is not removed either: a positional bound between the result and its
      *   later-logged reasoning row would then cut away the only segment that could declare the
      *   loss. The strip drops the marker and declares `provider_private_reasoning` once, and the
-     *   memo renderer runs the same strip.
+     *   brief renderer runs the same strip.
      * - anything else (a block this turn does not carry, or a block id carried twice under
      *   disagreeing disclosures): fail closed, the placeholder stays. This is stricter than the
      *   strip's rule for a keyed result, because a keyed result carries its enclosure member

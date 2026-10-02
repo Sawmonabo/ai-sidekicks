@@ -123,7 +123,7 @@ describe("CodexInterventionDispatcher native routing", () => {
       content: "focus on the failing test",
       expectedTurnId: "turn-01",
       clientIdempotencyKey: "idem-1",
-      // A steer directive is user text; the absent-origin default would report `origin=unknown`.
+      // A steer message is user text; the absent-origin default would report `origin=unknown`.
       frameOrigin: "human_text",
     });
     expect(result).toEqual({ status: "applied" });
@@ -208,7 +208,7 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
     const result = await harness.dispatcher.applyIntervention(steerParams());
 
     // The provider accepted some turn, not necessarily this one; `applied` would report the
-    // directive as delivered to a turn that never saw it.
+    // message as delivered to a turn that never saw it.
     expect(result).toEqual({
       status: "degraded",
       fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,

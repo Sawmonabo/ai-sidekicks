@@ -47,7 +47,6 @@ const RUN_BODY_MEMBER_READERS = {
   /** Why a provider refused the run, carried whole on a failed run's beat. */
   failureCause: "object",
   recoveryCondition: "string",
-  recoverySpanClassification: "string",
   providerFailureDetail: "string",
   completionKind: "string",
   intendedClose: "boolean",

@@ -17,7 +17,7 @@ import {
 import { classifyClaudeTurnEvidence } from "./turn-evidence.js";
 import {
   type ClaudeRunDispatch,
-  type ClaudeSessionChannel,
+  type ClaudeProviderProcess,
   type ClaudeUserTextDelivery,
   type ClaudeUserTextFrame,
   type ClaudeUserTextWriteAttempt,
@@ -46,7 +46,7 @@ export interface ClaudeTextNeutralizationDependencies extends Pick<
  * carries no claim about the bytes, so it is `indeterminate`, never `unsent`.
  */
 export async function attemptClaudeFrameWrite(
-  channel: ClaudeSessionChannel,
+  channel: ClaudeProviderProcess,
   frame: ClaudeUserTextFrame,
 ): Promise<ClaudeUserTextWriteAttempt> {
   try {
@@ -119,7 +119,7 @@ export class ClaudeTextNeutralization {
   ruleFailedOpeningFrame(ruling: {
     readonly sessionId: SessionId;
     readonly runId: RunId;
-    readonly channel: ClaudeSessionChannel;
+    readonly channel: ClaudeProviderProcess;
     readonly frame: ClaudeUserTextFrame;
     readonly delivery: ClaudeUserTextDelivery;
   }): void {
@@ -140,7 +140,7 @@ export class ClaudeTextNeutralization {
       return;
     }
     // Dead channel: no terminal will arrive, so rule the frame here, frame-scoped. The route stays
-    // so `findChannelForRun` refuses instead of answering `undefined`, which invites a retry.
+    // so `findProcessForRun` refuses instead of answering `undefined`, which invites a retry.
     const decision = this.#outboundFrameTripwire.settleFrame(
       ruling.frame,
       UNRECOGNIZED_TURN_EVIDENCE,

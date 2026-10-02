@@ -142,7 +142,7 @@ export class WorkspaceEventEmitter {
   }
 
   /**
-   * Emit `workspace.stale`: the workspace no longer reflects its mount and needs reprovisioning
+   * Emit `workspace.stale`: the workspace no longer reflects its mount and needs preparing again
    * before further use.
    */
   async emitWorkspaceStale(input: EmitWorkspaceEventInput): Promise<EventLogAppendReceipt> {

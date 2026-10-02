@@ -26,7 +26,7 @@ import type {
   ClaudeHandshakeDeclaration,
   ClaudeInboundFrameObservation,
   ClaudeRunDispatchResolver,
-  ClaudeSessionChannel,
+  ClaudeProviderProcess,
   ClaudeSessionTransport,
   ClaudeSpawnBoundLegs,
 } from "./session-transport.js";
@@ -61,7 +61,7 @@ export interface ClaudeSpawnBinding {
 export interface LiveClaudeSession {
   readonly sessionId: SessionId;
   readonly providerSessionId: string;
-  readonly channel: ClaudeSessionChannel;
+  readonly channel: ClaudeProviderProcess;
   readonly spawnBinding: ClaudeSpawnBinding;
   /**
    * The legs this process was spawned with. A rewind respawns from these; re-deriving would guess,
@@ -97,7 +97,7 @@ export type ClaudeSessionSlot =
   | {
       readonly state: "establishing";
       readonly settled: Promise<void>;
-      readonly channel: ClaudeSessionChannel | undefined;
+      readonly channel: ClaudeProviderProcess | undefined;
     }
   // A process is up and may accept runs. The only startable state.
   | { readonly state: "live"; readonly session: LiveClaudeSession }
@@ -105,7 +105,7 @@ export type ClaudeSessionSlot =
   | { readonly state: "closing"; readonly settled: Promise<void> }
   // `dispose` rejected: the process is still alive and this channel is the only handle anyone
   // holds on it. Retained until a later close disposes it.
-  | { readonly state: "quarantined"; readonly channel: ClaudeSessionChannel };
+  | { readonly state: "quarantined"; readonly channel: ClaudeProviderProcess };
 
 /**
  * Whether the provider-account member is present but empty, a wiring fault the caller refuses

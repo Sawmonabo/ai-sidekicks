@@ -1,5 +1,5 @@
-// The memo floor: a kept tool call keeps its result under any budget, no private reasoning reaches
-// the memo, and a delivery never places a second memo in a target, however its send ends.
+// The hand-over brief: a kept tool call keeps its result under any budget, no private reasoning
+// reaches the brief, and a delivery never places a second brief in a target, however its send ends.
 
 import { describe, expect, it } from "vitest";
 
@@ -7,30 +7,30 @@ import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import {
   DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
-  MEMO_CONTINUITY_MARKER_PREFIX,
-  MemoProjection,
-  UnownedMemoTargetError,
-  defaultMemoBudgetPolicy,
-  deriveMemoIdentityKey,
+  BRIEF_CONTINUITY_MARKER_PREFIX,
+  BriefProjection,
+  UnownedBriefTargetError,
+  defaultBriefBudgetPolicy,
+  deriveBriefIdentityKey,
   partitionIntoExchanges,
-  renderMemoContinuityMarker,
-  type MemoBudgetPolicy,
-  type MemoRendering,
-  type MemoTargetIdentity,
+  renderBriefContinuityMarker,
+  type BriefBudgetPolicy,
+  type BriefRendering,
+  type BriefTargetIdentity,
   type TranscriptExchange,
-} from "../memo-projection.js";
+} from "../hand-over-brief.js";
 import {
-  MemoDeliveryCoordinator,
-  type MemoDeliveryRequest,
-  type MemoDeliverySettlement,
-  type MemoOutboundFrame,
-  type MemoSendSettlementBarrier,
-  type MemoTargetGateway,
-} from "../memo-delivery.js";
+  BriefDeliveryCoordinator,
+  type BriefDeliveryRequest,
+  type BriefDeliverySettlement,
+  type BriefOutboundFrame,
+  type BriefSendSettlementBarrier,
+  type BriefTargetGateway,
+} from "../brief-delivery.js";
 import {
-  readDeliveredMemoDeclaredLosses,
-  targetTurnsCarryMemoMarker,
-} from "../memo-marker-reader.js";
+  readDeliveredBriefDeclaredLosses,
+  targetTurnsCarryBriefMarker,
+} from "../brief-marker-reader.js";
 import {
   OTHER_RUN_ID,
   RUN_ID,
@@ -45,11 +45,11 @@ import type {
   CanonicalTranscriptTurn,
 } from "../../provider-driver.js";
 
-const TARGET: MemoTargetIdentity = { providerSessionId: "provider-session-target-1" };
-const OTHER_TARGET: MemoTargetIdentity = { providerSessionId: "provider-session-target-2" };
+const TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-1" };
+const OTHER_TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-2" };
 
 /** Wide enough that the whole fixture fits, so eviction is opt-in per case. */
-const ROOMY_BUDGET: MemoBudgetPolicy = defaultMemoBudgetPolicy(1_000_000);
+const ROOMY_BUDGET: BriefBudgetPolicy = defaultBriefBudgetPolicy(1_000_000);
 
 // Fixtures
 
@@ -79,14 +79,14 @@ function projectionOf(
 }
 
 /** A delivery request before a coordinator has established its target and minted the handle. */
-type DeliveryDraft = Omit<MemoDeliveryRequest, "target"> & {
-  readonly target: MemoTargetIdentity;
+type DeliveryDraft = Omit<BriefDeliveryRequest, "target"> & {
+  readonly target: BriefTargetIdentity;
 };
 
 function requestFor(
   projection: CanonicalTranscriptProjection,
-  budget: MemoBudgetPolicy = ROOMY_BUDGET,
-  target: MemoTargetIdentity = TARGET,
+  budget: BriefBudgetPolicy = ROOMY_BUDGET,
+  target: BriefTargetIdentity = TARGET,
 ): DeliveryDraft {
   return { projection, target, budget };
 }
@@ -96,16 +96,16 @@ function requestFor(
  * own; the establishment gate refuses an established handle carried to another coordinator.
  */
 function addressedTo(
-  coordinator: MemoDeliveryCoordinator,
+  coordinator: BriefDeliveryCoordinator,
   draft: DeliveryDraft,
-): MemoDeliveryRequest {
+): BriefDeliveryRequest {
   return { ...draft, target: coordinator.establishTarget(draft.target) };
 }
 
 async function deliverVia(
-  coordinator: MemoDeliveryCoordinator,
+  coordinator: BriefDeliveryCoordinator,
   draft: DeliveryDraft,
-): Promise<MemoDeliverySettlement> {
+): Promise<BriefDeliverySettlement> {
   return await coordinator.deliver(addressedTo(coordinator, draft));
 }
 
@@ -115,7 +115,7 @@ async function deliverVia(
  *
  * `apply-then-fail` lands the frame and loses the acknowledgment. `apply-late-then-fail` times out
  * while the provider is still applying the frame, so readbacks before `applyPendingSends` find no
- * marker for a memo about to land; a retry that trusts one of them sends a second memo.
+ * marker for a brief about to land; a retry that trusts one of them sends a second brief.
  */
 class FakeTargetSession {
   readonly turns: string[] = [];
@@ -153,7 +153,7 @@ class FakeTargetSession {
     return this.reportNoTurns ? [] : [...this.turns];
   }
 
-  async sendMemoTurn(frame: MemoOutboundFrame): Promise<void> {
+  async sendBriefTurn(frame: BriefOutboundFrame): Promise<void> {
     this.sendAttempts += 1;
     this.sentTargetIds.push(frame.targetProviderSessionId);
     // `wireText`, not the authored prose: the readback reconciles against what the provider got.
@@ -173,7 +173,7 @@ class FakeTargetSession {
 }
 
 /** An honest barrier: waits for the provider session to go quiet, so pending sends finish first. */
-function settlementBarrierFor(target: FakeTargetSession): MemoSendSettlementBarrier {
+function settlementBarrierFor(target: FakeTargetSession): BriefSendSettlementBarrier {
   return () => {
     target.applyPendingSends();
     return Promise.resolve();
@@ -184,17 +184,17 @@ function settlementBarrierFor(target: FakeTargetSession): MemoSendSettlementBarr
  * A barrier that resolves without observing the provider. Nothing inside the delivery can tell it
  * from an honest wait, so the tests show the call that made a send never trusts it.
  */
-const IMMEDIATE_BARRIER: MemoSendSettlementBarrier = () => Promise.resolve();
+const IMMEDIATE_BARRIER: BriefSendSettlementBarrier = () => Promise.resolve();
 
 /** The caller's bounded wait ran out without the session going quiet. */
-const EXPIRED_BARRIER: MemoSendSettlementBarrier = () =>
+const EXPIRED_BARRIER: BriefSendSettlementBarrier = () =>
   Promise.reject(new Error("the bounded wait for the provider session expired"));
 
 /** Records every member name read off the gateway, so a test can show the target was never touched. */
 function recordingGateway(
   target: FakeTargetSession,
   observedMemberNames: string[],
-): MemoTargetGateway {
+): BriefTargetGateway {
   return new Proxy(target, {
     get(recordedTarget: FakeTargetSession, propertyName: string | symbol): unknown {
       if (typeof propertyName === "string") {
@@ -205,7 +205,7 @@ function recordingGateway(
         ? (value as (...callArguments: never[]) => unknown).bind(recordedTarget)
         : value;
     },
-  }) as unknown as MemoTargetGateway;
+  }) as unknown as BriefTargetGateway;
 }
 
 function segmentsIn(turns: readonly CanonicalTranscriptTurn[]): CanonicalTranscriptSegment[] {
@@ -403,9 +403,9 @@ function generateTranscript(seed: number): GeneratedTranscript {
 
 // The pairing property, over generated transcripts
 
-describe("memo budget — whole-exchange eviction with a protected tail", () => {
+describe("brief budget — whole-exchange eviction with a protected tail", () => {
   it("never emits a call without its result nor a result without its call, under any budget", () => {
-    const memoProjection = new MemoProjection();
+    const briefProjection = new BriefProjection();
     let totalCrossTurnPairs = 0;
     let rendersThatEvicted = 0;
     let renderCount = 0;
@@ -424,7 +424,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
         transcriptsWithFewerToolExchangesThanProtected += 1;
       }
 
-      const unbounded: MemoRendering = memoProjection.render(
+      const unbounded: BriefRendering = briefProjection.render(
         requestFor(generated.projection, ROOMY_BUDGET),
       );
       expect(unbounded.evictedExchangeCount).toBe(0);
@@ -432,8 +432,8 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
       // Spans both regimes: tight windows force eviction and the wide one does not, so guard (b)
       // below can tell them apart.
       for (const contextWindowTokens of [120, 240, 480, 960, 1920, 100_000]) {
-        const rendering: MemoRendering = memoProjection.render(
-          requestFor(generated.projection, defaultMemoBudgetPolicy(contextWindowTokens)),
+        const rendering: BriefRendering = briefProjection.render(
+          requestFor(generated.projection, defaultBriefBudgetPolicy(contextWindowTokens)),
         );
         renderCount += 1;
         if (rendering.evictedExchangeCount > 0) {
@@ -480,7 +480,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
   it("still evicts a conversation that used no tool at all", () => {
     // The protected tail is anchored on tool exchanges, so a transcript with none must not protect
     // itself entirely; that would leave the budget unenforceable on plain back-and-forth talk.
-    const memoProjection = new MemoProjection();
+    const briefProjection = new BriefProjection();
     const turns: CanonicalTranscriptTurn[] = [];
     for (let index = 0; index < 12; index += 1) {
       turns.push(
@@ -491,12 +491,12 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     }
     const projection: CanonicalTranscriptProjection = projectionOf(turns);
 
-    const unbounded: MemoRendering = memoProjection.render(requestFor(projection, ROOMY_BUDGET));
+    const unbounded: BriefRendering = briefProjection.render(requestFor(projection, ROOMY_BUDGET));
     expect(unbounded.evictedExchangeCount).toBe(0);
     expect(unbounded.includedExchangeCount).toBe(12);
 
-    const bounded: MemoRendering = memoProjection.render(
-      requestFor(projection, defaultMemoBudgetPolicy(600)),
+    const bounded: BriefRendering = briefProjection.render(
+      requestFor(projection, defaultBriefBudgetPolicy(600)),
     );
     expect(bounded.evictedExchangeCount).toBeGreaterThan(0);
     expect(bounded.includedExchangeCount).toBeLessThan(12);
@@ -504,20 +504,20 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     expect(bounded.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
     expect(bounded.declaredLosses).toContain("context_truncated");
 
-    const starved: MemoRendering = memoProjection.render(
-      requestFor(projection, { ...defaultMemoBudgetPolicy(8), budgetFraction: 0 }),
+    const starved: BriefRendering = briefProjection.render(
+      requestFor(projection, { ...defaultBriefBudgetPolicy(8), budgetFraction: 0 }),
     );
     expect(starved.includedExchangeCount).toBe(1);
     expect(starved.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
   });
 
-  it("never emits a memo larger than the ceiling it reports fitting under", () => {
+  it("never emits a brief larger than the ceiling it reports fitting under", () => {
     // Assembly joins the preamble and every admitted exchange with a newline, so pricing each
     // exchange alone under-counts by one separator per admission, and the injected estimator does
     // not owe additivity. Near the ceiling that admits a set that assembles past the budget while
     // the render reports it fits. Only a sweep of every integer ceiling finds it; one fixed budget
     // would miss it.
-    const memoProjection = new MemoProjection();
+    const briefProjection = new BriefProjection();
     const turns: CanonicalTranscriptTurn[] = [];
     for (let index = 0; index < 12; index += 1) {
       // Each rendered turn is exactly 72 characters, a whole multiple of the default estimator's
@@ -530,7 +530,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     }
     const projection: CanonicalTranscriptProjection = projectionOf(turns);
 
-    const unbounded: MemoRendering = memoProjection.render(requestFor(projection, ROOMY_BUDGET));
+    const unbounded: BriefRendering = briefProjection.render(requestFor(projection, ROOMY_BUDGET));
     expect(unbounded.evictedExchangeCount).toBe(0);
     expect(unbounded.includedExchangeCount).toBe(12);
 
@@ -542,7 +542,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
       ceilingTokens <= unbounded.estimatedTokens + 4;
       ceilingTokens += 1
     ) {
-      const rendering: MemoRendering = memoProjection.render(
+      const rendering: BriefRendering = briefProjection.render(
         requestFor(projection, {
           targetContextWindowTokens: ceilingTokens,
           budgetFraction: 1,
@@ -564,7 +564,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     }
 
     // Vacuity guards: the sweep spans ceilings the protected floor alone overruns and ceilings
-    // where eviction brought the memo back under one, which is where the separators are paid.
+    // where eviction brought the brief back under one, which is where the separators are paid.
     expect(ceilingsTheProtectedFloorOverran).toBeGreaterThan(0);
     expect(ceilingsThatFitAfterEviction).toBeGreaterThan(0);
   });
@@ -572,11 +572,11 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
 
 // Portability transforms the floor reuses
 
-describe("memo body — portability transforms", () => {
+describe("brief body — portability transforms", () => {
   it("drops private reasoning and declares it, while a visible summary survives as prose", () => {
-    const memoProjection = new MemoProjection();
+    const briefProjection = new BriefProjection();
 
-    const withPrivateReasoning: MemoRendering = memoProjection.render(
+    const withPrivateReasoning: BriefRendering = briefProjection.render(
       requestFor(
         projectionOf([
           turn(1, "assistant", [
@@ -596,7 +596,7 @@ describe("memo body — portability transforms", () => {
     expect(withPrivateReasoning.text).toContain("the visible answer");
     expect(withPrivateReasoning.declaredLosses).toContain("provider_private_reasoning");
 
-    const withSummary: MemoRendering = memoProjection.render(
+    const withSummary: BriefRendering = briefProjection.render(
       requestFor(
         projectionOf([
           turn(1, "assistant", [
@@ -616,16 +616,16 @@ describe("memo body — portability transforms", () => {
   });
 
   it("always declares that the conversation was summarized", () => {
-    const memoProjection = new MemoProjection();
-    const rendering: MemoRendering = memoProjection.render(
+    const briefProjection = new BriefProjection();
+    const rendering: BriefRendering = briefProjection.render(
       requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
     expect(rendering.declaredLosses).toContain("conversation_history_summarized");
   });
 
   it("declares an unreadable body and names it in the prose the model reads", () => {
-    const memoProjection = new MemoProjection();
-    const rendering: MemoRendering = memoProjection.render(
+    const briefProjection = new BriefProjection();
+    const rendering: BriefRendering = briefProjection.render(
       requestFor(
         projectionOf([
           turn(1, "user", [{ kind: "text", text: "what did that return?" }]),
@@ -652,7 +652,7 @@ describe("memo body — portability transforms", () => {
     );
 
     expect(rendering.declaredLosses).toContain("turn_content_unavailable");
-    // The settlement's declaration does not reach the memo's own text, so the gap is named there
+    // The settlement's declaration does not reach the brief's own text, so the gap is named there
     // too: an empty body renders to nothing, and a turn of nothing reads to the model as a turn
     // that never happened.
     expect(rendering.text).toContain("could not be recovered");
@@ -662,8 +662,8 @@ describe("memo body — portability transforms", () => {
   });
 
   it("declares nothing of the kind when every body resolved", () => {
-    const memoProjection = new MemoProjection();
-    const rendering: MemoRendering = memoProjection.render(
+    const briefProjection = new BriefProjection();
+    const rendering: BriefRendering = briefProjection.render(
       requestFor(
         projectionOf([
           turn(1, "user", [{ kind: "text", text: "what did that return?" }]),
@@ -678,39 +678,39 @@ describe("memo body — portability transforms", () => {
 
 // Reconcile before every send
 
-describe("memo delivery — once-only under a lost acknowledgment", () => {
+describe("brief delivery — once-only under a lost acknowledgment", () => {
   it("delivers exactly once when the send lands at the target and the acknowledgment is lost", async () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
     const request: DeliveryDraft = requestFor(
       projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
-    const first: MemoDeliverySettlement = await deliverVia(coordinator, request);
+    const first: BriefDeliverySettlement = await deliverVia(coordinator, request);
     // Resolved by reading the target, not by trusting the rejection.
     expect(first.disposition).toBe("delivered");
 
     // The caller retries, as a caller with no acknowledgment must.
-    const second: MemoDeliverySettlement = await deliverVia(coordinator, request);
+    const second: BriefDeliverySettlement = await deliverVia(coordinator, request);
     expect(second.disposition).toBe("already-delivered");
-    expect(second.memoIdentityKey).toBe(first.memoIdentityKey);
+    expect(second.briefIdentityKey).toBe(first.briefIdentityKey);
 
     // What the target holds is the load-bearing assertion, not the disposition.
     expect(target.turns).toHaveLength(1);
     expect(target.sendAttempts).toBe(1);
   });
 
-  it("finds a memo delivered far back in the conversation and sends no second one", async () => {
-    // The memo scrolls far back under a long conversation, and the caller retries after a restart
+  it("finds a brief delivered far back in the conversation and sends no second one", async () => {
+    // The brief scrolls far back under a long conversation, and the caller retries after a restart
     // with no register to consult.
     const target = new FakeTargetSession();
     const request: DeliveryDraft = requestFor(
       projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
     );
 
-    const first: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const first: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       request,
     );
     expect(first.disposition).toBe("delivered");
@@ -719,13 +719,13 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     }
 
     // A fresh coordinator, so nothing but the read decides this.
-    const retry: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const retry: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       request,
     );
 
     expect(retry.disposition).toBe("already-delivered");
-    expect(retry.memoIdentityKey).toBe(first.memoIdentityKey);
+    expect(retry.briefIdentityKey).toBe(first.briefIdentityKey);
     expect(target.sendAttempts).toBe(1);
     expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(1);
   });
@@ -744,7 +744,7 @@ function plainConversation(): CanonicalTranscriptProjection {
   return projectionOf(turns);
 }
 
-describe("memo reconciliation — reading the continuity marker back", () => {
+describe("brief reconciliation — reading the continuity marker back", () => {
   it("reports what the delivered summary dropped, not what a later render would", async () => {
     // The delivered summary was rendered under a tight budget and left older exchanges out. A later
     // delivery under a roomier budget finds it and sends nothing, and must report the delivered
@@ -752,23 +752,23 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
 
-    const delivered: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
-      requestFor(projection, defaultMemoBudgetPolicy(600)),
+    const delivered: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
+      requestFor(projection, defaultBriefBudgetPolicy(600)),
     );
     expect(delivered.disposition).toBe("delivered");
     expect(delivered.declaredLosses).toContain("context_truncated");
 
     // A fresh coordinator under a budget wide enough to drop nothing, so only the read decides
     // what is reported.
-    const retry: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const retry: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       requestFor(projection, ROOMY_BUDGET),
     );
 
     expect(retry.disposition).toBe("already-delivered");
     expect(retry.rendering.declaredLosses).not.toContain("context_truncated");
-    expect(retry.declaredLossSource).toBe("delivered-memo");
+    expect(retry.declaredLossSource).toBe("delivered-brief");
     expect(retry.declaredLosses).toStrictEqual(delivered.declaredLosses);
     expect(target.sendAttempts).toBe(1);
   });
@@ -780,11 +780,11 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     const projection: CanonicalTranscriptProjection = plainConversation();
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET);
     target.turns.push(
-      `an older summary ${MEMO_CONTINUITY_MARKER_PREFIX}${deriveMemoIdentityKey(projection, TARGET)}`,
+      `an older summary ${BRIEF_CONTINUITY_MARKER_PREFIX}${deriveBriefIdentityKey(projection, TARGET)}`,
     );
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       request,
     );
 
@@ -795,12 +795,12 @@ describe("memo reconciliation — reading the continuity marker back", () => {
   });
 
   it("reads a continuity record strictly, over the whole loss vocabulary of the wire", () => {
-    // A record that lists nothing must not read as a memo that dropped nothing. This floor declares
-    // its summarization on every path, so a record that omits it was not written by this writer and
-    // its omissions cannot be accounted for.
+    // A record that lists nothing must not read as a brief that dropped nothing. This floor
+    // declares its summarization on every path, so a record that omits it was not written by this
+    // writer and its omissions cannot be accounted for.
     const projection: CanonicalTranscriptProjection = plainConversation();
-    const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
-    const marker: string = `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
+    const briefIdentityKey: string = deriveBriefIdentityKey(projection, TARGET);
+    const marker: string = `${BRIEF_CONTINUITY_MARKER_PREFIX}${briefIdentityKey}`;
     const unreadable: readonly string[] = [
       // No record at all after the separator.
       `${marker};dropped=`,
@@ -814,66 +814,66 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     ];
 
     for (const turnText of unreadable) {
-      expect(readDeliveredMemoDeclaredLosses([turnText], memoIdentityKey)).toBeUndefined();
+      expect(readDeliveredBriefDeclaredLosses([turnText], briefIdentityKey)).toBeUndefined();
     }
 
-    // Per occurrence: one readable record does not vouch for the memo beside it, since a target
+    // Per occurrence: one readable record does not vouch for the brief beside it, since a target
     // with two markers under one key holds two summaries.
     expect(
-      readDeliveredMemoDeclaredLosses(
+      readDeliveredBriefDeclaredLosses(
         [
-          renderMemoContinuityMarker(memoIdentityKey, [
+          renderBriefContinuityMarker(briefIdentityKey, [
             "context_truncated",
             "conversation_history_summarized",
           ]),
           `${marker};dropped=`,
         ],
-        memoIdentityKey,
+        briefIdentityKey,
       ),
     ).toBeUndefined();
 
     // The floor's own single-kind record still reads: the strictness is about records this writer
     // cannot produce, not short ones.
     expect(
-      readDeliveredMemoDeclaredLosses(
+      readDeliveredBriefDeclaredLosses(
         [`${marker};dropped=conversation_history_summarized`],
-        memoIdentityKey,
+        briefIdentityKey,
       ),
     ).toStrictEqual(["conversation_history_summarized"]);
 
     // Fail closed on a token outside the vocabulary: it could name any loss.
     expect(
-      readDeliveredMemoDeclaredLosses(
+      readDeliveredBriefDeclaredLosses(
         [
-          `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey};dropped=context_truncated+a_kind_from_later`,
+          `${BRIEF_CONTINUITY_MARKER_PREFIX}${briefIdentityKey};dropped=context_truncated+a_kind_from_later`,
         ],
-        memoIdentityKey,
+        briefIdentityKey,
       ),
     ).toBeUndefined();
     expect(
-      readDeliveredMemoDeclaredLosses(
+      readDeliveredBriefDeclaredLosses(
         [
-          `carried in prose: ${renderMemoContinuityMarker(memoIdentityKey, [
+          `carried in prose: ${renderBriefContinuityMarker(briefIdentityKey, [
             "context_truncated",
             "conversation_history_summarized",
           ])} and the summary follows.`,
         ],
-        memoIdentityKey,
+        briefIdentityKey,
       ),
     ).toStrictEqual(["context_truncated", "conversation_history_summarized"]);
 
     // The vocabulary is the wire's, not this build's: a peer daemon on a newer build may record a
-    // kind this build never emits, and reading it as unrecognized would report a memo that dropped
+    // kind this build never emits, and reading it as unrecognized would report a brief that dropped
     // everything.
     expect(
-      readDeliveredMemoDeclaredLosses(
+      readDeliveredBriefDeclaredLosses(
         [
-          renderMemoContinuityMarker(memoIdentityKey, [
+          renderBriefContinuityMarker(briefIdentityKey, [
             "conversation_history_summarized",
             "turn_content_truncated",
           ]),
         ],
-        memoIdentityKey,
+        briefIdentityKey,
       ),
     ).toStrictEqual(["conversation_history_summarized", "turn_content_truncated"]);
   });
@@ -884,8 +884,8 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     // text the key sits inside; the two boundaries make an occurrence this marker and not something
     // longer that contains it.
     const projection: CanonicalTranscriptProjection = plainConversation();
-    const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
-    const marker: string = `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
+    const briefIdentityKey: string = deriveBriefIdentityKey(projection, TARGET);
+    const marker: string = `${BRIEF_CONTINUITY_MARKER_PREFIX}${briefIdentityKey}`;
 
     const notThisMarker: readonly string[] = [
       // The key runs on into more token characters: a different key that begins with this one.
@@ -895,12 +895,12 @@ describe("memo reconciliation — reading the continuity marker back", () => {
       // The token opened mid-word: `continuity-ref:` is ordinary lowercase text, so a longer word
       // ending in it would open a marker never written.
       `x${marker}`,
-      `discontinuity-ref:${memoIdentityKey}`,
+      `discontinuity-ref:${briefIdentityKey}`,
     ];
     for (const turnText of notThisMarker) {
-      expect(targetTurnsCarryMemoMarker([turnText], memoIdentityKey)).toBe(false);
+      expect(targetTurnsCarryBriefMarker([turnText], briefIdentityKey)).toBe(false);
       // The record reader answers the same, because one grammar serves both.
-      expect(readDeliveredMemoDeclaredLosses([turnText], memoIdentityKey)).toBeUndefined();
+      expect(readDeliveredBriefDeclaredLosses([turnText], briefIdentityKey)).toBeUndefined();
     }
 
     const thisMarker: readonly string[] = [
@@ -915,24 +915,24 @@ describe("memo reconciliation — reading the continuity marker back", () => {
       `${marker};dropped=`,
     ];
     for (const turnText of thisMarker) {
-      expect(targetTurnsCarryMemoMarker([turnText], memoIdentityKey)).toBe(true);
+      expect(targetTurnsCarryBriefMarker([turnText], briefIdentityKey)).toBe(true);
     }
   });
 
-  it("sends the memo past a pasted foreign marker rather than settling on it", async () => {
+  it("sends the brief past a pasted foreign marker rather than settling on it", async () => {
     // Marker text is plain prose, so a user can paste another conversation's complete marker into
     // the target. Matching any well-shaped key would read that as a delivery and settle
-    // already-delivered over a target holding no memo. A key this coordinator never attempted
+    // already-delivered over a target holding no brief. A key this coordinator never attempted
     // settles nothing.
     const target = new FakeTargetSession();
-    const foreignMemoIdentityKey: string = "ab".repeat(16);
+    const foreignBriefIdentityKey: string = "ab".repeat(16);
     target.turns.push(
-      `the other session said: ${MEMO_CONTINUITY_MARKER_PREFIX}${foreignMemoIdentityKey};dropped=conversation_history_summarized`,
-      `and bare: ${MEMO_CONTINUITY_MARKER_PREFIX}${"cd".repeat(16)}`,
+      `the other session said: ${BRIEF_CONTINUITY_MARKER_PREFIX}${foreignBriefIdentityKey};dropped=conversation_history_summarized`,
+      `and bare: ${BRIEF_CONTINUITY_MARKER_PREFIX}${"cd".repeat(16)}`,
     );
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       requestFor(plainConversation(), ROOMY_BUDGET),
     );
 
@@ -952,8 +952,8 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     // Not the default target, so the id is shown to come from the request.
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET, OTHER_TARGET);
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       request,
     );
 
@@ -972,19 +972,19 @@ describe("memo reconciliation — reading the continuity marker back", () => {
 /**
  * A send whose acknowledgment is lost may still be landing at the provider, so a readback
  * taken at once finds no marker yet. Settling that one snapshot as a refusal would let a
- * retry send a second memo into a conversation that is already receiving the first.
+ * retry send a second brief into a conversation that is already receiving the first.
  */
-describe("memo delivery — an ambiguous send is held unconfirmed", () => {
+describe("brief delivery — an ambiguous send is held unconfirmed", () => {
   const AMBIGUOUS_REQUEST: DeliveryDraft = requestFor(
     projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
-  it("does not let a retry race a slow-applying send into a second memo", async () => {
+  it("does not let a retry race a slow-applying send into a second brief", async () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const first: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
+    const first: BriefDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
     // The provider has not finished applying, so the readback found nothing; that is not a refusal.
     expect(first.disposition).toBe("unconfirmed");
@@ -993,7 +993,7 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     expect(target.turns).toHaveLength(0);
 
     // The retry's read finds nothing for the same reason.
-    const retry: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
+    const retry: BriefDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
     expect(retry.disposition).toBe("unconfirmed");
     expect(target.sendAttempts).toBe(1);
@@ -1001,9 +1001,9 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     target.applyPendingSends();
     expect(target.turns).toHaveLength(1);
 
-    const afterLanding: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
+    const afterLanding: BriefDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
-    // The target holds one memo from one send across three delivery calls.
+    // The target holds one brief from one send across three delivery calls.
     expect(afterLanding.disposition).toBe("already-delivered");
     expect(target.sendAttempts).toBe(1);
     expect(target.turns).toHaveLength(1);
@@ -1014,13 +1014,13 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     // resolves at once cannot talk that call into a refusal.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
     const requestWithBarrier: DeliveryDraft = {
       ...AMBIGUOUS_REQUEST,
       sendSettlementBarrier: IMMEDIATE_BARRIER,
     };
 
-    const first: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const first: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
     expect(first.disposition).toBe("unconfirmed");
     expect(target.sendAttempts).toBe(1);
 
@@ -1031,20 +1031,20 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     expect(target.turns).toHaveLength(1);
   });
 
-  it("converges on the late-landing memo when the barrier really waits for it", async () => {
+  it("converges on the late-landing brief when the barrier really waits for it", async () => {
     // A barrier that waits for the session to go quiet lets the first send finish, so the
-    // retry's read finds the memo and settles as already delivered.
+    // retry's read finds the brief and settles as already delivered.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
     const requestWithBarrier: DeliveryDraft = {
       ...AMBIGUOUS_REQUEST,
       sendSettlementBarrier: settlementBarrierFor(target),
     };
 
-    const first: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
-    const retry: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
-    const third: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const first: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const retry: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const third: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
 
     expect(first.disposition).toBe("unconfirmed");
     expect(retry.disposition).toBe("already-delivered");
@@ -1054,28 +1054,28 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   });
 
   it("sends again once the caller's barrier establishes the earlier send never landed", async () => {
-    // Holding the memo back forever would leave the user without a summary. Closing the old
+    // Holding the brief back forever would leave the user without a summary. Closing the old
     // ambiguity and attempting a new send are two calls: the barrier closes the first send,
     // and the ordinary reconcile that follows opens the second.
     const target = new FakeTargetSession();
     target.sendBehavior = "refuse";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
     const requestWithBarrier: DeliveryDraft = {
       ...AMBIGUOUS_REQUEST,
       sendSettlementBarrier: settlementBarrierFor(target),
     };
 
-    const first: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const first: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
     expect(first.disposition).toBe("unconfirmed");
     expect(target.sendAttempts).toBe(1);
 
-    const resolved: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const resolved: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
     expect(resolved.disposition).toBe("withheld");
     expect(resolved.withheldReason).toBe("send-refused");
     expect(target.sendAttempts).toBe(1);
 
     target.sendBehavior = "accept";
-    const resent: MemoDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
+    const resent: BriefDeliverySettlement = await deliverVia(coordinator, requestWithBarrier);
 
     expect(resent.disposition).toBe("delivered");
     expect(target.sendAttempts).toBe(2);
@@ -1085,10 +1085,10 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   it("sends nothing when the caller's barrier expires instead of settling", async () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
     await deliverVia(coordinator, AMBIGUOUS_REQUEST);
-    const retry: MemoDeliverySettlement = await deliverVia(coordinator, {
+    const retry: BriefDeliverySettlement = await deliverVia(coordinator, {
       ...AMBIGUOUS_REQUEST,
       sendSettlementBarrier: EXPIRED_BARRIER,
     });
@@ -1101,11 +1101,11 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   it("does not downgrade an outstanding send to a refusal when the target goes unreadable", async () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
     await deliverVia(coordinator, AMBIGUOUS_REQUEST);
     target.readOutcomes.push("fail");
-    const retry: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
+    const retry: BriefDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
     // Withheld would assert that nothing landed; an unreadable target establishes no such thing.
     expect(retry.disposition).toBe("unconfirmed");
@@ -1117,19 +1117,19 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-then-fail";
     target.reportNoTurns = true;
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
     await deliverVia(coordinator, AMBIGUOUS_REQUEST);
     await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
-    // The memo landed and the blind read cannot see it, yet no second send is attempted: an
+    // The brief landed and the blind read cannot see it, yet no second send is attempted: an
     // unacknowledged send is remembered, not re-derived from a read that may be wrong.
     expect(target.sendAttempts).toBe(1);
     expect(target.turns).toHaveLength(1);
   });
 });
 
-describe("memo delivery — only the coordinator that established a target sends into it", () => {
+describe("brief delivery — only the coordinator that established a target sends into it", () => {
   const REQUEST_DRAFT: DeliveryDraft = requestFor(
     projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
@@ -1140,16 +1140,16 @@ describe("memo delivery — only the coordinator that established a target sends
     // about the send still applying, so it is refused before it can read an absence and act.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const original = new MemoDeliveryCoordinator(target);
-    const request: MemoDeliveryRequest = addressedTo(original, REQUEST_DRAFT);
+    const original = new BriefDeliveryCoordinator(target);
+    const request: BriefDeliveryRequest = addressedTo(original, REQUEST_DRAFT);
 
-    const first: MemoDeliverySettlement = await original.deliver(request);
+    const first: BriefDeliverySettlement = await original.deliver(request);
     expect(first.disposition).toBe("unconfirmed");
     expect(target.sendAttempts).toBe(1);
 
     const readsBeforeTheSuccessor: number = target.readAttempts;
-    const successor = new MemoDeliveryCoordinator(target);
-    await expect(successor.deliver(request)).rejects.toBeInstanceOf(UnownedMemoTargetError);
+    const successor = new BriefDeliveryCoordinator(target);
+    await expect(successor.deliver(request)).rejects.toBeInstanceOf(UnownedBriefTargetError);
 
     // The refusal comes before the read as well as before the send.
     expect(target.readAttempts).toBe(readsBeforeTheSuccessor);
@@ -1159,18 +1159,18 @@ describe("memo delivery — only the coordinator that established a target sends
   });
 });
 
-describe("memo delivery — overlapping calls for one memo", () => {
+describe("brief delivery — overlapping calls for one brief", () => {
   const OVERLAPPING_REQUEST: DeliveryDraft = requestFor(
     projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
-  it("sends once when two calls for one memo overlap", async () => {
+  it("sends once when two calls for one brief overlap", async () => {
     // Both calls read the target before either send lands, so both find no marker and
     // reconciliation alone would send twice; a send cannot be taken back.
     const target = new FakeTargetSession();
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const [first, second]: readonly MemoDeliverySettlement[] = await Promise.all([
+    const [first, second]: readonly BriefDeliverySettlement[] = await Promise.all([
       deliverVia(coordinator, OVERLAPPING_REQUEST),
       deliverVia(coordinator, OVERLAPPING_REQUEST),
     ]);
@@ -1183,17 +1183,17 @@ describe("memo delivery — overlapping calls for one memo", () => {
 
   it("does not let a withheld delivery stand in for the next one", async () => {
     // The first call settles withheld on an unreadable target. If its in-flight entry outlived
-    // it, the second call would inherit that refusal and the memo would never be sent.
+    // it, the second call would inherit that refusal and the brief would never be sent.
     const target = new FakeTargetSession();
     target.readOutcomes.push("fail");
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const withheld: MemoDeliverySettlement = await deliverVia(coordinator, OVERLAPPING_REQUEST);
+    const withheld: BriefDeliverySettlement = await deliverVia(coordinator, OVERLAPPING_REQUEST);
     expect(withheld.disposition).toBe("withheld");
     expect(withheld.withheldReason).toBe("target-unreadable");
     expect(target.sendAttempts).toBe(0);
 
-    const retry: MemoDeliverySettlement = await deliverVia(coordinator, OVERLAPPING_REQUEST);
+    const retry: BriefDeliverySettlement = await deliverVia(coordinator, OVERLAPPING_REQUEST);
 
     expect(retry.disposition).toBe("delivered");
     expect(target.sendAttempts).toBe(1);
@@ -1201,7 +1201,7 @@ describe("memo delivery — overlapping calls for one memo", () => {
   });
 });
 
-describe("memo delivery — once-only is per target, not per memo", () => {
+describe("brief delivery — once-only is per target, not per brief", () => {
   const FIRST_PROJECTION: CanonicalTranscriptProjection = projectionOf([
     turn(1, "user", [{ kind: "text", text: "hello" }]),
   ]);
@@ -1212,32 +1212,32 @@ describe("memo delivery — once-only is per target, not per memo", () => {
 
   it("settles a grown projection already-delivered on a target seeded under an earlier one", async () => {
     const target = new FakeTargetSession();
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const first: MemoDeliverySettlement = await deliverVia(
+    const first: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(FIRST_PROJECTION),
     );
     expect(first.disposition).toBe("delivered");
 
-    const grown: MemoDeliverySettlement = await deliverVia(
+    const grown: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(GROWN_PROJECTION),
     );
 
-    // The keys differ; a read scoped to (target, memo) would miss the seeded target and send a
+    // The keys differ; a read scoped to (target, brief) would miss the seeded target and send a
     // second summary.
-    expect(grown.memoIdentityKey).not.toBe(first.memoIdentityKey);
+    expect(grown.briefIdentityKey).not.toBe(first.briefIdentityKey);
     expect(grown.disposition).toBe("already-delivered");
     expect(target.sendAttempts).toBe(1);
-    // The marker found belongs to another memo and cannot account for this projection's
+    // The marker found belongs to another brief and cannot account for this projection's
     // omissions, so the losses are the conservative ceiling.
     expect(grown.declaredLossSource).toBe("unknown");
   });
 
-  it("collapses overlapping deliveries of two different memos into one send", async () => {
+  it("collapses overlapping deliveries of two different briefs into one send", async () => {
     const target = new FakeTargetSession();
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
     const [first, grown] = await Promise.all([
       deliverVia(coordinator, requestFor(FIRST_PROJECTION)),
@@ -1250,20 +1250,20 @@ describe("memo delivery — once-only is per target, not per memo", () => {
     expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(1);
   });
 
-  it("holds a grown projection unconfirmed while an earlier memo's send is still ambiguous", async () => {
-    // The register is scoped to the target; scoped to (target, memo), the grown projection's new
-    // key would miss the outstanding send and send beside a memo still landing.
+  it("holds a grown projection unconfirmed while an earlier brief's send is still ambiguous", async () => {
+    // The register is scoped to the target; scoped to (target, brief), the grown projection's new
+    // key would miss the outstanding send and send beside a brief still landing.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const first: MemoDeliverySettlement = await deliverVia(
+    const first: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(FIRST_PROJECTION),
     );
     expect(first.disposition).toBe("unconfirmed");
 
-    const grown: MemoDeliverySettlement = await deliverVia(
+    const grown: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(GROWN_PROJECTION),
     );
@@ -1273,13 +1273,13 @@ describe("memo delivery — once-only is per target, not per memo", () => {
   });
 });
 
-describe("memo delivery — an unreadable target", () => {
+describe("brief delivery — an unreadable target", () => {
   it("sends nothing when the target cannot be read before the send", async () => {
     const target = new FakeTargetSession();
     target.readOutcomes.push("fail");
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
+    const settlement: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
@@ -1294,9 +1294,9 @@ describe("memo delivery — an unreadable target", () => {
     const target = new FakeTargetSession();
     target.readOutcomes.push("ok", "fail");
     target.sendBehavior = "apply-then-fail";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
+    const settlement: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
@@ -1313,16 +1313,16 @@ describe("memo delivery — an unreadable target", () => {
     // before that call began, settles withheld; the call that made the send cannot.
     const target = new FakeTargetSession();
     target.sendBehavior = "refuse";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
     const request: DeliveryDraft = {
       ...requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
       sendSettlementBarrier: settlementBarrierFor(target),
     };
 
-    const attempted: MemoDeliverySettlement = await deliverVia(coordinator, request);
+    const attempted: BriefDeliverySettlement = await deliverVia(coordinator, request);
     expect(attempted.disposition).toBe("unconfirmed");
 
-    const settlement: MemoDeliverySettlement = await deliverVia(coordinator, request);
+    const settlement: BriefDeliverySettlement = await deliverVia(coordinator, request);
 
     expect(settlement.disposition).toBe("withheld");
     expect(settlement.withheldReason).toBe("send-refused");
@@ -1332,9 +1332,9 @@ describe("memo delivery — an unreadable target", () => {
   it("reports the ambiguity, not a refusal, when no barrier orders the readback", async () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "refuse";
-    const coordinator = new MemoDeliveryCoordinator(target);
+    const coordinator = new BriefDeliveryCoordinator(target);
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
+    const settlement: BriefDeliverySettlement = await deliverVia(
       coordinator,
       requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
     );
@@ -1354,18 +1354,18 @@ function seedConversation(fixture: TranscriptFixture): void {
   fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
 }
 
-describe("memo identity key — derived, never stored", () => {
+describe("brief identity key — derived, never stored", () => {
   it("two independently built folds over one log derive the same key", () => {
     const first = makeFixture();
     seedConversation(first);
     const second = makeFixture();
     seedConversation(second);
 
-    const firstKey: string = deriveMemoIdentityKey(
+    const firstKey: string = deriveBriefIdentityKey(
       first.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
     );
-    const secondKey: string = deriveMemoIdentityKey(
+    const secondKey: string = deriveBriefIdentityKey(
       second.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
     );
@@ -1377,7 +1377,7 @@ describe("memo identity key — derived, never stored", () => {
   it("survives a restart — a fold rebuilt from the same durable rows derives the same key", () => {
     const before = makeFixture();
     seedConversation(before);
-    const keyBeforeRestart: string = deriveMemoIdentityKey(
+    const keyBeforeRestart: string = deriveBriefIdentityKey(
       before.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
     );
@@ -1394,7 +1394,7 @@ describe("memo identity key — derived, never stored", () => {
     for (const [sequence, text] of before.contentSource.assistantTextBySequence) {
       after.contentSource.assistantTextBySequence.set(sequence, text);
     }
-    const keyAfterRestart: string = deriveMemoIdentityKey(
+    const keyAfterRestart: string = deriveBriefIdentityKey(
       after.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
     );
@@ -1419,13 +1419,13 @@ describe("memo identity key — derived, never stored", () => {
 
     // The built position moved, which is why it is not part of the key.
     expect(after.builtAtPosition).toBeGreaterThan(before.builtAtPosition);
-    expect(deriveMemoIdentityKey(after, TARGET)).toBe(deriveMemoIdentityKey(before, TARGET));
+    expect(deriveBriefIdentityKey(after, TARGET)).toBe(deriveBriefIdentityKey(before, TARGET));
   });
 
   it("moves when an appended event changes the transcript's own content", () => {
     const fixture = makeFixture();
     seedConversation(fixture);
-    const before: string = deriveMemoIdentityKey(
+    const before: string = deriveBriefIdentityKey(
       fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
     );
@@ -1433,7 +1433,7 @@ describe("memo identity key — derived, never stored", () => {
     fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
     // Content is seeded so the key moves on new words, not on an unavailability marker.
     fixture.contentSource.userTextBySequence.set(3, "and now deploy");
-    const after: string = deriveMemoIdentityKey(
+    const after: string = deriveBriefIdentityKey(
       fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
     );
@@ -1443,23 +1443,23 @@ describe("memo identity key — derived, never stored", () => {
 
   it("distinguishes targets, and is unaffected by the budget that shapes the body", () => {
     const projection: CanonicalTranscriptProjection = generateTranscript(3).projection;
-    const memoProjection = new MemoProjection();
+    const briefProjection = new BriefProjection();
 
-    expect(deriveMemoIdentityKey(projection, TARGET)).not.toBe(
-      deriveMemoIdentityKey(projection, OTHER_TARGET),
+    expect(deriveBriefIdentityKey(projection, TARGET)).not.toBe(
+      deriveBriefIdentityKey(projection, OTHER_TARGET),
     );
 
-    const roomy: MemoRendering = memoProjection.render(requestFor(projection, ROOMY_BUDGET));
-    const tight: MemoRendering = memoProjection.render(
-      requestFor(projection, defaultMemoBudgetPolicy(160)),
+    const roomy: BriefRendering = briefProjection.render(requestFor(projection, ROOMY_BUDGET));
+    const tight: BriefRendering = briefProjection.render(
+      requestFor(projection, defaultBriefBudgetPolicy(160)),
     );
     expect(tight.evictedExchangeCount).toBeGreaterThan(0);
-    expect(tight.memoIdentityKey).toBe(roomy.memoIdentityKey);
-    expect(roomy.memoIdentityKey).toBe(deriveMemoIdentityKey(projection, TARGET));
+    expect(tight.briefIdentityKey).toBe(roomy.briefIdentityKey);
+    expect(roomy.briefIdentityKey).toBe(deriveBriefIdentityKey(projection, TARGET));
   });
 });
 
-describe("memo delivery — nothing durable is written", () => {
+describe("brief delivery — nothing durable is written", () => {
   it("touches only the read and the send on the target, across all four delivery paths", async () => {
     const observedMemberNames: string[] = [];
     const request: DeliveryDraft = requestFor(
@@ -1469,12 +1469,12 @@ describe("memo delivery — nothing durable is written", () => {
     // delivered
     const deliveredTarget = new FakeTargetSession();
     await deliverVia(
-      new MemoDeliveryCoordinator(recordingGateway(deliveredTarget, observedMemberNames)),
+      new BriefDeliveryCoordinator(recordingGateway(deliveredTarget, observedMemberNames)),
       request,
     );
     // already-delivered
-    const repeatSettlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(recordingGateway(deliveredTarget, observedMemberNames)),
+    const repeatSettlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(recordingGateway(deliveredTarget, observedMemberNames)),
       request,
     );
     expect(repeatSettlement.disposition).toBe("already-delivered");
@@ -1483,7 +1483,7 @@ describe("memo delivery — nothing durable is written", () => {
     const withheldTarget = new FakeTargetSession();
     withheldTarget.readOutcomes.push("fail");
     await deliverVia(
-      new MemoDeliveryCoordinator(recordingGateway(withheldTarget, observedMemberNames)),
+      new BriefDeliveryCoordinator(recordingGateway(withheldTarget, observedMemberNames)),
       request,
     );
 
@@ -1492,42 +1492,42 @@ describe("memo delivery — nothing durable is written", () => {
     unconfirmedTarget.readOutcomes.push("ok", "fail");
     unconfirmedTarget.sendBehavior = "apply-then-fail";
     await deliverVia(
-      new MemoDeliveryCoordinator(recordingGateway(unconfirmedTarget, observedMemberNames)),
+      new BriefDeliveryCoordinator(recordingGateway(unconfirmedTarget, observedMemberNames)),
       request,
     );
 
     expect([...new Set(observedMemberNames)].sort()).toEqual([
       "readTurnsForMarkerReconciliation",
-      "sendMemoTurn",
+      "sendBriefTurn",
     ]);
   });
 });
 
-describe("memo frame — the key is carried as visible characters", () => {
+describe("brief frame — the key is carried as visible characters", () => {
   it("renders the derived key into the frame the target receives", async () => {
-    const sentFrames: MemoOutboundFrame[] = [];
-    const gateway: MemoTargetGateway = {
+    const sentFrames: BriefOutboundFrame[] = [];
+    const gateway: BriefTargetGateway = {
       readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
-      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+      sendBriefTurn: async (frame: BriefOutboundFrame): Promise<void> => {
         sentFrames.push(frame);
       },
     };
     const projection: CanonicalTranscriptProjection = generateTranscript(11).projection;
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(gateway),
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(gateway),
       requestFor(projection),
     );
 
-    const marker: string = renderMemoContinuityMarker(
-      settlement.memoIdentityKey,
+    const marker: string = renderBriefContinuityMarker(
+      settlement.briefIdentityKey,
       settlement.declaredLosses,
     );
-    const frame: MemoOutboundFrame | undefined = sentFrames[0];
+    const frame: BriefOutboundFrame | undefined = sentFrames[0];
     expect(frame).toBeDefined();
     // Asserted on the frame the target receives, not on the projection or the settlement.
     expect(frame?.frame.wireText).toContain(marker);
-    expect(frame?.memoIdentityKey).toBe(settlement.memoIdentityKey);
+    expect(frame?.briefIdentityKey).toBe(settlement.briefIdentityKey);
 
     const markerIndex: number = (frame?.frame.wireText ?? "").indexOf(marker);
     expect(markerIndex).toBeGreaterThanOrEqual(0);
@@ -1537,26 +1537,26 @@ describe("memo frame — the key is carried as visible characters", () => {
   });
 
   it("reaches the gateway only through a composed frame, minted as system narration", async () => {
-    const sentFrames: MemoOutboundFrame[] = [];
-    const gateway: MemoTargetGateway = {
+    const sentFrames: BriefOutboundFrame[] = [];
+    const gateway: BriefTargetGateway = {
       readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
-      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+      sendBriefTurn: async (frame: BriefOutboundFrame): Promise<void> => {
         sentFrames.push(frame);
       },
     };
     const projection: CanonicalTranscriptProjection = generateTranscript(13).projection;
 
-    const settlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(gateway),
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(gateway),
       requestFor(projection),
     );
 
-    const frame: MemoOutboundFrame | undefined = sentFrames[0];
-    // A memo is the daemon narrating a prior conversation, neither the user's text nor a
+    const frame: BriefOutboundFrame | undefined = sentFrames[0];
+    // A brief is the daemon narrating a prior conversation, neither the user's text nor a
     // driver command.
     expect(frame?.frame.origin).toBe("system_narration");
     expect(frame?.frame.tripwireExempt).toBe(false);
-    // Only the frame writer mints a frame, so the memo cannot bypass neutralization.
+    // Only the frame writer mints a frame, so the brief cannot bypass neutralization.
     expect(frame?.frame.mintedByWriter).toBe(true);
     // Neutralization is transport-only: the authored text equals the rendering byte for byte.
     expect(frame?.frame.authoredText).toBe(settlement.rendering.text);
@@ -1565,16 +1565,16 @@ describe("memo frame — the key is carried as visible characters", () => {
   });
 
   it("uses no invisible or zero-width character anywhere in the frame", async () => {
-    const sentFrames: MemoOutboundFrame[] = [];
-    const gateway: MemoTargetGateway = {
+    const sentFrames: BriefOutboundFrame[] = [];
+    const gateway: BriefTargetGateway = {
       readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
-      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+      sendBriefTurn: async (frame: BriefOutboundFrame): Promise<void> => {
         sentFrames.push(frame);
       },
     };
 
     await deliverVia(
-      new MemoDeliveryCoordinator(gateway),
+      new BriefDeliveryCoordinator(gateway),
       requestFor(generateTranscript(12).projection),
     );
 
@@ -1594,11 +1594,11 @@ describe("memo frame — the key is carried as visible characters", () => {
           (codePoint >= 0xe0000 && codePoint <= 0xe007f),
       );
     expect(invisibleCodePoints).toEqual([]);
-    expect(MEMO_CONTINUITY_MARKER_PREFIX).toMatch(/^[\x21-\x7E]+$/);
+    expect(BRIEF_CONTINUITY_MARKER_PREFIX).toMatch(/^[\x21-\x7E]+$/);
   });
 });
 
-describe("memo floor — a result whose enclosure cannot be resolved is withheld", () => {
+describe("brief floor — a result whose enclosure cannot be resolved is withheld", () => {
   /**
    * A tool result citing a reasoning block the content port could not read. It uses its own
    * content source because the suite's answers the empty list for every reasoning row, which
@@ -1628,13 +1628,13 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
 
   it("keeps the body out of the summary the new session is handed", async () => {
     // The brief runs the same strip as the transcript transform, so the withholding applies: a
-    // memo is prose the target model reads, and content that may be private reasoning's must not
+    // brief is prose the target model reads, and content that may be private reasoning's must not
     // appear in it.
     const projection: CanonicalTranscriptProjection = foldUnreadableEnclosure();
 
     const target = new FakeTargetSession();
-    const settlement: MemoDeliverySettlement = await deliverVia(
-      new MemoDeliveryCoordinator(target),
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
       requestFor(projection),
     );
 
@@ -1657,7 +1657,7 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
       ]),
     ]);
 
-    const rendering: MemoRendering = new MemoProjection().render(requestFor(withMarker));
+    const rendering: BriefRendering = new BriefProjection().render(requestFor(withMarker));
 
     // The marker is consumed before rendering, adds no prose, and declares the private-reasoning
     // loss.

@@ -1,14 +1,14 @@
-// The memo floor: the hand-over that stands in for a conversation a new provider session cannot
+// The hand-over brief: what stands in for a conversation a new provider session cannot
 // continue. It renders the canonical projection as bounded prose and delivers it at most once.
 //
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
 //   * The once-only key derives from the raw projection (before the transforms and the budget) and
-//     the target session, so a later change to how the memo is worded, stripped or evicted never
-//     makes a second memo for one switch. It rides as visible ASCII in the memo turn and leaves out
-//     `builtAtPosition`, which moves on any append. Nothing durable is written.
+//     the target session, so a later change to how the brief is worded, stripped or evicted never
+//     makes a second brief for one switch. It rides as visible ASCII in the brief turn and leaves
+//     out `builtAtPosition`, which moves on any append. Nothing durable is written.
 //   * An ambiguous send stays unconfirmed until the marker appears or an absence is read after the
-//     caller's settlement barrier: a duplicate memo corrupts the conversation, a missing one only
+//     caller's settlement barrier: a duplicate brief corrupts the conversation, a missing one only
 //     degrades it.
 
 import { blake3 } from "@noble/hashes/blake3.js";
@@ -27,10 +27,10 @@ import type {
 } from "../provider-driver.js";
 
 /**
- * The target session a memo is delivered into. Only the provider session id is in the key: a
+ * The target session a brief is delivered into. Only the provider session id is in the key: a
  * resume handle may rotate for one unchanged session, which would make one switch look like two.
  */
-export interface MemoTargetIdentity {
+export interface BriefTargetIdentity {
   readonly providerSessionId: string;
 }
 
@@ -39,7 +39,7 @@ export interface MemoTargetIdentity {
  * register of ambiguous sends is the only duplicate guard. A caller passing an inherited session
  * id to `establishTarget` as fresh cannot be detected.
  */
-export class EstablishedMemoTarget {
+export class EstablishedBriefTarget {
   readonly #providerSessionId: string;
 
   constructor(providerSessionId: string) {
@@ -52,49 +52,49 @@ export class EstablishedMemoTarget {
 }
 
 /** Thrown when a coordinator is handed a target it did not itself establish. */
-export class UnownedMemoTargetError extends Error {
+export class UnownedBriefTargetError extends Error {
   readonly providerSessionId: string;
 
   constructor(providerSessionId: string) {
     super(
-      `Refusing to deliver a memo into provider session "${providerSessionId}": this coordinator did not establish that target, so it holds no record of what may already have been sent into it.`,
+      `Refusing to deliver a brief into provider session "${providerSessionId}": this coordinator did not establish that target, so it holds no record of what may already have been sent into it.`,
     );
-    this.name = "UnownedMemoTargetError";
+    this.name = "UnownedBriefTargetError";
     this.providerSessionId = providerSessionId;
   }
 }
 
 /** Digest size in bytes (128 bits): collision-safe for a session's switches, short to read. */
-export const MEMO_IDENTITY_KEY_BYTE_LENGTH = 16;
+export const BRIEF_IDENTITY_KEY_BYTE_LENGTH = 16;
 
 /** The visible marker prefix: lowercase ASCII with no punctuation a provider would reflow. */
-export const MEMO_CONTINUITY_MARKER_PREFIX: string = "continuity-ref:";
+export const BRIEF_CONTINUITY_MARKER_PREFIX: string = "continuity-ref:";
 
-/** Separates the key from the record of what the memo carrying it dropped. */
-export const MEMO_CONTINUITY_LOSS_SEPARATOR = ";dropped=";
+/** Separates the key from the record of what the brief carrying it dropped. */
+export const BRIEF_CONTINUITY_LOSS_SEPARATOR = ";dropped=";
 
 /** Joins the recorded loss kinds. Not a comma: a comma invites a space after it. */
-export const MEMO_CONTINUITY_LOSS_JOINER = "+";
+export const BRIEF_CONTINUITY_LOSS_JOINER = "+";
 
 /**
- * The exact marker text a memo renders: its key and what that memo dropped. One whitespace-free
- * token, so no reflow splits it; it is the only trace a delivered memo leaves.
+ * The exact marker text a brief renders: its key and what that brief dropped. One whitespace-free
+ * token, so no reflow splits it; it is the only trace a delivered brief leaves.
  */
-export function renderMemoContinuityMarker(
-  memoIdentityKey: string,
+export function renderBriefContinuityMarker(
+  briefIdentityKey: string,
   declaredLosses: readonly DeclaredLossKind[],
 ): string {
-  return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}${MEMO_CONTINUITY_LOSS_SEPARATOR}${declaredLosses.join(
-    MEMO_CONTINUITY_LOSS_JOINER,
+  return `${BRIEF_CONTINUITY_MARKER_PREFIX}${briefIdentityKey}${BRIEF_CONTINUITY_LOSS_SEPARATOR}${declaredLosses.join(
+    BRIEF_CONTINUITY_LOSS_JOINER,
   )}`;
 }
 
 /** The loss this floor declares on every path; a record without it cannot come from the writer. */
-export const MEMO_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";
+export const BRIEF_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";
 
 /**
  * Appends one field to the key's pre-image, length-prefixed so a text containing a separator
- * cannot let two transcripts share a pre-image (a collision means a memo that never sends).
+ * cannot let two transcripts share a pre-image (a collision means a brief that never sends).
  */
 function appendKeyField(parts: string[], value: string | number): void {
   const encoded: string = JSON.stringify(value);
@@ -129,7 +129,7 @@ function appendSegmentToKeyPreimage(parts: string[], segment: CanonicalTranscrip
       appendKeyField(parts, segment.enclosingReasoningBlockId ?? "");
       // Hashed beside the block id it resolves: the id names a sibling a positional bound may cut
       // away, the verdict decides whether the body travels. A fold that could not read the
-      // reasoning row withholds the result, and without this field the corrected memo would share
+      // reasoning row withholds the result, and without this field the corrected brief would share
       // the key.
       appendKeyField(parts, segment.enclosureDisclosure ?? "");
       return;
@@ -139,12 +139,12 @@ function appendSegmentToKeyPreimage(parts: string[], segment: CanonicalTranscrip
 }
 
 /**
- * The memo-identity key: a pure function of the raw projection's content and the target session,
+ * The brief-identity key: a pure function of the raw projection's content and the target session,
  * recomputed by any daemon and persisted nowhere. It excludes `builtAtPosition` (see the header).
  */
-export function deriveMemoIdentityKey(
+export function deriveBriefIdentityKey(
   projection: CanonicalTranscriptProjection,
-  target: MemoTargetIdentity,
+  target: BriefTargetIdentity,
 ): string {
   const parts: string[] = [];
   appendKeyField(parts, projection.sessionId as string);
@@ -160,7 +160,7 @@ export function deriveMemoIdentityKey(
     }
   }
   const digest: Uint8Array = blake3(new TextEncoder().encode(parts.join("")), {
-    dkLen: MEMO_IDENTITY_KEY_BYTE_LENGTH,
+    dkLen: BRIEF_IDENTITY_KEY_BYTE_LENGTH,
   });
   return bytesToHex(digest);
 }
@@ -169,29 +169,29 @@ export function deriveMemoIdentityKey(
  * Estimates the tokens a rendered fragment consumes; injected so a driver can supply its real
  * tokenizer. The default (four characters per token) is deterministic, so daemons agree.
  */
-export type MemoTokenEstimator = (text: string) => number;
+export type BriefTokenEstimator = (text: string) => number;
 
-const DEFAULT_MEMO_TOKEN_ESTIMATOR: MemoTokenEstimator = (text: string): number =>
+const DEFAULT_BRIEF_TOKEN_ESTIMATOR: BriefTokenEstimator = (text: string): number =>
   Math.ceil(text.length / 4);
 
-/** The memo's budget as a fraction of the target's context window, so it holds across models. */
-export interface MemoBudgetPolicy {
+/** The brief's budget as a fraction of the target's context window, so it holds across models. */
+export interface BriefBudgetPolicy {
   readonly targetContextWindowTokens: number;
   readonly budgetFraction: number;
   /** How many of the newest tool-bearing exchanges eviction never removes, each individually. */
   readonly protectedTailToolExchangeCount: number;
 }
 
-const DEFAULT_MEMO_BUDGET_FRACTION: number = 0.2;
+const DEFAULT_BRIEF_BUDGET_FRACTION: number = 0.2;
 
 /** How many of the newest tool-bearing exchanges the default budget protects. */
 export const DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT: number = 2;
 
 /** The budget policy for a target whose context window is `contextWindowTokens`. */
-export function defaultMemoBudgetPolicy(contextWindowTokens: number): MemoBudgetPolicy {
+export function defaultBriefBudgetPolicy(contextWindowTokens: number): BriefBudgetPolicy {
   return {
     targetContextWindowTokens: contextWindowTokens,
-    budgetFraction: DEFAULT_MEMO_BUDGET_FRACTION,
+    budgetFraction: DEFAULT_BRIEF_BUDGET_FRACTION,
     protectedTailToolExchangeCount: DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
   };
 }
@@ -273,7 +273,7 @@ export function partitionIntoExchanges(
 }
 
 /**
- * Indices of the exchanges eviction never removes: the newest one (a memo without it describes a
+ * Indices of the exchanges eviction never removes: the newest one (a brief without it describes a
  * conversation that did not happen) and the newest `count` tool-bearing ones, each wherever it
  * sits. At most `count + 1` are protected, so the budget still binds on long conversations.
  */
@@ -302,36 +302,36 @@ function computeProtectedExchangeIndices(
   return protectedIndices;
 }
 
-const MEMO_OPENING_LINES: readonly string[] = [
+const BRIEF_OPENING_LINES: readonly string[] = [
   "This message continues a conversation that is already under way; it is not a new instruction.",
   "What follows is a bounded summary of that conversation, not its verbatim record.",
 ];
 
-const MEMO_TRANSCRIPT_SEPARATOR = "---";
+const BRIEF_TRANSCRIPT_SEPARATOR = "---";
 
 /**
  * What a body the fold could not read renders as: an empty body would render as no turn at all,
  * and the declared loss does not reach this text.
  */
-const MEMO_UNAVAILABLE_BODY_TEXT: string = "(this content could not be recovered)";
+const BRIEF_UNAVAILABLE_BODY_TEXT: string = "(this content could not be recovered)";
 
 function renderSegment(segment: CanonicalTranscriptSegment): string | undefined {
   const contentUnavailable: boolean = segmentContentIsUnavailable(segment);
   switch (segment.kind) {
     case "text":
       if (contentUnavailable) {
-        return MEMO_UNAVAILABLE_BODY_TEXT;
+        return BRIEF_UNAVAILABLE_BODY_TEXT;
       }
       return segment.text.length === 0 ? undefined : segment.text;
     case "reasoning":
       // Unreachable after the strip, which drops private reasoning and flattens visible reasoning.
       return segment.text.length === 0 ? undefined : segment.text;
     case "tool_call": {
-      const body: string = contentUnavailable ? MEMO_UNAVAILABLE_BODY_TEXT : segment.argumentsJson;
+      const body: string = contentUnavailable ? BRIEF_UNAVAILABLE_BODY_TEXT : segment.argumentsJson;
       return `[tool call ${segment.toolName} (${segment.toolCallId})] ${body}`;
     }
     case "tool_result": {
-      const body: string = contentUnavailable ? MEMO_UNAVAILABLE_BODY_TEXT : segment.text;
+      const body: string = contentUnavailable ? BRIEF_UNAVAILABLE_BODY_TEXT : segment.text;
       return `[tool result ${segment.outcome} (${segment.toolCallId})] ${body}`;
     }
     default:
@@ -361,8 +361,8 @@ function renderEvictionNotice(evictedExchangeCount: number, totalExchangeCount: 
   return `Earlier parts of this conversation are omitted from the summary: ${shown.toString()} of ${totalExchangeCount.toString()} exchanges appear below in log order, and may not be consecutive.`;
 }
 
-/** The pieces one assembled memo body is composed from, in emission order. */
-interface MemoBodyAssembly {
+/** The pieces one assembled brief body is composed from, in emission order. */
+interface BriefBodyAssembly {
   readonly openingText: string;
   readonly markerText: string;
   /** Already rendered, in log order. */
@@ -372,32 +372,32 @@ interface MemoBodyAssembly {
 }
 
 /**
- * Composes the memo prose from the preamble and the admitted exchanges. Admission pricing and
+ * Composes the brief prose from the preamble and the admitted exchanges. Admission pricing and
  * emission both use it, so a candidate is priced as the exact text sent, separators included.
  */
-function assembleMemoBody(assembly: MemoBodyAssembly): string {
+function assembleBriefBody(assembly: BriefBodyAssembly): string {
   const bodyLines: string[] = [assembly.openingText, assembly.markerText];
   if (assembly.evictedExchangeCount > 0) {
     bodyLines.push(
       renderEvictionNotice(assembly.evictedExchangeCount, assembly.totalExchangeCount),
     );
   }
-  bodyLines.push(MEMO_TRANSCRIPT_SEPARATOR);
+  bodyLines.push(BRIEF_TRANSCRIPT_SEPARATOR);
   bodyLines.push(...assembly.exchangeRenderings);
   return bodyLines.join("\n");
 }
 
-/** What `MemoProjection.render` reads: the projection, the target and the budget. */
-export interface MemoRenderRequest {
+/** What `BriefProjection.render` reads: the projection, the target and the budget. */
+export interface BriefRenderRequest {
   readonly projection: CanonicalTranscriptProjection;
-  readonly target: MemoTargetIdentity;
-  readonly budget: MemoBudgetPolicy;
+  readonly target: BriefTargetIdentity;
+  readonly budget: BriefBudgetPolicy;
 }
 
-/** The bounded memo prose plus what the budget kept and dropped. */
-export interface MemoRendering {
-  readonly memoIdentityKey: string;
-  /** The exact prose the memo turn carries, marker included. */
+/** The bounded brief prose plus what the budget kept and dropped. */
+export interface BriefRendering {
+  readonly briefIdentityKey: string;
+  /** The exact prose the brief turn carries, marker included. */
   readonly text: string;
   /** The turns that survived the transforms and the budget, in log order. */
   readonly includedTurns: readonly CanonicalTranscriptTurn[];
@@ -411,19 +411,19 @@ export interface MemoRendering {
 }
 
 /**
- * Renders the canonical projection into the bounded prose the memo floor sends. Stateless:
- * `render` reads only its argument, so the memo is rebuilt from the log on every send and a
+ * Renders the canonical projection into the bounded prose the brief floor sends. Stateless:
+ * `render` reads only its argument, so the brief is rebuilt from the log on every send and a
  * caller cannot hold a stale rendering.
  */
-export class MemoProjection {
-  readonly #estimateTokens: MemoTokenEstimator;
+export class BriefProjection {
+  readonly #estimateTokens: BriefTokenEstimator;
 
-  constructor(estimateTokens: MemoTokenEstimator = DEFAULT_MEMO_TOKEN_ESTIMATOR) {
+  constructor(estimateTokens: BriefTokenEstimator = DEFAULT_BRIEF_TOKEN_ESTIMATOR) {
     this.#estimateTokens = estimateTokens;
   }
 
-  render(request: MemoRenderRequest): MemoRendering {
-    const memoIdentityKey: string = deriveMemoIdentityKey(request.projection, request.target);
+  render(request: BriefRenderRequest): BriefRendering {
+    const briefIdentityKey: string = deriveBriefIdentityKey(request.projection, request.target);
 
     // Strip what no other model may be shown, then repair the results the strip orphaned (an
     // unpaired call is accepted silently and rejected on every later request).
@@ -440,27 +440,27 @@ export class MemoProjection {
       request.budget.protectedTailToolExchangeCount,
     );
 
-    const openingText: string = MEMO_OPENING_LINES.join("\n");
+    const openingText: string = BRIEF_OPENING_LINES.join("\n");
     // Rendered once; the admission walk re-joins them per candidate.
     const exchangeRenderings: readonly string[] = exchanges.map(renderExchange);
 
     const preBudgetLosses: readonly DeclaredLossKind[] = orderDeclaredLosses([
       ...transformed.declaredLosses,
       // Always declared: an empty list would claim nothing was dropped.
-      MEMO_FLOOR_DECLARED_LOSS_KIND,
+      BRIEF_FLOOR_DECLARED_LOSS_KIND,
     ]);
     // The marker records truncation, so its length depends on the outcome it helps decide: price
     // every candidate against the longer, truncation-inclusive marker. The emitted text is measured
     // separately below, so a non-monotone tokenizer shows as `exceedsBudget`, not a silent overrun.
-    const pricingMarkerText: string = renderMemoContinuityMarker(
-      memoIdentityKey,
+    const pricingMarkerText: string = renderBriefContinuityMarker(
+      briefIdentityKey,
       orderDeclaredLosses([...preBudgetLosses, "context_truncated"]),
     );
 
     // Priced over the whole assembled candidate: summing per-exchange prices undercounts separators
     // and assumes an additivity the injected estimator does not owe.
     const assembleFor = (admittedIndices: ReadonlySet<number>, markerText: string): string =>
-      assembleMemoBody({
+      assembleBriefBody({
         openingText,
         markerText,
         exchangeRenderings: exchangeRenderings.filter((_rendering, index) =>
@@ -503,12 +503,12 @@ export class MemoProjection {
     // Measured with the marker it will be sent with, so `estimatedTokens` prices the emitted text.
     const text: string = assembleFor(
       includedIndices,
-      renderMemoContinuityMarker(memoIdentityKey, declaredLosses),
+      renderBriefContinuityMarker(briefIdentityKey, declaredLosses),
     );
     const estimatedTokens: number = this.#estimateTokens(text);
 
     return {
-      memoIdentityKey,
+      briefIdentityKey,
       text,
       includedTurns,
       includedExchangeCount: includedExchanges.length,

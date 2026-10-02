@@ -17,6 +17,25 @@ const DAEMON_RANDOM_UUID_PROPERTY = {
 };
 
 /**
+ * The daemon's `randomUUID` import ban, hoisted for the same reason: the provider-driver
+ * descriptor registry's block below restates it without the driver-folder ban.
+ */
+const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
+  {
+    name: "node:crypto",
+    importNames: ["randomUUID"],
+    message:
+      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). node:crypto's other exports are unrestricted.",
+  },
+  {
+    name: "crypto",
+    importNames: ["randomUUID"],
+    message:
+      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). Use the `node:` prefix for the other builtins.",
+  },
+];
+
+/**
  * The enum ban, exported so a package config that sets `no-restricted-syntax` for its own
  * files restates it: flat config replaces a rule's options at the last matching object.
  */
@@ -400,6 +419,11 @@ const repositoryConfig = defineConfig(
   // `no-restricted-properties` with a bare `property` restricts `.randomUUID` on any object
   // (global, namespaced, `globalThis`-qualified); `no-restricted-imports` with `importNames` denies
   // the named import while leaving `createHash` and `randomBytes` available.
+  //
+  // The same `no-restricted-imports` entry keeps a provider's driver folder private: shared daemon
+  // code names no provider, so only the descriptor registry (and the daemon's startup, once it
+  // builds the drivers) imports from `drivers/`. Files inside a driver folder reach their siblings
+  // by `./` and `../` paths that never spell `drivers/`.
   {
     files: ["packages/runtime-daemon/src/**/*.ts"],
     ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
@@ -408,22 +432,23 @@ const repositoryConfig = defineConfig(
       "no-restricted-imports": [
         "error",
         {
-          paths: [
+          paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
+          patterns: [
             {
-              name: "node:crypto",
-              importNames: ["randomUUID"],
+              regex: "(?:^|/)drivers/",
               message:
-                "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). node:crypto's other exports are unrestricted.",
-            },
-            {
-              name: "crypto",
-              importNames: ["randomUUID"],
-              message:
-                "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). Use the `node:` prefix for the other builtins.",
+                "A provider's driver folder is imported only by the provider-driver descriptor registry and the daemon's startup; shared daemon code reads a provider through the registry and names none.",
             },
           ],
         },
       ],
+    },
+  },
+  // The descriptor registry is the one shared module that imports each driver's descriptor.
+  {
+    files: ["packages/runtime-daemon/src/provider/provider-driver-descriptors.ts"],
+    rules: {
+      "no-restricted-imports": ["error", { paths: DAEMON_RANDOM_UUID_IMPORT_PATHS }],
     },
   },
   // The four daemon modules that mint an ephemeral token (a correlation id, a subscription handle,
@@ -483,15 +508,15 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // The memo projection floor makes the same purity claim as the projectors above.
-  // `memo-projection.ts` folds an already-read canonical projection into the memo turn and persists
-  // nothing; delivering the memo is `memo-delivery.ts`'s job. The allow-list enumerates specifiers
-  // rather than admitting a shape: a relative-path shape would admit `../../db/`, which reaches the
-  // database layer and is spelled like the sibling this module legitimately imports.
+  // The brief projection floor makes the same purity claim as the projectors above.
+  // `hand-over-brief.ts` folds an already-read canonical projection into the brief turn and
+  // persists nothing; delivering the brief is `brief-delivery.ts`'s job. The allow-list enumerates
+  // specifiers rather than admitting a shape: a relative-path shape would admit `../../db/`, which
+  // reaches the database layer and is spelled like the sibling this module legitimately imports.
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
-    files: ["packages/runtime-daemon/src/provider/transcript/memo-projection.ts"],
+    files: ["packages/runtime-daemon/src/provider/transcript/hand-over-brief.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -501,7 +526,7 @@ const repositoryConfig = defineConfig(
               regex:
                 "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
               message:
-                "The memo projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The brief projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },

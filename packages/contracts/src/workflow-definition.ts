@@ -451,7 +451,6 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "expression_regex_unsupported",
   "tool_edge_without_tool_input",
   "handle_type_unknown",
-  "content_hash_mismatch",
   "scope_ref_invalid",
   "unknown_key",
   "secret_outside_sensitive_field",

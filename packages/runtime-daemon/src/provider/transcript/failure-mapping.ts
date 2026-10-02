@@ -1,14 +1,14 @@
 // Permanent-vs-transient classification of a failed provider request.
 // - A structurally invalid history (an unpaired tool call, a reasoning item the target forbids) is
 //   refused identically on every request: permanent, never retried. The driver disposes the run's
-//   provider binding and the session falls back to the hand-over brief.
+//   runtime binding and the session falls back to the hand-over brief.
 // - The transient arm covers only definitely-unsent failures: retrying a request the provider may
 //   have applied repeats its spend and duplicates a turn, so an unknown outcome has its own arm.
 // - The rules live here once; each driver supplies only a normalized observation of its transport.
 // - No provider message text is read: the permanent arm needs a typed refusal shape derived from
 //   the provider's own enumerated refusal vocabulary.
 // - No `RecoveryCondition` is produced: resuming would re-establish a session whose next request
-//   refuses identically. An ambiguous hand-over send is reconciled in `./memo-delivery.ts`.
+//   refuses identically. An ambiguous hand-over send is reconciled in `./brief-delivery.ts`.
 
 /**
  * How far a failed request's bytes got, as the transport can place them. `unsent` is a positive
@@ -100,7 +100,7 @@ export class PermanentStructuralRefusalError extends Error {
 
 /**
  * How many user-originated turns the target holds. Not the body list of
- * `MemoTargetGateway.readTurnsForMarkerReconciliation`: it interleaves assistant turns the
+ * `BriefTargetGateway.readTurnsForMarkerReconciliation`: it interleaves assistant turns the
  * acknowledged count does not hold, so counting them compares different units.
  */
 export type UserTurnReadback =
@@ -162,7 +162,7 @@ export class AmbiguousDeliveryReconciler {
   ): Promise<T> {
     // Two windows stay open: an ordinary dispatch on the target skips this section and can only
     // push the result to `delivered`; a request still in flight provider-side may settle
-    // `cleared-for-retry` and then appear, a duplicate only the memo path's marker avoids.
+    // `cleared-for-retry` and then appear, a duplicate only the brief path's marker avoids.
     const predecessor = this.#reconcileQueueTails.get(request.targetProviderSessionId);
     // Chained off the predecessor whether it succeeded or failed; only its ordering is awaited.
     const settled: Promise<T> = (predecessor ?? Promise.resolve()).then(

@@ -43,7 +43,7 @@ import { type ClaudeSessionLifecycleDependencies } from "../session-state.js";
 import type { CompactionWaitScheduler } from "../../../compaction-wait.js";
 import {
   buildCreateSessionParams,
-  FakeClaudeSessionChannel,
+  FakeClaudeProviderProcess,
   TEST_SECOND_RUN_ID,
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
@@ -290,13 +290,12 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
       throw new Error("unreachable: the resume must fail");
     }
     expect(result.recoveryCondition).toBe("recovery-needed");
-    expect(result.recoverySpanClassification).toBe("unclassifiable");
     expect(result.providerFailureDetail).toContain("claude exited before init");
     expect(DriverResumeResultSchema.safeParse(result).success).toBe(true);
     // No silent replacement: no channel was adopted, no run route exists, and the
     // canonical session is still free for an explicit re-create.
     expect(harness.transport.spawnedChannels).toHaveLength(0);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
     await expect(
       harness.lifecycle.createSession(buildCreateSessionParams()),
     ).resolves.toBeDefined();
@@ -323,7 +322,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual([
       "resume_identity_diverged",
     ]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
     // The canonical session was left free: once the divergence is gone, an
     // explicit re-create is admitted — nothing was silently holding the slot.
     harness.transport.announcedProviderSessionId = undefined;
@@ -437,7 +436,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
 
     const channel = harness.transport.spawnedChannels[0];
     expect(channel?.sentWireTexts).toStrictEqual(["review the diff"]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(channel);
   });
 
   it("refuses a run the daemon resolved no dispatch for", async () => {
@@ -482,7 +481,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     // (how its terminal is found) is untouched, and the first dispatch's turn still settles
     // benignly.
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeDefined();
     harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
   });
@@ -815,7 +814,7 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
 
     expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["session_closed"]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
   // A dispose that rejects leaves a provider process running, so the slot is quarantined with the
@@ -840,7 +839,7 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     );
 
     // (a) Routes go unconditionally: no run may reach a closing process.
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
     // (b) The slot is held so no second process can be spawned beneath it. The reason stays the
     // closed-set `session_already_live` while the message names quarantine.
     await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toMatchObject(
@@ -1042,7 +1041,7 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
   }
 
   async function arrangeClosingSession(harness: LifecycleHarness): Promise<{
-    channel: FakeClaudeSessionChannel;
+    channel: FakeClaudeProviderProcess;
     closing: Promise<void>;
     release: () => void;
   }> {
@@ -1159,7 +1158,7 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
 // late interrupt for the finished run would land on whatever turn the channel runs now. Routes
 // are retired when the transport reports a terminal stream frame.
 describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
-  async function arrangeRunningTurn(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+  async function arrangeRunningTurn(harness: LifecycleHarness): Promise<FakeClaudeProviderProcess> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
       sessionId: TEST_SESSION_ID,
@@ -1170,7 +1169,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     if (channel === undefined) {
       throw new Error("unreachable: the session must have spawned a channel");
     }
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(channel);
     return channel;
   }
 
@@ -1182,7 +1181,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     // double owns the terminal discriminant, as a transport does.
     channel.emitStreamFrame("result/error_max_turns");
 
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
   it("keeps the route across a non-terminal frame", async () => {
@@ -1194,7 +1193,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     const route = channel.emitStreamFrame("system/task_progress");
 
     expect(route).toStrictEqual({ decision: "project" });
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(channel);
   });
 
   it("refuses a late interrupt for a completed run instead of hitting the live turn", async () => {
@@ -1231,7 +1230,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     // listening; that terminal belongs to nobody.
     staleChannel.emitStreamFrame("result/success");
 
-    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(liveChannel);
+    expect(harness.lifecycle.findProcessForRun(TEST_SECOND_RUN_ID)).toBe(liveChannel);
   });
 
   it("leaves the session LIVE and startable after a turn terminal", async () => {
@@ -1246,7 +1245,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     });
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
-    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(channel);
+    expect(harness.lifecycle.findProcessForRun(TEST_SECOND_RUN_ID)).toBe(channel);
     expect(channel.sentWireTexts).toStrictEqual(["review the diff", "now the next task"]);
   });
 });
@@ -1942,7 +1941,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     return { ...harness, meteredUsage, subagentLifecycle, releasedRoutes };
   }
 
-  async function liveChannel(harness: RoutingHarness): Promise<FakeClaudeSessionChannel> {
+  async function liveChannel(harness: RoutingHarness): Promise<FakeClaudeProviderProcess> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     const channel = harness.transport.spawnedChannels[0];
     if (channel === undefined) {
@@ -1954,7 +1953,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   function usageObservation(
     totalInputTokens: number,
     subagentId: string | null = null,
-  ): Parameters<FakeClaudeSessionChannel["emitStreamFrame"]>[1] {
+  ): Parameters<FakeClaudeProviderProcess["emitStreamFrame"]>[1] {
     return {
       subagentId,
       cumulativeUsage: {
@@ -2038,7 +2037,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       openingText: "review the diff",
     });
     await harness.lifecycle.startRun(buildStartRunParams());
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(channel);
 
     const route = channel.emitStreamFrame("result/success");
 
@@ -2046,7 +2045,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     expect(channel.deliveredFrameKinds).toStrictEqual(["result/success"]);
     // Projected and consumed: the terminal retires the route (a channel-level interrupt must not
     // outlive its turn).
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
   it("a fully suppressed child still leaves its started/completed pair", async () => {
@@ -2475,7 +2474,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     ]);
     // Refused, not `undefined`: a quiet `undefined` reads as "no channel yet" and invites a retry
     // into the same swallow.
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
   });
@@ -2553,7 +2552,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
 
     // Nothing reached the provider on the refused path.
     expect(channel.sentWireTexts).toHaveLength(1);
-    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_SECOND_RUN_ID)).toBeUndefined();
     await expect(
       harness.lifecycle.interruptRun({ runId: TEST_SECOND_RUN_ID, reason: "user_stop" }),
     ).rejects.toThrow(ClaudeSessionUnavailableError);
@@ -2565,7 +2564,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).not.toThrow();
   });
 
   it("tears the condemned channel down, so the promised recovery is a fresh spawn", async () => {
@@ -2612,7 +2611,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     channel.emitStreamFrame("result/success");
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).not.toThrow();
   });
 
   /**
@@ -2660,7 +2659,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     channel.emitStreamFrame("result/success");
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(() => harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).not.toThrow();
+    expect(() => harness.lifecycle.findProcessForRun(TEST_SECOND_RUN_ID)).not.toThrow();
   });
 
   it("retires the route of a provably unsent run, so its interrupt cannot stop another turn", async () => {
@@ -2669,7 +2668,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     const harness = buildHarness();
     const channel = await arrangeFailingWrite(harness, "unsent");
 
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
     await expect(
       harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "user_stop" }),
     ).rejects.toThrow(ClaudeSessionUnavailableError);
@@ -2695,7 +2694,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
         providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       },
     ]);
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
   });
@@ -2711,7 +2710,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     await drainMicrotasks();
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).not.toThrow();
   });
 
   it("rules an ambiguous write immediately when the channel can no longer deliver a terminal", async () => {
@@ -2743,7 +2742,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
       },
     ]);
     // Both quarantine axes, and the channel torn down.
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
     expect(channel.disposals).toStrictEqual(["session_closed"]);
@@ -2804,7 +2803,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     expect(rollback.status).toBe("degraded");
     // The predecessor is the bound channel again and the fork was released, so the ruling below
     // reads the predecessor's own frame.
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(predecessorChannel);
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(predecessorChannel);
     const forkChannel = harness.transport.spawnedChannels[1];
     if (forkChannel === undefined) {
       throw new Error("expected the rewind to have spawned a fork channel");
@@ -2817,7 +2816,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual([
       TEST_RUN_ID,
     ]);
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
   });
@@ -2834,7 +2833,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
 
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     expect(() => channel.emitStreamFrame("result/success")).not.toThrow();
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
   });
@@ -2933,7 +2932,7 @@ describe("ClaudeSessionLifecycle pending-frame settlement", () => {
     // daemon-intent: no driver-composed failure, and the session is gone.
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
     expect(outcome.threw).toBeUndefined();
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
   }
 
   for (const transitionCase of PENDING_FRAME_TRANSITIONS) {
@@ -2952,7 +2951,7 @@ describe("ClaudeSessionLifecycle pending-frame settlement", () => {
 // provider saw nothing, so a re-send duplicates neither a turn nor its spend. `indeterminate`
 // must never be retried.
 describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
-  async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+  async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeProviderProcess> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
       sessionId: TEST_SESSION_ID,
@@ -2978,7 +2977,7 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
     expect(channel.sendUserTextAttempts).toBe(MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS);
     // Nothing reached the provider on either attempt, so the re-send cannot duplicate.
     expect(channel.sentWireTexts).toStrictEqual([]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
   it("starts the run when the second attempt succeeds, writing the text ONCE", async () => {
@@ -2999,7 +2998,7 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
     expect(channel.sendUserTextAttempts).toBe(2);
     // One frame on the wire, not two: the first attempt's bytes never left.
     expect(channel.sentWireTexts).toStrictEqual(["please summarize the thread"]);
-    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeDefined();
   });
 
   it("never re-attempts an INDETERMINATE write", async () => {
@@ -3050,7 +3049,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
 
     // A quarantine condemns a binding, and the superseded one is already gone; refusing the
     // run would remove its interrupt and intervention controls for a process nobody can reach.
-    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).not.toThrow();
   });
 
   it("leaves the rewound session startable, so the report is a run failure and not a session one", async () => {
@@ -3064,7 +3063,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
     const forkedChannel = harness.transport.spawnedChannels[1];
-    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(forkedChannel);
+    expect(harness.lifecycle.findProcessForRun(TEST_SECOND_RUN_ID)).toBe(forkedChannel);
   });
 
   it("reports NOTHING for a rewind of a session holding no pending frame", async () => {

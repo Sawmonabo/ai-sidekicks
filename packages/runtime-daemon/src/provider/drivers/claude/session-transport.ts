@@ -144,7 +144,7 @@ export interface ClaudeInboundFrameObservation {
 }
 
 /** One live Claude provider process, already handshaken through `system/init`. */
-export interface ClaudeSessionChannel {
+export interface ClaudeProviderProcess {
   readonly providerSessionId: string;
 
   /**
@@ -253,7 +253,7 @@ export interface ClaudeSessionRewindRequest extends ClaudeSpawnBoundLegs {
 export interface ClaudeSessionAttachment {
   // Announced on `system/init`; compared with the requested id, never assumed to match.
   readonly providerSessionId: string;
-  readonly channel: ClaudeSessionChannel;
+  readonly channel: ClaudeProviderProcess;
 }
 
 /** An attachment produced by a resume, carrying the position it resumed at. */
@@ -350,8 +350,8 @@ export interface ClaudeRunDispatchResolver {
  * text-neutralization trip disposed: `undefined` ("no channel yet") would invite a retry into a
  * process that swallowed the user's words.
  */
-export interface ClaudeRunChannelLookup {
-  findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined;
+export interface ClaudeRunProcessLookup {
+  findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined;
 }
 
 /** The structured fields of a `ClaudeControlRequestRefusedError`. */

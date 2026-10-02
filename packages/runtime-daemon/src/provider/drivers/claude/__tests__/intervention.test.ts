@@ -7,41 +7,41 @@ import { describe, expect, it } from "vitest";
 
 import { CLAUDE_STEER_FALLBACK_ACTION, ClaudeInterventionDispatcher } from "../intervention.js";
 import { ClaudeSessionUnavailableError } from "../session-errors.js";
-import { type ClaudeRunChannelLookup, type ClaudeSessionChannel } from "../session-transport.js";
+import { type ClaudeRunProcessLookup, type ClaudeProviderProcess } from "../session-transport.js";
 import {
   buildCancelParams,
   buildInterruptParams,
   buildSteerParams,
-  FakeClaudeSessionChannel,
+  FakeClaudeProviderProcess,
 } from "./claude-test-doubles.js";
 
-class StubRunChannelLookup implements ClaudeRunChannelLookup {
-  readonly channel: FakeClaudeSessionChannel | undefined;
+class StubRunProcessLookup implements ClaudeRunProcessLookup {
+  readonly channel: FakeClaudeProviderProcess | undefined;
 
-  constructor(channel: FakeClaudeSessionChannel | undefined) {
+  constructor(channel: FakeClaudeProviderProcess | undefined) {
     this.channel = channel;
   }
 
-  findChannelForRun(): ClaudeSessionChannel | undefined {
+  findProcessForRun(): ClaudeProviderProcess | undefined {
     return this.channel;
   }
 }
 
 interface InterventionHarness {
   readonly dispatcher: ClaudeInterventionDispatcher;
-  readonly channel: FakeClaudeSessionChannel;
+  readonly channel: FakeClaudeProviderProcess;
 }
 
 function buildHarness(): InterventionHarness {
-  const channel = new FakeClaudeSessionChannel("provider-session-live");
+  const channel = new FakeClaudeProviderProcess("provider-session-live");
   const dispatcher = new ClaudeInterventionDispatcher({
-    channelLookup: new StubRunChannelLookup(channel),
+    channelLookup: new StubRunProcessLookup(channel),
   });
   return { dispatcher, channel };
 }
 
 function buildDispatcherWithoutLiveRun(): ClaudeInterventionDispatcher {
-  return new ClaudeInterventionDispatcher({ channelLookup: new StubRunChannelLookup(undefined) });
+  return new ClaudeInterventionDispatcher({ channelLookup: new StubRunProcessLookup(undefined) });
 }
 
 describe("ClaudeInterventionDispatcher steer", () => {

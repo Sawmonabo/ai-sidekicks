@@ -8,8 +8,8 @@
 // runtime state through this client, and a failed resume has no route to a replacement session. A
 // provider's ask is answered through `approval.resolve` or `question.resolve`.
 //
-// `compactContext` and `listProviderCommands` are addressed by session and carry no binding: the
-// daemon resolves the live binding itself instead of trusting the renderer.
+// `compactContext` is addressed by session and carries no binding: the daemon resolves the live
+// binding itself instead of trusting the renderer.
 //
 // Every verb validates its request before the wire write and the daemon's reply before resolving.
 // `DriverInterventionResultSchema` is `.strict()`, so a degraded envelope that lost its
@@ -34,9 +34,7 @@ import type {
   ListModelsRequest,
   ListModelsResult,
   ListModesResult,
-  ListProviderCommandsRequest,
   MethodDescriptor,
-  ProviderCommandListResult,
 } from "@ai-sidekicks/contracts";
 import {
   DRIVER_EVENT_METHOD_DESCRIPTORS,
@@ -101,13 +99,6 @@ export interface DriverClient {
   compactContext(params: CompactContextRequest): Promise<DriverCompactionResult>;
 
   /**
-   * Read the provider command and skill enumeration across one agent's live bindings, grouped per
-   * binding with the `(driverName, providerAccountId)` routing pair on every entry. A live read
-   * for discovery only: no member of the reply is a dispatch handle.
-   */
-  listProviderCommands(params: ListProviderCommandsRequest): Promise<ProviderCommandListResult>;
-
-  /**
    * Open a subscription to one run's driver event stream.
    *
    * The value type is `DriverEvent`, the contracts-owned union over the seven driver-event
@@ -121,7 +112,7 @@ export interface DriverClient {
  *
  * The caller owns the `ClientTransport` and the `JsonRpcClient`, and must complete the
  * `daemon.hello` handshake before the first mutating call. The daemon marks `interruptRun`,
- * `applyIntervention` and `compactContext` as mutating and the other five methods as not, so a
+ * `applyIntervention` and `compactContext` as mutating and the other four methods as not, so a
  * version-mismatched connection keeps the reads and loses exactly the three verbs that drive a run.
  *
  * The daemon's reply is the return value, unwrapped and unchanged. A daemon-side refusal surfaces
@@ -145,8 +136,6 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
       callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], EMPTY_READ_PARAMS),
     compactContext: (params) =>
       callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], params),
-    listProviderCommands: (params) =>
-      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listProviderCommands"], params),
     subscribeEvents: (params) => daemonSubscribeEvents(client, params),
   };
 }

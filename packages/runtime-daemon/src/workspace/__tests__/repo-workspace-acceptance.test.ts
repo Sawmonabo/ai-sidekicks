@@ -475,7 +475,7 @@ describe("one session binds workspaces across multiple repo mounts", () => {
 describe("the full-lifecycle event sequence", () => {
   it("emits exactly one event per transition, and one archival per dependent", async () => {
     const alpha = await harness.stack.mounts.attach({ localPath: fixtures.nestedDirectory });
-    // A second mount the detach must not touch; a cascade over the whole roster would pass a
+    // A second mount the detach must not touch; a cascade over every mount would pass a
     // single-mount arm.
     const beta = await harness.stack.mounts.attach({ localPath: fixtures.secondRepositoryRoot });
 
@@ -576,7 +576,7 @@ describe("the full-lifecycle event sequence", () => {
   });
 });
 
-describe("a mode switch reprovisions IN PLACE", () => {
+describe("a mode switch prepares the root IN PLACE", () => {
   it("keeps the id and the row through two full cycles, updating mode and root", async () => {
     const alpha = await harness.stack.mounts.attach({ localPath: fixtures.repositoryRoot });
     const workspaceId = await bindReadyWorkspace(alpha.repoMountId, fixtures.repositoryRoot);

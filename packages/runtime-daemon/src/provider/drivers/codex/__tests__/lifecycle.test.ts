@@ -1027,7 +1027,6 @@ describe("CodexDriver resumeSession", () => {
     expect(result).toMatchObject({
       status: "failed",
       recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "unclassifiable",
     });
     // Both ids named, so the person can see which thread answered.
     const detail = (result as { providerFailureDetail: string }).providerFailureDetail;
@@ -1083,7 +1082,6 @@ describe("CodexDriver resumeSession", () => {
     expect(result).toEqual({
       status: "failed",
       recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "unclassifiable",
       providerFailureDetail: expect.stringContaining("no rollout found"),
     });
     // A replacement can slip in through the public create or a private helper, so both the spy
@@ -3433,14 +3431,14 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
   it("keeps the frame of a steer that timed out after its bytes were written", async () => {
     // The write succeeded and the provider never answered: it may have taken the command-shaped
-    // directive, intercepted it client-side, and be heading for a zero-turn success, so the
+    // message, intercepted it client-side, and be heading for a zero-turn success, so the
     // caller's rejection carries no information. Withdrawing the frame is how a swallowed
-    // directive escapes, because the terminal would then rule only the opening frame. Retained,
+    // message escapes, because the terminal would then rule only the opening frame. Retained,
     // the terminal rules the steer on its own merits.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     // `turn/steer` is deliberately not registered: the fake writes the line and answers nothing,
-    // the shape of an intercepted directive.
+    // the shape of an intercepted message.
     await harness.manager.createSession({
       model: TEST_MODEL,
       sessionId: SESSION_ID,

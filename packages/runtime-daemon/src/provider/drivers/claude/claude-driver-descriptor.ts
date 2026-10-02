@@ -30,7 +30,7 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "The flag is consumed as the round trips the PROVIDER raises — `can_use_tool` and `elicitation`. `request_user_dialog` is not one of them: Claude Code sends it only for dialog kinds the host declares at start, and the daemon declares none, so it never arrives. The control-request census is a census of the registry, not of the inbound dispatcher's accepted set. A first-party probe of the pinned build answers the identical name-level refusal for both as for the negative control, so probing them would withdraw the flag on every read of a build that fully carries it. The channel therefore cannot decide a capability delivered by frames flowing the other way, in either direction.",
+      "The flag is consumed as the round trips the PROVIDER raises — `can_use_tool` and `elicitation`. `request_user_dialog` is not one of them: Claude Code sends it only for a dialog kind the host declared at start, and the daemon's kinds are the refusal and usage-credits choices, which are run events rather than asks. The control-request census is a census of the registry, not of the inbound dispatcher's accepted set. A first-party probe of the pinned build answers the identical name-level refusal for both as for the negative control, so probing them would withdraw the flag on every read of a build that fully carries it. The channel therefore cannot decide a capability delivered by frames flowing the other way, in either direction.",
   },
   mcp: {
     detectionSource: "static",

@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { InterventionType } from "../provider-driver.js";
-import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver-recovery.js";
+import { RECOVERY_CONDITIONS } from "../provider-driver-recovery.js";
 import {
   InterventionRequestPayloadSchema,
   RunControlAckSchema,
@@ -141,34 +141,29 @@ const minimalRunStateChange = {
 } as const;
 
 describe("RunStateChangeEvent", () => {
-  it("carries every member of both recovery vocabularies", () => {
-    // Driven from the imported arrays so a member added to either vocabulary reaches this
-    // carrier; a narrower local copy would still compile but dead-letter the member at parse.
+  it("carries every member of the recovery vocabulary", () => {
+    // Driven from the imported array so a member added to the vocabulary reaches this carrier; a
+    // narrower local copy would still compile but dead-letter the member at parse.
     for (const recoveryCondition of RECOVERY_CONDITIONS) {
-      for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
-        const stateChange = {
-          ...minimalRunStateChange,
-          newState: "failed",
-          failureCategory: "provider failure",
-          recoveryCondition,
-          recoverySpanClassification,
-        };
-        expect(RunStateChangeEventSchema.parse(stateChange)).toEqual(stateChange);
-      }
+      const stateChange = {
+        ...minimalRunStateChange,
+        newState: "failed",
+        failureCategory: "provider failure",
+        recoveryCondition,
+      };
+      expect(RunStateChangeEventSchema.parse(stateChange)).toEqual(stateChange);
     }
   });
 
-  it("rejects an off-union value on either recovery member", () => {
-    // Referencing the shared parsers must not widen the carrier into accepting free strings.
-    for (const member of ["recoveryCondition", "recoverySpanClassification"] as const) {
-      expect(
-        RunStateChangeEventSchema.safeParse({
-          ...minimalRunStateChange,
-          newState: "failed",
-          [member]: "retry-later",
-        }).success,
-      ).toBe(false);
-    }
+  it("rejects an off-union recovery condition", () => {
+    // Referencing the shared parser must not widen the carrier into accepting free strings.
+    expect(
+      RunStateChangeEventSchema.safeParse({
+        ...minimalRunStateChange,
+        newState: "failed",
+        recoveryCondition: "retry-later",
+      }).success,
+    ).toBe(false);
   });
 
   describe("a turn the provider refused", () => {

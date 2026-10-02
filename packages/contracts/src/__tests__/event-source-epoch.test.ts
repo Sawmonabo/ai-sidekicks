@@ -49,8 +49,8 @@ describe("payload key names", () => {
     ["SOURCE_EPOCH_PAYLOAD_KEY", SOURCE_EPOCH_PAYLOAD_KEY, "sourceEpoch"],
     ["SOURCE_POSITION_PAYLOAD_KEY", SOURCE_POSITION_PAYLOAD_KEY, "sourcePosition"],
   ])("%s === %s", (_label, actual, expected) => {
-    // Exact-string pins: the stamping code and the compactor's stub projection write and read
-    // these literals, and a registered wire name is never renamed.
+    // Exact-string pins: these are payload keys on the wire, and a registered wire name is never
+    // renamed.
     expect(actual).toBe(expected);
   });
 });

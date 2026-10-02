@@ -20,7 +20,7 @@ import type {
   ClaudeRunDispatch,
   ClaudeRunDispatchResolver,
   ClaudeSessionAttachment,
-  ClaudeSessionChannel,
+  ClaudeProviderProcess,
   ClaudeSessionResumeRequest,
   ClaudeSessionRewindRequest,
   ClaudeSessionSpawnRequest,
@@ -46,7 +46,7 @@ export const TEST_BINDING_ID: string = "binding-1";
 
 /**
  * The route decisions that reach the normalize consumer, mirrored from the DELIVER column of
- * {@link ClaudeSessionChannel.onInboundFrame}. Delivering only `project` would enforce a rule the
+ * {@link ClaudeProviderProcess.onInboundFrame}. Delivering only `project` would enforce a rule the
  * lifecycle does not have.
  */
 const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new Set([
@@ -56,7 +56,7 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
 ]);
 
 /** In-memory channel that records every write and control request and lets a test drive frames. */
-export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
+export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   readonly providerSessionId: string;
   readonly sentTextFrames: ClaudeUserTextFrame[] = [];
   readonly controlRequests: ClaudeControlRequest[] = [];
@@ -156,7 +156,7 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
 
   /**
    * Drives one inbound stream frame as a real transport would: observe first, deliver only the
-   * decisions in the DELIVER column of {@link ClaudeSessionChannel.onInboundFrame}, and call the
+   * decisions in the DELIVER column of {@link ClaudeProviderProcess.onInboundFrame}, and call the
    * turn-terminal hook with the frame body for a `result/*` frame.
    */
   emitStreamFrame(
@@ -215,7 +215,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   realizesCallbackToolRegistration: boolean = true;
   readonly spawnRequests: ClaudeSessionSpawnRequest[] = [];
   readonly resumeRequests: ClaudeSessionResumeRequest[] = [];
-  readonly spawnedChannels: FakeClaudeSessionChannel[] = [];
+  readonly spawnedChannels: FakeClaudeProviderProcess[] = [];
   resumeFailure: Error | undefined = undefined;
   // When set, spawn, resume and rewind park here until released, so a concurrency test has two
   // callers provably in flight without depending on microtask counts.
@@ -261,7 +261,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     await this.establishmentGate;
     await Promise.resolve();
     const announced = this.announcedProviderSessionId ?? request.providerSessionId;
-    const channel = new FakeClaudeSessionChannel(announced);
+    const channel = new FakeClaudeProviderProcess(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     this.spawnedChannels.push(channel);
     return { providerSessionId: announced, channel };
@@ -278,7 +278,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     }
     await Promise.resolve();
     const announced = this.announcedProviderSessionId ?? request.resumeHandle;
-    const channel = new FakeClaudeSessionChannel(announced);
+    const channel = new FakeClaudeProviderProcess(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     this.spawnedChannels.push(channel);
     return {
@@ -300,7 +300,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     await Promise.resolve();
     const announced =
       this.announcedForkedProviderSessionId ?? `forked-${String(this.rewindRequests.length)}`;
-    const channel = new FakeClaudeSessionChannel(announced);
+    const channel = new FakeClaudeProviderProcess(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     this.spawnedChannels.push(channel);
     return {

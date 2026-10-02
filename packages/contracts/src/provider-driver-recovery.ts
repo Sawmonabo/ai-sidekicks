@@ -1,5 +1,4 @@
-// Why a run needs recovery and what its halted span holds: the two axes a resume failure and the
-// run-state change projection both carry.
+// Why a run needs recovery: the axis a resume failure and the run-state change projection carry.
 
 import { z } from "zod";
 
@@ -29,31 +28,3 @@ export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
  */
 export const RecoveryConditionSchema: z.ZodType<RecoveryCondition, RecoveryCondition> =
   z.enum(RECOVERY_CONDITIONS);
-
-/**
- * What the halted or diverged span contains, so policy can tier on blast radius. Orthogonal to
- * `RecoveryCondition`, which says why the run needs the person, so it is not a widening of that
- * union. Audit metadata only: every divergence still halts for human action, and `unclassifiable`
- * must be handled exactly as `irreversible`, the fail-closed default that keeps a driver from using
- * it as a free pass. Const-array-derived because the exported parser and its carriers read it.
- */
-export const RECOVERY_SPAN_CLASSIFICATIONS = [
-  "read_only",
-  "idempotent_write",
-  "irreversible",
-  "unclassifiable",
-] as const;
-
-/** One member of {@link RECOVERY_SPAN_CLASSIFICATIONS}. */
-export type RecoverySpanClassification = (typeof RECOVERY_SPAN_CLASSIFICATIONS)[number];
-
-/**
- * Validates a {@link RecoverySpanClassification}; carried by the same surfaces as
- * `RecoveryConditionSchema`. `unclassifiable` is a member rather than an absence, so a driver that
- * cannot classify the span still parses; treating it as `irreversible` is the consumer's duty,
- * which a value set cannot enforce.
- */
-export const RecoverySpanClassificationSchema: z.ZodType<
-  RecoverySpanClassification,
-  RecoverySpanClassification
-> = z.enum(RECOVERY_SPAN_CLASSIFICATIONS);

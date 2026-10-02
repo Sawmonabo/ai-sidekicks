@@ -2,7 +2,7 @@
 //
 // Composition root that owns no logic of its own: it binds the lifecycle (`lifecycle.ts`) and the
 // intervention dispatcher (`intervention.ts`). They meet through one narrow port,
-// `ClaudeRunChannelLookup`, so the dispatcher finds a run's channel without reaching into session
+// `ClaudeRunProcessLookup`, so the dispatcher finds a run's process without reaching into session
 // state it must not mutate.
 //
 // The class implements a `Pick<ProviderDriver, ...>` rather than the whole interface. Declaring
