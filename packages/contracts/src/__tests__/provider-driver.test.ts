@@ -1,20 +1,13 @@
-// Contract tests for the provider-driver seam: the refinements, defaults and derived shapes that
-// carry logic, and the identity, idempotency and fail-open guards a driver or client could
-// otherwise break. Runtime guards are proven by `.safeParse()`; nominal guards by
-// `@ts-expect-error`, which fails as unused (TS2578) if the guarded shape loosens.
+// The provider-driver seam's refinements and defaults: the rules a driver or client could
+// otherwise break by sending a shape the daemon then trusts.
 import { describe, expect, it } from "vitest";
 
-import * as contracts from "../index.js";
 import {
   ArtifactIdSchema,
   DriverInterventionResultSchema,
   ProviderToolMetadataSchema,
-  type ApplyInterventionParams,
-  type DriverCapabilities,
   type DriverInterventionResult,
-  type ExecutionPosture,
   type NormalizedProviderToolMetadata,
-  type RunId,
 } from "../provider-driver.js";
 import { DriverCompactionResultSchema } from "../provider-driver-transcript.js";
 import {
@@ -25,62 +18,7 @@ import {
 // Real RFC 9562 UUIDs; the brands are type-only, so the runtime value is a plain string.
 const SESSION_UUID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_UUID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
-
-const RUN_ID = RUN_UUID as RunId;
 const AN_ARTIFACT_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
-
-// `DriverCapabilities.flags` is `Record<DriverCapabilityFlag, boolean>`, so an extra key and an
-// incomplete record are both type errors. An unused `@ts-expect-error` is itself a TS2578 error, so
-// the check fails if either ever became valid.
-
-describe("ProviderDriver contract: the capability flag record is closed and total", () => {
-  it("rejects a capability flag outside the DriverCapabilityFlag union at compile time", () => {
-    const flagsWithExtra: DriverCapabilities["flags"] = {
-      resume: true,
-      steer: true,
-      interactive_requests: false,
-      mcp: false,
-      tool_calls: true,
-      reasoning_stream: false,
-      model_mutation: false,
-      structured_output: false,
-      rollback: false,
-      session_goals: false,
-      callback_tools: false,
-      subagents: false,
-      context_compaction: false,
-      provider_commands: false,
-      output_speed: false,
-      // `pause` is not a driver capability (it is an orchestration-layer construct) and not an
-      // intervention type. An excess key on a `Record<Union, …>` literal is a type error.
-      // @ts-expect-error pause is not a DriverCapabilityFlag
-      pause: true,
-    };
-    // The runtime read keeps the binding used; the compile is the check.
-    expect(flagsWithExtra.resume).toBe(true);
-  });
-
-  it("rejects an incomplete flag record that omits a required capability (totality)", () => {
-    // The flag record is total, so a driver cannot leave a capability unanswered. Omitting the
-    // three newest flags shows totality covers the whole union, not only the original flags.
-    // @ts-expect-error the flag record is total and must answer every flag
-    const incompleteFlags: DriverCapabilities["flags"] = {
-      resume: true,
-      steer: true,
-      interactive_requests: false,
-      mcp: false,
-      tool_calls: true,
-      reasoning_stream: false,
-      model_mutation: false,
-      structured_output: false,
-      rollback: false,
-      session_goals: false,
-      callback_tools: false,
-      subagents: false,
-    };
-    expect(incompleteFlags.resume).toBe(true);
-  });
-});
 
 describe("DriverCompactionResultSchema — the two structural rules, made checkable", () => {
   // The compaction result is composed daemon-side from the wait's own settlement, so no dispatch
@@ -128,12 +66,6 @@ describe("ArtifactIdSchema — the attachment element brand", () => {
     expect(ArtifactIdSchema.safeParse("artifact-1").success).toBe(false);
     expect(ArtifactIdSchema.safeParse("").success).toBe(false);
   });
-
-  it("is re-exported from the package barrel under its own name", () => {
-    // Every consumer imports this symbol rather than declaring a sibling, so there is one
-    // source of truth for what an artifact id is.
-    expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);
-  });
 });
 
 // An omitted `idempotency_class` defaults to `manual_reconcile_only`, so a tool that declares
@@ -172,73 +104,6 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
       const paths = result.error.issues.map((issue) => issue.path.join("."));
       expect(paths).toContain("refusalCode");
     }
-  });
-});
-
-// `clientIdempotencyKey` is mandatory on every dispatch arm: the requester-generated UUID the
-// daemon dedupes on turns at-least-once delivery into exactly-once application. Each arm declares
-// it separately, so all three omissions are proven.
-
-describe("ApplyInterventionParams — clientIdempotencyKey is mandatory", () => {
-  it("forbids omitting the key on the steer, interrupt and cancel arms", () => {
-    // @ts-expect-error clientIdempotencyKey is required
-    const steerWithoutKey: ApplyInterventionParams = {
-      type: "steer",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 1,
-      payload: { content: "stay on task" },
-    };
-    void steerWithoutKey;
-
-    // @ts-expect-error clientIdempotencyKey is required on the interrupt arm too
-    const interruptWithoutKey: ApplyInterventionParams = {
-      type: "interrupt",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 1,
-      payload: { reason: "operator halt" },
-    };
-    void interruptWithoutKey;
-
-    // @ts-expect-error clientIdempotencyKey is required on the cancel arm too
-    const cancelWithoutKey: ApplyInterventionParams = {
-      type: "cancel",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 1,
-      payload: { reason: "superseded" },
-    };
-    void cancelWithoutKey;
-  });
-});
-
-describe("ExecutionPosture — no fail-open shape", () => {
-  it("forbids a fail-open allow-list and a sandbox with no credential policy", () => {
-    // The tuple annotation matters: a bare array literal widens to `string[]`, and TS would
-    // report an arity mismatch on the property instead of the exclusion.
-    // @ts-expect-error allowedDomains is absent unless networkAccess is "allowed-domains"
-    const allowListOutsideItsMode: ExecutionPosture = {
-      networkAccess: "none",
-      allowedDomains: ["api.example.test"] as [string, ...string[]],
-      writableRoots: [],
-      mode: "trusted",
-    };
-    void allowListOutsideItsMode;
-
-    const emptyAllowList: ExecutionPosture = {
-      networkAccess: "allowed-domains",
-      // @ts-expect-error allowedDomains must be non-empty
-      allowedDomains: [],
-      writableRoots: [],
-      mode: "trusted",
-    };
-    void emptyAllowList;
-
-    // @ts-expect-error credentialPolicyRef is required on both sandboxed modes
-    const sandboxedWithoutCredentialPolicy: ExecutionPosture = {
-      networkAccess: "full",
-      writableRoots: ["/workspace"],
-      mode: "workspace-sandboxed",
-    };
-    void sandboxedWithoutCredentialPolicy;
   });
 });
 

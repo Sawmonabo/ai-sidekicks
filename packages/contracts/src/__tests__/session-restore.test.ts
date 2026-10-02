@@ -34,7 +34,7 @@ describe("session.restore", () => {
     skipped: [{ path: "vendor/link", reason: "symbolic_link" }],
   };
 
-  it("accepts an undo whose files went back, with their own figures, and whose conversation did not", () => {
+  it("accepts an undo whose files went back, with their figures, but not the conversation", () => {
     const result = {
       outcome: "restore-finished",
       requested: "conversation-and-files",

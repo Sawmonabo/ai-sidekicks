@@ -18,7 +18,7 @@ const SUITE = {
   id: "suite",
   kind: "developer.run-tests",
   kindVersion: 1,
-  name: "Run the suite",
+  name: "Run tests",
   order: 0,
   params: { command: "pnpm test" },
   onError: "continue-error-output",
@@ -27,13 +27,13 @@ const SUITE = {
 
 // A full document: the schedule, the suite, the branch, the summary write and the stop, with its
 // layout and one pinned item.
-const DESIGN_DOCUMENT = {
+const FULL_DOCUMENT = {
   schemaVersion: "2",
-  name: "Nightly suite",
+  name: "Test workflow",
   trigger: TRIGGER,
   nodes: [
     SUITE,
-    { id: "branch", kind: "flow.if", kindVersion: 1, name: "Passed?", order: 0, params: {} },
+    { id: "branch", kind: "flow.if", kindVersion: 1, name: "Check result", order: 0, params: {} },
     {
       id: "summary",
       kind: "output.write-summary",
@@ -58,17 +58,17 @@ const DESIGN_DOCUMENT = {
     viewport: { x: 0, y: 0, zoom: 1 },
     notes: [{ id: "n1", text: "Runs at 8", x: 0, y: 120, width: 200, height: 80 }],
   },
-  pinData: { suite: [{ json: { summary: "12 passed" }, pairedItem: { item: 0 } }] },
+  pinData: { suite: [{ json: { summary: "ok" }, pairedItem: { item: 0 } }] },
 };
 
 describe("WorkflowDocumentSchema", () => {
-  it("accepts the design's document with layout and pinned data", () => {
-    expect(WorkflowDocumentSchema.safeParse(DESIGN_DOCUMENT).success).toBe(true);
+  it("accepts a document with layout and pinned data", () => {
+    expect(WorkflowDocumentSchema.safeParse(FULL_DOCUMENT).success).toBe(true);
   });
 
   it("refuses an error disposition outside the three", () => {
     const badNode = { ...SUITE, onError: "continueOnFail" };
-    expect(WorkflowDocumentSchema.safeParse({ ...DESIGN_DOCUMENT, nodes: [badNode] }).success).toBe(
+    expect(WorkflowDocumentSchema.safeParse({ ...FULL_DOCUMENT, nodes: [badNode] }).success).toBe(
       false,
     );
   });

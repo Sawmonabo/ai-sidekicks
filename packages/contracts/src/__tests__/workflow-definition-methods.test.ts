@@ -16,7 +16,7 @@ const NOW = "2026-09-29T08:00:00.000Z";
 
 const DOCUMENT = {
   schemaVersion: "2",
-  name: "Nightly suite",
+  name: "Test workflow",
   trigger: {
     id: "manual",
     kind: "trigger.manual",
@@ -39,7 +39,7 @@ describe("workflow.definitionCreate", () => {
     };
     expect(WorkflowDefinitionCreateRequestSchema.safeParse(create).success).toBe(true);
     expect(
-      WorkflowDefinitionCreateRequestSchema.safeParse({ ...create, name: "Nightly suite" }).success,
+      WorkflowDefinitionCreateRequestSchema.safeParse({ ...create, name: "Test workflow" }).success,
     ).toBe(false);
   });
 });
@@ -48,7 +48,7 @@ describe("workflow.definitionRead", () => {
   it("reports a token's last use only beside its creation date", () => {
     const read = {
       id: "def-1",
-      name: "Nightly suite",
+      name: "Test workflow",
       scope: "project",
       scopeRef: "/repo",
       versionNumber: 3,

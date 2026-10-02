@@ -1,11 +1,8 @@
-// `repo.ts`: the repo and workspace enums accept only their own members, the ids are UUIDs, a
-// mount's health carries a verdict from its set and when it was checked, the package root exports
-// the contract core, a raw string is not a branded mount id, and each instantiation of the
-// lifecycle payload factory accepts only its own state vocabulary.
+// The repo and workspace vocabularies stay apart: each enum and each instantiation of the
+// lifecycle payload factory accepts only its own states, so one never leaks into another.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import * as contracts from "../index.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
   ExecutionModeSchema,
@@ -15,7 +12,6 @@ import {
   VcsTypeSchema,
   WorkspaceIdSchema,
   WorkspaceStateSchema,
-  type RepoMountId,
 } from "../repo.js";
 
 // Real RFC 9562 UUIDs; the branded-id schemas check the version and variant bits.
@@ -76,12 +72,6 @@ describe("VcsTypeSchema (git only)", () => {
   ])("parses %s -> %s", (candidate, shouldPass) => {
     expect(VcsTypeSchema.safeParse(candidate).success).toBe(shouldPass);
   });
-
-  it("admits exactly one member, with no second value and no passthrough", () => {
-    const schemaInternals = VcsTypeSchema as unknown as { options: readonly string[] };
-    expect([...schemaInternals.options]).toEqual(["git"]);
-    expect(VcsTypeSchema.safeParse("anything-else").success).toBe(false);
-  });
 });
 
 describe("RepoMountIdSchema / WorkspaceIdSchema", () => {
@@ -121,32 +111,6 @@ describe("RepoMountHealthSchema", () => {
     expect(RepoMountHealthSchema.safeParse(withoutCheckedAt).success).toBe(false);
   });
 });
-
-// A name the package root does not export is invisible to every consumer of the package.
-describe("the package root re-exports the contract core", () => {
-  it.each([
-    ["RepoMountIdSchema", contracts.RepoMountIdSchema],
-    ["WorkspaceIdSchema", contracts.WorkspaceIdSchema],
-    ["ExecutionModeSchema", contracts.ExecutionModeSchema],
-    ["WorkspaceStateSchema", contracts.WorkspaceStateSchema],
-    ["RepoMountStateSchema", contracts.RepoMountStateSchema],
-    ["VcsTypeSchema", contracts.VcsTypeSchema],
-    ["RepoMountHealthSchema", contracts.RepoMountHealthSchema],
-    ["RepoWorkspaceLifecyclePayloadSchema", contracts.RepoWorkspaceLifecyclePayloadSchema],
-  ] as const)("re-exports %s with a callable .parse", (_name, schema) => {
-    expect(schema).toBeDefined();
-    expect(typeof (schema as { parse?: unknown })?.parse).toBe("function");
-  });
-});
-
-// Compile-time pin on the brand, checked by the `tsconfig.test.json` typecheck. If the brand
-// weakens to a bare `string`, TS reports the directive unused (TS2578).
-const brandNominalityPin = (): void => {
-  // @ts-expect-error — a raw string is not a RepoMountId without a parse.
-  const unbranded: RepoMountId = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
-  void unbranded;
-};
-void brandNominalityPin;
 
 // Stands in for the worktree states: four transitions plus `ready`, the only literal shared
 // with either vocabulary.

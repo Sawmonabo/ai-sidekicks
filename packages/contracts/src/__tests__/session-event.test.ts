@@ -1,9 +1,5 @@
-// The event log's wire guards. A type parses only under its own category; an envelope string
-// refuses a NUL byte; the category lookup never walks the prototype chain; envelope versions
-// order numerically and exactly; the tolerant carrier keeps a newer producer's types and payload
-// keys but refuses an own `__proto__` key; a deletion's range never runs backwards; and
-// neither a machine-authored body nor a person's words ride in the plain payload. A registered type
-// keeps its name and its category.
+// The event log's wire guards: what a stored event may carry is decided here, before it is
+// written or read back, so a wrong row never reaches the log or a reader.
 import { describe, expect, it } from "vitest";
 
 import type { SessionEventType } from "../event-registry.js";
@@ -15,43 +11,19 @@ import {
   compareEventEnvelopeVersion,
   type EventCategory,
 } from "../event-envelope.js";
+import {
+  buildAssistantMessageEvent,
+  buildSessionCreatedEvent,
+} from "./session-event.test-support.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
-const AGENT_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION = "1.0";
-
-const buildSessionCreated = () => ({
-  id: "evt-0001",
-  sessionId: SESSION_ID,
-  sequence: 0,
-  occurredAt: "2026-01-22T19:14:35.000Z",
-  category: "session_lifecycle" as const,
-  type: "session.created" as const,
-  actor: USER_ID,
-  version: VERSION,
-  payload: {
-    sessionId: SESSION_ID,
-    shape: "chat",
-    mainAgent: {
-      agentId: AGENT_ID,
-      name: "Implementer",
-      binding: {
-        driverName: "claude",
-        modelId: "claude-sonnet-5",
-        providerAccountId: null,
-        effort: null,
-      },
-      ancestry: [],
-      createdAt: "2026-01-22T19:14:35.000Z",
-    },
-  },
-});
 
 describe("SessionEventSchema", () => {
   it("round-trips session.created through JSON without loss", () => {
     const label = "session.created";
-    const original = buildSessionCreated();
+    const original = buildSessionCreatedEvent();
 
     // Wire path: parse → JSON encode → JSON decode → parse again. The schema
     // must be JSON-stable: same shape in, same shape out, same parsed value.
@@ -82,7 +54,7 @@ describe("SessionEventSchema", () => {
     // forbids cross-namespace smuggling. If this ever silently accepted,
     // the log would store the event under the wrong category and replay
     // would diverge.
-    const broken = { ...buildSessionCreated(), category: "usage_telemetry" as const };
+    const broken = { ...buildSessionCreatedEvent(), category: "usage_telemetry" as const };
     const result = SessionEventSchema.safeParse(broken);
     expect(result.success).toBe(false);
   });
@@ -93,7 +65,7 @@ describe("SessionEventSchema", () => {
     ["correlationId", "req\u0000001"],
     ["causationId", "cause\u0000id"],
   ])("rejects NUL-byte %s value: %j", (field, value) => {
-    const broken = { ...buildSessionCreated(), [field]: value };
+    const broken = { ...buildSessionCreatedEvent(), [field]: value };
     expect(SessionEventSchema.safeParse(broken).success).toBe(false);
   });
 });
@@ -138,7 +110,7 @@ describe("compareEventEnvelopeVersion", () => {
 
   it("multi-digit MAJOR is compared numerically, not lexically: compare(10.0, 9.0) === 1", () => {
     // Lexical string compare would give `"10" < "9"` (-> -1); numeric major
-    // 10 > 9 gives 1. This is the bug the hand-rolled comparator forecloses.
+    // 10 > 9 gives 1.
     expect(compareEventEnvelopeVersion(parseVersion("10.0"), parseVersion("9.0"))).toBe(1);
   });
 
@@ -152,7 +124,7 @@ describe("compareEventEnvelopeVersion", () => {
   // adjacent integers past 9007199254740991 to one float, so a below-floor client could be
   // mis-read as at-floor and granted read-write at the version-floor gate.
 
-  it("orders adjacent MAJORs above Number.MAX_SAFE_INTEGER (Number collapses both to one float)", () => {
+  it("orders adjacent MAJORs above Number.MAX_SAFE_INTEGER", () => {
     // Number("9007199254740993") === Number("9007199254740992") === 9007199254740992,
     // so a numeric compare returns 0; BigInt keeps them distinct -> 1 / -1.
     expect(
@@ -169,7 +141,7 @@ describe("compareEventEnvelopeVersion", () => {
     ).toBe(-1);
   });
 
-  it("orders adjacent MINORs above Number.MAX_SAFE_INTEGER (same float-collapse, minor segment)", () => {
+  it("orders adjacent MINORs above Number.MAX_SAFE_INTEGER", () => {
     expect(
       compareEventEnvelopeVersion(
         parseVersion("1.9007199254740993"),
@@ -179,35 +151,9 @@ describe("compareEventEnvelopeVersion", () => {
   });
 });
 
-// A type string is a wire identifier: once registered it is never renamed and never moved to
-// another category, and every category holds at least one type.
-describe("SESSION_EVENT_CATEGORY_BY_TYPE — the category registry", () => {
-  it("keeps the founding wire literal unrenamed with an unchanged category", () => {
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
-  });
-
-  it.each([
-    // The namespace prefix of these rows does not name their category. The registry, not the
-    // prefix, is the category authority, so a cleanup by namespace heuristic must fail loudly.
-    ["relay.pin_refused", "security_events"],
-    ["moderation.review_flagged", "approval_flow"],
-    ["plan.proposed", "approval_flow"],
-    ["plan.accepted", "approval_flow"],
-    ["plan.handed_off", "approval_flow"],
-    ["orchestration.rejected", "orchestration_admission"],
-    ["subagent.started", "tool_activity"],
-    ["pty.control_changed", "session_lifecycle"],
-  ] as const)(
-    "category authority is the registry, not the namespace prefix: %s -> %s",
-    (eventType, expectedCategory) => {
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)).toBe(expectedCategory);
-    },
-  );
-});
-
 // EventEnvelopeSchema is the version-tolerant carrier: `type` is a bounded free-form string, not
-// the census union, and `payload` is an open record, so a reader keeps what a newer producer sends
-// while `SessionEventSchema` stays the strict layer.
+// the registered type union, and `payload` is an open record, so a reader keeps what a newer
+// producer sends while `SessionEventSchema` stays the strict layer.
 
 // A fully populated envelope; `actor` is present as null.
 const buildBareEnvelope = () => ({
@@ -225,11 +171,11 @@ const buildBareEnvelope = () => ({
 });
 
 describe("EventEnvelopeSchema — canonical carrier", () => {
-  it("accepts a census-UNKNOWN forward type", () => {
+  it("accepts a forward type this build has not registered", () => {
     // A reader must be able to parse the envelope of a type from a newer producer that this
-    // build's census does not know, so it can persist a version stub; rejecting it would drop
-    // the events the stub path exists to preserve. The literal is fictional, and its absence
-    // from the census is asserted mechanically.
+    // build does not know, so it can persist a version stub; rejecting it would drop the events
+    // the stub path exists to preserve. The literal is fictional, and the lookup below proves it
+    // is unregistered.
     const forwardType = "session.teleported";
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(forwardType as never)).toBeUndefined();
     const forward = {
@@ -334,23 +280,6 @@ describe("event_maintenance payload variant", () => {
 
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
 
-const buildAssistantMessage = () => ({
-  id: "evt-3601",
-  sessionId: SESSION_ID,
-  sequence: 40,
-  occurredAt: "2026-01-22T19:15:01.000Z",
-  category: "assistant_output" as const,
-  type: "assistant.message" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
-    contentType: "text/markdown",
-    contentLength: 4096,
-  },
-});
-
 const buildAssistantThinkingUpdate = () => ({
   id: "evt-3602",
   sessionId: SESSION_ID,
@@ -388,7 +317,7 @@ const buildToolRow = (type: "tool.invoked" | "tool.result" | "tool.error", seque
 });
 
 const BODY_BEARING_VARIANTS = [
-  ["assistant.message", buildAssistantMessage],
+  ["assistant.message", buildAssistantMessageEvent],
   ["assistant.thinking_update", buildAssistantThinkingUpdate],
   ["tool.invoked", () => buildToolRow("tool.invoked", 42)],
   ["tool.result", () => buildToolRow("tool.result", 43)],
@@ -480,7 +409,7 @@ const PERSONAL_DATA_SPLIT_VARIANTS: ReadonlyArray<
 describe("SessionEventSchema — personal text never in the plain payload", () => {
   it.each(PERSONAL_DATA_SPLIT_VARIANTS)(
     "%s: accepts the split payload, and refuses %s",
-    (_family, _refusedCase, accepted, refused) => {
+    (_label, _refusedCase, accepted, refused) => {
       expect(SessionEventSchema.safeParse(accepted).success).toBe(true);
       expect(SessionEventSchema.safeParse(refused).success).toBe(false);
     },

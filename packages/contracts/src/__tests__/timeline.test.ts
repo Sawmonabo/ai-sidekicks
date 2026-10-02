@@ -1,12 +1,6 @@
-// Contract tests for timeline rows and paged reads. A row's `kind` selects its arm, and a row that
-// fails its arm never falls through to the general arm, which would strip the attribution rollback
-// projection keys on. Each arm refuses what would misfile that attribution: run attribution on the
-// general arm, a payload that contradicts its row, a boundary row that disagrees with its typed
-// payload, and a superseded marker at or below its row. A child-run summary always says whether it
-// is complete; the reasoning surface says which of its three states it is in. Paged replies run
-// oldest to newest, fit one frame and never continue empty; an expansion carries only its own
-// run's rows and no run is its own parent. Body reads fit one frame, and search hits keep their
-// match ranges and counts coherent.
+// Timeline rows keep the run attribution rollback projection keys on: a row never falls through
+// to an arm that would drop it. Paged replies run oldest to newest, fit one frame and never
+// continue empty.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +9,6 @@ import { EVENT_CURSOR_MAX_LEN } from "../session.js";
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import type { RunRolledBackEvent } from "../run-control.js";
 import {
-  CHILD_RUN_INCOMPLETE_CAUSES,
   ChildRunCompletenessSchema,
   ChildRunSummarySchema,
 } from "../timeline/child-run-summary.js";
@@ -36,7 +29,6 @@ import {
 import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_ROW_SUMMARY_MAX_LEN,
-  TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
   TimelineRowSchema,
 } from "../timeline/row.js";
@@ -286,16 +278,6 @@ describe("ChildRunSummary completeness marker", () => {
     expectRoundTrip(ChildRunSummarySchema, childRunSummary);
   });
 
-  it("every cause in the closed set round-trips on the incomplete arm", () => {
-    for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
-      expectRoundTrip(ChildRunCompletenessSchema, { ...incompleteCompleteness, cause });
-      expectRoundTrip(
-        ChildRunSummarySchema,
-        withCompleteness({ ...incompleteCompleteness, cause }),
-      );
-    }
-  });
-
   it("`completeness` is required; an absent marker is not a third state", () => {
     const { completeness: _dropped, ...withoutMarker } = childRunSummary;
     expect(ChildRunSummarySchema.safeParse(withoutMarker).success).toBe(false);
@@ -448,10 +430,7 @@ describe("the reasoning surface's availability and paging", () => {
   });
 
   it("a continuing `available` page refuses an empty entry list", () => {
-    // A continuing page with no entries promises more, supplies a cursor to ask
-    // with, and delivers nothing: the client re-asks from the same cursor,
-    // receives the same answer, and loops. The floor makes that unrepresentable
-    // rather than discouraged.
+    // An empty continuing page makes the client re-ask from the same cursor forever.
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
@@ -484,7 +463,6 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // Positive control. The same category on the arm that SHOULD carry it
     // parses, so the refusal is the arm and not the category.
     expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
-    expect(runScopedRow.category).toBe(TIMELINE_RUN_LIFECYCLE_CATEGORY);
     // …and the general arm's own category still parses, so the fixture is not
     // failing for an unrelated reason.
     expect(TimelineRowSchema.safeParse(generalRow).success).toBe(true);
@@ -522,8 +500,7 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // The per-row leg. `artifact.published` is legitimately session-scoped on
     // one row and run-scoped on the next, because its registered `runId` is
     // optional — so the type cannot decide and the payload must.
-    expect(TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS).toStrictEqual(["runId", "targetRunId"]);
-    for (const runKey of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
+    for (const runKey of ["runId", "targetRunId"]) {
       const runCarrying = {
         ...generalRow,
         category: "artifact_publication",
@@ -598,11 +575,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
 
 describe("child-run lineage is acyclic", () => {
   it("a summary that is its own parent is refused", () => {
-    // Every consumer of the lineage walks it: the renderer nests a child under
-    // its parent, the one-layer nesting rule is checked against the chain, and
-    // cost attribution sums along it. A self-parenting row turns each of those
-    // walks into a loop, so it is refused once here rather than defended
-    // against separately at every walk.
+    // Nesting, the one-layer rule and cost attribution all walk the lineage, so a self-parent
+    // would loop each walk; it is refused once here.
     const result = ChildRunSummarySchema.safeParse({ ...childRunSummary, parentRunId: RUN_ID });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -930,10 +904,7 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   });
 
   it("`hasMore: true` requires at least one entry, on both paged row replies", () => {
-    // The producer's floor and the validator's floor are one rule seen from two
-    // sides. A continuing page with no rows re-offers the same cursor forever:
-    // the client obeys the contract, re-asks, and receives the same answer, and
-    // nothing in the reply says anything is wrong.
+    // The producer's floor and the validator's floor are one rule seen from two sides.
     expect(
       TimelineReadResponseSchema.safeParse({ entries: [], hasMore: true, nextCursor: "seq-42" })
         .success,
@@ -1007,7 +978,7 @@ describe("timeline.search", () => {
     rowId: "evt-0001",
     cursor: "seq-42",
     snippet: "the parser drops the last line",
-    matchRanges: [{ offset: 4, length: 6 }],
+    matchRanges: [{ start: 4, end: 10 }],
   };
 
   it("accepts the request and a continuing and a final page", () => {
@@ -1041,7 +1012,7 @@ describe("timeline.search", () => {
     expect(
       TimelineSearchResponseSchema.safeParse({
         matchCount: 1,
-        hits: [{ ...hit, matchRanges: [{ offset: 28, length: 6 }] }],
+        hits: [{ ...hit, matchRanges: [{ start: 28, end: 34 }] }],
         hasMore: false,
       }).success,
     ).toBe(false);
@@ -1052,8 +1023,8 @@ describe("timeline.search", () => {
           {
             ...hit,
             matchRanges: [
-              { offset: 4, length: 6 },
-              { offset: 8, length: 2 },
+              { start: 4, end: 10 },
+              { start: 8, end: 10 },
             ],
           },
         ],

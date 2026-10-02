@@ -1,8 +1,5 @@
-// The `sourceEpoch` / `sourcePosition` payload stamp. Both scalars accept 0 and positive integers
-// only, and their payload key names are pinned by exact string. `withEpochStamp`'s pairing
-// refinement: a stamp needs both keys and a present, non-null `runId`; absence means the current
-// epoch. Pairing cases assert the issue path so a base-parse failure cannot mask a missing
-// refinement. No `run_lifecycle` branch of the live `SessionEventSchema` union admits the stamp.
+// The `sourceEpoch` / `sourcePosition` stamp attributes a late row to the execution it came from;
+// a half or unattributed stamp would rank the row against the wrong history.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 

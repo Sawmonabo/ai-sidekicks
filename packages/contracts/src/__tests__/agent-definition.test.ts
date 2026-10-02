@@ -28,9 +28,9 @@ const CODEX_BINDING = {
   effort: null,
 } as const;
 
-const DESIGN_CREATE = {
+const FULL_CREATE_REQUEST = {
   name: "reviewer",
-  description: "Reads a diff and says what is wrong with it.",
+  description: "Reviews code changes.",
   icon: "magnifier",
   accentHue: "teal",
   bindings: { default: CLAUDE_BINDING, overrides: [CODEX_BINDING] },
@@ -69,12 +69,12 @@ const STORED_ENTRY = {
 
 describe("agent.definitionCreate", () => {
   it("accepts the editor's whole save", () => {
-    expect(AgentDefinitionCreateRequestSchema.safeParse(DESIGN_CREATE).success).toBe(true);
+    expect(AgentDefinitionCreateRequestSchema.safeParse(FULL_CREATE_REQUEST).success).toBe(true);
   });
 
   it("refuses an override that repeats the default's provider", () => {
     const request = {
-      ...DESIGN_CREATE,
+      ...FULL_CREATE_REQUEST,
       bindings: { default: CLAUDE_BINDING, overrides: [{ ...CLAUDE_BINDING, modelId: "sonnet" }] },
     };
     expect(AgentDefinitionCreateRequestSchema.safeParse(request).success).toBe(false);
@@ -82,29 +82,31 @@ describe("agent.definitionCreate", () => {
 
   it("refuses two overrides for one provider", () => {
     const request = {
-      ...DESIGN_CREATE,
+      ...FULL_CREATE_REQUEST,
       bindings: { default: CLAUDE_BINDING, overrides: [CODEX_BINDING, CODEX_BINDING] },
     };
     expect(AgentDefinitionCreateRequestSchema.safeParse(request).success).toBe(false);
   });
 
   it("refuses a project scope with no project, and a project on a global definition", () => {
-    const { projectId: _projectId, ...withoutProject } = DESIGN_CREATE;
+    const { projectId: _projectId, ...withoutProject } = FULL_CREATE_REQUEST;
     expect(AgentDefinitionCreateRequestSchema.safeParse(withoutProject).success).toBe(false);
     expect(
-      AgentDefinitionCreateRequestSchema.safeParse({ ...DESIGN_CREATE, scope: "global" }).success,
+      AgentDefinitionCreateRequestSchema.safeParse({ ...FULL_CREATE_REQUEST, scope: "global" })
+        .success,
     ).toBe(false);
   });
 
   it("refuses a member the request does not carry", () => {
     expect(
-      AgentDefinitionCreateRequestSchema.safeParse({ ...DESIGN_CREATE, origin: "claude" }).success,
+      AgentDefinitionCreateRequestSchema.safeParse({ ...FULL_CREATE_REQUEST, origin: "claude" })
+        .success,
     ).toBe(false);
   });
 });
 
 describe("agent.definitionUpdate", () => {
-  it("accepts a null that clears a pinned member, bindings with no overrides, and a reattach path", () => {
+  it("accepts a cleared member, bindings with no overrides, and a reattach path", () => {
     const request = {
       definitionId: DEFINITION_ID,
       bindings: { default: { ...CLAUDE_BINDING, effort: null } },

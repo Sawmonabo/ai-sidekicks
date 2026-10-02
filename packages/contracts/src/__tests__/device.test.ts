@@ -11,15 +11,13 @@ import {
   DeviceNotificationSettingsSetRequestSchema,
   DevicePushAddressSetRequestSchema,
 } from "../device.js";
-
-const bytes = (length: number): string => Buffer.alloc(length, 7).toString("base64");
+import { base64Bytes, P256_KEY } from "./trust-statement.test-support.js";
 
 const HASH = "a".repeat(64);
 const ISSUED_AT = "2026-09-12T10:00:00.000Z";
 const DEVICE_ID = "device-phone-1";
-const P256_KEY = { algorithm: "p256", publicKey: bytes(65) } as const;
-const CHANNEL_KEY = { algorithm: "x25519", publicKey: bytes(32) } as const;
-const DEVICE_SIGNATURE = { signer: "device", deviceId: DEVICE_ID, signature: bytes(64) };
+const CHANNEL_KEY = { algorithm: "x25519", publicKey: base64Bytes(32) } as const;
+const DEVICE_SIGNATURE = { signer: "device", deviceId: DEVICE_ID, signature: base64Bytes(64) };
 
 const deviceRenamed = {
   kind: "device.renamed",
@@ -48,7 +46,7 @@ describe("linking", () => {
     name: "iPhone",
     platform: "iPhone",
     appVersion: "1.4.0",
-    mac: bytes(32),
+    mac: base64Bytes(32),
   };
 
   it("accepts the new device's half of the link", () => {
@@ -56,9 +54,9 @@ describe("linking", () => {
   });
 
   it("refuses a linking proof that is not a SHA-256 HMAC", () => {
-    expect(DeviceLinkRedeemRequestSchema.safeParse({ ...redeem, mac: bytes(16) }).success).toBe(
-      false,
-    );
+    expect(
+      DeviceLinkRedeemRequestSchema.safeParse({ ...redeem, mac: base64Bytes(16) }).success,
+    ).toBe(false);
   });
 });
 
@@ -89,7 +87,7 @@ describe("push address and notification switches", () => {
     notifyOutsideTheApp: true,
     countOnAppIcon: true,
     kinds: { waitingOnYou: true, finished: true, failed: false, notifyStep: true },
-    pushKey: bytes(1216),
+    pushKey: base64Bytes(1216),
   };
 
   it("accepts a phone's switches and a browser's subscription keys", () => {
@@ -107,8 +105,10 @@ describe("push address and notification switches", () => {
 
   it("refuses a push key that is not an X-Wing public key", () => {
     expect(
-      DeviceNotificationSettingsSetRequestSchema.safeParse({ ...settings, pushKey: bytes(32) })
-        .success,
+      DeviceNotificationSettingsSetRequestSchema.safeParse({
+        ...settings,
+        pushKey: base64Bytes(32),
+      }).success,
     ).toBe(false);
   });
 });

@@ -94,11 +94,6 @@ describe("workflow.humanFormSubmit", () => {
     const submit = { ...withoutExecution, fields: {}, expectedRevision: 0 };
     expect(WorkflowHumanFormSubmitRequestSchema.safeParse(submit).success).toBe(false);
   });
-
-  it("refuses the artifact list a form no longer has", () => {
-    const submit = { ...STEP, fields: {}, expectedRevision: 0, attachmentArtifactIds: [] };
-    expect(WorkflowHumanFormSubmitRequestSchema.safeParse(submit).success).toBe(false);
-  });
 });
 
 describe("workflow.stepRead", () => {

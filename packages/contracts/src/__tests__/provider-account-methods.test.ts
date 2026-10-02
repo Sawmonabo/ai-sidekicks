@@ -15,33 +15,10 @@ import {
   ProviderAccountUsageReadResponseSchema,
 } from "../provider-account-methods.js";
 import { ProviderAccountRegisterRequestSchema } from "../provider-account-sign-in.js";
+import { ACCOUNT_ID, validProviderAccount } from "./provider-account.test-support.js";
 
-const ACCOUNT_ID = "acct_01J8XYZ";
-const TIMESTAMP = "2026-08-31T00:00:00.000Z";
 const SESSION_ID = "0192f3a1-4b5c-7d8e-9f01-23456789abcd";
 const SESSION_ID_2 = "0192f3a1-4b5c-7d8e-9f01-23456789abce";
-
-function validAccount(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    accountId: ACCOUNT_ID,
-    provider: "claude",
-    displayLabel: "Personal",
-    credentialGeneration: 1,
-    billingMode: "subscription",
-    isDefault: true,
-    healthState: "authenticated",
-    healthObservedAt: TIMESTAMP,
-    observedAuthMode: "oauth_subscription",
-    loggedInAt: TIMESTAMP,
-    lastRefreshObservedAt: null,
-    expectedReloginAtEstimate: null,
-    probeEnabled: true,
-    windowStartEnabled: true,
-    wakeForWindowStartEnabled: false,
-    memoryImport: null,
-    ...overrides,
-  };
-}
 
 describe("request/response pairs", () => {
   it("refuses a set-current success reply whose account is not the default", () => {
@@ -49,9 +26,9 @@ describe("request/response pairs", () => {
       ProviderAccountUpdateRequestSchema.safeParse({ accountId: ACCOUNT_ID, probeEnabled: false })
         .success,
     ).toBe(true);
-    expect(ProviderAccountUpdateResponseSchema.safeParse({ account: validAccount() }).success).toBe(
-      true,
-    );
+    expect(
+      ProviderAccountUpdateResponseSchema.safeParse({ account: validProviderAccount() }).success,
+    ).toBe(true);
 
     expect(ProviderAccountRemoveRequestSchema.safeParse({ accountId: ACCOUNT_ID }).success).toBe(
       true,
@@ -66,7 +43,7 @@ describe("request/response pairs", () => {
     ).toBe(true);
     expect(
       ProviderAccountSetCurrentResponseSchema.safeParse({
-        account: validAccount(),
+        account: validProviderAccount(),
         movingSessions: [{ sessionId: SESSION_ID }, { sessionId: SESSION_ID_2 }],
       }).success,
     ).toBe(true);
@@ -75,14 +52,15 @@ describe("request/response pairs", () => {
     // not a narrower type, because the account projection is shared.
     expect(
       ProviderAccountSetCurrentResponseSchema.safeParse({
-        account: validAccount({ isDefault: false }),
+        account: validProviderAccount({ isDefault: false }),
         movingSessions: [],
       }).success,
     ).toBe(false);
     // The shared projection stays wide: other replies still admit a non-default account.
     expect(
-      ProviderAccountUpdateResponseSchema.safeParse({ account: validAccount({ isDefault: false }) })
-        .success,
+      ProviderAccountUpdateResponseSchema.safeParse({
+        account: validProviderAccount({ isDefault: false }),
+      }).success,
     ).toBe(true);
 
     expect(ProviderAccountProbeRequestSchema.safeParse({ accountId: ACCOUNT_ID }).success).toBe(

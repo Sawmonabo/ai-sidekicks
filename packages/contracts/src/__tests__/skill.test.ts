@@ -1,4 +1,4 @@
-// The skill list and the new-skill save hold two rules a reader relies on: a plugin's skill
+// The skill list and the skill create request hold two rules a reader relies on: a plugin's skill
 // names its plugin and no other skill does, and a project skill names its project and no global
 // skill does.
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const OURS_ENTRY = {
   skillId: SKILL_ID,
   name: "review-diff",
-  description: "Reads a diff and says what is wrong with it.",
+  description: "Reviews code changes.",
   icon: null,
   origin: "ours",
   scope: "global",
@@ -37,15 +37,15 @@ describe("skill.list", () => {
     const pluginEntry = {
       ...OURS_ENTRY,
       origin: "plugin",
-      pluginName: "pr-review-toolkit",
+      pluginName: "example-plugin",
       availability: { claude: true, codex: false },
-      callForms: { claude: "/pr-review-toolkit:review-diff" },
+      callForms: { claude: "/example-plugin:review-diff" },
     };
     expect(SkillListEntrySchema.safeParse(pluginEntry).success).toBe(true);
     const { pluginName: _pluginName, ...unnamed } = pluginEntry;
     expect(SkillListEntrySchema.safeParse(unnamed).success).toBe(false);
     expect(
-      SkillListEntrySchema.safeParse({ ...OURS_ENTRY, pluginName: "pr-review-toolkit" }).success,
+      SkillListEntrySchema.safeParse({ ...OURS_ENTRY, pluginName: "example-plugin" }).success,
     ).toBe(false);
   });
 
@@ -58,9 +58,9 @@ describe("skill.list", () => {
 });
 
 describe("skill.create", () => {
-  const DESIGN_CREATE = {
+  const FULL_CREATE_REQUEST = {
     name: "Review Diff",
-    description: "Reads a diff and says what is wrong with it.",
+    description: "Reviews code changes.",
     body: "Read the diff.",
     icon: "bolt",
     files: [{ path: "references/style.md", content: "" }],
@@ -68,12 +68,12 @@ describe("skill.create", () => {
     projectId: PROJECT_ID,
   } as const;
 
-  it("accepts the new-skill form's whole save", () => {
-    expect(SkillCreateRequestSchema.safeParse(DESIGN_CREATE).success).toBe(true);
+  it("accepts a full create request", () => {
+    expect(SkillCreateRequestSchema.safeParse(FULL_CREATE_REQUEST).success).toBe(true);
   });
 
   it("refuses a project scope with no project", () => {
-    const { projectId: _projectId, ...withoutProject } = DESIGN_CREATE;
+    const { projectId: _projectId, ...withoutProject } = FULL_CREATE_REQUEST;
     expect(SkillCreateRequestSchema.safeParse(withoutProject).success).toBe(false);
   });
 });

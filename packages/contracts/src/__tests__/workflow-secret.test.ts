@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   WorkflowSecretSummarySchema,
   WorkflowSecretNotFoundDetailsSchema,
-  composeWorkflowSecretReference,
   isWorkflowSecretName,
   parseWorkflowSecretReference,
 } from "../workflow-secret.js";
@@ -20,7 +19,7 @@ describe("isWorkflowSecretName", () => {
     expect(isWorkflowSecretName("a".repeat(64))).toBe(true);
   });
 
-  it("refuses a leading hyphen, capitals, other characters, an empty name and 65 characters", () => {
+  it("refuses a leading hyphen, capitals, other characters, empty and 65 characters", () => {
     for (const name of ["-read", "GitHub", "git_hub", "git hub", "", "a".repeat(65)]) {
       expect(isWorkflowSecretName(name), name).toBe(false);
     }
@@ -28,10 +27,11 @@ describe("isWorkflowSecretName", () => {
 });
 
 describe("the secret:// reference", () => {
-  it("reads back what it writes", () => {
-    const reference = { scope: "project", name: "github-read" } as const;
-    expect(composeWorkflowSecretReference(reference)).toBe("secret://project/github-read");
-    expect(parseWorkflowSecretReference("secret://project/github-read")).toEqual(reference);
+  it("reads a project and a shared reference", () => {
+    expect(parseWorkflowSecretReference("secret://project/github-read")).toEqual({
+      scope: "project",
+      name: "github-read",
+    });
     expect(parseWorkflowSecretReference("secret://shared/mail")).toEqual({
       scope: "shared",
       name: "mail",

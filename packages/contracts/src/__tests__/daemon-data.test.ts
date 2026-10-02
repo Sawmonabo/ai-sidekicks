@@ -1,15 +1,11 @@
 // A data export streams its progress to Settings › Runtime and the command line; a running
 // export never counts more sessions exported than it has in total.
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 
 import { DAEMON_DATA_METHOD_DESCRIPTORS } from "../daemon-data.js";
+import { accepts, refuses } from "./safe-parse.test-support.js";
 
 const JOB_ID = "550e8400-e29b-41d4-a716-446655440000";
-
-const accepts = (schema: { safeParse(value: unknown): { success: boolean } }, value: unknown) =>
-  expect(schema.safeParse(value).success).toBe(true);
-const refuses = (schema: { safeParse(value: unknown): { success: boolean } }, value: unknown) =>
-  expect(schema.safeParse(value).success).toBe(false);
 
 describe("daemon.dataExport and its progress stream", () => {
   const exportMethod = DAEMON_DATA_METHOD_DESCRIPTORS["daemon.dataExport"];

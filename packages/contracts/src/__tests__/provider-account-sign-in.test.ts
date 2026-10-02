@@ -10,7 +10,7 @@ import {
 } from "../provider-account-sign-in.js";
 
 const ACCOUNT_ID = "acct_01J8XYZ";
-/** The one credential value this plane accepts. */
+/** The one credential value account sign-in accepts. */
 const TOKEN_FIXTURE = "sk-example-token";
 
 describe("the register request's re-supply selector", () => {

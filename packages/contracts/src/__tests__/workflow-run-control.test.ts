@@ -13,8 +13,8 @@ import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../workflow-run.js";
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
 
 describe("workflow.runCancel reason cap", () => {
-  it("accepts a reason of exactly the cap in bytes", () => {
-    const reason = "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP);
+  it("accepts a reason whose JSON encoding is exactly the cap in bytes", () => {
+    const reason = "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP - 2);
     expect(
       WorkflowRunCancelRequestSchema.safeParse({ workflowRunId: RUN_ID, reason }).success,
     ).toBe(true);

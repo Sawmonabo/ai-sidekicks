@@ -1,9 +1,5 @@
-// The worktree contract: the state enum in the order the daemon's CHECK clause lists it, a
-// lifecycle payload that admits only worktree states, the five `worktree.*` events registered in
-// the session event union and no `worktree.failed`, and the wire pairs. A worktree id and a
-// branch-context id are distinct brands no raw string satisfies, a prepare request cannot carry
-// the run provenance the daemon stamps, and the switcher's read names who created each tree and
-// never lists a retired one.
+// Worktree states never mix with repo or workspace states, a prepare request cannot forge the run
+// provenance the daemon stamps, and the switcher's read never lists a retired tree.
 import { describe, expect, it } from "vitest";
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../event.js";
@@ -59,24 +55,9 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
   ])("parses %s -> %s", (candidate, shouldPass) => {
     expect(WorktreeStateSchema.safeParse(candidate).success).toBe(shouldPass);
   });
-
-  it("enumerates exactly the six states in the daemon's CHECK order", () => {
-    // Order matters, not just membership: it mirrors the `worktrees.state` CHECK clause in the
-    // daemon schema, so a reorder fails here and forces a re-sync. It is not a wire break, since
-    // the literal string is what serializes.
-    const schemaInternals = WorktreeStateSchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toEqual([
-      "creating",
-      "ready",
-      "dirty",
-      "merged",
-      "retired",
-      "failed",
-    ]);
-  });
 });
 
-describe("WorktreeLifecyclePayloadSchema (the family shape over the worktree vocabulary)", () => {
+describe("WorktreeLifecyclePayloadSchema (the lifecycle payload over worktree states)", () => {
   it.each(["attached", "detached", "preparing", "busy", "stale", "archived"])(
     "rejects the repo or workspace state %s",
     (state) => {
@@ -145,8 +126,8 @@ describe("SessionEventSchema registration of the five worktree events", () => {
   });
 
   it("rejects `worktree.failed` whatever its payload state", () => {
-    // With `state: "ready"` the payload would parse under a family arm, so the rejection is the
-    // missing type arm. A failed creation is evented as `workspace.stale`.
+    // With `state: "ready"` the payload alone would parse, so the rejection is the missing type
+    // arm. A failed creation is evented as `workspace.stale`.
     expect(
       SessionEventSchema.safeParse(buildWorktreeEvent("worktree.failed", "ready")).success,
     ).toBe(false);

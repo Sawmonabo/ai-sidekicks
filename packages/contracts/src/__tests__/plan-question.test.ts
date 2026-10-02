@@ -62,7 +62,7 @@ describe("PlanResolveResponseSchema", () => {
     );
   });
 
-  it("refuses a handed-off plan with no fresh session, and a fresh session on an accepted plan", () => {
+  it("ties a fresh session to a handed-off plan and to no accepted plan", () => {
     expect(
       PlanResolveResponseSchema.safeParse({ planId: PLAN_ID, state: "handed_off" }).success,
     ).toBe(false);
