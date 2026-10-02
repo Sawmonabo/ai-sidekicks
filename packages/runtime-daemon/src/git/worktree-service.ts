@@ -782,7 +782,7 @@ export class WorktreeService {
     try {
       await this.#runGit(["-C", canonicalRoot, "check-ref-format", "--branch", branchName]);
     } catch (refusal) {
-      const gitRefusalLine = readGitFatalLine(refusal);
+      const gitRefusalLine = readGitBranchNameRefusal(refusal);
       if (gitRefusalLine === null) {
         throw new WorktreeCreateFailedError("git_invocation_failed");
       }
@@ -857,8 +857,12 @@ export class WorktreeService {
   }
 }
 
-/** The `fatal:` line of a rejected git call's `stderr`, without git's `hint:` lines; else `null`. */
-function readGitFatalLine(thrown: unknown): string | null {
+// Git's refusal of a branch name, printed under `LC_ALL=C`. Any other `fatal:` line (a missing
+// mount directory, say) can name a path, so it never becomes the message.
+const GIT_BRANCH_NAME_REFUSAL_PATTERN = /^fatal: '.*' is not a valid branch name$/;
+
+/** Git's line refusing a branch name from a rejected call's `stderr`, else `null`. */
+function readGitBranchNameRefusal(thrown: unknown): string | null {
   if (typeof thrown !== "object" || thrown === null || !("stderr" in thrown)) {
     return null;
   }
@@ -866,5 +870,5 @@ function readGitFatalLine(thrown: unknown): string | null {
   if (typeof stderr !== "string") {
     return null;
   }
-  return stderr.split("\n").find((line) => line.startsWith("fatal:")) ?? null;
+  return stderr.split("\n").find((line) => GIT_BRANCH_NAME_REFUSAL_PATTERN.test(line)) ?? null;
 }
