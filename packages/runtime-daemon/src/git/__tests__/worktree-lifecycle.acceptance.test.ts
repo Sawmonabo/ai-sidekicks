@@ -1021,11 +1021,14 @@ describe("derived-name collisions against real git", () => {
         runId: RUN_ID,
         taskSummary: "Fix login",
       });
-      await ctx.repository.git(["branch", derivedName]);
+      const first = await createWorktree(derivedName, "suffix");
+      await ctx.worktrees.retire(first.worktreeId);
+      await ctx.worktrees.cleanupPass();
+      expect(existsSync(first.fsRoot)).toBe(false);
 
-      const created = await createWorktree(derivedName, "suffix");
+      const second = await createWorktree(derivedName, "suffix");
 
-      expect(created.branchName).toBe(`${derivedName}-2`);
+      expect(second.branchName).toBe(`${derivedName}-2`);
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );

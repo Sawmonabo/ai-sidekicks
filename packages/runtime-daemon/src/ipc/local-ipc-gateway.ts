@@ -177,8 +177,12 @@ export function sanitizeErrorMessage(value: unknown): string {
  * so backtracking stays linear on pathological input such as `'/'.repeat(N)`.
  */
 export function redactPathsFromString(input: string): string {
-  // Unix: conservative character class, so it stops at whitespace, quotes and similar.
-  let sanitized = input.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
+  // Unix: conservative character class, so it stops at whitespace, quotes and similar. A path
+  // starts at a token boundary, so a slash inside a name (`feature/login`) is not one.
+  let sanitized = input.replace(
+    /(?<![A-Za-z0-9_.-])(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g,
+    "<redacted-path>",
+  );
   // UNC: the host has no spaces, the share and path segments may.
   sanitized = sanitized.replace(
     /\\\\[A-Za-z0-9_.-]+(?:\\[A-Za-z0-9_. -]+)+(?::\d+(?::\d+)?)?/g,

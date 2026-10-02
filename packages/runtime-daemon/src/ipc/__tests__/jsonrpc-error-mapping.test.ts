@@ -53,6 +53,15 @@ describe("sanitizeFields — path redaction (Unix / UNC / Windows-drive)", () =>
     });
   });
 
+  it("keeps a slash inside a name, such as git's line refusing a branch", () => {
+    const out = sanitizeFields({
+      message: "fatal: 'feature/x y' is not a valid branch name; see /Users/me/repo",
+    });
+    expect(out).toEqual({
+      message: "fatal: 'feature/x y' is not a valid branch name; see <redacted-path>",
+    });
+  });
+
   it("redacts paths inside nested objects and arrays", () => {
     const out = sanitizeFields({
       issues: [{ path: ["localIpcPath"], hint: "/etc/daemon/config.toml" }],
