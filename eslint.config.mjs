@@ -310,7 +310,8 @@ const repositoryConfig = defineConfig(
   // `Buffer` would break it on Workers and in the browser. Scope is the compiled non-test
   // `src/*.ts` (package.json `files: ["dist"]`); `__tests__/**` run on Node under vitest, where
   // `Buffer` legitimately exists, so they are excluded. (`ignores` beside `files` is local to this
-  // block, not a global ignore.)
+  // block, not a global ignore.) Contracts is the bottom of the workspace graph, so it imports no
+  // other workspace package; every other package imports it.
   {
     files: ["packages/contracts/src/**/*.ts"],
     ignores: ["packages/contracts/src/**/__tests__/**"],
@@ -325,6 +326,12 @@ const repositoryConfig = defineConfig(
                 "@ai-sidekicks/contracts must stay isomorphic (Node + Cloudflare Workers + " +
                 "browser): node: builtins are forbidden. Use a Web-standard API instead.",
             },
+            {
+              group: ["@ai-sidekicks/*"],
+              message:
+                "@ai-sidekicks/contracts is the bottom of the workspace graph: it imports no " +
+                "other workspace package.",
+            },
           ],
         },
       ],
@@ -334,6 +341,27 @@ const repositoryConfig = defineConfig(
           name: "Buffer",
           message:
             "@ai-sidekicks/contracts must stay isomorphic: Buffer is Node-only. Use Uint8Array.",
+        },
+      ],
+    },
+  },
+  // The client SDK is what the renderer and the command line call the daemon through, so it holds
+  // only the wire: `@ai-sidekicks/contracts` is the one workspace package it may import, never the
+  // daemon, the control plane or an app.
+  {
+    files: ["packages/client-sdk/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^@ai-sidekicks/(?!contracts$)",
+              message:
+                "@ai-sidekicks/client-sdk imports @ai-sidekicks/contracts and no other " +
+                "workspace package.",
+            },
+          ],
         },
       ],
     },

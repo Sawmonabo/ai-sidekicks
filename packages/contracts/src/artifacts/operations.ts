@@ -3,6 +3,7 @@
 // the artifact calls answer with.
 import { z } from "zod";
 
+import { composedTextSchema } from "../internal/wire-scalars.js";
 import { ArtifactIdSchema, type ArtifactId } from "../provider-driver.js";
 import { SessionIdSchema, type SessionId } from "../session.js";
 
@@ -28,6 +29,36 @@ export interface ArtifactListRequest {
 /** Parses an {@link ArtifactListRequest}. */
 export const ArtifactListRequestSchema: z.ZodType<ArtifactListRequest, ArtifactListRequest> = z
   .object({ sessionId: SessionIdSchema })
+  .strict();
+
+/**
+ * One artifact in a session's list: a plan the agent finished, or a file or folder a chat wrote.
+ * `title` is a plan's first heading, or a file's or folder's path; a plan's state word is its
+ * manifest's `state`.
+ */
+export interface ArtifactListEntry {
+  manifest: ArtifactManifest;
+  title: string;
+  versionCount: number;
+}
+
+/** The session's artifacts. */
+export interface ArtifactListResponse {
+  artifacts: ArtifactListEntry[];
+}
+/** Parses an {@link ArtifactListResponse}; every listed artifact has at least one version. */
+export const ArtifactListResponseSchema: z.ZodType<ArtifactListResponse> = z
+  .object({
+    artifacts: z.array(
+      z
+        .object({
+          manifest: ArtifactManifestSchema,
+          title: composedTextSchema,
+          versionCount: z.number().int().positive(),
+        })
+        .strict(),
+    ),
+  })
   .strict();
 
 /**

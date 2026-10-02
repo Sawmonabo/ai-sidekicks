@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
+import { TokensPerRunSchema, UsdMicrosSchema } from "./session-cost.js";
 
 /** `Stop a run after`'s steps, in minutes; `null` is `No limit`. */
 export type RunTimeLimitMinutes = 30 | 60 | 240 | 720 | 1440;
@@ -26,6 +27,8 @@ const WRITABLE_CONFIG_MEMBER_SCHEMAS = {
   runTimeLimitMinutes: z.literal(RUN_TIME_LIMIT_MINUTES).nullable(),
   workflowChainAskAfterRuns: z.literal(WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS).nullable(),
   maxStepsPerTurn: z.number().int().positive().nullable(),
+  spendLimitUsdMicros: UsdMicrosSchema.nullable(),
+  tokensPerRun: TokensPerRunSchema.nullable(),
   toolMemoryCapBytes: SizeBytesSchema.nullable(),
   packageCacheLimitBytes: SizeBytesSchema.nullable(),
   recordTraces: z.boolean(),
@@ -42,6 +45,10 @@ export interface DaemonConfigSettings {
   workflowChainAskAfterRuns: WorkflowChainAskAfterRuns | null;
   /** `Max steps per turn`; `null` is `Unlimited`, each provider's own behavior. */
   maxStepsPerTurn: number | null;
+  /** `Spend limit`, in micro-dollars, what each new session starts from; `null` is `Unlimited`. */
+  spendLimitUsdMicros: number | null;
+  /** `Tokens per run`, what each new session starts from; `null` is `Unlimited`. */
+  tokensPerRun: number | null;
   /** `Memory cap for tool processes`; `null` is no cap. */
   toolMemoryCapBytes: number | null;
   /** `Cache limit`, applied to each package cache on its own; `null` is `Unlimited`. */

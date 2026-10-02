@@ -13,7 +13,12 @@ import {
 } from "./agent-definition.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { jsonUtf8ByteLength } from "./jsonrpc.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
+import {
+  ProviderAccountIdSchema,
+  ProviderNameSchema,
+  type ProviderAccountId,
+  type ProviderName,
+} from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { UsdMicrosSchema } from "./session-cost.js";
 import {
@@ -358,12 +363,12 @@ export const WORKFLOW_SANDBOX_UNAVAILABLE_CODE: WorkflowSandboxUnavailableCode =
   "workflow.sandbox_unavailable";
 /** The sandbox failure's details: whose sandbox, and its wrapper's own error. */
 export interface WorkflowSandboxUnavailableDetails {
-  provider: "claude-code" | "codex";
+  provider: ProviderName;
   detail: string;
 }
 /** Wire schema for {@link WorkflowSandboxUnavailableDetails}. */
 export const WorkflowSandboxUnavailableDetailsSchema: z.ZodType<WorkflowSandboxUnavailableDetails> =
-  z.object({ provider: z.enum(["claude-code", "codex"]), detail: z.string().min(1) }).strict();
+  z.object({ provider: ProviderNameSchema, detail: z.string().min(1) }).strict();
 
 /** A full-tier Code step whose package install did not finish. */
 export type WorkflowCodeInstallFailedCode = "workflow.code_install_failed";

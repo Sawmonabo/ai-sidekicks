@@ -196,9 +196,12 @@ export {
   ArtifactTypeSchema,
 } from "./artifacts/manifest.js";
 export type { ArtifactManifest, ArtifactState, ArtifactType } from "./artifacts/manifest.js";
+export { ARTIFACT_METHOD_DESCRIPTORS } from "./artifacts/methods.js";
+export type { ArtifactMethodDescriptors } from "./artifacts/methods.js";
 export {
   ARTIFACT_REFUSAL_CODES,
   ArtifactListRequestSchema,
+  ArtifactListResponseSchema,
   ArtifactPayloadEncodingSchema,
   ArtifactReadRequestSchema,
   ArtifactReadResponseSchema,
@@ -206,7 +209,9 @@ export {
 } from "./artifacts/operations.js";
 export type {
   ArtifactByteRange,
+  ArtifactListEntry,
   ArtifactListRequest,
+  ArtifactListResponse,
   ArtifactPayloadEncoding,
   ArtifactPayloadText,
   ArtifactPdfPreview,
@@ -786,6 +791,7 @@ export type {
   RunRefusalChoiceRequestedEvent,
   RunRefusalChoiceResolvedEvent,
   RunStepLimitReachedEvent,
+  RunTokenLimitReachedEvent,
   RunUsageCreditsChoiceRequestedEvent,
   RunUsageCreditsChoiceResolvedEvent,
   SessionArchivedEvent,
@@ -803,6 +809,7 @@ export type {
   SessionRenamedEvent,
   SessionRestoreFinishedEvent,
   SessionSideQuestionAnsweredEvent,
+  SessionSpendLimitReachedEvent,
   SessionSweptToRepoRootEvent,
   SessionUnmutedEvent,
   SessionUnpinnedEvent,
@@ -2108,6 +2115,7 @@ export {
   InterventionRequestResponseSchema,
   InterventionStateSchema,
   RUN_CONTROL_METHOD_DESCRIPTORS,
+  RUN_INVALID_TRANSITION_CODE,
   RunControlAckSchema,
   RunFailureCategorySchema,
   RunPauseRequestSchema,
@@ -2128,6 +2136,7 @@ export type {
   RunControlAck,
   RunControlMethodDescriptors,
   RunFailureCategory,
+  RunInvalidTransitionCode,
   RunPauseRequest,
   RunReadAccessor,
   RunReadSnapshot,
@@ -2227,6 +2236,7 @@ export {
   ModerationReviewFlaggedPayloadSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
+  RunTokenLimitReachedPayloadSchema,
   SESSION_CONTROL_METHOD_DESCRIPTORS,
   SESSION_MODES,
   SESSION_REVIEW_TARGETS,
@@ -2253,8 +2263,11 @@ export {
   SessionSideQuestionAnsweredPayloadSchema,
   SessionSideQuestionAskRequestSchema,
   SessionSideQuestionAskResponseSchema,
+  SessionSpendLimitReachedPayloadSchema,
+  SessionSpendLimitUpdateRequestSchema,
   SessionTerminalProviderSessionListRequestSchema,
   SessionTerminalProviderSessionListResponseSchema,
+  SessionTokensPerRunUpdateRequestSchema,
   SideQuestionIdSchema,
 } from "./session-controls.js";
 export type {
@@ -2264,6 +2277,7 @@ export type {
   ProviderWarningSource,
   RunSafetyBufferingUpdatedPayload,
   RunStepLimitReachedPayload,
+  RunTokenLimitReachedPayload,
   SessionAcknowledgement,
   SessionAddressedRequest,
   SessionAutoCompactUpdateRequest,
@@ -2292,8 +2306,11 @@ export type {
   SessionSideQuestionAnsweredPayload,
   SessionSideQuestionAskRequest,
   SessionSideQuestionAskResponse,
+  SessionSpendLimitReachedPayload,
+  SessionSpendLimitUpdateRequest,
   SessionTerminalProviderSessionListRequest,
   SessionTerminalProviderSessionListResponse,
+  SessionTokensPerRunUpdateRequest,
   SideQuestionId,
   TerminalProviderSession,
 } from "./session-controls.js";
@@ -2315,6 +2332,7 @@ export {
   SessionCostReceiptProviderSchema,
   SessionCostReceiptRequestSchema,
   SessionCostReceiptSchema,
+  TokensPerRunSchema,
   UsdMicrosSchema,
 } from "./session-cost.js";
 export type {
@@ -2839,6 +2857,8 @@ export {
   WorkflowExpressionPreviewRequestSchema,
   WorkflowExpressionPreviewResponseSchema,
   WorkflowLayoutSetRequestSchema,
+  WorkflowPermissionLevelUpdateRequestSchema,
+  WorkflowPermissionLevelUpdateResponseSchema,
   WorkflowPinDataSetRequestSchema,
   WorkflowPinDataSetResponseSchema,
   WorkflowWebhookListenerReadRequestSchema,
@@ -2860,6 +2880,8 @@ export type {
   WorkflowExpressionPreviewRequest,
   WorkflowExpressionPreviewResponse,
   WorkflowLayoutSetRequest,
+  WorkflowPermissionLevelUpdateRequest,
+  WorkflowPermissionLevelUpdateResponse,
   WorkflowPinDataSetRequest,
   WorkflowPinDataSetResponse,
   WorkflowTriggerUnarmableCode,

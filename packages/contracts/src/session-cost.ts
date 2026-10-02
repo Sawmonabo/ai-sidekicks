@@ -21,6 +21,9 @@ import { SessionIdSchema, type SessionId } from "./session.js";
 /** A cost in whole micro-dollars, the one money unit on the wire. */
 export const UsdMicrosSchema: z.ZodType<number, number> = z.number().int().nonnegative();
 
+/** A `Tokens per run` limit: input and output tokens together, for one run; at least one. */
+export const TokensPerRunSchema: z.ZodType<number, number> = z.number().int().positive();
+
 // orchestration.budgetRead
 
 /**
@@ -47,11 +50,14 @@ export const AgentSpendSchema: z.ZodType<AgentSpend> = z
   });
 
 /**
- * The session's committed spend and each agent's share of it. The committed figure is the one
- * session cost every surface shows, never a sum a client takes over the rows it holds.
+ * The session's two limits, its committed spend and each agent's share of it. A limit of `null`
+ * is `Unlimited`. The committed figure is the one session cost every surface shows, never a sum a
+ * client takes over the rows it holds.
  */
 export interface OrchestrationBudgetState {
   sessionId: SessionId;
+  spendLimitUsdMicros: number | null;
+  tokensPerRun: number | null;
   committedSpendUsdMicros: number;
   agentSpend: AgentSpend[];
 }
@@ -59,6 +65,8 @@ export interface OrchestrationBudgetState {
 export const OrchestrationBudgetStateSchema: z.ZodType<OrchestrationBudgetState> = z
   .object({
     sessionId: SessionIdSchema,
+    spendLimitUsdMicros: UsdMicrosSchema.nullable(),
+    tokensPerRun: TokensPerRunSchema.nullable(),
     committedSpendUsdMicros: UsdMicrosSchema,
     agentSpend: z.array(AgentSpendSchema),
   })

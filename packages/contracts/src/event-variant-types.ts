@@ -68,8 +68,10 @@ import type { RunQueuedPayload } from "./run-queued.js";
 import type {
   ModerationReviewFlaggedPayload,
   RunStepLimitReachedPayload,
+  RunTokenLimitReachedPayload,
   SessionNoticePayload,
   SessionSideQuestionAnsweredPayload,
+  SessionSpendLimitReachedPayload,
 } from "./session-controls.js";
 import type { SessionConvertedPayload } from "./session-convert.js";
 import type { SessionGoalClearedPayload, SessionGoalUpdatedPayload } from "./session-goal.js";
@@ -220,6 +222,12 @@ export type SessionSideQuestionAnsweredEvent = SessionEventVariant<
   "session.side_question_answered",
   "session_lifecycle",
   SessionSideQuestionAnsweredPayload
+>;
+/** Emitted when the session's spend passes its spend limit and its running turns stop. */
+export type SessionSpendLimitReachedEvent = SessionEventVariant<
+  "session.spend_limit_reached",
+  "session_lifecycle",
+  SessionSpendLimitReachedPayload
 >;
 /** Emitted when a git act leaves or changes the session's branch. */
 export type GitSettledEvent = SessionEventVariant<
@@ -378,6 +386,12 @@ export type RunStepLimitReachedEvent = SessionEventVariant<
   "run.step_limit_reached",
   "run_lifecycle",
   RunStepLimitReachedPayload
+>;
+/** Emitted when a run passes its token limit and ends. */
+export type RunTokenLimitReachedEvent = SessionEventVariant<
+  "run.token_limit_reached",
+  "run_lifecycle",
+  RunTokenLimitReachedPayload
 >;
 /** Emitted when the person's choice settles a run's recovery question. */
 export type RunRecoveryResolvedEvent = SessionEventVariant<
@@ -540,6 +554,7 @@ export type SessionEvent =
   | SessionGoalClearedEvent
   | SessionNoticeEvent
   | SessionSideQuestionAnsweredEvent
+  | SessionSpendLimitReachedEvent
   | GitSettledEvent
   | RelayPinRefusedEvent
   | CommandEndedEvent
@@ -562,6 +577,7 @@ export type SessionEvent =
   | ApprovalDenialOverriddenEvent
   | RunQueuedEvent
   | RunStepLimitReachedEvent
+  | RunTokenLimitReachedEvent
   | RunRecoveryResolvedEvent
   | RunRefusalChoiceRequestedEvent
   | RunRefusalChoiceResolvedEvent

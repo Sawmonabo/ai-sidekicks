@@ -11,6 +11,8 @@ function balancedReceipt(): SessionCostReceipt {
   return {
     sessionTotal: {
       sessionId: "session-cost" as SessionId,
+      spendLimitUsdMicros: null,
+      tokensPerRun: null,
       committedSpendUsdMicros: 4_500_250,
       agentSpend: [],
     },

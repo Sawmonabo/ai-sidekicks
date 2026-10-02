@@ -34,6 +34,7 @@ export type SessionEventType =
   | "run.turn_started"
   | "run.worker_shutdown"
   | "run.step_limit_reached"
+  | "run.token_limit_reached"
   | "run.recovery_resolved"
   | "run.refusal_choice_requested"
   | "run.refusal_choice_resolved"
@@ -87,6 +88,7 @@ export type SessionEventType =
   | "session.unmuted"
   | "session.converted"
   | "session.side_question_answered"
+  | "session.spend_limit_reached"
   | "session.restore_finished"
   | "agent.provider_binding_changed"
   | "agent.provider_binding_change_failed"
@@ -216,6 +218,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.goal_cleared",
   "session.notice",
   "session.side_question_answered",
+  "session.spend_limit_reached",
   "git.settled",
   "relay.pin_refused",
   "command.ended",
@@ -238,6 +241,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "approval.denial_overridden",
   "run.queued",
   "run.step_limit_reached",
+  "run.token_limit_reached",
   "run.recovery_resolved",
   "run.refusal_choice_requested",
   "run.refusal_choice_resolved",
@@ -284,6 +288,7 @@ export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "run.turn_started",
   "run.worker_shutdown",
   "run.step_limit_reached",
+  "run.token_limit_reached",
   "run.recovery_resolved",
   "run.refusal_choice_requested",
   "run.refusal_choice_resolved",
@@ -356,6 +361,7 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.unmuted",
   "session.converted",
   "session.side_question_answered",
+  "session.spend_limit_reached",
   "session.restore_finished",
   "agent.provider_binding_changed",
   "agent.provider_binding_change_failed",

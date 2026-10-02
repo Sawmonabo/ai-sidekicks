@@ -9,6 +9,8 @@ const LEAD_AGENT_ID = "77777777-7777-4777-8777-777777777777";
 
 const BUDGET = {
   sessionId: SESSION_ID,
+  spendLimitUsdMicros: null,
+  tokensPerRun: null,
   committedSpendUsdMicros: 9000,
   agentSpend: [
     {
