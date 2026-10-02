@@ -11,7 +11,7 @@ import {
   diagnosticStampAt,
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { type AnimationFrameCoordinator } from "../../animation-frame-coordinator.js";
+import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { RevealEngine } from "../reveal-engine.js";
 import { type RowRevealContextValue } from "../components/RowRevealProvider.js";
 import { type RevealDelta } from "../reveal-model.js";
@@ -37,33 +37,33 @@ export interface RevealBinding {
 /** Inputs to `useReveal`. */
 export interface UseRevealOptions {
   /**
-   * The feed's frame coordinator, which orders every drain. It can be replaced: the feed
+   * The feed's frame scheduler, which orders every drain. It can be replaced: the feed
    * re-mints it when the window's clock is replaced, and the effect below then re-mints the
    * engine (dropping lane text published so far) rather than submit drains to a scheduler
    * nothing arms.
    */
-  readonly frameCoordinator: AnimationFrameCoordinator;
+  readonly frameScheduler: AnimationFrameScheduler;
   /** The clock a diagnostic is stamped with. */
   readonly clock: Clock;
 }
 
 /** Mint one reveal engine for a feed, and bind it to the tree. */
 export function useReveal(options: UseRevealOptions): RevealBinding {
-  const { frameCoordinator, clock } = options;
-  const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameCoordinator }));
+  const { frameScheduler, clock } = options;
+  const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameScheduler }));
   // The engine is not React state; bumping the revision is how the tree learns it moved, so the
   // drain state read below is current. Nothing reads the number itself.
   const [, setFrameRevision] = useState(0);
 
   useEffect(() => {
     if (engine.isDisposed) {
-      setEngine(new RevealEngine({ frameCoordinator }));
+      setEngine(new RevealEngine({ frameScheduler }));
       return;
     }
     return () => {
       engine.dispose();
     };
-  }, [engine, frameCoordinator]);
+  }, [engine, frameScheduler]);
 
   useEffect(
     () =>

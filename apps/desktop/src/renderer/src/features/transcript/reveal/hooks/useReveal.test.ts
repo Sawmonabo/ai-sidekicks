@@ -7,15 +7,13 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
-import { useAnimationFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
 import { useReveal, type RevealBinding } from "./useReveal.js";
 
 const LANE_ID = "session-1:41";
 
 function mountBinding(clock: ManualClock): ReturnType<typeof renderHook<RevealBinding, void>> {
-  return renderHook(() =>
-    useReveal({ frameCoordinator: useAnimationFrameCoordinator(clock), clock }),
-  );
+  return renderHook(() => useReveal({ frameScheduler: useAnimationFrameScheduler(clock), clock }));
 }
 
 describe("the reveal binding — what the viewport is told", () => {

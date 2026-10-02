@@ -6,7 +6,7 @@
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
-import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import {
   REVEAL_CATCH_UP_MULTIPLIER,
   REVEAL_FRAME_CHARACTER_BUDGET,
@@ -27,9 +27,9 @@ import type {
 export interface RevealEngineOptions {
   /**
    * The frame this engine's drains run inside. Required, and the engine has no clock of its
-   * own: an optional coordinator would leave an unordered path open to any caller that forgot it.
+   * own: an optional scheduler would leave an unordered path open to any caller that forgot it.
    */
-  readonly frameCoordinator: AnimationFrameCoordinator;
+  readonly frameScheduler: AnimationFrameScheduler;
   /** Characters revealed per frame across all lanes; defaults to the shared frame budget. */
   readonly frameCharacterBudget?: number;
 }
@@ -42,7 +42,7 @@ export interface RevealEngineOptions {
  * quarantined and the others finish the frame.
  */
 export class RevealEngine {
-  readonly #frameCoordinator: AnimationFrameCoordinator;
+  readonly #frameScheduler: AnimationFrameScheduler;
   readonly #frameTaskKey: string;
   readonly #frameCharacterBudget: number;
   readonly #frameEmitter = new Emitter<RevealFrame>("reveal frame");
@@ -54,8 +54,8 @@ export class RevealEngine {
   #disposed = false;
 
   public constructor(options: RevealEngineOptions) {
-    this.#frameCoordinator = options.frameCoordinator;
-    this.#frameTaskKey = options.frameCoordinator.claimTaskKey("transcript-reveal-drain");
+    this.#frameScheduler = options.frameScheduler;
+    this.#frameTaskKey = options.frameScheduler.claimTaskKey("transcript-reveal-drain");
     this.#frameCharacterBudget = options.frameCharacterBudget ?? REVEAL_FRAME_CHARACTER_BUDGET;
   }
 
@@ -156,7 +156,7 @@ export class RevealEngine {
       return;
     }
     this.#frameSubmitted = true;
-    this.#frameCoordinator.scheduleRevealWork(this.#frameTaskKey, () => {
+    this.#frameScheduler.scheduleRevealWork(this.#frameTaskKey, () => {
       this.#frameSubmitted = false;
       this.#drainFrame();
     });
@@ -166,7 +166,7 @@ export class RevealEngine {
     if (!this.#frameSubmitted) {
       return;
     }
-    this.#frameCoordinator.cancel("reveal-work", this.#frameTaskKey);
+    this.#frameScheduler.cancel("reveal-work", this.#frameTaskKey);
     this.#frameSubmitted = false;
   }
 
@@ -213,10 +213,10 @@ export class RevealEngine {
       });
     }
     this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });
-    // The series key comes from the coordinator, which also retires it on dispose: the task key
-    // alone repeats across coordinators (one per feed), and two spellings of one key retire
+    // The series key comes from the scheduler, which also retires it on dispose: the task key
+    // alone repeats across schedulers (one per feed), and two spellings of one key retire
     // nothing.
-    recordRevealDrain(this.#frameCoordinator.meterSeriesKeyFor(this.#frameTaskKey), spent);
+    recordRevealDrain(this.#frameScheduler.meterSeriesKeyFor(this.#frameTaskKey), spent);
     this.#armFrame();
   }
 

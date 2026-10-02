@@ -18,7 +18,7 @@ export const PERFORMANCE_METER_BOUNDS = {
    * Distinct live series one meter tracks before it stops opening new ones.
    *
    * A series is keyed by store scope, which the store registry bounds, or by a producer instance
-   * (a transcript feed's frame coordinator, a reveal engine under one), which nothing bounds
+   * (a transcript feed's frame scheduler, a reveal engine under one), which nothing bounds
    * because feeds mount and unmount. Instances retire their series on dispose, so this caps how
    * many producers are open at once. 64 is far above what a session can hold open; reaching it
    * means a key minted per event or never retired. The meter refuses the next key and counts the

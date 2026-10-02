@@ -1,4 +1,4 @@
-// The transcript's two-phase frame coordinator: scroll writes run first against the last clean
+// The transcript's two-phase frame scheduler: scroll writes run first against the last clean
 // geometry sample, then reveal work, so a write never lands against a height that reveal work
 // just changed. Tasks coalesce by key per phase; work for a phase that already ran waits for the
 // next frame; a throwing task is quarantined and reported on the diagnostic channel.
@@ -21,8 +21,8 @@ import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 export const ANIMATION_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;
 
 /**
- * The label every frame meter series carries, before the coordinator's ordinal. There is one
- * series per coordinator (one per feed): a shared key would fold two feeds into one p95.
+ * The label every frame meter series carries, before the scheduler's ordinal. There is one
+ * series per scheduler (one per feed): a shared key would fold two feeds into one p95.
  */
 const FRAME_TIME_METER_LABEL = "transcript-frame";
 
@@ -36,13 +36,13 @@ export interface AnimationFrameDiagnostic {
   readonly detail: string;
 }
 
-/** What the coordinator needs to arm frames. */
-export interface AnimationFrameCoordinatorOptions {
+/** What the scheduler needs to arm frames. */
+export interface AnimationFrameSchedulerOptions {
   readonly clock: Clock;
 }
 
 /** Per-frame work, ordered by phase and coalesced by task key. */
-export class AnimationFrameCoordinator {
+export class AnimationFrameScheduler {
   readonly #clock: Clock;
   readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("animation frame diagnostic");
   /** One insertion-ordered queue per phase; a key holds at most one task. */
@@ -51,11 +51,11 @@ export class AnimationFrameCoordinator {
     "reveal-work": new Map(),
   };
 
-  /** Never resets, so two coordinators in one renderer process keep distinct identities. */
-  static #nextCoordinatorOrdinal = 1;
+  /** Never resets, so two schedulers in one renderer process keep distinct identities. */
+  static #nextSchedulerOrdinal = 1;
 
-  /** This coordinator's identity — the prefix every reading it produces is keyed by. */
-  readonly #coordinatorId: string;
+  /** This scheduler's identity — the prefix every reading it produces is keyed by. */
+  readonly #schedulerId: string;
 
   /**
    * Every task key handed out, so `dispose` can retire the meter series opened under them.
@@ -68,26 +68,26 @@ export class AnimationFrameCoordinator {
   #nextTaskKeyOrdinal = 1;
   #disposed = false;
 
-  public constructor(options: AnimationFrameCoordinatorOptions) {
+  public constructor(options: AnimationFrameSchedulerOptions) {
     this.#clock = options.clock;
-    this.#coordinatorId = `${FRAME_TIME_METER_LABEL}#${String(AnimationFrameCoordinator.#nextCoordinatorOrdinal)}`;
-    AnimationFrameCoordinator.#nextCoordinatorOrdinal += 1;
+    this.#schedulerId = `${FRAME_TIME_METER_LABEL}#${String(AnimationFrameScheduler.#nextSchedulerOrdinal)}`;
+    AnimationFrameScheduler.#nextSchedulerOrdinal += 1;
   }
 
   /**
-   * This coordinator's identity, for a reader naming which feed a series came from. A holder
-   * building a series key uses `meterSeriesKeyFor`: a task key alone repeats across coordinators.
+   * This scheduler's identity, for a reader naming which feed a series came from. A holder
+   * building a series key uses `meterSeriesKeyFor`: a task key alone repeats across schedulers.
    */
-  public get coordinatorId(): string {
-    return this.#coordinatorId;
+  public get schedulerId(): string {
+    return this.#schedulerId;
   }
 
   /**
-   * The meter series key for a holder of one of this coordinator's task keys. The holder
+   * The meter series key for a holder of one of this scheduler's task keys. The holder
    * records under it and `dispose` retires it, so both must spell the same string.
    */
   public meterSeriesKeyFor(taskKey: string): string {
-    return `${this.#coordinatorId}/${taskKey}`;
+    return `${this.#schedulerId}/${taskKey}`;
   }
 
   /**
@@ -126,7 +126,7 @@ export class AnimationFrameCoordinator {
 
   /**
    * Drop a submitted task. Idempotent, and safe for a key that never ran. Canceling the last
-   * pending task also releases the armed frame, so an idle coordinator holds no timer.
+   * pending task also releases the armed frame, so an idle scheduler holds no timer.
    */
   public cancel(phase: AnimationFramePhase, taskKey: string): void {
     this.#queueByPhase[phase].delete(taskKey);
@@ -156,11 +156,11 @@ export class AnimationFrameCoordinator {
   }
 
   /**
-   * Terminal: a disposed coordinator arms nothing and runs nothing. It also retires the meter
+   * Terminal: a disposed scheduler arms nothing and runs nothing. It also retires the meter
    * series its identity opened (its `frame-time` key and one `reveal-drain` key per task key),
    * because the ordinal never resets and unretired keys would fill the registry's series bound,
-   * after which every further feed is refused. The coordinator owns the drain keys because the
-   * engine composes them from this coordinator's identity and its own task key.
+   * after which every further feed is refused. The scheduler owns the drain keys because the
+   * engine composes them from this scheduler's identity and its own task key.
    */
   public dispose(): void {
     if (this.#armedFrame !== undefined) {
@@ -171,7 +171,7 @@ export class AnimationFrameCoordinator {
       queue.clear();
     }
     this.#diagnosticEmitter.clear();
-    retireFrameTimeSeries(this.#coordinatorId);
+    retireFrameTimeSeries(this.#schedulerId);
     for (const taskKey of this.#claimedTaskKeys) {
       retireRevealDrainSeries(this.meterSeriesKeyFor(taskKey));
     }
@@ -179,7 +179,7 @@ export class AnimationFrameCoordinator {
     this.#disposed = true;
   }
 
-  /** Whether this coordinator has been torn down. Read by a holder's re-mint arm. */
+  /** Whether this scheduler has been torn down. Read by a holder's re-mint arm. */
   public get isDisposed(): boolean {
     return this.#disposed;
   }
@@ -222,7 +222,7 @@ export class AnimationFrameCoordinator {
       }
     }
     this.#drainingPhaseIndex = undefined;
-    recordFrameTime(this.#coordinatorId, readPerformanceMeterTime() - startedAt);
+    recordFrameTime(this.#schedulerId, readPerformanceMeterTime() - startedAt);
     // After the recording: arming first would put the next frame's scheduling inside this
     // frame's reading.
     this.#armFrame();
