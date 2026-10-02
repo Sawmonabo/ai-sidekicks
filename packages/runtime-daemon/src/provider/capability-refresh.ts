@@ -1,16 +1,13 @@
 /**
- * Capability refresh: the CLI-version floor gate and the scheduler that re-reads capabilities. Each
+ * Capability refresh: the CLI-version floor gate and the refresher that re-reads capabilities. Each
  * provider's floor value is on its descriptor.
  *
  * - The floor fails closed with two 409 codes: `driver.cli_version_unparseable` (no canonical
  *   semver) and `driver.cli_version_below_floor`. Neither is `version.floor_exceeded`, which
  *   governs client and event-envelope floors. A build at or above the floor is admitted.
- * - Each tick pairs `refreshDeclaration()` with the zero-turn `probeAuth()`, because auth state is
- *   not on `GetCapabilitiesResult`; a capabilities-only poll would leave admission auth state stale
- *   after a logout. Mid-run credential expiry stays with the live `reauth-required` signal.
- * - Change detection belongs to `DriverCapabilitiesWriter`; the scheduler adds none. It owns the
- *   per-(node, driver) auth-state record that run admission reads; a thrown probe records
- *   `indeterminate`: fail closed, yet distinct from `unauthenticated`.
+ * - The refresher reads on demand only, never on a timer, and holds no auth record: readiness to
+ *   admit a run comes from the account's stored health. Change detection belongs to
+ *   `DriverCapabilitiesWriter`; the refresher adds none.
  */
 
 import type { ProviderName } from "@ai-sidekicks/contracts";
@@ -18,9 +15,9 @@ import semver from "semver";
 
 import { type CapabilityDetectionReading, isCapabilityProbeError } from "./capability-probe.js";
 import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writer.js";
-import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
-import type { DriverAuthProbeResult, DriverCliVersionReport } from "./provider-driver.js";
+import type { DriverCliVersionReport } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 
 /**
@@ -96,79 +93,42 @@ export function assertCliVersionMeetsFloor(
   }
 }
 
-/** The refresh cadence: 15 minutes, a constant rather than a constructor option. */
-export const CAPABILITY_REFRESH_INTERVAL_MS: number = 15 * 60 * 1000;
-
 /**
- * The liveness backstop for one poll leg, well inside the cadence: a leg that never settles would
- * hold its `#pollsInFlight` key and wedge the node. It abandons the promise; only the seam's own
- * deadline (`resolveProviderExecutable` in `version-gate.ts`) can cancel provider work.
+ * The liveness backstop for one driver's read: a read that never settles would hold the in-flight
+ * slot and wedge every later refresh. It abandons the promise; only the seam's own deadline
+ * (`resolveProviderExecutable` in `version-gate.ts`) can cancel provider work.
  */
-export const CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS: number = 2 * 60 * 1000;
+export const CAPABILITY_REFRESH_READ_TIMEOUT_MS: number = 2 * 60 * 1000;
 
 /**
- * One driver's refresh pair on one runtime node, as injected closures so the scheduler needs no
- * provider process. Both must settle; their implementer owns the deadline, and the poll-leg timeout
- * turns a hang into a reported failure but cannot cancel the work.
+ * One driver's re-read, as an injected closure so the refresher needs no provider process. It
+ * re-reads the declaration and declares it through the writer, which owns change detection; the
+ * result is ignored. Every read takes a new detection reading: replaying an earlier one would hide
+ * a capability that has since disappeared.
  */
 export interface CapabilityRefreshDriverEntry {
-  /** Canonical driver id; the auth-record key. */
+  /** Canonical driver id. */
   readonly driverName: ProviderName;
-  /**
-   * Re-reads the declaration and declares it through the writer, which owns change detection; the
-   * result is ignored. Every poll must take a new detection reading: replaying the attach-time one
-   * would hide a capability that has since disappeared and report `probed` for a stale answer.
-   */
   readonly refreshDeclaration: () => Promise<DeclareDriverCapabilitiesResult>;
-  /** The zero-turn authentication probe, paired with every refresh. */
-  readonly probeAuth: () => Promise<DriverAuthProbeResult>;
-}
-
-/** What the scheduler is handed at node attach. */
-export interface CapabilityRefreshNodeRegistration {
-  readonly nodeId: string;
-  readonly drivers: readonly CapabilityRefreshDriverEntry[];
 }
 
 /**
- * The per-(node, driver) auth-state record run admission consumes. `detail` may carry personal
- * data, so it stays in memory and is never persisted or emitted here.
- */
-export interface DriverAuthStateRecord {
-  readonly status: DriverAuthProbeResult["status"];
-  readonly detail?: string | undefined;
-  /** When the probe answered (epoch ms) — staleness is the reader's judgment. */
-  readonly observedAtMs: number;
-}
-
-/**
- * A structured report of a failed poll leg, for the optional callback; every failure also reaches
- * the diagnostics emitter. One failure never kills the timer or a sibling's poll.
+ * A structured report of a failed read, for the optional callback; every failure also reaches the
+ * diagnostics emitter. One driver's failure never stops a sibling's read.
  */
 export interface CapabilityRefreshDiagnostic {
-  readonly nodeId: string;
   readonly driverName: ProviderName;
   /**
    * `capability-probe` refines `capability-refresh`: the detection read runs inside
    * `refreshDeclaration()`, and this marks failures the probe surface caused. A read that only
    * withdrew a flag has its own kind (see {@link emitCapabilityDetectionDiagnostics}).
    */
-  readonly leg: "capability-refresh" | "auth-probe" | "capability-probe";
+  readonly leg: "capability-refresh" | "capability-probe";
   /** The typed error's registered code, where the failure carried one. */
   readonly code?: string | undefined;
   readonly message: string;
   readonly timedOut: boolean;
 }
-
-// Keyed by the closed leg union so a leg without a kind is a compile error; `capability-probe`
-// shares `capability_refresh_failed` because it is the same condition.
-const CAPABILITY_REFRESH_DIAGNOSTIC_KINDS: Readonly<
-  Record<CapabilityRefreshDiagnostic["leg"], DriverDiagnosticKind>
-> = Object.freeze({
-  "capability-refresh": "capability_refresh_failed",
-  "capability-probe": "capability_refresh_failed",
-  "auth-probe": "auth_probe_failed",
-});
 
 /**
  * Reports every flag a successful detection read withdrew, under `capability_flag_withdrawn` and
@@ -199,41 +159,33 @@ export function emitCapabilityDetectionDiagnostics(
   }
 }
 
-/** What the scheduler needs to report poll failures. */
-export interface CapabilityRefreshSchedulerDependencies {
-  /** Required, so no node's refresh failures go uncounted. */
+/** What the refresher reads and where it reports a failed read. */
+export interface CapabilityRefresherDependencies {
+  /** The drivers this machine runs; each is re-read on every refresh. */
+  readonly drivers: readonly CapabilityRefreshDriverEntry[];
+  /** Required, so no refresh failure goes uncounted. */
   readonly diagnostics: DriverDiagnosticsEmitter;
   /** Structured delivery of the same failures, in addition to `diagnostics`. */
   readonly onDiagnostic?: (diagnostic: CapabilityRefreshDiagnostic) => void;
 }
 
-interface ScheduledNode {
-  readonly registration: CapabilityRefreshNodeRegistration;
-  readonly timer: NodeJS.Timeout;
-  /**
-   * Monotonic lifetime token: a poll re-checks it before writing, so a detached lifetime cannot
-   * write a stale credential reading into a re-attached node.
-   */
-  readonly generation: number;
-}
-
-/** One poll leg's settlement under the scheduler's liveness backstop. */
-type PollLegOutcome<TValue> =
-  | { readonly settled: "fulfilled"; readonly value: TValue }
+/** One read's settlement under the refresher's liveness backstop. */
+type RefreshReadOutcome =
+  | { readonly settled: "fulfilled" }
   | { readonly settled: "rejected"; readonly reason: unknown }
   | { readonly settled: "timed-out" };
 
-// On timeout the leg's promise is abandoned, not canceled. Both settlement paths attach before the
+// On timeout the read's promise is abandoned, not canceled. Both settlement paths attach before the
 // race, so a late rejection is never unhandled.
-async function settleLegWithinDeadline<TValue>(
-  runLeg: () => Promise<TValue>,
+async function settleReadWithinDeadline(
+  runRead: () => Promise<unknown>,
   deadlineMs: number,
-): Promise<PollLegOutcome<TValue>> {
-  let legPromise: Promise<PollLegOutcome<TValue>>;
+): Promise<RefreshReadOutcome> {
+  let readPromise: Promise<RefreshReadOutcome>;
   try {
-    legPromise = runLeg().then(
-      (value): PollLegOutcome<TValue> => ({ settled: "fulfilled", value }),
-      (reason: unknown): PollLegOutcome<TValue> => ({ settled: "rejected", reason }),
+    readPromise = runRead().then(
+      (): RefreshReadOutcome => ({ settled: "fulfilled" }),
+      (reason: unknown): RefreshReadOutcome => ({ settled: "rejected", reason }),
     );
   } catch (cause) {
     // A seam that throws synchronously produced no promise to race.
@@ -241,7 +193,7 @@ async function settleLegWithinDeadline<TValue>(
   }
 
   let deadlineTimer: NodeJS.Timeout | undefined;
-  const deadlinePromise = new Promise<PollLegOutcome<TValue>>((resolve) => {
+  const deadlinePromise = new Promise<RefreshReadOutcome>((resolve) => {
     deadlineTimer = setTimeout(() => {
       resolve({ settled: "timed-out" });
     }, deadlineMs);
@@ -249,7 +201,7 @@ async function settleLegWithinDeadline<TValue>(
   });
 
   try {
-    return await Promise.race([legPromise, deadlinePromise]);
+    return await Promise.race([readPromise, deadlinePromise]);
   } finally {
     if (deadlineTimer !== undefined) {
       clearTimeout(deadlineTimer);
@@ -258,189 +210,83 @@ async function settleLegWithinDeadline<TValue>(
 }
 
 /**
- * One timer per attached runtime node, each tick polling every registered driver's refresh and
- * auth-probe pair. `refreshNow` is the lever for provider-push updates.
+ * Re-reads every driver's capabilities when asked: at daemon start and on each refresh trigger,
+ * never on a timer. A refresh asked for while one is running is dropped, not stacked, and nothing
+ * is read after `shutdown`.
  */
-export class CapabilityRefreshScheduler {
-  readonly #nodes: Map<string, ScheduledNode> = new Map();
-  // nodeId → driverName → latest probe record. Dropped on detach so a re-attach never answers
-  // admission with a previous lifetime's credential state.
-  readonly #authStates: Map<string, Map<ProviderName, DriverAuthStateRecord>> = new Map();
-  // Keyed by (nodeId, generation): a tick outliving the interval must not stack a second poll, and
-  // a detached lifetime's poll must not block the re-attached one.
-  readonly #pollsInFlight: Set<string> = new Set();
-  // Per-node lifetime counter minted at each `startForNode`. Never reset on detach, so a
-  // re-attach cannot reuse a token an in-flight poll still holds.
-  readonly #nodeGenerations: Map<string, number> = new Map();
+export class CapabilityRefresher {
+  readonly #drivers: readonly CapabilityRefreshDriverEntry[];
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #onDiagnostic: ((diagnostic: CapabilityRefreshDiagnostic) => void) | undefined;
+  #refreshInFlight = false;
+  #isShutDown = false;
 
-  constructor(dependencies: CapabilityRefreshSchedulerDependencies) {
+  constructor(dependencies: CapabilityRefresherDependencies) {
+    this.#drivers = dependencies.drivers;
     this.#diagnostics = dependencies.diagnostics;
     this.#onDiagnostic = dependencies.onDiagnostic;
   }
 
-  /**
-   * Starts (or restarts) the node's poll timer. The first poll fires one full cadence after attach,
-   * since attach already makes the initial declaration.
-   */
-  startForNode(registration: CapabilityRefreshNodeRegistration): void {
-    this.stopForNode(registration.nodeId);
-    const generation = (this.#nodeGenerations.get(registration.nodeId) ?? 0) + 1;
-    this.#nodeGenerations.set(registration.nodeId, generation);
-    const timer = setInterval(() => {
-      void this.#pollNode(registration.nodeId);
-    }, CAPABILITY_REFRESH_INTERVAL_MS);
-    // A refresh timer must never keep the process alive.
-    timer.unref();
-    this.#nodes.set(registration.nodeId, { registration, timer, generation });
-  }
-
-  /** Stop the node's timer and drop its auth records. */
-  stopForNode(nodeId: string): void {
-    const scheduled = this.#nodes.get(nodeId);
-    if (scheduled !== undefined) {
-      clearInterval(scheduled.timer);
-      this.#nodes.delete(nodeId);
-    }
-    this.#authStates.delete(nodeId);
-  }
-
-  /** Clear every node's timer. */
-  shutdown(): void {
-    for (const nodeId of [...this.#nodes.keys()]) {
-      this.stopForNode(nodeId);
-    }
-  }
-
-  /** Runs one poll now, outside the cadence; a push landing mid-poll is dropped, not stacked. */
-  async refreshNow(nodeId: string): Promise<void> {
-    await this.#pollNode(nodeId);
-  }
-
-  /** The admission-side read of the latest probe result for one driver. */
-  getAuthState(nodeId: string, driverName: ProviderName): DriverAuthStateRecord | undefined {
-    return this.#authStates.get(nodeId)?.get(driverName);
-  }
-
-  async #pollNode(nodeId: string): Promise<void> {
-    const scheduled = this.#nodes.get(nodeId);
-    if (scheduled === undefined) {
+  /** Reads every driver once; resolves when each read has settled or timed out. */
+  async refreshNow(): Promise<void> {
+    if (this.#isShutDown || this.#refreshInFlight) {
       return;
     }
-    const inFlightKey = this.#composeInFlightKey(nodeId, scheduled.generation);
-    if (this.#pollsInFlight.has(inFlightKey)) {
-      return;
-    }
-    this.#pollsInFlight.add(inFlightKey);
+    this.#refreshInFlight = true;
     try {
-      await Promise.all(
-        scheduled.registration.drivers.map((entry) =>
-          this.#pollDriver(nodeId, scheduled.generation, entry),
-        ),
-      );
+      await Promise.all(this.#drivers.map((entry) => this.#refreshDriver(entry)));
     } finally {
-      this.#pollsInFlight.delete(inFlightKey);
+      this.#refreshInFlight = false;
     }
   }
 
-  async #pollDriver(
-    nodeId: string,
-    generation: number,
-    entry: CapabilityRefreshDriverEntry,
-  ): Promise<void> {
-    // The pair settles independently: a refresh refusal (say, a below-floor install found
-    // mid-lifetime) must not suppress the auth reading, nor the reverse.
-    const [refreshOutcome, probeOutcome] = await Promise.all([
-      settleLegWithinDeadline(
-        () => entry.refreshDeclaration(),
-        CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS,
-      ),
-      settleLegWithinDeadline(() => entry.probeAuth(), CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS),
-    ]);
-
-    if (refreshOutcome.settled !== "fulfilled") {
-      this.#reportFailure(nodeId, entry.driverName, "capability-refresh", refreshOutcome);
-    }
-
-    if (probeOutcome.settled === "fulfilled") {
-      this.#recordAuthState(nodeId, generation, entry.driverName, {
-        status: probeOutcome.value.status,
-        detail: probeOutcome.value.detail,
-        observedAtMs: Date.now(),
-      });
-    } else {
-      // A thrown or never-settling probe is recorded `indeterminate` so the record never keeps
-      // a stale `authenticated` past a broken probe.
-      this.#recordAuthState(nodeId, generation, entry.driverName, {
-        status: "indeterminate",
-        observedAtMs: Date.now(),
-      });
-      this.#reportFailure(nodeId, entry.driverName, "auth-probe", probeOutcome);
-    }
+  /** Stops the refresher: every later `refreshNow` reads nothing. */
+  shutdown(): void {
+    this.#isShutDown = true;
   }
 
-  #recordAuthState(
-    nodeId: string,
-    generation: number,
-    driverName: ProviderName,
-    record: DriverAuthStateRecord,
-  ): void {
-    // A record from a poll begun under an earlier node lifetime must not land on the current
-    // one, or a re-attach would inherit a pre-detach `authenticated` reading it never probed.
-    if (this.#nodes.get(nodeId)?.generation !== generation) {
-      return;
+  async #refreshDriver(entry: CapabilityRefreshDriverEntry): Promise<void> {
+    const outcome = await settleReadWithinDeadline(
+      () => entry.refreshDeclaration(),
+      CAPABILITY_REFRESH_READ_TIMEOUT_MS,
+    );
+    if (outcome.settled !== "fulfilled") {
+      this.#reportFailure(entry.driverName, outcome);
     }
-    let nodeRecords = this.#authStates.get(nodeId);
-    if (nodeRecords === undefined) {
-      nodeRecords = new Map();
-      this.#authStates.set(nodeId, nodeRecords);
-    }
-    nodeRecords.set(driverName, record);
-  }
-
-  #composeInFlightKey(nodeId: string, generation: number): string {
-    // NUL-separated so a nodeId containing the separator cannot forge another lifetime's key.
-    return `${nodeId}\u0000${String(generation)}`;
   }
 
   #reportFailure(
-    nodeId: string,
     driverName: ProviderName,
-    dispatchedLeg: CapabilityRefreshDiagnostic["leg"],
-    outcome: PollLegOutcome<unknown>,
+    outcome: Exclude<RefreshReadOutcome, { readonly settled: "fulfilled" }>,
   ): void {
     const timedOut = outcome.settled === "timed-out";
     const reason = outcome.settled === "rejected" ? outcome.reason : undefined;
-    // Only the refresh leg can fail on the capability probe surface; the auth probe has its own
-    // failure vocabulary.
-    const leg: CapabilityRefreshDiagnostic["leg"] =
-      dispatchedLeg === "capability-refresh" && isCapabilityProbeError(reason)
-        ? "capability-probe"
-        : dispatchedLeg;
+    const leg: CapabilityRefreshDiagnostic["leg"] = isCapabilityProbeError(reason)
+      ? "capability-probe"
+      : "capability-refresh";
     const code =
       typeof reason === "object" &&
       reason !== null &&
       "code" in reason &&
-      typeof (reason as { code: unknown }).code === "string"
-        ? (reason as { code: string }).code
+      typeof reason.code === "string"
+        ? reason.code
         : undefined;
     const message = timedOut
-      ? `leg did not settle within ${String(CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS)}ms`
+      ? `read did not settle within ${String(CAPABILITY_REFRESH_READ_TIMEOUT_MS)}ms`
       : reason instanceof Error
         ? reason.message
         : String(reason);
 
     this.#diagnostics.emit({
       provider: driverName,
-      kind: CAPABILITY_REFRESH_DIAGNOSTIC_KINDS[leg],
+      kind: "capability_refresh_failed",
       rawWireType: null,
       dispositionReason: timedOut
-        ? "poll leg exceeded the scheduler's liveness backstop; abandoned and retried next cadence, with the auth record left fail-closed"
-        : "poll leg rejected; reported and retried next cadence, with the auth record left fail-closed",
-      details: { nodeId, leg, timedOut, code: code ?? null, message },
+        ? "capability read exceeded the refresher's liveness backstop; abandoned until the next trigger"
+        : "capability read rejected; reported, and read again on the next trigger",
+      details: { leg, timedOut, code: code ?? null, message },
     });
 
-    this.#onDiagnostic?.({ nodeId, driverName, leg, code, message, timedOut });
+    this.#onDiagnostic?.({ driverName, leg, code, message, timedOut });
   }
 }

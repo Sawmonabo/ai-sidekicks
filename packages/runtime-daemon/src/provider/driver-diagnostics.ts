@@ -49,11 +49,8 @@ export type DriverDiagnosticKind =
   | "thread_duplicate_child_announcement"
   // The first suppression per thread of a child's transcript projection, so deltas do not flood.
   | "thread_child_transcript_suppressed"
-  // A scheduled capability re-declaration threw or missed its liveness deadline.
+  // A capability re-declaration threw or missed its liveness deadline.
   | "capability_refresh_failed"
-  // An auth probe threw or missed its deadline; the node's auth state is left unchanged, not
-  // presumed authenticated.
-  | "auth_probe_failed"
   // A successful detection read withdrew a flag the matrix declares because this build lacks the
   // surface; the failed-read kinds above do not cover a capability quietly lost between refreshes.
   | "capability_flag_withdrawn"
@@ -133,7 +130,6 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_duplicate_child_announcement: "driver.thread_router.duplicate_child_announcement",
     thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
     capability_refresh_failed: "driver.capability_refresh.declaration_failed",
-    auth_probe_failed: "driver.capability_refresh.auth_probe_failed",
     capability_flag_withdrawn: "driver.capability_refresh.flag_withdrawn",
     callback_tool_seam_absent: "driver.callback_tool.seam_absent",
     callback_tool_registry_withheld: "driver.callback_tool.registry_withheld",
