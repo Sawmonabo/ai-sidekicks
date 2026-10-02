@@ -119,6 +119,7 @@ Every namespace below follows the same rules:
 | `session.not_found` | Session does not exist or is not accessible | 404 |
 | `session.already_closed` | Session has already been closed and cannot be modified | 409 |
 | `session.permission_level_unavailable` | A permission level the session's provider, its account or its model cannot run, sent on `session.permissionLevelUpdate` or as `plan.resolve`'s `fresh.level`. The screen never offers such a level, so only a stale or raced client sends one; nothing changes and no session is minted ([Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts); `data.fields`: `level`) | 400 |
+| `session.attachment_refused` | A file `session.attachmentAdd` did not stage. It rides per item, as the `cause` (`{code, reason}`) of one entry in the reply's `refused` list beside the files that were staged, never as the call's error. `reason` is one of `count_limit` (the message already carries as many files as it may), `folder` (a folder was offered; an agent reads a folder where it is), `provider_takes_no_attachments` (the session's provider accepts no files), `card_waiting` (a card above the composer is waiting on the person) or `copy_failed` (the copy to the daemon did not complete) | 422 |
 
 ### Auth
 
@@ -145,6 +146,7 @@ Daemon-local run-queue control codes (Plan-002). Run-control authority is daemon
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `queue.persistence_unavailable` | New queued run-control work was rejected fail-closed because the daemon's queue-persistence layer is unavailable (Plan-002 I-002-1 / ADR-003 — block new queued work when persistence is unavailable) | 503 |
+| `queue.change_refused` | A change to a waiting message refused: an edit (`run.queueCreate` with `replacesQueueItemId`) of a message the agent has already taken, or a `run.queueReorder` whose list is not exactly the waiting items. `data.fields.reason` is `already_taken` or `order_mismatch` | 409 |
 
 ### Intervention
 
@@ -256,6 +258,7 @@ Worktree lifecycle errors (Plan-007 D-007-4). The `worktree` namespace binds to 
 | `artifact.ingest_capacity_exhausted` | `AttachmentIngestInit` refused because the open-stream count has reached `max_active_ingest_streams` or the spool's volume, read at admission, has no room for this declaration beside the open streams' reservations — transient backpressure, retry later, **no stream state created** — no `ingestId` is minted, nothing is counted against `max_active_ingest_streams`, and no reservation held, so releasing one open stream admits the next Init; because the refusal issues no id, the zero-state property is observable through that next admission rather than through any identifier the caller could probe (admission is a serialized reserve-then-install section, so two concurrent Inits cannot both pass the bound). Deliberately distinct from the terminal `artifact.ingest_stream_invalid`: this one asks the caller to wait, that one to restart (reserved — registers with Plan-011 Task 11 per [Spec-012 §Ingest Validation And Payload Bounds (V1)](../../specs/012-artifacts-files-and-attachments.md#ingest-validation-and-payload-bounds-v1) stream protocol) | 429 |
 | `artifact.ingest_stream_invalid` | An ingest stream call that cannot proceed and cannot be retried in place: a sequence gap, regression, or same-sequence different-bytes chunk (which terminates the live stream and deletes its spool), any call on a terminated or lifetime-expired stream, an unknown `ingestId`, or a `Chunk` on a completed stream. The remedy is restart from Init. **Two replays are deliberately NOT this code**, because a lost response must never cost the caller its upload: an **exact replay of the last acknowledged chunk** — same sequence, same bytes — is acknowledged idempotently without re-appending; and a **replayed `Complete` on a completed stream whose completion record is still held** replays that record's original response verbatim, re-running no pipeline step and minting no second manifest row (the carved exception; the record shares the stream registry entry's in-memory lifetime, so past `max_ingest_stream_lifetime` the same retry does receive this code) (reserved — registers with Plan-011 Task 11 per the same stream protocol) | 409 |
 | `artifact.hash_mismatch` | Artifact content hash does not match the expected value | 409 |
+| `artifact.picture_refused` | A picture refused while staging, carried like `session.attachment_refused` as the `cause` of one entry in `session.attachmentAdd`'s `refused` list. `reason` is `pixel_limit` (its header claims more pixels, counted across every frame, than `ARTIFACT_PICTURE_PIXEL_LIMIT`, so nothing of it is decoded) or `damaged` (it does not decode cleanly) | 422 |
 
 **Two rows are reserved rather than live**, both in the ingest cohort: `artifact.ingest_capacity_exhausted` and `artifact.ingest_stream_invalid`. Both become live registrations with Plan-011's own legs when its phases reach them, each bound to one of that plan's assertions: the rows to Task 11's admission, sequencing and completion-record assertions, and `artifact.too_large` to Task 11's reservation assertion (a chunk exceeding its stream's Init-declared total).
 
@@ -265,12 +268,12 @@ Every refusal point of the workflow surface carries its own code, registered in 
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `workflow.not_found` | Workflow definition does not exist | 404 |
+| `workflow.not_found` | A workflow definition or run that does not exist | 404 |
 | `workflow.gate_closed` | Workflow gate has not been resolved and blocks progression | 409 |
-| `workflow.invalid_transition` | A run or step move its state does not allow, such as retrying a step that did not fail or reading results from an unfinished run | 409 |
-| `workflow.start_denied` | Workflow run start refused by Cedar under `Action::"workflow::start"`: an agent's start, or a run a trigger fires, judged when it fires with the person recorded as its starter | 403 |
-| `workflow.definition_refused` | A saved or imported document the daemon's own re-check refuses. `data.fields.findings` is the whole list, `[{rule, nodeIds, detail?}]`, `detail` set only on `code_packages_unresolved`, where it names the package; `rule` is one of the values — `cycle`, `orphan`, `empty_document`, `trigger_missing`, `trigger_duplicate`, `edge_into_trigger`, `edge_out_of_terminal`, `param_missing`, `expression_unparsable`, `expression_unknown_node`, `expression_regex_unsupported`, `tool_edge_without_tool_input`, `handle_type_unknown`, `scope_ref_invalid`, `unknown_key`, `secret_outside_sensitive_field` and `code_packages_unresolved` (two imports in one Code step naming one package at different versions). A Code step whose packages cannot be locked is not a finding: the save is kept, the node reads `Packages not locked` with the tool's own words, and a start of that version is refused with `workflow.code_packages_not_locked` until a later save locks it | 422 |
-| `workflow.revision_stale` | A form submitted against a stale form revision | 409 |
+| `workflow.invalid_transition` | A run or step move its state does not allow: retrying from a step that did not fail, posting the results of an unfinished run, or opening a fix session on a step that did not fail | 409 |
+| `workflow.start_denied` | Workflow run start refused by Cedar under `Action::"workflow::start"`, or whose principal could not be resolved: an agent's start, or a run a trigger fires, judged when it fires with the person recorded as its starter | 403 |
+| `workflow.definition_refused` | A saved or imported document the daemon's own re-check refuses. `data.fields.findings` is the whole list, `[{rule, nodeIds, detail?}]`, `detail` present exactly on `code_packages_unresolved`, where it names the package; `rule` is one of the values — `cycle`, `orphan`, `empty_document`, `trigger_missing`, `trigger_duplicate`, `edge_into_trigger`, `edge_out_of_terminal`, `param_missing`, `expression_unparsable`, `expression_unknown_node`, `expression_regex_unsupported`, `tool_edge_without_tool_input`, `handle_type_unknown`, `scope_ref_invalid`, `unknown_key`, `secret_outside_sensitive_field` and `code_packages_unresolved` (two imports in one Code step naming one package at different versions). A Code step whose packages cannot be locked is not a finding: the save is kept, the node reads `Packages not locked` with the tool's own words, and a start of that version is refused with `workflow.code_packages_not_locked` until a later save locks it | 422 |
+| `workflow.revision_stale` | A form draft save or a form submit carrying a revision that is no longer current | 409 |
 | `workflow.version_stale` | A save against a stale definition version | 409 |
 | `workflow.step_not_waiting` | A form submitted, an approval answered or a form read on a step that is no longer waiting | 409 |
 | `workflow.retry_unavailable` | `Retry from this step` refused while the source run is still going. `data.fields.reason` is `source_running` | 409 |
@@ -283,14 +286,14 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.repair_not_parked` | Frozen-definition re-pin refused: the target run is not parked — a running instance is never re-pinned, unconditionally, per [Spec-015 §Frozen-definition repair (SA-40)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-40); the refusal is total, leaving the run unchanged on its original pinned version (registers with Plan-014 T5.21) | 409 |
 | `workflow.repair_attempt_in_flight` | Frozen-definition re-pin refused: a step of the run is still in flight — the park's resume continues that step rather than starting it fresh (a usage-limit park by construction, which starts no new step), or a parked parallel branch holds a step that will continue later — so the refusal names the blocking step and the explicit fresh-start action that would discard it, instead of swapping the run-level definition pointer under steps already dispatched from the frozen bytes ([Spec-015 §Frozen-definition repair (SA-40)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-40), the run-wide fresh-start rule; refusal is total; registers with Plan-014 T5.21) | 409 |
 | `workflow.repair_version_unaccountable` | Frozen-definition re-pin refused: the target version cannot account for the nodes the run has already completed — it omits a node whose outputs the run holds, or its graph would leave a completed node unreachable, which [Spec-015 §Frozen-definition repair (SA-40)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-40) states is one failure rather than two; refusal is total, leaving the run parked on its original version with its schedule state untouched (registers with Plan-014 T5.21) | 409 |
-| `workflow.run_not_cancelable` | `workflow.runCancel` refused because the run already reached a terminal status — `succeeded`, `failed` or `crashed` — so there is nothing to cancel and reporting success would misinform the person about what their action did. Deliberately **not** the answer for a run already `canceled`: that call replays idempotently on the original `workflow.canceled` event with `alreadyCanceled: true`, minting no second status write and no second event, because a retried cancel must never cost the person a clear answer. Cancel is available on every `new`, `running` or `waiting` run, and a parked run is cancelable **without precondition** ([Spec-015 §Park integrity and cancelability (SA-41)](../../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-41)) (registers with Plan-014 T5.22) | 409 |
+| `workflow.run_not_cancelable` | `workflow.runCancel` refused because the run has ended, so there is nothing to cancel and reporting success would misinform the person about what their action did. Deliberately **not** the answer for a run already `canceled`: that call replays idempotently on the original `workflow.canceled` event with `alreadyCanceled: true`, minting no second status write and no second event, because a retried cancel must never cost the person a clear answer. Cancel is available on every `new`, `running` or `waiting` run and on a `failed` run parked on its failed step, which reads `failed` while it waits on Resume and has not ended; a parked run is cancelable **without precondition** ([Spec-015 §Park integrity and cancelability (SA-41)](../../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-41)) (registers with Plan-014 T5.22) | 409 |
 | `workflow.resume_not_parked` | `workflow.runResume` refused because the target run is not parked — there is no suspension to lift, so a resume would either be a no-op dressed as an action or a second dispatch of a running step. Distinct from `workflow.repair_not_parked`, which refuses the **re-pin leg** of a resume under [Spec-015 §Frozen-definition repair (SA-40)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-40): that code names a repair the run's state forbids, this one names a resume the run's state forbids, and collapsing them would leave the person unable to tell whether dropping the re-pin would have worked. Refusal is total; the run is unchanged. Resuming a parked run **ahead of** an armed `resumeAt` is not a refusal at all — the schedule is advisory pacing, the resume proceeds, and a still-spent provider account simply re-parks with its own `workflow.phase_suspended` (registers with Plan-014 T5.22) | 409 |
 
 **Step failures.** These codes fail a step rather than refuse a call: each rides the step's `error` on its row and the `workflow.step_failed` event, for the life of the run record, and the run then takes the step's own error disposition. Their status column is notional.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `workflow.code_over_budget` | A Code node over its 256 MB memory limit | 422 |
+| `workflow.code_over_budget` | A Code step over its memory budget, 256 MiB per node by default and settable | 422 |
 | `workflow.code_install_failed` | A full-tier Code step whose package install did not finish. `data.fields`: `reason` (`disk_space` \| `tool_error`) and `detail`, `bun`'s or `uv`'s own error | 500 |
 | `workflow.step_thread_failed` | A quick step's or an expression's thread that ended without an answer. `data.fields.reason`: `out_of_memory` \| `start_timeout` \| `exited` | 500 |
 | `workflow.sandbox_unavailable` | A full-tier Code step, or a shell step at the Sandboxed level, whose provider sandbox did not start — `@anthropic-ai/sandbox-runtime` for Claude Code, `codex sandbox` for Codex. `data.fields`: `provider` (`claude` \| `codex`) and `detail`, the wrapper's own error. The step never falls back to running unprotected, and no other level is substituted for the one the run holds | 503 |
@@ -310,6 +313,7 @@ Driver codes ride the daemon JSON-RPC wire with notional HTTP statuses.
 | `driver.capability_unsupported` | Requested capability is not supported by the driver. **Producers:** the `ProviderRegistry` pre-dispatch flag gate, the IPC layer's driver-implements-the-operation check, and a `driver.applyIntervention` **steer whose `attachments` list is non-empty**, refused **whole** at the single daemon ingress before any driver method runs. That third producer is the same fact as the other two: no V1 driver declares an attachment-delivery leg and no daemon seam yet resolves an `ArtifactId` to bytes, so the carrier the contract types cannot be honored — and the alternative is a supported steer answering `applied` after silently dropping every element, which is the loss the typed carrier exists to prevent. `data.fields` **depends on the producer and takes one of two wire shapes**, always carrying `driverId`: the registry's flag gate emits `{ driverId, flag }` (`flag` a `DriverCapabilityFlag`, forwarded unchanged by the IPC layer's driver-error translation), while the operation check and the attachment refusal emit `{ driverId, operation }` (`operation` a `ProviderDriver` method name — the attachment refusal takes this shape because no capability flag governs it, only the operation). A consumer reads whichever discriminating member is present and must not reject the other. It lifts when the daemon's attachment-reference resolver ships, at which point the arm is delivered rather than refused | 400 |
 | `driver.timeout` | Provider driver operation timed out | 504 |
 | `driver.cli_version_below_floor` | The provider CLI's reported version parsed and is below the per-driver minimum; capability read fails closed until the provider install is upgraded. A version the parser cannot read is never refused: the driver runs, keeping the printed version (`rawVersion`) without a parsed one ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) — distinct from `version.floor_exceeded`, the handshake's refusal of an app older than the service accepts, not a provider CLI install) | 409 |
+| `driver.text_neutralization_failed` | The driver refused an intervention's text before it reached the provider. When the driver knows before answering, it rides as `refusalCode` on `DriverInterventionResult` rather than as an error; otherwise the run's own `run.failed` carries it | 422 |
 
 ### Provider Account
 
@@ -328,8 +332,7 @@ Refusals on the node-local provider accounts ([Spec-025](../../specs/025-provide
 | `provideraccount.signin_in_flight` | A brokered sign-in is already in flight for this account. Refused rather than started, because at least one pinned provider holds exactly one active login slot and **silently drops the previous attempt** — a permissive second start would strand the person mid-flow on another device with no signal that their code had stopped working. The remedy is `providerAccount.loginCancel` on the in-flight attempt | 409 |
 | `provideraccount.credential_seal_refused` | The operating system's keychain would not take the token, so registration refuses and the token is stored nowhere else. `data.fields.cause` is one of `locked` (drawn `This machine's keychain is locked, so the token was not stored. Unlock it, then paste the token again.`) or `unavailable` (drawn `This machine has no keychain the app can store a token in, so the token was not stored. Use Sign in instead.`). Raised by the keychain alone: a Mac tells them apart by the keychain's own error (`errSecInteractionNotAllowed` is locked; `errSecNotAvailable` or `errSecNoSuchKeychain` is unavailable), and on Linux, where every entry opens the Secret Service explicitly, a locked collection is locked; where no Secret Service answers, the daemon keeps its items in one file in its own data folder, readable only by the person (mode `0600`) ([ADR-026](../../decisions/026-provider-credential-custody-posture.md)). The remedy is a host fix | 503 |
 | `provideraccount.provider_version_below_floor` | The installed provider binary is older than the release that honors the reserved credential-home variables. Refused fail-closed rather than spawned, because a binary that ignores the pin would silently authenticate against the person's real home. The payload names the provider, the observed version, and the required floor, so the client can route the person to an upgrade rather than to re-authentication. | 409 |
-
-`providerAccount.remove` is refused while sessions are on the account, naming those sessions so the person can move them first. Its code is the one `packages/contracts/src/provider-account.ts` registers with the verb, under the rules in [§Error Codes](#error-codes).
+| `provideraccount.account_in_use` | `providerAccount.remove` refused because a run bound to the account is live. `data.fields.sessionIds` names those sessions, at least one, so the person can move them first | 409 |
 
 ### Agent Definitions
 
@@ -367,7 +370,47 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 
 ### Gitflow
 
-The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md)) are the codes `packages/contracts/src/gitflow/` registers with its verbs, each with its reason list, under the rules in [§Error Codes](#error-codes). A failed Generate, `gitflow.commitMessageGenerate` or `gitflow.changeRequestTextGenerate`, is refused with the provider's own words and never falls back to the other provider.
+The review and ship surface's refusals ([Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md)), registered with their verbs in `packages/contracts/src/gitflow/`.
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `gitflow.generate_failed` | A Generate, `gitflow.commitMessageGenerate` or `gitflow.changeRequestTextGenerate`, failed. `data.fields.providerFailureDetail` carries the provider's own words, and nothing falls back to the other provider | 502 |
+| `gitflow.read_failed` | A read the review pane depends on still failed after the daemon's one retry, so the pane shows its own error state and keeps what it already drew | 500 |
+| `gitflow.host_invalid` | A host the person tried to add was not added, and nothing is saved. `data.fields.reason` is `not_a_host_name` (the name does not parse) or `not_answered` (neither `gh` nor `glab`, installed and signed in, answers for it) | 422 |
+
+### Voice
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `voice.unavailable` | Voice refused on an account its provider gives no voice: on Claude Code, an account that is neither a Claude sign-in nor a pasted Claude token. `data.fields`: `reason` (`provider_sign_in_required`) and `provider`, so the screen draws that provider's own sentence and remedy | 403 |
+| `voice.call_start_failed` | Codex could not start the call `voice.callStart` asked for | 502 |
+
+### Cloud
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `cloud.unavailable` | Sending to the cloud refused because this session cannot use its provider's cloud. `data.fields.reason` is `provider_sign_in_required` (a Codex account without a ChatGPT sign-in), `provider_subscription_required` (a Claude Code account without a claude.ai Pro, Max or Team sign-in) or `github_remote_required` (a project with no GitHub remote); `data.fields.provider` names the session's provider, so the screen draws that provider's own sentence and remedy | 403 |
+
+### Preview
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `preview.address_refused` | An address Preview will not open; the page stays where it was, and nothing is ever searched on the web. `data.fields.reason` is `scheme` (a scheme the pane cannot open) or `not_an_address` (the text is not an address at all). The details never echo the address. An address carrying a username or a password opens | 422 |
+| `preview.port_already_shared` | `preview.portShareAdd` named a port already on the shared list; nothing changes. `data.fields.port` is the port the request named | 409 |
+| `preview.port_not_shared` | A forward or a `preview.portTicketIssue` named a port that is not on the shared list. The machine forwards only listed ports, and only to its own loopback. `data.fields.port` is the port the request named | 403 |
+
+### Provider
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `provider.not_installed` | The provider's command is not installed, so a setting that needs it cannot be turned on: availability for new sessions, the shared terminal service, and the terminal plugin | 409 |
+| `provider.command_not_runnable` | Nothing runnable sits at the command path the person typed | 422 |
+
+### Daemon
+
+| Code | Description | HTTP Status |
+| --- | --- | --- |
+| `daemon.environment_name_refused` | An environment row's name refused at save, from `daemon.machineSettingsUpdate` or `repo.projectEnvironmentUpdate`; nothing is written and the rows stay as they were. `data.fields`: `name`, the refused name, so the page marks the row it was typed into, and `reason`, one of `notAName`, `credentialShaped` or `setByApp` | 422 |
 
 ### Attention
 
