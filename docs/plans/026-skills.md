@@ -50,7 +50,7 @@ The daemon's file watch over the agent origins, the record kept beside a provide
 - `packages/runtime-daemon/src/skills/` (NEW) — the skill roots registered on Plan-024's watch, the daemon's own parse of every `SKILL.md`, the whole-folder write, the scan the widening control renders, the console's own per-folder record kept through Plan-024's record mechanism, and the skills added to Plan-024's session pack (CP-026-2). The console never writes a folder and never computes a pack.
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the skill method namespace, nine operations: `skill.list`, `skill.subscribe`, `skill.fileRead`, `skill.create`, `skill.update`, `skill.availabilityUpdate`, `skill.scan`, `skill.recordReattach` and `skill.recordDiscard`.
 - `packages/contracts/src/skill.ts` (NEW) — the folder record with its `orphaned`, `disabledInProvider` and `loadError` facts, the file entry, the availability record, the scan result, the request/response pairs, and the two refusal codes, `skill.path_refused` (reason `escapes_folder` \| `duplicate_path` \| `names_entry_file`) and `skill.write_refused` (reason `plugin_read_only` \| `not_orphaned`), as strict schemas.
-- `packages/client-sdk/src/` (EXTEND) — the typed client the console and the CLI both call, plus its one barrel export line.
+- `packages/client-sdk/src/` (EXTEND) — the typed client the console and the CLI both call, plus its named exports in the package's `index.ts`.
 
 ## Phases
 

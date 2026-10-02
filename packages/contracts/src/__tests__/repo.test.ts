@@ -122,7 +122,7 @@ describe("RepoMountHealthSchema", () => {
   });
 });
 
-// A module the barrel does not re-export is invisible to every consumer of the package root.
+// A name the package root does not export is invisible to every consumer of the package.
 describe("the package root re-exports the contract core", () => {
   it.each([
     ["RepoMountIdSchema", contracts.RepoMountIdSchema],
