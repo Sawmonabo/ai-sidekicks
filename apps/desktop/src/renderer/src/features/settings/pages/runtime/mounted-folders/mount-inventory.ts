@@ -32,7 +32,7 @@ import { subscribeToSessionEventKinds } from "@renderer/store/session/session-ev
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
-export const MOUNT_INVENTORY_ORIGIN = "mount-inventory";
+const MOUNT_INVENTORY_ORIGIN = "mount-inventory";
 
 /** The call that lists a session's workspaces, each naming the mount it belongs to. */
 export type WorkspaceListCall = (

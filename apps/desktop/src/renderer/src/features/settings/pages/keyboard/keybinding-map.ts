@@ -1,8 +1,8 @@
 // The keyboard map: which chord runs which command, and how a keystroke becomes one.
 //
-// One row per command with its chord, command id and scoping when-expression. A chord that
-// collides in the same scope is never accepted without naming the collision, and a binding a
-// platform reserves renders as unavailable with the reason. Every verdict about a binding set is
+// One row per command with its chord. A chord that collides in the same scope is never
+// accepted without naming the collision, and a binding a platform reserves renders as
+// unavailable with the reason. Every verdict about a binding set is
 // the keybinding service's (`keybinding-audit.ts`); this module only joins the answers to rows.
 //
 // {@link readChordFromEvent} is the page's half of the recorder seam: the override store decides
@@ -17,7 +17,11 @@ import {
 } from "@renderer/registries/commands/command-types.js";
 import type { KeyboardMap } from "@shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
+import {
+  HOST_CHORD_PLATFORM,
+  formatChordForPlatform,
+  type ChordPlatform,
+} from "@renderer/lib/chord-format.js";
 
 /** One row of the keyboard map. */
 export interface KeybindingRow {
@@ -26,8 +30,6 @@ export interface KeybindingRow {
   readonly group: string;
   /** The chord bound to this command, or `undefined` when it has none. */
   readonly chord: string | undefined;
-  /** The when-grammar expression scoping the BINDING, or `undefined` when global. */
-  readonly whenExpression: string | undefined;
   /** Present when the host takes this chord before the console can. */
   readonly unavailableReason: string | undefined;
   /**
@@ -109,9 +111,6 @@ export function composeKeybindingRows(options: {
         title: command.title,
         group: command.group,
         chord: bound?.chord,
-        // The binding's scope, not the command's: a command may be offered everywhere while
-        // its chord is live in one place.
-        whenExpression: bound?.when,
         unavailableReason:
           bound === undefined ? undefined : reservedChordReason(bound.chord, platform),
         shippedChord: options.shippedBindings.find((binding) => binding.commandId === command.id)
@@ -122,16 +121,17 @@ export function composeKeybindingRows(options: {
 }
 
 /**
- * Narrow the rows to a typed query with the console's one matcher, as settings search does.
+ * Narrow the rows to a typed query with the app's one matcher, as settings search does.
  *
- * A row offers its title, command id, group, chord and when-scope; the best score decides. An
- * empty query answers every row in composition order. An absent chord or scope offers one
- * candidate fewer rather than a placeholder, which would rank a row for text nothing on it
- * says.
+ * A row offers what it draws: its title and its chord as the platform prints it (`⌘K`, not
+ * the stored `$mod+KeyK`); the best score decides. An empty query answers every row in
+ * composition order. An absent chord offers one candidate fewer rather than a placeholder,
+ * which would rank a row for text nothing on it says.
  */
 export function matchKeybindingRows(
   rows: readonly KeybindingRow[],
   query: string,
+  platform: ChordPlatform = HOST_CHORD_PLATFORM,
 ): readonly KeybindingRow[] {
   const trimmedQuery = query.trim();
   if (trimmedQuery === "") {
@@ -140,7 +140,7 @@ export function matchKeybindingRows(
   const scored: { readonly row: KeybindingRow; readonly score: number }[] = [];
   for (const row of rows) {
     let best: number | undefined;
-    for (const candidate of matchCandidatesOf(row)) {
+    for (const candidate of matchCandidatesOf(row, platform)) {
       const match = scoreSubsequence(candidate, trimmedQuery);
       if (match !== undefined && (best === undefined || match.score > best)) {
         best = match.score;
@@ -154,18 +154,11 @@ export function matchKeybindingRows(
   return scored.sort((left, right) => right.score - left.score).map((entry) => entry.row);
 }
 
-/**
- * The strings one row offers the scorer; the optional candidates are dropped where absent.
- */
-function matchCandidatesOf(row: KeybindingRow): readonly string[] {
-  const candidates = [row.title, row.commandId, row.group];
-  if (row.chord !== undefined) {
-    candidates.push(row.chord);
-  }
-  if (row.whenExpression !== undefined) {
-    candidates.push(row.whenExpression);
-  }
-  return candidates;
+/** The strings one row offers the scorer; the chord is dropped where the row has none. */
+function matchCandidatesOf(row: KeybindingRow, platform: ChordPlatform): readonly string[] {
+  return row.chord === undefined
+    ? [row.title]
+    : [row.title, formatChordForPlatform(row.chord, platform)];
 }
 
 /** Keys that are only ever held, never the key OF a chord. */

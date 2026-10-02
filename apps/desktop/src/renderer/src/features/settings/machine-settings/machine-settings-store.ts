@@ -2,8 +2,11 @@
 // snapshot; `machine-settings-holder.ts` owns its lifetime.
 
 import type { MachineSettings, MachineSettingsChange } from "@ai-sidekicks/contracts";
-import type { PreloadApi, Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "@renderer/lib/emitter.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NOTHING_CHOSEN,
@@ -19,6 +22,12 @@ import {
  */
 const ANSWER_KEY = "answer";
 
+/** The subsystem a refused settings write names as its author. */
+const MACHINE_SETTINGS_WRITE_ORIGIN = "machine-settings-write";
+
+/** The code a rejected write that carried none of its own is reported under. */
+const MACHINE_SETTINGS_WRITE_FAILED = "machine-settings-write-failed";
+
 /**
  * The machine settings for one window.
  *
@@ -26,7 +35,7 @@ const ANSWER_KEY = "answer";
  * each written change, so a delivery always installs and no separate read is made.
  */
 export class MachineSettingsStore {
-  readonly #machineSettings: PreloadApi["machineSettings"];
+  readonly #machineSettings: PlatformBridge["machineSettings"];
   readonly #changes = new Emitter<void>("machine settings change");
   #snapshot: MachineSettingsSnapshot = NOTHING_CHOSEN;
   #unsubscribe: Unsubscribe | undefined;
@@ -39,7 +48,7 @@ export class MachineSettingsStore {
   /** Writes in flight per member; a count, so one of two settling does not clear the row. */
   readonly #writesInFlight = new Map<MachineSettingsMember, number>();
 
-  public constructor(machineSettings: PreloadApi["machineSettings"]) {
+  public constructor(machineSettings: PlatformBridge["machineSettings"]) {
     this.#machineSettings = machineSettings;
   }
 
@@ -61,7 +70,7 @@ export class MachineSettingsStore {
         return;
       }
       this.#answers.supersede(this, ANSWER_KEY);
-      this.#publish({ ...this.#snapshot, reading, revision: this.#snapshot.revision + 1 });
+      this.#publish({ ...this.#snapshot, reading });
     });
   }
 
@@ -72,16 +81,12 @@ export class MachineSettingsStore {
     this.#unsubscribe = undefined;
   }
 
-  /** Whether this store has been superseded. Read by the holder's own test. */
-  public get isDisposed(): boolean {
-    return this.#disposed;
-  }
-
   /**
    * Choose one member's value.
    *
    * The service's answer (the file as written) is installed unless newer news arrived first.
-   * A rejected write is not caught: the member stops pending and the stored value stands.
+   * A rejected write records the service's refusal against the member, which stops pending
+   * and keeps the stored value.
    */
   public async choose<Member extends MachineSettingsMember>(
     member: Member,
@@ -92,28 +97,33 @@ export class MachineSettingsStore {
     this.#publish({
       ...this.#snapshot,
       pendingMembers: this.#pendingMembers(),
-      revision: this.#snapshot.revision + 1,
+      refusalByMember: this.#refusalsWith(member, undefined),
     });
     const change: MachineSettingsChange = { [member]: value };
     let written: MachineSettings | undefined;
+    let refusal: Refusal | undefined;
     try {
       written = await this.#machineSettings.write(change);
-    } finally {
-      this.#settleWrite(member);
-      if (!this.#disposed) {
-        const reading =
-          written !== undefined && answer.isCurrent
-            ? { settings: written }
-            : this.#snapshot.reading;
-        answer.release();
-        this.#publish({
-          ...this.#snapshot,
-          reading,
-          pendingMembers: this.#pendingMembers(),
-          revision: this.#snapshot.revision + 1,
-        });
-      }
+    } catch (error) {
+      refusal = coerceToRefusal(
+        error,
+        MACHINE_SETTINGS_WRITE_ORIGIN,
+        MACHINE_SETTINGS_WRITE_FAILED,
+      );
     }
+    this.#settleWrite(member);
+    if (this.#disposed) {
+      return;
+    }
+    const reading =
+      written !== undefined && answer.isCurrent ? { settings: written } : this.#snapshot.reading;
+    answer.release();
+    this.#publish({
+      ...this.#snapshot,
+      reading,
+      pendingMembers: this.#pendingMembers(),
+      refusalByMember: this.#refusalsWith(member, refusal),
+    });
   }
 
   #settleWrite(member: MachineSettingsMember): void {
@@ -123,6 +133,20 @@ export class MachineSettingsStore {
     } else {
       this.#writesInFlight.set(member, remaining);
     }
+  }
+
+  /** The refusals with `member`'s replaced, or dropped where `refusal` is `undefined`. */
+  #refusalsWith(
+    member: MachineSettingsMember,
+    refusal: Refusal | undefined,
+  ): ReadonlyMap<MachineSettingsMember, Refusal> {
+    const refusals = new Map(this.#snapshot.refusalByMember);
+    if (refusal === undefined) {
+      refusals.delete(member);
+    } else {
+      refusals.set(member, refusal);
+    }
+    return refusals;
   }
 
   /** The members still in flight, copied so a published snapshot never changes under a reader. */

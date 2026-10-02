@@ -3,7 +3,7 @@
 //
 // `SettingsPane` has already drawn the page frame and heading from the descriptor, so only the
 // body is missing and the honest reservation is the empty region it will fill. None of the
-// absence kinds fits: the page has not mounted, so it has asked the daemon for nothing. The
+// empty-state kinds fits: the page has not mounted, so it has asked the daemon for nothing. The
 // marker is the one a pending pane wears, so a capture asks one question, and its value is the
 // section id. It rides a `hidden` element so the region takes no layout box.
 
@@ -12,7 +12,7 @@ import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
 /** Props for {@link PendingSettingsPage}. */
 export interface PendingSettingsPageProps {
-  /** The rail section whose page is loading, so a refusal can name it. */
+  /** The rail section whose page is loading, carried as the pending marker's value. */
   readonly section: SettingsPageId;
 }
 

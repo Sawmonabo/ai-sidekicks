@@ -70,7 +70,6 @@ describe("the updater reading — which source wins", () => {
     await drain();
 
     expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
-    expect(holder.snapshot().source).toBe("push");
   });
 
   it("installs the opening read when nothing has been pushed", async () => {
@@ -85,7 +84,6 @@ describe("the updater reading — which source wins", () => {
       kind: "state",
       state: { status: "downloading", percent: 42 },
     });
-    expect(holder.snapshot().source).toBe("opening");
   });
 
   it("negative control: the opening read is discarded and not merely ordered behind", async () => {
@@ -114,7 +112,6 @@ describe("the updater reading — which source wins", () => {
     updater.push({ status: "ready" });
 
     expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
-    expect(holder.snapshot().source).toBe("push");
   });
 });
 

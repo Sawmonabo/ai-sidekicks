@@ -1,4 +1,4 @@
-// The local-runtime page: the two controls that confirm, and the daemon's reported line.
+// The Runtime page: the two controls that confirm, and the daemon's reported line.
 //
 // The page names what a control will interrupt before acting, dispatches once per answered
 // confirmation, and asks the daemon's reported line again once it can have changed. That last
@@ -15,9 +15,9 @@ import { settle } from "@test/helpers/settle.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 import { useDaemonControl } from "./hooks/useDaemonControl.js";
-import { getButton, renderRuntimePage } from "./runtime-page.test-support.js";
+import { daemonStatusAt, getButton, renderRuntimePage } from "./runtime-page.test-support.js";
 
-describe("DaemonPage — the reported status", () => {
+describe("RuntimePage — the reported status", () => {
   it("asks the runtime again once a control settles", async () => {
     // Guards a stale reply: a stop that was accepted changes what the runtime would answer,
     // and a page holding the pre-control reply would show a stopped supervisor beside
@@ -76,7 +76,7 @@ describe("DaemonPage — the reported status", () => {
   });
 });
 
-describe("DaemonPage — the two controls", () => {
+describe("RuntimePage — the two controls", () => {
   it("asks before stopping, naming what stops, and calls nothing yet", () => {
     const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
@@ -118,14 +118,14 @@ describe("DaemonPage — the two controls", () => {
     const calls: string[] = [];
     const failure = new Error("the transport went away");
     const operations: DaemonOperations = {
-      readStatus: () => Promise.resolve({ state: "connected", version: "unread" }),
+      readStatus: () => Promise.resolve(daemonStatusAt("unread")),
       stop: () => {
         calls.push("stop");
         return Promise.reject(failure);
       },
       restart: () => Promise.resolve(),
     };
-    const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
+    const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("runtime-page") });
     const { result } = renderHook(() => useDaemonControl(bridge, operations, vi.fn()));
 
     await act(async () => {

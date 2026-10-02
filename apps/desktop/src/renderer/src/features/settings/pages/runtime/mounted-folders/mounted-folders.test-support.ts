@@ -1,5 +1,5 @@
 // The cast both mounted-folders suites drive the block and its inventory with: one session,
-// one node, two mounts, and the read shapes.
+// one machine, two mounts, and the read shapes.
 //
 // The ids are UUIDs because request ids are branded UUID scalars that a shipped call parses;
 // they are named so cases read as "the first mount".
@@ -13,7 +13,7 @@ import type {
 /** The session both suites read for. */
 export const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
 
-/** The node every mount below is attached on. */
+/** The machine every mount below is attached on, as the wire's `nodeId` names it. */
 const NODE_ID = "019b7911-0003-7000-8000-000000000001";
 
 /** The project every mount below belongs to. */
@@ -47,6 +47,7 @@ export function workspaceListWith(mountIds: readonly string[]): WorkspaceListRes
     })),
   };
 }
+
 /**
  * One healthy attached mount, with the overrides a case needs to make it otherwise.
  *

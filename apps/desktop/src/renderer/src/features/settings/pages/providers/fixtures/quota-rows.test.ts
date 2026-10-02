@@ -139,7 +139,7 @@ describe("accountQuotaRowsFrom", () => {
     expect(rows).toEqual([]);
   });
 
-  // The ordering is this page's and the reading is the node's, so the selection must not
+  // The ordering is this page's and the reading is the service's, so the selection must not
   // reorder the array it was handed.
   it("leaves the reading's own row order untouched", () => {
     const currentRows = [usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })];

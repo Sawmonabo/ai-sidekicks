@@ -9,11 +9,11 @@ import {
   type MachineSettingsChange,
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts";
-import type { PreloadApi } from "@shared/preload-api.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore } from "./machine-settings-store.js";
 import { effectiveSettings } from "./machine-settings-snapshot.js";
 
-type MachineSettingsBridge = PreloadApi["machineSettings"];
+type MachineSettingsBridge = PlatformBridge["machineSettings"];
 
 /** One write the service has not answered yet. */
 interface HeldWrite {
@@ -134,16 +134,17 @@ describe("machine settings — a write", () => {
     expect(store.snapshot().reading?.repair).toBeUndefined();
   });
 
-  it("negative control: a refused write leaves the stored value and stops pending", async () => {
+  it("negative control: a refused write keeps the stored value, stops pending and says why", async () => {
     const { store, service } = startedStore();
     service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 
     const chosen = store.choose("updatesAutomatic", false);
     service.refuse(0, new Error("read-only"));
 
-    await expect(chosen).rejects.toThrow("read-only");
+    await chosen;
     expect(effectiveSettings(store.snapshot()).updatesAutomatic).toBe(true);
     expect(store.snapshot().pendingMembers.size).toBe(0);
+    expect(store.snapshot().refusalByMember.get("updatesAutomatic")?.detail).toBe("read-only");
   });
 
   it("drops a write's answer that lands after a newer feed delivery", async () => {

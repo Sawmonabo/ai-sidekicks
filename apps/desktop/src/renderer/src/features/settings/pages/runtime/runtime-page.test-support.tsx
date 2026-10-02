@@ -1,4 +1,4 @@
-// The local-runtime page and its call-bearing blocks, mounted over operations a case scripts.
+// The Runtime page and its call-bearing blocks, mounted over operations a case scripts.
 //
 // Shared by the suites beside it. The operations are built once per mount because the status
 // answer is held against the bridge that produced it; a bridge rebuilt per render would make
@@ -6,13 +6,15 @@
 
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import type { MainProcessState } from "@shared/daemon-status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
-import { DaemonOperationsBlocks, RuntimePage } from "./RuntimePage.js";
+import { DaemonOperationsBlocks } from "./DaemonOperationsBlocks.js";
+import { RuntimePage } from "./RuntimePage.js";
 import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 
 /** The calls a case wants to see, in the order they were made. */
@@ -48,7 +50,7 @@ export function renderRuntimePage(options: {
   readonly holdsControls?: boolean;
 }): MountedRuntimePage {
   const ledger: ControlLedger = { calls: [], statusReads: [] };
-  const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("daemon-page") });
+  const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("runtime-page") });
   const holdOpen = async (): Promise<void> => {
     if (options.holdsControls === true) {
       await NEVER_SETTLES;
@@ -59,7 +61,7 @@ export function renderRuntimePage(options: {
     readStatus: async () => {
       const version = `2026-04-30-read-${ledger.statusReads.length + 1}`;
       ledger.statusReads.push(version);
-      return await Promise.resolve({ state: "connected", version });
+      return await Promise.resolve(daemonStatusAt(version));
     },
     stop: async () => {
       ledger.calls.push("stop");
@@ -87,6 +89,21 @@ export function renderRuntimePage(options: {
     showMainProcessState: (next) => {
       rerender(pageUnder(next));
     },
+  };
+}
+
+/** A status reply from a running service at `version`, every other fact held fixed. */
+export function daemonStatusAt(version: string): DaemonStatusReadResponse {
+  return {
+    processState: "running",
+    version,
+    protocolVersion: "1",
+    transportEndpoint: "/tmp/sidekicks.sock",
+    startedAt: "2026-04-30T09:00:00.000Z",
+    uptimeMs: 0,
+    dataDirectory: "/tmp/sidekicks",
+    processor: { percent: 0, readAt: "2026-04-30T09:00:00.000Z" },
+    memory: { residentBytes: 0, readAt: "2026-04-30T09:00:00.000Z" },
   };
 }
 

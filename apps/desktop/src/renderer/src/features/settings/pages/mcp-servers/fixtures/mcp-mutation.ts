@@ -12,8 +12,12 @@ import type {
   McpServerBindingRef,
   McpSetEnabledRequest,
 } from "@ai-sidekicks/contracts";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
-/** How a mutation this fixture body sent has settled. */
+/**
+ * How a mutation this fixture body sent has settled. `refused` is a send that rejected,
+ * carrying the service's own words.
+ */
 export type McpMutationOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "sending"; readonly binding: McpServerBindingRef }
@@ -21,6 +25,11 @@ export type McpMutationOutcome =
       readonly kind: "settled";
       readonly binding: McpServerBindingRef;
       readonly result: McpMutationResult;
+    }
+  | {
+      readonly kind: "refused";
+      readonly binding: McpServerBindingRef;
+      readonly refusal: Refusal;
     };
 
 /** The outcome a row starts in and returns to. Shared so it has one spelling. */
@@ -35,24 +44,4 @@ export type SendMcpEnabled = (request: McpSetEnabledRequest) => Promise<McpMutat
 /** The default minter: the platform's own identifier source. */
 export function mintIdempotencyKey(): string {
   return crypto.randomUUID();
-}
-
-/**
- * Turn a binding's toggle press into a settled outcome.
- *
- * The binding travels back so outcomes render per binding; one aggregate verdict could not say
- * which row a result was about.
- */
-export async function setBindingEnabled(options: {
-  readonly send: SendMcpEnabled;
-  readonly binding: McpServerBindingRef;
-  readonly enabled: boolean;
-  readonly idempotencyKey: string;
-}): Promise<McpMutationOutcome> {
-  const { send, binding, enabled, idempotencyKey } = options;
-  return {
-    kind: "settled",
-    binding,
-    result: await send({ ...binding, enabled, clientIdempotencyKey: idempotencyKey }),
-  };
 }

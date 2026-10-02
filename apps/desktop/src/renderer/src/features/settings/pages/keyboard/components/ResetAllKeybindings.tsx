@@ -10,14 +10,13 @@ import type { ReactNode } from "react";
 
 import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 
 /** Props for {@link ResetAllKeybindings}. */
 export interface ResetAllKeybindingsProps {
-  /** Every row whose chord is a person's rather than the console's. */
+  /** Every row whose chord is a person's rather than the app's. */
   readonly changedRows: readonly KeybindingRow[];
   readonly onResetAll: () => void;
 }
@@ -25,13 +24,13 @@ export interface ResetAllKeybindingsProps {
 /**
  * The bulk reset: what it would restore, then the control that restores it.
  *
- * Renders the "nothing to reset" absence itself so "is anything changed" is answered in one
+ * Renders the "nothing to reset" empty state itself so "is anything changed" is answered in one
  * place.
  */
 export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode {
   if (props.changedRows.length === 0) {
     return (
-      <Nothing kind="empty" placement="inline" title="Every chord is the one the console ships." />
+      <Nothing kind="empty" placement="inline" title="Every chord is the one the app ships." />
     );
   }
   return (
@@ -40,7 +39,6 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
         {props.changedRows.map((row) => (
           <li key={row.commandId} className="meridian-keymap__reset-all-entry">
             <span className="meridian-keymap__reset-all-title">{row.title}</span>
-            <WireFigure value={row.commandId} />
             <span className="meridian-keymap__reset-all-target">
               {row.shippedChord === undefined ? (
                 "back to no chord"
@@ -56,7 +54,7 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
       <button
         type="button"
         className="meridian-keymap__reset-all meridian-action-button"
-        aria-label={`Reset ${formatCount(props.changedRows.length)} changed chords to the ones the console ships: ${props.changedRows
+        aria-label={`Reset ${formatCount(props.changedRows.length)} changed chords to the ones the app ships: ${props.changedRows
           .map((row) => `${row.title} to ${describeShippedChord(row.shippedChord)}`)
           .join("; ")}`}
         onClick={props.onResetAll}

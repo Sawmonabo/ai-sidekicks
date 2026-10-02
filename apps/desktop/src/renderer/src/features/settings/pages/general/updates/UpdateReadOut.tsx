@@ -1,12 +1,13 @@
 import { useId } from "react";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDate, formatPercent } from "@renderer/lib/wire-figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 
-/** Renders each arm of the updater's state, plus the read not having landed. */
+/** Renders each arm of the updater's state, plus the read not having landed or being refused. */
 export function UpdateReadOut(props: { readonly reading: UpdateReading }): React.JSX.Element {
   const { reading } = props;
   // Generated, since two windows can render this block and a fixed id would tie one window's
@@ -14,6 +15,9 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
   const progressId = useId();
   if (reading.kind === "not-read") {
     return <Nothing kind="not-loaded" placement="inline" title="Reading the updater’s state." />;
+  }
+  if (reading.kind === "failed") {
+    return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
   }
   const { state } = reading;
   switch (state.status) {

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { MainProcessState } from "@shared/daemon-status-topic.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
@@ -35,7 +34,7 @@ export interface SettingsPageContext {
    * The frame store's retained id, not its route projection: every settings address is
    * `kind: "settings"` and names no session, so the projection is `undefined` on all of them
    * and a session-scoped page handed it would render its no-session arm forever. `undefined`
-   * is still a real answer: a page that asked and was told nothing renders an honest absence.
+   * is still a real answer: a page that asked and was told nothing renders an honest empty state.
    */
   readonly retainedSessionId: string | undefined;
   /**
@@ -57,15 +56,6 @@ export interface SettingsPageContext {
    * render the same value.
    */
   readonly mainProcessState: MainProcessState;
-  /**
-   * This window's durable store, for a page that reports on the store itself.
-   *
-   * Required, not optional, because every window has exactly one and the screen is handed
-   * it; an optional member would give the page an absence arm nothing can produce. A page
-   * holding its own durable state through it is not what this admits: the store's value
-   * classes are closed and it refuses anything outside them.
-   */
-  readonly uiStateStore: UiStateStore;
   /** This window's act for choosing a color scheme, the one the palette row cycles. */
   readonly chooseScheme: (preference: SchemePreference) => void;
 }

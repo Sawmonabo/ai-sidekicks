@@ -16,6 +16,7 @@ import { useMemo, useState } from "react";
 
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts";
 
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import type { ProviderImportModel } from "./useProviderImport.js";
 
@@ -28,7 +29,7 @@ export interface ProviderImportPanelProps {
 export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.Element {
   const { model } = props;
   const [provider, setProvider] = useState<ProviderName | undefined>(undefined);
-  const { progress, isBeginning, isReading, isUnderway } = model;
+  const { progress, isBeginning, startRefusal, isReading, isUnderway } = model;
 
   const disabledReason = useMemo(() => {
     if (isBeginning) {
@@ -42,7 +43,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
 
   return (
     <form
-      className="meridian-session-import"
+      className="meridian-provider-import"
       aria-label="Import a provider session"
       onSubmit={(event) => {
         event.preventDefault();
@@ -52,13 +53,13 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         void model.put({ provider });
       }}
     >
-      <p className="meridian-session-import__lede">
+      <p className="meridian-provider-import__lede">
         Read a provider's existing conversations into sessions.
       </p>
-      <label className="meridian-session-import__field">
-        <span className="meridian-session-import__label">Provider</span>
+      <label className="meridian-provider-import__field">
+        <span className="meridian-provider-import__label">Provider</span>
         <select
-          className="meridian-session-import__input"
+          className="meridian-provider-import__input"
           value={provider ?? ""}
           disabled={isUnderway}
           onChange={(event) => {
@@ -75,14 +76,17 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       </label>
       <button
         type="submit"
-        className="meridian-session-import__submit meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        className="meridian-provider-import__submit meridian-action-button meridian-action-button--regular meridian-action-button--outline"
         disabled={disabledReason !== undefined}
         title={disabledReason}
       >
         {importSubmitLabel(isBeginning, isReading)}
       </button>
       {disabledReason === undefined ? null : (
-        <p className="meridian-session-import__blocked">{disabledReason}</p>
+        <p className="meridian-provider-import__blocked">{disabledReason}</p>
+      )}
+      {startRefusal === undefined ? null : (
+        <InlineRefusal code={startRefusal.code} detail={startRefusal.detail} />
       )}
       <ImportProgressLine progress={progress} />
     </form>

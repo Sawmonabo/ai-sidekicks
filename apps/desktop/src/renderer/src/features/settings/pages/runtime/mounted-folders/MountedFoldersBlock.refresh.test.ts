@@ -46,11 +46,11 @@ describe("the mounts list — a refused read is not the end of it", () => {
     const { page, settle } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A],
-        rejectWith: "that node is not attached",
+        rejectWith: "that folder is not attached",
         rejectionCount: 1,
       }),
     );
-    expect(page.textContent ?? "").toContain("that node is not attached");
+    expect(page.textContent ?? "").toContain("that folder is not attached");
 
     await act(async () => {
       page.querySelector<HTMLButtonElement>(".meridian-nothing button")?.click();
@@ -59,7 +59,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     await settle();
 
     expect(page.querySelectorAll(".meridian-mount-list__item")).toHaveLength(1);
-    expect(page.textContent ?? "").not.toContain("that node is not attached");
+    expect(page.textContent ?? "").not.toContain("that folder is not attached");
   });
 
   it("negative control: a refusal that has not cleared refuses the re-read too", async () => {
@@ -68,7 +68,7 @@ describe("the mounts list — a refused read is not the end of it", () => {
     const { page, settle } = await renderSettledBlock(
       contextReading({
         mountIds: [MOUNT_A],
-        rejectWith: "that node is not attached",
+        rejectWith: "that folder is not attached",
       }),
     );
 
@@ -78,6 +78,6 @@ describe("the mounts list — a refused read is not the end of it", () => {
     });
     await settle();
 
-    expect(page.textContent ?? "").toContain("that node is not attached");
+    expect(page.textContent ?? "").toContain("that folder is not attached");
   });
 });

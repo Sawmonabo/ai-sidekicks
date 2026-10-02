@@ -29,8 +29,6 @@ import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-
 /** One registered page, as the page list, the pane and search read it. */
 export interface SettingsPageDescriptor {
   readonly section: SettingsPageId;
-  /** Who registered the page. Only the same owner may replace it. */
-  readonly owner: string;
   /** The page's own heading. The rail shows {@link SETTINGS_PAGE_LABELS}. */
   readonly label: string;
   /**
@@ -77,15 +75,12 @@ export interface SettingsPageMatch {
 /**
  * The pages one mount of the Settings screen holds, keyed by section.
  *
- * A second claim on a section by a different owner throws rather than replacing it.
+ * A second claim on a section throws rather than replacing it.
  */
 export class SettingsPageRegistry {
-  // `"owner-scoped"`: a hot reload re-runs the owner's module and must replace, while two
-  // owners on one section is a conflict rather than a swap decided by import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({
-    duplicatePolicy: "owner-scoped",
+    duplicatePolicy: "throw",
     describeWhat: "settings section",
-    ownerOf: (descriptor) => descriptor.owner,
     duplicateHint: "the settings pane renders one page per section, in rail order",
   });
 
@@ -101,19 +96,18 @@ export class SettingsPageRegistry {
   >();
 
   /**
-   * Claim a section. A second claim by a different owner is an error, not a swap.
+   * Claim a section. A second claim on it is an error, not a swap.
    *
    * A loader-form registration becomes one `LoaderBackedBody` (one memoized promise, one
    * stable lazy component) and a descriptor whose `render` mounts it, so `descriptorFor` and
    * `entries` answer the same shape for both forms and neither `SettingsPane` nor the search
    * index branches on how a body arrived. The descriptor is registered first so a refusal (a
-   * different owner claiming a taken section) throws before the loader table is touched and
-   * cannot strip the loader off the registration that survives it.
+   * second claim on a taken section) throws before the loader table is touched and cannot
+   * strip the loader off the registration that survives it.
    */
   public register(registration: SettingsPageRegistration): void {
     const descriptorBase = {
       section: registration.section,
-      owner: registration.owner,
       label: registration.label,
       keywords: registration.keywords,
     };
@@ -162,11 +156,6 @@ export class SettingsPageRegistry {
     return SETTINGS_PAGE_IDS.filter(
       (section) => this.#loadedBodiesBySection.get(section)?.isResolved === false,
     );
-  }
-
-  public unregister(section: SettingsPageId): void {
-    this.#descriptorsBySection.unregister(section);
-    this.#loadedBodiesBySection.delete(section);
   }
 
   public descriptorFor(section: SettingsPageId): SettingsPageDescriptor | undefined {
@@ -251,23 +240,12 @@ export function composeSettingsPages(): SettingsPageRegistry {
 export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   {
     section: "general",
-    owner: "settings-application",
     label: "General",
-    keywords: [
-      "updates",
-      "version",
-      "restart",
-      "release",
-      "crash reports",
-      "crash reporting",
-      "about",
-      "build",
-    ],
+    keywords: ["version", "about", "build"],
     render: (context) => createElement(GeneralPage, { context }),
   },
   {
     section: "providers",
-    owner: "settings-accounts",
     label: "Providers",
     keywords: [
       "provider",
@@ -284,14 +262,12 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     section: "mcp-servers",
-    owner: "settings-mcp",
     label: "MCP servers",
     keywords: [
       "tools",
       "servers",
       "model context protocol",
       "governance",
-      "trust",
       "overrides",
       "reconnect",
       "authorize",
@@ -303,14 +279,12 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
     // and keywords stay here because the page list and search read them before any
     // page's chunk has loaded.
     section: "browser",
-    owner: "settings-browser",
     label: "Browser",
     keywords: ["web", "site data", "cookies", "storage", "file boundary", "page tools", "clear"],
     body: () => import("./pages/browser/browser-settings-page-body.js"),
   },
   {
     section: "keyboard",
-    owner: "settings-keyboard",
     label: "Keyboard",
     keywords: [
       "shortcut",
@@ -326,14 +300,12 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     section: "appearance",
-    owner: "settings-appearance",
     label: "Appearance",
     keywords: ["theme", "dark", "light", "color", "scheme", "contrast", "display"],
     render: (context) => createElement(AppearancePage, { chooseScheme: context.chooseScheme }),
   },
   {
     section: "notifications",
-    owner: "settings-notifications",
     label: "Notifications",
     keywords: [
       "alerts",
@@ -348,9 +320,8 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
   },
   {
     section: "runtime",
-    owner: "settings-daemon",
     label: "Runtime",
-    keywords: ["daemon", "supervisor", "runtime", "restart", "stop", "heartbeat", "connection"],
+    keywords: ["background service", "runtime", "restart", "stop", "connection"],
     render: (context) => createElement(RuntimePage, { context }),
   },
 ];
@@ -358,7 +329,6 @@ export const SETTINGS_PAGES: readonly SettingsPageRegistration[] = [
 /** What every registration carries, whichever form it takes. */
 interface SettingsPageRegistrationBase {
   readonly section: SettingsPageId;
-  readonly owner: string;
   readonly label: string;
   readonly keywords: readonly string[];
 }

@@ -3,8 +3,8 @@
 // No rail entry is hidden because its wire is unavailable (the rail is the closed section
 // tuple), nothing here awaits a section read, and the only state held is the search query. The
 // open section lives in the route, so a deep link and a rail click are the same act and back
-// works. The pane resolves its page during render: the registry is composed at module scope, so
-// an effect would paint "missing" first.
+// works. The pane resolves its page during render from the registry it is handed, which is built
+// before the first render, so an effect would paint "missing" first.
 
 import { useCallback, useMemo, useState } from "react";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
@@ -83,7 +83,6 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
     retainedSessionId,
     retainedSessionStore,
     mainProcessState,
-    uiStateStore: context.uiStateStore,
     chooseScheme: context.chooseScheme,
   };
 

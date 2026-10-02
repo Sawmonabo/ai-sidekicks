@@ -42,22 +42,22 @@ export function renderKeyboardPage(): ReturnType<typeof render> {
   );
 }
 
-/** The recorder on one row, found by the command id printed beside it. */
-export function rowOf(container: HTMLElement, commandId: string): HTMLElement {
+/** One row, found by the command name it draws. */
+export function rowOf(container: HTMLElement, title: string): HTMLElement {
   const row = [...container.querySelectorAll<HTMLElement>(".meridian-keymap__row")].find(
-    (candidate) => (candidate.textContent ?? "").includes(commandId),
+    (candidate) => candidate.querySelector(".meridian-keymap__title")?.textContent === title,
   );
   if (row === undefined) {
-    throw new Error(`no row for ${commandId}`);
+    throw new Error(`no row for ${title}`);
   }
   return row;
 }
 
 /** The recorder button on one row. */
-export function recorderOf(container: HTMLElement, commandId: string): HTMLElement {
-  const button = rowOf(container, commandId).querySelector<HTMLElement>(".meridian-keymap__record");
+export function recorderOf(container: HTMLElement, title: string): HTMLElement {
+  const button = rowOf(container, title).querySelector<HTMLElement>(".meridian-keymap__record");
   if (button === null) {
-    throw new Error(`no recorder for ${commandId}`);
+    throw new Error(`no recorder for ${title}`);
   }
   return button;
 }
@@ -65,10 +65,10 @@ export function recorderOf(container: HTMLElement, commandId: string): HTMLEleme
 /** Arm the recorder on a row and press one chord into it. */
 export async function recordChordOnto(
   container: HTMLElement,
-  commandId: string,
+  title: string,
   press: Record<string, unknown>,
 ): Promise<void> {
-  const recorder = recorderOf(container, commandId);
+  const recorder = recorderOf(container, title);
   fireEvent.click(recorder);
   await act(async () => {
     fireEvent.keyDown(recorder, press);

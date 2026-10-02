@@ -1,11 +1,14 @@
 // Drains one provider's import stream for as long as its holder is mounted.
 //
 // The subscribe call is the caller's. A rejected call, or a stream that rejects part-way,
-// propagates. The stream is opened once per provider and closed on the way out, since one
-// left open after unmount is a producer with no reader; a message arriving after that
-// installs nowhere because the disposal flag is read before every publish.
+// settles the reading as `failed` with the service's own words. The stream is opened once per
+// provider and closed on the way out, since one left open after unmount is a producer with no
+// reader; a message arriving after that installs nowhere because the disposal flag is read
+// before every publish.
 
 import { useEffect, useState } from "react";
+
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 
 import type { ProviderImportProgress, ProviderName } from "@ai-sidekicks/contracts";
 import type {
@@ -15,6 +18,9 @@ import type {
 } from "./import-progress.js";
 
 const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
+
+/** The subsystem a failed import stream names as its author. */
+const IMPORT_PROGRESS_ORIGIN = "provider-import-progress";
 
 /**
  * Drain one provider's import stream for as long as its holder is mounted.
@@ -37,7 +43,7 @@ export function useImportProgress(
     let openStream: ImportProgressStream | undefined;
     setReading({ status: "open", newest: undefined });
 
-    void (async () => {
+    const drain = async (): Promise<void> => {
       const stream = await subscribe({ provider });
       if (isDisposed) {
         stream.close();
@@ -55,7 +61,12 @@ export function useImportProgress(
       if (!isDisposed) {
         setReading({ status: "closed", newest });
       }
-    })();
+    };
+    drain().catch((error: unknown) => {
+      if (!isDisposed) {
+        setReading({ status: "failed", refusal: coerceToRefusal(error, IMPORT_PROGRESS_ORIGIN) });
+      }
+    });
 
     return () => {
       isDisposed = true;

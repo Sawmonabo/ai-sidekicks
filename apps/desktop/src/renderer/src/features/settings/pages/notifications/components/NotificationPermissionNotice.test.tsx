@@ -2,9 +2,9 @@
 // handed: a refusal is named, with the promise that attention inside the app survives it.
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { NotificationPermissionNotice } from "./components/NotificationPermissionNotice.js";
+import { NotificationPermissionNotice } from "./NotificationPermissionNotice.js";
 
-describe("the notifications page — what the operating system allows", () => {
+describe("the notification permission notice — what the operating system allows", () => {
   it("names a denied permission and promises in-app attention survives it", () => {
     const { container } = render(
       <NotificationPermissionNotice reading={{ kind: "read", state: "denied" }} />,

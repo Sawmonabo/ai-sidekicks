@@ -11,6 +11,7 @@ import type {
   ProviderImportProgress,
   ProviderImportProviderRequest,
 } from "@ai-sidekicks/contracts";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** An open progress subscription: the messages, and the way to let go of it. */
 export interface ImportProgressStream {
@@ -23,11 +24,15 @@ export type ImportProgressSubscribeCall = (
   request: ProviderImportProviderRequest,
 ) => Promise<ImportProgressStream>;
 
-/** Where one provider's import stream has got to. */
+/**
+ * Where one provider's import stream has got to. `failed` is a subscription or a stream that
+ * rejected, carrying the service's own words.
+ */
 export type ImportProgressReading =
   | { readonly status: "unsubscribed" }
   | { readonly status: "open"; readonly newest: ProviderImportProgress | undefined }
-  | { readonly status: "closed"; readonly newest: ProviderImportProgress | undefined };
+  | { readonly status: "closed"; readonly newest: ProviderImportProgress | undefined }
+  | { readonly status: "failed"; readonly refusal: Refusal };
 
 /**
  * Whether an import is still being read.
@@ -39,13 +44,13 @@ export type ImportProgressReading =
  *
  * Before the stream has spoken, including the frame between the start settling and the
  * stream opening, an import is underway exactly when this screen started one. A closed
- * stream reads nothing further, so it ends the reading.
+ * or failed stream reads nothing further, so it ends the reading.
  */
 export function isImportUnderway(
   startedImportId: ProviderImportId | undefined,
   progress: ImportProgressReading,
 ): boolean {
-  if (progress.status === "closed") {
+  if (progress.status === "closed" || progress.status === "failed") {
     return false;
   }
   if (progress.status === "unsubscribed" || progress.newest === undefined) {

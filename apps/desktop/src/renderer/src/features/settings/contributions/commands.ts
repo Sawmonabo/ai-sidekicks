@@ -12,16 +12,10 @@ import type { CommandDefinition } from "@renderer/registries/commands/command-ty
 import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /** Why a bridge-backed command could not complete. */
-export const BRIDGE_COMMAND_REFUSAL_CODES = [
-  "clipboard-unavailable",
-  "update-check-unavailable",
-] as const;
-
-/** One bridge-command refusal code. Derived, so the vocabulary is declared once. */
-export type BridgeCommandRefusalCode = (typeof BRIDGE_COMMAND_REFUSAL_CODES)[number];
+export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";
 
 /** The subsystem name every refusal this module raises carries. */
-export const BRIDGE_COMMAND_REFUSAL_ORIGIN = "palette-bridge-command";
+const BRIDGE_COMMAND_REFUSAL_ORIGIN = "palette-bridge-command";
 
 /** Where a refused act is rendered. Supplied by the view that owns the copy. */
 export type BridgeCommandRefusalSink = (refusal: Refusal) => void;

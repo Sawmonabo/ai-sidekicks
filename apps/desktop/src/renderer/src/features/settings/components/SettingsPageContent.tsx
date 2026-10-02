@@ -27,7 +27,7 @@ export interface SettingsPageContentProps {
 /**
  * The selected section's page, and the settle that follows a search hit.
  *
- * Its own component because the settle effect needs a heading on screen; the pane's absence
+ * Its own component because the settle effect needs a heading on screen; the pane's empty-state
  * arms stay hook-free.
  */
 export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.Element {

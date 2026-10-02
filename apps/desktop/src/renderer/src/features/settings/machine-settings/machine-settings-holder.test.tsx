@@ -7,25 +7,25 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts";
-import type { PreloadApi } from "@shared/preload-api.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import { machineSettingsHolder } from "./machine-settings-holder.js";
+import type { MachineSettingsStore } from "./machine-settings-store.js";
 import { useMachineSettings } from "./hooks/useMachineSettings.js";
 import { effectiveSettings } from "./machine-settings-snapshot.js";
 
 /** A service whose feed never delivers and whose writes never answer. */
-const UNANSWERING_SERVICE: PreloadApi["machineSettings"] = {
+const UNANSWERING_SERVICE: PlatformBridge["machineSettings"] = {
   read: () => NEVER_SETTLES,
   write: () => NEVER_SETTLES,
   subscribe: () => () => undefined,
 };
 
 /** A service whose feed never delivers and whose every write answers the file it holds. */
-const ACCEPTING_SERVICE: PreloadApi["machineSettings"] = {
+const ACCEPTING_SERVICE: PlatformBridge["machineSettings"] = {
   read: () => NEVER_SETTLES,
   write: () => Promise.resolve({ ...MACHINE_SETTINGS_DEFAULTS, updatesAutomatic: false }),
   subscribe: () => () => undefined,
@@ -90,6 +90,7 @@ describe("machine settings binding — acquisition happens after the commit", ()
     // Left uncaught rather than wrapped in an error boundary: the boundary records a render
     // failure as a tripwire and this tier throws on one. React reports the discarded pass
     // through `console.error`.
+    const firstStoreDisposals = vi.spyOn(firstStore as MachineSettingsStore, "dispose");
     const consoleErrors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(() => {
       rerender(
@@ -101,7 +102,7 @@ describe("machine settings binding — acquisition happens after the commit", ()
     }).toThrow("this render never commits");
     consoleErrors.mockRestore();
 
-    expect(firstStore?.isDisposed).toBe(false);
+    expect(firstStoreDisposals).not.toHaveBeenCalled();
     expect(machineSettingsHolder.storeIfCurrent(firstBridge)).toBe(firstStore);
     expect(machineSettingsHolder.storeIfCurrent(abandonedBridge)).toBeUndefined();
   });
@@ -124,21 +125,20 @@ describe("machine settings — the store belongs to the window, not to a page", 
     const first = freshBridge();
     const second = freshBridge();
     const firstStore = machineSettingsHolder.acquire(first);
-    // Counted, since `dispose` is idempotent and `isDisposed` would look the same after
+    // Counted, since `dispose` is idempotent and a disposed flag would look the same after
     // repeated disposal.
     const disposals = vi.spyOn(firstStore, "dispose");
 
     const secondStore = machineSettingsHolder.acquire(second);
+    const secondStoreDisposals = vi.spyOn(secondStore, "dispose");
     machineSettingsHolder.acquire(second);
 
     expect(secondStore).not.toBe(firstStore);
     expect(disposals).toHaveBeenCalledTimes(1);
-    expect(firstStore.isDisposed).toBe(true);
-    expect(secondStore.isDisposed).toBe(false);
+    expect(secondStoreDisposals).not.toHaveBeenCalled();
 
     const rebuilt = machineSettingsHolder.acquire(first);
     expect(rebuilt).not.toBe(firstStore);
-    expect(rebuilt.isDisposed).toBe(false);
   });
 });
 
@@ -166,10 +166,11 @@ describe("machine settings — the lookup a render body performs", () => {
     // form would dispose the committed store.
     const committedBridge = freshBridge();
     const committed = machineSettingsHolder.acquire(committedBridge);
+    const committedDisposals = vi.spyOn(committed, "dispose");
     const replacementBridge = freshBridge();
 
     expect(machineSettingsHolder.storeIfCurrent(replacementBridge)).toBeUndefined();
-    expect(committed.isDisposed).toBe(false);
+    expect(committedDisposals).not.toHaveBeenCalled();
     expect(machineSettingsHolder.storeIfCurrent(committedBridge)).toBe(committed);
   });
 });

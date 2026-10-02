@@ -19,8 +19,6 @@ import type { OsNotificationPermissionReading } from "./os-notification-permissi
  * asked yet raises the system's own consent flow on the first emission, and reporting that as
  * a denial would mislead someone whose notifications work. `unread` covers a read in flight
  * and a platform whose permission the main process cannot read; the console does not know.
- *
- * @consumedBy the notifications settings page
  */
 export type OsNotificationDelivery =
   | { readonly status: "unread" }
@@ -37,11 +35,7 @@ const UNREAD_DELIVERY: OsNotificationDelivery = { status: "unread" };
 const PERMITTED_DELIVERY: OsNotificationDelivery = { status: "permitted" };
 const WITHHELD_DELIVERY: OsNotificationDelivery = { status: "withheld" };
 
-/**
- * The reading of one permission answer. Total, so no call site branches.
- *
- * @consumedBy the notifications settings page
- */
+/** The reading of one permission answer. Total, so no call site branches. */
 export function deliveryFor(reading: OsNotificationPermissionReading): OsNotificationDelivery {
   if (reading.kind !== "read" || reading.state === "unsupported") {
     return UNREAD_DELIVERY;

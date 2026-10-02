@@ -6,6 +6,7 @@
 // service's own, and a percentage would invent a denominator nobody sent.
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { ImportProgressReading } from "./import-progress.js";
@@ -21,10 +22,13 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   if (progress.status === "unsubscribed") {
     return null;
   }
+  if (progress.status === "failed") {
+    return <InlineRefusal code={progress.refusal.code} detail={progress.refusal.detail} />;
+  }
   const { newest } = progress;
   if (newest === undefined) {
     return (
-      <p className="meridian-session-import__progress" aria-live="polite">
+      <p className="meridian-provider-import__progress" aria-live="polite">
         {progress.status === "open"
           ? "Reading. Nothing counted yet."
           : "The import ended without reporting anything."}
@@ -33,14 +37,14 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
   }
   if (newest.kind === "progress") {
     return (
-      <p className="meridian-session-import__progress" aria-live="polite">
+      <p className="meridian-provider-import__progress" aria-live="polite">
         Reading — {countOf(newest.read, "conversation", "conversations")} read so far.
       </p>
     );
   }
   const { settlement } = newest;
   return (
-    <p className="meridian-session-import__progress" aria-live="polite">
+    <p className="meridian-provider-import__progress" aria-live="polite">
       {settlement.outcome === "refused" ? (
         <>
           The last import was refused: <WireFigure value={settlement.reason} />

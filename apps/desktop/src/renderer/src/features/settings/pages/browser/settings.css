@@ -19,12 +19,6 @@
   color: var(--meridian-text);
 }
 
-.meridian-browser-settings__title {
-  margin: 0;
-  font-size: var(--meridian-text-lg);
-  font-weight: 600;
-}
-
 .meridian-browser-settings__section {
   display: flex;
   flex-direction: column;

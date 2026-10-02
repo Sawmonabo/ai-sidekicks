@@ -48,7 +48,7 @@ describe("composing rows", () => {
     { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
   ];
 
-  it("carries each command's chord and its scope, and invents none for an unbound command", () => {
+  it("carries each command's chord, and invents none for an unbound command", () => {
     const rows = composeKeybindingRows({
       commands,
       bindings,
@@ -57,7 +57,6 @@ describe("composing rows", () => {
     });
     const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workflows?.chord).toBe("$mod+2");
-    expect(workflows?.whenExpression).toBe("sessionActive");
     expect(rows.find((row) => row.commandId === "app.checkForUpdates")?.chord).toBeUndefined();
     // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
     // the first.
@@ -222,18 +221,12 @@ describe("filtering rows", () => {
     platform: "darwin",
   });
 
-  it("answers every row for no query, then narrows on name, id, chord and scope", () => {
-    expect(matchKeybindingRows(rows, "   ")).toHaveLength(2);
-    expect(matchKeybindingRows(rows, "sessions").map((row) => row.commandId)).toStrictEqual([
-      "frame.goToSessions",
-    ]);
-    expect(matchKeybindingRows(rows, "app.check").map((row) => row.commandId)).toStrictEqual([
-      "app.checkForUpdates",
-    ]);
-    expect(matchKeybindingRows(rows, "$mod+1").map((row) => row.commandId)).toStrictEqual([
-      "frame.goToSessions",
-    ]);
-    expect(matchKeybindingRows(rows, "sessionActive").map((row) => row.commandId)).toStrictEqual([
+  it("answers every row for no query, then narrows on the name and the chord as drawn", () => {
+    expect(matchKeybindingRows(rows, "   ", "darwin")).toHaveLength(2);
+    expect(
+      matchKeybindingRows(rows, "sessions", "darwin").map((row) => row.commandId),
+    ).toStrictEqual(["frame.goToSessions"]);
+    expect(matchKeybindingRows(rows, "⌘1", "darwin").map((row) => row.commandId)).toStrictEqual([
       "frame.goToSessions",
     ]);
   });
