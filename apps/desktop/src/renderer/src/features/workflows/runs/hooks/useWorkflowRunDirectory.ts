@@ -31,6 +31,8 @@ export type WorkflowRunListCall = (request: {
  * Read the runs one session holds, once, for as long as the caller is mounted. Keyed on the call
  * and the session id: a new call or session starts over, settled during the render that brings
  * it, so no committed frame shows the previous call's or session's rows.
+ *
+ * @consumedBy the Runs tab's run list
  */
 export function useWorkflowRunDirectory(
   listRuns: WorkflowRunListCall,

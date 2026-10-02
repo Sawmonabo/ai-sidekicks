@@ -1,5 +1,5 @@
 // One provider axis as a combobox over a provider-published vocabulary, built on
-// `@base-ui/react`'s combobox primitives. Shared by the attach form and the switch control.
+// `@base-ui/react`'s combobox primitives.
 // A vocabulary that does not exist gets no control: a disabled one would assert the
 // capability exists but is momentarily unavailable, and the daemon refuses an unsettable axis.
 
@@ -46,7 +46,7 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
           <Combobox.Value />
         </Combobox.Trigger>
         {/* The primitive's anchored part keeps this list in the window's airspace; a field
-            mounting its own portal would be painted over by a native browser-pane view. */}
+            mounting its own portal would be painted over by the Preview pane's native view. */}
         <OverlayComboboxPopup
           container={props.overlayContainer}
           positionerClassName="meridian-axis-field__positioner"

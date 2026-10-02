@@ -26,14 +26,14 @@ import type { WorkflowDefinitionAuthoring } from "../definition-authoring.js";
 export function useWorkflowDefinitionAuthoring(
   bridge: PlatformBridge,
   createDefinition: WorkflowDefinitionCreateCall,
-  workflowDefinitionId: string | undefined,
+  definitionId: string | undefined,
   sessionId: string | undefined,
   body: WorkflowVersionBody,
 ): WorkflowDefinitionAuthoring {
   const latch = useGenerationLatch();
   const { value, publish } = useSubjectScopedState(
     createDefinition,
-    workflowDefinitionId,
+    definitionId,
     () => IDLE_STATE,
   );
   const runtime: AuthoringRuntime = {
@@ -42,7 +42,7 @@ export function useWorkflowDefinitionAuthoring(
     bridge,
     sessionId,
     body,
-    workflowDefinitionId,
+    definitionId,
     publish,
   };
   return {

@@ -63,15 +63,12 @@ export type WorkflowDefinitionDetailState = SubjectRead<{
  */
 export function useWorkflowDefinitionDetail(
   calls: WorkflowDefinitionDetailCalls,
-  workflowDefinitionId: string | undefined,
+  definitionId: string | undefined,
 ): WorkflowDefinitionDetailState {
   return useSubjectRead<WorkflowDefinitionDetail, WorkflowDefinitionDetailState>(
     calls,
-    workflowDefinitionId,
-    () =>
-      workflowDefinitionId === undefined
-        ? undefined
-        : composeDefinitionDetail(calls, workflowDefinitionId),
+    definitionId,
+    () => (definitionId === undefined ? undefined : composeDefinitionDetail(calls, definitionId)),
     {
       unsettled: subjectReadStart,
       settled: (detail) => ({ status: "served", detail }),
@@ -86,9 +83,9 @@ export function useWorkflowDefinitionDetail(
  */
 async function composeDefinitionDetail(
   calls: WorkflowDefinitionDetailCalls,
-  workflowDefinitionId: string,
+  definitionId: string,
 ): Promise<WorkflowDefinitionDetail> {
-  const definition = await calls.readDefinition({ definitionId: workflowDefinitionId });
+  const definition = await calls.readDefinition({ definitionId });
   const [version, chain] = await Promise.all([
     calls.readVersion({ definitionId: definition.id, versionNumber: definition.versionNumber }),
     readVersionChain(calls, definition),

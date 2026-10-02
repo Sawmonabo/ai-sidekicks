@@ -2,7 +2,7 @@
 // workflow views import in place of the components. The `import type` lines are erased, so the
 // only runtime edge into `schema-form-body.ts` is the `import()` in `SchemaFormChunk`.
 // A pending form draws only the `reservedBodyRegion` marker: what is missing is a module, not
-// anything about the phase, so no spinner or absence sentence.
+// anything about the phase, so no spinner or empty-state sentence.
 
 import { LoaderBackedBody } from "@renderer/components/LazyBody/lazy-body.js";
 import { reservedBodyRegion } from "@renderer/components/LazyBody/pending-body-marker.js";
@@ -21,11 +21,6 @@ const SCHEMA_FORM_PENDING_BODY = "schema-form";
 /** The schema form chunk's loader: one fetch per page, however many forms ask. */
 export class SchemaFormChunk {
   #modulePromise: Promise<SchemaFormModule> | undefined;
-
-  /** Whether the chunk has been asked for yet. The memo, observable. */
-  public get isLoadStarted(): boolean {
-    return this.#modulePromise !== undefined;
-  }
 
   /** The kit, fetched once; every later call gets the same promise. */
   public load(): Promise<SchemaFormModule> {

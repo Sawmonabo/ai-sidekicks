@@ -1,6 +1,7 @@
 // What answering a phase parked on a person puts, and what the answer settles to.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
+import { isWireRecord } from "@renderer/lib/wire-record.js";
 
 /** The subsystem name every refusal raised in this file carries. */
 export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";
@@ -67,7 +68,5 @@ export interface WorkflowHumanFormDispatch {
  * request cannot carry; those are refused with a sentence instead of cast.
  */
 export function submittableFields(answer: unknown): WorkflowHumanFormFields | undefined {
-  return typeof answer === "object" && answer !== null && !Array.isArray(answer)
-    ? (answer as WorkflowHumanFormFields)
-    : undefined;
+  return isWireRecord(answer) ? answer : undefined;
 }

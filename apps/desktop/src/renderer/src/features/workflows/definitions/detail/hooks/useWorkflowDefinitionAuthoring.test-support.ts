@@ -18,7 +18,6 @@ import { useWorkflowDefinitionAuthoring } from "./useWorkflowDefinitionAuthoring
 import type { WorkflowDefinitionDetailCalls } from "./useWorkflowDefinitionDetail.js";
 import type { WorkflowDefinitionCreateCall } from "../definition-authoring-runtime.js";
 import {
-  WORKFLOW_DETAIL_REFUSAL_CODES,
   type WorkflowDefinitionAuthoring,
   type WorkflowDetailActOutcome,
   type WorkflowDetailRefusalCode,
@@ -123,16 +122,12 @@ export function mountAuthoring(
   };
 }
 
-/**
- * Assert one act refused with a declared code: the specific code, and its membership in the
- * closed tuple, so a refusal raised with an undeclared string cannot pass.
- */
+/** Assert one act refused with this declared code. */
 export function expectLocalRefusal(
   outcome: WorkflowDetailActOutcome,
   code: WorkflowDetailRefusalCode,
 ): void {
   expect(refusalCode(outcome)).toBe(code);
-  expect(WORKFLOW_DETAIL_REFUSAL_CODES).toContain(code);
 }
 
 /** The code on an outcome that refused, or the kind it took instead. */

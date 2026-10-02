@@ -17,8 +17,9 @@ export function SchemaFieldIssues(props: SchemaFieldIssuesProps): React.ReactNod
   }
   return (
     <ul className="meridian-schema-field__issues" id={props.issuesId}>
-      {props.issues.map((issue) => (
-        <li key={issue}>{issue}</li>
+      {props.issues.map((issue, index) => (
+        // The schema may report one sentence twice for a member, so the position joins the key.
+        <li key={`${String(index)}:${issue}`}>{issue}</li>
       ))}
     </ul>
   );

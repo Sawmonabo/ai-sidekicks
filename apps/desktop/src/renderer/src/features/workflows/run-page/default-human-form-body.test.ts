@@ -9,7 +9,7 @@ import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { unhandledRejectionsDuring } from "@test/helpers/unhandled-rejection.js";
-import { settle } from "../workflows-probe.test-support.js";
+import { settle } from "@test/helpers/settle.js";
 import {
   FIGURES_SCHEMA,
   SECOND_WAIT_PHASE_ID,

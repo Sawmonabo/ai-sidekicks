@@ -1,8 +1,9 @@
 // What one draft-07 member schema declares, read out of an untyped value: a phase definition's
 // config has no wire shape, so every read is a probe that returns `undefined` for a member that
-// is not what it claims. `asRecord` and `requiredKeysOf` live here so the planner and the
-// constraint walk share one reading.
+// is not what it claims. `asRecord` and `requiredKeysOf` live here so the planner, the
+// constraint walk and the answer seed share one reading.
 
+import { isWireRecord } from "@renderer/lib/wire-record.js";
 import {
   LONG_TEXT_FORMAT,
   type SchemaFieldDescriptor,
@@ -11,9 +12,7 @@ import {
 
 /** A JSON value read as a record, or nothing where it is not one. */
 export function asRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
+  return isWireRecord(value) ? value : undefined;
 }
 
 /** The declared `type`, as the one string draft-07 spells it with. */

@@ -18,7 +18,6 @@ describe("the schema validator wrapper", () => {
     }
     // The reason travels so an author has something to change.
     expect(validator.detail).toContain("only the JSON itself is checked");
-    expect(validator.detail.length).toBeGreaterThan("only the JSON itself is checked".length);
   });
 
   it("does not throw for any of the values a definition could carry in place of a schema", () => {

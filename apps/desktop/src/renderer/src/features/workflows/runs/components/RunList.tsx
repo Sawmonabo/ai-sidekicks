@@ -1,6 +1,6 @@
 // The run list: every run this context holds, newest first. It renders `RunListProjection`'s rows
 // and derives nothing, so the park discriminator, parked flag and frozen-pin inequality have one
-// implementation. A served answer of no runs draws the `empty` absence; a caller with no answer
+// implementation. A served answer of no runs draws the `empty` state; a caller with no answer
 // does not mount this list.
 
 import "./RunList.css";

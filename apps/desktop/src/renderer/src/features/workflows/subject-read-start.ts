@@ -7,7 +7,7 @@
 /**
  * The two facts a subject-keyed read starts from. `unasked` means nobody could put the question,
  * which a list may draw as an empty region; `reading` means the question is out. Painting one
- * while the other is true is the conflation the absence grammar exists to prevent.
+ * while the other is true is the conflation the empty states exist to prevent.
  */
 export type SubjectReadStart = { readonly status: "unasked" } | { readonly status: "reading" };
 

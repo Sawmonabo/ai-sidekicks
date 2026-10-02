@@ -43,7 +43,7 @@ export interface AuthoringRuntime {
   readonly sessionId: string | undefined;
   readonly body: WorkflowVersionBody;
   /** The definition this render is addressed at, in the latch's key. Never a name. */
-  readonly workflowDefinitionId: string | undefined;
+  readonly definitionId: string | undefined;
   readonly publish: SubjectScopedPublish<AuthoringState>;
 }
 
@@ -60,8 +60,8 @@ export const IDLE_STATE: AuthoringState = {
  * visit, so one definition's outstanding create must not refuse another's first press. The
  * acts take separate keys so an export superseding itself abandons no create.
  */
-export function actKey(act: WorkflowDetailAct, workflowDefinitionId: string | undefined): string {
-  return `${act}:${workflowDefinitionId ?? ""}`;
+export function actKey(act: WorkflowDetailAct, definitionId: string | undefined): string {
+  return `${act}:${definitionId ?? ""}`;
 }
 
 /**

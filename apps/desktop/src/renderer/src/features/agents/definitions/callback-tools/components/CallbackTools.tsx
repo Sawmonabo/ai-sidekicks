@@ -45,7 +45,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
         kind="not-checked"
         placement="block"
         title="The bound driver's capability flags have not been read."
-        detail="Whether this session's agents can reach a tool the background service hosts at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
+        detail="Whether this session's sidekicks can reach a tool the background service hosts at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
       />
     );
   }
@@ -63,7 +63,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
       <div className="meridian-callback-tools meridian-callback-tools--withheld">
         <p className="meridian-callback-tools__note">
           The registry is withheld. Spawn does not expose these tools while the background service
-          has no registered approval-create seam, so an agent cannot reach them, and a stray
+          has no registered approval-create seam, so a sidekick cannot reach them, and a stray
           invocation is answered <WireFigure value="denied" /> by the host&apos;s runtime backstop
           with a driver diagnostic beside it — never completed without a policy decision, and never
           left unanswered.

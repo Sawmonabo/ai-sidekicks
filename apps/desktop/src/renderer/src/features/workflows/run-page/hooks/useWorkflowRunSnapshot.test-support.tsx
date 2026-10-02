@@ -1,4 +1,4 @@
-// A probe that mounts the run-snapshot hook at a chosen round, and a call that answers a run read
+// A probe that mounts the run-snapshot hook at a chosen refresh, and a call that answers a run read
 // from the probe fixtures.
 
 import { render } from "@testing-library/react";
@@ -10,7 +10,7 @@ import {
   type WorkflowRunSnapshotState,
 } from "./useWorkflowRunSnapshot.js";
 
-/** The round a case first reads at; the hook reads once per round. */
+/** The refresh a case first reads at; the hook reads once per refresh. */
 export const FIRST_REFRESH = 0;
 
 /** A run read that answers from the probe runs, by id. */
@@ -24,10 +24,10 @@ export function runReadingCall(): WorkflowRunReadCall {
   };
 }
 
-/** The probe mounted, with the handle a re-render at another round needs. */
+/** The probe mounted, with the handle a re-render at another refresh needs. */
 export function observeRefreshes(readRun: WorkflowRunReadCall): {
   readonly observed: readonly WorkflowRunSnapshotState[];
-  readonly renderAtRound: (workflowRunId: string, readRound: number) => void;
+  readonly renderAtRefresh: (workflowRunId: string, refreshCount: number) => void;
 } {
   const observed: WorkflowRunSnapshotState[] = [];
   const collect = (state: WorkflowRunSnapshotState): void => {
@@ -36,12 +36,12 @@ export function observeRefreshes(readRun: WorkflowRunReadCall): {
   let view: ReturnType<typeof render> | undefined;
   return {
     observed,
-    renderAtRound: (workflowRunId, readRound) => {
+    renderAtRefresh: (workflowRunId, refreshCount) => {
       const element = (
         <SnapshotProbe
           readRun={readRun}
           workflowRunId={workflowRunId}
-          readRound={readRound}
+          refreshCount={refreshCount}
           onObserve={collect}
         />
       );
@@ -49,7 +49,7 @@ export function observeRefreshes(readRun: WorkflowRunReadCall): {
         view = render(element);
         return;
       }
-      // A re-render, not a second mount: the pane is not remounted when a round advances.
+      // A re-render, not a second mount: the pane is not remounted when a refresh advances.
       view.rerender(element);
     },
   };
@@ -58,9 +58,9 @@ export function observeRefreshes(readRun: WorkflowRunReadCall): {
 function SnapshotProbe(props: {
   readonly readRun: WorkflowRunReadCall;
   readonly workflowRunId: string;
-  readonly readRound: number;
+  readonly refreshCount: number;
   readonly onObserve: (state: WorkflowRunSnapshotState) => void;
 }): React.JSX.Element {
-  props.onObserve(useWorkflowRunSnapshot(props.readRun, props.workflowRunId, props.readRound));
+  props.onObserve(useWorkflowRunSnapshot(props.readRun, props.workflowRunId, props.refreshCount));
   return <></>;
 }

@@ -1,5 +1,5 @@
 // What the run pane owes the body that answers a phase parked on a person. It lives apart from
-// the mount point wrapper so the default body, the submit channel and the submit dispatch
+// the mount point wrapper so the default body, the submit binding and the submit dispatch
 // share the contract without importing the component that renders them. Whether the form may
 // be submitted is the daemon's to answer and is never predicted here.
 

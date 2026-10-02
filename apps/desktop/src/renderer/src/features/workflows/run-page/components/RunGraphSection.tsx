@@ -14,8 +14,8 @@ import type { RunGraphNode, PhaseParkAttention } from "../run-graph/phase-topolo
  * No topology is passed, so no edge is drawn: the run read carries no dependencies, they live on
  * the pinned definition, and a definition's latest version matches a run's pin only while the
  * run is on the latest version. Inferring edges from array order would draw a parallel run as a
- * serial chain, so the graph draws the states and captions the absence. Nodes carry no name
- * because it lives in the definition body, which the run read does not carry.
+ * serial chain, so the graph draws the states and captions the missing dependencies. Nodes carry
+ * no name because it lives in the definition body, which the run read does not carry.
  */
 export function RunGraphSection(props: {
   readonly phases: readonly WorkflowPhaseState[];

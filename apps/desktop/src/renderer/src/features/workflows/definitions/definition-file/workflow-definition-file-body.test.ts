@@ -4,11 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  definitionBodyFileRecord,
-  readDefinitionBody,
-  type WorkflowDefinitionFileBody,
-} from "./workflow-definition-file-body.js";
+import { definitionBodyFileRecord, readDefinitionBody } from "./workflow-definition-file-body.js";
 import type {
   WorkflowPhaseDefinition,
   WorkflowVersionBody,
@@ -60,14 +56,9 @@ function phaseDocumentWith(members: Record<string, unknown>): Record<string, unk
   return { ...phase, ...members };
 }
 
-/** The read body, or a failure naming the sentence the reader actually answered with. */
-function readOrFail(document: Record<string, unknown>): WorkflowDefinitionFileBody | string {
-  return readDefinitionBody(document);
-}
-
 describe("the hashed body — what the writer writes and the reader reads back", () => {
   it("carries every member the phase shape declares, through both sides", () => {
-    const reading = readOrFail(documentWith());
+    const reading = readDefinitionBody(documentWith());
 
     expect(typeof reading).not.toBe("string");
     if (typeof reading === "string") {
@@ -77,7 +68,7 @@ describe("the hashed body — what the writer writes and the reader reads back",
   });
 
   it("carries an empty predecessor list, which is not the same fact as no list", () => {
-    const reading = readOrFail(
+    const reading = readDefinitionBody(
       documentWith({ phaseDefinitions: [phaseDocumentWith({ dependsOn: [] })] }),
     );
 
@@ -92,7 +83,7 @@ describe("the hashed body — what the writer writes and the reader reads back",
 describe("the hashed body — the entry record", () => {
   it("refuses an entry record carrying a member an entry does not have", () => {
     expect(
-      readOrFail(documentWith({ entry: { startMode: "manual", cron: "0 3 * * *" } })),
+      readDefinitionBody(documentWith({ entry: { startMode: "manual", cron: "0 3 * * *" } })),
     ).toContain("cron");
   });
 });
@@ -101,7 +92,9 @@ describe("the hashed body — what a phase may not carry", () => {
   it("refuses a member no phase declares, by name", () => {
     // Carrying it would widen a registered request shape; dropping it is a silent edit.
     expect(
-      readOrFail(documentWith({ phaseDefinitions: [phaseDocumentWith({ timeoutMs: 30000 })] })),
+      readDefinitionBody(
+        documentWith({ phaseDefinitions: [phaseDocumentWith({ timeoutMs: 30000 })] }),
+      ),
     ).toContain("timeoutMs");
   });
 
@@ -116,7 +109,9 @@ describe("the hashed body — what a phase may not carry", () => {
     ];
 
     for (const members of wrongValues) {
-      const reading = readOrFail(documentWith({ phaseDefinitions: [phaseDocumentWith(members)] }));
+      const reading = readDefinitionBody(
+        documentWith({ phaseDefinitions: [phaseDocumentWith(members)] }),
+      );
       expect(typeof reading, `${Object.keys(members)[0] ?? ""} was not refused`).toBe("string");
     }
   });

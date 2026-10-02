@@ -1,11 +1,10 @@
 // What the directory suite needs to watch the hook: a probe that renders nothing and collects
 // every directory it is handed.
 
-import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts";
+import type { WorkflowDefinitionId, WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 
 import { SECOND_PAGE_CURSOR, definition } from "../../workflows-probe.test-support.js";
-import type { WorkflowDefinitionRow } from "../definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,
@@ -82,7 +81,7 @@ function DirectoryProbe(props: {
  * One row per id; the id is the only member that says which read committed. Everything else
  * is the shared probe row from `../../workflows-probe.test-support.ts`.
  */
-function definitionWithId(id: string): WorkflowDefinitionRow {
+function definitionWithId(id: string): WorkflowDefinitionSummary {
   return definition({
     id: id as WorkflowDefinitionId,
     name: `Definition ${id}`,

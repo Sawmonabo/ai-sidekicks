@@ -142,7 +142,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
 
       {provenance === "inherited" ? (
         <span className="meridian-axis-field__advisory">
-          This account is the definition&rsquo;s. Choosing another overrides it for this agent —
+          This account is the definition&rsquo;s. Choosing another overrides it for this sidekick —
           including whichever the registry marks default.
         </span>
       ) : null}

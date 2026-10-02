@@ -18,11 +18,15 @@ import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
+import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { DriverCatalogReading } from "./binding/driver-catalog.js";
 
-/** The events the agent list refreshes on: a provider switch landing, or failing after acceptance. */
+/**
+ * The events the agent list refreshes on: a provider switch landing, or failing after
+ * acceptance.
+ */
 const AGENT_LIST_EVENT_KINDS: readonly SessionEventType[] = [
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
@@ -80,7 +84,7 @@ export function createAgentList(
   return new PushDrivenRead<AgentListReading>({
     clock,
     origin: AGENT_LIST_ORIGIN,
-    read: async () => await listAgents({ sessionId: sessionStore.sessionId as SessionId }),
+    read: async () => await listAgents({ sessionId: heldIdAsWireId(sessionStore.sessionId) }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, AGENT_LIST_EVENT_KINDS, onChangeSignal),
   });
@@ -128,7 +132,8 @@ export function createChildRunLinks(
   return new PushDrivenRead<ChildRunLinkReadResponse>({
     clock,
     origin: CHILD_RUN_LINKS_ORIGIN,
-    read: async () => await readChildRunLinks({ sessionId: sessionStore.sessionId as SessionId }),
+    read: async () =>
+      await readChildRunLinks({ sessionId: heldIdAsWireId(sessionStore.sessionId) }),
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINK_EVENT_KINDS, onChangeSignal),
   });

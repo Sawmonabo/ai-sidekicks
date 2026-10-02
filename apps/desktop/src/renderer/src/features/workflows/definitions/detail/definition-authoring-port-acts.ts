@@ -79,7 +79,7 @@ async function submitDefinition(
 ): Promise<void> {
   const claim = runtime.latch.claim(
     runtime.createDefinition,
-    actKey("import", runtime.workflowDefinitionId),
+    actKey("import", runtime.definitionId),
   );
   if (claim === undefined) {
     publishOutcome(runtime, "import", {

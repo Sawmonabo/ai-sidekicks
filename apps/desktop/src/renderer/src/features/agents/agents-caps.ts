@@ -2,7 +2,7 @@
 
 /**
  * Tool names rendered from a resolved allowlist before the list folds to a count of the rest.
- * The allowlist is a snapshot taken at attach and can be long.
+ * The allowlist is a snapshot taken when the agent starts and can be long.
  */
 export const TOOL_ALLOWLIST_NAMED_CAP = 6;
 

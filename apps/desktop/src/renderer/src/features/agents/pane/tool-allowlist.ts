@@ -56,7 +56,7 @@ export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
   "not-reported": {
     reading: "Not reported",
     lineSentence:
-      "This agent was not started from a saved definition, so the agent list does not say what it may reach.",
+      "This sidekick was not started from a saved definition, so the sidekick list does not say what it may reach.",
     weight: "absent",
   },
   // Muted: nobody restricted this agent, and the provider's own set is what it spawned with.

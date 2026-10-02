@@ -68,8 +68,16 @@ export class RegistryStub {
         });
       },
     };
-    // Recorded so {@link settle} can reach the frozen clock the reads run on.
-    clockUnderTest = this.clock;
+  }
+
+  /**
+   * Lets the read, the delete, and the re-read the delete schedules all land. Two waits: the
+   * opening read goes through the view's `RefreshScheduler`, so this stub's frozen clock must
+   * reach its deadline first, while the delete's re-read only needs its own chain to settle.
+   */
+  public async settle(): Promise<void> {
+    await settleScheduledRead(this.clock);
+    await settleReactWork();
   }
 
   /** Let every held delete answer. Safe with none held. */
@@ -79,7 +87,7 @@ export class RegistryStub {
     for (const release of held) {
       release();
     }
-    await settle();
+    await this.settle();
   }
 
   public get listCallCount(): number {
@@ -134,33 +142,6 @@ export function renderAgentLibrary(stub: RegistryStub): { readonly container: HT
   return { container };
 }
 
-/**
- * What a case changes on {@link definition}: any member, the id as plain text, and the
- * default binding's members.
- */
-interface DefinitionOverrides extends Partial<Omit<AgentDefinition, "definitionId">> {
-  readonly definitionId?: string;
-  readonly defaultBinding?: Partial<AgentProviderBinding>;
-}
-
-/**
- * The window's clock the page under test schedules its reads on. Module state because
- * {@link settle} is called from many places and exactly one page is mounted at a time.
- */
-let clockUnderTest: Clock | undefined;
-
-/**
- * Lets the read, the delete, and the re-read the delete schedules all land. Two waits: the
- * opening read goes through the view's `RefreshScheduler`, so the frozen clock must reach its
- * deadline first, while the delete's re-read only needs its own chain to settle.
- */
-export async function settle(): Promise<void> {
-  if (clockUnderTest !== undefined) {
-    await settleScheduledRead(clockUnderTest);
-  }
-  await settleReactWork();
-}
-
 /** The saved-sidekicks region; throws where the page rendered none. */
 export function savedRegionOf(container: HTMLElement): Element {
   const region = container.querySelector('[aria-label="Saved sidekicks"]');
@@ -179,13 +160,16 @@ export function buttonNamed(container: HTMLElement, label: string): HTMLButtonEl
   return control;
 }
 
-/** Presses a control and lets the page settle. */
-export async function press(control: HTMLButtonElement | null | undefined): Promise<void> {
+/** Presses a control and lets the page over this stub settle. */
+export async function press(
+  stub: RegistryStub,
+  control: HTMLButtonElement | null | undefined,
+): Promise<void> {
   await act(async () => {
     control?.click();
     await crossMacrotaskBoundary();
   });
-  await settle();
+  await stub.settle();
 }
 
 /** The row's own confirm — the `Delete` that is not one of the per-row openers. */
@@ -193,4 +177,13 @@ export function confirmDeleteIn(container: HTMLElement): HTMLButtonElement | und
   return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
     (control) => control.textContent === "Delete" && control.getAttribute("aria-label") === null,
   );
+}
+
+/**
+ * What a case changes on {@link definition}: any member, the id as plain text, and the
+ * default binding's members.
+ */
+interface DefinitionOverrides extends Partial<Omit<AgentDefinition, "definitionId">> {
+  readonly definitionId?: string;
+  readonly defaultBinding?: Partial<AgentProviderBinding>;
 }

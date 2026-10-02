@@ -82,20 +82,6 @@ const ACTION_PROSE: Readonly<Record<WorkflowRunControlAction, string>> = {
 };
 
 /**
- * One version a resume may re-pin onto, as the caller resolved it from the chain.
- *
- * @consumedBy the run header's pinned-version chip
- */
-export interface WorkflowVersionChoice {
-  /** Opaque and wire-verbatim. Passed through, never parsed. */
-  readonly workflowVersionId: string;
-  /** What a person reads instead of the id — the caller's, never derived here. */
-  readonly label: string;
-  /** True for the version the run is pinned to now. */
-  readonly isCurrentPin: boolean;
-}
-
-/**
  * The re-pin a resume carries, when it carries one.
  *
  * A resume re-pins onto a version the person named or not at all. There is no "latest": a
@@ -116,7 +102,7 @@ export interface WorkflowCancelControl {
  * What a resume control's dispatcher composes: the call, and where the last press got to.
  *
  * Separate from the control below because the chain is a second read addressed by the version
- * in the run snapshot, whose round is this dispatcher's output. Joined where the control mounts.
+ * in the run snapshot, whose refresh is this dispatcher's output. Joined where the control mounts.
  */
 export interface WorkflowResumeDispatch {
   readonly resume: (repin: WorkflowVersionRepin | undefined) => void;

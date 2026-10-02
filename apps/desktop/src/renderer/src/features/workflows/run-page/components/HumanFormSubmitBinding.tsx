@@ -1,4 +1,4 @@
-// The submit channel the run pane keeps around the body that answers a waiting phase. The submit
+// The submit binding the run pane keeps around the body that answers a waiting phase. The submit
 // call, single-flight guard, captured revision, run-read re-arm and settlement rendering stay
 // with the pane, so a supplied body receives one bound `submit`.
 //
@@ -17,9 +17,9 @@ import { useHumanFormSubmit } from "../hooks/useHumanFormSubmit.js";
 import { DefaultHumanFormBody } from "../default-human-form-body.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 
-/** What the mount point hands this channel: the open phase, the body to mount, the submit call. */
+/** What the mount point hands this binding: the open phase, the body to mount, the submit call. */
 export interface HumanFormSubmitBindingProps {
-  /** The wait this channel is the submit for. */
+  /** The wait this binding is the submit for. */
   readonly phase: HumanFormPhase;
   /**
    * The supplied body, or `undefined` while the console's default body stands. Required rather

@@ -1,6 +1,6 @@
 // What a workflows body is showing, as one closed set shared by the run view and the node-graph
-// builder. Not `NothingKind`: `ready` is not an absence and `refused` carries a daemon refusal
-// (code in mono, message verbatim), so the mapping to `NothingKind` for the two absence arms
+// builder. Not `NothingKind`: `ready` is not an empty state and `refused` carries a daemon refusal
+// (code in mono, message verbatim), so the mapping to `NothingKind` for the two empty-state arms
 // lives in `WorkflowStateStrip.tsx`, where the rendering does.
 
 import type { Refusal } from "@renderer/lib/refusal.js";

@@ -3,8 +3,8 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { observeSubjectRead } from "@test/helpers/subject-read-commits.js";
-import { settle } from "../../../workflows-probe.test-support.js";
+import { latestCommitted, observeSubjectRead } from "@test/helpers/subject-read-commits.js";
+import { settle } from "@test/helpers/settle.js";
 import {
   DEFINITION_ID,
   RELEASE_CHECKS_BODY,
@@ -21,30 +21,19 @@ afterEach(cleanup);
 /** Every state one mount committed, oldest first. */
 function observeDetail(
   calls: WorkflowDefinitionDetailCalls,
-  workflowDefinitionId: string | undefined,
+  definitionId: string | undefined,
 ): readonly WorkflowDefinitionDetailState[] {
   return observeSubjectRead<WorkflowDefinitionDetailCalls, WorkflowDefinitionDetailState, string>(
     useWorkflowDefinitionDetail,
-    { source: calls, subject: workflowDefinitionId },
+    { source: calls, subject: definitionId },
   ).committed;
-}
-
-/** The last state a mount committed, which is what the definition detail would be showing. */
-function latest(
-  committed: readonly WorkflowDefinitionDetailState[],
-): WorkflowDefinitionDetailState {
-  const last = committed.at(-1);
-  if (last === undefined) {
-    throw new Error("the probe committed nothing");
-  }
-  return last;
 }
 
 describe("the definition detail read", () => {
   it("serves the definition, its version body and its chain together", async () => {
     const committed = observeDetail(answeringDetailCalls(), DEFINITION_ID);
     await settle();
-    const state = latest(committed);
+    const state = latestCommitted(committed);
 
     expect(state.status).toBe("served");
     if (state.status !== "served") {

@@ -11,15 +11,14 @@ import {
   press,
   renderAgentLibrary,
   savedRegionOf,
-  settle,
 } from "./agent-library.test-support.js";
 
 describe("the agent library — deleting one", () => {
   it("asks before it asks the daemon anything", async () => {
     const stub = new RegistryStub({ lists: [[definition()]] });
     const { container } = renderAgentLibrary(stub);
-    await settle();
-    await press(buttonNamed(container, "Delete Reviewer"));
+    await stub.settle();
+    await press(stub, buttonNamed(container, "Delete Reviewer"));
     expect(container.textContent ?? "").toContain("Delete “Reviewer”?");
     expect(stub.deletedIds).toStrictEqual([]);
   });
@@ -27,12 +26,12 @@ describe("the agent library — deleting one", () => {
   it("keeps the record when the question is answered no", async () => {
     const stub = new RegistryStub({ lists: [[definition()]] });
     const { container } = renderAgentLibrary(stub);
-    await settle();
-    await press(buttonNamed(container, "Delete Reviewer"));
+    await stub.settle();
+    await press(stub, buttonNamed(container, "Delete Reviewer"));
     const keep = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
       (control) => control.textContent === "Keep",
     );
-    await press(keep);
+    await press(stub, keep);
     expect(container.textContent ?? "").not.toContain("Delete “Reviewer”?");
     expect(stub.deletedIds).toStrictEqual([]);
   });
@@ -42,11 +41,11 @@ describe("the agent library — deleting one", () => {
     // dropped it locally.
     const stub = new RegistryStub({ lists: [[definition()], []] });
     const { container } = renderAgentLibrary(stub);
-    await settle();
-    await press(buttonNamed(container, "Delete Reviewer"));
-    await press(confirmDeleteIn(container));
+    await stub.settle();
+    await press(stub, buttonNamed(container, "Delete Reviewer"));
+    await press(stub, confirmDeleteIn(container));
     expect(stub.deletedIds).toStrictEqual(["definition-1"]);
     expect(stub.listCallCount).toBe(2);
-    expect(savedRegionOf(container).textContent ?? "").toContain("You have saved no sidekicks");
+    expect(savedRegionOf(container).textContent ?? "").toContain("No sidekicks yet");
   });
 });
