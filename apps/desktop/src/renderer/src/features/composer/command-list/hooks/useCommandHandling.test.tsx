@@ -1,7 +1,7 @@
 // The executor outlives every re-render while its handlers close over the addressed session, so a
 // composer re-addressed from no session to a session must run the handler against that session.
 // The workflow root is registered here because the hook does not register it and the executor
-// refuses unlisted names first.
+// sends an unlisted name as typed before any handler runs.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";

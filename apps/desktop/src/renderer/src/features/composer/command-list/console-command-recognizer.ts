@@ -1,70 +1,37 @@
-// Which `/name` the composer may run, and the sentence it says when it may not. A registered id
-// is executed by the client and never composes into a message or provider turn; provider
-// commands are discovery only, except compaction, which has its own control. Whether a command
-// applies here is `invoke`'s answer, not asked here, so an inapplicable command is never
-// reported as unknown. The match is on the exact id, with no alias vocabulary.
+// Which `/name` the composer runs, and the refusal it mints when a command it ran failed. A
+// recognized id is executed by the client and never composes into a message or provider turn.
+// A name it does not recognize, a registered command that does not run here included, is sent
+// as typed and answered by the provider. The match is on the exact id, with no alias vocabulary.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /** The subsystem name every refusal the composer's command zone raises carries. */
 export const CONSOLE_COMMAND_REFUSAL_ORIGIN = "composer-commands";
 
-/**
- * Why the composer would not run a typed command; each code is a different remedy.
- * `command-argument-invalid` is a correctly named command handed arguments it cannot act on,
- * not `command-failed`, which says it ran. `command-unavailable-now` is a command its owner
- * has closed (for example the local runtime is not serving), not `command-unavailable-here`,
- * which is about scope; the owner supplies the sentence saying why.
- */
-export const CONSOLE_COMMAND_REFUSAL_CODES = [
-  "unknown-command",
-  "command-unavailable-here",
-  "command-unavailable-now",
-  "command-argument-invalid",
-  "command-failed",
-] as const;
+/** The one refusal the command zone raises: a command it ran did not complete. */
+export const CONSOLE_COMMAND_REFUSAL_CODES = ["command-failed"] as const;
 
 /** One such code. Derived, so the vocabulary is declared exactly once. */
 export type ConsoleCommandRefusalCode = (typeof CONSOLE_COMMAND_REFUSAL_CODES)[number];
 
 /** What the recognizer was given to decide against. */
 export interface ConsoleCommandRecognitionInput {
-  /**
-   * Every console command this window has registered, visible or not. The wider set on
-   * purpose: a command that exists but does not apply here must not read as an unknown name.
-   */
-  readonly registeredCommandIds: readonly string[];
+  /** Every command that would run where this composer is: offered here and not closed. */
+  readonly runnableCommandIds: readonly string[];
 }
-
-/** The recognizer's answer. Recognized means "this console will run it". */
-export type ConsoleCommandRecognition =
-  | { readonly status: "recognized"; readonly commandId: string }
-  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** Mint one refusal in this zone's vocabulary. */
 export function consoleCommandRefusal(code: ConsoleCommandRefusalCode, detail: string): Refusal {
   return refuse(CONSOLE_COMMAND_REFUSAL_ORIGIN, code, detail);
 }
 
-/** The refusal for a typed name no registered command answers to. */
-export function unknownCommandRefusal(name: string): Refusal {
-  return consoleCommandRefusal(
-    "unknown-command",
-    `${name} is not a command here, so there was nothing to run.`,
-  );
-}
-
 /**
- * Decide what one typed name is, without running anything. Takes the name alone because the
- * router's predicate does, so no line has to be fabricated. The refusal arm is reached only
- * when the command left the registry between the router's claim and this call.
+ * Whether this console runs one typed name here, without running anything. Takes the name alone
+ * because the router's predicate does, so no line has to be fabricated.
  */
 export function recognizeConsoleCommand(
   name: string,
   input: ConsoleCommandRecognitionInput,
-): ConsoleCommandRecognition {
-  if (input.registeredCommandIds.includes(name)) {
-    return { status: "recognized", commandId: name };
-  }
-  return { status: "refused", refusal: unknownCommandRefusal(name) };
+): boolean {
+  return input.runnableCommandIds.includes(name);
 }

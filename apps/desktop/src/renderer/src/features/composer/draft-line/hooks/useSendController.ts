@@ -90,7 +90,38 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     // Captured before the await, so what settles is measured against the address sent from.
     const identity = issueSettlementIdentity("send");
     try {
-      const outcome = await router.send(body, target);
+      const routed = await router.send(body, target);
+      if (routed.status === "intercepted") {
+        if (commandExecutor === undefined) {
+          settle(identity, composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
+          return;
+        }
+        const settled = await commandExecutor({
+          commandName: routed.commandName,
+          text: body.trim(),
+        });
+        switch (settled.status) {
+          case "refused":
+            // Kept: the text is what the person would otherwise retype.
+            settle(identity, settled.refusal);
+            return;
+          case "not-run":
+            // Kept too: the command reads its arguments off this line.
+            settle(identity, undefined);
+            return;
+          case "applied":
+            // A command never composes into a message: the line clears because the act
+            // happened, on the same terms as the sent arm.
+            clearSentDraft(identity, draftKey);
+            settle(identity, undefined);
+            return;
+          case "send-as-typed":
+            break;
+        }
+      }
+      // A line its command did not act on goes out untrimmed, as any other message does.
+      const outcome =
+        routed.status === "intercepted" ? await router.sendAsTyped(body, target) : routed;
       switch (outcome.status) {
         case "sent":
           history.recordSent(body);
@@ -99,31 +130,6 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           clearSentDraft(identity, draftKey);
           settle(identity, undefined);
           return;
-        case "intercepted": {
-          if (commandExecutor === undefined) {
-            settle(identity, composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
-            return;
-          }
-          const settled = await commandExecutor({
-            commandName: outcome.commandName,
-            text: body.trim(),
-          });
-          if (settled.status === "refused") {
-            // Kept: the text is what the person would otherwise retype.
-            settle(identity, settled.refusal);
-            return;
-          }
-          if (settled.status === "not-run") {
-            // Kept too: the command reads its arguments off this line.
-            settle(identity, undefined);
-            return;
-          }
-          // A command never composes into a message: the line clears because the act happened,
-          // on the same terms as the sent arm.
-          clearSentDraft(identity, draftKey);
-          settle(identity, undefined);
-          return;
-        }
         case "refused":
           settle(identity, outcome.refusal);
           return;

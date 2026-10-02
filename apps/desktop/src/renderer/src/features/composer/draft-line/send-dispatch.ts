@@ -13,7 +13,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { interventionNotApplied } from "./send-refusals.js";
-import type { ComposerSendOutcome } from "./send-resolutions.js";
+import type { ComposerMessageOutcome } from "./send-resolutions.js";
 import type { AnsweredRunVersions } from "../answered-run-versions.js";
 
 /** The two daemon calls a send makes, supplied by whoever holds the wire. */
@@ -29,7 +29,7 @@ export interface ComposerSendCalls {
 export async function dispatchQueuedTurn(
   calls: ComposerSendCalls,
   request: QueueItemCreateRequest,
-): Promise<ComposerSendOutcome> {
+): Promise<ComposerMessageOutcome> {
   await calls.queueCreate(request);
   return { status: "sent", path: "session-message" };
 }
@@ -42,7 +42,7 @@ export async function dispatchIntervention(
   calls: ComposerSendCalls,
   request: InterventionRequestPayload,
   runVersions: AnsweredRunVersions,
-): Promise<ComposerSendOutcome> {
+): Promise<ComposerMessageOutcome> {
   const response = await calls.intervene(request);
   runVersions.record(request.targetRunId, response.runVersion);
   if (!isInterventionAdmitted(response.state)) {
