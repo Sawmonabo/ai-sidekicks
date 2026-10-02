@@ -1,5 +1,5 @@
 // One reader for the scripted `session.read` reply, shared by the two derivations that need it:
-// `session-identity.fixture.ts` reads the state and `session-snapshot.fixture.ts` reads the cursor
+// `session-identity.fixture.ts` reads the state and `session-base-state.fixture.ts` reads the cursor
 // block. The reply's `result` is untyped, so reaching a member is a narrowing walk; two copies of
 // it could disagree about a reply that is half a record.
 

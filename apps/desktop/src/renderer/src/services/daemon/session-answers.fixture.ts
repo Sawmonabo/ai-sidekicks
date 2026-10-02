@@ -1,16 +1,16 @@
 // The fixture's session read: the base state a store opens on. A `SessionStore` admits nothing
 // until a read gives it a base state, so serving one from the scenario is what lets the whole
-// store layer run against a scripted session. The snapshot is not `SessionReadResponse` from
-// `@ai-sidekicks/contracts`: `SessionStore.initialize` takes the console's own `SessionSnapshot`
+// store layer run against a scripted session. The base state is not `SessionReadResponse` from
+// `@ai-sidekicks/contracts`: `SessionStore.initialize` takes the console's own `SessionBaseState`
 // (`store/session/session-state.ts`) with a numeric `cursor` and `entities`, and the registered
-// reply carries neither. `session-snapshot.fixture.ts` derives the base state.
+// reply carries neither. `session-base-state.fixture.ts` derives the base state.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import type { WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
-import type { SessionSnapshot } from "@renderer/store/session/session-state.js";
+import type { SessionBaseState } from "@renderer/store/session/session-state.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
-import { fixtureSessionSnapshot } from "./session-snapshot.fixture.js";
+import { fixtureSessionBaseState } from "./session-base-state.fixture.js";
 
 /** The session read's request: the session, and the position the caller last acknowledged. */
 export interface FixtureSessionReadRequest {
@@ -27,7 +27,7 @@ export interface FixtureSessionReadRequest {
  * refusal. Refusing both arms would leave the store with no base state.
  */
 export function fixtureSessionAnswers(engine: ScenarioEngine): {
-  readonly sessionRead: (request: FixtureSessionReadRequest) => Promise<SessionSnapshot>;
+  readonly sessionRead: (request: FixtureSessionReadRequest) => Promise<SessionBaseState>;
 } {
   return {
     sessionRead: async (request) => {
@@ -37,7 +37,7 @@ export function fixtureSessionAnswers(engine: ScenarioEngine): {
       ) {
         throw unresolvableResumeCursorRefusal();
       }
-      return fixtureSessionSnapshot(engine.scenario, request.sessionId);
+      return fixtureSessionBaseState(engine.scenario, request.sessionId);
     },
   };
 }

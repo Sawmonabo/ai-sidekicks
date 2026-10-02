@@ -89,15 +89,15 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
  * holds for the session, the whole text, and the empty string when none is held: Send clears
  * it, and a half-typed message reaches the person's other devices through this read.
  */
-export interface SessionSnapshot {
+export interface SessionRecord {
   id: SessionId;
   state: SessionState;
   createdAt: string;
   updatedAt: string;
   draft: string;
 }
-/** Parses a {@link SessionSnapshot}. */
-export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
+/** Parses a {@link SessionRecord}. */
+export const SessionRecordSchema: z.ZodType<SessionRecord> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
@@ -120,7 +120,7 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
 
 /** The `session.read` result: the session and its latest and acknowledged timeline cursors. */
 export interface SessionReadResponse {
-  session: SessionSnapshot;
+  session: SessionRecord;
   timelineCursors: {
     latest: EventCursor;
     acknowledged?: EventCursor | undefined;
@@ -129,7 +129,7 @@ export interface SessionReadResponse {
 /** Parses a {@link SessionReadResponse}. */
 export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
   .object({
-    session: SessionSnapshotSchema,
+    session: SessionRecordSchema,
     timelineCursors: z
       .object({
         latest: EventCursorSchema,

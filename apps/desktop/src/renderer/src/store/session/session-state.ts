@@ -61,8 +61,8 @@ export interface SessionStoreState {
 export const BASE_STATE_CURSOR = 0;
 
 /** The base state a read response establishes. */
-export interface SessionSnapshot {
-  /** The sequence the snapshot is current as of. */
+export interface SessionBaseState {
+  /** The sequence the base state is current as of. */
   readonly cursor: number;
   /** Entities the read response carried. */
   readonly entities: readonly StoredEntity[];
@@ -139,7 +139,7 @@ export function uninitializedState(input: {
  */
 export function establishedState(input: {
   readonly sessionId: string;
-  readonly snapshot: SessionSnapshot;
+  readonly snapshot: SessionBaseState;
   readonly orderedTimeline: readonly ProjectedSessionEvent[];
   readonly timelineCap: number | undefined;
   readonly revision: number;

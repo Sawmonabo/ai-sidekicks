@@ -9,7 +9,7 @@ import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { OpenSessionEntry } from "./open-session-entry.js";
-import type { SessionSnapshot } from "./session-store.js";
+import type { SessionBaseState } from "./session-store.js";
 
 describe("OpenSessionEntry — the resume position is submitted on the read", () => {
   /** One read the entry performed: which position it was asked to start from. */
@@ -18,7 +18,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   }
 
   /** What a scripted read does when the entry performs it. */
-  type ScriptedRead = SessionSnapshot | { readonly rejectWith: unknown };
+  type ScriptedRead = SessionBaseState | { readonly rejectWith: unknown };
 
   /**
    * An entry whose successive reads follow a script, recording what each was handed. The record
@@ -60,7 +60,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   }
 
   /** A snapshot at `cursor`, acknowledged where one is supplied. */
-  function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
+  function snapshotAt(cursor: number, acknowledged?: string): SessionBaseState {
     return {
       cursor,
       entities: [],

@@ -40,13 +40,13 @@ import {
   uninitializedState,
   type TimelineRetainedEnd,
 } from "./session-state.js";
-import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
+import type { SessionBaseState, SessionStoreState } from "./session-state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 
 // The store's vocabulary, re-exported so callers need not know which dependency declares it.
 // `SequenceGap` is not: nothing outside its owner imports it.
 export type { SessionDegradedCause } from "../session-degradation.js";
-export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
+export type { SessionBaseState, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./session-selectors.js";
 export type { EarlierWindowMerge } from "./earlier-window.js";
 
@@ -159,7 +159,7 @@ export class SessionStore {
    * Establish the base state from a read response and drain anything that arrived first.
    * Idempotent against a rewind and admits the equal-cursor repair (`admitsSnapshotAt`).
    */
-  public initialize(snapshot: SessionSnapshot): void {
+  public initialize(snapshot: SessionBaseState): void {
     const current = this.#store.getState();
     if (current.initialized && !admitsSnapshotAt(snapshot.cursor, current)) {
       return;

@@ -32,7 +32,7 @@ import type { EntityProjectorTable } from "./entities/entities.js";
 import { ApplyQueue } from "./apply-queue.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type ApplyOutcome } from "./apply-outcome.js";
-import { SessionStore, type SessionSnapshot } from "./session-store.js";
+import { SessionStore, type SessionBaseState } from "./session-store.js";
 import {
   isUnresolvableCursorRejection,
   refuseUnresolvableResume,
@@ -57,7 +57,7 @@ export type SessionSnapshotReader = (
   sessionId: string,
   reasons: readonly RefreshReason[],
   resumeFromCursor: string | undefined,
-) => Promise<SessionSnapshot | undefined>;
+) => Promise<SessionBaseState | undefined>;
 
 /**
  * Everything one open session needs. Declared here, in the lower module, because the registry
@@ -209,7 +209,7 @@ export class OpenSessionEntry {
     reasons: readonly RefreshReason[],
   ): Promise<void> {
     const submitted = this.#resumeFromCursor;
-    let snapshot: SessionSnapshot | undefined;
+    let snapshot: SessionBaseState | undefined;
     try {
       snapshot = await read(sessionId, reasons, submitted);
     } catch (rejection: unknown) {

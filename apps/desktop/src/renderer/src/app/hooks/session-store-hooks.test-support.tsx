@@ -16,7 +16,7 @@ import {
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { useActiveSessionStore } from "./useActiveSessionStore.js";
 import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
-import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
+import { fixtureSessionBaseState } from "@renderer/services/daemon/session-base-state.fixture.js";
 
 /** What a probe saw on one render: the window's registry and the active session's store. */
 export interface Observation {
@@ -32,7 +32,7 @@ export interface SessionProbeProps {
 
 /** The concurrent-streaming scenario's base state for a session, standing in for the read. */
 const readConcurrentStreamingSession: SessionSnapshotReader = (sessionId) =>
-  Promise.resolve(fixtureSessionSnapshot(CONCURRENT_STREAMING_SCENARIO, sessionId));
+  Promise.resolve(fixtureSessionBaseState(CONCURRENT_STREAMING_SCENARIO, sessionId));
 
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {
