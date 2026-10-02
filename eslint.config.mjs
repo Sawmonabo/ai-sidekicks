@@ -421,9 +421,8 @@ const repositoryConfig = defineConfig(
   // the named import while leaving `createHash` and `randomBytes` available.
   //
   // The same `no-restricted-imports` entry keeps a provider's driver folder private: shared daemon
-  // code names no provider, so only the descriptor registry (and the daemon's startup, once it
-  // builds the drivers) imports from `drivers/`. Files inside a driver folder reach their siblings
-  // by `./` and `../` paths that never spell `drivers/`.
+  // code names no provider, so only the descriptor registry imports from `drivers/`. Files inside a
+  // driver folder reach their siblings by `./` and `../` paths that never spell `drivers/`.
   {
     files: ["packages/runtime-daemon/src/**/*.ts"],
     ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
@@ -437,7 +436,7 @@ const repositoryConfig = defineConfig(
             {
               regex: "(?:^|/)drivers/",
               message:
-                "A provider's driver folder is imported only by the provider-driver descriptor registry and the daemon's startup; shared daemon code reads a provider through the registry and names none.",
+                "A provider's driver folder is imported only by the provider-driver descriptor registry; shared daemon code reads a provider through the registry and names none.",
             },
           ],
         },
