@@ -318,7 +318,7 @@ Every item [Spec-015 §Interfaces And Contracts](../specs/015-workflow-authoring
 
 **Scope:** the `packages/contracts/src/workflow-*.ts` files, the daemon's one local schema (EXTEND), `packages/runtime-daemon/src/workflow/workflow-definition-service.ts` + `workflow-run-service.ts` (NEW). Absorbs `## Implementation Steps` 1–2 plus step 8's contract and persistence legs and step 10's contract, payload, and schema leg; Rollout Order item 1.
 
-**Precondition:** none.
+**Precondition:** Plan-005 Phase R1 merged (T-005r-1-18, the writer worker T1.5 and T1.12 write through, CP-014-4).
 
 #### Tasks
 
@@ -672,6 +672,7 @@ The park tasks T5.20–T5.24 live in the Phase 5B and 5C supplements below.
   - **Files:** `packages/runtime-daemon/src/workflow/workflow-run-service.ts` (EXTEND — SA-38 adjudication + refusal wiring on the start path all callers share).
   - **Provides:** per-start adjudication of the named Cedar operation action through `PermissionCheckService` for an agent's start through `workflow_run` or `workflow_node_execute` and for each run a trigger fires (T5.10), with `workflow.start_denied` refusal for a denied start; the person's own starts — the desktop app, its intercepted `/workflow` verbs, the CLI and any linked device — pass no policy check and record the device they came from; session validation — the named session must be one the starter can see before the run binds to it, refusing `workflow.start_denied` otherwise, with the policy adjudication itself never reading the field, the validation running only for a start the policy admits (policy arm first, session arm second), and the not-visible and nonexistent-session outcomes byte-identical.
   - **Consumes:** Plan-009 `PermissionCheckService` (CP-014-2, CP-014-8); T1.2 wire pairs.
+  - **Precondition:** T1.2 merged (the wire pairs), T2.12 merged (the last earlier task on `workflow-run-service.ts`, which this task extends), and Plan-009 Phase 2 merged (`PermissionCheckService`, CP-014-2).
   - **Spec coverage:** Spec-015 §Start authorization (SA-38); Spec-015 §Chat-start surface (SA-37).
   - **Verifies invariant:** I-014-15.
   - **Tests:** a person's own start from the CLI, the desktop and a linked device runs with no policy call (asserted on the adjudication seam); a policy-denied agent start refuses `workflow.start_denied`; the refusal surfaces verbatim through SDK and CLI; a session the starter cannot see refuses and binds no run (a forged session can never receive a progress row — asserted), while a visible one binds and the policy decision is unchanged by the field's presence; a policy-denied start with a forged session refuses on the policy arm and the session read never executes (asserted, not sampled); the session refusal is byte-identical for a session the starter cannot see and a nonexistent one; the adjudication mints no approval row of its own on any path, and an agent's `workflow_run` call in a chat at a level that asks raises the ordinary approval card before the adjudication while one at `sandboxed` or `yolo` raises none; every adjudicated start path traverses the same adjudication call site (asserted structurally, not by sampling).

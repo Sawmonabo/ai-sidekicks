@@ -168,6 +168,7 @@ flowchart TD
  n005_R1 --> n005_R2
  n005_2D --> n010_2
  n005_R1 --> n013_2
+ n005_R1 --> n014_1
  n005_R1 --> n014_2
  n005_2D --> n020_5
  n005_R2 --> n005_R3
@@ -324,9 +325,9 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-025 Phase 1](../plans/025-remote-control.md) | the daemon as a running process. | — |
 |  | [Plan-005 Phase 2C](../plans/005-local-ipc-and-daemon-control.md) | socket path length check before bind. | — |
 |  | [Plan-005 Phase 2D](../plans/005-local-ipc-and-daemon-control.md) | batched subscription frame. | — |
-|  | [Plan-014 Phase 1](../plans/014-workflow-authoring-and-execution.md) | workflow contracts, schema, writer. | — |
 |  | [Plan-020 Phase 1B](../plans/020-desktop-app-and-renderer.md#phase-1b--renderer-load-substrate) | main's registry of windows (T-020p-1B-5). | — |
 | 2 | [Plan-003 Phase 5](../plans/003-provider-driver-contract-and-capabilities.md) | MCP task-handle durability. | Plan-003 Phase 3 |
+|  | [Plan-014 Phase 1](../plans/014-workflow-authoring-and-execution.md) | workflow contracts, schema, writer. | Plan-005 Phase R1 |
 |  | [Plan-002 Phase 2](../plans/002-queue-steer-pause-resume.md) | queue admission and serialized interventions. | Plan-005 Phase 2B |
 |  | [Plan-005 Phase R2](../plans/005-local-ipc-and-daemon-control.md) | secure defaults, TLS, first-run keys. | Plan-005 Phase R1 |
 |  | [Plan-008 Phase 3](../plans/008-gitflow-pr-and-diff-attribution.md) | ship acts, generate and the trailer. | Plan-008 Phase 1 |
