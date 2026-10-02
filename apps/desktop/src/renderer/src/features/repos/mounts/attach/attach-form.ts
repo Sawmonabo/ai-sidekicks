@@ -27,21 +27,11 @@ export type AttachFormVerdict =
   | { readonly status: "sendable"; readonly localPath: string }
   | { readonly status: "incomplete"; readonly because: string };
 
-/** One form read: the verdict on whether it can be sent. */
-export interface AttachFormResolution {
-  readonly verdict: AttachFormVerdict;
-}
-
-/** Read one form into the verdict the dialog sends by. */
-export function resolveAttachForm(form: AttachFormState): AttachFormResolution {
-  return { verdict: attachVerdictFor(form) };
-}
-
 /**
- * The verdict itself. Length is measured in code units, as the contract's Zod `max` does; a
- * UTF-8 byte count would refuse paths the daemon accepts.
+ * Read one form into the verdict the dialog sends by. Length is measured in code units, as the
+ * contract's Zod `max` does; a UTF-8 byte count would refuse paths the daemon accepts.
  */
-function attachVerdictFor(form: AttachFormState): AttachFormVerdict {
+export function resolveAttachForm(form: AttachFormState): AttachFormVerdict {
   if (form.localPath.trim().length === 0) {
     return { status: "incomplete", because: "Name the repository's path." };
   }

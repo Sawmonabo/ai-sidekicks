@@ -45,11 +45,6 @@ export class MotionFrameSampler {
     });
   }
 
-  /** Whether a frame is armed right now. False at rest, and that is the budget. */
-  public get isSampling(): boolean {
-    return this.#queuedFrame !== undefined;
-  }
-
   /** Drop any armed frame. Idempotent, and it never re-arms on its own. */
   public stop(): void {
     if (this.#queuedFrame === undefined) {

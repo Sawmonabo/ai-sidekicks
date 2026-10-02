@@ -1,8 +1,7 @@
 // What the intraline register costs and does when a pair is too long to compare. The claims
 // are about work, not output: parsing runs no word diff, materializing a row runs one and a
 // second read runs none, the register stays bounded, and an over-bound pair keeps its whole
-// line and reports the skip. The library call is counted at the mock, not by a figure the
-// module keeps about itself.
+// line. The library call is counted at the mock, not by a figure the module keeps about itself.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -89,13 +88,11 @@ describe("intraline segmentation — when the word diff runs", () => {
     const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
     const first = cache.readingFor(bodyRow(0), 0);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
-    expect(cache.computeCount).toBe(1);
     // A scroll re-renders its window every tick, so this decides whether the window costs one
     // word diff or one per frame.
     const second = cache.readingFor(bodyRow(0), 0);
     expect(second).toBe(first);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
-    expect(cache.computeCount).toBe(1);
   });
 
   it("serves both rows of one pair from the single comparison that made them", () => {
@@ -105,7 +102,6 @@ describe("intraline segmentation — when the word diff runs", () => {
     const inserted = cache.readingFor(bodyRow(1), 1);
 
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
-    expect(cache.computeCount).toBe(1);
     // The two rows are still the two sides of that comparison: a register that served one
     // reading to both would highlight the deleted line's words on the inserted line.
     expect(deleted.segments.filter((segment) => segment.changed)).toStrictEqual([
@@ -133,12 +129,12 @@ describe("intraline segmentation — when the word diff runs", () => {
     // Read again, so the first pair is now the most recently read rather than the oldest.
     cache.readingFor(bodyRow(0), 0);
     cache.readingFor(bodyRow(pairCount - 1), pairCount - 1);
-    expect(cache.computeCount).toBe(pairCount);
+    expect(wordDiffCalls).toHaveBeenCalledTimes(pairCount);
     // The pair read again is still held, and the least recently read is not.
     cache.readingFor(bodyRow(0), 0);
-    expect(cache.computeCount).toBe(pairCount);
+    expect(wordDiffCalls).toHaveBeenCalledTimes(pairCount);
     cache.readingFor(bodyRow(1), 1);
-    expect(cache.computeCount).toBe(pairCount + 1);
+    expect(wordDiffCalls).toHaveBeenCalledTimes(pairCount + 1);
   });
 });
 
@@ -171,7 +167,6 @@ describe("intraline segmentation — what a pair segments to", () => {
     ).toStrictEqual([{ text: "previousBudget", changed: true }]);
     expect(cache.readingFor(bodyRow(1), 1)).toStrictEqual({
       segments: [{ text: "const dropped = true;", changed: false }],
-      skipped: false,
     });
   });
 
@@ -185,13 +180,12 @@ describe("intraline segmentation — what a pair segments to", () => {
     );
     expect(cache.readingFor(bodyRow(2), 2)).toStrictEqual({
       segments: [{ text: "const added = true;", changed: false }],
-      skipped: false,
     });
   });
 });
 
 describe("intraline segmentation — the size bound", () => {
-  it("keeps the whole line and says the comparison was skipped past the character cap", () => {
+  it("keeps the whole line, uncompared, past the character cap", () => {
     // Against a short partner, so the pair's product is in bounds and only the line cap can
     // decide: one long line against a short one costs the square of the long one.
     const model = modelOf([
@@ -205,7 +199,6 @@ describe("intraline segmentation — the size bound", () => {
       DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
     );
     const reading = new IntralineSegmentCache(model).readingFor(bodyRow(0), 0);
-    expect(reading.skipped).toBe(true);
     // The fallback withholds the highlight, never characters.
     expect(reading.segments).toStrictEqual([{ text: deletedText, changed: false }]);
     expect(wordDiffCalls).not.toHaveBeenCalled();
@@ -224,7 +217,9 @@ describe("intraline segmentation — the size bound", () => {
     expect(deletedText.length * insertedText.length).toBeGreaterThan(
       DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
     );
-    expect(new IntralineSegmentCache(model).readingFor(bodyRow(0), 0).skipped).toBe(true);
+    expect(new IntralineSegmentCache(model).readingFor(bodyRow(0), 0).segments).toStrictEqual([
+      { text: deletedText, changed: false },
+    ]);
     expect(wordDiffCalls).not.toHaveBeenCalled();
   });
 });

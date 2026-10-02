@@ -34,7 +34,6 @@ export interface RepoMountsReaderOptions {
   /** The reads and the mode switch this section makes; nothing else reaches the daemon. */
   readonly operations: RepoOperations;
   /**
-  /**
    * The session being read and two of the three reasons to read again. A store, not a bare id:
    * a `workspace.stale` frame and the repair edge that stands for reconnect are transitions of
    * this object, and the id is read off it so the two never name different sessions.
@@ -113,11 +112,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
    */
   public isReadingFor(sessionStore: SessionStore): boolean {
     return this.#sessionStore === sessionStore;
-  }
-
-  /** How many workspaces hold a mode switch right now. The act half's own bound. */
-  public get inFlightSelectionCount(): number {
-    return this.#selections.inFlightCount;
   }
 
   /** How many reads have actually run — the coalescing assertion, not an inference. */

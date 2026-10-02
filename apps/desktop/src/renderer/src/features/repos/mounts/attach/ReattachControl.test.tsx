@@ -4,7 +4,7 @@
 // still on the wire (see also `execution-roots/RootRemovalConfirmation.test.tsx`). The popup
 // is portalled, so acts are read off `document` and the settlement off the render container.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
@@ -12,6 +12,7 @@ import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { confirmationPresses } from "../repo-mounts.test-support.js";
 import { ReattachControl } from "./ReattachControl.js";
 
 const SESSION_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
@@ -50,28 +51,7 @@ function renderControl(operations: RepoOperations): ReturnType<typeof render> {
   );
 }
 
-/** The card's own trigger, which the sent state disables. */
-function trigger(): HTMLButtonElement | null {
-  return document.querySelector<HTMLButtonElement>(".meridian-reattach__trigger");
-}
-
-async function pressOpen(): Promise<void> {
-  await act(async () => {
-    trigger()?.click();
-  });
-}
-
-async function pressConfirm(): Promise<void> {
-  await act(async () => {
-    document.querySelector<HTMLButtonElement>(".meridian-reattach__confirm")?.click();
-  });
-}
-
-async function pressCancel(): Promise<void> {
-  await act(async () => {
-    document.querySelector<HTMLButtonElement>(".meridian-reattach__cancel")?.click();
-  });
-}
+const { trigger, pressOpen, pressConfirm, pressCancel } = confirmationPresses("meridian-reattach");
 
 describe("ReattachControl — the confirm press keeps its settlement", () => {
   it("still reports the re-attach as sent once the confirm control has closed the dialog", async () => {

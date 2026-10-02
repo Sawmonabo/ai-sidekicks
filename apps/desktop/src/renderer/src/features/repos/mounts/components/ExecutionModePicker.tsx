@@ -24,9 +24,9 @@ export interface ExecutionModePickerProps {
   readonly pendingMode: ExecutionMode | undefined;
   /**
    * Whether the binding controls are live, derived once by the card. `pendingMode` travels
-   * beside it because the announcement below names the mode, which a posture does not carry.
+   * beside it because the announcement below names the mode, which an availability does not carry.
    */
-  readonly posture: WorkspaceControlAvailability;
+  readonly availability: WorkspaceControlAvailability;
   readonly onSelect: (executionMode: ExecutionMode) => void;
 }
 
@@ -34,7 +34,7 @@ export interface ExecutionModePickerProps {
 export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.Element {
   const { capabilities } = props;
   // Absent means the group is live.
-  const heldBecause = controlHoldSentence(props.posture);
+  const unavailableBecause = controlHoldSentence(props.availability);
   if (capabilities === undefined) {
     return (
       <div className="meridian-mode-picker">
@@ -53,7 +53,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
   const pendingCopy = pendingMode === undefined ? undefined : selectionInFlightCopy(pendingMode);
   return (
     <div className="meridian-mode-picker">
-      <fieldset className="meridian-mode-picker__group" disabled={heldBecause !== undefined}>
+      <fieldset className="meridian-mode-picker__group" disabled={unavailableBecause !== undefined}>
         <legend className="meridian-mode-picker__legend">
           What a run bound here may do to the repository
         </legend>
@@ -68,18 +68,18 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
           />
         ))}
       </fieldset>
-      {heldBecause === undefined || heldBecause === pendingCopy ? null : (
+      {unavailableBecause === undefined || unavailableBecause === pendingCopy ? null : (
         // A disabled `fieldset` stops taking presses and paints nothing that says why, so the
         // mount's own hold sentence is rendered beside it.
         // One live region, never two: the line below is the specialized rendering of the
-        // in-flight hold, so where the posture's reason is that sentence the two would announce
+        // in-flight hold, so where the availability's reason is that sentence the two would announce
         // one fact twice. Comparing against the composing module's output keeps both in step,
         // and a mismatch falls through to this general line.
         <p className="meridian-mode-picker__held" role="status">
-          {heldBecause}
+          {unavailableBecause}
         </p>
       )}
-      {pendingMode !== undefined && heldBecause === pendingCopy ? (
+      {pendingMode !== undefined && unavailableBecause === pendingCopy ? (
         // A sent switch is progress, not a problem, so `status` rather than an alert.
         <p className="meridian-mode-picker__pending" role="status">
           Switching to <WireFigure value={pendingMode} />. The picker is held until the background

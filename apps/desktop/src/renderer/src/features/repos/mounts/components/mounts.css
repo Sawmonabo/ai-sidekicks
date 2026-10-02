@@ -1,7 +1,6 @@
 /*
- * The mount list, and the mount and workspace cards. Imported by `MountList.tsx`. No literal
- * values: lengths on the space scale, sizes on the type scale, colors as custom properties. The
- * shared act-dialog shape is `../mount-controls.css`.
+ * The mount list, and the mount and workspace cards. Imported by `MountList.tsx`. The shared
+ * act-dialog shape is `../mount-controls.css`.
  */
 
 /* -------------------------------------------------------------- mount card */

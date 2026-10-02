@@ -1,4 +1,4 @@
-// The browser pane body: address line, page tab strip and viewport, drawn from readings and
+// The Preview pane body: address line, page tab strip and viewport, drawn from readings and
 // dispatching through the acts it is given. The close-tab chord is claimed here, because left
 // alone it closes the window: the pane prevents the default and closes the selected page, or
 // refuses locally when none is selected.
@@ -39,7 +39,7 @@ const OPEN_EXTERNAL_FALLBACK: PreviewPaneRejectionFallback = {
 };
 
 /** The page acts the pane's controls dispatch. */
-export interface BrowserChromeActs {
+export interface PreviewChromeActs {
   readonly navigate: (url: string) => void;
   readonly goBack: () => void;
   readonly goForward: () => void;
@@ -57,7 +57,7 @@ export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
   /** The pages the session owns. */
   readonly pages: PageListReading;
   /** What each control does when pressed. */
-  readonly acts: BrowserChromeActs;
+  readonly acts: PreviewChromeActs;
   /** Where the pane's rectangle goes. */
   readonly pageHost: PageHost;
 }

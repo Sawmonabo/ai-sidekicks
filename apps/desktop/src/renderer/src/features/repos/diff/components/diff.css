@@ -1,8 +1,8 @@
 /*
  * The diff views' sheet: pane chrome, changed-file list, rows and the inline transcript card.
  * Imported by `DiffPane.tsx` and by `InlineDiffCard.tsx`, which the transcript renders without
- * the pane. No literal values: lengths and sizes come from the scales, colors from custom
- * properties. One sheet because the diff components share it; banners mark the sections.
+ * the pane. Colors come from custom properties. One sheet because the diff components share it;
+ * banners mark the sections.
  */
 
 /*
@@ -70,7 +70,7 @@
 }
 
 /* The no-diff arm is prose, not a grid, so it takes the inset the bands above omit. */
-.meridian-diff-pane__absence {
+.meridian-diff-pane__empty-state {
   padding: var(--meridian-space-4);
 }
 
@@ -364,17 +364,6 @@
 .meridian-diff__code {
   min-inline-size: 0;
   font-family: var(--meridian-font-mono);
-}
-
-/*
- * Badge for a line whose word-level comparison was declined for size. It sits after the code
- * so the line's characters and columns are untouched, at the end of the line's last row.
- */
-.meridian-diff__intraline-skipped {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  margin-inline-start: var(--meridian-space-2);
 }
 
 /*

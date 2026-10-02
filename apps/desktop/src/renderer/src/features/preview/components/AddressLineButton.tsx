@@ -1,10 +1,7 @@
-// One control in the browser pane's chrome.
+// One control in the Preview pane's chrome.
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { type GlyphName } from "@renderer/styles/glyphs.js";
-
-/** The glyph size the chrome's controls share, so the row's baseline stays even. */
-const CONTROL_GLYPH_SIZE = 13;
+import { GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 
 /**
  * One chrome control. `disabled` comes from the view's reported state and is never computed
@@ -25,7 +22,7 @@ export function AddressLineButton(props: {
       disabled={props.disabled === true}
       onClick={props.onActivate}
     >
-      {props.glyph === undefined ? null : <Glyph name={props.glyph} size={CONTROL_GLYPH_SIZE} />}
+      {props.glyph === undefined ? null : <Glyph name={props.glyph} size={GLYPH_SIZE_CHROME} />}
       {props.label}
     </button>
   );

@@ -7,7 +7,7 @@
 // answers `rowAt` by binary search, so memory follows the change set's shape rather than its
 // row count, and an expansion re-derives one prefix sum instead of thousands of row objects.
 
-import type { DiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
+import type { DiffHunk, DiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
 import {
   diffGapKey,
   type DiffGapExpansion,
@@ -32,7 +32,6 @@ import {
  */
 export class DiffRowIndex {
   readonly #model: DiffModel;
-  readonly #expansion: DiffGapExpansion;
   readonly #fileSpans: readonly FileRowSpan[];
   readonly #rowCount: number;
   #bodyLayoutBuildCount = 0;
@@ -49,7 +48,6 @@ export class DiffRowIndex {
     viewMode: DiffViewMode = "unified",
   ) {
     this.#model = model;
-    this.#expansion = expansion;
     // The mode is not held: it only shapes the flattening done here.
 
     const fileSpans: FileRowSpan[] = [];
@@ -63,7 +61,8 @@ export class DiffRowIndex {
       const hunkSpans: HunkRowSpan[] = [];
       file.hunks.forEach((hunk, hunkIndex) => {
         const available = hunk.precedingContext.length;
-        const revealed = expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0;
+        // Clamped so an expansion map wider than this gap cannot reveal lines it lacks.
+        const revealed = Math.min(available, expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0);
         const hidden = available - revealed;
         const bodyLayout = buildHunkBodyLayout(hunk.lines, viewMode);
         this.#bodyLayoutBuildCount += 1;
@@ -99,11 +98,6 @@ export class DiffRowIndex {
   /** The diff these rows address. */
   public get model(): DiffModel {
     return this.#model;
-  }
-
-  /** The expansion state these rows were flattened under. */
-  public get expansion(): DiffGapExpansion {
-    return this.#expansion;
   }
 
   /**
@@ -165,9 +159,14 @@ export class DiffRowIndex {
       : { kind: "line", fileIndex, hunkIndex, source: "hunk-body", ...bodyRow };
   }
 
-  /** The line a `line` row addresses, or `undefined` if the row does not name one. */
+  /**
+   * The line a `line` row addresses, or `undefined` for a row of another kind. A line row
+   * always resolves: rows come from this index over this model.
+   */
+  public lineFor(row: DiffLineRow): DiffLine;
+  public lineFor(row: DiffRow): DiffLine | undefined;
   public lineFor(row: DiffRow): DiffLine | undefined {
-    return row.kind === "line" ? this.#lineAt(row, row.lineIndex) : undefined;
+    return row.kind === "line" ? diffLineAt(this.#model, row, row.lineIndex) : undefined;
   }
 
   /**
@@ -178,7 +177,7 @@ export class DiffRowIndex {
     if (row.kind !== "line" || row.pairedLineIndex === undefined) {
       return undefined;
     }
-    return this.#lineAt(row, row.pairedLineIndex);
+    return diffLineAt(this.#model, row, row.pairedLineIndex);
   }
 
   /**
@@ -189,17 +188,30 @@ export class DiffRowIndex {
   public rowIndexOfFile(fileIndex: number): number | undefined {
     return this.#fileSpans.find((span) => span.fileIndex === fileIndex)?.startRowIndex;
   }
+}
 
-  /** One line of the sequence a row's `source` names. */
-  #lineAt(row: DiffLineRow, lineIndex: number): DiffLine | undefined {
-    const hunk = this.#model.files[row.fileIndex]?.hunks[row.hunkIndex];
-    if (hunk === undefined) {
-      return undefined;
-    }
-    return row.source === "preceding-context"
-      ? hunk.precedingContext[lineIndex]
-      : hunk.lines[lineIndex];
+/**
+ * The hunk a row addresses, in the model the row was flattened from. Throws on an address the
+ * model does not hold: every row is built from that model, so a miss means the index and the
+ * model disagree, which no rendering can make right.
+ */
+export function diffHunkAt(model: DiffModel, row: DiffLineRow): DiffHunk {
+  const hunk = model.files[row.fileIndex]?.hunks[row.hunkIndex];
+  if (hunk === undefined) {
+    throw new Error(`No hunk ${String(row.hunkIndex)} in file ${String(row.fileIndex)}.`);
   }
+  return hunk;
+}
+
+/** One line of the sequence a row's `source` names. Throws where `diffHunkAt` would. */
+export function diffLineAt(model: DiffModel, row: DiffLineRow, lineIndex: number): DiffLine {
+  const hunk = diffHunkAt(model, row);
+  const line =
+    row.source === "preceding-context" ? hunk.precedingContext[lineIndex] : hunk.lines[lineIndex];
+  if (line === undefined) {
+    throw new Error(`No line ${String(lineIndex)} in hunk ${String(row.hunkIndex)}.`);
+  }
+  return line;
 }
 
 /**

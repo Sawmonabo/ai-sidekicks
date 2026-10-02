@@ -65,11 +65,6 @@ export class ExecutionModeSelections {
     }
   }
 
-  /** How many workspaces hold a switch right now. */
-  public get inFlightCount(): number {
-    return this.#inFlight.heldKeyCount(this);
-  }
-
   /** Terminal. A call still on the wire settles into nothing rather than a gone section. */
   public dispose(): void {
     this.#inFlight.supersedeAll();

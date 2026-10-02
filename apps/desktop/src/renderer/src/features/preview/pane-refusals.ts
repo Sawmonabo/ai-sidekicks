@@ -5,19 +5,13 @@
 
 import type { RejectionFallback } from "@renderer/lib/wire-rejection.js";
 
-/** Every refusal code the browser pane authors or renders as its own. */
-export const PREVIEW_PANE_REFUSAL_CODES: readonly [
+/** Every refusal code the Preview pane authors or renders as its own. */
+export const PREVIEW_PANE_REFUSAL_CODES = [
   "no-selected-page",
   "no-current-page",
   "file-address",
   "open-external-failed",
-] = [
-  // The same codes, in the same order, as the tuple type above.
-  "no-selected-page",
-  "no-current-page",
-  "file-address",
-  "open-external-failed",
-];
+] as const;
 
 /** One code this pane may refuse with. Derived, so the set has exactly one home. */
 export type PreviewPaneRefusalCode = (typeof PREVIEW_PANE_REFUSAL_CODES)[number];

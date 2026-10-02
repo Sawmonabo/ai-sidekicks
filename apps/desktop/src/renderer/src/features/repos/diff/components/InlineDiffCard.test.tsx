@@ -13,7 +13,7 @@ const CARD: DiffInlineCardProps = {
   artifactManifestId: "artifact-manifest-01",
 };
 
-describe("inline diff card — the absence", () => {
+describe("inline diff card — the empty state", () => {
   it("says the diff has not been read, and never that there is nothing in it", () => {
     const { container } = render(<InlineDiffCard card={CARD} />);
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();

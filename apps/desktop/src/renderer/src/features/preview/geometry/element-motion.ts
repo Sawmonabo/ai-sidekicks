@@ -32,9 +32,6 @@ export interface ElementPositionObserverOptions {
 
 /** Reports the node under every transition or animation that starts in this document. */
 export function observeMotionStarts(onMotionStart: (movingNode: Node) => void): Unsubscribe {
-  if (typeof document === "undefined") {
-    return () => undefined;
-  }
   const handleMotionStart = (event: Event): void => {
     const movingNode = event.target;
     if (movingNode instanceof Node) {
@@ -86,7 +83,7 @@ export function hasRunningMotion(element: Element): boolean {
  * shim without `document.getAnimations`; the element-scoped reading still runs.
  */
 export function hasRunningDocumentMotion(element: Element): boolean {
-  if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
+  if (typeof document.getAnimations !== "function") {
     return false;
   }
   const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);

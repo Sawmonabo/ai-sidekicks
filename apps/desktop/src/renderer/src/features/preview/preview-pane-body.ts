@@ -1,7 +1,6 @@
 // The preview pane's body, as the pane registry loads it. It is registered as a loader
 // (`body: () => import("../preview-pane-body.js")`) so the pane and its geometry become their
-// own chunk, off the initial import graph. Kept apart from the component so the registration
-// terms can be asserted without rendering.
+// own chunk, off the initial import graph.
 
 // The address-line button's sheet enters here, where the pane enters the graph, because the
 // pane's own components import theirs.

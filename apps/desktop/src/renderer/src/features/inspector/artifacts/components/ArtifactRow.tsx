@@ -7,7 +7,7 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire-figures.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
-import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
+import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
 
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
@@ -23,7 +23,6 @@ export interface ArtifactRowProps {
 /** One manifest row, with its face, its re-read control and its digest and metadata. */
 export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
   const { row } = props;
-  const statePresentation = ARTIFACT_STATE_PRESENTATION[row.state];
   const formattedSize = formatByteQuantity(row.size);
 
   return (
@@ -34,7 +33,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           mono
           glyph={row.artifactType === "diff" ? "diff" : "artifact"}
         />
-        <Chip tone={statePresentation.tone} label={row.state} mono />
+        <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={row.state} mono />
         <span className="meridian-artifact-row__size">
           {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />

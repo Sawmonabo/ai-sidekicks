@@ -20,7 +20,7 @@ const WORKSPACE_ENTITY = DIFF_PANE_WORKSPACE_ENTITY;
 
 installDiffPaneLayout();
 
-describe("diff pane — the absence it renders", () => {
+describe("diff pane — the empty state it renders", () => {
   it("says the question was not put, in the pane", () => {
     const { container } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
     const nothing = container.querySelector(".meridian-nothing");

@@ -1,29 +1,16 @@
 // Revoking from the palette goes through the list's own two steps, for the named rule. Driven
 // through the real list: a palette press that reached the wire would skip the confirmation.
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { RememberedRule } from "@ai-sidekicks/contracts";
-
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { RememberedRules } from "../components/RememberedRules.js";
-import { FIRST_RULE_ID, SECOND_RULE_ID, rule } from "../remembered-rule.test-support.js";
-
-function renderGrants(options: {
-  readonly rules: readonly RememberedRule[];
-  readonly revoking?: ReadonlySet<string>;
-  readonly onRevoke?: (ruleId: string) => void;
-}): void {
-  render(
-    <RememberedRules
-      rules={options.rules}
-      unreadableCount={0}
-      revokingRuleIds={options.revoking ?? new Set()}
-      onRevoke={options.onRevoke ?? vi.fn()}
-    />,
-  );
-}
+import {
+  FIRST_RULE_ID,
+  SECOND_RULE_ID,
+  renderGrants,
+  rule,
+} from "../remembered-rule.test-support.js";
 
 /** The row this list contributes for one rule, or nothing where it offers none. */
 function revokeCommandFor(ruleId: string) {

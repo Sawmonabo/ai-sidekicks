@@ -1,7 +1,7 @@
 // The cost receipt's one property: every figure adds up to the one above it. The sums are
 // computed and never shown; the verdict is a boolean per level.
 
-import type { BillingMode, SessionCostReceipt } from "@ai-sidekicks/contracts";
+import type { SessionCostReceipt } from "@ai-sidekicks/contracts";
 
 /** Whether each level of the receipt accounts for the level above it. */
 export interface ReceiptPartitionVerdicts {
@@ -39,18 +39,3 @@ function sumOf(usdMicros: readonly number[]): number {
   }
   return total;
 }
-
-/**
- * The clause each billing mode puts beside a figure on its own row.
- *
- * Worded about the figure, not the mode, so it stops one figure being misread in its cell: a
- * subscription's usage is not currency owed. Total over the wire's set, so a new mode is a
- * compile error here.
- *
- * @consumedBy the inspector's cost section
- */
-export const BILLING_MODE_CLAUSES: Readonly<Record<BillingMode, string>> = {
-  subscription: "Usage included in a plan. This figure is not currency owed.",
-  metered: "Billed per unit against this account.",
-  unknown: "This account is not labeled, so how it is charged was never established.",
-};

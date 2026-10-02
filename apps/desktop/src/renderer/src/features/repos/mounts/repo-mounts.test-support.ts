@@ -11,6 +11,8 @@ import type {
   WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts";
 
+import { act } from "@testing-library/react";
+
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -22,6 +24,54 @@ import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
+
+/** The presses one alert-dialog confirmation takes, read off `document` (the popup is portalled). */
+export interface ConfirmationPresses {
+  /** The card's own trigger, which the sent state disables. */
+  readonly trigger: () => HTMLButtonElement | null;
+  readonly pressOpen: () => Promise<void>;
+  readonly pressConfirm: () => Promise<void>;
+  readonly pressCancel: () => Promise<void>;
+}
+
+/** Move past the debounce and let a controller's prerequisite read land. */
+export async function settlePrerequisiteRead(
+  controller: PrerequisiteReading,
+  clock: ManualClock,
+): Promise<void> {
+  for (let turn = 0; turn < 5; turn += 1) {
+    await Promise.resolve();
+  }
+  clock.advance(REFRESH_DEBOUNCE_MS);
+  for (
+    let turn = 0;
+    turn < 50 && controller.snapshot.prerequisite.status === "reading";
+    turn += 1
+  ) {
+    await Promise.resolve();
+  }
+}
+
+/** The presses of the confirmation whose classes carry this block name. */
+export function confirmationPresses(block: string): ConfirmationPresses {
+  const press = async (element: string): Promise<void> => {
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(`.${block}__${element}`)?.click();
+    });
+  };
+  return {
+    trigger: () => document.querySelector<HTMLButtonElement>(`.${block}__trigger`),
+    pressOpen: async () => {
+      await press("trigger");
+    },
+    pressConfirm: async () => {
+      await press("confirm");
+    },
+    pressCancel: async () => {
+      await press("cancel");
+    },
+  };
+}
 
 /** Hold a reader a case built itself, so the teardown reaches it too. */
 export function trackReader(reader: RepoMountsReader): RepoMountsReader {
@@ -58,6 +108,11 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
   for (let turn = 0; turn < 400 && reader.snapshot.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
+}
+
+/** Anything that reads a prerequisite question: the bind and prepare controllers. */
+interface PrerequisiteReading {
+  readonly snapshot: { readonly prerequisite: { readonly status: string } };
 }
 
 /**

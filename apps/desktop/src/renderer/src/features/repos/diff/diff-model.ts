@@ -142,9 +142,10 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
 }
 
 /**
- * What a file's extended headers say changed about it, as sentences a diff view draws. One
+ * What a file's extended headers say changed about it, as the words a diff view draws. One
  * derivation for the list and the renderer, in git's header order (rename or copy, mode,
- * binary); empty for an ordinary textual change, where the counts already say it.
+ * binary); empty for an ordinary textual change, where the counts already say it. A copy reads
+ * `added`: its source stays where it was and the copy is a new path.
  */
 export function diffFileChangeNotes(file: DiffFile): readonly string[] {
   const notes: string[] = [];
@@ -152,13 +153,13 @@ export function diffFileChangeNotes(file: DiffFile): readonly string[] {
     notes.push(`renamed from ${file.renamedFrom}`);
   }
   if (file.copiedFrom !== undefined) {
-    notes.push(`copied from ${file.copiedFrom}`);
+    notes.push("added");
   }
   if (file.modeChange !== undefined) {
-    notes.push(`mode ${file.modeChange.from} → ${file.modeChange.to}`);
+    notes.push("mode changed");
   }
   if (file.binary === true) {
-    notes.push("binary file changed");
+    notes.push("binary — contents not shown");
   }
   return notes;
 }

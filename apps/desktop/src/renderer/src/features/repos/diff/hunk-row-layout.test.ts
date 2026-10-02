@@ -23,6 +23,8 @@ describe("hunk body layout — unified is the identity, and holds no array", () 
     const layout = buildHunkBodyLayout(MODIFIED_PAIR, "unified");
     expect(hunkBodyRowAt(layout, 0)).toStrictEqual({ lineIndex: 0 });
     expect(hunkBodyRowAt(layout, 3)).toStrictEqual({ lineIndex: 3 });
+    expect(hunkBodyRowAt(layout, 4)).toBeUndefined();
+    expect(hunkBodyRowAt(layout, -1)).toBeUndefined();
   });
 
   it("holds nothing per line, whatever the hunk's size", () => {

@@ -79,10 +79,7 @@ export function expandGap(
 ): DiffGapExpansion {
   const key = diffGapKey(fileIndex, hunkIndex);
   const revealed = expansion.get(key) ?? 0;
-  const next = Math.min(
-    availableLineCount,
-    Math.max(revealed, revealed + DIFF_GAP_EXPANSION_LINE_COUNT),
-  );
+  const next = Math.min(availableLineCount, revealed + DIFF_GAP_EXPANSION_LINE_COUNT);
   if (next === revealed) {
     return expansion;
   }

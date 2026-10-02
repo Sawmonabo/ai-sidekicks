@@ -15,8 +15,6 @@ const EMPTY_CHORD_MIRROR_KEY = "";
  *
  * Recorded at dispatch, not settlement: a failed publish leaves nothing to clear, while a
  * lost reply may have landed, and skipping that clear would leave the mirror installed.
- *
- * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */
 export class ChordMirrorPublication {
   /** Empty rather than absent: a host nobody has published to claims no chord. */
@@ -36,8 +34,6 @@ export class ChordMirrorPublication {
 /**
  * One projection as a single value an effect can be keyed on. An unreadable registry and an
  * empty projection share a key on purpose: the page is owed the same "claims nothing" for both.
- *
- * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */
 export function composeChordMirrorKey(mirrorChords: readonly string[] | undefined): string {
   return mirrorChords === undefined
@@ -47,8 +43,6 @@ export function composeChordMirrorKey(mirrorChords: readonly string[] | undefine
 
 /**
  * The chords a key carries, as the wire takes them. Empty key, empty list.
- *
- * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */
 export function readChordMirrorKey(mirrorKey: string): readonly string[] {
   return mirrorKey === EMPTY_CHORD_MIRROR_KEY ? [] : mirrorKey.split(MIRROR_CHORD_SEPARATOR);

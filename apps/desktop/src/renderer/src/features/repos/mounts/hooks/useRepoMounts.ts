@@ -13,6 +13,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
 import type { RepoMountsReading } from "../repo-mounts-model.js";
+
 /** What the hook hands a section: the reading, the picker's mutation, and the re-read. */
 export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;

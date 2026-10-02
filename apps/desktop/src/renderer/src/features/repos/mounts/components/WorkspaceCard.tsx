@@ -49,7 +49,7 @@ export interface WorkspaceCardProps {
   /** The session the prepare act takes its reconnect and stale-frame triggers from. */
   readonly sessionStore: SessionStore;
   /**
-   * The owning mount's bind posture, handed down rather than re-read. The withheld arm carries
+   * The owning mount's bind availability, handed down rather than re-read. The withheld arm carries
    * the sentence the mount card already renders, so this row composes no second wording.
    */
   readonly bindControls: BindControlAvailability;
@@ -59,9 +59,9 @@ export interface WorkspaceCardProps {
 /** One workspace: its binding chips, root, last error, mode picker, and root preparation. */
 export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
   const { workspace } = props;
-  // One posture for both binding controls, derived where both inputs meet, so the picker and
+  // One availability for both binding controls, derived where both inputs meet, so the picker and
   // the preparation cannot drift apart.
-  const posture = readWorkspaceControlAvailability(props.bindControls, props.pendingMode);
+  const availability = readWorkspaceControlAvailability(props.bindControls, props.pendingMode);
   return (
     <article className="meridian-workspace-card" aria-label={`Workspace ${workspace.id}`}>
       <header className="meridian-workspace-card__head">
@@ -94,19 +94,19 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         currentMode={workspace.executionMode}
         capabilities={props.capabilities}
         pendingMode={props.pendingMode}
-        posture={posture}
+        availability={availability}
         onSelect={props.onSelectExecutionMode}
       />
 
-      {/* Under the picker: it prepares the root of the mode the row is bound in now. The posture
-          holds it while a switch is on the wire and while the mount refuses binds. */}
+      {/* Under the picker: it prepares the root of the mode the row is bound in now. The
+          availability holds it while a switch is on the wire and while the mount refuses binds. */}
       <PrepareExecutionRoot
         bridge={props.bridge}
         workspaceId={workspace.id}
         repoMountId={workspace.repoMountId}
         executionMode={workspace.executionMode}
         sessionStore={props.sessionStore}
-        posture={posture}
+        availability={availability}
         operations={props.operations}
         onPrepared={props.onRequestRead}
       />

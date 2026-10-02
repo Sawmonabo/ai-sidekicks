@@ -23,18 +23,18 @@ type DiffPaneContext = PaneContextOf<"diff">;
 type DiffSubjectKind = DiffPaneContext["entity"]["kind"];
 
 /** What the pane says when no diff has been asked for, per subject kind; never blank. */
-const ABSENT_DIFF_COPY: Readonly<
+const EMPTY_STATE_COPY: Readonly<
   Record<DiffSubjectKind, { readonly title: string; readonly detail: string }>
 > = {
   workspace: {
     title: "No diff has been asked for.",
     detail:
-      "None has been requested for this workspace, so the console is not reporting that nothing changed.",
+      "None has been requested for this workspace, so the app is not reporting that nothing changed.",
   },
   worktree: {
     title: "No diff has been asked for.",
     detail:
-      "None has been requested for this execution root, so the console is not reporting that nothing changed.",
+      "None has been requested for this execution root, so the app is not reporting that nothing changed.",
   },
 };
 
@@ -48,7 +48,7 @@ export interface DiffPaneProps {
 /** The diff pane body: the change set when one is held, otherwise the empty state. */
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
-  const absence = ABSENT_DIFF_COPY[context.entity.kind];
+  const emptyState = EMPTY_STATE_COPY[context.entity.kind];
 
   return (
     <PaneFrame
@@ -61,12 +61,12 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
       {diff !== undefined ? (
         <DiffChangeSet diff={diff} />
       ) : (
-        <div className="meridian-diff-pane__absence">
+        <div className="meridian-diff-pane__empty-state">
           <Nothing
             kind="not-checked"
             placement="block"
-            title={absence.title}
-            detail={absence.detail}
+            title={emptyState.title}
+            detail={emptyState.detail}
           />
         </div>
       )}

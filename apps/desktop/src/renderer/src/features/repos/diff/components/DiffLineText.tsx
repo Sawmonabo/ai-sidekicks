@@ -1,4 +1,3 @@
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type DiffLine, type DiffLineKind } from "../diff-model.js";
 import type { IntralineReading } from "../intraline-segment-cache.js";
 
@@ -30,16 +29,6 @@ export function DiffLineText(props: {
       {props.line.noNewlineAtEnd === true ? (
         <span className="meridian-diff__no-newline">{NO_NEWLINE_AT_END_LABEL}</span>
       ) : null}
-      {props.reading.skipped ? (
-        <span className="meridian-diff__intraline-skipped">
-          <Nothing
-            kind="not-checked"
-            placement="inline"
-            title="No word-level comparison"
-            detail={INTRALINE_SKIPPED_DETAIL}
-          />
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -63,10 +52,3 @@ const LINE_KIND_LABELS: Readonly<Record<DiffLineKind, string>> = {
  * tells the two rows apart.
  */
 const NO_NEWLINE_AT_END_LABEL = "No newline at end of file";
-
-/**
- * Hover text for the badge on an over-bound line. Said, not left blank: an uncompared line
- * looks like one with no intraline change.
- */
-const INTRALINE_SKIPPED_DETAIL =
-  "This line is longer than the word-level comparison is run for, so the whole line is marked changed rather than the words within it.";

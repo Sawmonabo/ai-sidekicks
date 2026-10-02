@@ -82,11 +82,16 @@ describe("RootRemovalController — the guards", () => {
       },
     });
 
-    await expect(controller.send()).rejects.toThrow("The daemon could not be reached.");
+    await controller.send();
+    const refused = log.last;
+    expect(refused?.status === "refused" && refused.refusal.detail).toBe(
+      "The daemon could not be reached.",
+    );
     await controller.send();
 
     expect(log.readings.map((reading) => reading.status)).toStrictEqual([
       "sending",
+      "refused",
       "sending",
       "settled",
     ]);

@@ -51,7 +51,7 @@ export const PAINT_ONLY_ANIMATED_PROPERTIES = [
  * The keys `getKeyframes()` returns that are timing, not properties; counting `easing` as an
  * animated property would make every animation layout-affecting. No `satisfies` mirror against
  * `keyof ComputedKeyframe`: that interface has a string index signature, so `keyof` widens to
- * `string | number` and the guard would assert nothing. The test asserts disjointness instead.
+ * `string | number` and the guard would assert nothing.
  */
 export const KEYFRAME_TIMING_KEYS = ["offset", "computedOffset", "composite", "easing"] as const;
 
@@ -114,12 +114,7 @@ function readKeyframes(animation: Animation): readonly Record<string, unknown>[]
   if (typeof getKeyframes !== "function") {
     return undefined;
   }
-  try {
-    return getKeyframes.call(effect) as readonly Record<string, unknown>[];
-  } catch {
-    // A build that answers the method and throws from it cannot tell us either.
-    return undefined;
-  }
+  return getKeyframes.call(effect) as readonly Record<string, unknown>[];
 }
 
 /** The element an animation is running on, or `null` where it names none. */

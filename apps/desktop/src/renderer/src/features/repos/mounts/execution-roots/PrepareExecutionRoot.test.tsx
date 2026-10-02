@@ -24,7 +24,7 @@ import { REUSE_UNANSWERED_COPY } from "./prepare-form.js";
 const UNHELD_BRANCH = "feat/fresh-root";
 
 const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailability(
-  { offered: true },
+  { available: true },
   undefined,
 );
 
@@ -48,7 +48,7 @@ function renderForm(): FormUnderTest {
       repoMountId="mount-sidekicks"
       executionMode={mode}
       sessionStore={sessionStore}
-      posture={CONTROLS_LIVE}
+      availability={CONTROLS_LIVE}
       onPrepared={() => undefined}
     />
   );
