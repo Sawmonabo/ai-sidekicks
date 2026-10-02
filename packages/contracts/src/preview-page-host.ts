@@ -10,6 +10,7 @@ import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { PreviewAddressSchema, PreviewPageIdSchema, type PreviewPageId } from "./preview.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /**
  * One debug-protocol message between the daemon's relay and a page's in-process
@@ -177,7 +178,7 @@ export interface PreviewPageCookiesWriteResponse {
 }
 /** Parses a {@link PreviewPageCookiesWriteResponse}. */
 export const PreviewPageCookiesWriteResponseSchema: z.ZodType<PreviewPageCookiesWriteResponse> = z
-  .object({ written: z.number().int().nonnegative() })
+  .object({ written: countSchema })
   .strict();
 
 /**

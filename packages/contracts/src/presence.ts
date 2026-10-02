@@ -8,15 +8,17 @@
 // inferred types on exports, and the schemas do not transform.
 import { z } from "zod";
 
-import { EmptyAcknowledgementSchema, type EmptyAcknowledgement } from "./device.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** A device's liveness as the machine last saw it. */
 export type PresenceState = "online" | "idle" | "reconnecting" | "offline";
@@ -63,7 +65,7 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
           "PresenceHeartbeat.metadata.deviceType",
         ),
         focusedSessionId: SessionIdSchema.nullable(),
-        lastActivityAt: z.iso.datetime({ offset: true }),
+        lastActivityAt: isoDateTimeSchema,
         appVisible: z.boolean(),
       })
       .strict(),
@@ -129,7 +131,7 @@ export interface PresenceMethodDescriptors {
   readonly "presence.heartbeat": MethodDescriptor<
     "presence.heartbeat",
     PresenceHeartbeat,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
   readonly "presence.subscribe": SubscriptionMethodDescriptor<
     "presence.subscribe",
@@ -155,7 +157,7 @@ export const PRESENCE_METHOD_DESCRIPTORS: PresenceMethodDescriptors = defineMeth
     procedureType: "mutation",
     mutating: false,
     requestSchema: PresenceHeartbeatSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "presence.subscribe": {
     method: "presence.subscribe",

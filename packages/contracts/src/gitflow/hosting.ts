@@ -8,7 +8,7 @@
 // this contract reports.
 import { z } from "zod";
 
-import { countSchema } from "../internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
 import {
   FILE_PATH_MAX_LEN,
@@ -16,12 +16,7 @@ import {
   wireFreeFormString,
   type SessionId,
 } from "../session.js";
-import {
-  ChangeRequestNumberSchema,
-  HostHandleSchema,
-  HostingAddressSchema,
-  timestampSchema,
-} from "./shared.js";
+import { ChangeRequestNumberSchema, HostHandleSchema, HostingAddressSchema } from "./shared.js";
 
 // Closed sets
 
@@ -144,7 +139,7 @@ export interface GitHost {
   addedAt: string;
 }
 const GitHostSchema: z.ZodType<GitHost> = z
-  .object({ host: GitHostNameSchema, kind: GitHostKindSchema, addedAt: timestampSchema })
+  .object({ host: GitHostNameSchema, kind: GitHostKindSchema, addedAt: isoDateTimeSchema })
   .strict();
 
 /** The `gitflow.hostList` input: the machine's hosts, so nothing names a session. */
@@ -281,7 +276,7 @@ const ReviewThreadSchema: z.ZodType<ReviewThread> = z
             commentId: HostHandleSchema,
             author: z.string().min(1),
             body: z.string(),
-            createdAt: timestampSchema,
+            createdAt: isoDateTimeSchema,
           })
           .strict(),
       )
@@ -362,16 +357,16 @@ export const ChangeRequestFrameSchema: z.ZodType<ChangeRequestFrame> = z.discrim
       .object({
         depth: z.literal("summary"),
         requests: z.array(ChangeRequestSummarySchema),
-        readAt: timestampSchema,
-        lastReadFailedAt: timestampSchema.optional(),
+        readAt: isoDateTimeSchema,
+        lastReadFailedAt: isoDateTimeSchema.optional(),
       })
       .strict(),
     z
       .object({
         depth: z.literal("full"),
         requests: z.array(ChangeRequestDetailSchema),
-        readAt: timestampSchema,
-        lastReadFailedAt: timestampSchema.optional(),
+        readAt: isoDateTimeSchema,
+        lastReadFailedAt: isoDateTimeSchema.optional(),
       })
       .strict(),
   ],

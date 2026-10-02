@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { decodedByteLength } from "../internal/base64.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "../session.js";
+import { countSchema } from "../internal/wire-scalars.js";
 
 /**
  * The most raw bytes one artifact chunk may carry, either way: a chunk a caller
@@ -41,7 +42,7 @@ export const AttachmentIngestInitRequestSchema: z.ZodType<
     sessionId: SessionIdSchema,
     fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
     mediaType: z.string().min(1).optional(),
-    declaredSizeBytes: z.number().int().nonnegative(),
+    declaredSizeBytes: countSchema,
   })
   .strict();
 
@@ -63,7 +64,7 @@ export const AttachmentIngestChunkRequestSchema: z.ZodType<
 > = z
   .object({
     ingestId: z.string().min(1),
-    sequenceNumber: z.number().int().nonnegative(),
+    sequenceNumber: countSchema,
     chunk: z.base64().refine((value) => decodedByteLength(value) <= ARTIFACT_CHUNK_MAX_BYTES, {
       message: `chunk must decode to at most ${ARTIFACT_CHUNK_MAX_BYTES} bytes`,
     }),

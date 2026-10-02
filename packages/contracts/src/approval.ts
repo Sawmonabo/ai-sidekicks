@@ -27,6 +27,7 @@ import {
   type SessionId,
 } from "./session.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * An ask's target scope, free text such as a command or a path. Bounded by the longest wire
@@ -253,7 +254,7 @@ export const ApprovalResolveResponseSchema: z.ZodType<ApprovalResolveResponse> =
     state: ApprovalStateSchema,
     deviceId: DeviceIdSchema,
     effectiveScope: approvalScopeSchema("ApprovalResolveResponse.effectiveScope"),
-    resolvedAt: z.iso.datetime({ offset: true }),
+    resolvedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -324,9 +325,9 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     reason: z.string().min(1).optional(),
     standingAllowOffered: z.boolean(),
     state: ApprovalStateSchema,
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
-    resolvedAt: z.iso.datetime({ offset: true }).optional(),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+    resolvedAt: isoDateTimeSchema.optional(),
     decision: ApprovalDecisionSchema.optional(),
     deviceId: DeviceIdSchema.optional(),
     effectiveScope: approvalScopeSchema("ApprovalProjectionRow.effectiveScope").optional(),
@@ -400,7 +401,7 @@ export const RememberedRuleSchema: z.ZodType<RememberedRule> = z
     ruleId: RememberedRuleIdSchema,
     category: ApprovalCategorySchema,
     scope: RememberedScopeSchema,
-    grantedAt: z.iso.datetime({ offset: true }),
+    grantedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -433,7 +434,7 @@ export interface RememberedRuleRevokeResponse {
 export const RememberedRuleRevokeResponseSchema: z.ZodType<RememberedRuleRevokeResponse> = z
   .object({
     ruleId: RememberedRuleIdSchema,
-    revokedAt: z.iso.datetime({ offset: true }),
+    revokedAt: isoDateTimeSchema,
     invalidationTrigger: z.literal("explicit"),
   })
   .strict();
@@ -465,7 +466,7 @@ export interface ApprovalDenialOverrideResponse {
 export const ApprovalDenialOverrideResponseSchema: z.ZodType<ApprovalDenialOverrideResponse> = z
   .object({
     denialId: ReviewerDenialIdSchema,
-    overriddenAt: z.iso.datetime({ offset: true }),
+    overriddenAt: isoDateTimeSchema,
   })
   .strict();
 

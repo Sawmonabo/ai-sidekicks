@@ -3,9 +3,7 @@
 import { z } from "zod";
 
 import { wireFreeFormString } from "./session.js";
-
-// Error codes are exported as `const` literals so consumers compare against the typed value
-// rather than a bare string.
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** Type of {@link RESOURCE_LIMIT_EXCEEDED_CODE}. */
 export type ResourceLimitExceededCode = "resource.limit_exceeded";
@@ -52,8 +50,8 @@ export const ResourceLimitExceededDetailsSchema: z.ZodType<ResourceLimitExceeded
   .object({
     resource: wireFreeFormString(RESOURCE_LABEL_MAX_LEN, "details.resource"),
     // `current >= limit` is a daemon-side invariant, not a wire rule, so it is not refined here.
-    limit: z.number().int().nonnegative(),
-    current: z.number().int().nonnegative(),
+    limit: countSchema,
+    current: countSchema,
   })
   .strict();
 

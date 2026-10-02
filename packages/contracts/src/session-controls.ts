@@ -11,8 +11,8 @@
 // back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 
-import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-import { composedTextSchema } from "./internal/wire-scalars.js";
+import { brandedUuidIdSchema } from "./internal/branded.js";
+import { composedTextSchema, countSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import { MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerNameSchema } from "./mcp.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
@@ -265,7 +265,7 @@ export const SessionMcpResourceListResponseSchema: z.ZodType<SessionMcpResourceL
           title: composedTextSchema.optional(),
           description: composedTextSchema.optional(),
           mimeType: composedTextSchema.optional(),
-          size: z.number().int().nonnegative().optional(),
+          size: countSchema.optional(),
         })
         .strict(),
     ),

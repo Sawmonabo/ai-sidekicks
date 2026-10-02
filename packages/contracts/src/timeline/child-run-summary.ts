@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunStateSchema, type RunState } from "../run-state.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** Why a child-run summary is not the whole picture. Closed; a context compaction is not one. */
 export type ChildRunIncompleteCause = "detail_fetch_failed";
@@ -35,7 +36,7 @@ export const ChildRunCompletenessSchema: z.ZodType<ChildRunCompleteness> = z.dis
       .object({
         state: z.literal("incomplete"),
         cause: z.enum(["detail_fetch_failed"]),
-        observedAt: z.iso.datetime({ offset: true }),
+        observedAt: isoDateTimeSchema,
       })
       .strict(),
   ],
@@ -71,8 +72,7 @@ export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
     runId: RunIdSchema,
     parentRunId: RunIdSchema,
     state: RunStateSchema,
-    // `.int()` is safe-integer in zod 4, the honest ceiling for a tally, so no cap constant.
-    eventCount: z.number().int().nonnegative(),
+    eventCount: countSchema,
     completeness: ChildRunCompletenessSchema,
   })
   .strict()

@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
-import { countSchema } from "../internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "../provider-driver.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
 import {
@@ -33,7 +33,6 @@ import {
   GitRefNameSchema,
   GitShortObjectIdSchema,
   HostingAddressSchema,
-  timestampSchema,
 } from "./shared.js";
 
 /** The id of one running or finished git act. The daemon mints it. */
@@ -156,7 +155,7 @@ export const GitflowBranchContextReadResponseSchema: z.ZodType<GitflowBranchCont
       .optional(),
     changeRequests: z.array(ChangeRequestSummarySchema),
     hostKind: z.enum(GIT_HOST_KINDS).optional(),
-    countsAsOf: timestampSchema.optional(),
+    countsAsOf: isoDateTimeSchema.optional(),
   })
   .strict();
 
@@ -170,7 +169,7 @@ export type WorkflowRunSnapshotPoint =
   | { epoch: number; point: "start" }
   | { epoch: number; point: "pause"; pauseNumber: number }
   | { epoch: number; point: "end" };
-const epochSchema = z.number().int().nonnegative();
+const epochSchema = countSchema;
 const WorkflowRunSnapshotPointSchema: z.ZodType<
   WorkflowRunSnapshotPoint,
   WorkflowRunSnapshotPoint
@@ -180,7 +179,7 @@ const WorkflowRunSnapshotPointSchema: z.ZodType<
     .object({
       epoch: epochSchema,
       point: z.literal("pause"),
-      pauseNumber: z.number().int().nonnegative(),
+      pauseNumber: countSchema,
     })
     .strict(),
   z.object({ epoch: epochSchema, point: z.literal("end") }).strict(),
@@ -303,7 +302,7 @@ const DiffCommitSchema: z.ZodType<DiffCommit> = z
     commitId: GitObjectIdSchema,
     shortId: GitShortObjectIdSchema,
     subject: z.string(),
-    landedAt: timestampSchema,
+    landedAt: isoDateTimeSchema,
     agent: z
       .object({ agentId: uuidTextFormSchema, name: z.string().min(1) })
       .strict()
@@ -437,7 +436,7 @@ export const GitflowGitActionExecuteRequestSchema: z.ZodType<
   "act",
   gitActRequestArms({
     retryFromCommand: z
-      .object({ actId: GitActIdSchema, commandIndex: z.number().int().nonnegative() })
+      .object({ actId: GitActIdSchema, commandIndex: countSchema })
       .strict()
       .optional(),
   }),
@@ -488,7 +487,7 @@ export const GitActFrameSchema: z.ZodType<GitActFrame> = z
       .array(
         z
           .object({
-            index: z.number().int().nonnegative(),
+            index: countSchema,
             text: z.string().min(1),
             state: z.enum(GIT_ACT_COMMAND_STATES),
             output: z.string().optional(),

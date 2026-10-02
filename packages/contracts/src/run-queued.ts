@@ -8,6 +8,7 @@ import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-acco
 import { DRIVER_WIRE_HANDLE_MAX_LEN } from "./provider-driver-wire.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /**
  * How a child run was reached: a provider's own subagent, a run another agent asked for through
@@ -64,7 +65,7 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
   .object({
     sessionId: SessionIdSchema,
     runId: RunIdSchema,
-    runVersion: z.number().int().nonnegative(),
+    runVersion: countSchema,
     newState: z.literal("queued"),
     agentId: AgentIdSchema.optional(),
     parentRunId: RunIdSchema.optional(),

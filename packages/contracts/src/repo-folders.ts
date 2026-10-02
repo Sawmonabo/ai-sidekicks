@@ -31,6 +31,7 @@ import {
   FILE_PATH_MAX_LEN,
 } from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * Where a folder the service can reach came from, carrying the ids its removal act takes:
@@ -86,7 +87,7 @@ export const RepoMountListEntrySchema: z.ZodType<RepoMountListEntry> = z
   .object({
     path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountListEntry.path"),
     origin: RepoMountOriginSchema,
-    usingSessionCount: z.number().int().nonnegative(),
+    usingSessionCount: countSchema,
     onOtherSideDisk: z.boolean(),
   })
   .strict();
@@ -288,7 +289,7 @@ export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
     vcsType: VcsTypeSchema,
     state: RepoMountStateSchema,
     health: RepoMountHealthSchema,
-    attachedAt: z.iso.datetime({ offset: true }),
+    attachedAt: isoDateTimeSchema,
     origin: RepoMountOriginSchema,
     displayName: wireFreeFormString(
       PROJECT_NAME_MAX_LEN,

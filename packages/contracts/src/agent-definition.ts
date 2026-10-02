@@ -28,6 +28,7 @@ import {
 import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest reason text a refusal or a load failure carries. */
 export const AGENT_REASON_MAX_LEN = 1024;
@@ -284,8 +285,8 @@ const agentDefinitionFields = {
   turnCap: turnCapSchema.nullable(),
   hooks: AgentHooksSchema.nullable(),
   memoryScope: AgentMemoryScopeSchema.nullable(),
-  createdAt: z.iso.datetime({ offset: true }),
-  updatedAt: z.iso.datetime({ offset: true }),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 };
 
 /** Parses an {@link AgentDefinition}. */
@@ -441,8 +442,8 @@ export interface AgentDefinitionListResponse {
 export const AgentDefinitionListResponseSchema: z.ZodType<AgentDefinitionListResponse> = z
   .object({
     definitions: z.array(AgentDefinitionListEntrySchema),
-    workflowUsage: z.record(AgentDefinitionIdSchema, z.number().int().nonnegative()).optional(),
-    lastUsedAt: z.record(AgentDefinitionIdSchema, z.iso.datetime({ offset: true })).optional(),
+    workflowUsage: z.record(AgentDefinitionIdSchema, countSchema).optional(),
+    lastUsedAt: z.record(AgentDefinitionIdSchema, isoDateTimeSchema).optional(),
   })
   .strict();
 

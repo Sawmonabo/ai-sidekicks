@@ -28,6 +28,7 @@ import {
 } from "../session.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
  * Cap on `TimelineRowBase.summary`, the row's one-line summary. Larger than an identifier
@@ -132,7 +133,7 @@ export interface SupersededMarker {
  * create a second source of attribution.
  */
 export const SupersededMarkerSchema: z.ZodType<SupersededMarker> = z
-  .object({ targetPosition: z.number().int().nonnegative() })
+  .object({ targetPosition: countSchema })
   .strict();
 
 /**
@@ -147,7 +148,7 @@ export interface TimelineOmittedPatch {
 const TimelineOmittedPatchSchema: z.ZodType<TimelineOmittedPatch> = z
   .object({
     path: wireFreeFormString(FILE_PATH_MAX_LEN, "TimelineOmittedPatch.path"),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
   })
   .strict();
 
@@ -179,12 +180,12 @@ export interface TimelineRowBase {
 const buildTimelineRowCommonShape = () => ({
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineRow.id"),
   sessionId: SessionIdSchema,
-  sequence: z.number().int().nonnegative().max(EVENT_ENVELOPE_SEQUENCE_MAX),
+  sequence: countSchema.max(EVENT_ENVELOPE_SEQUENCE_MAX),
   category: EventCategorySchema,
   type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineRow.type"),
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineRow.actor").optional(),
   summary: wireFreeFormString(TIMELINE_ROW_SUMMARY_MAX_LEN, "TimelineRow.summary"),
-  timestamp: z.iso.datetime({ offset: true }),
+  timestamp: isoDateTimeSchema,
   childRunSummary: ChildRunSummarySchema.optional(),
   omittedPatches: z.array(TimelineOmittedPatchSchema).min(1).optional(),
 });
@@ -421,8 +422,8 @@ const runScopedTimelineArmSchema = z
     ...buildTimelineRowCommonShape(),
     kind: z.literal("run"),
     runId: RunIdSchema,
-    position: z.number().int().nonnegative(),
-    epoch: z.number().int().nonnegative(),
+    position: countSchema,
+    epoch: countSchema,
     superseded: SupersededMarkerSchema.optional(),
     payload: projectedPayloadSchema,
   })
@@ -441,8 +442,8 @@ const timelineRollbackBoundaryArmSchema = z
     kind: z.literal("rollback_boundary"),
     category: z.literal(TIMELINE_RUN_LIFECYCLE_CATEGORY),
     runId: RunIdSchema,
-    position: z.number().int().nonnegative(),
-    epoch: z.number().int().nonnegative(),
+    position: countSchema,
+    epoch: countSchema,
     superseded: SupersededMarkerSchema.optional(),
     type: z.literal(TIMELINE_ROLLBACK_BOUNDARY_TYPE),
     payload: RunRolledBackEventSchema,

@@ -9,16 +9,11 @@ import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
-
-/** A request or result with no members. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonEmptyPayload {}
-/** Parses a {@link DaemonEmptyPayload}; any member is refused. */
-export const DaemonEmptyPayloadSchema: z.ZodType<DaemonEmptyPayload, DaemonEmptyPayload> = z
-  .object({})
-  .strict();
+import { countSchema } from "./internal/wire-scalars.js";
 
 // Export all data
 
@@ -77,8 +72,8 @@ export const DataExportProgressSchema: z.ZodType<DataExportProgress> = z.discrim
     z
       .object({
         state: z.literal("running"),
-        sessionsExported: z.number().int().nonnegative(),
-        sessionsTotal: z.number().int().nonnegative(),
+        sessionsExported: countSchema,
+        sessionsTotal: countSchema,
       })
       .strict()
       .refine((progress) => progress.sessionsExported <= progress.sessionsTotal, {
@@ -89,7 +84,7 @@ export const DataExportProgressSchema: z.ZodType<DataExportProgress> = z.discrim
       .object({
         state: z.literal("completed"),
         path: wireFreeFormString(FILE_PATH_MAX_LEN, "DataExportProgress.path"),
-        totalBytes: z.number().int().nonnegative(),
+        totalBytes: countSchema,
       })
       .strict(),
     z
@@ -116,11 +111,7 @@ export interface DaemonDataMethodDescriptors {
     SubscribeAckResponse,
     DataExportProgress
   >;
-  readonly "daemon.dataErase": MethodDescriptor<
-    "daemon.dataErase",
-    DaemonEmptyPayload,
-    DaemonEmptyPayload
-  >;
+  readonly "daemon.dataErase": MethodDescriptor<"daemon.dataErase", EmptyPayload, EmptyPayload>;
 }
 
 /**
@@ -147,7 +138,7 @@ export const DAEMON_DATA_METHOD_DESCRIPTORS: DaemonDataMethodDescriptors = defin
     method: "daemon.dataErase",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: DaemonEmptyPayloadSchema,
-    responseSchema: DaemonEmptyPayloadSchema,
+    requestSchema: EmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

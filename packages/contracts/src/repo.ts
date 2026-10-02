@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of one repo mount. */
 export type RepoMountId = string & { readonly __brand: "RepoMountId" };
@@ -88,7 +89,7 @@ export interface RepoMountHealth {
 export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
   .object({
     status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
-    checkedAt: z.iso.datetime({ offset: true }),
+    checkedAt: isoDateTimeSchema,
   })
   .strict();
 

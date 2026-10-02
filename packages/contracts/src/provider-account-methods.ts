@@ -70,6 +70,7 @@ import {
 } from "./provider-account-sign-in.js";
 import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** A model id on a usage row, as the provider names it. */
 export const PROVIDER_ACCOUNT_USAGE_MODEL_MAX_LEN = 128;
@@ -343,8 +344,8 @@ export const ProviderAccountUsageReadRequestSchema: z.ZodType<
       z.object({ accountId: ProviderAccountIdSchema }).strict(),
       z.object({ provider: ProviderNameSchema }).strict(),
     ]),
-    from: z.iso.datetime({ offset: true }).optional(),
-    to: z.iso.datetime({ offset: true }).optional(),
+    from: isoDateTimeSchema.optional(),
+    to: isoDateTimeSchema.optional(),
     groupBy: z.enum(PROVIDER_ACCOUNT_USAGE_GROUPING_VALUES).optional(),
   })
   .strict();

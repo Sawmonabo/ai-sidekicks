@@ -6,6 +6,7 @@ import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
 import { TokensPerRunSchema, UsdMicrosSchema } from "./session-cost.js";
+import { countSchema, isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** `Stop a run after`'s steps, in minutes; `null` is `No limit`. */
 export type RunTimeLimitMinutes = 30 | 60 | 240 | 720 | 1440;
@@ -23,7 +24,7 @@ export const WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS: readonly WorkflowChainAskAfter
 const SizeBytesSchema = z.number().int().positive();
 
 const WRITABLE_CONFIG_MEMBER_SCHEMAS = {
-  workflowListenerPort: z.number().int().min(1).max(65_535),
+  workflowListenerPort: portSchema,
   runTimeLimitMinutes: z.literal(RUN_TIME_LIMIT_MINUTES).nullable(),
   workflowChainAskAfterRuns: z.literal(WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS).nullable(),
   maxStepsPerTurn: z.number().int().positive().nullable(),
@@ -123,8 +124,8 @@ export const DaemonPackageCacheReadRequestSchema: z.ZodType<
 export type DaemonPackageCacheReading = Record<PackageCache, PackageCacheReading>;
 const PackageCacheReadingSchema = z
   .object({
-    bytes: z.number().int().nonnegative(),
-    readAt: z.iso.datetime({ offset: true }),
+    bytes: countSchema,
+    readAt: isoDateTimeSchema,
   })
   .strict();
 /** Parses a {@link DaemonPackageCacheReading}. */

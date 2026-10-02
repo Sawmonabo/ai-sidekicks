@@ -23,6 +23,7 @@ import {
 } from "./method-descriptor.js";
 import { ExecutionModeSchema, type ExecutionMode } from "./repo.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** Where the file sits, relative to the person's home folder. */
 export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
@@ -203,7 +204,7 @@ const EmailDigestSettingsSchema: z.ZodType<EmailDigestSettings, EmailDigestSetti
       MAIL_SERVER_MAX_LEN,
       "EmailDigestSettings.mailServer",
     ).nullable(),
-    port: z.number().int().min(1).max(65_535).nullable(),
+    port: portSchema.nullable(),
     userName: wireFreeFormString(EMAIL_ADDRESS_MAX_LEN, "EmailDigestSettings.userName").nullable(),
     after: z.enum(EMAIL_DIGEST_PERIODS),
   })
@@ -493,7 +494,7 @@ export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
     settings: MachineSettingsSchema,
     repair: z
       .object({
-        repairedAt: z.iso.datetime({ offset: true }),
+        repairedAt: isoDateTimeSchema,
         cause: z.enum(SETTINGS_FILE_REPAIR_CAUSES),
       })
       .strict()

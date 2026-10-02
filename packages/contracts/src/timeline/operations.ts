@@ -18,6 +18,7 @@ import {
 } from "../session.js";
 
 import { TimelineRowSchema, type TimelineRow } from "./row.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 // Page budget shared by all three paged replies
 
@@ -226,9 +227,9 @@ export interface ReasoningEntry {
 /** Parses a {@link ReasoningEntry}. */
 export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
   .object({
-    sequence: z.number().int().nonnegative(),
+    sequence: countSchema,
     content: wireFreeFormString(REASONING_ENTRY_CONTENT_MAX_LEN, "ReasoningEntry.content"),
-    timestamp: z.iso.datetime({ offset: true }),
+    timestamp: isoDateTimeSchema,
   })
   .strict();
 

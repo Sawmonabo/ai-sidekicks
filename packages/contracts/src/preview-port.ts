@@ -9,9 +9,7 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-
-/** Parses a TCP port number: an integer from 1 to 65535. */
-export const PreviewPortSchema: z.ZodType<number, number> = z.number().int().min(1).max(65535);
+import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** A port added to the shared list that is on it already; nothing changes. */
 export type PreviewPortAlreadySharedCode = "preview.port_already_shared";
@@ -33,7 +31,7 @@ export interface PreviewPortRefusalDetails {
 }
 /** Parses {@link PreviewPortRefusalDetails}. */
 export const PreviewPortRefusalDetailsSchema: z.ZodType<PreviewPortRefusalDetails> = z
-  .object({ port: PreviewPortSchema })
+  .object({ port: portSchema })
   .strict();
 
 /** The machine's shared ports; the list is the machine's, so the request names nothing. */
@@ -59,10 +57,10 @@ export interface PreviewSharedPort {
 /** Parses a {@link PreviewSharedPort}. */
 export const PreviewSharedPortSchema: z.ZodType<PreviewSharedPort> = z
   .object({
-    port: PreviewPortSchema,
+    port: portSchema,
     framework: z.string().min(1).nullable(),
     listening: z.boolean(),
-    addedAt: z.iso.datetime({ offset: true }),
+    addedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -84,7 +82,7 @@ export interface PreviewPortRequest {
 }
 /** Parses a {@link PreviewPortRequest}. */
 export const PreviewPortRequestSchema: z.ZodType<PreviewPortRequest, PreviewPortRequest> = z
-  .object({ port: PreviewPortSchema })
+  .object({ port: portSchema })
   .strict();
 
 /** The port now shared, and when. */
@@ -94,7 +92,7 @@ export interface PreviewPortShareAddResponse {
 }
 /** Parses a {@link PreviewPortShareAddResponse}. */
 export const PreviewPortShareAddResponseSchema: z.ZodType<PreviewPortShareAddResponse> = z
-  .object({ port: PreviewPortSchema, addedAt: z.iso.datetime({ offset: true }) })
+  .object({ port: portSchema, addedAt: isoDateTimeSchema })
   .strict();
 
 /**
@@ -107,7 +105,7 @@ export interface PreviewPortShareRemoveResponse {
 }
 /** Parses a {@link PreviewPortShareRemoveResponse}. */
 export const PreviewPortShareRemoveResponseSchema: z.ZodType<PreviewPortShareRemoveResponse> = z
-  .object({ port: PreviewPortSchema, removed: z.literal(true) })
+  .object({ port: portSchema, removed: z.literal(true) })
   .strict();
 
 /**

@@ -15,6 +15,7 @@ import {
   FILE_PATH_MAX_LEN,
 } from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * A git object name as git prints it: 40 lowercase hex characters for SHA-1,
@@ -66,8 +67,8 @@ export const RepoBranchListResponseSchema: z.ZodType<RepoBranchListResponse> = z
       z
         .object({
           name: wireUncappedFreeFormString("RepoBranchListResponse.branches[].name"),
-          ahead: z.number().int().nonnegative().optional(),
-          behind: z.number().int().nonnegative().optional(),
+          ahead: countSchema.optional(),
+          behind: countSchema.optional(),
           heldBy: z
             .object({
               worktreeId: WorktreeIdSchema,
@@ -81,7 +82,7 @@ export const RepoBranchListResponseSchema: z.ZodType<RepoBranchListResponse> = z
         })
         .strict(),
     ),
-    countsAsOf: z.iso.datetime({ offset: true }).optional(),
+    countsAsOf: isoDateTimeSchema.optional(),
   })
   .strict();
 
@@ -151,7 +152,7 @@ export const RepoFileReadResponseSchema: z.ZodType<RepoFileReadResponse> = z.dis
         path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFileReadResponse.path"),
         lines: z.array(z.string()),
         firstLine: z.number().int().positive(),
-        totalLines: z.number().int().nonnegative(),
+        totalLines: countSchema,
       })
       .strict(),
     z.object({ outcome: z.literal("stale") }).strict(),
@@ -190,7 +191,7 @@ export interface WorkingTreeChange {
 export const WorkingTreeChangeSchema: z.ZodType<WorkingTreeChange> = z
   .object({
     sessionId: SessionIdSchema,
-    changedAt: z.iso.datetime({ offset: true }),
+    changedAt: isoDateTimeSchema,
     mode: z.enum(["watch", "slow_tick"]),
   })
   .strict();

@@ -37,6 +37,7 @@ import {
   type WorkflowNodeId,
   type WorkflowStepError,
 } from "./workflow-definition.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // Ids
 
@@ -249,23 +250,23 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     workflowRunId: WorkflowRunIdSchema,
     nodeId: WorkflowNodeIdSchema,
     attempt: z.number().int().positive(),
-    executionIndex: z.number().int().nonnegative(),
+    executionIndex: countSchema,
     source: z.array(
       z
         .object({
           nodeId: WorkflowNodeIdSchema,
-          outputIndex: z.number().int().nonnegative(),
-          executionIndex: z.number().int().nonnegative(),
+          outputIndex: countSchema,
+          executionIndex: countSchema,
         })
         .strict()
         .nullable(),
     ),
     status: WorkflowStepStatusSchema,
     waitCause: WorkflowWaitCauseSchema.optional(),
-    resumeAt: z.iso.datetime({ offset: true }).optional(),
-    waitDeadlineAt: z.iso.datetime({ offset: true }).optional(),
-    startedAt: z.iso.datetime({ offset: true }),
-    finishedAt: z.iso.datetime({ offset: true }).optional(),
+    resumeAt: isoDateTimeSchema.optional(),
+    waitDeadlineAt: isoDateTimeSchema.optional(),
+    startedAt: isoDateTimeSchema,
+    finishedAt: isoDateTimeSchema.optional(),
     inputRef: WorkflowPayloadRefSchema,
     outputRef: WorkflowPayloadRefSchema,
     logRef: WorkflowPayloadRefSchema,

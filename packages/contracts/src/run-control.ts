@@ -13,7 +13,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { countSchema } from "./internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,
@@ -444,7 +444,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     trigger: z
       .enum(["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"])
       .optional(),
-    timestamp: z.iso.datetime({ offset: true }),
+    timestamp: isoDateTimeSchema,
   })
   .strict()
   .refine((event) => event.failureCause === undefined || event.newState === "failed", {
@@ -592,27 +592,6 @@ export const RunStateSubscribeRequestSchema: z.ZodType<
   RunStateSubscribeRequest,
   RunStateSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
-
-/** A run's version, session and state as the daemon's guards read them; there is no runs table. */
-export interface RunReadSnapshot {
-  version: number;
-  sessionId: SessionId;
-  state: RunState;
-}
-/** Parses a {@link RunReadSnapshot}. */
-export const RunReadSnapshotSchema: z.ZodType<RunReadSnapshot> = z
-  .object({
-    version: countSchema,
-    sessionId: SessionIdSchema,
-    state: RunStateSchema,
-  })
-  .strict();
-
-/**
- * Reads a run's snapshot synchronously. It throws for an unknown run rather than returning null,
- * so a guard fails closed instead of comparing `undefined` against a comparand.
- */
-export type RunReadAccessor = (runId: RunId) => RunReadSnapshot;
 
 /**
  * A move the run's current state does not allow, such as a second or late answer to a choice the

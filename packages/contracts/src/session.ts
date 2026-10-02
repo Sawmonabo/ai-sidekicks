@@ -15,12 +15,7 @@ import {
   type SubscribeAckResponse,
 } from "./jsonrpc-streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-
-// Branded ids are TypeScript-only nominal types over a plain UUID string, with our own `__brand`
-// field rather than `z.core.$brand`, so other packages see one structural shape. Every exported
-// schema carries an explicit annotation for `isolatedDeclarations`. Request schemas use the
-// double-T `z.ZodType<T, T>` form so tRPC v11's Standard Schema V1 input inference resolves to
-// `T` rather than `unknown`; the schemas here never transform, so input and output are equal.
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** Identifies one session. */
 export type SessionId = string & { readonly __brand: "SessionId" };
@@ -108,10 +103,8 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
-    // `z.iso.datetime()` alone accepts only Z-suffixed UTC; `offset: true` also takes numeric
-    // offsets such as "-05:00", which the wire permits.
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
     draft: z.string(),
   })
   .strict();
@@ -287,8 +280,9 @@ export interface SessionSearchMatchRange {
   start: number;
   end: number;
 }
-const SessionSearchMatchRangeSchema: z.ZodType<SessionSearchMatchRange> = z
-  .object({ start: z.number().int().nonnegative(), end: z.number().int().positive() })
+/** Parses a {@link SearchMatchRange}. */
+export const SearchMatchRangeSchema: z.ZodType<SearchMatchRange> = z
+  .object({ start: countSchema, end: z.number().int().positive() })
   .strict()
   .refine((range) => range.end > range.start, {
     message: "A match range ends after it starts.",
@@ -373,7 +367,7 @@ export interface SessionFileSearchResponse {
 export const SessionFileSearchResponseSchema: z.ZodType<SessionFileSearchResponse> = z
   .object({
     paths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
-    searchedFileCount: z.number().int().nonnegative(),
+    searchedFileCount: countSchema,
   })
   .strict()
   .refine((result) => result.paths.length <= result.searchedFileCount, {
@@ -447,7 +441,7 @@ export interface SessionMarkChangePayload {
 }
 /** Parses a {@link SessionMarkChangePayload}. */
 export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload> = z
-  .object({ sessionId: SessionIdSchema, at: z.iso.datetime({ offset: true }) })
+  .object({ sessionId: SessionIdSchema, at: isoDateTimeSchema })
   .strict();
 
 /**

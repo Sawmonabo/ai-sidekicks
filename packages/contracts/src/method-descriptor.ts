@@ -1,9 +1,12 @@
-// One daemon method's wire contract, stated once: its name, procedure type, whether it changes
-// state, and the schemas its request, result and (for a subscription) emissions are validated
-// against. Each namespace declares a table of descriptors keyed by method name, and the daemon's
-// method map is composed from those tables. A descriptor registers nothing; a method reaches the
-// wire only when a daemon service registers a handler against it.
-import type { ZodType, output } from "zod";
+// One daemon method's wire contract: its name, procedure type, whether it changes state, and the
+// schemas its request, result and emissions are validated against. A descriptor registers nothing;
+// a method reaches the wire only when a daemon service registers a handler for it.
+import { z, type ZodType, type output } from "zod";
+
+/** A request or reply that carries nothing: the method's whole effect is what it changed. */
+export type EmptyPayload = Record<string, never>;
+/** Parses an {@link EmptyPayload}; any member is refused. */
+export const EmptyPayloadSchema: z.ZodType<EmptyPayload, EmptyPayload> = z.object({}).strict();
 
 /**
  * How a method answers. A `query` reads and a `mutation` changes state, each with

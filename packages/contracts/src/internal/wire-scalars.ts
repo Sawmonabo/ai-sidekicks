@@ -15,3 +15,9 @@ export const countSchema: z.ZodNumber = z.number().int().nonnegative();
 
 /** A share in percent, from 0 to 100; a fraction is allowed. */
 export const percentSchema: z.ZodNumber = z.number().min(0).max(100);
+
+/** An RFC 3339 instant carrying its offset, as every timestamp on the wire does. */
+export const isoDateTimeSchema: z.ZodISODateTime = z.iso.datetime({ offset: true });
+
+/** A TCP port number: a whole number from 1 to 65535. */
+export const portSchema: z.ZodNumber = z.number().int().min(1).max(65_535);

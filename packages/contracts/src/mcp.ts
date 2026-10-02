@@ -26,6 +26,7 @@ import {
   wireFreeFormString,
   type SessionId,
 } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** A server's name as a binding and an event carry it. */
 export const McpServerNameSchema: z.ZodString = wireFreeFormString(
@@ -600,7 +601,7 @@ const McpServerLegStatusSchema: z.ZodType<McpServerLegStatus> = z
     sessionId: SessionIdSchema,
     bindingId: z.string().min(1),
     status: McpServerStatusSchema,
-    observedAt: z.iso.datetime({ offset: true }).optional(),
+    observedAt: isoDateTimeSchema.optional(),
   })
   .strict();
 
@@ -608,7 +609,7 @@ const inventoryFactsShape = {
   config: McpServerConfigViewSchema,
   status: McpServerStatusSchema,
   legs: z.array(McpServerLegStatusSchema).optional(),
-  observedAt: z.iso.datetime({ offset: true }).optional(),
+  observedAt: isoDateTimeSchema.optional(),
   requiredServer: z.boolean().optional(),
   failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
 };
@@ -715,13 +716,6 @@ export interface McpOauthLoginResponse {
 /** Parses an {@link McpOauthLoginResponse}. */
 export const McpOauthLoginResponseSchema: z.ZodType<McpOauthLoginResponse> = z
   .object({ authorizationUrl: mcpHttpAddressSchema.optional() })
-  .strict();
-
-/** What signing out answers with; each binding's new status arrives on the stream. */
-export type McpOauthLogoutResponse = Record<string, never>;
-/** Parses an {@link McpOauthLogoutResponse}: an empty object. */
-export const McpOauthLogoutResponseSchema: z.ZodType<McpOauthLogoutResponse> = z
-  .object({})
   .strict();
 
 /** What reconnecting answers with: each leg's status after the attempt. */

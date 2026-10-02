@@ -40,6 +40,7 @@ import {
   type WorkflowStep,
   type WorkflowWaitCause,
 } from "./workflow-run.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The statuses of a run that is still going: new, running or waiting. */
 const GOING_RUN_STATUSES: readonly WorkflowRunStatus[] = ["new", "running", "waiting"];
@@ -72,7 +73,7 @@ export const WorkflowChainRootSchema: z.ZodType<WorkflowChainRoot> = z
     runId: WorkflowRunIdSchema,
     definitionId: WorkflowDefinitionIdSchema,
     workflowName: z.string().min(1),
-    startedAt: z.iso.datetime({ offset: true }),
+    startedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -119,8 +120,8 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
     fixSessionId: SessionIdSchema.optional(),
     steps: z.array(WorkflowStepSchema),
     failureReason: z.string().min(1).optional(),
-    startedAt: z.iso.datetime({ offset: true }),
-    endedAt: z.iso.datetime({ offset: true }).optional(),
+    startedAt: isoDateTimeSchema,
+    endedAt: isoDateTimeSchema.optional(),
   })
   .strict();
 
@@ -153,8 +154,8 @@ export const WorkflowRunListRequestSchema: z.ZodType<
     workflowVersionId: WorkflowVersionIdSchema.optional(),
     status: z.array(WorkflowRunStatusSchema).min(1).optional(),
     mode: z.array(WorkflowRunModeSchema).min(1).optional(),
-    startedAfter: z.iso.datetime({ offset: true }).optional(),
-    startedBefore: z.iso.datetime({ offset: true }).optional(),
+    startedAfter: isoDateTimeSchema.optional(),
+    startedBefore: isoDateTimeSchema.optional(),
     limit: z.number().int().positive().optional(),
     cursor: z.string().min(1).optional(),
   })
@@ -199,9 +200,9 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
     status: WorkflowRunStatusSchema,
     mode: WorkflowRunModeSchema,
     startedBy: WorkflowStartedBySchema,
-    startedAt: z.iso.datetime({ offset: true }),
-    durationMs: z.number().int().nonnegative().optional(),
-    stepCount: z.number().int().nonnegative(),
+    startedAt: isoDateTimeSchema,
+    durationMs: countSchema.optional(),
+    stepCount: countSchema,
     liveStep: z
       .object({
         index: z.number().int().positive(),
@@ -213,7 +214,7 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
       .optional(),
     cost: WorkflowCostSchema.optional(),
     waitCause: WorkflowWaitCauseSchema.optional(),
-    resumeAt: z.iso.datetime({ offset: true }).optional(),
+    resumeAt: isoDateTimeSchema.optional(),
   })
   .strict()
   .refine((row) => GOING_RUN_STATUSES.includes(row.status) === (row.durationMs === undefined), {
@@ -247,7 +248,7 @@ export const WorkflowRunListResponseSchema: z.ZodType<WorkflowRunListResponse> =
   .object({
     runs: z.array(WorkflowRunSummarySchema),
     nextCursor: z.string().min(1).optional(),
-    totalCount: z.number().int().nonnegative(),
+    totalCount: countSchema,
   })
   .strict()
   .refine((page) => page.runs.length <= page.totalCount, {
@@ -291,7 +292,7 @@ export interface WorkflowRunsDeleteRequest {
 export const WorkflowRunsDeleteRequestSchema: z.ZodType<
   WorkflowRunsDeleteRequest,
   WorkflowRunsDeleteRequest
-> = z.object({ olderThan: z.iso.datetime({ offset: true }) }).strict();
+> = z.object({ olderThan: isoDateTimeSchema }).strict();
 
 /**
  * The `workflow.runsDeletePreview` result, read before the confirm: how many runs the
@@ -307,9 +308,9 @@ export interface WorkflowRunsDeletePreviewResponse {
 export const WorkflowRunsDeletePreviewResponseSchema: z.ZodType<WorkflowRunsDeletePreviewResponse> =
   z
     .object({
-      deleteCount: z.number().int().nonnegative(),
-      keptCount: z.number().int().nonnegative(),
-      waitingCount: z.number().int().nonnegative(),
+      deleteCount: countSchema,
+      keptCount: countSchema,
+      waitingCount: countSchema,
     })
     .strict();
 
@@ -322,7 +323,7 @@ export interface WorkflowRunsDeleteResponse {
 }
 /** Wire schema for {@link WorkflowRunsDeleteResponse}. */
 export const WorkflowRunsDeleteResponseSchema: z.ZodType<WorkflowRunsDeleteResponse> = z
-  .object({ deletedCount: z.number().int().nonnegative() })
+  .object({ deletedCount: countSchema })
   .strict();
 
 /** The `workflow.runKeepSet` input and result: whether the run's step data outlives its bound. */
@@ -375,7 +376,7 @@ export const WorkflowRunAttentionEntrySchema: z.ZodType<WorkflowRunAttentionEntr
         workflowRunId: WorkflowRunIdSchema,
         workflowName: z.string().min(1),
         waitCause: z.enum(WORKFLOW_WAIT_CAUSES).exclude(["account"]),
-        waitingSince: z.iso.datetime({ offset: true }),
+        waitingSince: isoDateTimeSchema,
       })
       .strict(),
     z
@@ -383,8 +384,8 @@ export const WorkflowRunAttentionEntrySchema: z.ZodType<WorkflowRunAttentionEntr
         kind: z.literal("account"),
         providerAccountId: ProviderAccountIdSchema,
         affectedRunCount: z.number().int().positive(),
-        waitingSince: z.iso.datetime({ offset: true }),
-        resumeAt: z.iso.datetime({ offset: true }).optional(),
+        waitingSince: isoDateTimeSchema,
+        resumeAt: isoDateTimeSchema.optional(),
       })
       .strict(),
   ]);
@@ -402,7 +403,7 @@ export interface WorkflowRunAttentionListResponse {
 export const WorkflowRunAttentionListResponseSchema: z.ZodType<WorkflowRunAttentionListResponse> = z
   .object({
     entries: z.array(WorkflowRunAttentionEntrySchema),
-    waitingOnPersonCount: z.number().int().nonnegative(),
+    waitingOnPersonCount: countSchema,
   })
   .strict()
   .refine(
@@ -444,7 +445,7 @@ export interface WorkflowRunsPauseState {
 }
 /** Wire schema for {@link WorkflowRunsPauseState}. */
 export const WorkflowRunsPauseStateSchema: z.ZodType<WorkflowRunsPauseState> = z
-  .object({ paused: z.boolean(), waitingStartCount: z.number().int().nonnegative() })
+  .object({ paused: z.boolean(), waitingStartCount: countSchema })
   .strict();
 
 // workflow.keptVarsClear
@@ -471,7 +472,7 @@ export interface WorkflowKeptVarsClearResponse {
 export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClearResponse> = z
   .object({
     definitionId: WorkflowDefinitionIdSchema,
-    clearedCount: z.number().int().nonnegative(),
+    clearedCount: countSchema,
   })
   .strict();
 
@@ -525,7 +526,7 @@ export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNot
       .object({
         kind: z.literal("runsPause"),
         paused: z.boolean(),
-        waitingStartCount: z.number().int().nonnegative(),
+        waitingStartCount: countSchema,
       })
       .strict(),
     z.object({ kind: z.literal("run"), run: WorkflowRunSummarySchema }).strict(),
@@ -548,8 +549,8 @@ export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNot
         definitionId: WorkflowDefinitionIdSchema,
         nodeId: WorkflowNodeIdSchema,
         event: z.enum(["armed", "disarmed", "fired", "skipped"]),
-        scheduledAt: z.iso.datetime({ offset: true }),
-        nextFireAt: z.iso.datetime({ offset: true }).optional(),
+        scheduledAt: isoDateTimeSchema,
+        nextFireAt: isoDateTimeSchema.optional(),
       })
       .strict(),
     z

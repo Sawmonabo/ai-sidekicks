@@ -16,20 +16,13 @@ import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
 import { SessionCreatedPayloadSchema, type SessionCreatedPayload } from "./session-created.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
-import {
-  WorktreeCreatedPayloadSchema,
-  WorktreeRetiredPayloadSchema,
-  type WorktreeCreatedPayload,
-  type WorktreeRetiredPayload,
-} from "./worktree-events.js";
-import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from "./worktree.js";
+import type { WorktreeCreatedPayload, WorktreeRetiredPayload } from "./worktree-events.js";
+import type { WorktreeLifecyclePayload } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
-// session.created: the payload is session-created.ts's.
+// Each variant interface extends the envelope, narrowing `type`, `category` and `payload` to the
+// variant's literals.
 
-// Variant interfaces extend the envelope, narrowing `type`, `category` and `payload` to the
-// variant's literals. Adding or narrowing an envelope member surfaces as a type error in every
-// variant schema annotation, but removing one does not (Zod's output type is covariant), which
-// is why the test suite also pins the eleven envelope keys.
 /** Emitted when a session is admitted. */
 export interface SessionCreatedEvent extends EventEnvelope {
   type: "session.created";
@@ -234,7 +227,7 @@ const buildEventMaintenanceBaseShape = () => ({
   nodeId: NodeIdSchema,
   // The batch or pass correlation id: opaque, bounded free-form; no format is fixed.
   operationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "event_maintenance.operationId"),
-  occurredAt: z.iso.datetime({ offset: true }),
+  occurredAt: isoDateTimeSchema,
 });
 
 /** One session a deletion removed, with the range of its rows the deletion deleted. */
@@ -376,7 +369,7 @@ export const buildMachineContentDescriptorShape = (): {
   contentLength: z.ZodOptional<z.ZodNumber>;
   contentTruncated: z.ZodOptional<z.ZodLiteral<true>>;
 } => ({
-  contentLength: z.number().int().nonnegative().optional(),
+  contentLength: countSchema.optional(),
   // `z.literal(true)`, not `z.boolean()`: a `false` on the wire would canonicalize into bytes a
   // complete row must not have, so omit-never-false is enforced at parse.
   contentTruncated: z.literal(true).optional(),
@@ -402,7 +395,7 @@ const buildToolActivityPayloadShape = () => ({
     EVENT_FIELD_MAX_LEN,
     "tool activity payload toolCallId",
   ).optional(),
-  durationMs: z.number().int().nonnegative().optional(),
+  durationMs: countSchema.optional(),
   ...buildMachineContentDescriptorShape(),
 });
 

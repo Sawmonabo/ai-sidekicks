@@ -12,6 +12,7 @@ import {
   type EventEnvelopeVersion,
 } from "./event-core.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // The literal `category` on each union variant is the registry's category for its type, so a
 // mismatched pair (a `session.created` under `approval_flow`) fails at parse time instead of
@@ -219,11 +220,7 @@ export const buildCommonShape = (): {
     .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
       message: `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same IEEE-754 double, so two different events would carry the same replay key.`,
     }),
-  // ISO 8601; `offset: true` also accepts numeric RFC 3339 offsets ("+00:00"). The canonical form
-  // (UTC `Z`, millisecond precision) is applied at append time, not at the wire.
-  occurredAt: z.iso.datetime({ offset: true }),
-  // A user or agent id, or null or absent for system events. The helper rejects empty,
-  // whitespace-only and NUL strings, so a system event sends `null` or omits the key.
+  occurredAt: isoDateTimeSchema,
   // `.nullable()` comes after the helper so its string checks run only on strings.
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.actor").nullable().optional(),
   correlationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.correlationId").optional(),
@@ -299,7 +296,7 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
  */
 export type SourceEpoch = number;
 /** Wire schema for {@link SourceEpoch}. */
-export const SourceEpochSchema: z.ZodType<SourceEpoch> = z.number().int().nonnegative();
+export const SourceEpochSchema: z.ZodType<SourceEpoch> = countSchema;
 
 /**
  * The normalized session position (the turn-boundary vocabulary of `targetPosition`) that a
@@ -309,7 +306,7 @@ export const SourceEpochSchema: z.ZodType<SourceEpoch> = z.number().int().nonneg
  */
 export type SourcePosition = number;
 /** Wire schema for {@link SourcePosition}. */
-export const SourcePositionSchema: z.ZodType<SourcePosition> = z.number().int().nonnegative();
+export const SourcePositionSchema: z.ZodType<SourcePosition> = countSchema;
 
 // `as const`, not a written annotation: the literal type stays evident to `isolatedDeclarations`
 // and the keys work as computed property names in `withEpochStamp`.

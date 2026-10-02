@@ -24,6 +24,7 @@ import {
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /**
  * The longest name a new skill takes. Codex refuses to load a skill whose name is
@@ -71,7 +72,7 @@ export interface SkillFile {
 export const SkillFileSchema: z.ZodType<SkillFile> = z
   .object({
     path: relativeFilePathSchema("SkillFile.path"),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
     readable: z.boolean(),
   })
   .strict();

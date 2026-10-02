@@ -6,13 +6,13 @@
 import { z } from "zod";
 
 import {
-  DeviceEntrySchema,
-  EmptyAcknowledgementSchema,
-  type DeviceEntry,
-  type EmptyAcknowledgement,
-} from "./device.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 import { UserIdSchema, wireUncappedFreeFormString, type UserId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** `account.delete` takes nothing: the account is the caller's. */
 export type AccountDeleteRequest = Record<string, never>;
@@ -47,7 +47,7 @@ export const AccountExportResponseSchema: z.ZodType<AccountExportResponse> = z
     account: z
       .object({
         userId: UserIdSchema,
-        createdAt: z.iso.datetime({ offset: true }),
+        createdAt: isoDateTimeSchema,
         displayName: wireUncappedFreeFormString("displayName"),
         metadata: z.record(z.string(), z.unknown()),
       })
@@ -58,11 +58,7 @@ export const AccountExportResponseSchema: z.ZodType<AccountExportResponse> = z
 
 /** The hosted account's procedures the control plane serves. */
 export interface AccountProcedureDescriptors {
-  readonly "account.delete": MethodDescriptor<
-    "account.delete",
-    AccountDeleteRequest,
-    EmptyAcknowledgement
-  >;
+  readonly "account.delete": MethodDescriptor<"account.delete", AccountDeleteRequest, EmptyPayload>;
   readonly "account.export": MethodDescriptor<
     "account.export",
     AccountExportRequest,
@@ -77,7 +73,7 @@ export const ACCOUNT_PROCEDURE_DESCRIPTORS: AccountProcedureDescriptors = define
     procedureType: "mutation",
     mutating: true,
     requestSchema: AccountDeleteRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "account.export": {
     method: "account.export",

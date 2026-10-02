@@ -63,6 +63,7 @@ import {
   type ProviderOutputSpeedState,
 } from "./provider-driver-transcript.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // The session's agent tree
 
@@ -146,7 +147,7 @@ export const AgentListEntrySchema: z.ZodType<AgentListEntry> = z
     pendingSwitch: AgentBindingSwitchPendingSchema.optional(),
     resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
     ancestry: z.array(AgentTreeMemberSchema),
-    createdAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -230,7 +231,7 @@ export interface AgentConfigUpdateResponse {
 export const AgentConfigUpdateResponseSchema: z.ZodType<AgentConfigUpdateResponse> = z
   .object({
     agentId: AgentIdSchema,
-    updatedAt: z.iso.datetime({ offset: true }),
+    updatedAt: isoDateTimeSchema,
     switch: AgentBindingSwitchDispositionSchema,
   })
   .strict();

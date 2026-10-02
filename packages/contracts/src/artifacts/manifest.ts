@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { ArtifactIdSchema, RunIdSchema, type ArtifactId, type RunId } from "../provider-driver.js";
 import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "../session.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
  * The family an artifact belongs to: a file, a diff, a summary, a log, a design,
@@ -70,11 +71,11 @@ export const ArtifactManifestSchema: z.ZodType<ArtifactManifest> = z
     createdBy: UserIdSchema.optional(),
     artifactType: ArtifactTypeSchema,
     digest: z.string(),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
     annotations: z.record(z.string(), z.string()),
     subject: ArtifactIdSchema.optional(),
     state: ArtifactStateSchema,
     metadata: z.record(z.string(), z.unknown()),
-    createdAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
   })
   .strict();

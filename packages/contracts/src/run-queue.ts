@@ -14,6 +14,7 @@ import {
   wireUncappedFreeFormString,
   type SessionId,
 } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** Identifies one queued message. */
 export type QueueItemId = string & { readonly __brand: "QueueItemId" };
@@ -91,7 +92,7 @@ export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> =
   .object({
     queueItemId: QueueItemIdSchema,
     state: QueueItemStateSchema,
-    createdAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -141,8 +142,8 @@ export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
       DRIVER_WIRE_REASON_MAX_LEN,
       "QueueItemSummary.notDeliveredReason",
     ).optional(),
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
   })
   .strict()
   .refine((item) => (item.state === "not_delivered") === (item.notDeliveredReason !== undefined), {

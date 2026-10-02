@@ -12,6 +12,7 @@ import { z } from "zod";
 import { decodedByteLength } from "./internal/base64.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { wireFreeFormString } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest name a machine or a device carries: the one name every other device shows. */
 export const MACHINE_OR_DEVICE_NAME_MAX_LEN = 256;
@@ -287,10 +288,9 @@ export type TrustStatement =
 
 const NameSchema = wireFreeFormString(MACHINE_OR_DEVICE_NAME_MAX_LEN, "name");
 const PlatformSchema = wireFreeFormString(PLATFORM_DESCRIPTION_MAX_LEN, "platform");
-const IsoTimeSchema = z.iso.datetime({ offset: true });
 const statementBase = {
   previousHash: TrustStatementHashSchema,
-  issuedAt: IsoTimeSchema,
+  issuedAt: isoDateTimeSchema,
   signatures: z.array(TrustStatementSignatureSchema).min(1),
 };
 

@@ -14,6 +14,7 @@ import {
   type RemovedWorktreeId,
   type WorktreeId,
 } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // `Discard and remove` moves the tree whole into its project's kept folder, so nothing it held is
 // lost. The copy stays until the person presses `Delete now`; nothing deletes it on its own.
@@ -59,9 +60,9 @@ export const RemovedWorktreeListResponseSchema: z.ZodType<RemovedWorktreeListRes
           name: wireFreeFormString(FILE_PATH_MAX_LEN, "RemovedWorktree.name"),
           branch: wireUncappedFreeFormString("RemovedWorktree.branch"),
           headCommit: GitObjectIdSchema,
-          removedAt: z.iso.datetime({ offset: true }),
-          sizeBytes: z.number().int().nonnegative().nullable(),
-          sizeReadAt: z.iso.datetime({ offset: true }).nullable(),
+          removedAt: isoDateTimeSchema,
+          sizeBytes: countSchema.nullable(),
+          sizeReadAt: isoDateTimeSchema.nullable(),
         })
         .strict(),
     ),

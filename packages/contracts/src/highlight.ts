@@ -8,6 +8,7 @@ import { z } from "zod";
 import { jsonUtf8ByteLength } from "./jsonrpc.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** Every language the daemon can color. */
 export const HIGHLIGHT_LANGUAGES = [
@@ -85,7 +86,7 @@ export interface HighlightReadResponse {
 
 /** Parses a {@link HighlightReadResponse}, refusing a list a surface could not paint. */
 export const HighlightReadResponseSchema: z.ZodType<HighlightReadResponse> = z
-  .object({ spans: z.array(z.number().int().nonnegative()) })
+  .object({ spans: z.array(countSchema) })
   .strict()
   .superRefine((response, issueContext) => {
     const { spans } = response;

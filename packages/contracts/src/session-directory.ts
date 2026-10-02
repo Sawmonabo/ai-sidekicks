@@ -58,6 +58,7 @@ import {
   type SessionSubscribeResponse,
 } from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * What a session is doing, as the daemon derives it: exactly one of five, and no surface
@@ -158,11 +159,11 @@ const sessionListEntryCommonFields = {
   ).optional(),
   state: SessionStateSchema,
   activity: SessionActivitySchema,
-  activityRenewedAt: z.iso.datetime({ offset: true }),
-  pinnedAt: z.iso.datetime({ offset: true }).optional(),
+  activityRenewedAt: isoDateTimeSchema,
+  pinnedAt: isoDateTimeSchema.optional(),
   muted: z.boolean(),
   exchange: SessionExchangeSchema.optional(),
-  lastActivityAt: z.iso.datetime({ offset: true }),
+  lastActivityAt: isoDateTimeSchema,
 };
 /** Parses a {@link SessionListEntry}. */
 export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminatedUnion("shape", [
@@ -178,7 +179,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
     .object({
       ...sessionListEntryCommonFields,
       shape: z.literal("chat"),
-      documentCount: z.number().int().nonnegative(),
+      documentCount: countSchema,
     })
     .strict(),
 ]);
@@ -396,7 +397,7 @@ export interface SessionOverviewReadRequest {
 export const SessionOverviewReadRequestSchema: z.ZodType<
   SessionOverviewReadRequest,
   SessionOverviewReadRequest
-> = z.object({ afterRevision: z.number().int().nonnegative() }).strict();
+> = z.object({ afterRevision: countSchema }).strict();
 
 /** One agent under a session in the terminal pane. */
 export interface SessionOverviewAgent {
@@ -427,7 +428,7 @@ export interface SessionOverviewReadResponse {
 /** Parses a {@link SessionOverviewReadResponse}. */
 export const SessionOverviewReadResponseSchema: z.ZodType<SessionOverviewReadResponse> = z
   .object({
-    revision: z.number().int().nonnegative(),
+    revision: countSchema,
     sessions: z.array(
       z
         .object({

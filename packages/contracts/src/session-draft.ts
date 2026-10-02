@@ -16,11 +16,7 @@ import { defineMethodDescriptors, type MethodDescriptor } from "./method-descrip
 import { McpServerNameSchema } from "./mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-
-// The daemon enforces the staging limits; a client reads them to explain a limit before the
-// refusal rather than after it. Each is the shipped default, and the person may change the first
-// two, so a surface that shows one says it is the default until the daemon reports the value in
-// force.
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * The largest file one staged attachment may be, in bytes, by default. Equal to the largest
@@ -99,7 +95,7 @@ export interface SessionDraftUpdateResponse {
 }
 /** Parses a {@link SessionDraftUpdateResponse}. */
 export const SessionDraftUpdateResponseSchema: z.ZodType<SessionDraftUpdateResponse> = z
-  .object({ sessionId: SessionIdSchema, updatedAt: z.iso.datetime({ offset: true }) })
+  .object({ sessionId: SessionIdSchema, updatedAt: isoDateTimeSchema })
   .strict();
 
 /**
@@ -119,7 +115,7 @@ export const SessionAttachmentSummarySchema: z.ZodType<SessionAttachmentSummary>
     artifactId: ArtifactIdSchema,
     fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
     mimeType: z.string().min(1),
-    sizeBytes: z.number().int().nonnegative(),
+    sizeBytes: countSchema,
   })
   .strict();
 
@@ -335,8 +331,8 @@ export const SessionAttachmentCoverRequestSchema: z.ZodType<
       .array(
         z
           .object({
-            x: z.number().int().nonnegative(),
-            y: z.number().int().nonnegative(),
+            x: countSchema,
+            y: countSchema,
             width: z.number().int().positive(),
             height: z.number().int().positive(),
           })

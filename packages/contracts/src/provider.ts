@@ -10,8 +10,12 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import type {
+  EmptyPayload,
+  MethodDescriptor,
+  SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
+import { defineMethodDescriptors, EmptyPayloadSchema } from "./method-descriptor.js";
 import {
   ProviderAccountIdSchema,
   ProviderNameSchema,
@@ -245,12 +249,6 @@ export interface ProviderRequest {
 export const ProviderRequestSchema: z.ZodType<ProviderRequest, ProviderRequest> = z
   .object({ provider: ProviderNameSchema })
   .strict();
-
-/** An acknowledgement that carries nothing: the outcome arrives elsewhere. */
-export type ProviderAckResponse = Record<string, never>;
-
-/** Parses a {@link ProviderAckResponse}. */
-export const ProviderAckResponseSchema: z.ZodType<ProviderAckResponse> = z.object({}).strict();
 
 /** `provider.list` takes nothing: it reads every provider on this machine. */
 export type ProviderListRequest = Record<string, never>;
@@ -585,11 +583,7 @@ export interface ProviderMethodDescriptors {
     ProviderStandingRuleRevokeRequest,
     ProviderStandingRuleRevokeResponse
   >;
-  readonly "provider.install": MethodDescriptor<
-    "provider.install",
-    ProviderRequest,
-    ProviderAckResponse
-  >;
+  readonly "provider.install": MethodDescriptor<"provider.install", ProviderRequest, EmptyPayload>;
   readonly "provider.installSubscribe": SubscriptionMethodDescriptor<
     "provider.installSubscribe",
     ProviderRequest,
@@ -599,7 +593,7 @@ export interface ProviderMethodDescriptors {
   readonly "provider.installStop": MethodDescriptor<
     "provider.installStop",
     ProviderRequest,
-    ProviderAckResponse
+    EmptyPayload
   >;
 }
 
@@ -659,7 +653,7 @@ export const PROVIDER_METHOD_DESCRIPTORS: ProviderMethodDescriptors = defineMeth
     procedureType: "mutation",
     mutating: true,
     requestSchema: ProviderRequestSchema,
-    responseSchema: ProviderAckResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "provider.installSubscribe": {
     method: "provider.installSubscribe",
@@ -674,6 +668,6 @@ export const PROVIDER_METHOD_DESCRIPTORS: ProviderMethodDescriptors = defineMeth
     procedureType: "mutation",
     mutating: true,
     requestSchema: ProviderRequestSchema,
-    responseSchema: ProviderAckResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

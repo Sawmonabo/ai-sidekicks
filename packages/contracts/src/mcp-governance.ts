@@ -12,7 +12,6 @@ import {
   McpMutationResultSchema,
   McpOauthLoginResponseSchema,
   McpOauthLogoutRequestSchema,
-  McpOauthLogoutResponseSchema,
   McpReconnectRequestSchema,
   McpReconnectResponseSchema,
   McpRegistrySearchRequestSchema,
@@ -34,7 +33,6 @@ import {
   type McpMutationResult,
   type McpOauthLoginResponse,
   type McpOauthLogoutRequest,
-  type McpOauthLogoutResponse,
   type McpReconnectRequest,
   type McpReconnectResponse,
   type McpRegistrySearchRequest,
@@ -46,7 +44,12 @@ import {
   type McpToolOverrideMutationResult,
   type McpUpsertServerRequest,
 } from "./mcp.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import type { McpServerStatus } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
@@ -193,7 +196,7 @@ export interface McpMethodDescriptors {
   readonly "mcp.oauthLogout": MethodDescriptor<
     "mcp.oauthLogout",
     McpOauthLogoutRequest,
-    McpOauthLogoutResponse
+    EmptyPayload
   >;
   readonly "mcp.reconnect": MethodDescriptor<
     "mcp.reconnect",
@@ -272,7 +275,7 @@ export const MCP_METHOD_DESCRIPTORS: McpMethodDescriptors = defineMethodDescript
     procedureType: "mutation",
     mutating: true,
     requestSchema: McpOauthLogoutRequestSchema,
-    responseSchema: McpOauthLogoutResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "mcp.reconnect": {
     method: "mcp.reconnect",

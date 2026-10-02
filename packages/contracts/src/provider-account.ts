@@ -11,6 +11,7 @@
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // Length caps. Wire-only bounds that stop one oversized member long before the transport's
 // body-size limit; the database declares no length CHECK on these columns.
@@ -232,7 +233,7 @@ export const ProviderAccountMemoryImportOutcomeSchema: z.ZodType<
     .object({
       outcome: z.literal("imported"),
       count: z.number().int().positive(),
-      importedAt: z.iso.datetime({ offset: true }),
+      importedAt: isoDateTimeSchema,
     })
     .strict(),
   z.object({ outcome: z.literal("nothingToImport") }).strict(),
@@ -331,13 +332,13 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
     ).optional(),
     isDefault: z.boolean(),
     healthState: ProviderAccountHealthStateSchema,
-    healthObservedAt: z.iso.datetime({ offset: true }).nullable(),
+    healthObservedAt: isoDateTimeSchema.nullable(),
     // Nullable, not optional: an optional member would make "unobserved" and "the producer
     // forgot" the same value on the wire.
     observedAuthMode: ProviderAuthModeSchema.nullable(),
-    loggedInAt: z.iso.datetime({ offset: true }).nullable(),
-    lastRefreshObservedAt: z.iso.datetime({ offset: true }).nullable(),
-    expectedReloginAtEstimate: z.iso.datetime({ offset: true }).nullable(),
+    loggedInAt: isoDateTimeSchema.nullable(),
+    lastRefreshObservedAt: isoDateTimeSchema.nullable(),
+    expectedReloginAtEstimate: isoDateTimeSchema.nullable(),
     probeEnabled: z.boolean(),
     windowStartEnabled: z.boolean(),
     wakeForWindowStartEnabled: z.boolean(),
@@ -474,7 +475,7 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
     provider: ProviderNameSchema,
     state: ProviderReadinessStateSchema,
     resolvedAccountId: ProviderAccountIdSchema.optional(),
-    observedAt: z.iso.datetime({ offset: true }).optional(),
+    observedAt: isoDateTimeSchema.optional(),
     remedy: ProviderRemedySchema.optional(),
   })
   .strict()
@@ -570,8 +571,8 @@ export const ProviderAccountUsageWindowSchema: z.ZodType<
     ).optional(),
     // Floor only, like the column's CHECK; no ceiling because over-consumption is reported.
     usedPercent: z.number().min(0),
-    resetsAt: z.iso.datetime({ offset: true }).optional(),
-    observedAt: z.iso.datetime({ offset: true }),
+    resetsAt: isoDateTimeSchema.optional(),
+    observedAt: isoDateTimeSchema,
     observedCredentialGeneration: CredentialGenerationSchema,
     source: ProviderAccountUsageWindowSourceSchema,
   })

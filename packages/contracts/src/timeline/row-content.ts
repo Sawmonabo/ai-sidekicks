@@ -20,6 +20,7 @@ import {
 } from "../session.js";
 
 import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
+import { countSchema } from "../internal/wire-scalars.js";
 
 /** Refuse stored text over the page budget, so an oversized reply is a failed read. */
 const requireMemberToRideOneFrame = (
@@ -76,7 +77,7 @@ export const TimelineBodyReadResponseSchema: z.ZodType<TimelineBodyReadResponse>
       .object({
         status: z.literal("available"),
         body: z.string().max(CONTENT_PAYLOAD_PLAINTEXT_MAX),
-        contentLength: z.number().int().nonnegative().optional(),
+        contentLength: countSchema.optional(),
         contentTruncated: z.literal(true).optional(),
       })
       .strict()

@@ -8,9 +8,12 @@ import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow-definition.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * Every attention trigger: pending approval or user input, run completion, run failure,
@@ -126,11 +129,11 @@ export const AttentionItemSchema: z.ZodType<AttentionItem> = z
     stepId: WorkflowNodeIdSchema.optional(),
     summary: z.string(),
     sourceEventId: attentionIdSchema("AttentionItem.sourceEventId"),
-    createdAt: z.iso.datetime({ offset: true }),
-    resolvedAt: z.iso.datetime({ offset: true }).optional(),
+    createdAt: isoDateTimeSchema,
+    resolvedAt: isoDateTimeSchema.optional(),
     bannerState: z.enum(ATTENTION_BANNER_STATE_VALUES),
     webAddressState: z.enum(ATTENTION_WEB_ADDRESS_STATE_VALUES).optional(),
-    webAddressAttemptCount: z.number().int().nonnegative().optional(),
+    webAddressAttemptCount: countSchema.optional(),
     seen: z.boolean(),
   })
   .strict()
@@ -201,12 +204,6 @@ export const AttentionSeenUpdateRequestSchema: z.ZodType<
 
 // Delivery beyond this machine: the web address and the email digest
 
-/** A request or a reply that carries nothing. */
-export type AttentionEmptyMessage = Record<string, never>;
-/** Parses an {@link AttentionEmptyMessage}: an empty object. */
-export const AttentionEmptyMessageSchema: z.ZodType<AttentionEmptyMessage, AttentionEmptyMessage> =
-  z.object({}).strict();
-
 const ATTENTION_DELIVERY_CHANNEL_VALUES = ["webAddress", "emailDigest"] as const;
 
 /** The two ways a moment leaves the machine. */
@@ -240,10 +237,10 @@ export interface AttentionDeliveryOutcome {
 }
 const AttentionDeliveryOutcomeSchema: z.ZodType<AttentionDeliveryOutcome> = z
   .object({
-    at: z.iso.datetime({ offset: true }),
+    at: isoDateTimeSchema,
     result: z.enum(ATTENTION_DELIVERY_RESULT_VALUES),
     httpStatus: z.number().int().min(100).max(599).optional(),
-    undelivered: z.number().int().nonnegative(),
+    undelivered: countSchema,
   })
   .strict();
 
@@ -417,23 +414,23 @@ export interface AttentionMethodDescriptors {
    */
   readonly "attention.projectionRead": SubscriptionMethodDescriptor<
     "attention.projectionRead",
-    AttentionEmptyMessage,
+    EmptyPayload,
     SubscribeAckResponse,
     AttentionProjection
   >;
   readonly "attention.bannerSettle": MethodDescriptor<
     "attention.bannerSettle",
     AttentionBannerSettleRequest,
-    AttentionEmptyMessage
+    EmptyPayload
   >;
   readonly "attention.seenUpdate": MethodDescriptor<
     "attention.seenUpdate",
     AttentionSeenUpdateRequest,
-    AttentionEmptyMessage
+    EmptyPayload
   >;
   readonly "attention.deliveryRead": MethodDescriptor<
     "attention.deliveryRead",
-    AttentionEmptyMessage,
+    EmptyPayload,
     AttentionDeliveryReadResponse
   >;
   readonly "attention.deliveryTest": MethodDescriptor<
@@ -444,12 +441,12 @@ export interface AttentionMethodDescriptors {
   readonly "attention.mailPasswordSave": MethodDescriptor<
     "attention.mailPasswordSave",
     AttentionMailPasswordSaveRequest,
-    AttentionEmptyMessage
+    EmptyPayload
   >;
   readonly "attention.mailPasswordRemove": MethodDescriptor<
     "attention.mailPasswordRemove",
-    AttentionEmptyMessage,
-    AttentionEmptyMessage
+    EmptyPayload,
+    EmptyPayload
   >;
   readonly "attention.webAddressSave": MethodDescriptor<
     "attention.webAddressSave",
@@ -458,13 +455,13 @@ export interface AttentionMethodDescriptors {
   >;
   readonly "attention.webAddressSecretRotate": MethodDescriptor<
     "attention.webAddressSecretRotate",
-    AttentionEmptyMessage,
+    EmptyPayload,
     AttentionWebAddressSecretRotateResponse
   >;
   readonly "attention.webAddressRemove": MethodDescriptor<
     "attention.webAddressRemove",
-    AttentionEmptyMessage,
-    AttentionEmptyMessage
+    EmptyPayload,
+    EmptyPayload
   >;
 }
 
@@ -474,7 +471,7 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     method: "attention.projectionRead",
     procedureType: "subscription",
     mutating: false,
-    requestSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: SubscribeAckResponseSchema,
     emissionSchema: AttentionProjectionSchema,
   },
@@ -483,20 +480,20 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     procedureType: "mutation",
     mutating: true,
     requestSchema: AttentionBannerSettleRequestSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.seenUpdate": {
     method: "attention.seenUpdate",
     procedureType: "mutation",
     mutating: true,
     requestSchema: AttentionSeenUpdateRequestSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.deliveryRead": {
     method: "attention.deliveryRead",
     procedureType: "query",
     mutating: false,
-    requestSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: AttentionDeliveryReadResponseSchema,
   },
   "attention.deliveryTest": {
@@ -511,14 +508,14 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     procedureType: "mutation",
     mutating: true,
     requestSchema: AttentionMailPasswordSaveRequestSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.mailPasswordRemove": {
     method: "attention.mailPasswordRemove",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: AttentionEmptyMessageSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.webAddressSave": {
     method: "attention.webAddressSave",
@@ -531,14 +528,14 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     method: "attention.webAddressSecretRotate",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: AttentionWebAddressSecretRotateResponseSchema,
   },
   "attention.webAddressRemove": {
     method: "attention.webAddressRemove",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: AttentionEmptyMessageSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

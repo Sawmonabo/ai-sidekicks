@@ -22,6 +22,7 @@ import { z } from "zod";
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "./mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** A workflow definition's id. The daemon mints it; a client passes it through unparsed. */
 export type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -167,7 +168,7 @@ export const WorkflowNodeSchema: z.ZodType<WorkflowNode, WorkflowNode> = z
     retry: z
       .object({
         maxTries: z.number().int().positive(),
-        waitMs: z.number().int().nonnegative(),
+        waitMs: countSchema,
       })
       .strict()
       .optional()
@@ -268,7 +269,7 @@ const WorkflowBinaryRefSchema: z.ZodType<WorkflowBinaryRef, WorkflowBinaryRef> =
     artifactId: ArtifactIdSchema,
     mimeType: z.string().min(1),
     fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
   })
   .strict();
 
@@ -279,8 +280,8 @@ export interface WorkflowPairedItem {
 }
 const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem> = z
   .object({
-    item: z.number().int().nonnegative(),
-    input: z.number().int().nonnegative().optional(),
+    item: countSchema,
+    input: countSchema.optional(),
   })
   .strict();
 

@@ -23,7 +23,7 @@
 import type {
   ApplyInterventionParams,
   CompactContextRequest,
-  DriverAckResult,
+  EmptyPayload,
   DriverCompactionResult,
   DriverEvent,
   DriverInterventionResult,
@@ -55,7 +55,7 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
  * `run.not_found`, `agent.not_found`, `driver.unavailable`, `driver.capability_unsupported`)
  * arrive as `JsonRpcRemoteError`.
  *
- * `interruptRun` resolves the empty `DriverAckResult`, a genuine success value: the daemon answers
+ * `interruptRun` resolves the empty `EmptyPayload`, a genuine success value: the daemon answers
  * with `{}` because the method registry parses every result and `undefined` would fail its own
  * schema. A refusal never arrives as an empty ack.
  *
@@ -78,7 +78,7 @@ export interface DriverClient {
   listCapabilities(): Promise<ListCapabilitiesResult>;
 
   /** Interrupt the run's in-flight turn. Resolves the empty ack on success. */
-  interruptRun(params: InterruptRunParams): Promise<DriverAckResult>;
+  interruptRun(params: InterruptRunParams): Promise<EmptyPayload>;
 
   /** Apply a `steer` / `interrupt` / `cancel` intervention to a run. */
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;

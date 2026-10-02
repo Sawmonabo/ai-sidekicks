@@ -17,6 +17,7 @@ import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */
 export type PlanId = string & { readonly __brand: "PlanId" };
@@ -72,8 +73,8 @@ export const PlanProposedPayloadSchema: z.ZodType<PlanProposedPayload> = z
     runId: RunIdSchema,
     title: z.string(),
     text: z.string(),
-    stepCount: z.number().int().nonnegative(),
-    fileCount: z.number().int().nonnegative(),
+    stepCount: countSchema,
+    fileCount: countSchema,
     planFilePath: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
   })
   .strict();

@@ -267,7 +267,6 @@ export {
   AttentionDeliveryStoreUnavailableDetailsSchema,
   AttentionDeliveryTestRequestSchema,
   AttentionDeliveryTestResponseSchema,
-  AttentionEmptyMessageSchema,
   AttentionItemSchema,
   AttentionMailPasswordSaveRequestSchema,
   AttentionProjectionSchema,
@@ -291,7 +290,6 @@ export type {
   AttentionDeliveryStoreUnavailableDetails,
   AttentionDeliveryTestRequest,
   AttentionDeliveryTestResponse,
-  AttentionEmptyMessage,
   AttentionItem,
   AttentionMailPasswordSaveRequest,
   AttentionMethodDescriptors,
@@ -483,7 +481,6 @@ export type {
 } from "./daemon-config.js";
 export {
   DAEMON_DATA_METHOD_DESCRIPTORS,
-  DaemonEmptyPayloadSchema,
   DataExportJobIdSchema,
   DataExportProgressSchema,
   DataExportRequestSchema,
@@ -492,7 +489,6 @@ export {
 } from "./daemon-data.js";
 export type {
   DaemonDataMethodDescriptors,
-  DaemonEmptyPayload,
   DataExportJobId,
   DataExportProgress,
   DataExportRequest,
@@ -506,7 +502,6 @@ export {
   DaemonFlushResponseSchema,
   DaemonLifecycleAcceptedSchema,
   DaemonPingRequestSchema,
-  DaemonPingResponseSchema,
   DaemonRestartRequestSchema,
   DaemonStopRequestSchema,
 } from "./daemon-lifecycle.js";
@@ -516,7 +511,6 @@ export type {
   DaemonLifecycleAccepted,
   DaemonLifecycleMethodDescriptors,
   DaemonPingRequest,
-  DaemonPingResponse,
   DaemonRestartRequest,
   DaemonStopRequest,
 } from "./daemon-lifecycle.js";
@@ -599,7 +593,6 @@ export {
   DeviceStatementListResponseSchema,
   DeviceTrustedListRequestSchema,
   DeviceTrustedListResponseSchema,
-  EmptyAcknowledgementSchema,
   MachineEntrySchema,
   PAIRING_ID_MAX_LEN,
   PUSH_ADDRESS_MAX_LEN,
@@ -633,7 +626,6 @@ export type {
   DeviceStatementListResponse,
   DeviceTrustedListRequest,
   DeviceTrustedListResponse,
-  EmptyAcknowledgement,
   MachineEntry,
   PasskeyEntry,
   PushPlatform,
@@ -1162,7 +1154,6 @@ export {
   McpMutationResultSchema,
   McpOauthLoginResponseSchema,
   McpOauthLogoutRequestSchema,
-  McpOauthLogoutResponseSchema,
   McpReconnectRequestSchema,
   McpReconnectResponseSchema,
   McpRegistrySearchRequestSchema,
@@ -1193,7 +1184,6 @@ export type {
   McpMutationResult,
   McpOauthLoginResponse,
   McpOauthLogoutRequest,
-  McpOauthLogoutResponse,
   McpReconnectRequest,
   McpReconnectResponse,
   McpRegistryEnvironmentVariable,
@@ -1218,9 +1208,10 @@ export type {
   McpToolOverrideMutationResult,
   McpUpsertServerRequest,
 } from "./mcp.js";
-export { defineMethodDescriptors } from "./method-descriptor.js";
+export { defineMethodDescriptors, EmptyPayloadSchema } from "./method-descriptor.js";
 export type {
   AnyMethodDescriptor,
+  EmptyPayload,
   MethodDescriptor,
   MethodDescriptorTable,
   MethodEmissionOf,
@@ -1384,7 +1375,6 @@ export {
   PREVIEW_PORT_NOT_SHARED_CODE,
   PreviewPortRefusalDetailsSchema,
   PreviewPortRequestSchema,
-  PreviewPortSchema,
   PreviewPortShareAddResponseSchema,
   PreviewPortShareListFrameSchema,
   PreviewPortShareListRequestSchema,
@@ -1720,7 +1710,6 @@ export {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
-  DriverAckResultSchema,
   DriverCapabilitiesSchema,
   DriverCapabilityReportSchema,
   DriverModeReportSchema,
@@ -1740,7 +1729,6 @@ export {
 } from "./provider-driver-wire.js";
 export type {
   CompactContextRequest,
-  DriverAckResult,
   DriverCapabilityReport,
   DriverMethodDescriptors,
   DriverModeReport,
@@ -1765,7 +1753,6 @@ export {
   ProviderImportProviderRequestSchema,
   ProviderImportStartResponseSchema,
   ProviderImportStopRequestSchema,
-  ProviderImportStopResponseSchema,
   SESSION_IMPORT_METHOD_DESCRIPTORS,
 } from "./provider-import.js";
 export type {
@@ -1777,7 +1764,6 @@ export type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
   ProviderImportStopRequest,
-  ProviderImportStopResponse,
   SessionImportMethodDescriptors,
 } from "./provider-import.js";
 export {
@@ -1805,7 +1791,6 @@ export {
   PROVIDER_RULE_TEXT_MAX_LEN,
   PROVIDER_STANDING_RULE_ID_MAX_LEN,
   PROVIDER_VERSION_MAX_LEN,
-  ProviderAckResponseSchema,
   ProviderAutoCompactBoundSchema,
   ProviderInstallProgressSchema,
   ProviderInstallationSchema,
@@ -1828,7 +1813,6 @@ export {
 export type {
   ClaudeProviderSettings,
   CodexProviderSettings,
-  ProviderAckResponse,
   ProviderAutoCompactBound,
   ProviderCommandNotRunnableCode,
   ProviderInstallProgress,
@@ -2060,8 +2044,8 @@ export type {
   WorkingTreeSubscribeRequest,
   WorkingTreeSubscribeResponse,
 } from "./repo-git-reads.js";
-export { REPO_METHOD_DESCRIPTORS, RepoEmptyResponseSchema } from "./repo-methods.js";
-export type { RepoEmptyResponse, RepoMethodDescriptors } from "./repo-methods.js";
+export { REPO_METHOD_DESCRIPTORS } from "./repo-methods.js";
+export type { RepoMethodDescriptors } from "./repo-methods.js";
 export {
   ExecutionModeSchema,
   RepoMountHealthSchema,
@@ -2846,7 +2830,6 @@ export {
   VoiceDictationStartRequestSchema,
   VoiceDictationStopRequestSchema,
   VoiceDictationWriteRequestSchema,
-  VoiceEmptyPayloadSchema,
   VoiceListResponseSchema,
   VoiceStateSchema,
   VoiceUnavailableDetailsSchema,
@@ -2863,7 +2846,6 @@ export type {
   VoiceDictationStartRequest,
   VoiceDictationStopRequest,
   VoiceDictationWriteRequest,
-  VoiceEmptyPayload,
   VoiceListResponse,
   VoiceMethodDescriptors,
   VoiceState,
@@ -2964,7 +2946,6 @@ export type {
   WorkflowDefinitionSummary,
   WorkflowDefinitionUpdateRequest,
   WorkflowDefinitionUpdateResponse,
-  WorkflowImportSchemaUnknownCode,
   WorkflowVersionChainEntry,
   WorkflowVersionChainReadRequest,
   WorkflowVersionChainReadResponse,

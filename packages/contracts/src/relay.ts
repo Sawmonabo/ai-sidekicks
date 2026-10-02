@@ -10,8 +10,12 @@
 // person pastes.
 import { z } from "zod";
 
-import { EmptyAcknowledgementSchema, type EmptyAcknowledgement } from "./device.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 
 /** The refusal of a connection to a pinned relay whose key no longer matches the pin. */
 export type RelaySpkiMismatchCode = "relay.spki_mismatch";
@@ -59,7 +63,7 @@ export const RelayRepinRequestSchema: z.ZodType<RelayRepinRequest, RelayRepinReq
 
 /** The relay method the service answers. */
 export interface RelayMethodDescriptors {
-  readonly "relay.repin": MethodDescriptor<"relay.repin", RelayRepinRequest, EmptyAcknowledgement>;
+  readonly "relay.repin": MethodDescriptor<"relay.repin", RelayRepinRequest, EmptyPayload>;
 }
 
 /** The relay method the service answers. */
@@ -69,6 +73,6 @@ export const RELAY_METHOD_DESCRIPTORS: RelayMethodDescriptors = defineMethodDesc
     procedureType: "mutation",
     mutating: true,
     requestSchema: RelayRepinRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

@@ -10,6 +10,7 @@ import {
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /**
  * Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
@@ -41,7 +42,7 @@ export interface SessionConvertResponse {
   skippedPaths: string[];
 }
 const sessionConvertOutcomeFields = {
-  copiedCount: z.number().int().nonnegative(),
+  copiedCount: countSchema,
   skippedPaths: z.array(
     wireFreeFormString(FILE_PATH_MAX_LEN, "SessionConvertResponse.skippedPaths"),
   ),

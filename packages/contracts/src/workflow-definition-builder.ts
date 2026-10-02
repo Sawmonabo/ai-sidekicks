@@ -4,7 +4,7 @@
 // answer with. The method table that lists these methods is in `workflow-definition-methods.ts`.
 import { z } from "zod";
 
-import { countSchema } from "./internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 import {
   WorkflowDefinitionIdSchema,
@@ -18,8 +18,6 @@ import {
   type WorkflowNodeId,
   type WorkflowPinnedItem,
 } from "./workflow-definition.js";
-
-const isoInstant = z.iso.datetime({ offset: true });
 
 // Refusals
 
@@ -94,7 +92,7 @@ export interface WorkflowDefinitionSettingResponse {
 }
 /** Wire schema for {@link WorkflowDefinitionSettingResponse}. */
 export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefinitionSettingResponse> =
-  z.object({ definitionId: WorkflowDefinitionIdSchema, updatedAt: isoInstant }).strict();
+  z.object({ definitionId: WorkflowDefinitionIdSchema, updatedAt: isoDateTimeSchema }).strict();
 
 /**
  * The `workflow.permissionLevelUpdate` input: the level every run of the workflow uses, a live
@@ -208,7 +206,7 @@ export interface WorkflowDraftUpdateResponse {
 }
 /** Wire schema for {@link WorkflowDraftUpdateResponse}. */
 export const WorkflowDraftUpdateResponseSchema: z.ZodType<WorkflowDraftUpdateResponse> = z
-  .object({ workflowDraftId: WorkflowDraftIdSchema, updatedAt: isoInstant })
+  .object({ workflowDraftId: WorkflowDraftIdSchema, updatedAt: isoDateTimeSchema })
   .strict();
 
 /** The `workflow.draftRead` input: the draft the builder's address names. */
@@ -243,7 +241,7 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
         definitionId: WorkflowDefinitionIdSchema.optional(),
         basedOnVersionNumber: z.number().int().positive().optional(),
         document: WorkflowDraftDocumentSchema,
-        updatedAt: isoInstant,
+        updatedAt: isoDateTimeSchema,
       })
       .strict()
       .nullable(),
@@ -275,7 +273,7 @@ export const WorkflowExpressionPreviewRequestSchema: z.ZodType<
     workflowDraftId: WorkflowDraftIdSchema.optional(),
     nodeId: WorkflowNodeIdSchema,
     expression: z.string().min(1),
-    itemIndex: z.number().int().nonnegative().optional(),
+    itemIndex: countSchema.optional(),
   })
   .strict()
   .refine(
@@ -329,7 +327,7 @@ export const WorkflowWebhookTokenRotateResponseSchema: z.ZodType<WorkflowWebhook
     .object({
       definitionId: WorkflowDefinitionIdSchema,
       token: z.string().min(1),
-      createdAt: isoInstant,
+      createdAt: isoDateTimeSchema,
     })
     .strict();
 
@@ -355,7 +353,7 @@ export interface WorkflowWebhookListenerReadResponse {
 export const WorkflowWebhookListenerReadResponseSchema: z.ZodType<WorkflowWebhookListenerReadResponse> =
   z
     .object({
-      port: z.number().int().min(1).max(65_535),
+      port: portSchema,
       state: z.enum(WORKFLOW_WEBHOOK_LISTENER_STATES),
     })
     .strict();

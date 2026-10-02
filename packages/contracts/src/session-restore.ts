@@ -18,6 +18,7 @@ import {
   type EventCursor,
   type SessionId,
 } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest snapshot id the daemon accepts. */
 export const SNAPSHOT_ID_MAX_LEN = 256;
@@ -60,7 +61,7 @@ export const SessionSnapshotListResponseSchema: z.ZodType<SessionSnapshotListRes
         .object({
           snapshotId: SnapshotIdSchema,
           name: z.string().min(1),
-          createdAt: z.iso.datetime({ offset: true }),
+          createdAt: isoDateTimeSchema,
         })
         .strict(),
     ),
@@ -175,11 +176,11 @@ export interface SessionRestorePreviewResponse {
 /** Parses a {@link SessionRestorePreviewResponse}. */
 export const SessionRestorePreviewResponseSchema: z.ZodType<SessionRestorePreviewResponse> = z
   .object({
-    fileCount: z.number().int().nonnegative(),
-    lineCount: z.number().int().nonnegative(),
+    fileCount: countSchema,
+    lineCount: countSchema,
     skipped: z.array(SessionRestoreSkippedFileSchema),
-    affectedChildCount: z.number().int().nonnegative(),
-    runningCommands: z.number().int().nonnegative(),
+    affectedChildCount: countSchema,
+    runningCommands: countSchema,
     ignoredFolders: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
     commandsRanAfterPoint: z.boolean(),
     alsoChangedBy: z.array(
@@ -297,8 +298,8 @@ export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.dis
         restored: z.enum(["conversation-and-files", "conversation", "files", "nothing"]),
         files: z
           .object({
-            restoredFileCount: z.number().int().nonnegative(),
-            restoredLineCount: z.number().int().nonnegative(),
+            restoredFileCount: countSchema,
+            restoredLineCount: countSchema,
             skipped: z.array(SessionRestoreSkippedFileSchema),
           })
           .strict()

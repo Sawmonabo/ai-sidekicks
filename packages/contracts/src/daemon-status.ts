@@ -6,6 +6,7 @@ import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ReleaseVersionSchema } from "./release-manifest.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** Where the service is in its own life. */
 export type DaemonProcessState = "running" | "starting" | "stopping" | "degraded";
@@ -22,7 +23,6 @@ export const DAEMON_STATUS_TEXT_MAX_LEN = 4_096;
 
 const StatusTextSchema = z.string().min(1).max(DAEMON_STATUS_TEXT_MAX_LEN);
 const StatusPathSchema = z.string().min(1).max(FILE_PATH_MAX_LEN);
-const TimestampSchema = z.iso.datetime({ offset: true });
 
 /** How much of the machine's processor the service and every process it started use. */
 export interface DaemonProcessorReading {
@@ -93,13 +93,13 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
     version: ReleaseVersionSchema,
     protocolVersion: StatusTextSchema,
     transportEndpoint: StatusTextSchema,
-    startedAt: TimestampSchema,
-    uptimeMs: z.number().int().nonnegative(),
+    startedAt: isoDateTimeSchema,
+    uptimeMs: countSchema,
     dataDirectory: StatusPathSchema,
-    processor: z.object({ percent: z.number().min(0).max(100), readAt: TimestampSchema }).strict(),
-    memory: z
-      .object({ residentBytes: z.number().int().nonnegative(), readAt: TimestampSchema })
+    processor: z
+      .object({ percent: z.number().min(0).max(100), readAt: isoDateTimeSchema })
       .strict(),
+    memory: z.object({ residentBytes: countSchema, readAt: isoDateTimeSchema }).strict(),
     relay: z
       .object({
         devices: z.array(
@@ -107,10 +107,10 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
             .object({
               name: StatusTextSchema,
               connected: z.boolean(),
-              lastFrameOutAgeMs: z.number().int().nonnegative().optional(),
-              lastFrameInAgeMs: z.number().int().nonnegative().optional(),
-              reconnectCount: z.number().int().nonnegative(),
-              rejectedFrameCount: z.number().int().nonnegative(),
+              lastFrameOutAgeMs: countSchema.optional(),
+              lastFrameInAgeMs: countSchema.optional(),
+              reconnectCount: countSchema,
+              rejectedFrameCount: countSchema,
             })
             .strict(),
         ),
@@ -168,7 +168,7 @@ export const DaemonCrashListResponseSchema: z.ZodType<DaemonCrashListResponse> =
     reports: z.array(
       z
         .object({
-          crashedAt: TimestampSchema,
+          crashedAt: isoDateTimeSchema,
           processType: StatusTextSchema,
           appVersion: StatusTextSchema,
           serviceVersion: StatusTextSchema,
@@ -184,7 +184,7 @@ export const DaemonCrashListResponseSchema: z.ZodType<DaemonCrashListResponse> =
                     .refine((module) => !/[\\/]/.test(module), {
                       message: "A stack frame names its module's file, never a path.",
                     }),
-                  offset: z.number().int().nonnegative(),
+                  offset: countSchema,
                 })
                 .strict(),
             )

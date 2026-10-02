@@ -20,7 +20,7 @@ import {
   type AgentTreeMember,
   type ChildHandle,
 } from "./agent.js";
-import { countSchema } from "./internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
 import { DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
@@ -130,9 +130,9 @@ export const ChildRunHeadSchema: z.ZodType<ChildRunHead> = z
     modelId: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ChildRunHead.modelId"),
     effort: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ChildRunHead.effort").optional(),
     viaAgentName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "viaAgentName").optional(),
-    tokens: z.number().int().nonnegative(),
+    tokens: countSchema,
     spendUsdMicros: UsdMicrosSchema,
-    startedAt: z.iso.datetime({ offset: true }),
+    startedAt: isoDateTimeSchema,
     ancestry: z.array(AgentTreeMemberSchema).min(1),
   })
   .strict();
@@ -211,7 +211,7 @@ export const ChildRunRejectionSchema: z.ZodType<ChildRunRejection> = z
     targetDefinitionId: AgentDefinitionIdSchema.optional(),
     reason: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ChildRunRejection.reason"),
     detail: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "ChildRunRejection.detail").optional(),
-    occurredAt: z.iso.datetime({ offset: true }),
+    occurredAt: isoDateTimeSchema,
   })
   .strict();
 

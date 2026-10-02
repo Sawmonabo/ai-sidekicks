@@ -30,6 +30,7 @@ import {
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // Each id is a daemon-minted UUID (`worktrees.id`, `branch_contexts.id`) built with
 // `brandedUuidIdSchema`, which supplies the double-T annotation tRPC v11 needs for input inference.
@@ -361,9 +362,9 @@ export interface WorktreeRemovalRisks {
 /** Wire schema for {@link WorktreeRemovalRisks}. */
 export const WorktreeRemovalRisksSchema: z.ZodType<WorktreeRemovalRisks> = z
   .object({
-    uncommittedFileCount: z.number().int().nonnegative(),
-    ignoredFileCount: z.number().int().nonnegative(),
-    unpushedCommitCount: z.number().int().nonnegative(),
+    uncommittedFileCount: countSchema,
+    ignoredFileCount: countSchema,
+    unpushedCommitCount: countSchema,
     occupyingSessionIds: z.array(SessionIdSchema),
   })
   .strict();
@@ -439,17 +440,17 @@ const worktreeStatusRecordSchema: z.ZodType<WorktreeStatusRecord> = z
       (state): state is ListedWorktreeState => state !== "retired",
       "A retired worktree is not listed",
     ),
-    ahead: z.number().int().nonnegative().optional(),
-    behind: z.number().int().nonnegative().optional(),
-    uncommittedFileCount: z.number().int().nonnegative(),
-    unpushedCommitCount: z.number().int().nonnegative(),
+    ahead: countSchema.optional(),
+    behind: countSchema.optional(),
+    uncommittedFileCount: countSchema,
+    unpushedCommitCount: countSchema,
     occupyingSessionIds: z.array(SessionIdSchema),
     runningSessionId: SessionIdSchema.nullable(),
     createdBySessionId: SessionIdSchema,
     // Absent for a tree prepared before any run, which has no run to attribute.
     createdByRunId: RunIdSchema.optional(),
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -514,7 +515,7 @@ export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadRespo
       })
       .strict(),
     worktrees: z.array(worktreeStatusRecordSchema),
-    countsAsOf: z.iso.datetime({ offset: true }).optional(),
+    countsAsOf: isoDateTimeSchema.optional(),
     newWorktree: z
       .object({
         fixedPart: z.string(),

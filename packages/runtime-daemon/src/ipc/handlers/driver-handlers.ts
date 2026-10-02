@@ -14,7 +14,7 @@
 import type {
   ApplyInterventionParams,
   CompactContextRequest,
-  DriverAckResult,
+  EmptyPayload,
   DriverCapabilityReport,
   DriverCompactionResult,
   DriverInterventionResult,
@@ -355,7 +355,7 @@ export function registerDriverInterruptRun(
   registry: MethodRegistry,
   deps: DriverDispatchDeps,
 ): void {
-  const handler: Handler<InterruptRunParams, DriverAckResult> = async (params) => {
+  const handler: Handler<InterruptRunParams, EmptyPayload> = async (params) => {
     return withDriverErrorTranslation(async () => {
       const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
       requireDriverOperation(driver, driverName, "interruptRun");

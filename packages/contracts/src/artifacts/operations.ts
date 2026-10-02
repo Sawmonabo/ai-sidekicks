@@ -3,7 +3,7 @@
 // the artifact calls answer with.
 import { z } from "zod";
 
-import { composedTextSchema } from "../internal/wire-scalars.js";
+import { composedTextSchema, countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { ArtifactIdSchema, type ArtifactId } from "../provider-driver.js";
 import { SessionIdSchema, type SessionId } from "../session.js";
 
@@ -96,7 +96,7 @@ export const ArtifactReadRequestSchema: z.ZodType<ArtifactReadRequest, ArtifactR
     includePayload: z.boolean().optional(),
     range: z
       .object({
-        offset: z.number().int().nonnegative(),
+        offset: countSchema,
         length: z.number().int().positive().max(ARTIFACT_CHUNK_MAX_BYTES),
       })
       .strict()
@@ -182,7 +182,7 @@ const artifactReadFactsShape = {
   manifest: ArtifactManifestSchema,
   versionNumber: z.number().int().positive(),
   versionCount: z.number().int(),
-  versionWrittenAt: z.iso.datetime({ offset: true }),
+  versionWrittenAt: isoDateTimeSchema,
   naturalSize: z
     .object({ width: z.number().int().positive(), height: z.number().int().positive() })
     .strict()

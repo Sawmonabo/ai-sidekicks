@@ -21,6 +21,7 @@ import {
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The id of one held note, minted by the client, so adding the same note twice makes one note. */
 export type ReviewNoteId = string & { readonly __brand: "ReviewNoteId" };
@@ -107,8 +108,8 @@ const ReviewNoteSchema: z.ZodType<ReviewNote> = z
     quote: z.string(),
     body: z.string().min(1),
     stranded: z.boolean(),
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
   })
   .strict()
   .refine(startsAtOrBeforeItsLine, startLineMessage);

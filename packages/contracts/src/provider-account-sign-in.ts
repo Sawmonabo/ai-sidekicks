@@ -21,6 +21,7 @@ import {
   type ProviderName,
 } from "./provider-account.js";
 import { wireFreeFormString } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest provider verification URL, carried verbatim. */
 export const PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN = 2048;
@@ -239,7 +240,7 @@ export const ProviderAccountLoginResponseSchema: z.ZodType<ProviderAccountLoginR
       PROVIDER_LOGIN_USER_CODE_MAX_LEN,
       "ProviderAccountLoginResponse.userCode",
     ).optional(),
-    expiresAt: z.iso.datetime({ offset: true }).optional(),
+    expiresAt: isoDateTimeSchema.optional(),
   })
   .strict();
 

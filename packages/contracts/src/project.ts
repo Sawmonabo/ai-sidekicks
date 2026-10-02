@@ -26,6 +26,7 @@ import {
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of a project: the record beside a mount that the person names. */
 export type ProjectId = string & { readonly __brand: "ProjectId" };
@@ -108,7 +109,7 @@ export const ProjectListEntrySchema: z.ZodType<ProjectListEntry> = z
     name: wireFreeFormString(PROJECT_NAME_MAX_LEN, "ProjectListEntry.name"),
     folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "ProjectListEntry.folderPath"),
     state: ProjectStateSchema,
-    sessionCount: z.number().int().nonnegative(),
+    sessionCount: countSchema,
     runningSessionId: SessionIdSchema.nullable(),
     setup: ProjectSetupSchema,
     environmentRows: z.array(EnvironmentRowSchema),

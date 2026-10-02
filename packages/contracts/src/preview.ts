@@ -15,9 +15,9 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { PreviewPortSchema } from "./preview-port.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 import { WEB_ADDRESS_FAULTS, type WebAddressFault } from "./web-address.js";
+import { countSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** The longest page id the daemon mints. */
 export const PREVIEW_PAGE_ID_MAX_LEN = 256;
@@ -158,8 +158,8 @@ export const PreviewPageSchema: z.ZodType<PreviewPage> = z
     title: z.string(),
     favicon: PreviewFaviconSchema.nullable(),
     loadState: PreviewPageLoadStateSchema,
-    backDepth: z.number().int().nonnegative(),
-    forwardDepth: z.number().int().nonnegative(),
+    backDepth: countSchema,
+    forwardDepth: countSchema,
     zoomFactor: PreviewZoomFactorSchema,
     released: z.boolean(),
   })
@@ -209,7 +209,7 @@ export type PreviewPageTarget =
 export const PreviewPageTargetSchema: z.ZodType<PreviewPageTarget, PreviewPageTarget> =
   z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("address"), address: PreviewAddressSchema }).strict(),
-    z.object({ kind: z.literal("devServer"), port: PreviewPortSchema }).strict(),
+    z.object({ kind: z.literal("devServer"), port: portSchema }).strict(),
   ]);
 
 /** Open one page in a session. A retried open makes a second page. */
@@ -241,7 +241,7 @@ export const PreviewPageOpenResponseSchema: z.ZodType<PreviewPageOpenResponse> =
   .object({
     pageId: PreviewPageIdSchema,
     address: PreviewAddressSchema,
-    movedFrom: PreviewPortSchema.nullable(),
+    movedFrom: portSchema.nullable(),
   })
   .strict();
 
@@ -292,7 +292,7 @@ export const PreviewPageReorderRequestSchema: z.ZodType<
   .object({
     sessionId: SessionIdSchema,
     pageId: PreviewPageIdSchema,
-    toIndex: z.number().int().nonnegative(),
+    toIndex: countSchema,
   })
   .strict();
 
@@ -363,9 +363,9 @@ export const PreviewNavigateResponseSchema: z.ZodType<PreviewNavigateResponse> =
   .object({
     pageId: PreviewPageIdSchema,
     address: PreviewAddressSchema,
-    movedFrom: PreviewPortSchema.nullable(),
-    backDepth: z.number().int().nonnegative(),
-    forwardDepth: z.number().int().nonnegative(),
+    movedFrom: portSchema.nullable(),
+    backDepth: countSchema,
+    forwardDepth: countSchema,
   })
   .strict();
 
@@ -423,7 +423,7 @@ export interface PreviewDevServer {
 /** Parses a {@link PreviewDevServer}. */
 export const PreviewDevServerSchema: z.ZodType<PreviewDevServer> = z
   .object({
-    port: PreviewPortSchema,
+    port: portSchema,
     name: z.string().min(1).nullable(),
     framework: z.string().min(1).nullable(),
     startedHere: z.boolean(),
@@ -473,7 +473,7 @@ const PreviewMarkElementSchema: z.ZodType<PreviewMarkElement, PreviewMarkElement
   .object({
     ref: z.string().min(1),
     box: PreviewRectSchema,
-    snapshotGeneration: z.number().int().nonnegative(),
+    snapshotGeneration: countSchema,
   })
   .strict();
 

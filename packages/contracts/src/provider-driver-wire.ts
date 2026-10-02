@@ -1,7 +1,12 @@
 // Client-facing wire schemas for the `driver.*` methods, and the method table that registers them.
 
 import { z } from "zod";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   DriverCompactionResultSchema,
@@ -32,6 +37,7 @@ import {
   wireUncappedFreeFormString,
   type SessionId,
 } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 // ---- Client-facing SDK-seam wire schemas ----
 
@@ -101,11 +107,8 @@ export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
 export const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN = 64;
 
 /**
- * Request of the two no-arg reads (`driver.listCapabilities`, `driver.listModes`). Strict: an
- * unknown key means a caller believes it is talking to a different method, and ignoring it would
- * hide that until something downstream reads the field that never arrived. Kept apart from
- * `DriverAckResult`, though both are the empty object, because they sit on opposite sides of the
- * wire and one must be free to grow without a breaking edit to the other.
+ * Request of the two reads that take nothing (`driver.listCapabilities`, `driver.listModes`). An
+ * unknown key is refused: the caller believes it is calling a different method.
  */
 export type DriverReadParams = Record<string, never>;
 /** Validates a {@link DriverReadParams}. */
@@ -113,14 +116,7 @@ export const DriverReadParamsSchema: z.ZodType<DriverReadParams, DriverReadParam
   .object({})
   .strict();
 
-/** Reply of the verbs whose driver-side operation returns `Promise<void>`. */
-export type DriverAckResult = Record<string, never>;
-/** Validates a {@link DriverAckResult}. */
-export const DriverAckResultSchema: z.ZodType<DriverAckResult, DriverAckResult> = z
-  .object({})
-  .strict();
-
-/** Request of `driver.listModels`: the session whose model control reads the catalog. Strict. */
+/** Request of `driver.listModels`: the session whose model control reads the catalog. */
 export interface ListModelsRequest {
   sessionId: SessionId;
 }
@@ -312,7 +308,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
     .object({
       type: z.literal("steer"),
       targetRunId: RunIdSchema,
-      expectedRunVersion: z.number().int().nonnegative(),
+      expectedRunVersion: countSchema,
       clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
@@ -332,7 +328,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
     .object({
       type: z.literal("interrupt"),
       targetRunId: RunIdSchema,
-      expectedRunVersion: z.number().int().nonnegative(),
+      expectedRunVersion: countSchema,
       clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
@@ -348,7 +344,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
     .object({
       type: z.literal("cancel"),
       targetRunId: RunIdSchema,
-      expectedRunVersion: z.number().int().nonnegative(),
+      expectedRunVersion: countSchema,
       clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
@@ -494,7 +490,7 @@ export interface DriverMethodDescriptors {
   readonly "driver.interruptRun": MethodDescriptor<
     "driver.interruptRun",
     InterruptRunParams,
-    DriverAckResult
+    EmptyPayload
   >;
   readonly "driver.applyIntervention": MethodDescriptor<
     "driver.applyIntervention",
@@ -541,7 +537,7 @@ export const DRIVER_METHOD_DESCRIPTORS: DriverMethodDescriptors = defineMethodDe
     procedureType: "mutation",
     mutating: true,
     requestSchema: InterruptRunParamsSchema,
-    responseSchema: DriverAckResultSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "driver.applyIntervention": {
     method: "driver.applyIntervention",

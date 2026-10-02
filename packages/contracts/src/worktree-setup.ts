@@ -9,6 +9,7 @@ import { PROJECT_SETUP_COMMAND_MAX_LEN } from "./project.js";
 import { wireFreeFormString } from "./session.js";
 import { WORKSPACE_LAST_ERROR_MAX_LEN } from "./workspace.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 // Setting a new tree up runs three stages in the composer card: making the tree, the project's own
 // setup steps, and warming what the session reads first. The steps are kept, so the card reads the
@@ -56,8 +57,8 @@ export const WorktreeSetupStatusSchema: z.ZodType<WorktreeSetupStatus> = z
         .object({
           stage: z.enum(["make_tree", "project_steps", "warm_caches"]),
           label: wireFreeFormString(PROJECT_SETUP_COMMAND_MAX_LEN, "WorktreeSetupStep.label"),
-          state: z.enum(["pending", "running", "succeeded", "failed"]),
-          elapsedMs: z.number().int().nonnegative().optional(),
+          state: z.enum(WORKTREE_SETUP_STEP_STATES),
+          elapsedMs: countSchema.optional(),
           error: wireFreeFormString(
             WORKSPACE_LAST_ERROR_MAX_LEN,
             "WorktreeSetupStep.error",

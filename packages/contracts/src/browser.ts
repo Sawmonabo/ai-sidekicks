@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { webAddressFault } from "./web-address.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * Parses a site's origin, `scheme://host` with a port only where it is not the
@@ -49,8 +50,8 @@ export interface BrowserSiteData {
 export const BrowserSiteDataSchema: z.ZodType<BrowserSiteData> = z
   .object({
     origin: BrowserSiteOriginSchema,
-    sizeBytes: z.number().int().nonnegative(),
-    lastUsedAt: z.iso.datetime({ offset: true }),
+    sizeBytes: countSchema,
+    lastUsedAt: isoDateTimeSchema,
     hasCookies: z.boolean(),
   })
   .strict();
@@ -163,7 +164,7 @@ export const BrowserChromiumReadResponseSchema: z.ZodType<BrowserChromiumReadRes
   .object({
     source: z.enum(BROWSER_CHROMIUM_SOURCES as [BrowserChromiumSource]),
     version: z.string().min(1),
-    fetchedAt: z.iso.datetime({ offset: true }).nullable(),
+    fetchedAt: isoDateTimeSchema.nullable(),
     cannotStart: z
       .object({
         reason: z.enum(BROWSER_CHROMIUM_CANNOT_START_REASONS as [BrowserChromiumCannotStartReason]),

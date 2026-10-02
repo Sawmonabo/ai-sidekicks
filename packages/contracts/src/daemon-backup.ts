@@ -8,12 +8,17 @@
 // This file imports nothing from the event registry, which imports it.
 import { z } from "zod";
 
-import { DaemonEmptyPayloadSchema, type DaemonEmptyPayload } from "./daemon-data.js";
 import { ERROR_MESSAGE_MAX_LEN } from "./error.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 import { ReleaseVersionSchema } from "./release-manifest.js";
 import { ServicePlaceLocationSchema, type ServicePlaceLocation } from "./service-place.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The manifest's file name, beside each backup's database copy. */
 export const BACKUP_MANIFEST_FILE_NAME = "manifest.json";
@@ -50,10 +55,10 @@ export interface BackupManifest {
 export const BackupManifestSchema: z.ZodType<BackupManifest> = z
   .object({
     backupId: BackupIdSchema,
-    takenAt: z.iso.datetime({ offset: true }),
+    takenAt: isoDateTimeSchema,
     appVersion: ReleaseVersionSchema,
     serviceVersion: ReleaseVersionSchema,
-    totalBytes: z.number().int().nonnegative(),
+    totalBytes: countSchema,
     computerName: wireFreeFormString(BACKUP_LABEL_MAX_LEN, "BackupManifest.computerName"),
     place: ServicePlaceLocationSchema.optional(),
   })
@@ -72,8 +77,8 @@ export interface BackupListEntry {
 const BackupListEntrySchema: z.ZodType<BackupListEntry> = z
   .object({
     backupId: BackupIdSchema,
-    takenAt: z.iso.datetime({ offset: true }),
-    totalBytes: z.number().int().nonnegative(),
+    takenAt: isoDateTimeSchema,
+    totalBytes: countSchema,
     appVersion: ReleaseVersionSchema,
     computerName: wireFreeFormString(BACKUP_LABEL_MAX_LEN, "BackupListEntry.computerName"),
   })
@@ -87,13 +92,11 @@ export type BackupLastRun =
   | { outcome: "completed"; finishedAt: string }
   | { outcome: "failed"; finishedAt: string; message: string };
 const BackupLastRunSchema: z.ZodType<BackupLastRun> = z.discriminatedUnion("outcome", [
-  z
-    .object({ outcome: z.literal("completed"), finishedAt: z.iso.datetime({ offset: true }) })
-    .strict(),
+  z.object({ outcome: z.literal("completed"), finishedAt: isoDateTimeSchema }).strict(),
   z
     .object({
       outcome: z.literal("failed"),
-      finishedAt: z.iso.datetime({ offset: true }),
+      finishedAt: isoDateTimeSchema,
       message: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "BackupLastRun.message"),
     })
     .strict(),
@@ -116,7 +119,7 @@ export const BackupReadResponseSchema: z.ZodType<BackupReadResponse> = z
   .object({
     folder: wireFreeFormString(FILE_PATH_MAX_LEN, "BackupReadResponse.folder"),
     folderOnServiceDisk: z.boolean(),
-    totalBytes: z.number().int().nonnegative(),
+    totalBytes: countSchema,
     lastRun: BackupLastRunSchema.nullable(),
     backups: z.array(BackupListEntrySchema),
   })
@@ -131,7 +134,7 @@ export interface BackupCompletedPayload {
 }
 /** Parses a {@link BackupCompletedPayload}. */
 export const BackupCompletedPayloadSchema: z.ZodType<BackupCompletedPayload> = z
-  .object({ backupId: BackupIdSchema, totalBytes: z.number().int().nonnegative() })
+  .object({ backupId: BackupIdSchema, totalBytes: countSchema })
   .strict();
 
 /** `backup.failed`: a run did not finish, in the service's own words. */
@@ -158,14 +161,10 @@ export const BackupRestoredPayloadSchema: z.ZodType<BackupRestoredPayload> = z
 export interface DaemonBackupMethodDescriptors {
   readonly "daemon.backupRead": MethodDescriptor<
     "daemon.backupRead",
-    DaemonEmptyPayload,
+    EmptyPayload,
     BackupReadResponse
   >;
-  readonly "daemon.backupStart": MethodDescriptor<
-    "daemon.backupStart",
-    DaemonEmptyPayload,
-    DaemonEmptyPayload
-  >;
+  readonly "daemon.backupStart": MethodDescriptor<"daemon.backupStart", EmptyPayload, EmptyPayload>;
 }
 
 /** The backup methods. A run started now reports its end through the `backup.*` events. */
@@ -175,14 +174,14 @@ export const DAEMON_BACKUP_METHOD_DESCRIPTORS: DaemonBackupMethodDescriptors =
       method: "daemon.backupRead",
       procedureType: "query",
       mutating: false,
-      requestSchema: DaemonEmptyPayloadSchema,
+      requestSchema: EmptyPayloadSchema,
       responseSchema: BackupReadResponseSchema,
     },
     "daemon.backupStart": {
       method: "daemon.backupStart",
       procedureType: "mutation",
       mutating: true,
-      requestSchema: DaemonEmptyPayloadSchema,
-      responseSchema: DaemonEmptyPayloadSchema,
+      requestSchema: EmptyPayloadSchema,
+      responseSchema: EmptyPayloadSchema,
     },
   });
