@@ -80,9 +80,11 @@ export const SkillFileSchema: z.ZodType<SkillFile> = z
 /**
  * What a person types to call the skill, per provider it reaches, in that
  * provider's own form: a provider's own folder keeps its bare name there
- * (`/security-review`, `$refactor-plan`), a packed skill arrives namespaced
- * (`/sidekicks:review-diff`), and a plugin's skill on Claude Code takes the
- * plugin's namespace. The daemon derives it; the composer inserts it.
+ * (`/security-review`, `$refactor-plan`), a skill made in the app arrives as
+ * `sidekicks:<name>` (`/sidekicks:review-diff`), a skill crossing to the other
+ * provider under its origin's plugin name (`$claude:security-review`,
+ * `/codex:refactor-plan`), and a plugin's skill under the plugin's name on both.
+ * The daemon derives it; the composer inserts it.
  */
 export type SkillCallForms = Partial<Record<ProviderName, string>>;
 /** Parses {@link SkillCallForms}; a key that is not a provider is refused. */
