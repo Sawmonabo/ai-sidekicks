@@ -16,7 +16,7 @@ import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 // Length caps. Wire-only bounds that stop one oversized member long before the transport's
 // body-size limit; the database declares no length CHECK on these columns.
 
-/** Longest daemon-minted opaque account id; equals `NODE_ID_MAX_LEN`. */
+/** Longest daemon-minted opaque account id. */
 export const PROVIDER_ACCOUNT_ID_MAX_LEN = 256;
 /** Longest account label the person chooses. */
 export const PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN = 256;
@@ -181,10 +181,7 @@ export function normalizeObservedProviderAuthMode(reportedMode: unknown): Provid
  * parses it; it only selects a credential environment.
  */
 export type ProviderAccountId = string & { readonly __brand: "ProviderAccountId" };
-/**
- * Parses a {@link ProviderAccountId}. Brands inline, like `NodeIdSchema`; the double-T
- * annotation keeps request-schema input inference on `ProviderAccountId`, not `unknown`.
- */
+/** Parses a {@link ProviderAccountId}; not a UUID, so it brands the string itself. */
 export const ProviderAccountIdSchema: z.ZodType<ProviderAccountId, ProviderAccountId> = z
   .string()
   .min(1)
@@ -345,12 +342,12 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
     memoryImport: ProviderAccountMemoryImportOutcomeSchema.nullable(),
   })
   .strict()
-  .superRefine((account, ctx) => {
+  .superRefine((account, context) => {
     // Only `indeterminate` can lack a timestamp ("never probed"); it can also carry one
     // ("probed, could not decide"). The other states are outcomes of an observation, and one
     // with no age would show an authenticated account whose authentication has no age.
     if (account.healthObservedAt === null && account.healthState !== "indeterminate") {
-      ctx.addIssue({
+      context.addIssue({
         code: "custom",
         // Pathed at the timestamp: a stored state implies a stored time, so the timestamp is
         // the member that went missing.
@@ -385,11 +382,8 @@ export interface ProviderSignInRemedy {
 }
 
 /**
- * The next step shown for a readiness state that is not `authenticated`. It is a union because
- * each state has a different next action and field set: `no_account` has no home to name, and
- * `no_default` resolved to none of several homes, so one sign-in shape would force a made-up
- * path or an arbitrary pick. `kind` is not redundant with `state`: three states map to
- * `sign_in`, so a client renders off `kind`.
+ * The next step shown for a readiness state that is not `authenticated`. Three states map to
+ * `sign_in`, so a client renders off `kind`, not `state`.
  */
 export type ProviderRemedy =
   | ProviderRegisterRemedy
@@ -479,14 +473,14 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
     remedy: ProviderRemedySchema.optional(),
   })
   .strict()
-  .superRefine((entry, ctx) => {
+  .superRefine((entry, context) => {
     const { remedy } = entry;
     if (remedy === undefined) {
       return;
     }
     const expectedKind = REMEDY_KIND_FOR_READINESS_STATE[entry.state];
     if (remedy.kind !== expectedKind) {
-      ctx.addIssue({
+      context.addIssue({
         code: "custom",
         path: ["remedy", "kind"],
         message:
@@ -499,7 +493,7 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
     // A `sign_in` remedy must name the entry's own resolved account; otherwise the person is
     // pointed at one account's home to fix another's, or at a home no entry owns.
     if (remedy.kind === "sign_in" && remedy.accountId !== entry.resolvedAccountId) {
-      ctx.addIssue({
+      context.addIssue({
         code: "custom",
         path: ["remedy", "accountId"],
         message:
@@ -513,8 +507,7 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
 /**
  * One quota reading for one limit of one account. `limitId` is the key and `windowMins` is an
  * attribute: a provider can publish several limits that share a window length, so keying on
- * window length would collapse them. The pinned Claude surface has three limit ids on one
- * 10080-minute window, so a window-length key would keep whichever arrived last.
+ * window length would collapse them.
  */
 export interface ProviderAccountUsageWindow {
   /** Required because the list reply is one flat array over all accounts. */
@@ -702,9 +695,9 @@ export const ProviderAccountNotificationSchema: z.ZodType<ProviderAccountNotific
       // The outer `accountId` routes; `window.accountId` is part of the reading, so a live
       // update and a list row key alike. If they differ, a consumer would file the reading
       // under the wrong account, so the notification is refused.
-      .superRefine((notification, ctx) => {
+      .superRefine((notification, context) => {
         if (notification.window.accountId !== notification.accountId) {
-          ctx.addIssue({
+          context.addIssue({
             code: "custom",
             path: ["window", "accountId"],
             message:

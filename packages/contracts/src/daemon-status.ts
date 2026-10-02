@@ -65,7 +65,7 @@ export const DaemonStatusReadRequestSchema: z.ZodType<
   DaemonStatusReadRequest
 > = z.object({}).strict();
 
-/** Everything a status surface prints, in one reply. */
+/** Everything a status reader prints, in one reply. */
 export interface DaemonStatusReadResponse {
   processState: DaemonProcessState;
   /** The service's own version. */
@@ -201,12 +201,12 @@ export interface DaemonStatusMethodDescriptors {
     "daemon.status.read",
     DaemonStatusReadRequest,
     DaemonStatusReadResponse
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.crashList": MethodDescriptor<
     "daemon.crashList",
     DaemonCrashListRequest,
     DaemonCrashListResponse
-  > & { readonly procedureType: "query" };
+  >;
 }
 
 /** The status and crash-list methods' names, procedure types and shapes. */

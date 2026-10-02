@@ -36,10 +36,8 @@ export const DaemonStopRequestSchema: z.ZodType<DaemonStopRequest, DaemonStopReq
   .object(drainDeadlineShape())
   .strict();
 
-/** A restart takes the same deadline as {@link DaemonStopRequest}. */
-export interface DaemonRestartRequest {
-  idleDrainDeadlineMs?: number | undefined;
-}
+/** A restart takes the same deadline as a stop. */
+export type DaemonRestartRequest = DaemonStopRequest;
 /** Parses a {@link DaemonRestartRequest}. */
 export const DaemonRestartRequestSchema: z.ZodType<DaemonRestartRequest, DaemonRestartRequest> = z
   .object(drainDeadlineShape())
@@ -89,12 +87,12 @@ export interface DaemonLifecycleMethodDescriptors {
     "daemon.stop",
     DaemonStopRequest,
     DaemonLifecycleAccepted
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.restart": MethodDescriptor<
     "daemon.restart",
     DaemonRestartRequest,
     DaemonLifecycleAccepted
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.flush": MethodDescriptor<
     "daemon.flush",
     DaemonFlushRequest,

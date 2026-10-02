@@ -1,6 +1,6 @@
 // Workflow secrets: the records the step's Credential chooser lists and manages, the
-// `secret://<scope>/<name>` reference a node's sensitive parameter stores, the four
-// `workflow.secret*` methods, and the three refusals a secret answers with.
+// `secret://<scope>/<name>` reference a node's sensitive parameter stores, the
+// `workflow.secret*` methods, and the refusals a secret answers with.
 //
 // A secret's value is sealed in the operating system's keychain by the daemon. The value
 // crosses the wire once, inward, as `secretValue` on a create or a replace; it is on no
@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { FILE_PATH_MAX_LEN } from "./session.js";
+import { FILE_PATH_MAX_LEN, wireUncappedFreeFormString } from "./session.js";
 
 /** A secret record's id. The daemon mints it. */
 export type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" };
@@ -80,11 +80,6 @@ export interface WorkflowSecretReference {
   name: string;
 }
 
-/** Writes the reference a sensitive parameter stores: `secret://<scope>/<name>`. */
-export function composeWorkflowSecretReference(reference: WorkflowSecretReference): string {
-  return `secret://${reference.scope}/${reference.name}`;
-}
-
 /**
  * Reads a reference back, or returns `null` when the text is not exactly one: another
  * scheme, a scope other than `project` or `shared`, or a name that breaks the rule. The
@@ -105,6 +100,9 @@ export function parseWorkflowSecretReference(text: string): WorkflowSecretRefere
 
 // The methods
 
+// A value has no cap of its own; the transport's message limit bounds it.
+const secretValueSchema = wireUncappedFreeFormString("secretValue");
+
 /**
  * The `workflow.secretCreate` input. The daemon seals `secretValue` in the keychain
  * before it writes the record, so a keychain that cannot take it leaves no record.
@@ -120,8 +118,8 @@ export const WorkflowSecretCreateRequestSchema: z.ZodType<
   WorkflowSecretCreateRequest,
   WorkflowSecretCreateRequest
 > = z.discriminatedUnion("scope", [
-  z.object({ name: z.string(), secretValue: z.string().min(1), ...projectPlaceShape }).strict(),
-  z.object({ name: z.string(), secretValue: z.string().min(1), ...sharedPlaceShape }).strict(),
+  z.object({ name: z.string(), secretValue: secretValueSchema, ...projectPlaceShape }).strict(),
+  z.object({ name: z.string(), secretValue: secretValueSchema, ...sharedPlaceShape }).strict(),
 ]);
 
 /**
@@ -136,7 +134,7 @@ export interface WorkflowSecretReplaceRequest {
 export const WorkflowSecretReplaceRequestSchema: z.ZodType<
   WorkflowSecretReplaceRequest,
   WorkflowSecretReplaceRequest
-> = z.object({ secretId: WorkflowSecretIdSchema, secretValue: z.string().min(1) }).strict();
+> = z.object({ secretId: WorkflowSecretIdSchema, secretValue: secretValueSchema }).strict();
 
 /**
  * The `workflow.secretDelete` input. The daemon records the removal first, then removes
@@ -185,18 +183,10 @@ export const WorkflowSecretListResponseSchema: z.ZodType<WorkflowSecretListRespo
   .object({ secrets: z.array(WorkflowSecretSummarySchema) })
   .strict();
 
-/**
- * The wire members that carry a secret, which a transport that logs requests or replies
- * redacts by name: a secret's value, inward, and a webhook token shown once, outward.
- */
-export const WORKFLOW_REDACTED_WIRE_MEMBERS: readonly string[] = ["secretValue", "token"];
-
 // Refusals
 
 /** A secret name that breaks the rule, or that its place already holds. */
 export const WORKFLOW_SECRET_NAME_INVALID_CODE = "workflow.secret_name_invalid" as const;
-/** The type of {@link WORKFLOW_SECRET_NAME_INVALID_CODE}. */
-export type WorkflowSecretNameInvalidCode = typeof WORKFLOW_SECRET_NAME_INVALID_CODE;
 
 /** Why a name was refused: it breaks the rule, or the place already holds it. */
 export const WORKFLOW_SECRET_NAME_INVALID_REASONS = ["pattern", "taken"] as const;
@@ -217,8 +207,6 @@ export const WorkflowSecretNameInvalidDetailsSchema: z.ZodType<WorkflowSecretNam
  * offers `Retry from this step`.
  */
 export const WORKFLOW_SECRET_NOT_FOUND_CODE = "workflow.secret_not_found" as const;
-/** The type of {@link WORKFLOW_SECRET_NOT_FOUND_CODE}. */
-export type WorkflowSecretNotFoundCode = typeof WORKFLOW_SECRET_NOT_FOUND_CODE;
 
 /** The details of {@link WORKFLOW_SECRET_NOT_FOUND_CODE}: the reference, as the step stored it. */
 export interface WorkflowSecretNotFoundDetails {
@@ -239,8 +227,6 @@ export const WorkflowSecretNotFoundDetailsSchema: z.ZodType<WorkflowSecretNotFou
  * A Linux machine with no Secret Service keeps its secrets in the service's own file instead.
  */
 export const WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE = "workflow.secret_store_unavailable" as const;
-/** The type of {@link WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE}. */
-export type WorkflowSecretStoreUnavailableCode = typeof WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE;
 
 /**
  * Why the keychain could not be used: it is `locked`, or this machine has none the

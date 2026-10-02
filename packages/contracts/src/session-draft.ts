@@ -6,10 +6,6 @@
 // written to window storage. A staged file is copied to the daemon when it is staged and kept
 // outside the checkout, so it survives a move of the working folder and never shows in a diff;
 // from then on it is addressed by its artifact id and its original path is never read again.
-//
-// Every picture from outside the daemon is rewritten once when it is staged, and the rewritten
-// copy is the only one kept, shown and sent. A picture that cannot be read safely is refused
-// before anything else reads it.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -24,38 +20,6 @@ import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
  * it between one megabyte and one gigabyte.
  */
 export const SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT: number = 100 * 1024 * 1024;
-
-/** Media types admitted because the bytes are well-formed UTF-8, with no signature to check. */
-export const SESSION_ATTACHMENT_TEXT_MEDIA_TYPES: readonly string[] = [
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/json",
-  "application/yaml",
-  "text/xml",
-  "text/x-diff",
-];
-
-/** Media types admitted only when the bytes start with that type's own signature. */
-export const SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES: readonly string[] = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-  "application/zip",
-  "application/gzip",
-];
-
-/**
- * The media types staging admits by default. A list the person sets replaces this one whole.
- * `image/svg+xml` is left out on purpose: it is a picture that is also a document that can run
- * script.
- */
-export const SESSION_ATTACHMENT_DEFAULT_MEDIA_TYPES: readonly string[] = [
-  ...SESSION_ATTACHMENT_TEXT_MEDIA_TYPES,
-  ...SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES,
-];
 
 /**
  * Why a file on a sent message can no longer be read where it sits. The message still goes, and
@@ -217,8 +181,8 @@ export type ArtifactPictureRefusedCode = typeof ARTIFACT_PICTURE_REFUSED_CODE;
 /**
  * Why a picture was refused:
  *
- * - `pixel_limit`: its header claims more than 268,402,689 pixels across every frame,
- *   so nothing of it is decoded.
+ * - `pixel_limit`: its header claims more than {@link ARTIFACT_PICTURE_PIXEL_LIMIT} pixels
+ *   across every frame, so nothing of it is decoded.
  * - `damaged`: it does not decode cleanly.
  */
 export const ARTIFACT_PICTURE_REFUSED_REASONS = ["pixel_limit", "damaged"] as const;
@@ -357,7 +321,7 @@ export interface SessionDraftMethodDescriptors {
     "session.draftUpdate",
     SessionDraftUpdateRequest,
     SessionDraftUpdateResponse
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "session.attachmentAdd": MethodDescriptor<
     "session.attachmentAdd",
     SessionAttachmentAddRequest,

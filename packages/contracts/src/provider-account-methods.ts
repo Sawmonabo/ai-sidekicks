@@ -2,7 +2,7 @@
 // set-current, probe, memory import, usage read) and the namespace's method table. The account
 // record and its reads are in `provider-account.ts`.
 //
-// Credential material crosses this surface on exactly one input,
+// Credential material crosses these methods on exactly one input,
 // `ProviderAccountRegisterRequest.nonInteractiveToken`, and on no output: no response or
 // notification shape in the three provider-account modules carries a token-shaped member under
 // any name.
@@ -78,11 +78,8 @@ export const PROVIDER_ACCOUNT_USAGE_MODEL_MAX_LEN = 128;
 export const PROVIDER_WAKE_HELPER_REASON_MAX_LEN = 1024;
 
 /**
- * Edits an account's descriptive settings; an omitted member is unchanged. Not updatable, by
- * omission and enforced on write: `provider`; `credentialHomePath`, because rebinding to another
- * home would silently re-point historical spend at other credentials; `credentialGeneration`,
- * because a descriptive correction is not a credential event; and `isDefault`, which has its own
- * verb so its race semantics are not duplicated.
+ * Edits an account's descriptive settings; an omitted member is unchanged. The provider, the
+ * credential home, the credential generation and the default flag cannot be changed here.
  */
 export interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
@@ -242,9 +239,9 @@ export const ProviderAccountSetCurrentResponseSchema: z.ZodType<ProviderAccountS
       movingSessions: z.array(z.object({ sessionId: SessionIdSchema }).strict()),
     })
     .strict()
-    .superRefine((response, ctx) => {
+    .superRefine((response, context) => {
       if (!response.account.isDefault) {
-        ctx.addIssue({
+        context.addIssue({
           code: "custom",
           path: ["account", "isDefault"],
           message:
@@ -291,11 +288,8 @@ export const ProviderAccountProbeResponseSchema: z.ZodType<ProviderAccountProbeR
   .strict();
 
 /**
- * Copies the person's own memory store into this account's home, once, on a press: Claude Code's
- * `~/.claude/projects/<project>/memory/` (and the person's own agent notes into the service's one
- * agent-memory folder, never overwriting a file already there), or Codex's `~/.codex/memories/`.
- * The two homes are never joined. It answers with the outcome the account keeps as its
- * `memoryImport`, so a repeated press answers it again rather than copying twice.
+ * Copies the person's own provider memory into this account's home, once, never overwriting a
+ * file. It answers with the outcome the account keeps, so a repeat never copies twice.
  */
 export interface ProviderAccountMemoryImportRequest {
   accountId: ProviderAccountId;
@@ -318,11 +312,8 @@ const PROVIDER_ACCOUNT_USAGE_GROUPING_VALUES = ["day", "model"] as const;
 export type ProviderAccountUsageGrouping = (typeof PROVIDER_ACCOUNT_USAGE_GROUPING_VALUES)[number];
 
 /**
- * Reads tokens and spend from the service's per-turn table, each row naming the account that paid
- * for it. Every dollar figure is the cost with no mark: a subscription account's tokens are
- * priced at the provider's published per-token rates, and an account that spent nothing reads
- * zero. The provider's own usage windows are the separate `usageWindows` on
- * `providerAccount.list`.
+ * Reads tokens and spend per account from the service's per-turn records. A subscription
+ * account's tokens are priced at the provider's published per-token rates.
  */
 export interface ProviderAccountUsageReadRequest {
   scope: ProviderAccountUsageScope;

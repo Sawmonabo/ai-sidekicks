@@ -92,24 +92,20 @@ export const SkillCallFormsSchema: z.ZodType<SkillCallForms> = z.partialRecord(
 );
 
 /**
- * One skill as the list serves it. Each fact is its own member and none excludes
- * another, spelled as the saved agent's list spells them.
+ * One skill as the list serves it.
  *
- * - `name` is the front matter's name, or the folder's name where the front matter
- *   has none, as the providers load it.
- * - `description` is the front matter's description; null when `SKILL.md` carries
- *   none, or when the record is orphaned.
- * - `icon` is a glyph key from the console's icon set, kept in our record on every
- *   origin; null draws the default mark.
+ * - `name` is the front matter's name, or the folder's name where it has none.
+ * - `description` is null when `SKILL.md` carries none, or the record is orphaned.
+ * - `icon` is a glyph key from the app's icon set, kept in our record on every origin; null
+ *   draws the default mark.
  * - `pluginName` is present exactly on a plugin's skill, which is read-only.
  * - `projectId` is present exactly when `scope` is `project`.
- * - `folderPath` is the folder, or for an orphaned record the last path its folder
- *   was known at. Display data only, never a capability.
+ * - `folderPath` is the folder, or for an orphaned record the last path it was known at; display
+ *   data only, never a capability.
  * - `files` is every file in the folder; empty for an orphaned record.
- * - `orphaned`: the folder was renamed or deleted outside the app, and the record
- *   keeps its availability and icon until it is reattached or discarded.
- * - `disabledInProvider`: the providers whose own configuration switches the skill
- *   off, so the row can name each one; empty when none does.
+ * - `orphaned`: the folder was renamed or deleted outside the app; the record keeps its
+ *   availability and icon until it is reattached or discarded.
+ * - `disabledInProvider`: the providers whose own configuration switches the skill off.
  * - `loadError`: the folder failed the daemon's own parse, with the reason.
  */
 export interface SkillListEntry {
@@ -253,14 +249,11 @@ const newSkillNameSchema = wireFreeFormString(SKILL_NAME_MAX_LEN, "skill name");
 // skill.create
 
 /**
- * A new skill, written whole in one save, because nothing reaches disk until the
- * folder is saved. The daemon writes it under the scope's `.ai-sidekicks/skills/`
- * and nowhere else: the name folded into the folder name (case folded, anything
- * but letters and digits to hyphens), a colliding folder suffixed rather than
- * overwritten, and the name the screen reserves for its new-skill address suffixed
- * the same way. `description` and `body` become `SKILL.md`; `files` are the other
- * files added before the first save. A new skill is available on both providers.
- * `scope` defaults to `global`; a project scope names its project.
+ * A new skill, written whole in one save under the scope's `.ai-sidekicks/skills/`: the name
+ * folded into the folder name (case folded, anything but letters and digits to hyphens), and a
+ * colliding folder suffixed rather than overwritten; a folder named `new` keeps its name.
+ * `description` and `body` become `SKILL.md` and `files` are the other files. It is available on
+ * both providers. `scope` defaults to `global`; a project scope names its project.
  */
 export interface SkillCreateRequest {
   name: string;
@@ -297,15 +290,10 @@ export const SkillCreateResponseSchema: z.ZodType<SkillCreateResponse> = z
 // skill.update
 
 /**
- * The folder saved whole, applied together or not at all: a refused save leaves
- * the folder on disk exactly as it was, and saving the same folder twice gives the
- * same result. `description` and `body` rewrite `SKILL.md`'s description and the
- * instructions under its front matter; every other front-matter key is kept as it
- * is. `files` are the other files written or renamed and `removedPaths` the files
- * taken out; `SKILL.md` is never among them. `icon` goes to our record.
- *
- * A provider's own folder is edited in place, keeps the name its provider gave it,
- * and gains nothing of ours. `name` renames a folder of ours.
+ * The folder saved whole, applied together or not at all, and the same result when saved twice.
+ * `description` and `body` rewrite `SKILL.md` and keep its other front-matter keys; `files` and
+ * `removedPaths` never name `SKILL.md`; `icon` goes to our record. `name` renames a folder of
+ * ours; a provider's own folder is edited in place and gains nothing of ours.
  */
 export interface SkillUpdateRequest {
   skillId: SkillId;
@@ -414,10 +402,9 @@ export const SkillScanResponseSchema: z.ZodType<SkillScanResponse> = z
 // skill.recordReattach and skill.recordDiscard
 
 /**
- * Reattaches an orphaned record (its availability and icon) to a folder, accepted
- * only while the record is orphaned. The person picks the folder with the
- * platform's own chooser and the renderer sends the chooser's token; main's relay
- * puts the path in its place, so `folderPath` is the path the daemon reads.
+ * Reattaches an orphaned record (its availability and icon) to a folder, accepted only while the
+ * record is orphaned. The renderer sends the folder chooser's token and main forwards the path in
+ * its place, so `folderPath` is the path the daemon reads.
  */
 export interface SkillRecordReattachRequest {
   skillId: SkillId;
@@ -465,9 +452,9 @@ export const SkillRecordDiscardResponseSchema: z.ZodType<SkillRecordDiscardRespo
 // Refusals
 
 /** A save or a create that names a file path the folder cannot take; nothing is written. */
-export type SkillPathRefusedCode = "skill.path_refused";
-/** The code of a refused file path. */
-export const SKILL_PATH_REFUSED_CODE: SkillPathRefusedCode = "skill.path_refused";
+export const SKILL_PATH_REFUSED_CODE = "skill.path_refused" as const;
+/** The type of {@link SKILL_PATH_REFUSED_CODE}. */
+export type SkillPathRefusedCode = typeof SKILL_PATH_REFUSED_CODE;
 
 /**
  * Why a path was refused: it would land outside the folder, the folder already
@@ -496,9 +483,9 @@ export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> =
   .strict();
 
 /** A write the skill cannot take; nothing is written. */
-export type SkillWriteRefusedCode = "skill.write_refused";
-/** The code of a refused write. */
-export const SKILL_WRITE_REFUSED_CODE: SkillWriteRefusedCode = "skill.write_refused";
+export const SKILL_WRITE_REFUSED_CODE = "skill.write_refused" as const;
+/** The type of {@link SKILL_WRITE_REFUSED_CODE}. */
+export type SkillWriteRefusedCode = typeof SKILL_WRITE_REFUSED_CODE;
 
 /**
  * Why a write was refused: every operation that writes refuses a plugin's skill,
@@ -522,9 +509,9 @@ export const SkillWriteRefusedDetailsSchema: z.ZodType<SkillWriteRefusedDetails>
  * A save whose `name` would rename a folder of ours onto a name another folder of
  * ours already holds in the same place; nothing is renamed and nothing is written.
  */
-export type SkillNameTakenCode = "skill.name_taken";
-/** The code of a refused rename. */
-export const SKILL_NAME_TAKEN_CODE: SkillNameTakenCode = "skill.name_taken";
+export const SKILL_NAME_TAKEN_CODE = "skill.name_taken" as const;
+/** The type of {@link SKILL_NAME_TAKEN_CODE}. */
+export type SkillNameTakenCode = typeof SKILL_NAME_TAKEN_CODE;
 
 /** The folder already holding the name, so the screen names it under the Name field. */
 export interface SkillNameTakenDetails {

@@ -62,7 +62,7 @@ export const WorkflowNodeIdSchema: z.ZodType<WorkflowNodeId, WorkflowNodeId> = z
   .brand<"WorkflowNodeId">() as unknown as z.ZodType<WorkflowNodeId, WorkflowNodeId>;
 
 /**
- * A node kind's key, the family then the kind: `files.read`, `agent.run`. It is data,
+ * A node kind's key, the category then the kind: `files.read`, `agent.run`. It is data,
  * not a closed union: the catalog is what `workflow.kindList` answers.
  */
 export type WorkflowNodeKindId = string;
@@ -431,8 +431,6 @@ export const WorkflowToolBindingSchema: z.ZodType<WorkflowToolBinding, WorkflowT
 
 /** A document the daemon's check at save refused; it carries every finding at once. */
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
-/** The type of {@link WORKFLOW_DEFINITION_REFUSED_CODE}. */
-export type WorkflowDefinitionRefusedCode = typeof WORKFLOW_DEFINITION_REFUSED_CODE;
 
 /**
  * The rules a refused document can break. Each finding names one, with the nodes it

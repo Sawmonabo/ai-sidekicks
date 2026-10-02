@@ -1,7 +1,7 @@
 // Worktree setup contracts: the setup card's live status and its retry.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js` and nothing whose
-// import closure reaches it (see the header of `repo.ts`).
+// This module imports nothing from `./event.js` and nothing whose import closure reaches it, for
+// the module-cycle reason in the header of `repo.ts`.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -17,15 +17,19 @@ import { countSchema } from "./internal/wire-scalars.js";
 // until it is retried from that step.
 
 /**
- * The longest step output the card carries. A setup command's captured output,
- * bounded like a single captured failure detail, the tail kept when it is longer.
+ * The longest captured output a setup step carries, in UTF-16 code units; the daemon keeps the
+ * tail of a longer output.
  */
 export const WORKTREE_SETUP_OUTPUT_MAX_LEN = 32768;
 
-/** The three stages of setting a tree up, in the order they run. */
-export type WorktreeSetupStage = "make_tree" | "project_steps" | "warm_caches";
+const WORKTREE_SETUP_STAGES = ["make_tree", "project_steps", "warm_caches"] as const;
+const WORKTREE_SETUP_STEP_STATES = ["pending", "running", "succeeded", "failed"] as const;
+const WORKTREE_SETUP_CARD_STATES = ["running", "succeeded", "failed"] as const;
+
+/** The stages of setting a tree up, in the order they run. */
+export type WorktreeSetupStage = (typeof WORKTREE_SETUP_STAGES)[number];
 /** Where one setup step stands. */
-export type WorktreeSetupStepState = "pending" | "running" | "succeeded" | "failed";
+export type WorktreeSetupStepState = (typeof WORKTREE_SETUP_STEP_STATES)[number];
 
 /**
  * One step of the setup card, in run order. `label` names the step (the command,
@@ -44,18 +48,18 @@ export interface WorktreeSetupStep {
 /** One `repo.worktreeSetupSubscribe` emission: the whole card for one tree. */
 export interface WorktreeSetupStatus {
   worktreeId: WorktreeId;
-  state: "running" | "succeeded" | "failed";
+  state: (typeof WORKTREE_SETUP_CARD_STATES)[number];
   steps: WorktreeSetupStep[];
 }
 /** Wire schema for {@link WorktreeSetupStatus}. */
 export const WorktreeSetupStatusSchema: z.ZodType<WorktreeSetupStatus> = z
   .object({
     worktreeId: WorktreeIdSchema,
-    state: z.enum(["running", "succeeded", "failed"]),
+    state: z.enum(WORKTREE_SETUP_CARD_STATES),
     steps: z.array(
       z
         .object({
-          stage: z.enum(["make_tree", "project_steps", "warm_caches"]),
+          stage: z.enum(WORKTREE_SETUP_STAGES),
           label: wireFreeFormString(PROJECT_SETUP_COMMAND_MAX_LEN, "WorktreeSetupStep.label"),
           state: z.enum(WORKTREE_SETUP_STEP_STATES),
           elapsedMs: countSchema.optional(),
@@ -63,7 +67,10 @@ export const WorktreeSetupStatusSchema: z.ZodType<WorktreeSetupStatus> = z
             WORKSPACE_LAST_ERROR_MAX_LEN,
             "WorktreeSetupStep.error",
           ).optional(),
-          output: z.string().max(WORKTREE_SETUP_OUTPUT_MAX_LEN).optional(),
+          output: wireFreeFormString(
+            WORKTREE_SETUP_OUTPUT_MAX_LEN,
+            "WorktreeSetupStep.output",
+          ).optional(),
         })
         .strict(),
     ),

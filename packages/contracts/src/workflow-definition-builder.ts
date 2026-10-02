@@ -23,21 +23,15 @@ import {
 
 /** A workflow turned on with a trigger that cannot be armed; nothing turns on. */
 export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as const;
-/** The type of {@link WORKFLOW_TRIGGER_UNARMABLE_CODE}. */
-export type WorkflowTriggerUnarmableCode = typeof WORKFLOW_TRIGGER_UNARMABLE_CODE;
 
 /** An expression whose evaluation ran past its time budget. */
 export const WORKFLOW_EXPRESSION_OVER_BUDGET_CODE = "workflow.expression_over_budget" as const;
-/** The type of {@link WORKFLOW_EXPRESSION_OVER_BUDGET_CODE}. */
-export type WorkflowExpressionOverBudgetCode = typeof WORKFLOW_EXPRESSION_OVER_BUDGET_CODE;
 
 /**
  * A webhook call whose bearer token does not match the workflow's, or that came while
  * the workflow has no token. It is recorded as the workflow's last fire.
  */
 export const WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE = "workflow.webhook_token_mismatch" as const;
-/** The type of {@link WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE}. */
-export type WorkflowWebhookTokenMismatchCode = typeof WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE;
 
 // Settings kept beside a version: enabled, layout, pinned data
 

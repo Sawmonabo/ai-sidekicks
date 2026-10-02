@@ -1,7 +1,7 @@
 // Workflow run records: reading one run, the runs table and its count, deleting runs
 // and keeping their step data, the runs-needing-you section, the hold on starting new
 // runs, clearing the values runs keep for later ones, and the one live stream the runs
-// surface reads, with their method table. A descriptor registers nothing.
+// list reads, with their method table.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -128,8 +128,8 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
 // workflow.runList
 
 /**
- * The `workflow.runList` input: the runs table's four filters (workflow, status,
- * trigger and date range) and the one version scope `Show runs` hands in. Without
+ * The `workflow.runList` input: the runs table's filters (workflow, status, trigger
+ * and date range) and the version scope `Show runs` hands in. Without
  * `sessionId` it lists every run this daemon ran.
  */
 export interface WorkflowRunListRequest {
@@ -479,7 +479,7 @@ export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClea
 // workflow.subscribe
 
 /**
- * The `workflow.subscribe` input: one subscription for the whole runs surface and the
+ * The `workflow.subscribe` input: one subscription for the whole runs list and the
  * canvas overlay, never one per row. Without `sessionId` it covers every run this
  * daemon ran.
  */
@@ -564,10 +564,7 @@ export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNot
 // Refusals
 
 /** `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`). */
-export type WorkflowRunNotDeletableCode = "workflow.run_not_deletable";
-/** The code of a delete on a run that is still going. */
-export const WORKFLOW_RUN_NOT_DELETABLE_CODE: WorkflowRunNotDeletableCode =
-  "workflow.run_not_deletable";
+export const WORKFLOW_RUN_NOT_DELETABLE_CODE = "workflow.run_not_deletable" as const;
 
 // The workflow run records method table
 

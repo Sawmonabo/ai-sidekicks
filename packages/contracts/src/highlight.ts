@@ -1,6 +1,6 @@
-// Syntax color spans: the daemon colors code once and every surface paints what it is handed. A
+// Syntax color spans: the daemon colors code once and every client paints what it is handed. A
 // reply is a flat list of `[offset, length, class]` triples counted in UTF-16 code units, so a
-// surface slices the source it holds directly. A class is an index into `HIGHLIGHT_SPAN_CLASSES`,
+// client slices the source it holds directly. A class is an index into `HIGHLIGHT_SPAN_CLASSES`,
 // never a color, so a theme change repaints the same spans. The language is a closed set; an
 // unknown one is refused, not answered with an empty reply.
 import { z } from "zod";
@@ -57,7 +57,7 @@ export const HIGHLIGHT_SOURCE_MAX_BYTES = 262_144;
  */
 export const HIGHLIGHT_SPANS_MAX_BYTES = 998_976;
 
-/** The code a surface wants colored. */
+/** The code a client wants colored. */
 export interface HighlightReadRequest {
   language: HighlightLanguage;
   source: string;
@@ -84,7 +84,7 @@ export interface HighlightReadResponse {
   spans: number[];
 }
 
-/** Parses a {@link HighlightReadResponse}, refusing a list a surface could not paint. */
+/** Parses a {@link HighlightReadResponse}, refusing a list a client could not paint. */
 export const HighlightReadResponseSchema: z.ZodType<HighlightReadResponse> = z
   .object({ spans: z.array(countSchema) })
   .strict()
@@ -145,7 +145,7 @@ export interface HighlightMethodDescriptors {
     typeof HIGHLIGHT_READ_METHOD,
     HighlightReadRequest,
     HighlightReadResponse
-  > & { readonly procedureType: "query" };
+  >;
 }
 
 /** The `highlight.*` descriptor table. */

@@ -17,7 +17,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
-  TIMELINE_METHOD_NAMES,
+  TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
@@ -94,11 +94,11 @@ const registerAllTimelineMethods = (registry: MethodRegistryImpl): void => {
 describe("timeline method-name registration", () => {
   it("every method registers on a real MethodRegistryImpl and then resolves", () => {
     const registry = new MethodRegistryImpl();
-    for (const method of TIMELINE_METHOD_NAMES) {
+    for (const method of Object.keys(TIMELINE_METHOD_DESCRIPTORS)) {
       expect(registry.has(method)).toBe(false);
     }
     registerAllTimelineMethods(registry);
-    for (const method of TIMELINE_METHOD_NAMES) {
+    for (const method of Object.keys(TIMELINE_METHOD_DESCRIPTORS)) {
       expect(registry.has(method)).toBe(true);
     }
   });

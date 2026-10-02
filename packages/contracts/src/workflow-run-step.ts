@@ -344,15 +344,10 @@ export const WorkflowFixSessionCreateResponseSchema: z.ZodType<WorkflowFixSessio
  * waiting, an answer after the step's `Timeout` passed included, even before its timer
  * has run.
  */
-export type WorkflowStepNotWaitingCode = "workflow.step_not_waiting";
-/** The code of an answer or a form read on a step that is no longer waiting. */
-export const WORKFLOW_STEP_NOT_WAITING_CODE: WorkflowStepNotWaitingCode =
-  "workflow.step_not_waiting";
+export const WORKFLOW_STEP_NOT_WAITING_CODE = "workflow.step_not_waiting" as const;
 
 /** A form draft save or a form submit carrying a revision that is no longer current. */
-export type WorkflowRevisionStaleCode = "workflow.revision_stale";
-/** The code of a stale form revision. */
-export const WORKFLOW_REVISION_STALE_CODE: WorkflowRevisionStaleCode = "workflow.revision_stale";
+export const WORKFLOW_REVISION_STALE_CODE = "workflow.revision_stale" as const;
 
 // Step events
 

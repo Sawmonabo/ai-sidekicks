@@ -75,9 +75,8 @@ export const BrowserSiteRequestSchema: z.ZodType<BrowserSiteRequest, BrowserSite
   .strict();
 
 /**
- * The site opened in a page of its own that belongs to no session, over the
- * machine's site data, showing the address line and nothing else. What the site
- * saves there is kept for every browser surface.
+ * The site opened in a page of its own that belongs to no session, over the machine's site data,
+ * showing the address line and nothing else. What the site saves there is kept for every browser.
  */
 export interface BrowserSiteSignInResponse {
   opened: true;
@@ -162,12 +161,12 @@ export interface BrowserChromiumReadResponse {
 /** Parses a {@link BrowserChromiumReadResponse}. */
 export const BrowserChromiumReadResponseSchema: z.ZodType<BrowserChromiumReadResponse> = z
   .object({
-    source: z.enum(BROWSER_CHROMIUM_SOURCES as [BrowserChromiumSource]),
+    source: z.enum(BROWSER_CHROMIUM_SOURCES),
     version: z.string().min(1),
     fetchedAt: isoDateTimeSchema.nullable(),
     cannotStart: z
       .object({
-        reason: z.enum(BROWSER_CHROMIUM_CANNOT_START_REASONS as [BrowserChromiumCannotStartReason]),
+        reason: z.enum(BROWSER_CHROMIUM_CANNOT_START_REASONS),
         installStep: z.string().min(1),
       })
       .strict()

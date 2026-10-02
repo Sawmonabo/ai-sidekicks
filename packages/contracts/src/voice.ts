@@ -3,7 +3,7 @@
 // at a time on this computer, held by the daemon and off after it restarts, and there is one
 // recording and one call at a time, so the verbs on the one in progress name no session.
 // Dictation audio is 16 kHz 16-bit mono PCM in 100 ms frames; the window is a call's WebRTC peer
-// and hands its offer here. No provider credential crosses this surface in either direction.
+// and hands its offer here. No provider credential crosses these methods in either direction.
 import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
@@ -28,8 +28,6 @@ export const VOICE_DICTATION_FRAME_MAX_BYTES: number = (16_000 * 2) / 10;
  * account that is neither a Claude sign-in nor a pasted Claude token.
  */
 export const VOICE_UNAVAILABLE_CODE = "voice.unavailable" as const;
-/** The type of {@link VOICE_UNAVAILABLE_CODE}. */
-export type VoiceUnavailableCode = typeof VOICE_UNAVAILABLE_CODE;
 
 const VOICE_UNAVAILABLE_REASON_VALUES = ["provider_sign_in_required"] as const;
 /** Why {@link VOICE_UNAVAILABLE_CODE} refused. */
@@ -53,8 +51,6 @@ export const VoiceUnavailableDetailsSchema: z.ZodType<VoiceUnavailableDetails> =
 
 /** Codex could not start the call. */
 export const VOICE_CALL_START_FAILED_CODE = "voice.call_start_failed" as const;
-/** The type of {@link VOICE_CALL_START_FAILED_CODE}. */
-export type VoiceCallStartFailedCode = typeof VOICE_CALL_START_FAILED_CODE;
 
 // Which session voice is on in
 

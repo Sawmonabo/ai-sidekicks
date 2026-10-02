@@ -42,31 +42,36 @@ export const ChildRunCompletenessSchema: z.ZodType<ChildRunCompleteness> = z.dis
   ],
 );
 
-/** Every {@link ChildRunIncompleteCause}, as a value. */
-export const CHILD_RUN_INCOMPLETE_CAUSES: readonly ChildRunIncompleteCause[] = Object.freeze([
-  "detail_fetch_failed",
-] as const);
-
 /** The summarized child-run projection: its parent, state, event count and completeness. */
 export interface ChildRunSummary {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
-  /**
-   * On the `incomplete` arm of {@link completeness} this is a LOWER BOUND: the
-   * count this daemon currently holds, not the child run's true total, which
-   * by definition it cannot know while rows are missing.
-   */
+  /** On the `incomplete` arm, a lower bound: the count this daemon holds, not the run's total. */
   eventCount: number;
   completeness: ChildRunCompleteness;
 }
 
 /**
- * Parses a {@link ChildRunSummary}. It is `.strict()`, so an unknown member is refused rather
- * than stripped. A run cannot be its own parent: a self-parenting row makes the run-lineage
- * graph cyclic and every walk of it non-terminating, so it is refused at the parse boundary.
- * `ChildRunExpandResponse` applies the same refusal.
+ * Refuses a run named as its own parent, which would make the run-lineage graph cyclic and every
+ * walk of it non-terminating.
  */
+export const refuseSelfParentingRun = (
+  run: { runId: RunId; parentRunId: RunId },
+  issueContext: z.RefinementCtx,
+): void => {
+  if (run.runId === run.parentRunId) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["parentRunId"],
+      message:
+        "a child run cannot be its own parent: runId and parentRunId are equal, which makes " +
+        "the run-lineage graph cyclic and any walk of it non-terminating",
+    });
+  }
+};
+
+/** Parses a {@link ChildRunSummary}, refusing a run named as its own parent. */
 export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
   .object({
     runId: RunIdSchema,
@@ -76,14 +81,4 @@ export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
     completeness: ChildRunCompletenessSchema,
   })
   .strict()
-  .superRefine((summary, issueContext) => {
-    if (summary.runId === summary.parentRunId) {
-      issueContext.addIssue({
-        code: "custom",
-        path: ["parentRunId"],
-        message:
-          "a child run cannot be its own parent: runId and parentRunId are equal, which makes " +
-          "the run-lineage graph cyclic and any walk of it non-terminating",
-      });
-    }
-  });
+  .superRefine(refuseSelfParentingRun);

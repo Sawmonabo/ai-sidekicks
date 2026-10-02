@@ -161,22 +161,22 @@ export interface DaemonConfigMethodDescriptors {
     "daemon.configRead",
     DaemonConfigReadRequest,
     DaemonConfig
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.configUpdate": MethodDescriptor<
     "daemon.configUpdate",
     DaemonConfigUpdateRequest,
     DaemonConfig
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.packageCacheRead": MethodDescriptor<
     "daemon.packageCacheRead",
     DaemonPackageCacheReadRequest,
     DaemonPackageCacheReading
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.packageCacheClear": MethodDescriptor<
     "daemon.packageCacheClear",
     DaemonPackageCacheClearRequest,
     DaemonPackageCacheReading
-  > & { readonly procedureType: "mutation" };
+  >;
 }
 /** The config and package-cache methods' names, procedure types and shapes. */
 export const DAEMON_CONFIG_METHOD_DESCRIPTORS: DaemonConfigMethodDescriptors =

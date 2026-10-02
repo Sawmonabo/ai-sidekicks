@@ -1,9 +1,7 @@
-// The paged timeline reads (`timeline.read`, the reasoning surface, the child-run expansion) and
-// the page budget they share. A row-count limit alone is not a bound, since one contract-valid row
-// can run to tens of KB, so each paged member is measured in bytes against the page budget, which
-// sits well inside the transport's message limit. The reasoning read
-// takes no principal member: the caller is the authenticated connection, a body field naming a
-// user would be a second source of identity, and `.strict()` refuses a request that sends one.
+// The paged timeline reads (`timeline.read`, the reasoning read, the child-run expansion) and the
+// page budget they share. A row count alone is not a bound, since one valid row can run to tens of
+// KB, so each page is measured in bytes against a budget well inside the transport's message
+// limit. The reasoning read names no principal: the caller is the authenticated connection.
 import { z } from "zod";
 
 import { jsonUtf8ByteLength } from "../jsonrpc.js";
@@ -17,31 +15,24 @@ import {
   type SessionId,
 } from "../session.js";
 
+import { refuseSelfParentingRun } from "./child-run-summary.js";
 import { TimelineRowSchema, type TimelineRow } from "./row.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
-// Page budget shared by all three paged replies
+// Page budget shared by every paged reply
 
 /**
  * The byte ceiling on one paged member (`entries` or `reasoningEntries`), measured as
- * {@link jsonUtf8ByteLength} of the array itself. It is the page size, its own figure and not
- * derived from the transport's message limit; the reply around a full page (its envelope, the
- * echoed id and a continuation cursor, about 2 KB at worst) still fits a message with room to
- * spare. One constant serves all three reads.
+ * {@link jsonUtf8ByteLength} of the array itself. It is a 1,000,000-byte reply less 8,192 bytes
+ * for the envelope, the echoed id and a continuation cursor, sized apart from the message limit.
  */
 export const TIMELINE_PAGE_MAX_BYTES = 991_808;
 
 /**
- * How many leading entries of `candidates` fit one frame, capped at `maxCount`: the producer's
- * half of {@link TIMELINE_PAGE_MAX_BYTES}. The count is exact (a JSON array is its element
- * encodings, commas and two brackets), so a page built from it passes the schema that enforces
- * the same budget. A caller stops at `min(count, maxCount)` and sets `hasMore` from whether a
- * candidate was left behind.
- *
- * A non-empty list yields at least one entry even when that entry alone is over budget. A zero
- * would force an empty page that still has more, a cursor that never advances; the over-budget
- * single entry is instead refused by {@link requirePageToRideOneFrame} with a typed error naming
- * the member and its size. `maxCount` still wins where it is smaller.
+ * How many leading entries of `candidates`, at most `maxCount`, fit
+ * {@link TIMELINE_PAGE_MAX_BYTES} exactly, so a page built from the count passes the schema. A
+ * non-empty list yields at least one, since a zero would stall the cursor; an over-budget lone
+ * entry is then refused by the schema.
  */
 export function countEntriesFittingOneFrame(
   candidates: readonly unknown[],
@@ -303,13 +294,6 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
     z.object({ availability: z.literal("unavailable") }).strict(),
   ]);
 
-/**
- * The `availability` vocabulary in the union's arm order, so a renderer can assert its switch is
- * exhaustive. `available` contributes one entry: its `hasMore` split is paging, not a state.
- */
-export const REASONING_AVAILABILITY_STATES: readonly ReasoningSurfaceReadResponse["availability"][] =
-  Object.freeze(["available", "unavailable"] as const);
-
 // timeline.childRunExpand
 
 /**
@@ -401,14 +385,5 @@ export const ChildRunExpandResponseSchema: z.ZodType<ChildRunExpandResponse> = z
     requirePageToRideOneFrame(response.entries, "entries", issueContext);
     requireNondecreasingSequence(response.entries, "entries", issueContext);
     requireEntriesToBelongToRun(response.runId, response.entries, issueContext);
-    // The same self-parenting refusal `ChildRunSummary` carries.
-    if (response.runId === response.parentRunId) {
-      issueContext.addIssue({
-        code: "custom",
-        path: ["parentRunId"],
-        message:
-          "a child run cannot be its own parent: runId and parentRunId are equal, which makes " +
-          "the run-lineage graph cyclic and any walk of it non-terminating",
-      });
-    }
+    refuseSelfParentingRun(response, issueContext);
   });

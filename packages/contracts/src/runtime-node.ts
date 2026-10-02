@@ -5,6 +5,7 @@
 // carry the statement a trusted key signed.
 import { z } from "zod";
 
+import { APP_VERSION_MAX_LEN } from "./device.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -105,7 +106,7 @@ export const RuntimeNodeCertificateChallengeSetRequestSchema: z.ZodType<
   })
   .strict();
 
-/** The runtime-node procedures the control plane serves. */
+/** The runtime-node procedures the control plane serves, keyed by method name. */
 export interface RuntimeNodeProcedureDescriptors {
   readonly "runtimenode.register": MethodDescriptor<
     "runtimenode.register",
@@ -129,7 +130,7 @@ export interface RuntimeNodeProcedureDescriptors {
   >;
 }
 
-/** The runtime-node procedures the control plane serves. */
+/** The runtime-node procedures the control plane serves, each with its schemas. */
 export const RUNTIMENODE_PROCEDURE_DESCRIPTORS: RuntimeNodeProcedureDescriptors =
   defineMethodDescriptors({
     "runtimenode.register": {

@@ -12,18 +12,17 @@ import {
 import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** A port added to the shared list that is on it already; nothing changes. */
-export type PreviewPortAlreadySharedCode = "preview.port_already_shared";
-/** The value of {@link PreviewPortAlreadySharedCode}. */
-export const PREVIEW_PORT_ALREADY_SHARED_CODE: PreviewPortAlreadySharedCode =
-  "preview.port_already_shared";
+export const PREVIEW_PORT_ALREADY_SHARED_CODE = "preview.port_already_shared" as const;
+/** The type of {@link PREVIEW_PORT_ALREADY_SHARED_CODE}. */
+export type PreviewPortAlreadySharedCode = typeof PREVIEW_PORT_ALREADY_SHARED_CODE;
 
 /**
  * A forward or a web ticket asked for a port that is not on the shared list. The
  * machine forwards only listed ports, and only to its own loopback.
  */
-export type PreviewPortNotSharedCode = "preview.port_not_shared";
-/** The value of {@link PreviewPortNotSharedCode}. */
-export const PREVIEW_PORT_NOT_SHARED_CODE: PreviewPortNotSharedCode = "preview.port_not_shared";
+export const PREVIEW_PORT_NOT_SHARED_CODE = "preview.port_not_shared" as const;
+/** The type of {@link PREVIEW_PORT_NOT_SHARED_CODE}. */
+export type PreviewPortNotSharedCode = typeof PREVIEW_PORT_NOT_SHARED_CODE;
 
 /** The details both port refusals carry: the port the request named. */
 export interface PreviewPortRefusalDetails {

@@ -74,8 +74,6 @@ import {
 
 /** An update whose expected version is no longer the latest; nothing is written. */
 export const WORKFLOW_VERSION_STALE_CODE = "workflow.version_stale" as const;
-/** The type of {@link WORKFLOW_VERSION_STALE_CODE}. */
-export type WorkflowVersionStaleCode = typeof WORKFLOW_VERSION_STALE_CODE;
 
 /** An imported file whose schema version this daemon does not know. */
 export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unknown" as const;
@@ -523,8 +521,8 @@ const filePathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "filePath");
 /**
  * The `workflow.definitionExport` input. The daemon writes one version's canonical file,
  * its body and, unless `includeLayout` is false, its layout, with each Code node's
- * package lock. `filePath` is the path main's relay put in place of the token the
- * platform's save chooser returned.
+ * package lock. `filePath` is the path main forwards in place of the token the platform's
+ * save chooser returned.
  */
 export interface WorkflowDefinitionExportRequest {
   definitionId: WorkflowDefinitionId;
@@ -564,7 +562,7 @@ export const WorkflowDefinitionExportResponseSchema: z.ZodType<WorkflowDefinitio
  * The `workflow.definitionImport` input. The daemon reads the file the person picked and
  * creates the definition through the create path with its whole check, all or nothing;
  * the file carries no scope, so the caller names where it lands. `filePath` is the path
- * main's relay put in place of the token the platform's open chooser returned.
+ * main forwards in place of the token the platform's open chooser returned.
  */
 export interface WorkflowDefinitionImportRequest {
   sessionId: SessionId;

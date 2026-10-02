@@ -1,18 +1,13 @@
-// The machine's settings file and the three service verbs that read, write and
-// stream it.
+// The machine's settings file and the three service verbs that read, write and stream it.
 //
-// The file is `<home>/.ai-sidekicks/machine-settings.json`. The background
-// service is its only writer: the main process and every other device hand a
-// change to `daemon.machineSettingsUpdate`, and every console window reads it
-// through `daemon.machineSettingsRead` and `daemon.machineSettingsSubscribe`.
-// The main process alone may read the file directly, and only before the
-// service first answers, for the two values it needs at start. One schema
-// describes the file for both readers, so a missing key reads as its default
-// wherever it is read.
+// The file is `<home>/.ai-sidekicks/machine-settings.json`. The background service is its only
+// writer: every client hands a change to `daemon.machineSettingsUpdate` and reads it through
+// `daemon.machineSettingsRead` and `daemon.machineSettingsSubscribe`. The main process alone may
+// read the file directly, and only before the service first answers. One schema describes the file
+// for every reader, so a missing key reads as its default wherever it is read.
 //
-// The environment-name rule lives here too, because both the main process and
-// the service check a name against it before a row is saved, and the service
-// builds each process's environment from the same list of names it sets itself.
+// The environment-name rule lives here too: the service checks a row's name against it before
+// saving, and the drivers read the names they set on the processes they start from it.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -76,6 +71,9 @@ export const CLAUDE_UPDATE_SWITCH_NAMES: readonly string[] = Object.freeze([
 /** Carries the Codex binary path into the Codex launch prelude, which never interpolates it. */
 export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_BIN";
 
+/** Set to `1` on a Terminal pane's shell alone while `Simplify for a screen reader` is on. */
+const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME = "CLAUDE_AX_SCREEN_READER";
+
 /**
  * The names the app sets itself on the processes it starts. A row with one of
  * these names would be overwritten without a word, so it is refused at save.
@@ -83,7 +81,7 @@ export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_B
 export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...CLAUDE_UPDATE_SWITCH_NAMES,
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-  "CLAUDE_AX_SCREEN_READER",
+  CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
 ]);
 
 /** Why a row's name is refused at save. */
@@ -244,7 +242,10 @@ export type VoiceMode = "hold" | "tap";
 /** Every {@link VoiceMode}. */
 export const VOICE_MODES: readonly VoiceMode[] = Object.freeze(["hold", "tap"]);
 
-/** Voice's two settings. `callVoice`, the voice a spoken call answers in, unset reads as the call's own default voice. */
+/**
+ * Voice's two settings. `callVoice`, the voice a spoken call answers in, reads as the call's own
+ * default voice when unset.
+ */
 export interface VoiceSettings {
   mode: VoiceMode;
   callVoice: string | null;
@@ -370,9 +371,8 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   voice: { mode: "hold", callVoice: null },
 });
 
-// `ExecutionModeSchema` is single-T, so an object composing it infers an
-// `unknown` input slot for that member; the bridge restores the double-T
-// annotation the change request carries.
+// `ExecutionModeSchema` is single-T, so an object composing it infers `unknown` as that member's
+// input type; the cast restores the double-T annotation the change request carries.
 const DefaultCheckoutSchema = ExecutionModeSchema as unknown as z.ZodType<
   ExecutionMode,
   ExecutionMode
@@ -545,12 +545,12 @@ export interface MachineSettingsMethodDescriptors {
     "daemon.machineSettingsRead",
     MachineSettingsReadRequest,
     MachineSettingsReading
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.machineSettingsUpdate": MethodDescriptor<
     "daemon.machineSettingsUpdate",
     MachineSettingsUpdateRequest,
     MachineSettingsUpdateResponse
-  > & { readonly procedureType: "mutation" };
+  >;
   /** The first emission is the file as it stands; each written change follows. */
   readonly "daemon.machineSettingsSubscribe": SubscriptionMethodDescriptor<
     "daemon.machineSettingsSubscribe",

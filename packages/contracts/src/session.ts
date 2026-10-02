@@ -35,9 +35,7 @@ export const EVENT_CURSOR_MAX_LEN = 256;
  * the daemon, so any non-empty bounded string is accepted.
  */
 export type EventCursor = string & { readonly __brand: "EventCursor" };
-// Not a UUID, so it keeps the inline cast rather than `brandedUuidIdSchema`; the cast bridges
-// Zod's single-T branded output to the double-T shape (see `./internal/branded.ts`).
-/** Parses an {@link EventCursor}. */
+/** Parses an {@link EventCursor}; not a UUID, so it brands the string itself. */
 export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
   .string()
   .min(1)
@@ -58,7 +56,7 @@ export const wireUncappedFreeFormString = (fieldLabel: string): z.ZodString =>
     .regex(/\S/, {
       message: `${fieldLabel} must contain at least one non-whitespace character.`,
     })
-    .refine((s) => !s.includes("\0"), {
+    .refine((value) => !value.includes("\0"), {
       message: `${fieldLabel} MUST NOT contain a NUL byte.`,
     });
 
@@ -141,13 +139,8 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
   })
   .strict();
 
-// `session.subscribe` opens a streaming subscription. The request carries the `sessionId` and an
-// optional `afterCursor` to replay from; the response carries only the opaque `subscriptionId`.
-// Events then flow as `$/subscription/notify` frames keyed by that id (envelope in
-// `jsonrpc-streaming.ts`, event schema in `event.ts`), and the client ends it with a
-// `$/subscription/cancel` notification. The response is not the event itself because the
-// handler's wire result must be serializable and parseable, which an in-process producer handle
-// is neither.
+// `session.subscribe` answers with a `subscriptionId`; events then arrive as
+// `$/subscription/notify` frames keyed by it, until the client sends `$/subscription/cancel`.
 
 /** The `session.subscribe` input: the session to follow and an `afterCursor` to replay from. */
 export interface SessionSubscribeRequest {
@@ -275,8 +268,11 @@ export const SessionSearchRequestSchema: z.ZodType<SessionSearchRequest, Session
   .object({ query: wireFreeFormString(SESSION_SEARCH_QUERY_MAX_LEN, "SessionSearchRequest.query") })
   .strict();
 
-/** A matched stretch of a hit's line, in UTF-16 code units: `start` inclusive, `end` exclusive. */
-export interface SessionSearchMatchRange {
+/**
+ * A matched stretch of a search hit's text, in UTF-16 code units: `start` inclusive, `end`
+ * exclusive.
+ */
+export interface SearchMatchRange {
   start: number;
   end: number;
 }
@@ -295,13 +291,13 @@ export const SearchMatchRangeSchema: z.ZodType<SearchMatchRange> = z
 export interface SessionSearchHit {
   cursor: EventCursor;
   line: string;
-  matchRanges: SessionSearchMatchRange[];
+  matchRanges: SearchMatchRange[];
 }
 const SessionSearchHitSchema: z.ZodType<SessionSearchHit> = z
   .object({
     cursor: EventCursorSchema,
     line: z.string(),
-    matchRanges: z.array(SessionSearchMatchRangeSchema).min(1),
+    matchRanges: z.array(SearchMatchRangeSchema).min(1),
   })
   .strict();
 

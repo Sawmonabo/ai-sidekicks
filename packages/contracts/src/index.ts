@@ -1126,7 +1126,6 @@ export {
   MCP_APPROVAL_MODES,
   MCP_CONFIG_SCOPES,
   MCP_REQUEST_TEXT_MAX_LEN,
-  MCP_SERVER_STATUS_SEVERITY_ORDER,
   McpApplicationGradeSchema,
   McpApprovalModeSchema,
   McpClearToolOverrideRequestSchema,
@@ -1641,6 +1640,7 @@ export {
   DriverInterventionResultSchema,
   IdempotencyClassSchema,
   InterventionTypeSchema,
+  MCP_SERVER_STATUS_SEVERITY_ORDER,
   ProviderToolMetadataSchema,
   RunIdSchema,
 } from "./provider-driver.js";
@@ -2112,7 +2112,6 @@ export {
   RunControlAckSchema,
   RunFailureCategorySchema,
   RunPauseRequestSchema,
-  RunReadSnapshotSchema,
   RunRecoveryResolveRequestSchema,
   RunRecoveryResolvedPayloadSchema,
   RunResumeRequestSchema,
@@ -2131,8 +2130,6 @@ export type {
   RunFailureCategory,
   RunInvalidTransitionCode,
   RunPauseRequest,
-  RunReadAccessor,
-  RunReadSnapshot,
   RunRecoveryChoice,
   RunRecoveryResolveRequest,
   RunRecoveryResolvedPayload,
@@ -2178,7 +2175,6 @@ export {
   RunQueueSubscribeRequestSchema,
 } from "./run-queue.js";
 export type {
-  QueueChangeRefusedCode,
   QueueChangeRefusedDetails,
   QueueChangeRefusedReason,
   QueueItemCancelRequest,
@@ -2224,15 +2220,12 @@ export type {
   WslServiceRecord,
 } from "./service-place.js";
 export {
-  EXECUTION_POSTURE_MODES,
   ExecutionPostureModeSchema,
   ModerationReviewFlaggedPayloadSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
   SESSION_CONTROL_METHOD_DESCRIPTORS,
-  SESSION_MODES,
-  SESSION_REVIEW_TARGETS,
   SessionAcknowledgementSchema,
   SessionAddressedRequestSchema,
   SessionAutoCompactUpdateRequestSchema,
@@ -2386,11 +2379,8 @@ export {
   ARTIFACT_PICTURE_REFUSED_CODE,
   ARTIFACT_PICTURE_REFUSED_REASONS,
   SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT,
-  SESSION_ATTACHMENT_DEFAULT_MEDIA_TYPES,
   SESSION_ATTACHMENT_REFUSED_CODE,
   SESSION_ATTACHMENT_REFUSED_REASONS,
-  SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES,
-  SESSION_ATTACHMENT_TEXT_MEDIA_TYPES,
   SESSION_ATTACHMENT_UNRESOLVED_CAUSES,
   SESSION_DRAFT_METHOD_DESCRIPTORS,
   SessionAttachmentAddRequestSchema,
@@ -2428,7 +2418,6 @@ export type {
 } from "./session-draft.js";
 export {
   SESSION_GOAL_METHOD_DESCRIPTORS,
-  SESSION_GOAL_STATUSES,
   SessionGoalClearRequestSchema,
   SessionGoalClearedPayloadSchema,
   SessionGoalSchema,
@@ -2543,6 +2532,7 @@ export {
 } from "./session.js";
 export type {
   EventCursor,
+  SearchMatchRange,
   SessionFileSearchRequest,
   SessionFileSearchResponse,
   SessionId,
@@ -2557,7 +2547,6 @@ export type {
   SessionRenamedPayload,
   SessionSearchGroup,
   SessionSearchHit,
-  SessionSearchMatchRange,
   SessionSearchRequest,
   SessionSearchResponse,
   SessionShape,
@@ -2646,11 +2635,7 @@ export type {
 } from "./skill.js";
 // The timeline contracts, in their one-way import order (child-run-summary, row, operations,
 // row-content and search, methods), which keeps the eager Zod initializers acyclic.
-export {
-  CHILD_RUN_INCOMPLETE_CAUSES,
-  ChildRunCompletenessSchema,
-  ChildRunSummarySchema,
-} from "./timeline/child-run-summary.js";
+export { ChildRunCompletenessSchema, ChildRunSummarySchema } from "./timeline/child-run-summary.js";
 export type {
   ChildRunCompleteness,
   ChildRunIncompleteCause,
@@ -2659,7 +2644,6 @@ export type {
 export {
   SupersededMarkerSchema,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
-  TIMELINE_ROW_KINDS,
   TIMELINE_ROW_SUMMARY_MAX_LEN,
   TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
@@ -2678,7 +2662,6 @@ export type {
 export {
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
-  REASONING_AVAILABILITY_STATES,
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningEntrySchema,
@@ -2721,7 +2704,6 @@ export {
 } from "./timeline/search.js";
 export type {
   TimelineSearchHit,
-  TimelineSearchMatchRange,
   TimelineSearchRequest,
   TimelineSearchResponse,
 } from "./timeline/search.js";
@@ -2729,15 +2711,12 @@ export {
   TIMELINE_BODY_READ_METHOD,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
-  TIMELINE_METHOD_NAMES,
   TIMELINE_PATCH_READ_METHOD,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SEARCH_METHOD,
 } from "./timeline/methods.js";
 export type {
-  TimelineMethodBinding,
-  TimelineMethodContract,
   TimelineMethodDescriptorRegistry,
   TimelineMethodName,
   TimelineMethodRequest,
@@ -2821,7 +2800,6 @@ export {
 export type {
   VoiceCallEndCause,
   VoiceCallFrame,
-  VoiceCallStartFailedCode,
   VoiceCallStartRequest,
   VoiceCallStartResponse,
   VoiceDictationFailure,
@@ -2833,7 +2811,6 @@ export type {
   VoiceListResponse,
   VoiceMethodDescriptors,
   VoiceState,
-  VoiceUnavailableCode,
   VoiceUnavailableDetails,
   VoiceUnavailableReason,
 } from "./voice.js";
@@ -2873,7 +2850,6 @@ export type {
   WorkflowDraftUpdateResponse,
   WorkflowEnabledSetRequest,
   WorkflowEnabledSetResponse,
-  WorkflowExpressionOverBudgetCode,
   WorkflowExpressionPreviewRequest,
   WorkflowExpressionPreviewResponse,
   WorkflowLayoutSetRequest,
@@ -2881,10 +2857,8 @@ export type {
   WorkflowPermissionLevelUpdateResponse,
   WorkflowPinDataSetRequest,
   WorkflowPinDataSetResponse,
-  WorkflowTriggerUnarmableCode,
   WorkflowWebhookListenerReadRequest,
   WorkflowWebhookListenerReadResponse,
-  WorkflowWebhookTokenMismatchCode,
   WorkflowWebhookTokenRotateRequest,
   WorkflowWebhookTokenRotateResponse,
 } from "./workflow-definition-builder.js";
@@ -2939,7 +2913,6 @@ export type {
   WorkflowVersionReadRequest,
   WorkflowVersionReadResponse,
   WorkflowVersionSavedBy,
-  WorkflowVersionStaleCode,
   WorkflowWebhookFireOutcome,
 } from "./workflow-definition-methods.js";
 export {
@@ -2971,7 +2944,6 @@ export type {
   WorkflowDefinitionFinding,
   WorkflowDefinitionFindingRule,
   WorkflowDefinitionId,
-  WorkflowDefinitionRefusedCode,
   WorkflowDefinitionRefusedDetails,
   WorkflowDefinitionScope,
   WorkflowDocument,
@@ -3038,33 +3010,24 @@ export {
 } from "./workflow-run-control.js";
 export type {
   WorkflowCanceledPayload,
-  WorkflowControlDeniedCode,
-  WorkflowInvalidTransitionCode,
   WorkflowNodeExecuteRequest,
   WorkflowNodeExecuteResponse,
-  WorkflowRepairAttemptInFlightCode,
-  WorkflowRepairNotParkedCode,
-  WorkflowRepairVersionUnaccountableCode,
   WorkflowResultsPostRequest,
   WorkflowResultsPostResponse,
   WorkflowResultsPostedPayload,
-  WorkflowResumeNotParkedCode,
   WorkflowResumedPayload,
-  WorkflowRetryUnavailableCode,
   WorkflowRetryUnavailableDetails,
   WorkflowRetryUnavailableReason,
   WorkflowRunCancelRequest,
   WorkflowRunCancelResponse,
   WorkflowRunControlMethodDescriptors,
   WorkflowRunEventPayload,
-  WorkflowRunNotCancelableCode,
   WorkflowRunResumeRequest,
   WorkflowRunResumeResponse,
   WorkflowRunRetryRequest,
   WorkflowRunRetryResponse,
   WorkflowRunStartRequest,
   WorkflowRunStartResponse,
-  WorkflowStartDeniedCode,
   WorkflowStartedPayload,
 } from "./workflow-run-control.js";
 export {
@@ -3105,7 +3068,6 @@ export type {
   WorkflowRunKeepSet,
   WorkflowRunListRequest,
   WorkflowRunListResponse,
-  WorkflowRunNotDeletableCode,
   WorkflowRunReadRequest,
   WorkflowRunReadResponse,
   WorkflowRunRecordMethodDescriptors,
@@ -3154,13 +3116,11 @@ export type {
   WorkflowHumanFormReadResponse,
   WorkflowHumanFormSubmitRequest,
   WorkflowHumanFormSubmitResponse,
-  WorkflowRevisionStaleCode,
   WorkflowStepEventPayload,
   WorkflowStepFailedPayload,
   WorkflowStepFinishedPayload,
   WorkflowStepKey,
   WorkflowStepMethodDescriptors,
-  WorkflowStepNotWaitingCode,
   WorkflowStepOutput,
   WorkflowStepOutputListRequest,
   WorkflowStepOutputListResponse,
@@ -3202,31 +3162,24 @@ export {
   WorkflowWaitCauseSchema,
 } from "./workflow-run.js";
 export type {
-  WorkflowCodeInstallFailedCode,
   WorkflowCodeInstallFailedDetails,
   WorkflowCodeInstallFailedReason,
-  WorkflowCodeOverBudgetCode,
   WorkflowCost,
-  WorkflowKeptValueTooLargeCode,
   WorkflowKeptValueTooLargeDetails,
-  WorkflowNotFoundCode,
   WorkflowPayloadRef,
   WorkflowRunId,
   WorkflowRunMode,
   WorkflowRunStatus,
-  WorkflowSandboxUnavailableCode,
   WorkflowSandboxUnavailableDetails,
   WorkflowStartedBy,
   WorkflowStep,
   WorkflowStepSource,
   WorkflowStepStatus,
   WorkflowStepTimedOutCause,
-  WorkflowStepTimedOutCode,
   WorkflowStepTimedOutDetails,
   WorkflowWaitCause,
 } from "./workflow-run.js";
 export {
-  WORKFLOW_REDACTED_WIRE_MEMBERS,
   WORKFLOW_SECRET_METHOD_DESCRIPTORS,
   WORKFLOW_SECRET_NAME_INVALID_CODE,
   WORKFLOW_SECRET_NAME_INVALID_REASONS,
@@ -3245,7 +3198,6 @@ export {
   WorkflowSecretReplaceRequestSchema,
   WorkflowSecretStoreUnavailableDetailsSchema,
   WorkflowSecretSummarySchema,
-  composeWorkflowSecretReference,
   isWorkflowSecretName,
   parseWorkflowSecretReference,
 } from "./workflow-secret.js";
@@ -3257,22 +3209,19 @@ export type {
   WorkflowSecretListRequest,
   WorkflowSecretListResponse,
   WorkflowSecretMethodDescriptors,
-  WorkflowSecretNameInvalidCode,
   WorkflowSecretNameInvalidDetails,
   WorkflowSecretNameInvalidReason,
-  WorkflowSecretNotFoundCode,
   WorkflowSecretNotFoundDetails,
   WorkflowSecretPlace,
   WorkflowSecretReference,
   WorkflowSecretReplaceRequest,
   WorkflowSecretScope,
   WorkflowSecretStoreUnavailableCause,
-  WorkflowSecretStoreUnavailableCode,
   WorkflowSecretStoreUnavailableDetails,
   WorkflowSecretSummary,
 } from "./workflow-secret.js";
 export {
-  EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN,
+  AUTHORED_REASON_MAX_LEN,
   WORKSPACE_LAST_ERROR_MAX_LEN,
   WorkspaceBindRequestSchema,
   WorkspaceBindResponseSchema,
@@ -3324,7 +3273,6 @@ export {
   RemovedWorktreeIdSchema,
   WORKTREE_RETIRE_CONFLICT_CODE,
   WORKTREE_RETIRE_CONFLICT_REASONS,
-  WORKTREE_REUSE_REASON_MAX_LEN,
   WorktreeIdSchema,
   WorktreeLifecyclePayloadSchema,
   WorktreeRemovalRisksSchema,

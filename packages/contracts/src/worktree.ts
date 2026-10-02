@@ -1,7 +1,6 @@
-// Worktree contracts: the worktree state and lifecycle payload, the branded `WorktreeId`,
-// `BranchContextId` and `RemovedWorktreeId`, and the request and response pairs of the five
-// worktree methods on the `repo.*` namespace. `WorktreeState` mirrors the daemon's
-// `worktrees.state` CHECK clause; a conformance test in the daemon package compares them.
+// Worktree contracts: the worktree state and lifecycle payload, the worktree ids, and the request
+// and response pairs of the worktree methods on the `repo.*` namespace. They are daemon JSON-RPC
+// only, since worktrees are local filesystem state.
 //
 // This module must import nothing from `./event.js`, directly or through any module that
 // reaches it. `event.ts` imports this module's payload schema, so a back-import closes an
@@ -30,21 +29,19 @@ import {
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
+import { AUTHORED_REASON_MAX_LEN } from "./workspace.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
-// Each id is a daemon-minted UUID (`worktrees.id`, `branch_contexts.id`) built with
-// `brandedUuidIdSchema`, which supplies the double-T annotation tRPC v11 needs for input inference.
-
-/** Brand of a worktree row id (`worktrees.id`). */
+/** Brand of a worktree row id (`worktrees.id`), a daemon-minted UUID. */
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 /**
- * Schema for {@link WorktreeId}. The family payload in `repo.ts` keeps `worktreeId` an unbranded
- * UUID string with the same accept set; consumers narrow to the brand where they parse.
+ * Schema for {@link WorktreeId}. The shared lifecycle payload in `repo.ts` keeps `worktreeId` an
+ * unbranded UUID string with the same accept set; consumers narrow to the brand where they parse.
  */
 export const WorktreeIdSchema: z.ZodType<WorktreeId, WorktreeId> =
   brandedUuidIdSchema<WorktreeId>("WorktreeId");
 
-/** Brand of a branch-context row id (`branch_contexts`), the workspace-anchored carrier row. */
+/** Brand of a branch-context row id (`branch_contexts`), the workspace-anchored branch record. */
 export type BranchContextId = string & { readonly __brand: "BranchContextId" };
 /** Schema for {@link BranchContextId}. */
 export const BranchContextIdSchema: z.ZodType<BranchContextId, BranchContextId> =
@@ -60,66 +57,42 @@ export type RemovedWorktreeId = string & { readonly __brand: "RemovedWorktreeId"
 export const RemovedWorktreeIdSchema: z.ZodType<RemovedWorktreeId, RemovedWorktreeId> =
   brandedUuidIdSchema<RemovedWorktreeId>("RemovedWorktreeId");
 
-// Declaration order mirrors the `worktrees.state` CHECK clause and is asserted by tests, so a
-// reorder here needs the DDL re-synced.
+// The order mirrors the daemon's `worktrees.state` CHECK clause.
+const WORKTREE_STATES = ["creating", "ready", "dirty", "merged", "retired", "failed"] as const;
 
 /**
- * The six worktree lifecycle states (`worktrees.state`). `retired` and `failed` are the two
- * non-live states: the active-branch unique index ignores them. Moving to `failed` emits no
- * `worktree.*` event (the failure is evented as `workspace.stale`), and failed rows stay
- * readable through `repo.worktreeStatusRead`.
+ * A worktree's lifecycle state (`worktrees.state`). `retired` and `failed` are the non-live
+ * states, which the active-branch unique index ignores. Moving to `failed` emits no `worktree.*`
+ * event (the failure is evented as `workspace.stale`), and failed rows stay readable through
+ * `repo.worktreeStatusRead`.
  */
-export type WorktreeState = "creating" | "ready" | "dirty" | "merged" | "retired" | "failed";
+export type WorktreeState = (typeof WORKTREE_STATES)[number];
 /** Schema for {@link WorktreeState}. */
-export const WorktreeStateSchema: z.ZodType<WorktreeState> = z.enum([
-  "creating",
-  "ready",
-  "dirty",
-  "merged",
-  "retired",
-  "failed",
-]);
+export const WorktreeStateSchema: z.ZodType<WorktreeState> = z.enum(WORKTREE_STATES);
 
 /**
- * Payload of the five `worktree.*` events: the repo and workspace lifecycle family payload over
- * `WorktreeState`. The shape leaves `worktreeId` optional, so the emitter must set it on every
- * `worktree.*` emission. A type alias, not an interface, because only an object type alias
- * satisfies the `Record<string, unknown>` payload constraint of the event variants.
+ * Payload of the `worktree.*` events: the shared repo and workspace lifecycle payload over
+ * `WorktreeState`. It leaves `worktreeId` optional, so the emitter sets it on every `worktree.*`
+ * emission. A type alias, because only an object type alias satisfies the event variants'
+ * `Record<string, unknown>` payload constraint.
  */
 export type WorktreeLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<WorktreeState>;
 /**
- * Schema for {@link WorktreeLifecyclePayload}, built by the family factory so each family
- * member keeps its own state vocabulary: a worktree payload claiming `attached`, or a workspace
- * payload claiming `merged`, fails to parse. `failed` parses but no `worktree.*` event carries
- * it. Single-T and strict: an event payload built daemon-side and checked with `.parse()`.
+ * Schema for {@link WorktreeLifecyclePayload}, built by the shared lifecycle factory so each
+ * payload keeps its own state vocabulary: a worktree payload claiming `attached` fails to parse.
+ * `failed` parses, though no `worktree.*` event carries it.
  */
 export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload> =
   buildRepoWorkspaceLifecyclePayloadSchema(WorktreeStateSchema);
 
-// Wire surfaces: the five worktree request and response pairs of the `repo.*` namespace.
-//
-// They are daemon JSON-RPC only, since worktrees are node-local filesystem state. Requests are
-// double-T `z.ZodType<T, T>` so tRPC v11 can infer their input; responses are single-T. Only
-// `ExecutionModeSelectRequestSchema` needs the `as unknown as` bridge, because the single-T
-// `ExecutionModeSchema` leaves the composed object's Input slot `unknown`.
-//
-// The daemon derives branch names (slug rule, collision suffix) and a client never computes
-// them; a caller-supplied `branchName` is accepted on the way in.
-//
-// No schema here refines across fields. Each conditional field is an obligation on the emitter,
-// checked when the daemon parses its own response, and some depend on state a schema cannot see.
+// No schema here refines across fields: each conditional field is an obligation on the emitter,
+// and some depend on state a schema cannot see.
 
 /**
- * Maximum length of the reuse check's `reason`, a short authored summary rather than captured
- * git output. Kept apart from the same-valued `EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN` so
- * neither contract owes the other an equality.
+ * The `repo.executionModeSelect` input: the workspace and the mode it switches to. Selecting
+ * records the mode and moves the workspace to `preparing`; `repo.executionRootPrepare` makes
+ * the root.
  */
-export const WORKTREE_REUSE_REASON_MAX_LEN = 512;
-
-// Selecting only records the mode and moves the workspace to `preparing`; the root is
-// materialized by `repo.executionRootPrepare`. A client sends one selection per explicit switch.
-
-/** The `repo.executionModeSelect` input: the workspace and the mode it switches to. */
 export interface ExecutionModeSelectRequest {
   workspaceId: WorkspaceId;
   executionMode: ExecutionMode;
@@ -131,10 +104,10 @@ export const ExecutionModeSelectRequestSchema: z.ZodType<
 > = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    // Required, with no `.default()`: an omitted mode must not read as a chosen one, and a
-    // default is a transform, so Input would stop equalling Output.
+    // Required: an omitted mode must not read as a chosen one.
     executionMode: ExecutionModeSchema,
   })
+  // The single-typed `ExecutionModeSchema` leaves the object's input type `unknown`.
   .strict() as unknown as z.ZodType<ExecutionModeSelectRequest, ExecutionModeSelectRequest>;
 
 /** The `repo.executionModeSelect` result: the recorded mode and the workspace's position. */
@@ -143,26 +116,21 @@ export interface ExecutionModeSelectResponse {
   executionMode: ExecutionMode;
   state: WorkspaceState;
 }
-/** Wire schema for {@link ExecutionModeSelectResponse}; single-T, as a response is no input. */
+/** Wire schema for {@link ExecutionModeSelectResponse}. */
 export const ExecutionModeSelectResponseSchema: z.ZodType<ExecutionModeSelectResponse> = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    // Echoed so the caller sees the mode actually recorded; an unavailable mode is a typed
-    // `workspace.mode_unsupported` refusal, never a substituted mode.
+    // The mode recorded; an unavailable mode is a `workspace.mode_unsupported` refusal, never a
+    // substituted mode.
     executionMode: ExecutionModeSchema,
-    // The workspace position after select (`preparing` while the root awaits prepare); the full
-    // state schema, not narrowed to that literal.
     state: WorkspaceStateSchema,
   })
   .strict();
 
-// Materializes or binds the execution root for the workspace's selected mode before a run
-// enters `running`; explicit worktree reuse rides this surface by naming the candidate.
-
 /**
- * The `repo.executionRootPrepare` input: the workspace, its branch, and any worktree to reuse.
- * It carries no `runId`: the run-setup gate supplies it service-side, so a caller cannot forge
- * run provenance.
+ * The `repo.executionRootPrepare` input: the workspace, its branch, and any worktree to reuse,
+ * which makes the root for the selected mode before a run starts. It carries no `runId`: the
+ * daemon supplies it, so a caller cannot forge run provenance.
  */
 export interface ExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
@@ -179,22 +147,17 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
 > = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    // Optional in the schema, required in practice: a wire prepare has no run to derive a name
-    // from, so omitting it draws the typed `workspace.branch_name_required` refusal before any
-    // git call.
+    // Optional in the schema, required in practice: omitting it draws the
+    // `workspace.branch_name_required` refusal before any git call.
     branchName: wireUncappedFreeFormString("ExecutionRootPrepareRequest.branchName").optional(),
-    // Omitted means the mount's current HEAD branch, which the daemon reads; a detached HEAD with
-    // no explicit base is a typed refusal. Git reads a leading dash as an option even in the
-    // positional slot, so the daemon refuses such a value before git.
+    // Omitted means the mount's current HEAD branch; a detached HEAD with no base is refused.
+    // Git reads a leading dash as an option, so the daemon refuses such a value before git.
     baseRef: wireUncappedFreeFormString("ExecutionRootPrepareRequest.baseRef").optional(),
-    // Reuse happens only by naming a candidate; there is no implicit "reuse if available" path.
-    // The candidate must belong to the mount behind `workspaceId`; neither row is visible at
-    // parse time, so the reuse validation checks it.
+    // Reuse happens only by naming a candidate, which the daemon checks belongs to the mount
+    // behind `workspaceId`.
     reuseWorktreeId: WorktreeIdSchema.optional(),
-    // Separate consent to bind a dirty candidate: a candidate that turned dirty after the reuse
-    // check refuses `worktree.reuse_conflict` without it, and it never overrides incompatibility.
-    // No `.default(false)`: absence already means no consent, and a default would add a
-    // transform that breaks the double-T annotation.
+    // Consent to bind a dirty candidate: without it a candidate that turned dirty after the
+    // reuse check is refused with `worktree.reuse_conflict`; it never overrides incompatibility.
     acknowledgeDirtyCandidate: z.boolean().optional(),
     // Carries the session's uncommitted work, untracked files included, onto
     // the new tree. The daemon refuses it unless the new base is the branch
@@ -210,20 +173,17 @@ export interface ExecutionRootPrepareResponse {
   worktreeId?: WorktreeId | undefined;
   branchContextId: BranchContextId;
 }
-/** Wire schema for {@link ExecutionRootPrepareResponse}; single-T, as a response is no input. */
+/** Wire schema for {@link ExecutionRootPrepareResponse}. */
 export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareResponse> = z
   .object({
-    // Prepare resolves a root or refuses with a typed error (`worktree.create_failed` or a
-    // workspace code); there is no partial success.
+    // Prepare resolves a root or refuses; there is no partial success.
     executionRoot: wireFreeFormString(
       FILE_PATH_MAX_LEN,
       "ExecutionRootPrepareResponse.executionRoot",
     ),
-    // The workspace position after the prepare; the full state vocabulary, as in the select
-    // response.
     state: WorkspaceStateSchema,
-    // Present for a `provisioned-worktree` prepare only, which the schema cannot see. Every
-    // prepare writes or refreshes a branch context, so `branchContextId` is always present.
+    // Present for a `provisioned-worktree` prepare only. Every prepare writes or refreshes a
+    // branch context, so `branchContextId` is always present.
     worktreeId: WorktreeIdSchema.optional(),
     branchContextId: BranchContextIdSchema,
   })
@@ -240,10 +200,8 @@ export const WorktreeReuseCheckRequestSchema: z.ZodType<
   WorktreeReuseCheckRequest
 > = z
   .object({
-    // Keyed by mount, not workspace: the uniqueness read is `(repo_mount_id, branch_name)`, and
-    // several workspaces on one mount share those candidates.
+    // Keyed by mount, not workspace: several workspaces on one mount share the candidates.
     repoMountId: RepoMountIdSchema,
-    // Required, unlike on prepare: with no branch there is no key to look a candidate up by.
     branchName: wireUncappedFreeFormString("WorktreeReuseCheckRequest.branchName"),
   })
   .strict();
@@ -262,34 +220,25 @@ export interface WorktreeReuseCheckResponse {
   compatible?: boolean | undefined;
   reason?: string | undefined;
 }
-/** Wire schema for {@link WorktreeReuseCheckResponse}; single-T, as a read is no input. */
+/** Wire schema for {@link WorktreeReuseCheckResponse}. */
 export const WorktreeReuseCheckResponseSchema: z.ZodType<WorktreeReuseCheckResponse> = z
   .object({
-    // The only required field: true when a live candidate exists. The rest describe it, so
-    // `{ available: false }` alone is a complete answer.
+    // True when a live candidate exists; the rest describe it, so `{ available: false }` alone
+    // is a complete answer.
     available: z.boolean(),
     worktreeId: WorktreeIdSchema.optional(),
-    // Full six-value vocabulary, not narrowed to live states: narrowing would encode a
-    // cross-field rule this schema does not make.
     state: WorktreeStateSchema.optional(),
-    // Echoed so the caller sees which branch the candidate holds.
     branchName: wireUncappedFreeFormString("WorktreeReuseCheckResponse.branchName").optional(),
-    // Daemon verdicts: `isClean` gates the dirty acknowledgement, and an incompatible candidate
-    // never binds, acknowledged or not.
+    // `isClean` gates the dirty acknowledgement; an incompatible candidate never binds.
     isClean: z.boolean().optional(),
     compatible: z.boolean().optional(),
-    // Populated when `!isClean || !compatible` (an emitter obligation). A short authored
-    // summary, not raw porcelain output.
+    // Present when the candidate is dirty or incompatible.
     reason: wireFreeFormString(
-      WORKTREE_REUSE_REASON_MAX_LEN,
+      AUTHORED_REASON_MAX_LEN,
       "WorktreeReuseCheckResponse.reason",
     ).optional(),
   })
   .strict();
-
-// Retirement is recorded before any disk work: the row transition and its `worktree.retired`
-// event land first, and the async sweep stamps `cleaned_at` afterwards. Metadata and provenance
-// survive retirement.
 
 /**
  * The `repo.worktreeRetire` input. `discard: false` is the ordinary removal: it
@@ -320,12 +269,11 @@ export interface WorktreeRetireResponse {
   state: Extract<WorktreeState, "retired">;
   kept?: { removedWorktreeId: RemovedWorktreeId } | undefined;
 }
-/** Wire schema for {@link WorktreeRetireResponse}; single-T, since a response is not an input. */
+/** Wire schema for {@link WorktreeRetireResponse}. */
 export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
   .object({
     worktreeId: WorktreeIdSchema,
-    // The one success state; a refusal is the typed `worktree.retire_conflict` error, not a
-    // response carrying the unchanged state.
+    // A refusal is the `worktree.retire_conflict` error, never a reply with the unchanged state.
     state: z.literal("retired"),
     kept: z.object({ removedWorktreeId: RemovedWorktreeIdSchema }).strict().optional(),
   })
@@ -335,9 +283,9 @@ export const WorktreeRetireResponseSchema: z.ZodType<WorktreeRetireResponse> = z
  * The code `repo.worktreeRetire` refuses with when a plain removal would lose something the
  * confirm did not show, or an agent runs in the tree.
  */
-export type WorktreeRetireConflictCode = "worktree.retire_conflict";
-/** The code of {@link WorktreeRetireConflictCode}. */
-export const WORKTREE_RETIRE_CONFLICT_CODE: WorktreeRetireConflictCode = "worktree.retire_conflict";
+export const WORKTREE_RETIRE_CONFLICT_CODE = "worktree.retire_conflict" as const;
+/** The type of {@link WORKTREE_RETIRE_CONFLICT_CODE}. */
+export type WorktreeRetireConflictCode = typeof WORKTREE_RETIRE_CONFLICT_CODE;
 
 /**
  * Why a removal was refused: `root_busy` (an agent runs in the tree, naming the workspace that
@@ -396,16 +344,9 @@ export const WorktreeRetireConflictDetailsSchema: z.ZodType<WorktreeRetireConfli
 export type ListedWorktreeState = Exclude<WorktreeState, "retired">;
 
 /**
- * One listed worktree, as its switcher row draws it.
- *
- * `name` is the tree's own name and `baseBranchName` the branch it was cut from
- * (`off <base>`). `ahead` and `behind` count commits against the branch's
- * upstream, read against the daemon's latest background fetch, and are absent
- * when the branch has none. `uncommittedFileCount` and `unpushedCommitCount` are
- * the same figures the removal confirm names; unpushed means not reachable from
- * any remote-tracking branch of the folder. `occupyingSessionIds` are the
- * sessions standing in the tree, and `runningSessionId` names the one whose
- * agent is running there, which locks the trash.
+ * One listed worktree, with every figure its switcher row draws. `ahead` and `behind` count
+ * commits against the branch's upstream as of the daemon's last fetch, absent when it has none;
+ * `runningSessionId` names the session whose agent runs in the tree, which locks its removal.
  */
 export interface WorktreeStatusRecord {
   worktreeId: WorktreeId;
@@ -475,12 +416,9 @@ export const WorktreeStatusReadRequestSchema: z.ZodType<
   .strict();
 
 /**
- * What the new-worktree form opens with, from the same daemon function that
- * creates the tree and names its folder: the fixed leading part of the name (the
- * project's branch pattern filled in up to `{title}`), the suggested tail derived
- * from the session's title, and the folder the tree will get up to that tail.
- * The form shows the folder as `folderBefore` followed by whatever tail is typed,
- * so it copies none of the daemon's naming.
+ * What the new-worktree form opens with, from the daemon function that names and creates the
+ * tree: the name's fixed part from the branch pattern, a tail suggested from the session title,
+ * and the folder up to that tail, so the form copies none of the daemon's naming.
  */
 export interface NewWorktreeSuggestion {
   fixedPart: string;
@@ -489,15 +427,9 @@ export interface NewWorktreeSuggestion {
 }
 
 /**
- * The `repo.worktreeStatusRead` result.
- *
- * One read supplies every figure a switcher row draws, so it cannot show a tree as free while
- * another read calls it occupied. Only standing trees are listed, so a row never carries
- * `retired`; a copy kept by a discard is listed by `repo.removedWorktreeList`.
- * `repoRoot` is the project's own checkout and the branch it is on. `worktrees` lists the
- * project's standing trees, empty when it has none. `countsAsOf` is present when the last
- * background fetch failed, and says when the ahead and behind figures were last true.
- * `newWorktree` is present when the request named the asking session.
+ * The `repo.worktreeStatusRead` result: the project's own checkout and its standing trees from one
+ * read, so no row shows a tree free that another read calls occupied. `countsAsOf` says when the
+ * ahead and behind figures were last true if the last fetch failed.
  */
 export interface WorktreeStatusReadResponse {
   repoRoot: { path: string; branchName: string };
@@ -505,7 +437,7 @@ export interface WorktreeStatusReadResponse {
   countsAsOf?: string | undefined;
   newWorktree?: NewWorktreeSuggestion | undefined;
 }
-/** Wire schema for {@link WorktreeStatusReadResponse}; single-T, since a read is not an input. */
+/** Wire schema for {@link WorktreeStatusReadResponse}. */
 export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadResponse> = z
   .object({
     repoRoot: z

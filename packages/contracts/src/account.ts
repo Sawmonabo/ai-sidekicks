@@ -5,6 +5,7 @@
 // export writes as `hosted-account.json`.
 import { z } from "zod";
 
+import { DeviceEntrySchema, type DeviceEntry } from "./device.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,

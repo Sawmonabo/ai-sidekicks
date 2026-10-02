@@ -79,9 +79,9 @@ const IDENTITY_KEY_BYTES: Readonly<Record<IdentityKeyAlgorithm, number>> = {
 export const IdentityPublicKeySchema: z.ZodType<IdentityPublicKey, IdentityPublicKey> = z
   .object({ algorithm: z.enum(IDENTITY_KEY_ALGORITHMS), publicKey: z.base64() })
   .strict()
-  .superRefine((key, ctx) => {
+  .superRefine((key, issueContext) => {
     if (decodedByteLength(key.publicKey) !== IDENTITY_KEY_BYTES[key.algorithm]) {
-      ctx.addIssue({
+      issueContext.addIssue({
         code: "custom",
         path: ["publicKey"],
         message: `a ${key.algorithm} public key is ${IDENTITY_KEY_BYTES[key.algorithm]} bytes`,
@@ -100,7 +100,10 @@ export const MachineIdentityKeySchema: z.ZodType<MachineIdentityKey, MachineIden
     algorithm: z.literal("ed25519"),
     publicKey: z
       .base64()
-      .refine((value) => decodedByteLength(value) === 32, "an ed25519 public key is 32 bytes"),
+      .refine(
+        (value) => decodedByteLength(value) === IDENTITY_KEY_BYTES.ed25519,
+        `an ed25519 public key is ${IDENTITY_KEY_BYTES.ed25519} bytes`,
+      ),
   })
   .strict();
 
@@ -113,13 +116,17 @@ export interface ChannelPublicKey {
   algorithm: "x25519";
   publicKey: string;
 }
+const CHANNEL_KEY_BYTES = 32;
 /** Parses a {@link ChannelPublicKey}. */
 export const ChannelPublicKeySchema: z.ZodType<ChannelPublicKey, ChannelPublicKey> = z
   .object({
     algorithm: z.literal("x25519"),
     publicKey: z
       .base64()
-      .refine((value) => decodedByteLength(value) === 32, "an x25519 public key is 32 bytes"),
+      .refine(
+        (value) => decodedByteLength(value) === CHANNEL_KEY_BYTES,
+        `an x25519 public key is ${CHANNEL_KEY_BYTES} bytes`,
+      ),
   })
   .strict();
 

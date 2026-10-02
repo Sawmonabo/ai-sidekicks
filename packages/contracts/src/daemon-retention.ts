@@ -104,17 +104,17 @@ export interface DaemonRetentionMethodDescriptors {
     "daemon.retentionRead",
     DaemonRetentionReadRequest,
     DaemonRetentionReadResponse
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.retentionUpdate": MethodDescriptor<
     "daemon.retentionUpdate",
     DaemonRetentionUpdateRequest,
     DaemonRetentionBounds
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.retentionPurge": MethodDescriptor<
     "daemon.retentionPurge",
     DaemonRetentionPurgeRequest,
     DaemonRetentionPurgeResponse
-  > & { readonly procedureType: "mutation" };
+  >;
 }
 
 /** The retention methods' names, procedure types and shapes. */

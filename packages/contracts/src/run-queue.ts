@@ -41,26 +41,23 @@ const messageAttachmentsSchema: z.ZodType<ArtifactId[], ArtifactId[]> = z.array(
 
 // run.queueCreate
 
-/**
- * Sends one message to the lead, whether a turn is running or not. `to` addresses
- * another session instead: the message arrives there as that session's own row.
- * `replacesQueueItemId` is an edit of a waiting message, made in place in one
- * call, so the edited message keeps its place and the old item reads
- * `superseded`; the daemon refuses it once the agent has taken the message.
- * `clientIdempotencyKey` replays the first answer for a retried send.
- *
- * `workspaceId` binds the run a send starts to its repository, and `priority`
- * orders the stored items; neither reorders what the person sees, which is the
- * daemon's order (`run.queueReorder`).
- */
+/** Sends one message to the lead, whether a turn is running or not. */
 export interface QueueItemCreateRequest {
   sessionId: SessionId;
+  /** Another session to deliver to instead; the message arrives there as its own row. */
   to?: SessionId | undefined;
+  /** Binds the run a send starts to its repository. */
   workspaceId?: WorkspaceId | undefined;
+  /** Orders the stored items; never what the person sees, which `run.queueReorder` sets. */
   priority?: number | undefined;
+  /** A retried send with the same key replays the first answer. */
   clientIdempotencyKey: string;
   content: string;
   attachments?: ArtifactId[] | undefined;
+  /**
+   * Edits this waiting message in place: it keeps its place and the old item reads `superseded`.
+   * Refused once the agent has taken it.
+   */
   replacesQueueItemId?: QueueItemId | undefined;
 }
 /** Parses a {@link QueueItemCreateRequest}. */
@@ -230,16 +227,11 @@ export const QueueReorderRequestSchema: z.ZodType<QueueReorderRequest, QueueReor
  * has already taken, or a reorder whose list is not exactly the waiting items.
  */
 export const QUEUE_CHANGE_REFUSED_CODE = "queue.change_refused" as const;
-/** The type of {@link QUEUE_CHANGE_REFUSED_CODE}. */
-export type QueueChangeRefusedCode = typeof QUEUE_CHANGE_REFUSED_CODE;
 
 /** Why a change to a waiting message was refused. */
-export type QueueChangeRefusedReason = "already_taken" | "order_mismatch";
-/** Every {@link QueueChangeRefusedReason}. */
-export const QUEUE_CHANGE_REFUSED_REASONS: readonly QueueChangeRefusedReason[] = Object.freeze([
-  "already_taken",
-  "order_mismatch",
-]);
+export const QUEUE_CHANGE_REFUSED_REASONS = ["already_taken", "order_mismatch"] as const;
+/** One of {@link QUEUE_CHANGE_REFUSED_REASONS}. */
+export type QueueChangeRefusedReason = (typeof QUEUE_CHANGE_REFUSED_REASONS)[number];
 
 /** The details a `queue.change_refused` refusal carries. */
 export interface QueueChangeRefusedDetails {

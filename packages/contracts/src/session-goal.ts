@@ -8,7 +8,7 @@
 // import back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 
-import { uuidTextFormSchema } from "./internal/branded.js";
+import { AgentIdSchema, type AgentId } from "./agent-definition.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "./provider-driver.js";
@@ -49,21 +49,15 @@ const SESSION_GOAL_STATUS_VALUES = [
  * event `session.goal_cleared`, never a status.
  */
 export type SessionGoalStatus = (typeof SESSION_GOAL_STATUS_VALUES)[number];
-/** Every {@link SessionGoalStatus}, in the order above. */
-export const SESSION_GOAL_STATUSES: readonly SessionGoalStatus[] = SESSION_GOAL_STATUS_VALUES;
 /** Parses a {@link SessionGoalStatus}. */
 export const SessionGoalStatusSchema: z.ZodType<SessionGoalStatus, SessionGoalStatus> = z.enum(
   SESSION_GOAL_STATUS_VALUES,
 );
 
-// The agent a goal is sent to: the unbranded UUID text form, since the `agentId` brand belongs to
-// the live agent contract.
-const goalAgentIdSchema = uuidTextFormSchema;
-
 /** Sets or replaces the goal of one agent in the session. The last write wins. */
 export interface SessionGoalUpdateRequest {
   sessionId: SessionId;
-  agentId: string;
+  agentId: AgentId;
   goal: SessionGoal;
 }
 /** Parses a {@link SessionGoalUpdateRequest}. */
@@ -71,7 +65,7 @@ export const SessionGoalUpdateRequestSchema: z.ZodType<
   SessionGoalUpdateRequest,
   SessionGoalUpdateRequest
 > = z
-  .object({ sessionId: SessionIdSchema, agentId: goalAgentIdSchema, goal: SessionGoalSchema })
+  .object({ sessionId: SessionIdSchema, agentId: AgentIdSchema, goal: SessionGoalSchema })
   .strict();
 
 /** The accepted goal, echoed exactly as the `session.goal_updated` event carries it. */
@@ -87,13 +81,13 @@ export const SessionGoalUpdateResponseSchema: z.ZodType<SessionGoalUpdateRespons
 /** Removes one agent's goal. With no goal set it succeeds, as Codex's own clear does. */
 export interface SessionGoalClearRequest {
   sessionId: SessionId;
-  agentId: string;
+  agentId: AgentId;
 }
 /** Parses a {@link SessionGoalClearRequest}. */
 export const SessionGoalClearRequestSchema: z.ZodType<
   SessionGoalClearRequest,
   SessionGoalClearRequest
-> = z.object({ sessionId: SessionIdSchema, agentId: goalAgentIdSchema }).strict();
+> = z.object({ sessionId: SessionIdSchema, agentId: AgentIdSchema }).strict();
 
 /**
  * The `session.goal_updated` payload: the goal and where it now stands. `reason` is the
@@ -102,7 +96,7 @@ export const SessionGoalClearRequestSchema: z.ZodType<
  */
 export type SessionGoalUpdatedPayload = {
   sessionId: SessionId;
-  agentId: string;
+  agentId: AgentId;
   goal: SessionGoal;
   status: SessionGoalStatus;
   reason?: string | undefined;
@@ -111,7 +105,7 @@ export type SessionGoalUpdatedPayload = {
 export const SessionGoalUpdatedPayloadSchema: z.ZodType<SessionGoalUpdatedPayload> = z
   .object({
     sessionId: SessionIdSchema,
-    agentId: goalAgentIdSchema,
+    agentId: AgentIdSchema,
     goal: SessionGoalSchema,
     status: SessionGoalStatusSchema,
     // The judge's words are provider output, bounded as other provider detail is.
@@ -129,11 +123,11 @@ export const SessionGoalUpdatedPayloadSchema: z.ZodType<SessionGoalUpdatedPayloa
 /** The `session.goal_cleared` payload: whose goal was removed. */
 export type SessionGoalClearedPayload = {
   sessionId: SessionId;
-  agentId: string;
+  agentId: AgentId;
 };
 /** Parses a {@link SessionGoalClearedPayload}. */
 export const SessionGoalClearedPayloadSchema: z.ZodType<SessionGoalClearedPayload> = z
-  .object({ sessionId: SessionIdSchema, agentId: goalAgentIdSchema })
+  .object({ sessionId: SessionIdSchema, agentId: AgentIdSchema })
   .strict();
 
 /** The two `session.*` goal methods, keyed by method name. */

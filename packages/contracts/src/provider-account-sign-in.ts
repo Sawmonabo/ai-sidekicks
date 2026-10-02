@@ -93,9 +93,9 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
   .strict()
   // Only the combination is constrained, so the rule lives here rather than on either member. The
   // issue is reported on `nonInteractiveToken`, the member the caller must add.
-  .superRefine((request, ctx) => {
+  .superRefine((request, context) => {
     if (request.accountId !== undefined && request.nonInteractiveToken === undefined) {
-      ctx.addIssue({
+      context.addIssue({
         code: "custom",
         path: ["nonInteractiveToken"],
         message:
@@ -158,11 +158,9 @@ export const PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE =
 export type ProviderAccountDisplayLabelTakenCode = typeof PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE;
 
 /**
- * Rebuilds an account's credential home from empty so the person can authenticate into it
- * again. It bumps `credentialGeneration` and never resets it, so a stale consumer can still order
- * two readings across the rebuild. Identity and stored quota readings survive, because the
- * provider-side allowance kept running while the home was empty; the stored health is
- * invalidated by the bump, which is why `healthState` is returned.
+ * Rebuilds an account's credential home from empty so the person can sign in again. It bumps
+ * `credentialGeneration`; identity and stored quota readings survive, and the stored health is
+ * invalidated, so the reply carries the new one.
  */
 export interface ProviderAccountResetCredentialHomeRequest {
   accountId: ProviderAccountId;
@@ -194,12 +192,9 @@ export const ProviderAccountResetCredentialHomeResponseSchema: z.ZodType<Provide
     .strict();
 
 /**
- * Starts a brokered interactive sign-in. The daemon spawns the provider's unmodified binary with
- * this account's home pinned and reads nothing the flow writes; what returns is what the provider
- * emits for the person to act on, plus an opaque attempt id. The reply mirrors the provider's
- * own: an authorization URL, or a device code with its verification URL. A provider that emits
- * neither cannot be brokered and is refused rather than spawning a flow the person cannot
- * finish.
+ * Starts the provider's own interactive sign-in into this account's home. The reply is what the
+ * provider emits for the person to act on (an authorization URL or a device code) and an attempt
+ * id.
  */
 export interface ProviderAccountLoginRequest {
   accountId: ProviderAccountId;
@@ -266,7 +261,7 @@ const PROVIDER_LOGIN_CANCEL_STATUS_VALUES = ["canceled", "notFound"] as const;
 
 /**
  * How a cancel ended. Cancellation is an outcome, not an abandonment, so no provider-side login
- * slot stays occupied until it times out. `notFound` is for an attempt that already completed,
+ * stays open until it times out. `notFound` is for an attempt that already completed,
  * was already canceled, or never existed; it is not an error, so a client racing a completion
  * sees no refusal for losing.
  */
