@@ -10,8 +10,8 @@ export default defineConfig({
     passWithNoTests: false,
     reporters: ["default"],
     coverage: sharedCoverageOptions(),
-    // The in-process WASM Postgres tests take about 2-3.4s each, near vitest's 5000ms default, so
-    // a contended CI run can time out. 15000/30000 gives about 3x headroom.
+    // The in-process WASM Postgres tests take about 2-5s each, around vitest's 5000ms default, so a
+    // contended CI run would time out. 15000/30000 gives about 3x headroom.
     ...sharedTestTimeouts({ testTimeout: 15000, hookTimeout: 30000 }),
   },
   // Resolve workspace deps to TS source, not a stale dist/, through the `@ai-sidekicks/source`

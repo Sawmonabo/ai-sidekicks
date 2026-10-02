@@ -6,7 +6,7 @@ export interface FeatureFlagEnv {
   readonly CONTROL_PLANE_BOOTSTRAP_ENABLED?: string;
 }
 
-/** A gate's verdict; a refusal carries the operator-facing reason. */
+/** A gate's verdict; a refusal carries the reason the refusal log shows. */
 export type GateResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 const FEATURE_FLAG_KEY = "CONTROL_PLANE_BOOTSTRAP_ENABLED";

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Control Plane services and shared-session coordination logic.",
+  "description": "The control plane's gated Cloudflare Worker and its Postgres schema runner.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=24.16.0"
