@@ -305,7 +305,7 @@ The registry accepts camelCase method tails (`METHOD_NAME_FORMAT`), and a `Daemo
   - **Verifies invariant:** I-013-7.
   - **Tests:** each class projects its standard JSON-RPC numeric + `data.type` + sanitized `data.fields` per the `DaemonDomainError` envelope (error-contracts.md §JSON-RPC Wire Mapping).
 - **T3.4 — SDK `orchestration-client.ts`.**
-  - **Files:** `packages/client-sdk/src/orchestration-client.ts` (NEW); `packages/client-sdk/src/index.ts` (EXTEND — barrel export).
+  - **Files:** `packages/client-sdk/src/orchestration-client.ts` (NEW); `packages/client-sdk/src/index.ts` (EXTEND — the client's named exports).
   - **Provides:** one typed method per registered pair (incl. the goal RPCs, `session.maxStepsUpdate`, `session.spendLimitUpdate`, `session.tokensPerRunUpdate`, `session.terminalProviderSessionList`, and `agent.list` as a subscription) marshaling requests verbatim and surfacing `data.type` rejections; no client-side derivation (I-013-11).
   - **Consumes:** T1.2 pairs; `JsonRpcClient` transport (Plan-005-partial).
   - **Spec coverage:** Spec-014 §Interfaces And Contracts (typed client SDK).

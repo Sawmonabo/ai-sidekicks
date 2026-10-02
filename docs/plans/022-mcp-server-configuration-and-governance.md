@@ -103,7 +103,7 @@ The Phase 5 desktop MCP panel views consume daemon state only through the render
 - `packages/runtime-daemon/src/mcp/` (CREATE) — `McpGovernanceService`, `McpInventoryService`, provider adapters (`claudeMcpConfigAdapter`, `codexMcpConfigAdapter`, the Codex project-file writer and `local` emulation), `McpStatusNormalizer`, the sign-in service (the daemon's own OAuth client, the provider-admitted takeover, DPoP keys, the credential-store custody and the header-helper answerer on the daemon's same-user socket), the daemon's own MCP client in `mcp/client/` and its fronted route, the registry search, binding + override stores, the typed `mcp.*` refusal classes in `mcp-errors.ts` (T28.1.5 — subclasses in their own file over Plan-005's `DaemonDomainError` base), plus the startup receipt-intent reconciler.
 - The daemon's one schema (EXTEND) — the tables per [local-sqlite-schema.md §MCP Governance Tables (Plan-022)](../architecture/schemas/local-sqlite-schema.md#mcp-governance-tables-plan-022), with the schema's test (EXTEND) covering them.
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `mcp.*` namespace handler files per CP-022-3.
-- `packages/client-sdk/src/mcp-client.ts` (CREATE) + the package-root barrel line — typed `mcp.*` client methods.
+- `packages/client-sdk/src/mcp-client.ts` (CREATE) + the client's named export line in the package's entry point `packages/client-sdk/src/index.ts` — typed `mcp.*` client methods.
 - `apps/desktop/src/renderer/src/features/settings/pages/mcp-servers/` (EXTEND) — MCP panel views over the renderer's `services/daemon/` client.
 - `apps/cli/src/commands/` `mcp-*.ts` (CREATE) + the `main.ts` `.register()` EXTENDs — the `sidekicks mcp` command group (`list` / `add` / `remove` / `override` / `login` / `watch` — `watch` tails `mcp.subscribe`) under the Plan-005 registered bin name (`bin: { "sidekicks": … }`, the Plan-013 command precedent; per-subcommand filenames: `mcp-list.ts`, `mcp-add.ts`, `mcp-remove.ts`, `mcp-override.ts`, `mcp-login.ts`, `mcp-watch.ts`).
 
@@ -487,7 +487,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** per-leg statuses ← T28.2.7 (Phase 2, merged).
 
 - **T28.5.5 — Client SDK `mcp.*` surface.**
-  - Files: `packages/client-sdk/src/mcp-client.ts` (CREATE) + `packages/client-sdk/src/index.ts` (EXTEND — barrel line)
+  - Files: `packages/client-sdk/src/mcp-client.ts` (CREATE) + `packages/client-sdk/src/index.ts` (EXTEND — the client's named exports)
   - Typed client methods for every `mcp.*` operation and every `session.mcp*` operation over the `JsonRpcClient` transport, including the `mcp.subscribe` and `session.mcpServerList` stream consumers.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (transport surface)

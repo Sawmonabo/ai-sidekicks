@@ -7,7 +7,7 @@ import {
   ArtifactReadRequestSchema,
   ArtifactReadResponseSchema,
   decodeArtifactPayloadText,
-} from "../artifacts/index.js";
+} from "../artifacts/operations.js";
 import { ARTIFACT_CHUNK_MAX_BYTES } from "../artifacts/ingest.js";
 import { MAX_MESSAGE_BYTES } from "../jsonrpc.js";
 

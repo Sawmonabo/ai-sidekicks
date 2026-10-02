@@ -128,13 +128,13 @@ Shared Zod/TypeScript contracts. No control-plane logic; pure schema. All consum
 #### Tasks
 
 - **T1.1 — `UserProjectionRead` + `UserProjection`.**
-  - Files: `packages/contracts/src/users/projection.ts` (CREATE), `packages/contracts/src/users/index.ts` (CREATE barrel)
+  - Files: `packages/contracts/src/users/projection.ts` (CREATE), `packages/contracts/src/index.ts` (EXTEND — named exports)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (UserProjectionRead), Spec-016 §Required Behavior (display state = id + name)
   - **Verifies invariant:** I-015-2
   - Consumes: `UserId`, `SessionId` from `packages/contracts/src/session.ts` (shipped)
   - Note: the projection carries no session-state field (CP-015-4) — identity and display metadata only, with no presence, as [Spec-016 §Required Behavior](../specs/016-identity-and-user-state.md#required-behavior) states.
 - **T1.2 — `UserStateUpdate` request/response.**
-  - Files: `packages/contracts/src/users/state-update.ts` (CREATE), index barrel (EXTEND)
+  - Files: `packages/contracts/src/users/state-update.ts` (CREATE), `packages/contracts/src/index.ts` (EXTEND — named exports)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (UserStateUpdate), Spec-016 §Required Behavior, Spec-016 §State And Data Implications (display-name change MUST NOT rewrite authorship)
   - **Verifies invariant:** I-015-2, I-015-3
   - Consumes: `UserId` (session.ts, shipped)
@@ -189,7 +189,7 @@ Typed SDK (daemon-as-gateway), the renderer's user projection, CLI commands, and
 #### Tasks
 
 - **T4.1 — `user-client.ts` SDK (daemon-as-gateway).**
-  - Files: `packages/client-sdk/src/user-client.ts` (CREATE), client-sdk index barrel (EXTEND)
+  - Files: `packages/client-sdk/src/user-client.ts` (CREATE), `packages/client-sdk/src/index.ts` (EXTEND — named exports)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (the read and the update)
   - **Verifies invariant:** I-015-4
   - Consumes: the T1.1 and T1.2 contracts; `JsonRpcClient` (shipped Plan-005 substrate); `user.*` method strings (CP-015-3)
@@ -287,7 +287,7 @@ The relying party for the owner's passkeys, which the web client, the phone apps
   - Behavior: `webauthn_credentials(user_id UUID NOT NULL REFERENCES users(id), credential_id TEXT NOT NULL UNIQUE, public_key BYTEA NOT NULL, signature_counter BIGINT NOT NULL DEFAULT 0, transports TEXT[], registered_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_used_at TIMESTAMPTZ)` with a `user_id` index; `webauthn_challenges(challenge TEXT PRIMARY KEY, transaction_id UUID NOT NULL UNIQUE, user_id UUID REFERENCES users(id), ceremony TEXT NOT NULL CHECK (ceremony IN ('registration','authentication')), expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())` with an `expires_at` index for the sweep. `challenge` is the primary key because the challenge IS the selector a verification presents — a surrogate id would need a second lookup and would let two rows carry one challenge. `transaction_id` sits beside it as the correlator an **unauthenticated** caller quotes (I-015-8): the challenge is the cryptographic input the response signs over and the transaction id is the request-correlation handle, and keeping them distinct means the correlator can appear in a log or an error path without publishing the value the signature is bound to. `webauthn_challenges.user_id` is deliberately NULLABLE: a discoverable-credential sign-in issues options before any user is known, and the user is resolved from the verified response's credential id.
   - Note: `credential_id UNIQUE` is global rather than per-user. WebAuthn credential ids are authenticator-minted and unique by construction, and a global constraint additionally refuses the case a per-user one would admit — the same credential enrolled under two users, which would make a sign-in's user resolution ambiguous.
 - **T6.2 — Registration ceremony (options issue + response verification).**
-  - Files: `packages/contracts/src/users/webauthn-ceremony.ts` (CREATE — the five operations' request/response schemas), index barrel (EXTEND); `packages/control-plane/src/users/webauthn-ceremony-service.ts` (CREATE) + the procedure registration on the control plane's tRPC router + tests
+  - Files: `packages/contracts/src/users/webauthn-ceremony.ts` (CREATE — the five operations' request/response schemas), `packages/contracts/src/index.ts` (EXTEND — named exports); `packages/control-plane/src/users/webauthn-ceremony-service.ts` (CREATE) + the procedure registration on the control plane's tRPC router + tests
   - **Spec coverage:** Spec-016 §Required Behavior (server-issued single-use options; verification runs through a maintained library), Spec-016 §Interfaces And Contracts (`WebAuthnRegistrationOptionsIssue` / `WebAuthnRegistrationVerify`)
   - **Verifies invariant:** I-015-8, I-015-9
   - Consumes: `webauthn_credentials` + `webauthn_challenges` rows (T6.1); the T6.4 challenge fence; the pinned verification dependency's `generateRegistrationOptions` / `verifyRegistrationResponse`; the control plane's tRPC router (shipped); `user.webauthn_challenge_invalid` + `user.webauthn_verification_failed` (registered in `error-contracts.md`)

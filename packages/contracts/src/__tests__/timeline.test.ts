@@ -16,26 +16,31 @@ import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import type { RunRolledBackEvent } from "../run-control.js";
 import {
   CHILD_RUN_INCOMPLETE_CAUSES,
-  countEntriesFittingOneFrame,
   ChildRunCompletenessSchema,
-  ChildRunExpandResponseSchema,
   ChildRunSummarySchema,
+} from "../timeline/child-run-summary.js";
+import {
+  countEntriesFittingOneFrame,
+  ChildRunExpandResponseSchema,
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadResponseSchema,
   TIMELINE_PAGE_MAX_BYTES,
   TIMELINE_READ_LIMIT_MAX,
+  TimelineReadResponseSchema,
+} from "../timeline/operations.js";
+import {
+  TimelineBodyReadRequestSchema,
+  TimelineBodyReadResponseSchema,
+} from "../timeline/row-content.js";
+import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_ROW_SUMMARY_MAX_LEN,
   TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
-  TimelineReadResponseSchema,
   TimelineRowSchema,
-  TimelineBodyReadRequestSchema,
-  TimelineBodyReadResponseSchema,
-  TimelineSearchRequestSchema,
-  TimelineSearchResponseSchema,
-} from "../timeline/index.js";
+} from "../timeline/row.js";
+import { TimelineSearchRequestSchema, TimelineSearchResponseSchema } from "../timeline/search.js";
 
 const SESSION_ID = "6f1c9a6e-1f2b-4a3c-8d5e-0a1b2c3d4e5f";
 const OTHER_SESSION_ID = "7a2d0b7f-2e3c-4b4d-9e6f-1b2c3d4e5f60";

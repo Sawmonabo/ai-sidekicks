@@ -3,7 +3,7 @@
 // address.
 import { describe, expect, it } from "vitest";
 
-import { GITFLOW_METHOD_DESCRIPTORS } from "../gitflow/index.js";
+import { GITFLOW_METHOD_DESCRIPTORS } from "../gitflow/methods.js";
 
 const AGENT_ID = "6ba7b811-9dad-41d1-80b4-00c04fd430c8";
 const COMMIT_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
