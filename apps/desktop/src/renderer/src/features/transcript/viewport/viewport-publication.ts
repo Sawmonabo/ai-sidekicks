@@ -8,28 +8,22 @@
 // compared by identity) and which it re-reads (the three reading fields, compared by value).
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type ViewportSnapshot } from "./viewport-snapshot.js";
 
 /** Dependencies of a `ViewportPublication`. */
 export interface ViewportPublicationOptions {
-  readonly clock: Clock;
   /** Rebuild the snapshot from the frame's objects. Called once per publication. */
   readonly build: () => ViewportSnapshot;
 }
 
 /** Holds the frame's stable snapshot and notifies subscribers only when it changes. */
 export class ViewportPublication {
-  readonly #clock: Clock;
   readonly #build: () => ViewportSnapshot;
   readonly #changeEmitter = new Emitter<void>("transcript viewport snapshot");
 
   #snapshot: ViewportSnapshot;
-  #frame: ScheduledHandle | undefined;
-  #disposed = false;
 
   public constructor(options: ViewportPublicationOptions) {
-    this.#clock = options.clock;
     this.#build = options.build;
     this.#snapshot = options.build();
   }
@@ -39,6 +33,7 @@ export class ViewportPublication {
     return this.#snapshot;
   }
 
+  /** Hear every change to the snapshot; an unchanged publication notifies nobody. */
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changeEmitter.subscribe(sink);
   }
@@ -53,25 +48,9 @@ export class ViewportPublication {
     this.#changeEmitter.emit(undefined);
   }
 
-  /** Coalesce a burst of notifications into one publication on the next frame. */
-  public scheduleFrame(): void {
-    if (this.#frame !== undefined || this.#disposed) {
-      return;
-    }
-    this.#frame = this.#clock.scheduleFrame(() => {
-      this.#frame = undefined;
-      this.publish();
-    });
-  }
-
-  /** Terminal. The armed frame is canceled and every sink is dropped. */
+  /** Terminal. Every sink is dropped. */
   public dispose(): void {
-    if (this.#frame !== undefined) {
-      this.#clock.cancel(this.#frame);
-      this.#frame = undefined;
-    }
     this.#changeEmitter.clear();
-    this.#disposed = true;
   }
 }
 

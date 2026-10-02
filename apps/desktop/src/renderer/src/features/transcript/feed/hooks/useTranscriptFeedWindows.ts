@@ -73,10 +73,11 @@ export function useTranscriptFeedWindows(
   );
   const transcriptWindow = runGroupFold.window;
   // The reveal engine is this feed's, minted once and disposed with it; its drain state reaches
-  // the viewport. The frame coordinator is minted above both holders, the only place one object
-  // can order the whole paint: phase one is the viewport's scroll writes, phase two the drain.
+  // the viewport. The frame coordinator is minted above both holders so one object orders the
+  // paint: the reveal drain runs in its second phase, while the viewport writes `scrollTop` at
+  // once and submits nothing to the first.
   const frameCoordinator = useAnimationFrameCoordinator(inputs.clock);
-  const reveal = useReveal({ frameCoordinator });
+  const reveal = useReveal({ frameCoordinator, clock: inputs.clock });
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: transcriptWindow.viewportRows,

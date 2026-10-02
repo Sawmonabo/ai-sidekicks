@@ -77,7 +77,7 @@ function renderField(
   };
 }
 
-describe("find field — the counter is the console's own reading", () => {
+describe("find field — the counter is the app's own reading", () => {
   it("names the walkable set as the denominator when the walk is capped", () => {
     // The denominator is the set the walk can reach; the uncapped total would advertise matches
     // no step lands on.

@@ -1,20 +1,6 @@
 // One lane's text as immutable parts plus a reveal cursor. A single growing string is never
 // indexed or re-sliced (quadratic per append and per frame): a slice touches only the part under
-// the cursor, and the settled prefix is accumulated once. `append` is the single text writer and
-// its token proves growth without re-reading the source.
-
-/**
- * A receipt that the source grew by an append rather than changing underneath.
- *
- * `sequence` is per rope and monotonic, so a consumer can tell a token it has
- * already folded from one it has not without comparing text.
- */
-export interface ProvenAppendToken {
-  readonly laneId: string;
-  readonly sequence: number;
-  /** The source length after the append this token proves. */
-  readonly sourceLength: number;
-}
+// the cursor, and the settled prefix is accumulated once. `append` is the single text writer.
 
 /** One lane's text as immutable parts and a cursor that never moves backwards. */
 export class RevealTextRope {
@@ -29,21 +15,18 @@ export class RevealTextRope {
   #cursorOffsetInPart = 0;
   /** Every part the cursor has passed, concatenated exactly once as it passed. */
   #settledText = "";
-  #sequence = 0;
 
   public constructor(laneId: string) {
     this.#laneId = laneId;
   }
 
-  /** The single text writer. Empty appends mint no token — nothing grew. */
-  public append(text: string): ProvenAppendToken | undefined {
+  /** The single text writer. An empty append pushes no part: nothing grew. */
+  public append(text: string): void {
     if (text.length === 0) {
-      return undefined;
+      return;
     }
     this.#parts.push(text);
     this.#sourceLength += text.length;
-    this.#sequence += 1;
-    return { laneId: this.#laneId, sequence: this.#sequence, sourceLength: this.#sourceLength };
   }
 
   /**

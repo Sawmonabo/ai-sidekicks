@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { findInTranscript, stepFindMatch } from "./find-model.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
-import { FIND_MATCH_CAP } from "../structure/structure-caps.js";
+import { FIND_MATCH_CAP } from "./find-model.js";
 
 function searchWindow(): readonly TimelineRow[] {
   return [

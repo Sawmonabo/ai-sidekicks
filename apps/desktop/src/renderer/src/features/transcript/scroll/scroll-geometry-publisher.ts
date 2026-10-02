@@ -1,7 +1,7 @@
 // Geometry publication: derives the tail facts from three sampled numbers, holds the last
 // sample, replays it to new subscribers, and wakes them only for a sample that says something new.
-// It takes a reading rather than a scroll container: `ScrollContainer` is declared in
-// `scroll-chokepoint.ts`, which imports this module, so taking one would close an import cycle.
+// It takes a reading rather than the scroll container, so it holds no element and is driven by
+// numbers alone.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";

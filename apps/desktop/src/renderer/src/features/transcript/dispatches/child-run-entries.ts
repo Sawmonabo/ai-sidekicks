@@ -27,8 +27,7 @@ export interface ChildRunEntry {
   readonly rowId: string;
   /**
    * The latest summary this window carries for the child, whichever row carried it. The card
-   * stays anchored at `rowId` while its state, size, completeness and producing node are the
-   * newest.
+   * stays anchored at `rowId` while its state, size and completeness are the newest.
    */
   readonly summary: ChildRunSummary;
   /** The row's own actor, or `undefined` where the row named none. */

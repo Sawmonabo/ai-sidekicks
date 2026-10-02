@@ -3,7 +3,6 @@
 // that only speaks the language never loads the scheduler.
 
 import { type RevealCommitMode } from "./reveal-gate.js";
-import { type ProvenAppendToken } from "./reveal-text-rope.js";
 
 /** The four states the engine reports. Closed, and derived into a union below. */
 export const REVEAL_ENGINE_STATES = ["idle", "streaming", "catching-up", "settled"] as const;
@@ -12,11 +11,7 @@ export const REVEAL_ENGINE_STATES = ["idle", "streaming", "catching-up", "settle
 export type RevealEngineState = (typeof REVEAL_ENGINE_STATES)[number];
 
 /** Why the engine reported something. Closed: a nameless diagnostic is noise. */
-export const REVEAL_DIAGNOSTIC_KINDS = [
-  "out-of-band-source-change",
-  "transition-failed",
-  "checkpoint-dropped",
-] as const;
+export const REVEAL_DIAGNOSTIC_KINDS = ["out-of-band-source-change", "transition-failed"] as const;
 
 /** One diagnostic kind. Derived from the enumeration, never restated. */
 export type RevealDiagnosticKind = (typeof REVEAL_DIAGNOSTIC_KINDS)[number];
@@ -49,8 +44,6 @@ export interface RevealLaneState {
   /** True while the lane is taking more than its fair share to catch up. */
   readonly isCatchingUp: boolean;
   readonly isSettled: boolean;
-  /** The receipt for the most recent append, so a consumer proves growth by token. */
-  readonly appendToken: ProvenAppendToken | undefined;
 }
 
 /** One drained frame, published to every subscriber at once. */

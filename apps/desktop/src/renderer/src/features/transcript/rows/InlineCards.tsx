@@ -1,9 +1,7 @@
 // The inline cards a message carries: a chip each, and the body registered for that kind.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
-  inlineCardBody,
   inlineCardRegistry,
   type InlineCardProps,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
@@ -15,9 +13,8 @@ export interface InlineCardsProps {
 
 /**
  * The message's inline cards: a chip per card, and the body registered for its kind. The chip
- * renders whether or not a body exists, since it states that the message carries the card; only
- * the body can be missing, and an unfilled kind says so by name rather than rendering as an
- * empty region a reader would take for an empty diff.
+ * renders whether or not a body exists, since it states that the message carries the card; a
+ * kind nobody has filled draws no body.
  */
 export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
   if (props.cards.length === 0) {
@@ -28,15 +25,7 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
       {props.cards.map((card) => (
         <div className="meridian-message-card__card" key={inlineCardKey(card)}>
           <Chip label={card.kind} mono />
-          {inlineCardBody(card.kind) === undefined ? (
-            <Nothing
-              kind="not-checked"
-              placement="inline"
-              title={`No ${card.kind} card is registered in this window.`}
-            />
-          ) : (
-            inlineCardRegistry.render(card)
-          )}
+          {inlineCardRegistry.render(card)}
         </div>
       ))}
     </div>

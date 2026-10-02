@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HeadInsertion } from "./viewport-head-insertion.js";
-import { type ViewportRow } from "./viewport-snapshot.js";
-
-function rowsFrom(keys: readonly string[]): readonly ViewportRow[] {
-  return keys.map((key) => ({ key, parentKey: undefined, rootCursor: `cursor-${key}` }));
-}
+import { rowsFrom } from "./viewport-controller.test-support.js";
 
 describe("the head-growth reading", () => {
   it("counts the rows a page brought and names the cursor they start at", () => {

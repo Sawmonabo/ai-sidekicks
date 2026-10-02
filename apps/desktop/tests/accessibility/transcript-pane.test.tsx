@@ -35,7 +35,6 @@ import {
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
-import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
 import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
 
 /**
@@ -104,8 +103,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // The registration is module-scope, so it would outlive this file.
-  unregisterTranscriptRowRenderer();
   await emulateSystemScheme("light");
 });
 
@@ -134,7 +131,7 @@ describe("accessibility — the transcript", () => {
 
       // The same control from the other side: the pane must actually have reached the empty
       // state, which a scenario that grew a beat would silently stop doing.
-      expect(container.textContent).toContain("Nothing has happened in this session yet.");
+      expect(container.textContent).toContain("No messages yet. Say what you are after.");
       expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);

@@ -1,6 +1,6 @@
-// The seam vocabulary: which seams the transcript draws, what each reads, and how it is marked.
-// A seam is one line, never a message row or block, so a binding carries named parts rather than
-// prose. Each binding carries its wire types verbatim. Classification is in
+// The system message vocabulary: which system messages the transcript draws, what each reads, and
+// how it is marked. A system message is one line, never a message row or block. Each binding
+// carries its wire types verbatim. Classification is in
 // `system-message-classifier.ts`, which takes this table as its closed input.
 
 import {
@@ -11,9 +11,9 @@ import {
 import { type GlyphName } from "@renderer/styles/glyphs.js";
 
 /**
- * Every seam the transcript draws. Closed; `SystemMessageKind` derives from this tuple so the
- * classifier's lookup and the binding table cannot come apart. A pause and a continue land no
- * row, so no run-state kind is here.
+ * Every system message the transcript draws. Closed; `SystemMessageKind` derives from this tuple
+ * so the classifier's lookup and the binding table cannot come apart. A pause and a continue land
+ * no row, so no run-state kind is here.
  */
 export const SYSTEM_MESSAGE_KINDS = [
   "provider-switch",
@@ -22,25 +22,22 @@ export const SYSTEM_MESSAGE_KINDS = [
   "rollback",
 ] as const;
 
-/** The closed set of seam kinds. */
+/** The closed set of system message kinds. */
 export type SystemMessageKind = (typeof SYSTEM_MESSAGE_KINDS)[number];
 
-/** What one seam kind reads, and how it is drawn. */
+/** What one system message kind reads, and how it is drawn. */
 export interface SystemMessageBinding {
   readonly kind: SystemMessageKind;
-  /**
-   * What the one-line row calls this seam. The console's words, not the wire's: the wire type
-   * is rendered beside it verbatim in mono.
-   */
+  /** The act's name the one-line row reads: the app's words, never the wire's. */
   readonly label: string;
-  /** The wire event types that produce this seam, verbatim. */
+  /** The wire event types that produce this system message, verbatim. */
   readonly wireTypes: readonly string[];
   /**
    * The glyph the one-line row carries. The glyph set has no rewind or fold glyph, so a
    * rollback takes `clock` and a compaction takes `chevron-down`.
    */
   readonly glyph: GlyphName;
-  /** Whether the seam is drawn as a caution; only the failed switch is. */
+  /** Whether the system message is drawn as a caution; only the failed switch is. */
   readonly isCaution: boolean;
 }
 

@@ -3,6 +3,8 @@
 // or shows raw markers that vanish a frame later. The gate does not parse: it finds how far
 // back from the revealed cursor the last safe character is, and the engine publishes to there.
 
+import { REVEAL_LITERAL_BACKTRACK_CAP } from "./reveal-caps.js";
+
 /**
  * How a delta relates to what the lane holds. `direct` is a trusted append; `authoritative` is
  * the producer's whole source, checked to extend what the lane holds and reported when it does
@@ -102,4 +104,3 @@ function startsLine(text: string, index: number): boolean {
   }
   return true;
 }
-import { REVEAL_LITERAL_BACKTRACK_CAP } from "../frame/frame-caps.js";

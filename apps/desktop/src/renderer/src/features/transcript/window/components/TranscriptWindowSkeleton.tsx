@@ -36,7 +36,7 @@ export function TranscriptWindowSkeleton(
       className="meridian-transcript-window-skeleton"
       role="status"
       aria-busy="true"
-      aria-label="Reading this session's entries."
+      aria-label="Loading…"
     >
       {SKELETON_ROW_KEYS.map((key) => (
         <span key={key} className="meridian-transcript-window-skeleton__row" aria-hidden="true" />

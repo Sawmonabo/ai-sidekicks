@@ -2,11 +2,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  OVER_CAP_EVENT_COUNT,
-  renderFeed,
-  withLaidOutViewport,
-} from "./TranscriptFeed.test-support.js";
+import { OVER_CAP_EVENT_COUNT, renderFeed } from "./TranscriptFeed.test-support.js";
+import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
 import { openSessionStoreWithGeneralLog } from "../../transcript-logs.test-support.js";
 
 afterEach(() => {

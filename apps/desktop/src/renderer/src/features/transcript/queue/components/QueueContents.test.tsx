@@ -3,26 +3,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { readQueueItemId } from "@renderer/services/daemon/wire-identifiers.js";
-import type { QueueItemSummary } from "@ai-sidekicks/contracts";
-
 import type { QueueFeed } from "../queue-reading.js";
 import { QueueContents } from "./QueueContents.js";
-
-function queueItem(rawId: string, state: QueueItemSummary["state"]): QueueItemSummary {
-  const id = readQueueItemId(rawId);
-  if (id === undefined) {
-    throw new Error("the queue-row fixture names an item identifier the wire refuses");
-  }
-  return {
-    id,
-    state,
-    priority: 0,
-    content: "Also run the linter",
-    createdAt: "2026-09-02T09:00:00.000Z",
-    updatedAt: "2026-09-02T09:00:00.000Z",
-  };
-}
+import { queueRow } from "../queue-feed.test-support.js";
 
 function readFeed(items: QueueFeed["items"]): QueueFeed {
   return {
@@ -36,9 +19,9 @@ function readFeed(items: QueueFeed["items"]): QueueFeed {
 
 /** The daemon's order: the admitted head first, then the two rows still waiting. */
 const THREE_ROWS: QueueFeed["items"] = [
-  queueItem("3f1c9a52-7e64-4b0d-9a13-5c8e2d7b6f01", "admitted"),
-  queueItem("8a4d2e61-15b3-4c79-8e20-1f9b7c3a5d02", "queued"),
-  queueItem("c2b7f930-6d48-4e15-b7a4-9e0d1c8f3a03", "queued"),
+  queueRow("3f1c9a52-7e64-4b0d-9a13-5c8e2d7b6f01", "admitted", "2026-09-02T09:00:00.000Z"),
+  queueRow("8a4d2e61-15b3-4c79-8e20-1f9b7c3a5d02", "queued", "2026-09-02T09:00:00.000Z"),
+  queueRow("c2b7f930-6d48-4e15-b7a4-9e0d1c8f3a03", "queued", "2026-09-02T09:00:00.000Z"),
 ];
 
 function renderQueue(): HTMLElement {

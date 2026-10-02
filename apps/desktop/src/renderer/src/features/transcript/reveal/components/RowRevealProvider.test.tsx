@@ -45,7 +45,10 @@ function RevealHost(props: {
   readonly laneIds: readonly string[];
   readonly onBinding: (binding: RevealBinding) => void;
 }): React.JSX.Element {
-  const reveal = useReveal({ frameCoordinator: useAnimationFrameCoordinator(props.clock) });
+  const reveal = useReveal({
+    frameCoordinator: useAnimationFrameCoordinator(props.clock),
+    clock: props.clock,
+  });
   props.onBinding(reveal);
   return (
     <RowRevealProvider channel={reveal.channel}>

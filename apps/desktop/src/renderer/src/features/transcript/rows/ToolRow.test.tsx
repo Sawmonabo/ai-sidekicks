@@ -28,7 +28,6 @@ function renderToolCard(
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}
-      toolKindRenderer={undefined}
       {...(overrides.body === undefined
         ? {}
         : { content: { status: "available", body: overrides.body } as const })}
@@ -51,21 +50,20 @@ describe("a collapsed tool row", () => {
 });
 
 describe("an opened tool row", () => {
-  it("renders a result body as prose, which is what the wire leaves undeclared", () => {
-    // A tool result carries no content type, so nothing on the wire says it is terminal output;
-    // the ANSI renderer would show an MCP reply or web-search answer in a raw block with its
-    // markdown visible.
+  it("shows a result body verbatim, every line as the program printed it", () => {
+    // A tool result declares no content type, so a line like `# build` is the program's own
+    // output, never a markdown heading.
+    const body = "# build\n  step **one** done";
     const container = renderToolCard({
       type: "tool.result",
       density: "expanded",
-      payload: { toolName: "search" },
-      body: "## Findings\n\nOne **strong** match.",
+      payload: { toolName: "bash" },
+      body,
     });
 
-    const heading = container.querySelector('[role="heading"]');
-    expect(heading?.textContent).toBe("Findings");
-    expect(heading?.getAttribute("data-depth")).toBe("2");
-    expect(container.querySelector("strong")?.textContent).toBe("strong");
+    expect(container.querySelector(".meridian-machine-body__plain")?.textContent).toBe(body);
+    expect(container.querySelector('[role="heading"]')).toBeNull();
+    expect(container.querySelector("strong")).toBeNull();
     expect(container.querySelector(".meridian-ansi")).toBeNull();
   });
 });

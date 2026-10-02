@@ -27,10 +27,9 @@ export interface SelectionRangeLike {
 /**
  * The part of the platform selection this module reads and writes.
  *
- * Endpoints are read from the range and written forwards: reading `focusOffset` off a
- * same-node selection returns the start offset under this tree's test DOM (a range over `first`
- * reports anchor 4, focus 4), so anchor/focus would collapse every restore. A backwards drag
- * comes back forwards.
+ * Endpoints are read from the range and written forwards, because a same-node selection's
+ * `focusOffset` can report the start offset while the range reports both ends, and anchor and
+ * focus would then collapse every restore. A backwards drag comes back forwards.
  */
 export interface SelectionLike {
   readonly isCollapsed: boolean;

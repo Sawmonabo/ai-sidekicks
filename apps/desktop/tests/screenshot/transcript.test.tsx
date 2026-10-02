@@ -148,7 +148,7 @@ describe("screenshot — the transcript's empty state", () => {
     // handed over the wrong session. Asked of the captured element, not the whole mount, since
     // the claim is that the sentence is in the box being photographed.
     expect(transcriptBody.querySelectorAll(".meridian-transcript-row-layout")).toHaveLength(0);
-    expect(transcriptBody.textContent).toContain("Nothing has happened in this session yet.");
+    expect(transcriptBody.textContent).toContain("No messages yet. Say what you are after.");
 
     await captureSettled(transcriptBody, "empty-session-light");
   });

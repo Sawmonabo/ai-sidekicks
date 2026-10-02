@@ -11,7 +11,7 @@ import { type RetainedRowState } from "../retained-row-state-table.js";
 /** What a row body may do to the state the window holds for it. */
 export interface RetainedRowStateContextValue {
   /** Park this row's state on the window, where a prune re-parks rather than drops it. */
-  readonly setLease: (rowKey: string, lease: RetainedRowState) => void;
+  readonly setRetainedState: (rowKey: string, state: RetainedRowState) => void;
 }
 
 /**

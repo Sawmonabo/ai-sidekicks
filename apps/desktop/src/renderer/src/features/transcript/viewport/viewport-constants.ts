@@ -1,7 +1,14 @@
-// The transcript frame's named figures that are not ceilings. The ceilings (window cap, reveal
-// budget, walk caps, parked-lease cap) live in `../frame/frame-caps.ts`, and
-// `../rows/markdown/parse/segmentation-measures.ts` is the transcript's only other file of this
-// kind. Every value here is spent in `reveal/`, `viewport/` or `scroll/`.
+// The transcript viewport's named figures: the window's row ceiling and the measures the viewport
+// and the scroll chokepoint spend. The reveal engine's figures are in `../reveal/reveal-caps.ts`.
+
+/**
+ * Top-level rows the transcript window retains before the oldest are pruned.
+ *
+ * A ceiling: Chromium places no element taller than 33,554,431 px, so an uncapped log
+ * eventually renders rows the browser cannot place. Four hundred rows is several screens of
+ * scrollback, as far back as a person reads before reaching for find.
+ */
+export const TRANSCRIPT_WINDOW_ROW_CAP = 400;
 
 /**
  * Rows rendered beyond each edge of the viewport.
@@ -40,20 +47,6 @@ export const TRANSCRIPT_GEOMETRY_EPSILON_PX = 0.5;
  * concurrent user scroll landing between the write and the read.
  */
 export const SCROLL_QUANTIZATION_SAMPLE_COUNT = 2;
-
-/**
- * The largest multiple of its fair share a lane behind the others may take: catch-up raises a
- * lane's rate and never jumps it. Three is visible and still leaves two thirds of the frame's
- * budget for the lanes keeping pace.
- */
-export const REVEAL_CATCH_UP_MULTIPLIER = 3;
-
-/**
- * Characters of already-revealed text the gate is shown behind the cursor: enough to see the
- * start of the cursor's line for the digit-period carve-out, small enough to rebuild in constant
- * time however long the message grows.
- */
-export const REVEAL_GATE_TAIL_CHARACTERS = 64;
 
 /**
  * How long the transcript must have been still for the next activity to trim first, in

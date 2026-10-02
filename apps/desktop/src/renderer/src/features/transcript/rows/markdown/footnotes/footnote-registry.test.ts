@@ -1,8 +1,7 @@
 import type { RootContent } from "mdast";
 import { describe, expect, it } from "vitest";
 
-import { FOOTNOTE_DEFINITION_CAP } from "../../../cards/card-caps.js";
-import { FootnoteRegistry } from "./footnote-registry.js";
+import { FOOTNOTE_DEFINITION_CAP, FootnoteRegistry } from "./footnote-registry.js";
 
 const BODY: readonly RootContent[] = [
   { type: "paragraph", children: [{ type: "text", value: "the note" }] },
@@ -21,7 +20,7 @@ describe("the footnote registry", () => {
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: [] });
-    expect(registry.definitionCount).toBe(1);
+    expect(registry.definitionsFor("event-01").size).toBe(1);
     expect(registry.definitionsFor("event-01").get("1")?.bodyNodes).toStrictEqual([]);
   });
 
@@ -46,7 +45,7 @@ describe("the footnote registry", () => {
     for (let index = 0; index < FOOTNOTE_DEFINITION_CAP + 5; index += 1) {
       registry.register({ sourceId: "event-01", identifier: String(index), bodyNodes: BODY });
     }
-    expect(registry.definitionCount).toBe(FOOTNOTE_DEFINITION_CAP);
+    expect(registry.definitionsFor("event-01").size).toBe(FOOTNOTE_DEFINITION_CAP);
     expect(registry.definitionsFor("event-01").get("0")).toBeUndefined();
     expect(
       registry.definitionsFor("event-01").get(String(FOOTNOTE_DEFINITION_CAP + 4)),

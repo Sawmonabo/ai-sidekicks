@@ -14,19 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
+import { syntheticRows, withLaidOutViewport } from "../viewport-controller.test-support.js";
 
-const VIEWPORT_HEIGHT_PX = 400;
-const CONTENT_HEIGHT_PX = 10_000;
 /** Comfortably more rows than a 400 px box can hold, so a window is the only answer. */
 const LOG_ROW_COUNT = 200;
-
-function syntheticRows(count: number): readonly ViewportRow[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    key: `row-${String(index)}`,
-    parentKey: undefined,
-    rootCursor: `cursor-${String(index)}`,
-  }));
-}
 
 const MOUNTED_ROW_SELECTOR = ".transcript-first-commit-row";
 
@@ -69,8 +60,7 @@ describe("the transcript viewport's first commit", () => {
   it("mounts rows on a box the layout has measured", () => {
     // `happy-dom` answers zero for every box, so the height is what this environment must be
     // told; everything between it and the row count is the shipped module.
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(VIEWPORT_HEIGHT_PX);
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(CONTENT_HEIGHT_PX);
+    withLaidOutViewport();
 
     const view = render(<TranscriptUnderTest rows={syntheticRows(LOG_ROW_COUNT)} />);
 

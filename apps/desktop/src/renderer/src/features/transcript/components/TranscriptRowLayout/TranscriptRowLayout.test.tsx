@@ -34,7 +34,6 @@ function basicRow(
       agentHueStep={0}
       occurredAtIso={OCCURRED_AT}
       authorLabel="Ada"
-      kindLabel="assistant.message"
       {...overrides}
     />,
   );

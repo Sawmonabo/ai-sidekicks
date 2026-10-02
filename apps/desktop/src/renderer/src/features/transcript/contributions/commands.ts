@@ -7,12 +7,14 @@ import { raiseCommandRefusal } from "@renderer/registries/commands/command-refus
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import {
+  forwardActs,
   mountedTranscript,
   type TranscriptActName,
   type TranscriptActs,
   type MountedTranscript,
 } from "../mounted-transcript.js";
 import { TRANSCRIPT_KEY_BINDINGS, WHEN_SESSION_ACTIVE } from "./keybindings.js";
+import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**
  * The palette group every transcript command sits under. One binding because the group is also
@@ -68,52 +70,23 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
 }
 
 /**
- * The owner string of the transcript's command contribution, shared with its screen and pane
- * claims. The registry is owner-scoped, so composing twice replaces the rows instead of
- * raising on their ids.
- */
-export const TRANSCRIPT_COMMAND_OWNER = "transcript";
-
-/**
- * Contribute the transcript's commands and chords to a window. Takes the registry so a test
- * contributes into one it owns.
+ * Contribute the transcript's commands and chords to a window, under the owner its screen and
+ * pane claims carry. The registry is owner-scoped, so composing twice replaces the rows instead
+ * of raising on their ids. Takes the registry so a test contributes into one it owns.
  */
 export function registerTranscriptCommands(
   registry: CommandContributionRegistry,
   transcript: MountedTranscript = mountedTranscript,
 ): void {
   registry.contribute({
-    owner: TRANSCRIPT_COMMAND_OWNER,
-    commands: createTranscriptCommands(actsOnTheMountedTranscript(transcript)),
+    owner: TRANSCRIPT_OWNER,
+    commands: createTranscriptCommands(
+      forwardActs((act) => {
+        performOnMountedTranscript(transcript, act);
+      }),
+    ),
     keyBindings: TRANSCRIPT_KEY_BINDINGS,
   });
-}
-
-/**
- * The act set every contributed command runs through. Written out rather than derived from a
- * name list, so an act added to `TranscriptActs` fails to compile here.
- */
-function actsOnTheMountedTranscript(transcript: MountedTranscript): TranscriptActs {
-  const perform = (act: TranscriptActName): void => {
-    performOnMountedTranscript(transcript, act);
-  };
-  return {
-    openFind: () => {
-      perform("openFind");
-    },
-    stepFindNext: () => {
-      perform("stepFindNext");
-    },
-    stepFindPrevious: () => {
-      perform("stepFindPrevious");
-    },
-    jumpToLatest: () => {
-      perform("jumpToLatest");
-    },
-    foldEveryRun: () => {
-      perform("foldEveryRun");
-    },
-  };
 }
 
 /**

@@ -14,7 +14,6 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
   it("settles a block once the lag has moved past it", () => {
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment(FIVE_PARAGRAPHS);
-    expect(segmenter.completeBlockCount).toBe(3);
     expect(segmentation.settledBlocks).toHaveLength(3 - MARKDOWN_SETTLE_LAG_BLOCKS);
     expect(segmentation.settledBlocks[0]).toContain("one");
     expect(segmentation.volatileTail).toContain("five");
@@ -77,11 +76,11 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
   });
 
   it("a blank run at the end of the snapshot commits nothing", () => {
-    const segmenter = new MarkdownBlockSegmenter();
-    const segmentation = segmenter.segment("one\n\ntwo\n\nthree");
-    expect(segmenter.completeBlockCount).toBe(1);
-    expect(segmentation.volatileTail).toContain("two");
-    expect(segmentation.volatileTail).toContain("three");
+    // The last line is whole in both, so only the blank run after it differs.
+    const withoutBlankRun = new MarkdownBlockSegmenter().segment(`${FIVE_PARAGRAPHS}\n`);
+    const withBlankRun = new MarkdownBlockSegmenter().segment(`${FIVE_PARAGRAPHS}\n\n\n`);
+    expect(withBlankRun.settledBlocks).toStrictEqual(withoutBlankRun.settledBlocks);
+    expect(withBlankRun.volatileTail).toContain("five");
   });
 });
 

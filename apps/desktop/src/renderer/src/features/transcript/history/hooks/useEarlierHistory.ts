@@ -1,11 +1,11 @@
 // The React side of the backward walk: one reader per session, and the act a control presses.
 // Held per session and bridge, not per mount: session stores stay open across navigation, and
 // a bridge replacement retires every call in flight. It is a resource, so re-addressing
-// abandons the old walk's read line. The state is re-derived, never mirrored.
+// abandons the old walk's read line. The state is the reader's own, read as an external store
+// that changes when the walk moves or the store's window does.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -56,39 +56,20 @@ export function useEarlierHistory(
     EARLIER_WINDOW_READER_DISPOSAL,
   );
   const reader = held.value;
-  // A settled read changes the reader's fields but nothing React watches, so a counter says so;
-  // the state itself is re-derived below.
-  const [settlements, setSettlements] = useState(0);
-  // The store facts the walk's base is read from. `revision` covers a re-pull that
-  // re-established the same head and dropped prepended rows, which moves no cursor.
-  const windowHeadCursor = useSessionStore(sessionStore, readWindowHeadCursor);
-  const revision = useSessionStore(sessionStore, readRevision);
-  const state = useMemo(() => {
-    // Neither is read here; both are the reason this is re-asked.
-    void windowHeadCursor;
-    void revision;
-    void settlements;
-    return reader.state(sessionStore);
-  }, [reader, sessionStore, windowHeadCursor, revision, settlements]);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const unsubscribeReader = reader.subscribe(onChange);
+      const unsubscribeStore = sessionStore.readable.subscribe(onChange);
+      return () => {
+        unsubscribeReader();
+        unsubscribeStore();
+      };
+    },
+    [reader, sessionStore],
+  );
+  const state = useSyncExternalStore(subscribe, () => reader.state(sessionStore));
   const loadEarlier = useCallback(() => {
-    const settle = (): void => {
-      setSettlements((current) => current + 1);
-    };
-    // Settled before the call too, so the in-flight state is reachable: the reader raises its
-    // flag synchronously and nothing else tells React.
-    settle();
-    void reader.loadEarlier(readEarlierPage, sessionStore).then(settle, settle);
+    void reader.loadEarlier(readEarlierPage, sessionStore);
   }, [readEarlierPage, reader, sessionStore]);
   return useMemo(() => ({ ...state, loadEarlier }), [state, loadEarlier]);
-}
-
-/** Stable selectors, so the subscription does not re-subscribe every render. */
-function readWindowHeadCursor(state: {
-  readonly windowHeadCursor: string | undefined;
-}): string | undefined {
-  return state.windowHeadCursor;
-}
-
-function readRevision(state: { readonly revision: number }): number {
-  return state.revision;
 }

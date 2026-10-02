@@ -2,12 +2,20 @@
 // built from tool output would have to be injected, which the transcript never does.
 // Colors are names (`use_classes: true` reports `ansi-red`), not the tool's RGB values. Blink and
 // conceal are not reproduced; 256-color and true-color runs render in the inherited foreground.
-// Extended colors carry the tool's own palette and the console has no honest mapping onto its
+// Extended colors carry the tool's own palette and the app has no honest mapping onto its
 // twelve-step wheel, so those spans inherit the foreground rather than take a nearest guess.
 
 import Anser from "anser";
 
 import { withoutResidualEscapes } from "./escape-sequences.js";
+
+/**
+ * ANSI chunks one command-output body renders before the rest is folded away. `anser` yields
+ * one entry per style run, so the cap is on the mapped spans, which become DOM nodes. It is
+ * the first render's cap, not a ceiling: `AnsiOutput` offers a control that re-parses the
+ * source under a cap admitting every run, because reopening re-parses the same capped sequence.
+ */
+export const ANSI_SPAN_RENDER_CAP = 4096;
 
 /**
  * One parsed run, derived from `ansiToJson`'s return type: `anser` publishes `export = Anser`,
@@ -40,21 +48,21 @@ export const ANSI_COLOR_NAMES = [
 export type AnsiColorName = (typeof ANSI_COLOR_NAMES)[number];
 
 /**
- * The console's own default foreground and background, as channel values a span can paint.
+ * The app's own default foreground and background, as channel values a span can paint.
  * Only reverse video uses them, for a channel the stream left unset; `styles/palette.ts` binds
  * them to the tokens the body itself reads. A span the stream did not reverse never carries one.
  */
 export const ANSI_DEFAULT_COLORS = ["default-foreground", "default-background"] as const;
 
-/** One console default, as a channel value. */
+/** One app default, as a channel value. */
 export type AnsiDefaultColor = (typeof ANSI_DEFAULT_COLORS)[number];
 
-/** Everything one channel can paint: a stream's color, or the console's own default. */
+/** Everything one channel can paint: a stream's color, or the app's own default. */
 export type AnsiRenderedColor = AnsiColorName | AnsiDefaultColor;
 
 /**
- * The decorations the console reproduces. `blink` and `hidden` are absent on purpose: a tool's
- * bytes must not start an animation or hide text they printed, and a test asserts it.
+ * The decorations the app reproduces. `blink` and `hidden` are absent on purpose: a tool's
+ * bytes must not start an animation or hide text they printed.
  */
 export const ANSI_DECORATIONS = ["bold", "dim", "italic", "underline", "strikethrough"] as const;
 
@@ -125,14 +133,6 @@ export function parseAnsiSpans(
   return { spans, elidedSpanCount };
 }
 
-/**
- * Whether a decoration is one the console reproduces. Exported so a test can assert that
- * `blink` and `hidden` are not.
- */
-export function isReproducedAnsiDecoration(decoration: string): decoration is AnsiDecoration {
-  return REPRODUCED_DECORATIONS.has(decoration);
-}
-
 /** The class name a foreground or background color renders under. */
 export function ansiColorClassName(channel: "fg" | "bg", color: AnsiRenderedColor): string {
   return `meridian-ansi__${channel}--${color}`;
@@ -147,7 +147,7 @@ export function ansiDecorationClassName(decoration: AnsiDecoration): string {
  * Every class one span carries, in a stable order.
  *
  * The reverse-video swap happens here, not in the parse: a stream that reversed without
- * setting both colors (a bare `ESC[7m` sets neither) needs the console's default for the
+ * setting both colors (a bare `ESC[7m` sets neither) needs the app's default for the
  * other channel.
  */
 export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
@@ -167,13 +167,18 @@ export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
   return names;
 }
 
+/** Whether a decoration is one the app reproduces; `blink` and `hidden` are not. */
+function isReproducedAnsiDecoration(decoration: string): decoration is AnsiDecoration {
+  return REPRODUCED_DECORATIONS.has(decoration);
+}
+
 /**
  * The colors anser substitutes for an unset channel just before its own reverse swap: white
- * foreground, black background. They are undone, because the console maps `black` and `white`
+ * foreground, black background. They are undone, because the app maps `black` and `white`
  * to muted grays, so a substituted pair would paint gray on gray.
  *
  * An explicit `ESC[40m` or `ESC[37m` under reverse is indistinguishable from the substitution
- * and also collapses to the console default; telling them apart would need a second SGR state
+ * and also collapses to the app default; telling them apart would need a second SGR state
  * machine beside the library's.
  */
 const ANSER_SUBSTITUTED_FOREGROUND: AnsiColorName = "white";
@@ -181,7 +186,7 @@ const ANSER_SUBSTITUTED_BACKGROUND: AnsiColorName = "black";
 
 function toSpan(entry: AnserJsonEntry): AnsiSpan {
   // Anser strips `reverse` from `decorations` and publishes `isInverted`, which its shipped
-  // declaration omits, hence the `in` narrowing. A test fails if the pinned library stops.
+  // declaration omits, hence the `in` narrowing.
   const isReversed = "isInverted" in entry && entry.isInverted === true;
   if (!isReversed) {
     return {
@@ -208,7 +213,7 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
 }
 
 /**
- * A color name, or `undefined` for one the console does not reproduce. Anser types the class
+ * A color name, or `undefined` for one the app does not reproduce. Anser types the class
  * as `string` but sets `null` when no color applies.
  */
 function resolveColor(anserClass: string | null | undefined): AnsiColorName | undefined {
@@ -217,4 +222,3 @@ function resolveColor(anserClass: string | null | undefined): AnsiColorName | un
   }
   return COLOR_NAMES_BY_ANSER_CLASS.get(anserClass);
 }
-import { ANSI_SPAN_RENDER_CAP } from "../../cards/card-caps.js";

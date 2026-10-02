@@ -13,22 +13,8 @@ import {
 
 import "./thinking.css";
 
-/** What the row hands a supplied body. */
-export interface ThinkingRowBodyProps {
-  readonly runId: RunId;
-  readonly reading: ReasoningReading;
-}
-
 /** What a mount hands the reasoning row. */
 export interface ThinkingRowProps {
-  /**
-   * A body that replaces the built-in view, or `undefined` while the row draws itself.
-   *
-   * Required and carrying `undefined` rather than optional, so a mount that forgot it is a
-   * compile error at the construction site rather than an absent key that renders
-   * identically to a deliberate "none".
-   */
-  readonly body: ((props: ThinkingRowBodyProps) => React.ReactNode) | undefined;
   /** The run this row's reasoning belongs to, or `undefined` where none is attributed. */
   readonly runId: RunId | undefined;
   /** Text the reveal engine is publishing for this row right now, while it streams. */
@@ -38,15 +24,8 @@ export interface ThinkingRowProps {
   readonly onExpand: () => void;
 }
 
-/** The reasoning body: the built-in view, or the supplied `body` when the run is known. */
+/** The reasoning body: the streaming tail, the read's result and the expand control. */
 export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
-  if (props.body !== undefined && props.runId !== undefined) {
-    return (
-      <div className="meridian-reasoning-surface">
-        {props.body({ runId: props.runId, reading: props.reading })}
-      </div>
-    );
-  }
   return (
     <div className="meridian-reasoning-surface">
       {renderReasoningTail(props.liveText)}
@@ -56,7 +35,6 @@ export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
   );
 }
 
-/**
 /**
  * The newest lines of a turn that is still streaming, or nothing.
  *
@@ -92,14 +70,8 @@ function renderReasoningReading(reading: ReasoningReading): React.ReactNode {
     case "reading":
       return <Nothing kind="not-loaded" placement="block" title="Reading this turn's reasoning." />;
     case "refused":
-      return (
-        <Nothing
-          kind="error"
-          placement="block"
-          title={reading.refusal.code}
-          detail={reading.refusal.detail}
-        />
-      );
+      // The daemon's own sentence; its code goes to no screen.
+      return <Nothing kind="error" placement="block" title={reading.refusal.detail} />;
     case "read":
       return renderAvailabilityArm(reading.response);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ANSI_SPAN_RENDER_CAP } from "../../cards/card-caps.js";
+import { ANSI_SPAN_RENDER_CAP } from "./ansi-spans.js";
 import { parseAnsiSpans } from "./ansi-spans.js";
 
 /** Built from its code point: a raw escape in source is invisible in a diff. */

@@ -1,4 +1,4 @@
-// The control at the window's head: reads the rows this user was never sent. It takes the
+// The control at the window's head: reads the rows this window was never sent. It takes the
 // page read as a prop, so a composition with no read mounts no control and no walk. Like
 // `JumpToLatest.tsx` it sits outside the scroll container. A button, not a scroll trigger:
 // arriving at the top must not grow the log under someone passing through.

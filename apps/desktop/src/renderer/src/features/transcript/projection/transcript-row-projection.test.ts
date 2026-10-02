@@ -112,7 +112,7 @@ describe("the log-derived row projection", () => {
     expect(boundary?.kind === "rollback_boundary" ? boundary.position : undefined).toBe(0);
   });
 
-  it("draws nothing for an event the registered census carries no category for", () => {
+  it("draws nothing for an event type with no registered category", () => {
     const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       event({ sequence: 2, kind: "run.definitely_not_registered" }),
@@ -136,8 +136,8 @@ describe("the log-derived row projection", () => {
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
     // The id is carried, not composed: the hydrated-event read is keyed `{sessionId, eventId}`
-    // and the jump-by-id field compares a pasted id against `TimelineRow.id`, so a
-    // `session:sequence` key would resolve for no caller.
+    // and a row jump finds a row by `TimelineRow.id`, so a `session:sequence` key would resolve
+    // for no caller.
     const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
     const projection = projectTranscriptRows(events);
 
@@ -181,7 +181,7 @@ describe("counting through a rewind", () => {
     ]);
   });
 
-  it("bands a second rewind over its own epoch's rows and no others", () => {
+  it("supersedes a second rewind's own epoch's rows and no others", () => {
     // A count that ran on through the first rewind would put the new epoch's rows at 5 and 6,
     // and a second rewind to the same anchor would dim a re-execution nothing rewound past.
     const supersededRow = runEvent(8, RUN_ONE);
@@ -197,11 +197,11 @@ describe("counting through a rewind", () => {
       rollbackEvent(9, RUN_ONE, 3),
     ]);
 
-    const secondEpochBands = deriveSupersededTurns(projection.rows).filter(
-      (band) => band.epoch === 1,
+    const secondEpochTurns = deriveSupersededTurns(projection.rows).filter(
+      (supersededTurns) => supersededTurns.epoch === 1,
     );
-    expect(secondEpochBands).toHaveLength(1);
-    expect(secondEpochBands[0]?.rowIds).toStrictEqual([supersededRow.id]);
+    expect(secondEpochTurns).toHaveLength(1);
+    expect(secondEpochTurns[0]?.rowIds).toStrictEqual([supersededRow.id]);
   });
 
   it("a rewind in one run leaves another run's count alone", () => {
@@ -257,7 +257,7 @@ describe("which payload member names a row's run", () => {
       projection.rows.map((row) => (row.kind === "run" ? row.runId : undefined)),
     ).toStrictEqual([RUN_ONE, RUN_ONE, RUN_ONE]);
     // And it takes its ordinal in that run's own sequence rather than sitting
-    // outside the counting: run groups fold on this number and bands rank on it.
+    // outside the counting: run groups fold on this number and superseded turns rank on it.
     expect(runOrdinals(projection.rows)).toStrictEqual([
       [0, 0],
       [1, 0],

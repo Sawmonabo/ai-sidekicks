@@ -1,13 +1,6 @@
-// A machine-authored turn recorded without content, rendered at its position. The marker name is
-// a wire value, so it renders as a wire figure bound to `DeclaredLossKind`.
-
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
+// A machine-authored turn recorded without content, rendered at its position.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-
-/** The loss this console names when a turn carries no content. */
-const UNAVAILABLE_LOSS_KIND: DeclaredLossKind = "turn_content_unavailable";
 
 /** The turn, at its position, with no content and the sentence saying so. */
 export function UnavailableBody(): React.JSX.Element {
@@ -21,7 +14,6 @@ export function UnavailableBody(): React.JSX.Element {
         placement="block"
         title="This turn was recorded without content."
         detail="The turn is shown at its position with no content."
-        action={<WireFigure value={UNAVAILABLE_LOSS_KIND} title="Declared loss" />}
       />
     </div>
   );

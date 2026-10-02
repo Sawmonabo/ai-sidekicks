@@ -108,11 +108,6 @@ export class MarkdownBlockSegmenter {
     };
   }
 
-  /** How many complete blocks the scan has found. For the segmenter's own test. */
-  public get completeBlockCount(): number {
-    return this.#completeBlocks.length;
-  }
-
   #reset(): void {
     this.#completeBlocks.length = 0;
     this.#scannedSource = "";

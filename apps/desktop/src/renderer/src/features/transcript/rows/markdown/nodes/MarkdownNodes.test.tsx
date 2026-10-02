@@ -28,7 +28,7 @@ describe("model HTML", () => {
   });
 
   it("a script tag reaches the screen as characters", () => {
-    // The no-sanitizer posture rests on this: nothing is parsed as markup.
+    // The decision to run no sanitizer rests on this: nothing is parsed as markup.
     const container = renderMarkdown("<script>alert(1)</script>\n");
     expect(container.querySelector("script")).toBeNull();
     expect(container.textContent).toContain("<script>alert(1)</script>");

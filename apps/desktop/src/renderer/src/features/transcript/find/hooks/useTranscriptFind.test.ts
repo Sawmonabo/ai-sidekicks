@@ -20,11 +20,7 @@ import {
 
 describe("the walk when the result moves under it", () => {
   function windowOver(rows: readonly TimelineRow[]): VisibleTranscriptWindow {
-    return {
-      rows,
-      prunedAwayRows: [],
-      hasEarlierRows: false,
-    };
+    return { rows, prunedAwayRows: [] };
   }
 
   function findOver(

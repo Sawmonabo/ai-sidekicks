@@ -1,4 +1,4 @@
-// The log-derived row projection: this window's event log read as `TimelineRow`s. The console
+// The log-derived row projection: this window's event log read as `TimelineRow`s. The app
 // receives raw events, not the daemon's read projection, so rows carry what the log supports
 // (id, sequence, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
 // restated, since no registered payload carries one. The id is the daemon's opaque one, carried not
@@ -21,15 +21,15 @@ import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
 /**
- * What one projection pass produced. An event the registered census carries no
- * category for draws nothing: the screen's list of rows is closed.
+ * What one projection pass produced. An event type with no registered category draws nothing:
+ * the screen's list of rows is closed.
  */
 export interface TranscriptRowProjection {
   readonly rows: readonly TimelineRow[];
 }
 
 /**
- * The registered census, read by a free-form wire type: `ProjectedSessionEvent.kind` is a
+ * The registered event categories, read by a free-form wire type: `ProjectedSessionEvent.kind` is a
  * `string`, and an event whose type this build does not know is the case this lookup answers.
  */
 const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_CATEGORY_BY_TYPE;
@@ -41,7 +41,7 @@ const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
  * Reads this window's event log as timeline rows.
  *
  * A pure fold in log order, so the same log gives the same rows and the caller can memoize on
- * the log's identity. An event kind the registered census has no category for is dropped,
+ * the log's identity. An event kind with no registered category is dropped,
  * since a guessed category would mis-filter every view downstream. `position` is the row's
  * ordinal within its run in this window, and `epoch` counts the rollback boundaries seen
  * before it, since re-execution reuses ordinals.
@@ -159,7 +159,7 @@ function commonRowFields(
  *
  * The payload is read at the bridge, not cast, because the arm's schema refines `position`
  * against `payload.targetPosition`. A payload that does not satisfy the contract is dropped,
- * since a band drawn from a bad cutoff hides real rows.
+ * since superseded turns drawn from a bad cutoff hide real rows.
  */
 function projectRollbackBoundary(
   event: ProjectedSessionEvent,

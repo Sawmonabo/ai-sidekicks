@@ -1,5 +1,4 @@
-/* The reply's and a tool result's body: `MessageContent`, `ToolOutput` and
- * `UnavailableBody`. */
+/* The reply's and a tool result's body: `MachineBody` and `UnavailableBody`. */
 
 .meridian-machine-body {
   display: flex;
@@ -15,8 +14,9 @@
 }
 
 /*
- * A body its producer declared plain text. `pre-wrap` keeps the producer's line breaks and runs
- * of spaces; `anywhere` stops a long unbroken run (a path, a hash) from widening the row.
+ * A body drawn verbatim: one its producer declared plain text, or a tool's result. `pre-wrap`
+ * keeps the producer's line breaks and runs of spaces; `anywhere` stops a long unbroken run (a
+ * path, a hash) from widening the row.
  */
 .meridian-machine-body__plain {
   margin: 0;

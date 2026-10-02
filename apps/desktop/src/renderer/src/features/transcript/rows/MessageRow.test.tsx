@@ -1,5 +1,6 @@
 // Which body a message row renders, the inline cards it hosts, and what its receipt leaves out.
 
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -106,12 +107,11 @@ describe("a message's inline cards", () => {
 });
 
 describe("the settled turn's receipt", () => {
-  it("reports no cost and no token count", () => {
+  it("reports the recorded size and no cost or token count", () => {
     const container = renderMessageCard({
       payload: { contentLength: 2048, costUsd: 0.42, tokens: 900 },
     });
     const receipt = container.querySelector(".meridian-message-card__receipt")?.textContent ?? "";
-    expect(receipt).not.toContain("0.42");
-    expect(receipt).not.toContain("900");
+    expect(receipt).toBe(`Recorded · ${formatByteQuantity(2048).text}`);
   });
 });

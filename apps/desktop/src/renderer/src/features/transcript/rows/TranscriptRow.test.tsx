@@ -3,7 +3,7 @@
 
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
@@ -11,20 +11,12 @@ import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStat
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
   registerTranscriptRowRenderer,
-  unregisterTranscriptRowRenderer,
   type TranscriptRowProps,
 } from "../transcript-row-renderer.js";
-import {
-  registerTranscriptRowFooterRenderer,
-  unregisterTranscriptRowFooterRenderer,
-} from "../transcript-row-footer-renderer.js";
+import { registerTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/transcript-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
-
-afterEach(() => {
-  unregisterTranscriptRowRenderer();
-});
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };
@@ -44,29 +36,28 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 }
 
 /**
- * The row renderer inside a list that owns its density, as a transcript does. Routing cases
- * render the row bare because routing is the renderer's alone; density is not, since the
- * renderer writes a lease and the list hands the answer back.
+ * The row renderer inside a list that owns its density, as a transcript does: the renderer
+ * writes a retained state and the list hands the answer back.
  */
 function MountedInAList(props: {
   readonly row: TranscriptRowProps["row"];
   readonly listDensity: TranscriptRowProps["density"];
-  readonly onLeaseWritten?: (rowKey: string, lease: RetainedRowState) => void;
+  readonly onRetainedStateWritten?: (rowKey: string, state: RetainedRowState) => void;
 }): React.JSX.Element {
-  const [leased, setLeased] = useState<RetainedRowState | undefined>(undefined);
+  const [retained, setRetained] = useState<RetainedRowState | undefined>(undefined);
   return (
     <InBridge>
       <RetainedRowStateProvider
         channel={{
-          setLease: (rowKey, lease) => {
-            props.onLeaseWritten?.(rowKey, lease);
-            setLeased(lease);
+          setRetainedState: (rowKey, state) => {
+            props.onRetainedStateWritten?.(rowKey, state);
+            setRetained(state);
           },
         }}
       >
         <TranscriptRow
           {...rowRendererProps(props.row)}
-          density={leased?.density ?? props.listDensity}
+          density={retained?.density ?? props.listDensity}
         />
       </RetainedRowStateProvider>
     </InBridge>
@@ -99,10 +90,6 @@ describe("routing a row to its card", () => {
 });
 
 describe("the edit control's footer renderer", () => {
-  afterEach(() => {
-    unregisterTranscriptRowFooterRenderer();
-  });
-
   function buttonLabels(container: HTMLElement): readonly (string | null)[] {
     return Array.from(container.querySelectorAll("button"), (button) => button.textContent);
   }
@@ -124,14 +111,14 @@ describe("standing in for the list's density decision", () => {
     // A `useState` here would be discarded when the virtualizer scrolls the row out of the
     // mounted range, so the choice must leave the component; this asserts on the value that
     // leaves, keyed by the row, which the window parks across a prune.
-    const written: Array<{ readonly rowKey: string; readonly lease: RetainedRowState }> = [];
+    const written: Array<{ readonly rowKey: string; readonly state: RetainedRowState }> = [];
     const row = sampleRunRow({ type: "tool.invoked" });
     const { container } = render(
       <MountedInAList
         row={row}
         listDensity="collapsed"
-        onLeaseWritten={(rowKey, lease) => {
-          written.push({ rowKey, lease });
+        onRetainedStateWritten={(rowKey, state) => {
+          written.push({ rowKey, state });
         }}
       />,
     );
@@ -139,7 +126,7 @@ describe("standing in for the list's density decision", () => {
 
     pressDisclosure(container);
     expect(written).toStrictEqual([
-      { rowKey: row.id, lease: { density: "expanded", innerScrollTopPx: 0 } },
+      { rowKey: row.id, state: { density: "expanded", innerScrollTopPx: 0 } },
     ]);
     expect(disclosureState(container)).toBe("true");
   });

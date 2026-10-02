@@ -6,10 +6,19 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import {
-  RUN_GROUP_BODY_RETAINED_ROW_CAP,
-  RUN_GROUP_VISIBLE_ROW_CAP,
-} from "../structure/structure-caps.js";
+/**
+ * Rows a single run group renders before its body clips.
+ * A run group is a nested scroller, so the cap bounds how many rows one run mounts while
+ * sibling runs stream beside it: about four screens, without four live run groups costing a frame.
+ */
+export const RUN_GROUP_VISIBLE_ROW_CAP = 120;
+
+/**
+ * Rows one run group's body holds at all: the mounted window plus the clipped head above it.
+ * Derived from the visible cap so the two move together; the body's ring is allocated once at
+ * this length, so retention does not grow with how long the run streams.
+ */
+const RUN_GROUP_BODY_RETAINED_ROW_CAP: number = RUN_GROUP_VISIBLE_ROW_CAP * 2;
 
 /**
  * The run group body's height, as a CSS length.
@@ -72,8 +81,8 @@ const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
  *
  * A bounded ring, not the whole run: the body holds the rows immediately older than the ones the
  * outer list mounted, and `clippedRowCount` says how much older history lies beyond. One ring
- * of the newest two caps takes a single write per row; two queues moved rows with `shift()`,
- * which cost about 2.5 ms across a ten-thousand-row fold.
+ * of the newest two caps takes a single write per row, where a queue trimmed with `shift()`
+ * moves every row it holds on each admission.
  */
 export class RunGroupBodyRowWindow {
   /** The newest rows, in ring order. Never longer than the retained cap. */

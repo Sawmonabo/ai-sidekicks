@@ -16,10 +16,9 @@ export interface OverflowMeasurementBatchOptions {
    * Runs synchronously on each resize observation, before the frame is armed.
    *
    * Re-measuring clamped rows may coalesce, but publishing the box may not: it is the only
-   * way the viewport height reaches the library's rect. A deferred frame is also indefinite
-   * under a manual clock, which never runs frames unless told to; the endurance run
-   * published geometry once and ranged a 149 px viewport against the 32 px box it had at
-   * mount. A read and a notify only, and a publication of an unchanged box wakes nobody.
+   * way the viewport height reaches the library's rect, and a manual clock never runs a frame
+   * unless told to, so a publication waiting on one would never arrive. A read and a notify
+   * only, and a publication of an unchanged box wakes nobody.
    */
   readonly publishOnResize: () => void;
 }
@@ -51,30 +50,18 @@ export class OverflowMeasurementBatch {
     });
   }
 
-  /**
-   * Re-runs the pass whenever the observed subject resizes.
-   *
-   * Typed as `object` so the module needs no scroll-container type; a subject that is not an
-   * element (a unit tier drives one) is skipped.
-   */
-  public observeResize(candidate: object): void {
-    if (this.#disposed || !(candidate instanceof Element)) {
+  /** Re-runs the pass whenever the observed element resizes. */
+  public observeResize(element: Element): void {
+    if (this.#disposed) {
       return;
     }
-    const observerHost = globalThis as { readonly ResizeObserver?: typeof ResizeObserver };
-    const ObserverConstructor = observerHost.ResizeObserver;
-    if (ObserverConstructor === undefined) {
-      // A DOM shim without a resize observer: the pass still runs on font loading and
-      // explicit requests.
-      return;
-    }
-    const observer = new ObserverConstructor(() => {
+    const observer = new ResizeObserver(() => {
       // Publish first, then arm: the window ranges against the publication, so it must not
       // wait on a frame.
       this.#publishOnResize();
       this.request();
     });
-    observer.observe(candidate);
+    observer.observe(element);
     this.#resizeObserver = observer;
   }
 

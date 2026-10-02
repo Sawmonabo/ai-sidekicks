@@ -1,16 +1,14 @@
-// Drives the real window, ledger and ManualClock together; a stand-in would be a claim about
-// the stand-in.
+// Drives the real window, measurement table and ManualClock together; a stand-in would be a claim
+// about the stand-in.
 
 import { describe, expect, it } from "vitest";
 
 import { IdleMemoryTrim } from "./idle-trim.js";
 import { TranscriptWindow } from "./window-cap.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
+import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./viewport-constants.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PRUNABLE, TOP_LEVEL_ROW_COUNT, loadedWindow } from "./window-cap.test-support.js";
-
-/** A dwell short enough to read in a case, long enough to be advanced past. */
-const TEST_DWELL_MS = 1_000;
 
 /** The newest run group in the shared log — the one end of it the cap never drops. */
 const NEWEST_RUN_GROUP_KEY = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
@@ -37,7 +35,6 @@ function fixture(rowKeys: readonly string[] = ["row-a", "row-b"]): TrimFixture {
     clock,
     window,
     measurements,
-    dwellMs: TEST_DWELL_MS,
   });
   return { clock, window, measurements, trim };
 }
@@ -48,7 +45,7 @@ describe("the trim arms nothing", () => {
     const { clock, trim } = fixture();
     for (let beat = 0; beat < 5; beat += 1) {
       trim.noteActivity();
-      clock.advance(TEST_DWELL_MS * 2);
+      clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS * 2);
     }
     expect(clock.pendingCount).toBe(0);
   });
@@ -61,9 +58,9 @@ describe("the trim runs on the first activity after a quiet period", () => {
     for (let beat = 0; beat < 10; beat += 1) {
       measurements.acceptedHeight(`dropped-${String(beat)}`, 80);
       trim.noteActivity();
-      clock.advance(TEST_DWELL_MS - 1);
+      clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS - 1);
     }
-    expect(trim.lastPass).toBeUndefined();
+    expect(measurements.heightOf("dropped-0")).toBe(80);
   });
 });
 
@@ -73,11 +70,11 @@ describe("the trim takes only what the frame cannot reach", () => {
     measurements.acceptedHeight("row-a", 40);
     measurements.acceptedHeight("dropped-row", 80);
     trim.noteActivity();
-    clock.advance(TEST_DWELL_MS);
+    clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS);
     trim.noteActivity();
 
-    expect(trim.lastPass?.measurementPriors).toBe(1);
-    expect(measurements.measuredRowCount).toBe(1);
+    expect(measurements.heightOf("dropped-row")).toBe(measurements.heightOf("never-measured"));
+    expect(measurements.heightOf("row-a")).toBe(40);
   });
 
   it("keeps the prior of every row the window still holds", () => {
@@ -86,21 +83,21 @@ describe("the trim takes only what the frame cannot reach", () => {
     measurements.acceptedHeight("row-a", 40);
     measurements.acceptedHeight("row-b", 60);
     trim.noteActivity();
-    clock.advance(TEST_DWELL_MS);
+    clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS);
     trim.noteActivity();
 
     expect(measurements.heightOf("row-a")).toBe(40);
     expect(measurements.heightOf("row-b")).toBe(60);
   });
 
-  it("releases parked leases and leaves live ones alone", () => {
-    // Parked through the real cap: a lease is parked because a prune dropped its row.
+  it("releases parked states and leaves live ones alone", () => {
+    // Parked through the real cap: a retained state is parked because a prune dropped its row.
     const clock = new ManualClock();
     const window = loadedWindow();
-    window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
-    window.setLease(NEWEST_RUN_GROUP_KEY, { density: "expanded", innerScrollTopPx: 30 });
+    window.setRetainedState("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
+    window.setRetainedState(NEWEST_RUN_GROUP_KEY, { density: "expanded", innerScrollTopPx: 30 });
     window.prune(PRUNABLE);
-    expect(window.lease("run-group-0")).toStrictEqual({
+    expect(window.retainedState("run-group-0")).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 44,
     });
@@ -109,15 +106,13 @@ describe("the trim takes only what the frame cannot reach", () => {
       clock,
       window,
       measurements: new RowMeasurementTable(),
-      dwellMs: TEST_DWELL_MS,
     });
     trim.noteActivity();
-    clock.advance(TEST_DWELL_MS);
+    clock.advance(TRANSCRIPT_IDLE_TRIM_DWELL_MS);
     trim.noteActivity();
 
-    expect(trim.lastPass?.parkedLeases).toBe(1);
-    expect(window.lease("run-group-0")).toBeUndefined();
-    expect(window.lease(NEWEST_RUN_GROUP_KEY)).toStrictEqual({
+    expect(window.retainedState("run-group-0")).toBeUndefined();
+    expect(window.retainedState(NEWEST_RUN_GROUP_KEY)).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 30,
     });

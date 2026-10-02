@@ -1,16 +1,13 @@
-// A resize publishes the transcript's box immediately; the row pass behind it still waits.
-// A separate file from `scroll-chokepoint.test.ts`, which drives a structural stand-in: the
-// batch's `observeResize` skips anything that is not an `Element`, so this path needs a real one.
-// `ManualClock.advance` excludes frames deliberately, and a fixture build's clock is exactly
-// that, so a publication riding the coalescing frame never arrived: on the endurance tier the
-// transcript ranged a 149 px viewport against the 32 px box it had at mount for 200 churn cycles.
+// A resize publishes the transcript's box immediately; the row pass behind it still waits. A
+// fixture clock never releases a frame on `ManualClock.advance`, so a publication that waited on
+// one would never arrive.
 
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
-import type { ScrollContainer } from "./scroll-chokepoint.js";
+import { createCountingScrollContainer } from "./scroll-container.test-support.js";
 
 let clock: ManualClock;
 
@@ -19,27 +16,6 @@ beforeEach(() => {
 });
 
 describe("the scroll chokepoint — a resize publishes the box without a frame", () => {
-  // The element is real because `observeResize` skips a structural stand-in. The geometry reads
-  // are defined onto it because `happy-dom` answers zero for each, and the box has to grow: a
-  // sample matching the one subscribers hold wakes nobody by design.
-  interface GrowableScrollContainer {
-    readonly scrollContainer: ScrollContainer;
-    growTo: (clientHeight: number) => void;
-  }
-
-  function growableElement(clientHeight: number, scrollHeight: number): GrowableScrollContainer {
-    const element = document.createElement("div");
-    let currentClientHeight = clientHeight;
-    Object.defineProperty(element, "clientHeight", { get: () => currentClientHeight });
-    Object.defineProperty(element, "scrollHeight", { get: () => scrollHeight });
-    return {
-      scrollContainer: element,
-      growTo: (grown: number) => {
-        currentClientHeight = grown;
-      },
-    };
-  }
-
   /** The observer the batch reaches for, with the callback kept so a test can fire it. */
   function installObserverCapture(): { fireResize: () => void } {
     const callbacks: (() => void)[] = [];
@@ -66,17 +42,17 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
   }
 
   it("publishes the resized box with no frame released at all", () => {
-    // The publication once rode the batch's coalescing frame, which a fixture clock never
-    // releases. `clock.runFrame()` is never called below, and that is the assertion.
+    // `clock.runFrame()` is never called below, and that is the assertion. The box has to grow:
+    // a sample matching the one subscribers hold wakes nobody by design.
     const observer = installObserverCapture();
     const controller = new ScrollController({ clock });
-    const mounted = growableElement(32, 9000);
+    const scrollContainer = createCountingScrollContainer({ clientHeight: 32, scrollHeight: 9000 });
     const received: ScrollGeometry[] = [];
 
-    controller.attach(mounted.scrollContainer);
+    controller.attach(scrollContainer);
     controller.subscribeToGeometry((geometry) => received.push(geometry));
     received.length = 0;
-    mounted.growTo(640);
+    scrollContainer.resizeTo(640, 9000);
     observer.fireResize();
 
     expect(received.map((geometry) => geometry.viewportHeight)).toStrictEqual([640]);

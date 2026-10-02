@@ -1,6 +1,6 @@
 // The find field, wired to the window it searches and the scroll writer its walk jumps through:
 // the walk that jumps to each match, and the close that hands focus back to the log. The find
-// state itself is `useTranscriptFind.ts`'; this holds only the wiring.
+// state itself is `useTranscriptFind.ts`; this holds only the wiring.
 
 import { useCallback } from "react";
 

@@ -1,7 +1,7 @@
 // React binding for the transcript viewport: creates the virtualizer and exposes what a view reads.
 //
 // `useFlushSync: false` and `directDomUpdates` exist only on `@tanstack/react-virtual`'s hook, so
-// the instance is created here; nearly all of its options are the controller's seams.
+// the instance is created here; nearly all of its options are the controller's virtualizer options.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { VirtualItem } from "@tanstack/react-virtual";
@@ -37,7 +37,7 @@ export interface TranscriptViewportBinding {
    *
    * Keyed because an index goes stale when a prune runs between the caller reading and acting on
    * it. Routed through the virtualizer's `scrollToIndex`, which the controller binds to the
-   * scroll chokepoint.
+   * scroll chokepoint; the write is a find match's, the only jump the transcript makes.
    */
   readonly jumpToRow: (rowKey: string) => void;
   /**
@@ -47,11 +47,11 @@ export interface TranscriptViewportBinding {
   readonly focusScrollContainer: () => void;
   /**
    * The state a row body parked on this window, live or re-parked after a prune.
-   * Survives an unmount and a prune, up to the parked-lease cap.
+   * Survives an unmount and a prune, up to the parked state cap.
    */
-  readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
+  readonly retainedRowState: (rowKey: string) => RetainedRowState | undefined;
   /** Park one row body's state on the window. */
-  readonly setRowLease: (rowKey: string, lease: RetainedRowState) => void;
+  readonly setRetainedRowState: (rowKey: string, state: RetainedRowState) => void;
   /**
    * What this window is showing, read when called; stable across renders.
    * A function, not a snapshot member: it is mostly layout, and publishing it through React
@@ -105,13 +105,13 @@ export function useTranscriptViewport(
     // Named here rather than left to the library's same-spelled default: a rename in the row
     // primitive would otherwise measure every row as row zero with nothing to notice.
     indexAttribute: WINDOWED_ROW_INDEX_ATTRIBUTE,
-    estimateSize: controller.seams.estimateSize,
-    getItemKey: controller.seams.getItemKey,
-    getScrollElement: controller.seams.getScrollElement,
-    scrollToFn: controller.seams.scrollToFn,
-    observeElementOffset: controller.seams.observeElementOffset,
-    observeElementRect: controller.seams.observeElementRect,
-    measureElement: controller.seams.measureElement,
+    estimateSize: controller.virtualizerOptions.estimateSize,
+    getItemKey: controller.virtualizerOptions.getItemKey,
+    getScrollElement: controller.virtualizerOptions.getScrollElement,
+    scrollToFn: controller.virtualizerOptions.scrollToFn,
+    observeElementOffset: controller.virtualizerOptions.observeElementOffset,
+    observeElementRect: controller.virtualizerOptions.observeElementRect,
+    measureElement: controller.virtualizerOptions.measureElement,
     // React 19 warns when the adapter flushes inside a lifecycle method, and offsets are written
     // to the DOM directly, so the render is not needed.
     useFlushSync: false,
@@ -163,8 +163,8 @@ export function useTranscriptViewport(
     controller.commitPendingPositionHold();
   });
 
-  // A lease write is window state, not React state; the revision only re-renders the tree.
-  const [leaseRevision, setLeaseRevision] = useState(0);
+  // A retained-state write is window state, not React state; the revision only re-renders the tree.
+  const [retainedStateRevision, setRetainedStateRevision] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
 
@@ -190,18 +190,16 @@ export function useTranscriptViewport(
     jumpToTail: useCallback(() => {
       controller.jumpToTail();
     }, [controller]),
-    rowLease: useCallback(
-      (rowKey: string) => {
-        // Read so the memo recomputes when a lease changes.
-        void leaseRevision;
-        return controller.window.lease(rowKey);
-      },
-      [controller, leaseRevision],
+    // The revision is a dependency, not a read: a write mints a new reader, so every row that
+    // compares it draws again.
+    retainedRowState: useCallback(
+      (rowKey: string) => controller.rowWindow.retainedState(rowKey),
+      [controller, retainedStateRevision],
     ),
-    setRowLease: useCallback(
-      (rowKey: string, lease: RetainedRowState) => {
-        controller.window.setLease(rowKey, lease);
-        setLeaseRevision((current) => current + 1);
+    setRetainedRowState: useCallback(
+      (rowKey: string, state: RetainedRowState) => {
+        controller.rowWindow.setRetainedState(rowKey, state);
+        setRetainedStateRevision((current) => current + 1);
       },
       [controller],
     ),
@@ -234,9 +232,11 @@ export function useTranscriptViewport(
         if (index < 0) {
           return;
         }
-        virtualizer.scrollToIndex(index, { align: "center" });
+        controller.virtualizerOptions.scrollFor("find-match", () => {
+          virtualizer.scrollToIndex(index, { align: "center" });
+        });
       },
-      [snapshot, virtualizer],
+      [controller, snapshot, virtualizer],
     ),
   };
 }

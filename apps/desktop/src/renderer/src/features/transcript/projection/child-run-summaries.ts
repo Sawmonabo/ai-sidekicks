@@ -3,14 +3,19 @@
 // parent is a child run, said by the daemon; the summary is stamped on that one row per
 // child, the only row naming both, so it takes a fresh object each pass.
 
-import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
+import {
+  type ChildRunSummary,
+  type RunId,
+  type RunState,
+  type SessionEventType,
+} from "@ai-sidekicks/contracts";
 import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
 /** The one event type that carries the child-run links. */
-const RUN_CREATED_TYPE = "run.queued";
+const RUN_CREATED_TYPE: Extract<SessionEventType, "run.queued"> = "run.queued";
 
 /** The state a creation row announces; the transition mapping deliberately omits `queued`. */
 const RUN_CREATED_STATE: RunState = "queued";

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { codeSpanCacheByteCap } from "./card-caps.js";
+import { codeSpanCacheByteCap } from "./code-span-cache-cap.js";
 
 const GIBIBYTE = 1024 * 1024 * 1024;
 const MEBIBYTE = 1024 * 1024;

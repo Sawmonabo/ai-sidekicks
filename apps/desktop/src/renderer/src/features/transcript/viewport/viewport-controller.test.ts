@@ -101,7 +101,7 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     scrollContainer.moveTo(220);
     const capturedByTheReader = controller.anchor.state.anchorPoint;
     expect(capturedByTheReader).toBeDefined();
-    controller.scroll.glideTo("deep-link", 900);
+    controller.scroll.glideTo("find-match", 900);
     expect(controller.anchor.state.anchorPoint).toBe(capturedByTheReader);
   });
 });
@@ -246,13 +246,10 @@ describe("the viewport controller — teardown", () => {
   it("disposes terminally, and arms nothing afterwards", () => {
     const { controller, clock } = attachedController();
     // An attach owes an overflow pass of its own (`scroll-chokepoint.ts` `attach`), so
-    // the publish is the SECOND armed frame and dispose has two subjects to clear.
-    controller.schedulePublish();
-    expect(clock.pendingCount).toBe(2);
+    // dispose has an armed frame to clear.
+    expect(clock.pendingCount).toBe(1);
     controller.dispose();
     expect(controller.isDisposed).toBe(true);
-    expect(clock.pendingCount).toBe(0);
-    controller.schedulePublish();
     expect(clock.pendingCount).toBe(0);
   });
 });

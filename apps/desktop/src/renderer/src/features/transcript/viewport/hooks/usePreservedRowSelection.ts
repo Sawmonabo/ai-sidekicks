@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
-import { RowSelectionGuard, type SelectionDocument } from "../selection-preservation.js";
+import { RowSelectionGuard } from "../selection-preservation.js";
 
 /** What a row attaches: a ref callback, and nothing it has to remember to call. */
 export type RowSelectionAttach = (element: HTMLElement | null) => void;
@@ -47,20 +47,8 @@ export function usePreservedRowSelection(): RowSelectionAttach {
       existing.observe(element);
       return;
     }
-    const selectionDocument = ownerDocumentOf(element);
-    if (selectionDocument === undefined) {
-      return;
-    }
-    const guard = new RowSelectionGuard(selectionDocument);
+    const guard = new RowSelectionGuard(element.ownerDocument);
     guard.observe(element);
     guardRef.current = guard;
   }, []);
-}
-
-/**
- * The document this row lives in, reached through the element so a test can drive the same
- * path with a document it controls.
- */
-function ownerDocumentOf(element: HTMLElement): SelectionDocument | undefined {
-  return (element.ownerDocument ?? undefined) as SelectionDocument | undefined;
 }

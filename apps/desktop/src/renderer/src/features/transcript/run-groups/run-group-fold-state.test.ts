@@ -9,8 +9,8 @@ import { findRunGroup, mixedWindow } from "./run-groups.test-support.js";
 import { groupRowsByRun } from "./run-groups.js";
 
 describe("run groups — collapse state never folds the live run group", () => {
-  const live = findRunGroup(groupRowsByRun(mixedWindow()).runGroups, "run-a");
-  const terminal = findRunGroup(groupRowsByRun(mixedWindow()).runGroups, "run-b");
+  const live = findRunGroup(groupRowsByRun(mixedWindow()), "run-a");
+  const terminal = findRunGroup(groupRowsByRun(mixedWindow()), "run-b");
 
   it("reports the live run group open and the terminal run group folded, before anything is clicked", () => {
     const state = new RunGroupFoldState();

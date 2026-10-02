@@ -50,7 +50,6 @@ describe("mounted transcript — which feed an act reaches", () => {
     const releaseFirst = mountedTranscript.adopt(namedActs("first", fired));
     mountedTranscript.adopt(namedActs("second", fired));
     releaseFirst();
-    expect(mountedTranscript.mountedCount).toBe(1);
     mountedTranscript.perform("foldEveryRun");
     expect(fired).toStrictEqual(["second:foldEveryRun"]);
   });
@@ -81,11 +80,10 @@ describe("mounted transcript — a component fills the holder for its lifetime",
     const mounted = render(
       createElement(TranscriptMountProbe, { name: "feed", fired, mountedTranscript }),
     );
-    expect(mountedTranscript.mountedCount).toBe(1);
     mountedTranscript.perform("jumpToLatest");
     expect(fired).toStrictEqual(["feed:jumpToLatest"]);
     mounted.unmount();
-    expect(mountedTranscript.mountedCount).toBe(0);
+    expect(mountedTranscript.perform("jumpToLatest").status).toBe("refused");
   });
 
   it("acts through the latest render's callbacks rather than the first render's", () => {

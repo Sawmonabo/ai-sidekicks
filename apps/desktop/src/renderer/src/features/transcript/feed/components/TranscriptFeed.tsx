@@ -53,25 +53,28 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // everywhere. `assignmentFor` never allocates: an actor the wheel has never admitted gets
   // `undefined` and the row renders unattributed.
   const hueForAgent = useCallback(
-    (userId: string) => props.sessionStore.hueAllocator.assignmentFor(userId),
+    (actorId: string) => props.sessionStore.hueAllocator.assignmentFor(actorId),
     [props.sessionStore],
   );
 
   const toggleRunGroup = runGroupDisclosure.toggle;
   const openedTerminalRunIds = runGroupDisclosure.openedTerminalRunIds;
-  const rowLease = viewport.rowLease;
-  const setRowLease = viewport.setRowLease;
+  const retainedRowState = viewport.retainedRowState;
+  const setRetainedRowState = viewport.setRetainedRowState;
   // Named off the props object because the callback below keys on it and `props` is a fresh
   // object every render; depending on the whole object rebuilt `renderRow` on every render and
   // re-rendered every mounted row.
   const renderTranscriptRow = props.renderTranscriptRow;
-  const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
+  const retainedStateChannel = useMemo(
+    () => ({ setRetainedState: setRetainedRowState }),
+    [setRetainedRowState],
+  );
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
     openedTerminalRunIds,
     hueForAgent,
     toggleRunGroup,
-    rowLease,
+    retainedRowState,
     renderTranscriptRow,
   });
 
@@ -89,7 +92,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   });
 
   // `Load earlier` comes from `history/`, over the producer's verdict about the log. The find box
-  // offers none: `hasEarlierRows` reports rows the store still holds, so a backward read there
+  // offers none: the rows the cap took are rows the store still holds, so a backward read there
   // would fetch rows the window already has.
   return (
     <div className="meridian-transcript-feed">
@@ -98,7 +101,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
         <TranscriptWindowNotices droppedRowCount={visible.prunedAwayRows.length} />
       </div>
       <div className="meridian-transcript-feed__body">
-        <RetainedRowStateProvider channel={rowLeaseChannel}>
+        <RetainedRowStateProvider channel={retainedStateChannel}>
           <RowRevealProvider channel={windows.reveal.channel}>
             <TranscriptViewport
               binding={viewport}

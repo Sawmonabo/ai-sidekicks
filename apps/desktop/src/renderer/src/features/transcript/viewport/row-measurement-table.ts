@@ -1,15 +1,15 @@
-// Measurement ledger for the virtualizer, covering what `@tanstack/react-virtual` does not:
+// Measurement table for the virtualizer, covering what `@tanstack/react-virtual` does not:
 //   - Epsilon: the library compares sizes exactly, so a streaming row's sub-pixel wobble would
 //     invalidate its cache every frame; `acceptedHeight` is what `measureElement` returns.
-//   - A prior ceiling: its `itemSizeCache` never evicts; this ledger's priors are bounded,
+//   - A prior ceiling: its `itemSizeCache` never evicts; this table's priors are bounded,
 //     oldest first.
 //   - Display validity: a device-pixel-ratio or root-font-size change re-lays out every row.
 //   - Duplicate keys: its caches are keyed by item key, so two rows sharing one would displace
 //     each other; a distinct virtual key per row keeps every row and counts the defect.
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,
+  TRANSCRIPT_WINDOW_ROW_CAP,
   TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
 } from "./viewport-constants.js";
 
@@ -123,30 +123,22 @@ export class RowMeasurementTable {
   }
 
   /**
-   * Forgets every prior whose row is not in `retainedRowKeys` and returns how many went.
+   * Forgets every prior whose row is not in `retainedRowKeys`.
    *
    * Reaches priors `forget` cannot: a duplicate row measured under this module's private
    * `~repeat-` key, and a row the window let go without a prune. A prior for a retained row is
    * never dropped, so nothing on screen is re-measured.
    */
-  public forgetAllExcept(retainedRowKeys: readonly string[]): number {
+  public forgetAllExcept(retainedRowKeys: readonly string[]): void {
     const retained = new Set(retainedRowKeys);
-    let forgottenCount = 0;
     for (const measuredKey of [...this.#acceptedHeightByRowKey.keys()]) {
-      if (retained.has(rowKeyOfMeasuredKey(measuredKey))) {
-        continue;
+      if (!retained.has(rowKeyOfMeasuredKey(measuredKey))) {
+        this.#acceptedHeightByRowKey.delete(measuredKey);
       }
-      this.#acceptedHeightByRowKey.delete(measuredKey);
-      forgottenCount += 1;
     }
-    return forgottenCount;
   }
 
-  public get measuredRowCount(): number {
-    return this.#acceptedHeightByRowKey.size;
-  }
-
-  /** The height this ledger would report for a row, measured or estimated. */
+  /** The height this table would report for a row, measured or estimated. */
   public heightOf(rowKey: string): number {
     return this.#acceptedHeightByRowKey.get(rowKey) ?? this.#estimatedRowHeightPx;
   }

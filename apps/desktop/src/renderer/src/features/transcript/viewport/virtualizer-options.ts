@@ -11,16 +11,20 @@ import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
+import { ScrollController } from "../scroll/scroll-chokepoint.js";
+import { type ScrollCaller } from "../scroll/scroll-callers.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
-/** What `VirtualizerOptions` reads from: the scroll chokepoint, the ledger and the key lookup. */
+/**
+ * What `VirtualizerOptions` reads from: the scroll chokepoint, the measurement table and the key
+ * lookup.
+ */
 export interface VirtualizerOptionsInputs {
   readonly scroll: ScrollController;
   readonly measurements: RowMeasurementTable;
-  /** The distinct key the measurement ledger projected for a row index. */
+  /** The distinct key the measurement table projected for a row index. */
   readonly virtualKeyAt: (index: number) => string | undefined;
 }
 
@@ -31,19 +35,25 @@ export class VirtualizerOptions {
   readonly #virtualKeyAt: (index: number) => string | undefined;
 
   #scrollContainer: HTMLElement | undefined;
+  /** Whom the library's writes are made for while a jump runs; otherwise they compensate. */
+  #jumpCaller: ScrollCaller | undefined;
 
   /** The scroll container the library and the chokepoint both address. */
   public readonly getScrollElement = (): HTMLElement | null => this.#scrollContainer ?? null;
 
   /**
-   * Every offset the library would write, performed by the one scroll writer. `adjustments` is
-   * the library's compensation for a measurement above the fold; the default adds it too.
+   * Every offset the library would write, performed by the one scroll writer and named for the
+   * jump that asked for it, or as measurement compensation. `adjustments` is the library's
+   * compensation for a measurement above the fold; the default adds it too.
    */
   public readonly scrollToFn = (
     offset: number,
     options: { adjustments?: number | undefined },
   ): void => {
-    this.#scroll.glideTo("measurement-compensation", offset + (options.adjustments ?? 0));
+    this.#scroll.glideTo(
+      this.#jumpCaller ?? "measurement-compensation",
+      offset + (options.adjustments ?? 0),
+    );
   };
 
   /** The library's scroll offset, replayed from the chokepoint's own sample. */
@@ -73,7 +83,7 @@ export class VirtualizerOptions {
 
   public readonly estimateSize = (): number => TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX;
 
-  /** The measurement ledger's verdict on an observed row height. */
+  /** The measurement table's verdict on an observed row height. */
   public readonly measureElement = (
     element: HTMLElement,
     entry: ResizeObserverEntry | undefined,
@@ -91,11 +101,21 @@ export class VirtualizerOptions {
   }
 
   /**
-   * Points the seams at the box the chokepoint just took, or at nothing. Only an `HTMLElement`
-   * is handed to the library; a test's structural stand-in leaves it detached.
+   * Run a library scroll for `caller`, so the write it makes synchronously is recorded as that
+   * caller's and two writers in one frame can be told apart.
    */
-  public bindScrollContainer(scrollContainer: ScrollContainer | undefined): void {
-    this.#scrollContainer = scrollContainer instanceof HTMLElement ? scrollContainer : undefined;
+  public scrollFor(caller: ScrollCaller, scroll: () => void): void {
+    this.#jumpCaller = caller;
+    try {
+      scroll();
+    } finally {
+      this.#jumpCaller = undefined;
+    }
+  }
+
+  /** Points the options at the box the chokepoint just took, or at nothing. */
+  public bindScrollContainer(scrollContainer: HTMLElement | undefined): void {
+    this.#scrollContainer = scrollContainer;
   }
 }
 

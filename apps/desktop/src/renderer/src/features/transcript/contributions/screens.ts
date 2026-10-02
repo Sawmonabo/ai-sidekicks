@@ -7,7 +7,6 @@ import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { type ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
 import { SessionScreenContainer } from "../SessionScreenContainer.js";
 
 /**
@@ -64,15 +63,6 @@ function mountSessionScreen(
   return createElement(
     SessionScreenContainer,
     null,
-    // Above the session screen body, never in place of it: a refused resume position does not
-    // affect the body. The component is conditional rather than its hooks, because the session
-    // id may not exist.
-    sessionId === undefined
-      ? null
-      : createElement(ResumeRefusalBanner, {
-          registry: context.sessionStoreRegistry,
-          sessionId,
-        }),
     createElement(SessionScreenBody, {
       key: sessionId ?? "no-session",
       bridge: context.bridge,

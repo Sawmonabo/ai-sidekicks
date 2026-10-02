@@ -7,8 +7,7 @@ import { carriesAnsiEscapes } from "../ansi/escape-sequences.js";
  * How a body is drawn once its bytes are in hand: `prose` is markdown, `command-output`
  * is ANSI, and `plain-text` interprets nothing.
  *
- * `plain-text` is reached only from a declared media type, never inferred, so a body
- * nobody described is never given a shape from its tool's name.
+ * A body is never given a shape from its tool's name.
  */
 export const OUTPUT_KINDS = ["prose", "plain-text", "command-output"] as const;
 
@@ -19,10 +18,10 @@ export type OutputKind = (typeof OUTPUT_KINDS)[number];
 const MARKDOWN_MEDIA_TYPES: readonly string[] = ["text/markdown", "text/x-markdown"];
 
 /**
- * Which renderer a body takes. A declaration wins: escape bytes in a declared markdown body are
+ * Which renderer a reply takes. A declaration wins: escape bytes in a declared markdown body are
  * residue the caller strips, and an unrecognized declaration (say `application/json`) takes the
- * plain arm. With no declaration, as for every tool result, a body carrying an escape is
- * command output and any other body is prose.
+ * plain arm. With no declaration, a body carrying an escape is command output and any other body
+ * is prose.
  */
 export function outputKindOf(body: string, declaredMediaType?: string | undefined): OutputKind {
   if (declaredMediaType !== undefined) {
@@ -31,6 +30,15 @@ export function outputKindOf(body: string, declaredMediaType?: string | undefine
       : "plain-text";
   }
   return carriesAnsiEscapes(body) ? "command-output" : "prose";
+}
+
+/**
+ * Which renderer a tool's result takes. Its payload declares no media type, so a body carrying an
+ * escape is command output and any other is shown verbatim, never parsed as markdown, so a line
+ * like `# build` in a program's output stays the line it printed.
+ */
+export function toolOutputKindOf(body: string): OutputKind {
+  return carriesAnsiEscapes(body) ? "command-output" : "plain-text";
 }
 
 /**

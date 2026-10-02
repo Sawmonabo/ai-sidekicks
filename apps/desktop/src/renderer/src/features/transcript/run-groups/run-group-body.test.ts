@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "./run-group-body.js";
 import {
   RunGroupBodyRowWindow,
   countClippedHeadRows,

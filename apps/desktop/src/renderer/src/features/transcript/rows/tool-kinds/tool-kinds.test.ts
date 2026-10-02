@@ -1,5 +1,5 @@
-// The reader over real payload records, fail-closed both ways: a row declaring nothing is every
-// row the daemon sends today, and an unknown value is a newer daemon. The suite never restates
+// The reader over real payload records, fail-closed both ways: a row declaring nothing is a row of
+// any registered payload, and an unknown value is a newer daemon. The suite never restates
 // the six names, so it cannot pass while the module reads a seventh.
 
 import { describe, expect, it } from "vitest";

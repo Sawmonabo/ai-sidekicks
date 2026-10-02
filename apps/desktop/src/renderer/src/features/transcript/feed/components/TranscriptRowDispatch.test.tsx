@@ -1,16 +1,16 @@
 // The dispatch for a key the window no longer holds, driven directly rather than through a
 // mounted feed, so the case does not depend on the viewport's cap and reconcile.
 
-import { render, renderHook } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 import {
-  useTranscriptRowRenderer,
-  type TranscriptRowRendererOptions,
-} from "../hooks/useTranscriptRowRenderer.js";
+  TranscriptRowDispatch,
+  type TranscriptRowDispatchOptions,
+} from "./TranscriptRowDispatch.js";
 import { TERMINAL_RUN_ID } from "../../transcript-logs.test-support.js";
 import { openSessionStoreWithTerminalRunGroup } from "../../run-group-logs.test-support.js";
 import {
@@ -30,20 +30,20 @@ function viewportRowFor(transcriptWindow: TranscriptWindowModel, key: string): V
 /** The options every case starts from, over one folded window. */
 function rendererOptions(
   transcriptWindow: TranscriptWindowModel,
-  overrides: Partial<TranscriptRowRendererOptions> = {},
-): TranscriptRowRendererOptions {
+  overrides: Partial<TranscriptRowDispatchOptions> = {},
+): TranscriptRowDispatchOptions {
   return {
     transcriptWindow,
     openedTerminalRunIds: new Set<string>(),
     hueForAgent: () => undefined,
     toggleRunGroup: () => undefined,
-    rowLease: (): RetainedRowState | undefined => undefined,
+    retainedRowState: (): RetainedRowState | undefined => undefined,
     renderTranscriptRow: () => <output data-rendered-row="yes" />,
     ...overrides,
   };
 }
 
-describe("the feed's row dispatch — which of the four a key is", () => {
+describe("the feed's row dispatch — a key the window no longer holds", () => {
   /** The run-grouped fixture, shut, which is what puts a header key in the list. */
   function foldedRunGroupWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
@@ -59,16 +59,13 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     const transcriptWindow = foldedRunGroupWindow();
     const vanished = viewportRowFor(transcriptWindow, TERMINAL_RUN_ID);
     const rowRendererCalls = vi.fn(() => <output data-rendered-row="yes" />);
-    const { result } = renderHook(() =>
-      useTranscriptRowRenderer(
-        rendererOptions(
-          // A window with neither the header nor any projected row under that key.
-          deriveTranscriptWindow([]),
-          { renderTranscriptRow: rowRendererCalls },
-        ),
-      ),
+    const { container } = render(
+      <TranscriptRowDispatch
+        row={vanished}
+        // A window with neither the header nor any projected row under that key.
+        {...rendererOptions(deriveTranscriptWindow([]), { renderTranscriptRow: rowRendererCalls })}
+      />,
     );
-    const { container } = render(<>{result.current(vanished)}</>);
 
     expect(container.textContent).toContain("This entry is no longer loaded.");
     expect(rowRendererCalls).not.toHaveBeenCalled();

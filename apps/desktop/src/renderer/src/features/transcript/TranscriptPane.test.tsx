@@ -3,13 +3,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  registerTranscriptRowRenderer,
-  unregisterTranscriptRowRenderer,
-} from "./transcript-row-renderer.js";
+import { registerTranscriptRowRenderer } from "./transcript-row-renderer.js";
 // The shared stub: `happy-dom` reports zero for both box readings, and a viewport with no
 // box holds no rows.
-import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-support.js";
+import { withLaidOutViewport } from "./viewport/viewport-controller.test-support.js";
 import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
   openSessionStoreWithPaneLog,
@@ -24,15 +21,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The registry is module-scope, so a case's renderer would leak into the next.
-  unregisterTranscriptRowRenderer();
   vi.restoreAllMocks();
 });
 
 describe("TranscriptPane — the body", () => {
   it("mounts the transcript and renders one row per admitted event", () => {
-    // Positive control: every earlier case is an absence, so a pane that rendered nothing
-    // would pass them all.
     withLaidOutViewport();
     registerTranscriptRowRenderer("transcript-pane-test", (rowProps) => (
       <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
@@ -47,6 +40,6 @@ describe("TranscriptPane — the body", () => {
       row.getAttribute("data-row-type"),
     );
     expect(rowTypes).toStrictEqual(["session.created", "run.running"]);
-    expect(pane.textContent).not.toContain("Nothing has happened in this session yet.");
+    expect(pane.textContent).not.toContain("No messages yet. Say what you are after.");
   });
 });

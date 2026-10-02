@@ -1,13 +1,20 @@
-// The row-lease table: what a row body leased, and what survives the row itself.
+// The retained row state table: what a row body retained, and what survives the row itself.
 // `window-cap.ts` decides which rows the window keeps and parks a key it is about to drop;
-// everything else about parking lives here. Leases are parked under a synthetic key rather than
+// everything else about parking lives here. States are parked under a synthetic key rather than
 // deleted, and the parked table is bounded, evicting the least recently parked.
 
-import { TRANSCRIPT_PARKED_LEASE_CAP } from "../frame/frame-caps.js";
 import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
 
 /**
- * Renderer-local state a row body leases from the list.
+ * Pruned rows whose retained state the window parks under a synthetic key.
+ *
+ * Bounded like every cache here: a person who pages back expects the row they had open to
+ * still be open, not one pruned an hour ago. One window's worth covers a page back.
+ */
+const TRANSCRIPT_PARKED_STATE_CAP = 400;
+
+/**
+ * Renderer-local state a row body keeps in the list.
  *
  * `density` is the row renderer's own type (`transcript-row-renderer.ts`), so the table parks
  * exactly what the list decides.
@@ -18,69 +25,75 @@ export interface RetainedRowState {
   readonly innerScrollTopPx: number;
 }
 
-/** The live and parked lease tables, and the one rule that moves a row between them. */
+/** The live and parked state tables, and the one rule that moves a row between them. */
 export class RetainedRowStateTable {
-  readonly #parkedLeaseCap: number;
-  readonly #leaseByRowKey = new Map<string, RetainedRowState>();
+  readonly #parkedStateCap: number;
+  readonly #liveStateByRowKey = new Map<string, RetainedRowState>();
   /** Insertion-ordered, so the cap evicts the least recently parked. */
-  readonly #parkedLeaseBySyntheticKey = new Map<string, RetainedRowState>();
+  readonly #parkedStateBySyntheticKey = new Map<string, RetainedRowState>();
 
-  public constructor(parkedLeaseCap: number = TRANSCRIPT_PARKED_LEASE_CAP) {
-    this.#parkedLeaseCap = parkedLeaseCap;
+  public constructor(parkedStateCap: number = TRANSCRIPT_PARKED_STATE_CAP) {
+    this.#parkedStateCap = parkedStateCap;
   }
 
-  /** A row body's leased state; the live table answers before the parked one. */
-  public lease(rowKey: string): RetainedRowState | undefined {
+  /** A row body's retained state; the live table answers before the parked one. */
+  public retainedState(rowKey: string): RetainedRowState | undefined {
     return (
-      this.#leaseByRowKey.get(rowKey) ??
-      this.#parkedLeaseBySyntheticKey.get(this.#syntheticKeyFor(rowKey))
+      this.#liveStateByRowKey.get(rowKey) ??
+      this.#parkedStateBySyntheticKey.get(this.#syntheticKeyFor(rowKey))
     );
   }
 
-  public setLease(rowKey: string, lease: RetainedRowState): void {
-    this.#leaseByRowKey.set(rowKey, lease);
-  }
-
-  /** How many leases are parked. The bound this table is held to is on this number. */
-  public get parkedCount(): number {
-    return this.#parkedLeaseBySyntheticKey.size;
+  /** Record what a row body retains while the window holds its row. */
+  public setRetainedState(rowKey: string, state: RetainedRowState): void {
+    this.#liveStateByRowKey.set(rowKey, state);
   }
 
   /**
-   * Move a lease from the live table to the parked one, under a synthetic key.
+   * Move a retained state from the live table to the parked one, under a synthetic key.
    *
-   * A no-op for a row that leased nothing, so the cap may call this for every key it
+   * A no-op for a row that retained nothing, so the cap may call this for every key it
    * drops without first asking whether there is anything to park.
    */
   public park(rowKey: string): void {
-    const lease = this.#leaseByRowKey.get(rowKey);
-    if (lease === undefined) {
+    const state = this.#liveStateByRowKey.get(rowKey);
+    if (state === undefined) {
       return;
     }
-    this.#leaseByRowKey.delete(rowKey);
+    this.#liveStateByRowKey.delete(rowKey);
     const syntheticKey = this.#syntheticKeyFor(rowKey);
-    this.#parkedLeaseBySyntheticKey.delete(syntheticKey);
-    this.#parkedLeaseBySyntheticKey.set(syntheticKey, lease);
-    while (this.#parkedLeaseBySyntheticKey.size > this.#parkedLeaseCap) {
-      const oldestKey = this.#parkedLeaseBySyntheticKey.keys().next().value;
+    this.#parkedStateBySyntheticKey.delete(syntheticKey);
+    this.#parkedStateBySyntheticKey.set(syntheticKey, state);
+    while (this.#parkedStateBySyntheticKey.size > this.#parkedStateCap) {
+      const oldestKey = this.#parkedStateBySyntheticKey.keys().next().value;
       if (oldestKey === undefined) {
         break;
       }
-      this.#parkedLeaseBySyntheticKey.delete(oldestKey);
+      this.#parkedStateBySyntheticKey.delete(oldestKey);
     }
   }
 
   /**
-   * Drops every parked lease and returns how many went. The idle trim (`idle-trim.ts`) calls it
-   * after a quiet period; live leases belong to rows the window holds and are untouched.
+   * Park every live state whose row is not in `presentRowKeys`, so the live table holds no more
+   * than the rows the window holds, whichever way a row left it.
    */
-  public releaseParkedLeases(): number {
-    const releasedCount = this.#parkedLeaseBySyntheticKey.size;
-    this.#parkedLeaseBySyntheticKey.clear();
-    return releasedCount;
+  public parkAllExcept(presentRowKeys: ReadonlySet<string>): void {
+    for (const rowKey of [...this.#liveStateByRowKey.keys()]) {
+      if (!presentRowKeys.has(rowKey)) {
+        this.park(rowKey);
+      }
+    }
   }
 
-  /** The parked key, prefixed so a lookup can never mistake a parked lease for a live one. */
+  /**
+   * Drops every parked state. The idle trim (`idle-trim.ts`) calls it after a quiet period;
+   * live states belong to rows the window holds and are untouched.
+   */
+  public releaseParkedStates(): void {
+    this.#parkedStateBySyntheticKey.clear();
+  }
+
+  /** The parked key, prefixed so a lookup can never mistake a parked state for a live one. */
   #syntheticKeyFor(rowKey: string): string {
     return `parked:${rowKey}`;
   }

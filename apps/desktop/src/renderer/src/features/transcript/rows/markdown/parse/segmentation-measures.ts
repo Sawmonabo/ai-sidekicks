@@ -1,4 +1,5 @@
-// Figures for the markdown segmenter that are not memory ceilings; those live in `card-caps.ts`.
+// Figures for the markdown segmenter that are not memory ceilings; the block cache's byte ceiling
+// is in `markdown-parse.ts`.
 
 /**
  * Complete blocks held back from the settled set, behind the incomplete tail.

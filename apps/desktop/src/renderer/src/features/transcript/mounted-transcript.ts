@@ -27,6 +27,30 @@ export type TranscriptActOutcome =
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
+ * An act set whose every act hands its name to `perform`. Written out rather than derived from
+ * a name list, so an act added to `TranscriptActs` fails to compile here.
+ */
+export function forwardActs(perform: (act: TranscriptActName) => void): TranscriptActs {
+  return {
+    openFind: () => {
+      perform("openFind");
+    },
+    stepFindNext: () => {
+      perform("stepFindNext");
+    },
+    stepFindPrevious: () => {
+      perform("stepFindPrevious");
+    },
+    jumpToLatest: () => {
+      perform("jumpToLatest");
+    },
+    foldEveryRun: () => {
+      perform("foldEveryRun");
+    },
+  };
+}
+
+/**
  * What an act says when no transcript is mounted. One value, since the person needs to know
  * the transcript is not here, not which act they reached for.
  */
@@ -51,19 +75,9 @@ export class MountedTranscript {
     };
   }
 
-  /** The transcript a command acts on, or `undefined` while none is mounted. */
-  public current(): TranscriptActs | undefined {
-    return this.#adopted[this.#adopted.length - 1];
-  }
-
-  /** How many mounts are adopted. Read by tests. */
-  public get mountedCount(): number {
-    return this.#adopted.length;
-  }
-
   /** Perform one act on the mounted transcript, or answer why it could not be. */
   public perform(act: TranscriptActName): TranscriptActOutcome {
-    const acts = this.current();
+    const acts = this.#adopted.at(-1);
     if (acts === undefined) {
       return { status: "refused", refusal: TRANSCRIPT_NOT_MOUNTED_REFUSAL };
     }

@@ -15,12 +15,10 @@ function renderThinkingRow(
     readonly liveText?: string;
     readonly reading?: ReasoningReading;
     readonly onExpand?: () => void;
-    readonly body?: (props: { readonly runId: RunId }) => React.ReactNode;
   } = {},
 ): HTMLElement {
   const { container } = render(
     <ThinkingRow
-      body={overrides.body}
       runId={"runId" in overrides ? overrides.runId : SAMPLE_RUN_ID}
       liveText={overrides.liveText}
       reading={overrides.reading ?? { status: "not-asked" }}
@@ -85,14 +83,14 @@ describe("the expand control", () => {
 });
 
 describe("the states around the read", () => {
-  it("renders a refusal with the daemon's own code", () => {
+  it("renders a refusal as the daemon's own sentence, never its code", () => {
     const container = renderThinkingRow({
       reading: {
         status: "refused",
         refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
       },
     });
-    expect(container.textContent).toContain("timeline.run_not_found");
     expect(container.textContent).toContain("No such run.");
+    expect(container.textContent).not.toContain("timeline.run_not_found");
   });
 });

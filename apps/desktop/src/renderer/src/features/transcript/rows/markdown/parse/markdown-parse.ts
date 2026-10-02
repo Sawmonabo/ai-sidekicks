@@ -10,6 +10,13 @@ import remend from "remend";
 
 import { ByteBoundedCache } from "./byte-bounded-cache.js";
 
+/**
+ * Bytes of parsed-block cache retained across every card. Bounded in bytes, not entries,
+ * because block sizes span four orders of magnitude; charged against the source text, which
+ * is the cache key.
+ */
+const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
+
 /** The document a parse produces. Derived from the parser, never restated. */
 export type MarkdownRoot = ReturnType<typeof fromMarkdown>;
 
@@ -28,7 +35,9 @@ const REMEND_OPTIONS = { inlineKatex: false, linkMode: "protocol" } as const;
  */
 function parseMarkdown(source: string): MarkdownRoot {
   return fromMarkdown(source, {
-    extensions: [gfm()],
+    // A single tilde is never strikethrough, so a figure like `~240MB` or a path under `~`
+    // stays the text the agent wrote; the library reads one tilde as strikethrough by default.
+    extensions: [gfm({ singleTilde: false })],
     mdastExtensions: [gfmFromMarkdown()],
   });
 }
@@ -127,4 +136,3 @@ function parseAgainstDefinitions(blockSource: string, definitionPreamble: string
     ),
   };
 }
-import { MARKDOWN_BLOCK_CACHE_BYTE_CAP } from "../../../cards/card-caps.js";

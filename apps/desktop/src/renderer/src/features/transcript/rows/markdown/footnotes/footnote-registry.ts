@@ -6,6 +6,15 @@
 
 import type { RootContent } from "mdast";
 
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+
+/**
+ * Footnote definitions one transcript's registry retains. A definition belongs to a message
+ * and a log holds `TRANSCRIPT_WINDOW_ROW_CAP` rows, so a few per retained row is everything
+ * that can be opened.
+ */
+export const FOOTNOTE_DEFINITION_CAP = 2048;
+
 /**
  * The separator the composite key is built with. NUL, because labels may contain spaces, colons
  * and slashes; an event id is a wire identifier, and commonmark replaces a literal NUL in a
@@ -103,10 +112,6 @@ export class FootnoteRegistry {
     });
   }
 
-  public get definitionCount(): number {
-    return this.#definitionsByKey.size;
-  }
-
   /**
    * Retires the stale views, then tells the sinks, in that order: a sink reads the snapshot
    * back synchronously, so announcing before invalidating would hand it a stale view.
@@ -135,5 +140,3 @@ function sourceOfKey(key: string): string {
   const boundary = key.indexOf(FOOTNOTE_KEY_SEPARATOR);
   return boundary === -1 ? key : key.slice(0, boundary);
 }
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { FOOTNOTE_DEFINITION_CAP } from "../../../cards/card-caps.js";

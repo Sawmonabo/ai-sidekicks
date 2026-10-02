@@ -1,8 +1,8 @@
 /* The transcript's cross-directory styles: the session screen's container
  * (`SessionScreenContainer.tsx`), the loaded feed's grid (`feed/components/TranscriptFeed.tsx`),
- * and `.meridian-transcript-retry`, worn by the viewport's failed-row control and the ANSI
- * output's. Loaded with the composition root because the session screen draws its container
- * before any pane body has loaded.
+ * and `.meridian-transcript-retry`, worn by the ANSI output's retry control. Loaded with the
+ * composition root because the session screen draws its container before any pane body has
+ * loaded.
  */
 
 /* --- The session screen's container ---------------------------------------------- */

@@ -5,9 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
+import {
+  TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
+  TRANSCRIPT_WINDOW_ROW_CAP,
+} from "./viewport-constants.js";
 import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import {
@@ -17,11 +19,13 @@ import {
   syntheticRows,
 } from "./viewport-controller.test-support.js";
 
+/** Eleven windows' worth, so every case starts well over the cap. */
+const LOADED_ROW_COUNT = 11 * TRANSCRIPT_WINDOW_ROW_CAP;
+
 describe("the viewport controller — pruning under a reader", () => {
   /** Far enough back that the cap wants the row, near enough to name in a claim. */
   const READER_ROW_INDEX = 10;
   const READER_ROW_KEY = `row-${String(READER_ROW_INDEX)}`;
-  const LOADED_ROW_COUNT = 4400;
   const INITIAL_SCROLL_TOP_PX = 2000;
 
   /** A scroll container tall enough that no compensation this case performs is clamped. */
@@ -58,7 +62,6 @@ describe("the viewport controller — pruning under a reader", () => {
 });
 
 describe("the viewport controller — a prune the window refused, re-asked", () => {
-  const LOADED_ROW_COUNT = 4400;
   const READER_SCROLL_TOP_PX = 2000;
   const VIEWPORT_HEIGHT_PX = 300;
   const CONTENT_HEIGHT_PX = 400_000;
@@ -95,16 +98,19 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
 describe("the viewport controller — what a prune costs the rest of the frame", () => {
   it("forgets a pruned row's measurement rather than leaving a prior nobody reads", () => {
     const { controller } = attachedController();
-    controller.reconcile({ rows: syntheticRows(4000), ...CALM });
-    const pruned = controller.snapshot().lastPrune?.prunedKeys[0];
-    expect(pruned).toBeDefined();
-    controller.measurements.acceptedHeight("row-0", 300);
-    controller.reconcile({ rows: syntheticRows(4000), ...CALM });
-    expect(controller.measurements.measuredRowCount).toBe(0);
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    const pruned = controller.snapshot().lastPrune?.prunedKeys[0] ?? "";
+    expect(pruned).not.toBe("");
+    controller.measurements.acceptedHeight(pruned, 300);
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    expect(controller.measurements.heightOf(pruned)).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
   });
 });
 
 describe("the viewport controller — a page landing in front of the window", () => {
+  /** One backward page, the rows a press lands. */
+  const EARLIER_PAGE_ROWS = 50;
+
   it("pins history at the new head, so the cap stops trimming under the reader", () => {
     const { controller } = attachedController();
     controller.reconcile({ rows: rowsFrom(["c", "d"]), ...CALM });
@@ -119,13 +125,18 @@ describe("the viewport controller — a page landing in front of the window", ()
     // oldest-first, so without the pin this reconcile would take all fifty rows that just arrived
     // and leave the window as it was.
     const { controller } = attachedController();
-    const earlier = rowsFrom(Array.from({ length: 50 }, (_unused, index) => `earlier-${index}`));
-    controller.reconcile({ rows: syntheticRows(400), ...CALM });
+    const earlier = rowsFrom(
+      Array.from({ length: EARLIER_PAGE_ROWS }, (_unused, index) => `earlier-${index}`),
+    );
+    controller.reconcile({ rows: syntheticRows(TRANSCRIPT_WINDOW_ROW_CAP), ...CALM });
 
-    controller.reconcile({ rows: [...earlier, ...syntheticRows(400)], ...CALM });
+    controller.reconcile({
+      rows: [...earlier, ...syntheticRows(TRANSCRIPT_WINDOW_ROW_CAP)],
+      ...CALM,
+    });
 
     expect(controller.snapshot().lastPrune?.deferredBecause).toBe("pinned-history");
-    expect(controller.snapshot().rows).toHaveLength(450);
+    expect(controller.snapshot().rows).toHaveLength(EARLIER_PAGE_ROWS + TRANSCRIPT_WINDOW_ROW_CAP);
     expect(controller.snapshot().rowKeys[0]).toBe("earlier-0");
   });
 
@@ -134,14 +145,14 @@ describe("the viewport controller — a page landing in front of the window", ()
     // those rows lead the next set. Read as a page landing at the head, that would pin history
     // and stop the cap for the session.
     const { controller } = attachedController();
-    const whole = syntheticRows(4000);
+    const whole = syntheticRows(LOADED_ROW_COUNT);
     controller.reconcile({ rows: whole, ...CALM });
-    expect(controller.snapshot().rows).toHaveLength(400);
+    expect(controller.snapshot().rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
 
     controller.reconcile({ rows: whole, ...CALM });
 
     expect(controller.snapshot().reading.pinnedRootCursor).toBeUndefined();
-    expect(controller.snapshot().rows).toHaveLength(400);
+    expect(controller.snapshot().rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
   it("defers the hold to the commit rather than writing in the pre-insert space", () => {

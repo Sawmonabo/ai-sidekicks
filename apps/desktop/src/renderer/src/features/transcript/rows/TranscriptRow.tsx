@@ -13,7 +13,7 @@ import { findTranscriptRowFooterRenderer } from "../transcript-row-footer-render
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
-import { BoundThinkingRow } from "./thinking/BoundThinkingRow.js";
+import { ThinkingRowWithRead } from "./thinking/ThinkingRowWithRead.js";
 import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";
 
@@ -23,18 +23,18 @@ import { ToolRow } from "./ToolRow.js";
  */
 export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | null {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const rowLease = useRetainedRowState();
+  const retainedRowState = useRetainedRowState();
   const rowId = props.row.id;
   const density: TranscriptRowDensity = props.density;
-  // The toggle inverts the density the row was handed (the list's answer with the lease overlaid)
-  // and writes it to the list, not to local state, which would die when the virtualizer unmounts
-  // the row. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own.
+  // The toggle inverts the density the row was handed (the list's answer with the retained state
+  // overlaid) and writes it to the list, not to local state, which would die when the virtualizer
+  // unmounts the row. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own.
   const toggleDensity = useCallback(() => {
-    rowLease.setLease(rowId, {
+    retainedRowState.setRetainedState(rowId, {
       density: density === "expanded" ? "collapsed" : "expanded",
       innerScrollTopPx: 0,
     });
-  }, [density, rowId, rowLease]);
+  }, [density, rowId, retainedRowState]);
 
   const rowKind = classifyTranscriptRow(props.row);
   // The reasoning read is armed in the component that renders it, not here: an ordinary row would
@@ -61,7 +61,6 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
           onDensityToggle={toggleDensity}
-          toolKindRenderer={undefined}
         />
       );
     case "user-message":
@@ -79,7 +78,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           editControl={editControlOf(props)}
           thinkingRow={
             rowKind.kind === "thinking" ? (
-              <BoundThinkingRow runId={attributedRunId} liveText={liveText} />
+              <ThinkingRowWithRead runId={attributedRunId} liveText={liveText} />
             ) : undefined
           }
         />

@@ -55,7 +55,6 @@ describe("ScrollFrameWrites", () => {
   test("refuses a request until a frame has been adopted", () => {
     const { clock, frameWrites, writes } = constructQueue();
 
-    expect(frameWrites.hasFrame).toBe(false);
     expect(frameWrites.request("follow-tail", () => 900)).toBe(false);
 
     clock.runFrame();
@@ -75,7 +74,6 @@ describe("ScrollFrameWrites", () => {
     clock.runFrame();
 
     expect(writes).toEqual([{ caller: "follow-tail", targetScrollTop: 1900 }]);
-    expect(frameWrites.pendingCount).toBe(0);
   });
 
   test("coalesces per caller and keeps the last computation", () => {
@@ -84,7 +82,6 @@ describe("ScrollFrameWrites", () => {
 
     frameWrites.request("follow-tail", () => 500);
     frameWrites.request("follow-tail", () => 700);
-    expect(frameWrites.pendingCount).toBe(1);
 
     clock.runFrame();
 

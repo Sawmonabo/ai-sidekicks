@@ -248,7 +248,7 @@ function renderTableCell(
  * `markdown-rules.ts` reads so the deferral rule and this switch agree.
  *
  * A deferred math fence renders as a formula once settled and as its source before; a diagram
- * fence renders as its source always, because the console ships no control that asks for one.
+ * fence renders as its source always, because the app ships no control that asks for one.
  */
 function renderFence(
   source: string,
