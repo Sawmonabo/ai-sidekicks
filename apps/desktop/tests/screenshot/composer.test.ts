@@ -1,12 +1,9 @@
 // The screenshot tier: the composer feature's views, in both schemes. `settled-capture.ts` owns
 // the mechanism.
 //
-// The composer's design claim is about addressing: a path label reading _new turn_ or _steer_ from
-// the target run's subscribed state, never predicted, and a placeholder that names the target. A
-// DOM assertion reading one attribute cannot hold that; an image can. The captures are the
-// session's own composer (what focus outside the pane layout addresses), a working run (the
-// new-turn path) and a run waiting on a person (the _steer_ address, where the composer scenario
-// ends).
+// The captures: the composer addressed at the session (focus outside the pane layout), at a working
+// run, and at a run waiting on a person (where the composer scenario ends). One Send button and no
+// mode, so nothing about the target shows in the box in any of them.
 
 import {
   mountComposerProviderBoundRunning,
