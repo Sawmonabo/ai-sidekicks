@@ -584,8 +584,8 @@ describe("run holds", () => {
 
     expect(refusal).toBeInstanceOf(WorkspaceBusyError);
     expect((refusal as WorkspaceBusyError).code).toBe("workspace.busy");
-    // The loser's only repair affordance: `repo.detach_conflict` names the blocking
-    // workspaces, and nothing else names who holds them.
+    // The loser's only repair affordance: `repo.detach_conflict` names the running session, not
+    // its run, so only this refusal names the run that holds the workspace.
     expect((refusal as WorkspaceBusyError).holdingRunId).toBe(RUN_ID);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
   });

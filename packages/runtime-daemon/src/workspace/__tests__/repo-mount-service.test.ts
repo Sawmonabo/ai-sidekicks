@@ -50,7 +50,6 @@ const UNKNOWN_MOUNT_ID: RepoMountId = "0190f9a1-0000-7000-8000-00000000ffff" as 
 const USER_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
 const DETACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000002";
 const RUN_ID: string = "0190f9a6-0000-7000-8000-000000000001";
-const OTHER_RUN_ID: string = "0190f9a6-0000-7000-8000-000000000002";
 // A post-commit append failure, such as a size refusal or a disk error.
 const SIMULATED_APPEND_FAILURE_MESSAGE: string = "simulated append failure";
 
@@ -363,46 +362,43 @@ describe("RepoMountService.detach", () => {
     }
   });
 
-  it("refuses while dependents are busy, naming EVERY busy one, and persists nothing", async () => {
+  it("refuses while a dependent is busy, naming the session running there, and persists nothing", async () => {
     const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-    const firstWorkspaceId = await bindReadyWorkspace(
+    // The older dependent is idle and belongs to another session, so naming the first dependent's
+    // session instead of the running one would name a session that holds nothing.
+    const idleWorkspaceId = await bindReadyWorkspace(
       harness.workspaces,
       SESSION_ID,
       attached.repoMountId,
       gitFixtures.repositoryRoot,
     );
-    const secondWorkspaceId = await bindReadyWorkspace(
+    const busyWorkspaceId = await bindReadyWorkspace(
       harness.workspaces,
-      SESSION_ID,
+      OTHER_SESSION_ID,
       attached.repoMountId,
       gitFixtures.repositoryRoot,
     );
-
-    // Two busy dependents, not one: with a single one the arm cannot tell a refusal that collects
-    // every blocker from one that throws on the first. Naming one of two would send someone to free
-    // that run and retry, only to be refused again.
-    await harness.workspaces.markBusy(firstWorkspaceId, RUN_ID);
-    await harness.workspaces.markBusy(secondWorkspaceId, OTHER_RUN_ID);
-    const eventsBeforeRefusal = readLifecycleEventTypes(harness.db, SESSION_ID);
+    await harness.workspaces.markBusy(busyWorkspaceId, RUN_ID);
+    const idleEventsBeforeRefusal = readLifecycleEventTypes(harness.db, SESSION_ID);
+    const busyEventsBeforeRefusal = readLifecycleEventTypes(harness.db, OTHER_SESSION_ID);
 
     const error = await captureRejection(() =>
       harness.service.detach({ repoMountId: attached.repoMountId }),
     );
 
     expect(error).toBeInstanceOf(RepoDetachConflictError);
-    // Order is the dependent query's `created_at ASC, id ASC`: the first bind precedes the second
-    // and the ids ascend, so both keys agree.
-    expect((error as RepoDetachConflictError).busyWorkspaceIds).toEqual([
-      firstWorkspaceId,
-      secondWorkspaceId,
-    ]);
     expect((error as RepoDetachConflictError).code).toBe("repo.detach_conflict");
+    expect((error as RepoDetachConflictError).runningSessionId).toBe(OTHER_SESSION_ID);
+    expect((error as RepoDetachConflictError).detail).toEqual({
+      runningSessionId: OTHER_SESSION_ID,
+    });
 
     // Nothing moved and nothing was appended.
     expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("attached");
-    expect(requireWorkspaceRow(harness.db, firstWorkspaceId).state).toBe("busy");
-    expect(requireWorkspaceRow(harness.db, secondWorkspaceId).state).toBe("busy");
-    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(eventsBeforeRefusal);
+    expect(requireWorkspaceRow(harness.db, idleWorkspaceId).state).toBe("ready");
+    expect(requireWorkspaceRow(harness.db, busyWorkspaceId).state).toBe("busy");
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(idleEventsBeforeRefusal);
+    expect(readLifecycleEventTypes(harness.db, OTHER_SESSION_ID)).toEqual(busyEventsBeforeRefusal);
   });
 
   it("emits no second workspace.archived for an already-archived dependent", async () => {

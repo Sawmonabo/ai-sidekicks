@@ -120,17 +120,17 @@ export class RepoAlreadyAttachedError extends DaemonDomainError {
 }
 
 /**
- * `repo.detach_conflict`: detach refused while a dependent workspace is `busy`. The ids are copied
- * into the field and `detail` so a caller mutating its array cannot rewrite a thrown error.
+ * `repo.detach_conflict`: detach refused while an agent runs in a dependent workspace.
+ * `runningSessionId` names the session running there, so the refusal can say who holds the folder.
  */
 export class RepoDetachConflictError extends DaemonDomainError {
-  readonly busyWorkspaceIds: readonly string[];
+  readonly runningSessionId: string;
 
-  constructor(busyWorkspaceIds: readonly string[]) {
-    super(`repo detach refused: ${busyWorkspaceIds.length} dependent workspace(s) still busy`, {
+  constructor(runningSessionId: string) {
+    super(`repo detach refused: session ${runningSessionId} is running in a dependent workspace`, {
       code: "repo.detach_conflict" satisfies RepoErrorCode,
-      detail: { busyWorkspaceIds: [...busyWorkspaceIds] },
+      detail: { runningSessionId },
     });
-    this.busyWorkspaceIds = [...busyWorkspaceIds];
+    this.runningSessionId = runningSessionId;
   }
 }
