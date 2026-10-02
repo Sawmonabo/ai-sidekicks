@@ -1,4 +1,4 @@
-// A whole-screen absence, composed rather than left in flow. `Nothing`'s `empty` arm is a quiet
+// A whole-screen empty state, composed rather than left in flow. `Nothing`'s `empty` arm is a quiet
 // line for a list with no rows; the same line pinned top-left in a full window reads as unfinished
 // paint. This wrapper centers the copy on a measure and pairs it with the one control that always
 // works, the command palette chord.

@@ -29,6 +29,7 @@ function elementMeasuring(box: { width: number; height: number; x?: number; y?: 
       width: box.width,
       height: box.height,
     }),
+    parentElement: null,
   } as unknown as Element;
 }
 
@@ -76,7 +77,7 @@ class ListenerCountingAirspace extends AirspaceRegistry {
 
 /** Puts an overlay of some size up and returns its removal. A dialog unless said. */
 function overlayUp(airspace: AirspaceRegistry): () => void {
-  const registration = airspace.register("dialog", () => ({ x: 0, y: 0, width: 10, height: 10 }));
+  const registration = airspace.register(() => ({ x: 0, y: 0, width: 10, height: 10 }));
   return () => {
     registration.remove();
   };

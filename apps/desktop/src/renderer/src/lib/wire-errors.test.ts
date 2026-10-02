@@ -42,11 +42,9 @@ describe("readWireErrorEnvelopeWithCode — the discriminant costs no second rea
 });
 
 describe("wireRejectionToError — renders the value it is handed, and never throws", () => {
-  it("survives a null-prototype object on both arms, where String(...) throws", () => {
+  it("survives a null-prototype object, where String(...) throws", () => {
     const value = nullPrototypeValue();
     expect(() => String(value)).toThrow();
-    expect(wireRejectionToError(value, { total: true }).message).toBe("[unrepresentable value]");
-    // Backstop: `total: false` still attempts the bare wrap but does not let the failure throw.
     expect(wireRejectionToError(value).message).toBe("[unrepresentable value]");
   });
 });

@@ -9,7 +9,7 @@
 //   - `filter={null}`: the registry already filtered and ranked, and a second matcher would
 //     diverge from the one shared with settings search.
 //
-// Rows are `PaletteResultList.tsx`, the empty states are `PaletteEmptyState.tsx`, and every
+// Rows are `PaletteResultList.tsx`, the empty state is `PaletteEmptyState.tsx`, and every
 // decision (scope capture, dormancy, the post-commit clear, the open chord) is in
 // `hooks/useCommandPalette.ts`.
 
@@ -19,7 +19,6 @@ import { Dialog } from "@base-ui/react/dialog";
 import "./command-palette.css";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { formatChordForPlatform } from "@renderer/lib/chord-format.js";
 import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { PaletteEmptyState } from "./PaletteEmptyState.js";
 import { PaletteResultList } from "./PaletteResultList.js";
@@ -31,25 +30,16 @@ import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandP
  * it works before any feature registers a command and while a person types in the composer.
  */
 export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
-  const {
-    registry,
-    open,
-    platform,
-    bindings,
-    readiness = { status: "ready" },
-    overlayContainer,
-  } = props;
+  const { open, onOpenChange, platform, bindings, overlayContainer } = props;
   const {
     query,
     setQuery,
     groups,
     results,
-    visibleCount,
     capturedScopeLabel,
     capturedContext,
     invocationRefusal,
     inputRef,
-    handleOpenChange,
     runResult,
     warmHighlighted,
     resultCountLabel,
@@ -59,7 +49,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
     <Combobox.Root
       items={groups}
       open={open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={onOpenChange}
       inline
       autoHighlight
       filter={null}
@@ -67,10 +57,9 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
       onInputValueChange={setQuery}
       onItemHighlighted={warmHighlighted}
     >
-      <Dialog.Root open={open} onOpenChange={handleOpenChange} modal="trap-focus">
+      <Dialog.Root open={open} onOpenChange={onOpenChange} modal="trap-focus">
         {/* The popup primitive registers the palette's rectangle in the window's airspace. */}
         <OverlayDialogPopup
-          airspaceKind="command-palette"
           container={overlayContainer}
           backdropClassName="command-palette__backdrop"
           className="command-palette__popup"
@@ -102,12 +91,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
           {/* Must stay mounted: it is already a polite live region, and `Combobox.Status` below
               stays silent when the list is empty so one absence is not announced twice. */}
           <Combobox.Empty className="command-palette__empty">
-            <PaletteEmptyState
-              readiness={readiness}
-              registry={registry}
-              query={query}
-              visibleCount={visibleCount}
-            />
+            <PaletteEmptyState query={query} />
           </Combobox.Empty>
 
           <Combobox.Status className="meridian-visually-hidden">
@@ -122,10 +106,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
           )}
 
           <div className="command-palette__footer">
-            <span className="command-palette__footer-hints">
-              <span>{formatChordForPlatform("Enter", platform)} to run</span>
-              <span>{formatChordForPlatform("Escape", platform)} to close</span>
-            </span>
+            <span>Enter to run · Escape to close</span>
             <span>{resultCountLabel}</span>
           </div>
         </OverlayDialogPopup>

@@ -26,7 +26,7 @@ export interface NavigationRailProps {
   readonly onSelect: (destination: RailDestination) => void;
 }
 
-/** The console's icon rail: one button per handed entry, the current one marked. */
+/** The app's icon rail: one button per handed entry, the current one marked. */
 export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
   return (
     <nav className="meridian-rail" aria-label="Console sections">

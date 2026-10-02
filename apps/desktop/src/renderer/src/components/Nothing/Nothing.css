@@ -96,7 +96,7 @@
 }
 
 /*
- * `--badge`: an absence that qualifies a value beside it. A one-line pill where a line is
+ * `--badge`: an empty state that qualifies a value beside it. A one-line pill where a line is
  * available: a minimum height and a wrapping label, not a fixed height and `nowrap`, so a long
  * label at the reflow floor (`REFLOW_MIN_WIDTH_PX`) wraps instead of forcing a sideways scroll
  * (WCAG 1.4.10). The `detail` stays the tooltip.

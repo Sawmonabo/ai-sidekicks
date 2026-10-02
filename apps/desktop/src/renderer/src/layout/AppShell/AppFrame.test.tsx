@@ -117,7 +117,7 @@ describe("AppFrame — a failed screen does not survive a route change", () => {
       </AppFrame>,
       { wrapper: liveBridgeWrapper() },
     );
-    expect(screenAlert(container)?.textContent).toContain(RENDER_FAILURE_MESSAGE);
+    expect(screenAlert(container)?.textContent).toContain("stopped rendering.");
 
     rerender(
       <AppFrame {...frameProps(SETTINGS_ROUTE)}>
@@ -163,7 +163,7 @@ describe("AppFrame — the banner reaches the window's one live announcer", () =
     expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
     // The banner still renders; the announcer sits beside it.
     expect(container.querySelector(".meridian-refusal--banner")?.textContent).toContain(
-      REFUSAL_BANNER.code,
+      REFUSAL_BANNER.detail,
     );
     // Polite stays silent: the assertive lane is reserved for refusals.
     expect(liveRegionText(container, "polite")).toBe("");

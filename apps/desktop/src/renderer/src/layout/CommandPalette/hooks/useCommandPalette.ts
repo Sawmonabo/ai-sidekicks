@@ -12,13 +12,13 @@ import type { CommandSearchResult } from "@renderer/registries/commands/command-
 import {
   chordMatchesEvent,
   parseChord,
+  type ChordParseResult,
 } from "@renderer/registries/keybindings/keybinding-chord.js";
 import {
   type KeybindingTable,
   type KeybindingTarget,
 } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
-import type { PaletteReadiness } from "../PaletteEmptyState.js";
 import { groupResults, type CommandResultGroup } from "../group-results.js";
 import {
   runLatchedCommand,
@@ -42,8 +42,7 @@ export interface CommandPaletteProps {
   /** Supplies each row's chord. Omit and rows print no chord rather than a wrong one. */
   readonly bindings?: KeybindingTable;
   /** What these commands act on. Read once at open, together with `context`, as one reading. */
-  readonly scopeLabel?: string;
-  readonly readiness?: PaletteReadiness;
+  readonly scopeLabel?: string | undefined;
   /** Bump to recompute results after late registration; React cannot see a registry change. */
   readonly revision?: number;
   /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
@@ -58,12 +57,10 @@ export interface CommandPaletteState {
   readonly setQuery: (query: string) => void;
   readonly groups: readonly CommandResultGroup[];
   readonly results: readonly CommandSearchResult[];
-  readonly visibleCount: number;
   readonly capturedScopeLabel: string | undefined;
   readonly capturedContext: WhenClauseContext;
   readonly invocationRefusal: PaletteInvocationRefusal | undefined;
   readonly inputRef: React.RefObject<HTMLInputElement | null>;
-  readonly handleOpenChange: (open: boolean) => void;
   readonly runResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
   readonly warmHighlighted: (highlighted: CommandSearchResult | undefined) => void;
   readonly resultCountLabel: string;
@@ -105,17 +102,6 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     [open, registry, query, capturedContext, revision],
   );
   const groups = useMemo(() => groupResults(results), [results]);
-  const visibleCount = useMemo(
-    () => (open ? registry.commandsFor(capturedContext).length : 0),
-    [open, registry, capturedContext, revision],
-  );
-
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean): void => {
-      onOpenChange(nextOpen);
-    },
-    [onOpenChange],
-  );
 
   // Clear the query on close, in an effect: selecting an item makes the combobox fill the input
   // with its label (single selection, input outside a `Combobox.Popup`), and a clear from the click
@@ -134,14 +120,14 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
       const refusal = runLatchedCommand(registry, result.command.id, capturedContext);
       if (refusal === undefined) {
         setInvocationRefusal(undefined);
-        handleOpenChange(false);
+        onOpenChange(false);
         return "ran";
       }
       // The rows stay on screen (see the row's `onClick`), so the refusal shows inline.
       setInvocationRefusal(refusal);
       return "refused";
     },
-    [handleOpenChange, registry, capturedContext],
+    [onOpenChange, registry, capturedContext],
   );
 
   // Warm the highlighted row, not the hover: the highlight is where intent is legible before the
@@ -152,28 +138,24 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   }, []);
 
   useEffect(() => {
-    const parsed = parseChord(COMMAND_PALETTE_OPEN_CHORD);
-    if (!parsed.ok) {
-      return undefined;
-    }
     const target: KeybindingTarget = chordTarget ?? window;
     const listener = (event: Event): void => {
       if (!(event instanceof KeyboardEvent) || event.repeat || event.isComposing) {
         return;
       }
-      if (!chordMatchesEvent(parsed.press, event)) {
+      if (!chordMatchesEvent(OPEN_CHORD.press, event)) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
       // A toggle: pressing the chord again dismisses what it summoned.
-      handleOpenChange(!open);
+      onOpenChange(!open);
     };
     target.addEventListener("keydown", listener, { capture: true });
     return () => {
       target.removeEventListener("keydown", listener, { capture: true });
     };
-  }, [chordTarget, handleOpenChange, open]);
+  }, [chordTarget, onOpenChange, open]);
 
   const resultCountLabel =
     results.length === 1
@@ -185,12 +167,10 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     setQuery,
     groups,
     results,
-    visibleCount,
     capturedScopeLabel,
     capturedContext,
     invocationRefusal,
     inputRef,
-    handleOpenChange,
     runResult,
     warmHighlighted,
     resultCountLabel,
@@ -199,3 +179,14 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
 
 /** What a closed palette's search returns: one frozen array, so the grouping memo never reruns. */
 const NO_RESULTS: readonly CommandSearchResult[] = Object.freeze([]);
+
+/** The open chord, parsed once at load; a constant chord that fails to parse is a build defect. */
+const OPEN_CHORD: Extract<ChordParseResult, { readonly ok: true }> = parsedOpenChord();
+
+function parsedOpenChord(): Extract<ChordParseResult, { readonly ok: true }> {
+  const parsed = parseChord(COMMAND_PALETTE_OPEN_CHORD);
+  if (!parsed.ok) {
+    throw new Error(parsed.message);
+  }
+  return parsed;
+}

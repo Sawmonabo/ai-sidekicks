@@ -2,12 +2,12 @@
 //
 // `PartialRead` creates no live region, so a view whose read settles while a person is on it
 // shows the notice where nothing draws their attention. This hook routes the sentence to the
-// console's one announcer, so no feature mints its own region or its own latch.
+// app's one announcer, so no feature mints its own region or its own latch.
 //
 // The sentence is the key. The sentences announced last pass are held and replaced, never
 // accumulated: a re-render announces nothing, and a reading that goes back to incomplete
 // after serving is a new announcement. Within a pass they are collected as a set, since the
-// announcer coalesces only an immediate repeat and `[stale, cut, stale]` would speak the
+// announcer coalesces only an immediate repeat and `[partial, cut, partial]` would speak the
 // first sentence twice.
 //
 // Always polite: an incomplete reading changes only what one view claims about itself, not

@@ -5,14 +5,13 @@ import "./Refusal.css";
 
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
-import { WireFigure } from "../WireFigure/WireFigure.js";
 import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
 /** Props for `RefusalBanner`. */
 export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {
   /**
-   * What happened: a daemon string, shown verbatim, or the console's own composed sentence. Wider
+   * What happened: a daemon string, shown verbatim, or the app's own composed sentence. Wider
    * than the siblings' `string` because a composed sentence must be able to hold wire figures in
    * mono.
    */
@@ -31,10 +30,10 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
       // (`layout/AppShell/hooks/useRefusalBannerAnnouncements.ts`). A `role="status"` would read
       // the sentence twice.
       role="group"
+      data-refusal-code={props.code}
     >
       <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
       <div className="meridian-refusal__body">
-        <WireFigure value={props.code} />
         <span className="meridian-refusal__message">
           {typeof props.detail === "string" ? formatWireString(props.detail) : props.detail}
         </span>

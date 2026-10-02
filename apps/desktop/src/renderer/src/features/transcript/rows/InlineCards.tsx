@@ -3,7 +3,6 @@
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
-  inlineCardBody,
   inlineCardRegistry,
   type InlineCardProps,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
@@ -28,7 +27,7 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
       {props.cards.map((card) => (
         <div className="meridian-message-card__card" key={inlineCardKey(card)}>
           <Chip label={card.kind} mono />
-          {inlineCardBody(card.kind) === undefined ? (
+          {inlineCardRegistry.bodyFor(card.kind) === undefined ? (
             <Nothing
               kind="not-checked"
               placement="inline"

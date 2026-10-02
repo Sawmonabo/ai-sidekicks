@@ -23,7 +23,7 @@ function probeProjector(
   ];
 }
 
-describe("the console's entity-projector board — the snapshot a store opens with", () => {
+describe("the app's entity-projector board — the snapshot a store opens with", () => {
   it("does not grow when the board does, so a store's fold is fixed at open", () => {
     const registry = new EntityProjectorRegistry();
     registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");

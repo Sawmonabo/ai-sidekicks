@@ -1,9 +1,9 @@
-// The console's routes as data. Hash routing, because the renderer is served from a custom
+// The app's routes as data. Hash routing, because the renderer is served from a custom
 // `sidekicks-renderer://` scheme whose handler resolves one document
 // (`main/services/renderer-protocol.ts`); a hash carries state after the `#` without asking it
 // for another path. A malformed hash resolves to the not-found route, never a blank screen.
 
-/** Where the console currently is. A closed union: every arm renders something. */
+/** Where the app currently is. A closed union: every arm renders something. */
 export type AppRoute =
   | { readonly kind: "sessions" }
   | { readonly kind: "session"; readonly sessionId: string }

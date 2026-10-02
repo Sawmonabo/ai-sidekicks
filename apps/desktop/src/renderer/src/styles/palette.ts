@@ -1,11 +1,11 @@
-// The Meridian palette: the single source of truth for every console color. The agent hue wheel,
+// The Meridian palette: the single source of truth for every app color. The agent hue wheel,
 // the two attention hues with their WCAG 2.2 AA floors, and the colors type and figures are
 // painted in are realized here and nowhere else. `generate-css.ts` builds the stylesheet from
 // this module, so there is no second copy to drift.
 //
 // Authoring rules this file obeys:
 //
-//   • Hue answers "who" and never "how urgent". The twelve user steps are one scheme-independent
+//   • Hue answers "who" and never "how urgent". The twelve agent steps are one scheme-independent
 //     set, because identity does not change when the person flips the theme. One lightness
 //     (`HUE_WHEEL_LIGHTNESS`) clears 3:1 as an edge or mark against both schemes' grounds, which
 //     is why it sits mid-scale.
@@ -29,25 +29,11 @@ import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
 /**
  * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the shortest
- * window the console ships is 720 px tall, 45 rem at the
- * 16 px root, and an enumeration taking more than a third of it leaves nothing else on screen.
- * Six rows is 13.875 rem and clears that third; seven is 16.1875 rem and does not.
+ * window the app ships is 720 px tall, 45 rem at the 16 px root, and an enumeration taking more
+ * than a third of it leaves nothing else on screen. Six rows is 13.875 rem and clears that third;
+ * seven is 16.1875 rem and does not.
  */
 export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
-
-/**
- * Maximum nesting depth of a keybinding when-clause. Bounded so a malformed or hostile
- * expression cannot recurse the parser; past it the clause is refused and the binding evaluates
- * false.
- */
-export const WHEN_CLAUSE_MAX_DEPTH = 8;
-
-/**
- * Distinct context keys a pair of when-clauses may name before `whenClausesCanOverlap` stops
- * enumerating. Twelve keys is 4096 assignments per pair, checked once at install and only for
- * bindings that share a chord; a console clause names two or three keys.
- */
-export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
 /** A token whose value differs between the light and dark schemes. */
 export interface SchemePair {
@@ -82,7 +68,7 @@ export const TEXT_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The two attention hues plus the one accent. Nothing else in the console is colored for
+ * The two attention hues plus the one accent. Nothing else in the app is colored for
  * attention; a third attention hue here breaks the rule.
  */
 export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
@@ -102,7 +88,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // (the lightest thing the palette has, `surface-raised`, reaches 4.23:1, and `text` 3.89:1).
   // So the light leg sits at L 0.13 (4.75:1). The dark leg, on a lighter accent, sits at L 0.22
   // (7.41:1), the lightness of the dark scheme's own surfaces, so a filled control reads as the
-  // console's ground punched out of the accent. Both carry a little of the accent's chroma.
+  // app's ground punched out of the accent. Both carry a little of the accent's chroma.
   "accent-ink": { light: oklch(0.13, 0.03, 215), dark: oklch(0.22, 0.04, 205) },
   // The face of a pressed accent-filled control, a token rather than a `filter`: `brightness()`
   // scales both rendered colors, and scaling does not preserve a contrast ratio because relative
@@ -126,7 +112,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
  * The four code span classes that carry a color of their own; a comment is an alias. They live
  * here rather than in the transcript's sheet so they are fitted into the sRGB gamut and measured
  * against their ground like every other color. A separate record from `ATTENTION_TOKENS`, since
- * the two-hue rule governs what the console colors for attention and a keyword is not one.
+ * the two-hue rule governs what the app colors for attention and a keyword is not one.
  * Painted on `surface-sunken` alone, the ground the contrast census measures them against.
  */
 export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
@@ -137,7 +123,7 @@ export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The twelve hued ANSI names, as the console's own colors rather than a terminal's.
+ * The twelve hued ANSI names, as the app's own colors rather than a terminal's.
  *
  * "Bright" is not a lightness rule. On the dark scheme brighter means higher contrast, but on
  * the light scheme it spends contrast because the ground is near white. So a light bright name
@@ -162,8 +148,8 @@ export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * Tokens that are a code or terminal name for a console token, not a color. A code block's plain
- * text is the console's text, and a terminal's black and white are the two ends of the reading
+ * Tokens that are a code or terminal name for an app token, not a color. A code block's plain
+ * text is the app's text, and a terminal's black and white are the two ends of the reading
  * scale; a literal black on a dark scheme would render output invisible. Each is a `var()`
  * reference to its target, so it paints what the target paints and stays in the contrast census
  * through it. Scheme-independent for that reason, so it is emitted once in the root block.
@@ -179,7 +165,7 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "ansi-bright-white": "text",
 };
 
-/** Steps on the user wheel: twelve. */
+/** Steps on the agent wheel: twelve. */
 export const HUE_WHEEL_STEPS = 12;
 
 /**
@@ -200,7 +186,7 @@ export const HUE_WHEEL_LIGHTNESS = 0.57;
 export const HUE_WHEEL_CHROMA = 0.135;
 
 /**
- * Hue angle of step 0, offset from 0° so no user lands on the pure red that the failed-state
+ * Hue angle of step 0, offset from 0° so no agent lands on the pure red that the failed-state
  * token owns.
  */
 export const HUE_WHEEL_ORIGIN_DEGREES = 20;
@@ -265,7 +251,7 @@ export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;
 
 /**
- * The narrowest viewport the console lays out in, in CSS px. WCAG 2.2 SC 1.4.10 (Reflow) asks
+ * The narrowest viewport the app lays out in, in CSS px. WCAG 2.2 SC 1.4.10 (Reflow) asks
  * that vertically scrolling content be usable without two-dimensional scrolling at 320 CSS px,
  * the width a 1280 px window reaches at 400% zoom.
  *

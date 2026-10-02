@@ -2,6 +2,7 @@
 // search; this module is the policy above it: field weights, recency, and the total order.
 // It is a pure function of a command list, a query and a recents list.
 
+import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
 import { COMMAND_PALETTE_RESULT_CAP } from "./command-palette-caps.js";
 import type { CommandDefinition } from "./command-types.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
@@ -47,9 +48,9 @@ export function compareCommandsForDisplay(
   right: CommandDefinition,
 ): number {
   return (
-    compareStrings(left.group, right.group) ||
-    compareStrings(left.title, right.title) ||
-    compareStrings(left.id, right.id)
+    compareCodeUnits(left.group, right.group) ||
+    compareCodeUnits(left.title, right.title) ||
+    compareCodeUnits(left.id, right.id)
   );
 }
 
@@ -160,11 +161,4 @@ export function rankCommandsForEmptyQuery(
   recentResults.sort((left, right) => (left.recentRank ?? 0) - (right.recentRank ?? 0));
   // `visibleCommands` already arrives in display order; the remainder must not be re-sorted.
   return [...recentResults, ...remainingResults].slice(0, COMMAND_PALETTE_RESULT_CAP);
-}
-
-function compareStrings(left: string, right: string): number {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
 }

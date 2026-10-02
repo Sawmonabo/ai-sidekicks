@@ -16,8 +16,8 @@ export const CLOSE_CONTROL_LABEL = "Close the newest pane";
 /** What the harness region shows: the count line, the two controls, and any body children. */
 export interface PaneHarnessFrameProps {
   readonly instanceCount: number;
-  /** The addressed kind, or absent on an arm that never resolved one. */
-  readonly paneKindLabel: string | undefined;
+  /** The addressed kind, as the address spelled it. */
+  readonly paneKindLabel: string;
   /** Absent on an arm with nothing to open, which is what disables the control. */
   readonly onOpen?: (() => void) | undefined;
   readonly onClose?: (() => void) | undefined;
@@ -31,7 +31,7 @@ export function PaneHarnessFrame(props: PaneHarnessFrameProps): React.JSX.Elemen
     <section aria-label={PANE_HARNESS_LABEL}>
       <p>
         {/* The line a driver waits on: the addressed kind and how many are mounted. */}
-        {`${paneKindLabel ?? "no"} panes open: ${String(instanceCount)}`}
+        {`${paneKindLabel} panes open: ${String(instanceCount)}`}
       </p>
       <button
         type="button"

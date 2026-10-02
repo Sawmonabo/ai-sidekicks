@@ -40,11 +40,6 @@ export class LazyBodyIdleWarm<TKey> {
     this.#scheduler = scheduler;
   }
 
-  /** Whether the walk has been started; read by tests. */
-  public get hasStarted(): boolean {
-    return this.#hasStarted;
-  }
-
   /**
    * Begins the walk unless it has begun or been canceled, so a late start cannot outlive a
    * teardown.
@@ -92,13 +87,23 @@ export class LazyBodyIdleWarm<TKey> {
     if (this.#isCanceled) {
       return;
     }
-    // A failed speculative preload is dropped here: the failure belongs at the mount, where
-    // someone is waiting and the region's error boundary can report it.
-    void this.#board.preload(key).catch(() => undefined);
+    void preloadQuietly(this.#board.preload(key));
     // Armed at once so the walk does not serialize behind the slowest chunk. The attempted set,
     // not the board's memo, stops a key being re-selected: the memo is released on rejection.
     this.#armNextStep();
   }
+}
+
+/**
+ * Settles once a speculative preload has, whichever way it went. A failure is dropped here because
+ * nobody waits on a warm: the board releases the failed memo, so the mount that needs the chunk
+ * loads it again and its error boundary reports the failure.
+ */
+export function preloadQuietly(preload: Promise<unknown>): Promise<void> {
+  return preload.then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 /**

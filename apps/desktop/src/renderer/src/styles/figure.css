@@ -6,11 +6,7 @@
  * back as a custom property. Mono is the signature that a figure came from the wire.
  */
 
-/*
- * `tabular-nums` only, with no `slashed-zero`: the slash belongs to the mono face and is declared
- * in its `@font-face` rules (`styles/typeface.ts`), so it reaches `--wire` and not `--derived`.
- * This class serves the platform fallback faces, whose digits are not tabular by construction.
- */
+/* Tabular figures for the platform fallback faces, whose digits are not tabular by construction. */
 .meridian-figure {
   font-variant-numeric: tabular-nums;
 }
@@ -20,7 +16,7 @@
  * `Intl`-formatted quantity) wear it, so a reader can see which numbers the daemon sent.
  *
  * `user-select: text` is stated because a digest a person cannot select must be retyped, and
- * console chrome is routinely unselectable.
+ * app chrome is routinely unselectable.
  *
  * The two custom properties below are this class's public API: a container that wants the
  * figure quieter or smaller sets them on its own class and the value inherits down. Nobody
@@ -50,7 +46,7 @@
 }
 
 /*
- * The console's own reading, never the wire's: proportional and muted so it is not mistaken for
+ * The app's own reading, never the wire's: proportional and muted so it is not mistaken for
  * something the daemon said.
  */
 .meridian-figure--derived {

@@ -9,9 +9,9 @@ import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/dead
  *
  * `setTimeout` stores its delay in a signed 32-bit integer; a larger delay is set to 1 (with
  * a `TimeoutOverflowWarning`) and fires on the next tick. A deadline more than about 24.8
- * days out is ordinary here (a clone disposed in two months), and an unclamped delay would
+ * days out is ordinary here (a sign-in that expires in two months), and an unclamped delay would
  * publish that far-future instant at once and render every row past its deadline for good,
- * with nothing outstanding to re-arm. A platform constant, not a console cap.
+ * with nothing outstanding to re-arm. A platform constant, not an app cap.
  */
 const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 
@@ -23,7 +23,7 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
  * instant is re-read from it during the render that first sees it, since the previous
  * clock's reading would put every deadline behind the component. At most one timeout is
  * armed for the whole consumer, and none when nothing is outstanding, which makes
- * `ManualClock.pendingCount === 0` a checkable statement about an idle console.
+ * `ManualClock.pendingCount === 0` a checkable statement about an idle app.
  */
 export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): number {
   // Read once per clock, during the render that first sees one: reading on every pass would

@@ -1,4 +1,4 @@
-// The one refusal value the console renders; `RefusalBanner`, `InlineRefusal` and `RefusalCard`
+// The one refusal value the app renders; `RefusalBanner`, `InlineRefusal` and `RefusalCard`
 // read the same fields.
 //
 // `code` is a plain `string`, not a union of every producer's codes: `lib/` sits below every
@@ -7,9 +7,9 @@
 
 import { readGuardedProperty } from "./wire-errors.js";
 
-/** A refusal as every renderer consumes it; `code` is never reworded on its way to the screen. */
+/** A refusal as every renderer consumes it; only `detail` reaches the screen. */
 export interface Refusal {
-  /** Machine-readable, rendered verbatim. */
+  /** Machine-readable; never drawn, kept for logs and diagnostics. */
   readonly code: string;
   /** One actionable sentence. Never the refused value, which may be user content. */
   readonly detail: string;

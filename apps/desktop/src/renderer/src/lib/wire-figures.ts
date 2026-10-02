@@ -1,5 +1,5 @@
-// Wire figures: the console's whole formatting policy. A figure the wire supplies renders
-// verbatim, a quantity the console derives renders through `Intl`, and the console does no
+// Wire figures: the app's whole formatting policy. A figure the wire supplies renders
+// verbatim, a quantity the app derives renders through `Intl`, and the app does no
 // arithmetic on a wire figure outside `Intl`.
 //
 // The one exception is byte quantities. `Intl` has no kibibyte unit (`unit: "byte"` with compact
@@ -17,8 +17,9 @@
 
 import { parseInstant } from "./instant.js";
 import {
-  dayDurationFormatFor,
+  dateTimeFormatFor,
   dollarFormatFor,
+  numberFormatFor,
   relativeTimeFormatFor,
 } from "./intl-formatter-cache.js";
 
@@ -48,7 +49,7 @@ export interface WireDescriptorEntry {
 }
 
 /**
- * The one place in the console that scales a byte figure. Whole bytes render with no fraction
+ * The one place in the app that scales a byte figure. Whole bytes render with no fraction
  * (`512 B`); scaled units get one fraction digit up to `99.9`, then none, which keeps column width
  * stable without lying about precision. A negative or non-finite input renders an em dash.
  */
@@ -67,10 +68,9 @@ export function formatByteQuantity(byteCount: number, locale?: string): Formatte
   // fraction digit and render "100.0", a five-character figure in a four-character column.
   const roundedToOneDigit = Math.round(scaled * 10) / 10;
   const fractionDigits = unitIndex === 0 || roundedToOneDigit >= 100 ? 0 : 1;
-  const value = new Intl.NumberFormat(locale, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  }).format(scaled);
+  const value = numberFormatFor(fractionDigits === 0 ? "wholeNumber" : "oneDecimal", locale).format(
+    scaled,
+  );
   // A no-break space as an escape (the literal is invisible in diffs and banned by
   // `no-irregular-whitespace`) so a figure never wraps away from its unit.
   return { value, unit, text: `${value}\u00A0${unit}` };
@@ -102,12 +102,12 @@ export function formatWireDescriptor(
 /** What an `undefined` member reads as; copy, not a value. */
 const UNSET_DESCRIPTOR_MEMBER_TEXT = "(no value)";
 
-/** A count the console derived, grouped per locale, never abbreviated. Non-finite is an em dash. */
+/** A count the app derived, grouped per locale, never abbreviated. Non-finite is an em dash. */
 export function formatCount(value: number, locale?: string): string {
   if (!Number.isFinite(value)) {
     return "—";
   }
-  return new Intl.NumberFormat(locale).format(value);
+  return numberFormatFor("count", locale).format(value);
 }
 
 /**
@@ -120,22 +120,19 @@ export function formatDuration(milliseconds: number, locale?: string): string {
     return "—";
   }
   if (milliseconds < 1000) {
-    return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(milliseconds)} ms`;
+    return `${numberFormatFor("wholeNumber", locale).format(milliseconds)} ms`;
   }
   const totalSeconds = milliseconds / 1000;
   if (totalSeconds < 60) {
-    return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(totalSeconds)} s`;
+    return `${numberFormatFor("upToOneDecimal", locale).format(totalSeconds)} s`;
   }
   // Truncated, not rounded: 1:00 for 59.6 s would claim a boundary the run did not cross.
   const wholeSeconds = Math.floor(totalSeconds);
   const hours = Math.floor(wholeSeconds / 3600);
   const minutes = Math.floor((wholeSeconds % 3600) / 60);
   const seconds = wholeSeconds % 60;
-  const bare = new Intl.NumberFormat(locale, { useGrouping: false });
-  const padded = new Intl.NumberFormat(locale, {
-    minimumIntegerDigits: 2,
-    useGrouping: false,
-  });
+  const bare = numberFormatFor("bareDigits", locale);
+  const padded = numberFormatFor("twoDigits", locale);
   return hours > 0
     ? `${bare.format(hours)}:${padded.format(minutes)}:${padded.format(seconds)}`
     : `${bare.format(minutes)}:${padded.format(seconds)}`;
@@ -151,12 +148,12 @@ export function formatDayDuration(days: number, locale?: string): string {
   if (!Number.isFinite(days) || days < 0) {
     return "—";
   }
-  return dayDurationFormatFor(locale).format(days);
+  return numberFormatFor("dayDuration", locale).format(days);
 }
 
 /**
  * A relative time through `Intl.RelativeTimeFormat`. The unit is chosen by magnitude from two
- * instants the console holds; an unreadable stamp renders an em dash.
+ * instants the app holds; an unreadable stamp renders an em dash.
  */
 export function formatRelativeTime(
   fromIso: string,
@@ -183,56 +180,39 @@ export function formatRelativeTime(
 }
 
 /**
- * A wall-clock time for a transcript row. Fixed to hours, minutes, seconds so rows
- * align; the date is shown separately by the day divider, never per row.
+ * A wall-clock time for a transcript row, on the machine's own clock (`2:20:05 PM`), with
+ * seconds; the date is shown separately by the day divider, never per row.
  */
 export function formatClockTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return "—";
   }
-  return new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(instant.epochMilliseconds);
+  return dateTimeFormatFor("clockTime", locale).format(instant.epochMilliseconds);
 }
-
-/** The calendar day's fields, shared by the two formatters that name a day. */
-const CALENDAR_DAY_FIELDS: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-};
 
 /**
  * An instant a person acts on: the calendar day and the wall-clock time. Unlike the date-free
  * `formatClockTime`, it is for views with no day divider, where a bare clock would make instants
  * days apart look identical. The field list is explicit, not a `dateStyle` preset, so the width
  * stays scannable while order and separators stay the locale's; there are no seconds, on the same
- * 24-hour clock as its neighbor.
+ * clock as its neighbor.
  */
 export function formatDateTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return "—";
   }
-  return new Intl.DateTimeFormat(locale, {
-    ...CALENDAR_DAY_FIELDS,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(instant.epochMilliseconds);
+  return dateTimeFormatFor("dateTime", locale).format(instant.epochMilliseconds);
 }
 
-/** A calendar day with no time, using the same day fields as {@link formatDateTime}. */
+/** A calendar day with no time, with the same day fields as {@link formatDateTime}. */
 export function formatDate(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
     return "—";
   }
-  return new Intl.DateTimeFormat(locale, CALENDAR_DAY_FIELDS).format(instant.epochMilliseconds);
+  return dateTimeFormatFor("date", locale).format(instant.epochMilliseconds);
 }
 
 /**
@@ -244,10 +224,7 @@ export function formatPercent(fraction: number, locale?: string): string {
   if (!Number.isFinite(fraction) || fraction < 0) {
     return "—";
   }
-  return new Intl.NumberFormat(locale, {
-    style: "percent",
-    maximumFractionDigits: 0,
-  }).format(fraction);
+  return numberFormatFor("percent", locale).format(fraction);
 }
 
 /** The largest amount that still reads to four decimals. */

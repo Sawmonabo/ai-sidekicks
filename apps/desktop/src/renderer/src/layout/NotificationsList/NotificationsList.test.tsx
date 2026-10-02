@@ -1,5 +1,4 @@
-// What the notification center puts on screen: never an all-clear for a read that did not cover
-// everything, and the new answer once an open session's store moves.
+// The notifications list draws the new answer once an open session's store moves.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -9,15 +8,9 @@ import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { refuse } from "@renderer/lib/refusal.js";
 import { settle } from "@test/helpers/settle.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { NotificationsList } from "./NotificationsList.js";
-import {
-  AttentionSummary,
-  type AttentionReading,
-  type RefusedAttentionSession,
-} from "@renderer/store/attention/attention-summary.js";
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,
@@ -39,85 +32,6 @@ function item(): AttentionItem {
     seen: false,
   };
 }
-
-function readingOf(
-  items: readonly AttentionItem[],
-  refusedSessions: readonly RefusedAttentionSession[],
-): AttentionReading {
-  return {
-    phase: "read",
-    summary: new AttentionSummary(items),
-    droppedCount: 0,
-    refusedSessions,
-    addressedSessionIds: ADDRESSED_SESSION_IDS,
-  };
-}
-
-/** The sessions this panel's fan-out asked about; the panel renders none of them. */
-const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
-
-/** One session the fan-out never got an answer for, refused with a session refusal. */
-function refusedSession(sessionId: string): RefusedAttentionSession {
-  return {
-    sessionId,
-    refusal: refuse(
-      "attention-projection",
-      "session.not_found",
-      "That session is not known to the daemon.",
-    ),
-  };
-}
-
-describe("members the boundary refused", () => {
-  it("says how many were dropped rather than shrinking the list silently", () => {
-    const { container } = render(
-      <NotificationsList
-        reading={{
-          phase: "read",
-          summary: new AttentionSummary([item()]),
-          droppedCount: 2,
-          refusedSessions: [],
-          addressedSessionIds: ADDRESSED_SESSION_IDS,
-        }}
-      />,
-    );
-    const text = container.textContent ?? "";
-    expect(text).toContain("2 deliveries could not be read");
-    // A partial read shows the groups above and the dropped line below.
-    expect(container.querySelectorAll(".meridian-attention__group")).toHaveLength(1);
-  });
-
-  it("never reports an all-clear for a read it could recognize none of", () => {
-    // Guards the worst failure: telling a person nothing needs them from a read whose every member
-    // was refused.
-    const { container } = render(
-      <NotificationsList
-        reading={{
-          phase: "read",
-          summary: new AttentionSummary([]),
-          droppedCount: 2,
-          refusedSessions: [],
-          addressedSessionIds: ADDRESSED_SESSION_IDS,
-        }}
-      />,
-    );
-    expect(container.textContent ?? "").toContain("2 deliveries could not be read");
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-});
-
-describe("a read that did not cover every session", () => {
-  // Guards the all-clear: a fan-out that dropped the refusals would read an empty projection from
-  // the sessions that answered and tell a person they were free.
-
-  it("never says a person is free while a session went unchecked", () => {
-    const { container } = render(
-      <NotificationsList reading={readingOf([], [refusedSession("session-b")])} />,
-    );
-    expect(container.textContent ?? "").toContain("One session could not be checked.");
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-});
 
 describe("what makes the attention read run again", () => {
   // The read goes through the one refresh scheduler, so time is frozen and a case releases a
@@ -153,7 +67,10 @@ describe("what makes the attention read run again", () => {
   }): React.JSX.Element {
     const clock = useClock();
     return (
-      <NotificationsList reading={useAttentionProjection(props.read, props.registry, clock)} />
+      <NotificationsList
+        reading={useAttentionProjection(props.read, props.registry, clock)}
+        nowMilliseconds={clock.now()}
+      />
     );
   }
 
@@ -197,7 +114,7 @@ describe("what makes the attention read run again", () => {
     const { container } = mount(clock, read, registry);
     await releaseCoalescedRead(clock);
     expect(read).toHaveBeenCalledTimes(1);
-    expect(container.textContent ?? "").not.toContain("An approval is waiting.");
+    expect(container.textContent ?? "").not.toContain("Fix the login flow");
 
     served.items = [item()];
     act(() => {
@@ -206,6 +123,6 @@ describe("what makes the attention read run again", () => {
     await releaseCoalescedRead(clock);
 
     expect(read).toHaveBeenCalledTimes(2);
-    expect(container.textContent ?? "").toContain("An approval is waiting.");
+    expect(container.textContent ?? "").toContain("Fix the login flow");
   });
 });

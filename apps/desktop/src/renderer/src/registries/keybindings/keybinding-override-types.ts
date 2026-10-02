@@ -40,14 +40,14 @@ export interface KeybindingSnapshot {
    * person changed needs the table the changes are not in.
    */
   readonly shippedBindings: readonly Keybinding[];
-  /** True while a chord is being recorded, which suspends the console keyboard. */
+  /** True while a chord is being recorded, which suspends the app keyboard. */
   readonly recording: boolean;
 }
 
 /** What the override store is built over. */
 export interface KeybindingOverrideStoreOptions {
   /**
-   * Reads the chords the console ships and composes overrides onto them. It is a reader, not an
+   * Reads the chords the app ships and composes overrides onto them. It is a reader, not an
    * array, so chords contributed after construction are included.
    */
   readonly defaults: () => readonly Keybinding[];
@@ -57,10 +57,10 @@ export interface KeybindingOverrideStoreOptions {
    */
   readonly subscribeToDefaults?: (onDefaultsChange: () => void) => Unsubscribe;
   /**
-   * Whether a command id names an act this window has. A stored override for a missing act is
-   * skipped silently and dropped from the next write.
+   * The on-screen title of the act a command id names, or `undefined` for an act this window
+   * lacks. A stored override for a missing act is skipped silently and dropped from the next write.
    */
-  readonly isCommandRegistered: (commandId: string) => boolean;
+  readonly commandTitle: (commandId: string) => string | undefined;
   /** Whose reserved chords to refuse; defaults to the host being run on. */
   readonly platform?: ChordPlatform;
 }

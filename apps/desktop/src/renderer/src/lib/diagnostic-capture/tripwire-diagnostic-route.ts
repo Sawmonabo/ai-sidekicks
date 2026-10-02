@@ -1,6 +1,6 @@
 // The route from the tripwire registry into the diagnostic capture. It is its own module because
 // `tripwires.ts` must not learn where reports go and `diagnostic-capture.ts` must not learn that
-// tripwires exist. Tripwire kinds are invariant breaches the console cannot fix and its author
+// tripwires exist. Tripwire kinds are invariant breaches the app cannot fix and its author
 // cannot see, which the diagnostic band exists for, so every record is an error.
 
 import type { Clock } from "../clock.js";
@@ -14,7 +14,7 @@ const TRIPWIRE_SOURCE = "lib/tripwires";
 
 /**
  * Route one registry's reports into one capture until the returned function is called.
- * `at` supplies the stamp so the route uses the console's clock, not `Date`.
+ * `at` supplies the stamp so the route uses the app's clock, not `Date`.
  */
 export function routeTripwiresToDiagnosticCapture(
   registry: TripwireRegistry,

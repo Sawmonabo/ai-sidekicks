@@ -16,12 +16,11 @@
 // that dialog in no airspace, which fails open. The extra rectangle costs one more entry in
 // a set the predicate scans.
 //
-// Non-modal kinds (a menu, a select, a combobox) do not come here: they are anchored boxes,
+// Non-modal overlays (a menu, a select, a combobox) do not come here: they are anchored boxes,
 // and a popup claiming the whole window would suppress every native view for the length of a
 // menu press.
 
 import { useAirspaceRegistration, type AirspaceOverlayRef } from "./useAirspaceRegistration.js";
-import type { AirspaceOverlayKind } from "@renderer/lib/airspace-registry.js";
 
 /**
  * The two refs a modal wrapper attaches, one per part that occupies the window.
@@ -36,14 +35,9 @@ export interface ModalOverlayAirspace {
   readonly popupRef: AirspaceOverlayRef;
 }
 
-/**
- * Register a modal's backdrop and popup as airspace of `kind`, for its lifetime.
- *
- * Both carry the same kind: `AIRSPACE_OVERLAY_KINDS` names what a thing is on screen, and a
- * backdrop is the half of one dialog that covers the window.
- */
-export function useModalOverlayAirspace(kind: AirspaceOverlayKind): ModalOverlayAirspace {
-  const backdropRef = useAirspaceRegistration(kind);
-  const popupRef = useAirspaceRegistration(kind);
+/** Register a modal's backdrop and popup as airspace, for its lifetime. */
+export function useModalOverlayAirspace(): ModalOverlayAirspace {
+  const backdropRef = useAirspaceRegistration();
+  const popupRef = useAirspaceRegistration();
   return { backdropRef, popupRef };
 }

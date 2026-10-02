@@ -3,7 +3,7 @@
 // registry, a silent drop is a leak.
 //
 // Three moments report different facts:
-//   - A refused publish settled into a visit that had already ended: an anomaly worth an
+//   - A refused publish settled into a visit that had already ended: an anomaly worth a
 //     person's attention, since work arrived for a target that is gone.
 //   - A replaced value is ordinary (a window replaces a store that closed itself), so only a
 //     disposal that threw is reported, because the value is then held by nothing.
@@ -63,10 +63,10 @@ export class UnheldValueDisposal<TValue> {
     }
     const outcome = this.#hand(refused);
     reportTripwire(
-      "apply-chokepoint-bypass",
+      "unheld-resource",
       SITE,
       outcome.threw
-        ? `a resource settled into a subject-scoped visit that had already ended and its disposal threw, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure, { total: true }).message}`
+        ? `a resource settled into a subject-scoped visit that had already ended and its disposal threw, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`
         : "a resource settled into a subject-scoped visit that had already ended; the holder handed it to the caller's disposal rather than installing it into a visit nothing on screen is addressed at",
     );
   }
@@ -83,9 +83,9 @@ export class UnheldValueDisposal<TValue> {
       return;
     }
     reportTripwire(
-      "apply-chokepoint-bypass",
+      "unheld-resource",
       SITE,
-      `a subject-scoped value replaced by a later publish could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure, { total: true }).message}`,
+      `a subject-scoped value replaced by a later publish could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`,
     );
   }
 
@@ -102,7 +102,7 @@ export class UnheldValueDisposal<TValue> {
     reportTripwire(
       "region-render-failure",
       SITE,
-      `a subject-scoped value seeded by a render pass that never committed could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure, { total: true }).message}`,
+      `a subject-scoped value seeded by a render pass that never committed could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure).message}`,
     );
   }
 

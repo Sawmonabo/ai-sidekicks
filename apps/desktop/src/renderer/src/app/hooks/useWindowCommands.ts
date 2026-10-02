@@ -6,8 +6,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { PreloadApi } from "@shared/preload-api.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
@@ -41,7 +41,7 @@ export interface WindowCommandsInput {
    * This machine's keyboard map, for the keybinding overrides: a rebound chord is
    * installed whether or not anybody opens the Keyboard page.
    */
-  readonly keyboardMap: PreloadApi["keyboardMap"];
+  readonly keyboardMap: PlatformBridge["keyboardMap"];
   /** This window's act for choosing a color scheme, which the `Color scheme` row cycles. */
   readonly chooseScheme: (preference: SchemePreference) => void;
   /** The screen registry this window mounts through, for the destinations' own warm-up. */
@@ -148,15 +148,11 @@ export function useWindowCommands(
     return keyBindings.install(window);
   }, [keyBindings, keybindingSnapshot]);
 
-  const changePaletteOpen = useCallback((open: boolean) => {
-    setPaletteOpen(open);
-  }, []);
-
   return {
     context: whenContext,
     bindings: keyBindings,
     revision: commandRevision,
     open: paletteOpen,
-    onOpenChange: changePaletteOpen,
+    onOpenChange: setPaletteOpen,
   };
 }

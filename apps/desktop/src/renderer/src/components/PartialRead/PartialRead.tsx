@@ -5,7 +5,7 @@
 // - Every reading the view holds, or none: the props take the set, so a tail cannot go unreported.
 // - The consequence is the sentence and the cause is the refusal beneath it, rendered through
 //   `InlineRefusal` and never paraphrased.
-// - The count is the console's own arithmetic, so it wears the derived signature, formatted by
+// - The count is the app's own arithmetic, so it wears the derived signature, formatted by
 //   `lib/wire-figures.ts` only.
 //
 // Neither this component nor the notice creates a live region: the `reading` arm delegates to

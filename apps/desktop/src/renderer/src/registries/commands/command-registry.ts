@@ -1,4 +1,4 @@
-// The list of every command the console offers, with recents and search.
+// The list of every command the app offers, with recents and search.
 //
 // A duplicate id is an error, not an overwrite: the survivor would depend on module
 // evaluation order. `commandsFor` decides only what the palette offers from `when` clauses;
@@ -17,13 +17,6 @@ import {
 } from "./command-ranking.js";
 import { WhenClauseCache } from "./when-clause/when-clause-cache.js";
 import { type WhenClauseContext } from "./when-clause/when-clause.js";
-import { type WhenClauseParseError } from "./when-clause/when-clause-parser.js";
-
-/** A clause that did not parse, named with the command it hid. */
-export interface CommandClauseDiagnostic {
-  readonly commandId: string;
-  readonly error: WhenClauseParseError;
-}
 
 /** What happened when a caller asked the registry to run a command. */
 export type CommandInvocationOutcome =
@@ -76,26 +69,9 @@ export class CommandRegistry {
     return this.#commandsById.get(commandId);
   }
 
-  /** How many commands are registered, visible or not. */
-  public get size(): number {
-    return this.#commandsById.size;
-  }
-
   /** Every registered command, in registration order, ignoring visibility. */
   public all(): readonly CommandDefinition[] {
     return this.#commandsById.all();
-  }
-
-  /**
-   * Whether this command is offered in this context. Fails closed: false for an unknown
-   * command, an unparseable clause, or a clause naming a key the context lacks.
-   */
-  public isVisible(commandId: string, context: WhenClauseContext): boolean {
-    const command = this.#commandsById.get(commandId);
-    if (command === undefined) {
-      return false;
-    }
-    return this.#whenClauses.evaluate(command.when, context);
   }
 
   /** Every command offered in this context, ordered by group then title. */
@@ -108,24 +84,6 @@ export class CommandRegistry {
     }
     visible.sort(compareCommandsForDisplay);
     return visible;
-  }
-
-  /**
-   * Clauses that did not parse, paired with the command each one hid, so the palette can
-   * tell a hidden command from one nobody contributed.
-   */
-  public clauseDiagnostics(): readonly CommandClauseDiagnostic[] {
-    const diagnostics: CommandClauseDiagnostic[] = [];
-    for (const command of this.#commandsById.all()) {
-      if (command.when === undefined) {
-        continue;
-      }
-      const parsed = this.#whenClauses.compile(command.when);
-      if (!parsed.ok) {
-        diagnostics.push({ commandId: command.id, error: parsed.error });
-      }
-    }
-    return diagnostics;
   }
 
   /** Moves a registered command to the front of recents; ignores unknown ids. */
@@ -141,11 +99,6 @@ export class CommandRegistry {
     if (this.#recentCommandIds.length > COMMAND_PALETTE_RECENTS_CAP) {
       this.#recentCommandIds.length = COMMAND_PALETTE_RECENTS_CAP;
     }
-  }
-
-  /** Most recently invoked first; in memory only. */
-  public recentCommandIds(): readonly string[] {
-    return [...this.#recentCommandIds];
   }
 
   /**

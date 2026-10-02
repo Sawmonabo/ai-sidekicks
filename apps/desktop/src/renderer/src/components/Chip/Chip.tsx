@@ -8,7 +8,8 @@ import { formatWireString } from "@renderer/lib/wire-figures.js";
 
 /**
  * The closed tone set: `neutral` (no color, the default), `attention` (amber, a person is
- * needed), `failure` (red, something failed) and `accent` (cyan, interactive only).
+ * needed), `failure` (red, something failed) and `accent` (cyan, an interactive affordance or a
+ * running state).
  */
 export const CHIP_TONES = ["neutral", "attention", "failure", "accent"] as const;
 

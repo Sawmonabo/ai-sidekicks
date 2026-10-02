@@ -60,7 +60,7 @@ function settingsCommand(ledger: RunLedger): CommandDefinition {
   return {
     id: SETTINGS_COMMAND_ID,
     title: SETTINGS_COMMAND_TITLE,
-    group: "Navigate",
+    group: "Console",
     when: "onSettings",
     run: () => {
       ledger.ran.push(SETTINGS_COMMAND_ID);

@@ -3,16 +3,20 @@
 // publishes its banner sink here.
 
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { RefusalError, type Refusal } from "@renderer/lib/refusal.js";
 
 /** Publishes this window's refusal rendering; only the window calls it. */
 export function publishCommandRefusalSink(sink: (refusal: Refusal) => void): Unsubscribe {
   return commandRefusals.publish(sink);
 }
 
-/** States a refusal from a command with no view of its own; returns whether a sink rendered it. */
-export function raiseCommandRefusal(refusal: Refusal): boolean {
-  return commandRefusals.raise(refusal);
+/**
+ * States a refusal from a command with no view of its own. Throws the refusal as a
+ * `RefusalError` when no window has published a sink, since a command runs only in a mounted
+ * window and a refusal nobody draws must not vanish.
+ */
+export function raiseCommandRefusal(refusal: Refusal): void {
+  commandRefusals.raise(refusal);
 }
 
 /** The one published sink, withdrawn only by the publisher that set it. */
@@ -28,12 +32,11 @@ class CommandRefusalChannel {
     };
   }
 
-  public raise(refusal: Refusal): boolean {
+  public raise(refusal: Refusal): void {
     if (this.#sink === undefined) {
-      return false;
+      throw new RefusalError(refusal);
     }
     this.#sink(refusal);
-    return true;
   }
 }
 

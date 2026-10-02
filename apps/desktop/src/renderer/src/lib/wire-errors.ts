@@ -21,17 +21,6 @@ export interface WireErrorEnvelope {
  */
 export const UNREPRESENTABLE_VALUE_TEXT = "[unrepresentable value]";
 
-/** How far {@link wireRejectionToError} must go to render a hostile value. */
-export interface WireRejectionToErrorOptions {
-  /**
-   * `true` renders a non-`Error`, non-envelope rejection through {@link lossyStringify} instead
-   * of bare `String(...)`. A rejection caught off the IPC bridge is not realistically
-   * ToPrimitive-failing; one passed as a prop admits any `unknown`, and a render throw would
-   * unmount the tree.
-   */
-  readonly total?: boolean;
-}
-
 /**
  * Whether a value can carry properties at all: an object or a function, not null. A
  * null-prototype function carrying `code` and `message` is a valid envelope.
@@ -112,12 +101,9 @@ export function lossyStringify(value: unknown): string {
  *   - A wire envelope, or an `Error` carrying a wire `code`, is rebuilt as a fresh `Error` whose
  *     `name` is the wire code. This is checked first.
  *   - Any other `Error` passes through unchanged.
- *   - Anything else is wrapped, per `options.total`.
+ *   - Anything else is wrapped through {@link lossyStringify}, so this never throws.
  */
-export function wireRejectionToError(
-  rejection: unknown,
-  options: WireRejectionToErrorOptions = {},
-): Error {
+export function wireRejectionToError(rejection: unknown): Error {
   const envelope = readWireErrorEnvelope(rejection);
   if (envelope !== undefined) {
     const envelopeError = new Error(envelope.message);
@@ -127,14 +113,5 @@ export function wireRejectionToError(
   if (isErrorInstance(rejection)) {
     return rejection;
   }
-  if (options.total === true) {
-    return new Error(lossyStringify(rejection));
-  }
-  try {
-    return new Error(String(rejection));
-  } catch {
-    // Backstop: `total: false` only chooses the first stringifier; the function that renders a
-    // failure must never itself throw.
-    return new Error(lossyStringify(rejection));
-  }
+  return new Error(lossyStringify(rejection));
 }

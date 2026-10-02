@@ -47,11 +47,10 @@ describe("keyboard page — what it changes", () => {
     await recordChordOnto(container, "frame.goToSessions", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(rowOf(container, "frame.goToSessions").textContent ?? "").toContain("chord-taken");
+      expect(rowOf(container, "frame.goToSessions").textContent ?? "").toContain(
+        "already opens Check for updates.",
+      );
     });
-    expect(rowOf(container, "frame.goToSessions").textContent ?? "").toContain(
-      "app.checkForUpdates",
-    );
     // Refused before anything moved.
     expect(keybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
   });

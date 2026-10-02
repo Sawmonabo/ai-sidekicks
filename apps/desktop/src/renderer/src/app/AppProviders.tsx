@@ -27,10 +27,10 @@ import { registerFeatureContributions } from "./registrations.js";
  * window's, so under a fixture a tripwire record carries the scenario's frozen time. Wall time
  * is not restored on unmount: a breach during teardown belongs to that window's timeline.
  */
-const consoleTripwireRouteClock = new ForwardingClock(new RealClock());
+const tripwireRouteClock = new ForwardingClock(new RealClock());
 
 // The route lives as long as the renderer process, so its detach is dropped.
-routeWindowTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
+routeWindowTripwiresToDiagnosticCapture(tripwireRouteClock);
 
 registerFeatureContributions({
   commands: commandContributionRegistry,
@@ -51,7 +51,7 @@ export function AppProviders(props: AppProvidersProps): React.JSX.Element {
   return (
     <PlatformBridgeProvider
       {...(props.composition === undefined ? {} : { composition: props.composition })}
-      clockToRebind={consoleTripwireRouteClock}
+      clockToRebind={tripwireRouteClock}
     >
       <AppBootstrap />
     </PlatformBridgeProvider>

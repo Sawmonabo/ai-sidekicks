@@ -17,13 +17,13 @@ describe("Emitter — a throwing sink does not silence the others", () => {
 
     let raised: unknown;
     try {
-      emitter.emit("bridge-shape-drift");
+      emitter.emit("a report");
     } catch (emitFailure: unknown) {
       raised = emitFailure;
     }
 
     // The middle sink ran although the one before it threw.
-    expect(received).toStrictEqual(["bridge-shape-drift"]);
+    expect(received).toStrictEqual(["a report"]);
     expect(raised).toBeInstanceOf(AggregateError);
     expect((raised as AggregateError).errors).toHaveLength(2);
   });

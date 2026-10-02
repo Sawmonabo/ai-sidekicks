@@ -10,7 +10,11 @@
 import type { KeyboardMap } from "@shared/preload-api.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { Keybinding } from "../commands/command-types.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
+import {
+  formatChordForPlatform,
+  HOST_CHORD_PLATFORM,
+  type ChordPlatform,
+} from "@renderer/lib/chord-format.js";
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 
 /**
@@ -32,19 +36,21 @@ export type KeybindingOverrideRefusalCode = (typeof KEYBINDING_OVERRIDE_REFUSAL_
 /** The subsystem name every refusal this module raises carries. */
 export const KEYBINDING_OVERRIDE_REFUSAL_ORIGIN = "keybinding-overrides";
 
-/** The console's refusal shape narrowed to this module's codes, so it renders like any refusal. */
+/** The app's refusal shape narrowed to this module's codes, so it renders like any refusal. */
 export interface KeybindingOverrideRefusal extends Refusal {
   readonly code: KeybindingOverrideRefusalCode;
 }
 
 /** What deciding a candidate chord needs beyond the chord and the command. */
 export interface CandidateChordInput {
-  /** The chords the console ships; overrides are composed onto this table. */
+  /** The chords the app ships; overrides are composed onto this table. */
   readonly defaults: readonly Keybinding[];
   /** The overrides already held; the candidate is judged against them. */
   readonly overrides: KeyboardMap;
   readonly commandId: string;
   readonly chord: string;
+  /** The act's on-screen title for a command id, or `undefined` for an act this window lacks. */
+  readonly commandTitle: (commandId: string) => string | undefined;
   /** Whose reserved chords to refuse; defaults to the host being run on. */
   readonly platform?: ChordPlatform;
 }
@@ -87,7 +93,8 @@ export function refuseCandidateChord(
   input: CandidateChordInput,
 ): KeybindingOverrideRefusal | undefined {
   const { defaults, overrides, commandId, chord } = input;
-  const reserved = reservedChordReason(chord, input.platform ?? HOST_CHORD_PLATFORM);
+  const platform = input.platform ?? HOST_CHORD_PLATFORM;
+  const reserved = reservedChordReason(chord, platform);
   if (reserved !== undefined) {
     return refuseOverride("chord-reserved", reserved);
   }
@@ -101,9 +108,10 @@ export function refuseCandidateChord(
   const conflict = audit.conflicts.find((entry) => entry.commandIds.includes(commandId));
   if (conflict !== undefined) {
     const holder = conflict.commandIds.find((id) => id !== commandId) ?? commandId;
+    const holderTitle = input.commandTitle(holder) ?? "another command";
     return refuseOverride(
       "chord-taken",
-      `${holder} already answers to this chord. ${conflict.detail}`,
+      `${formatChordForPlatform(chord, platform)} already opens ${holderTitle}.`,
     );
   }
   return undefined;

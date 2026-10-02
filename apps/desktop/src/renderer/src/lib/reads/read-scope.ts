@@ -1,4 +1,4 @@
-// Where a read stops, and the only place in the console that can stop one. A read has an owner
+// Where a read stops, and the only place in the app that can stop one. A read has an owner
 // who can leave before the answer arrives; without this the reply is still parsed and projected
 // on the thread the transcript paints on, for nobody.
 //
@@ -12,7 +12,7 @@
 //
 // Only reads are cancelable. A mutation that reached the daemon has happened, a run control is a
 // mutation, and a store-owned subscription or base snapshot read outlives any pane; none receives
-// a signal. There is no daemon-side per-request cancel: what is canceled is the console's
+// a signal. There is no daemon-side per-request cancel: what is canceled is the app's
 // interest (the promise is dropped and the reply never parsed), since `$/subscription/cancel`
 // ends a stream, not a one-shot call. This is not a scheduler (`refresh-scheduler.ts`) or a
 // timeout.
@@ -63,7 +63,7 @@ export class ReadScope {
    * so the line never has two refreshes in flight.
    *
    * An abandoned scope answers a round that is already over rather than refusing, so callers
-   * need no "may I read" branch; the read never leaves the console because `callDaemon` checks
+   * need no "may I read" branch; the read never leaves the app because `callDaemon` checks
    * the signal before it sends.
    */
   public openRound(): ReadRound {

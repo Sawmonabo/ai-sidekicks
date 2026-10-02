@@ -1,6 +1,5 @@
 // An alert dialog's portal, backdrop and popup, registered in the window's airspace. Separate from
-// `OverlayDialogPopup` because `AlertDialog.Root` does not dismiss on an outside press. The
-// airspace kind is fixed at `dialog`.
+// `OverlayDialogPopup` because `AlertDialog.Root` does not dismiss on an outside press.
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
@@ -17,7 +16,7 @@ export interface OverlayAlertDialogPopupProps {
 
 /** Portal, backdrop and popup for a confirmation; the caller owns `AlertDialog.Root`. */
 export function OverlayAlertDialogPopup(props: OverlayAlertDialogPopupProps): React.JSX.Element {
-  const airspace = useModalOverlayAirspace("dialog");
+  const airspace = useModalOverlayAirspace();
   return (
     <AlertDialog.Portal container={props.container}>
       <AlertDialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />

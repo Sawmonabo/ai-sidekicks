@@ -60,8 +60,8 @@ export function registerNavigationKeybindings(contributions: CommandContribution
 }
 
 /**
- * One `Go to` command per rail destination, titled with the rail's label. Each warms the screen
- * before navigating, and again while its palette row is highlighted.
+ * One command per rail destination, titled with the rail's label. Each warms the screen before
+ * navigating, and again while its palette row is highlighted.
  */
 export function buildNavigationCommands(
   frameStore: WindowStore,
@@ -69,8 +69,8 @@ export function buildNavigationCommands(
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
-    title: `Go to ${RAIL_ENTRY_TEMPLATES[destination].label}`,
-    group: "Navigate",
+    title: RAIL_ENTRY_TEMPLATES[destination].label,
+    group: "Console",
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
       warmDestination(screenRegistry, destination);

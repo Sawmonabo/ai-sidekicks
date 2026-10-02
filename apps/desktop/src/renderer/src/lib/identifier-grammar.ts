@@ -18,11 +18,13 @@ export const IDENTIFIER_MAX_LENGTH = 128;
  * The identifier charset: no whitespace, no quotes, no brackets. It covers UUIDs, dotted method
  * and command names, `kind:id` refs and chord strings like `$mod+Shift+P`.
  */
-export const IDENTIFIER_PATTERN: RegExp = /^[A-Za-z0-9._:@/#+$-]{1,128}$/;
+const IDENTIFIER_PATTERN: RegExp = new RegExp(
+  `^[A-Za-z0-9._:@/#+$-]{1,${String(IDENTIFIER_MAX_LENGTH)}}$`,
+);
 
 /** True when a string is identifier-shaped and therefore not authored content. */
 export function isIdentifierShaped(value: string): boolean {
-  return value.length <= IDENTIFIER_MAX_LENGTH && IDENTIFIER_PATTERN.test(value);
+  return IDENTIFIER_PATTERN.test(value);
 }
 
 /**

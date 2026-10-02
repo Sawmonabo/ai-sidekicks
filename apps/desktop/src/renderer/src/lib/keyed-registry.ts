@@ -13,11 +13,8 @@ import { RefusalError, refuse, type Refusal } from "./refusal.js";
 /** The subsystem every registry refusal names as its author. */
 const REGISTRY_ORIGIN = "keyed-registry";
 
-/** The three answers a registry can give to a duplicate; tests walk the tuple at runtime. */
-export const DUPLICATE_POLICIES = ["throw", "idempotent", "owner-scoped"] as const;
-
 /** What a second registration under one key means. Chosen per registry, never per call. */
-export type DuplicatePolicy = (typeof DUPLICATE_POLICIES)[number];
+export type DuplicatePolicy = "throw" | "idempotent" | "owner-scoped";
 
 /** What a {@link KeyedRegistry} is built from. */
 export interface KeyedRegistryOptions<Value> {

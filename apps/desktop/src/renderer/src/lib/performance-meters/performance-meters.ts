@@ -9,7 +9,7 @@
 
 import { PERFORMANCE_METER_BOUNDS } from "./performance-meter-bounds.js";
 
-/** The four things the console meters. */
+/** The four things the app meters. */
 export const PERFORMANCE_METER_KINDS = [
   // Milliseconds one scheduled frame spent draining its phases.
   "frame-time",
@@ -41,7 +41,7 @@ export interface PerformanceMeterReading {
   readonly latest: number;
 }
 
-/** The console's perf-meter registry; a class so each test gets its own samples. */
+/** The app's perf-meter registry; a class so each test gets its own samples. */
 export class PerformanceMeterRegistry {
   /**
    * One map per kind rather than one map keyed by the two joined: a joined key needs a separator
@@ -207,7 +207,7 @@ function nearestRankSample(sortedSamples: readonly number[], percentile: number)
 }
 
 /**
- * The console's registry in development, and `null` in a built bundle, where the build-time
+ * The app's registry in development, and `null` in a built bundle, where the build-time
  * literal folds this to `null` and the class becomes unreachable.
  */
 export const developmentPerformanceMeters: PerformanceMeterRegistry | null = import.meta.env.DEV
@@ -216,7 +216,7 @@ export const developmentPerformanceMeters: PerformanceMeterRegistry | null = imp
 
 /**
  * The instant a producer measures a duration against: `performance.now()` in development, `0`
- * in a built bundle. Not the console's `Clock`, whose one-millisecond resolution would read a
+ * in a built bundle. Not the app's `Clock`, whose one-millisecond resolution would read a
  * frame as 0 or 17 ms. Values from here are only subtracted from each other.
  */
 export function readPerformanceMeterTime(): number {

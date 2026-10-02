@@ -7,11 +7,11 @@ import { wireRejectionToError } from "./wire-errors.js";
 import { READ_FAILED } from "./reads/read-failure-codes.js";
 
 /**
- * The refusal a rejection is, in the console's one refusal shape.
+ * The refusal a rejection is, in the app's one refusal shape.
  *
  * A value that is already a `Refusal` is returned by reference, because
  * `normalizeWireRejection` rebuilds from three members and would drop any others a
- * console-built refusal carries. Everything else goes to `normalizeWireRejection`, which is
+ * app-built refusal carries. Everything else goes to `normalizeWireRejection`, which is
  * total. `fallbackCode` is the caller's code for a rejection that carried none of its own, so a
  * failed write is not reported as `read-failed`; the detail is the thrower's own message.
  */
@@ -28,6 +28,6 @@ export function coerceToRefusal(
   }
   return normalizeWireRejection(origin, error, {
     code: fallbackCode,
-    detail: wireRejectionToError(error, { total: true }).message,
+    detail: wireRejectionToError(error).message,
   });
 }

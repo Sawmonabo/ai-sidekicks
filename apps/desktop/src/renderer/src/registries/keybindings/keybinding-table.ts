@@ -15,7 +15,7 @@
 
 import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { isTextEntryTarget } from "@renderer/lib/editable-target.js";
-import type { CommandInvocationOutcome, CommandRegistry } from "../commands/command-registry.js";
+import type { CommandRegistry } from "../commands/command-registry.js";
 import type { Keybinding } from "../commands/command-types.js";
 import { chordMatchesEvent } from "./keybinding-chord.js";
 import {
@@ -26,19 +26,6 @@ import {
   type PreparedBinding,
 } from "./keybinding-conflicts.js";
 import { evaluateWhenClause, type WhenClauseContext } from "../commands/when-clause/when-clause.js";
-
-/** What happened when a chord fired. Reported, never swallowed. */
-export type KeybindingDispatch =
-  | { readonly outcome: "ran"; readonly chord: string; readonly commandId: string }
-  | {
-      readonly outcome: "refused";
-      readonly chord: string;
-      readonly commandId: string;
-      /**
-       * The registry's non-running outcomes, derived so a new refusal status cannot be relabeled.
-       */
-      readonly reason: Exclude<CommandInvocationOutcome["status"], "ran">;
-    };
 
 /** Why the table refused a binding set. Rendered verbatim; never swallowed. */
 export const KEYBINDING_REFUSAL_CODES = ["chord-conflict"] as const;
@@ -57,8 +44,6 @@ export interface KeybindingTableOptions {
   readonly registry: CommandRegistry;
   /** Reads the live context at dispatch time, never a snapshot taken at install. */
   readonly readContext: () => WhenClauseContext;
-  /** Receives every dispatch decision, for diagnostics and the Keyboard settings page. */
-  readonly onDispatch?: (dispatch: KeybindingDispatch) => void;
 }
 
 /**
@@ -89,7 +74,6 @@ export class KeybindingConflictError extends RefusalError {
 export class KeybindingTable {
   readonly #registry: CommandRegistry;
   readonly #readContext: () => WhenClauseContext;
-  readonly #onDispatch: ((dispatch: KeybindingDispatch) => void) | undefined;
   #preparedBindings: readonly PreparedBinding[] = [];
   #diagnostics: readonly KeybindingDiagnostic[] = [];
   #detachListener: (() => void) | undefined;
@@ -97,7 +81,6 @@ export class KeybindingTable {
   public constructor(options: KeybindingTableOptions) {
     this.#registry = options.registry;
     this.#readContext = options.readContext;
-    this.#onDispatch = options.onDispatch;
   }
 
   /**
@@ -129,13 +112,6 @@ export class KeybindingTable {
   /** Bindings dropped by the last `setBindings`, with the reason for each. */
   public diagnostics(): readonly KeybindingDiagnostic[] {
     return this.#diagnostics;
-  }
-
-  /** Every installed binding for a command, in dispatch order. */
-  public bindingsFor(commandId: string): readonly Keybinding[] {
-    return this.#preparedBindings
-      .filter((prepared) => prepared.binding.commandId === commandId)
-      .map((prepared) => prepared.binding);
   }
 
   /** The chord to print beside a command now, or `undefined` when none of its bindings is live. */
@@ -220,17 +196,13 @@ export class KeybindingTable {
   }
 
   #dispatch(prepared: PreparedBinding, event: KeyboardEvent, context: WhenClauseContext): boolean {
-    const { chord, commandId } = prepared.binding;
-    const outcome = this.#registry.invoke(commandId, context);
-    if (outcome.status === "ran") {
+    const outcome = this.#registry.invoke(prepared.binding.commandId, context);
+    if (outcome.status !== "ran") {
       // Only a press that ran something is consumed; a refused binding leaves the key to others.
-      event.preventDefault();
-      event.stopPropagation();
-      this.#onDispatch?.({ outcome: "ran", chord, commandId });
-      return true;
+      return false;
     }
-    // `outcome.status` is narrowed to the non-running arms, so it is the reason.
-    this.#onDispatch?.({ outcome: "refused", chord, commandId, reason: outcome.status });
-    return false;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
   }
 }

@@ -114,7 +114,7 @@ describe("the session screen renders the refused resume position", () => {
       refreshes: 2,
     });
 
-    expect(screen.getByText(REFUSAL_CODE)).toBeTruthy();
+    expect(document.querySelector(`[data-refusal-code="${REFUSAL_CODE}"]`)).not.toBeNull();
     expect(screen.getByText(/re-read from the beginning/u)).toBeTruthy();
   });
 
@@ -140,6 +140,6 @@ describe("the session screen renders the refused resume position", () => {
       refreshes: 3,
     });
 
-    expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
+    expect(document.querySelector(`[data-refusal-code="${REFUSAL_CODE}"]`)).toBeNull();
   });
 });

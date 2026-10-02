@@ -217,7 +217,6 @@ describe("what became of the answer", () => {
 
     expect(optionRow(container, 0, "develop").getAttribute("aria-pressed")).toBe("true");
     expect(fieldOf(container, 1).value).toBe("the flaky test is known");
-    expect(container.textContent).toContain("call-rejected");
     expect(container.textContent).toContain("The background service is not answering.");
   });
 });

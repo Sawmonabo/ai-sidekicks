@@ -74,7 +74,7 @@ export function lastObservation(observed: readonly Observation[]): Observation {
 }
 
 /**
- * A projector board seeded the way the console seeds its own.
+ * A projector board seeded the way the app seeds its own.
  *
  * Held in a ref so the board is stable across renders, and fresh per mount rather than module
  * scope so one case's probe kinds never reach another's.

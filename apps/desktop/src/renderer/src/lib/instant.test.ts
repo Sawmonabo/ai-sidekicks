@@ -54,7 +54,7 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
 });
 
 describe("parseInstant — total against a value that is not a string at all", () => {
-  // The parser is handed wire values the console did not validate, so the parameter type says
+  // The parser is handed wire values the app did not validate, so the parameter type says
   // nothing about the value. Each case is its own control: the raw `exec` throws on the value.
   const RFC_3339_SHAPED = /^(\d{4})-/;
 

@@ -1,4 +1,4 @@
-// Whose keystroke is it, the widget's or the console's? Two callers ask different versions:
+// Whose keystroke is it, the widget's or the app's? Two callers ask different versions:
 //
 //   - The keybinding table asks the narrow one, per binding: is text being typed? "Open the
 //     palette" must work while composing a message and "delete the selected row" must not
@@ -12,7 +12,7 @@
 // `isContentEditable` inherits down a subtree but an ARIA role does not.
 
 /** `<input>` types that are controls rather than text entry; a chord still reaches them. */
-const NON_TEXT_INPUT_TYPES = new Set([
+const NON_TEXT_INPUT_TYPES: readonly string[] = [
   "button",
   "checkbox",
   "color",
@@ -22,10 +22,10 @@ const NON_TEXT_INPUT_TYPES = new Set([
   "range",
   "reset",
   "submit",
-]);
+];
 
 /**
- * The ARIA roles whose widget owns keys a console chord would otherwise take: text entry, a
+ * The ARIA roles whose widget owns keys an app chord would otherwise take: text entry, a
  * combobox, and a listbox that navigates by arrow keys. A selector so the ancestor test is one
  * `closest` call.
  */
@@ -53,7 +53,7 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
     return false;
   }
   const inputType = target.getAttribute("type")?.toLowerCase() ?? "text";
-  return !NON_TEXT_INPUT_TYPES.has(inputType);
+  return !NON_TEXT_INPUT_TYPES.includes(inputType);
 }
 
 /**

@@ -19,7 +19,8 @@
 // listens in the capture phase, so it would swallow `$mod+1` before the recorder saw it; the frame
 // installs nothing while a chord is being recorded.
 
-import type { KeyboardMap, KeyboardMapReading, PreloadApi } from "@shared/preload-api.js";
+import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
@@ -54,11 +55,11 @@ const HYDRATION_KEY = "hydrate";
  */
 export class KeybindingOverrideStore {
   readonly #readDefaults: () => readonly Keybinding[];
-  readonly #isCommandRegistered: (commandId: string) => boolean;
+  readonly #commandTitle: (commandId: string) => string | undefined;
   readonly #platform: ChordPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeyboardMap = {};
-  #keyboardMap: PreloadApi["keyboardMap"] | undefined;
+  #keyboardMap: PlatformBridge["keyboardMap"] | undefined;
   #recording = false;
   #snapshot: KeybindingSnapshot | undefined;
   #hydrationRefusals: readonly KeybindingHydrationRefusal[] = [];
@@ -73,7 +74,7 @@ export class KeybindingOverrideStore {
 
   public constructor(options: KeybindingOverrideStoreOptions) {
     this.#readDefaults = options.defaults;
-    this.#isCommandRegistered = options.isCommandRegistered;
+    this.#commandTitle = options.commandTitle;
     this.#platform = options.platform ?? HOST_CHORD_PLATFORM;
     // Never released: the store and the signal are both window-scoped.
     options.subscribeToDefaults?.(() => {
@@ -126,7 +127,7 @@ export class KeybindingOverrideStore {
    * Two guards: the round orders the read against a rebinding, and the map identity orders it
    * against a bridge replacement, so a reading installs only into the map it was read from.
    */
-  public async hydrateFrom(keyboardMap: PreloadApi["keyboardMap"]): Promise<void> {
+  public async hydrateFrom(keyboardMap: PlatformBridge["keyboardMap"]): Promise<void> {
     const round = this.#overrideRounds.supersedeAndClaim(this, HYDRATION_KEY);
     this.#keyboardMap = keyboardMap;
     let reading: KeyboardMapReading;
@@ -150,7 +151,7 @@ export class KeybindingOverrideStore {
     const admitted: Record<string, KeybindingOverride> = {};
     const refusals: KeybindingHydrationRefusal[] = [];
     for (const commandId of Object.keys(stored).sort()) {
-      if (!this.#isCommandRegistered(commandId)) {
+      if (this.#commandTitle(commandId) === undefined) {
         continue;
       }
       const override = stored[commandId];
@@ -211,7 +212,7 @@ export class KeybindingOverrideStore {
     return await this.#apply(undefined, {});
   }
 
-  /** Suspends the console keyboard while a chord is being recorded. */
+  /** Suspends the app keyboard while a chord is being recorded. */
   public beginRecording(): void {
     if (!this.#recording) {
       this.#recording = true;
@@ -220,7 +221,7 @@ export class KeybindingOverrideStore {
   }
 
   /**
-   * Resumes the console keyboard; safe to call twice, since cancel and completion both end here.
+   * Resumes the app keyboard; safe to call twice, since cancel and completion both end here.
    */
   public endRecording(): void {
     if (this.#recording) {
@@ -281,6 +282,7 @@ export class KeybindingOverrideStore {
       overrides,
       commandId,
       chord,
+      commandTitle: this.#commandTitle,
       platform: this.#platform,
     });
   }
@@ -298,7 +300,7 @@ export class KeybindingOverrideStore {
 export const keybindingOverrides: KeybindingOverrideStore = new KeybindingOverrideStore({
   defaults: contributedKeybindings,
   subscribeToDefaults: subscribeToCommandContributions,
-  isCommandRegistered: (commandId) => commandRegistry.has(commandId),
+  commandTitle: (commandId) => commandRegistry.get(commandId)?.title,
 });
 
 /** Why the keyboard map itself, rather than one chord, was refused. */

@@ -29,7 +29,7 @@ function buildTable(): TableUnderTest {
   registry.register({
     id: COMMAND_ID,
     title: "Jump somewhere",
-    group: "Navigate",
+    group: "Console",
     run: () => {
       runs += 1;
     },

@@ -30,7 +30,7 @@ import {
 } from "./palette.js";
 
 // The scheme vocabulary is declared in `@shared/appearance.ts`, which main and the renderer both
-// read, and every console reader takes it from here.
+// read, and every app reader takes it from here.
 export {
   COLOR_SCHEMES,
   SYSTEM_SCHEME_PREFERENCE,
@@ -84,14 +84,13 @@ export function tokenReference(tokenName: string): string {
   return `var(${tokenVariableName(tokenName)})`;
 }
 
-function resolve(color: OklchColor): OklchColor {
-  return resolveEmittedColor(color);
-}
-
 function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string, SchemePair> {
   const resolved = new Map<string, SchemePair>();
   for (const [tokenName, pair] of Object.entries(source)) {
-    resolved.set(tokenName, { light: resolve(pair.light), dark: resolve(pair.dark) });
+    resolved.set(tokenName, {
+      light: resolveEmittedColor(pair.light),
+      dark: resolveEmittedColor(pair.dark),
+    });
   }
   return resolved;
 }
@@ -118,7 +117,7 @@ export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
  */
 const SCHEME_PAIR_BY_TOKEN_NAME = new Map<string, SchemePair>(SCHEME_COLOR_TOKENS);
 
-/** The token name of a user wheel step. */
+/** The token name of an agent wheel step. */
 export function formatHueWheelTokenName(step: number): string {
   return `hue-${String(step).padStart(2, "0")}`;
 }
@@ -130,7 +129,7 @@ export function formatHueWheelTokenName(step: number): string {
 export const HUE_WHEEL: readonly OklchColor[] = Array.from(
   { length: HUE_WHEEL_STEPS },
   (_unused, step) =>
-    resolve({
+    resolveEmittedColor({
       lightness: HUE_WHEEL_LIGHTNESS,
       chroma: HUE_WHEEL_CHROMA,
       hueDegrees: computeHueWheelAngle(step),

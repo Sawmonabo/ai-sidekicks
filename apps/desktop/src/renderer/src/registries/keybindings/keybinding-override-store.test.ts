@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { KeyboardMap, KeyboardMapReading, PreloadApi } from "@shared/preload-api.js";
+import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { CommandRegistry } from "../commands/command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
 import { KeybindingTable } from "./keybinding-table.js";
@@ -18,20 +19,21 @@ const DEFAULTS: readonly Keybinding[] = [
   { chord: "Alt+Digit2", commandId: "frame.goToWorkflows" },
 ];
 
-/** The acts this window has: the two the shipped table binds. */
-const REGISTERED_COMMAND_IDS: ReadonlySet<string> = new Set(
-  DEFAULTS.map((binding) => binding.commandId),
-);
+/** The acts this window has, by title: the two the shipped table binds. */
+const COMMAND_TITLES: ReadonlyMap<string, string> = new Map([
+  ["frame.goToSessions", "Sessions"],
+  ["frame.goToWorkflows", "Workflows"],
+]);
 
 function overrideStore(): KeybindingOverrideStore {
   return new KeybindingOverrideStore({
     defaults: () => DEFAULTS,
-    isCommandRegistered: (commandId) => REGISTERED_COMMAND_IDS.has(commandId),
+    commandTitle: (commandId) => COMMAND_TITLES.get(commandId),
     platform: "darwin",
   });
 }
 
-type KeyboardMapBridge = PreloadApi["keyboardMap"];
+type KeyboardMapBridge = PlatformBridge["keyboardMap"];
 
 /**
  * Main's keyboard map held in memory; {@link holdReads} keeps reads open so two hydrations overlap.
@@ -102,7 +104,7 @@ function navigationRegistry(ran: string[]): CommandRegistry {
     {
       id: "frame.goToSessions",
       title: "Sessions",
-      group: "Navigate",
+      group: "Console",
       run: () => {
         ran.push("sessions");
       },
@@ -110,7 +112,7 @@ function navigationRegistry(ran: string[]): CommandRegistry {
     {
       id: "frame.goToWorkflows",
       title: "Flows",
-      group: "Navigate",
+      group: "Console",
       run: () => {
         ran.push("workflows");
       },
@@ -139,13 +141,13 @@ describe("an override reaches the keyboard, not just the page", () => {
 });
 
 describe("what the store refuses", () => {
-  it("refuses a chord another command answers to, naming that command", async () => {
+  it("refuses a chord another act answers to, naming that act", async () => {
     const overrides = overrideStore();
     const result = await overrides.bind("frame.goToSessions", "Alt+Digit2");
     expect(result.outcome).toBe("refused");
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("chord-taken");
-      expect(result.refusal.detail).toContain("frame.goToWorkflows");
+      expect(result.refusal.detail).toBe("⌥2 already opens Workflows.");
     }
     // Refused before anything moved.
     expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
@@ -252,7 +254,7 @@ describe("the shipped table is read, not captured", () => {
     readonly options: {
       readonly defaults: () => readonly Keybinding[];
       readonly subscribeToDefaults: (onDefaultsChange: () => void) => () => void;
-      readonly isCommandRegistered: (commandId: string) => boolean;
+      readonly commandTitle: (commandId: string) => string | undefined;
       readonly platform: "darwin";
     };
     readonly contribute: (binding: Keybinding) => void;
@@ -266,7 +268,8 @@ describe("the shipped table is read, not captured", () => {
           listeners.add(onDefaultsChange);
           return () => listeners.delete(onDefaultsChange);
         },
-        isCommandRegistered: (commandId) => base.some((binding) => binding.commandId === commandId),
+        commandTitle: (commandId) =>
+          base.some((binding) => binding.commandId === commandId) ? commandId : undefined,
         platform: "darwin",
       },
       contribute: (binding) => {

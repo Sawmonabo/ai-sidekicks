@@ -1,4 +1,4 @@
-// The console's glyph vocabulary: the names, and the geometry every face is held to.
+// The app's glyph vocabulary: the names, and the geometry every face is held to.
 //
 // A name is drawn either by a Tabler face (compiled at build time through `unplugin-icons`) or by
 // one of our own SVGs, and `components/Glyph/glyph-icons.ts` records each name's answer. The names
@@ -21,11 +21,11 @@
 //      icon built of these parts is borrowed, and one that softens a corner with an explicit
 //      radius or draws a different picture stays ours.
 //   3. **A closed name set.** {@link GlyphName} is {@link GLYPH_NAMES}' own members, not `string`.
-//      A component that wants a glyph the console lacks adds it to the set instead of reaching
+//      A component that wants a glyph the app lacks adds it to the set instead of reaching
 //      for an image.
 //
 // The set stays small: each name is a rail destination, a pane kind, a sidebar section's entity
-// kind, one of the five kinds of nothing, or a control verb the console offers.
+// kind, one of the five kinds of nothing, or a control verb the app offers.
 
 /** The box the set's own faces are drawn in. Both axes; square by construction. */
 export const GLYPH_VIEWBOX_SIZE = 16;
@@ -56,11 +56,8 @@ export const GLYPH_SIZE_ROW = 12;
 export const GLYPH_SIZE_CHROME = 14;
 
 /**
- * Every glyph the console can draw, in reading order: rail destinations, entity and pane kinds,
- * state marks, then control verbs and navigation.
- *
- * The order is load-bearing: the gallery route and the screenshot tier walk this array, so a name
- * added here is covered without a second list. Which face draws each name is in
+ * Every glyph the app can draw, in reading order: rail destinations, entity and pane kinds,
+ * state marks, then control verbs and navigation. Which face draws each name is in
  * `components/Glyph/glyph-icons.ts`; this array declares that the set is closed.
  */
 export const GLYPH_NAMES = [
@@ -103,7 +100,7 @@ export const GLYPH_NAMES = [
   "plus",
 ] as const;
 
-/** Every glyph the console can draw: exactly {@link GLYPH_NAMES}' members. */
+/** Every glyph the app can draw: exactly {@link GLYPH_NAMES}' members. */
 export type GlyphName = (typeof GLYPH_NAMES)[number];
 
 /**

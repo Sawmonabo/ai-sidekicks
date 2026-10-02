@@ -1,4 +1,4 @@
-// The console's one `ResizeObserver` construction site, shared by the preview geometry, the
+// The app's one `ResizeObserver` construction site, shared by the preview geometry, the
 // session pane layout, the terminal and the overlay-registration hook. Features never import each
 // other, so `lib/` holds the one feature detection and teardown.
 

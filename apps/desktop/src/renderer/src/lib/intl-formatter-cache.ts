@@ -1,6 +1,6 @@
-// The `Intl` objects the console holds, and the bounds on holding them. Constructing an `Intl`
-// formatter resolves a locale and builds a message table while formatting is cheap, so minting per
-// call costs a locale resolution per row per tick, and keeping every key grows without bound.
+// The `Intl` objects the app holds, and the bounds on holding them. Constructing an `Intl`
+// formatter resolves a locale and builds a message table while formatting is cheap, so every
+// figure is formatted through a held instance, one per named style and locale, under a cap.
 // A sibling of `wire-figures.ts`, which owns the formatting policy and is the only importer.
 
 /**
@@ -18,7 +18,7 @@ function dropOldestEntry<Key, Value>(cache: Map<Key, Value>, cap: number): void 
 }
 
 /**
- * How many named locales the console holds one kind of formatter for. A real session holds one
+ * How many named locales the app holds one style of formatter for. A real session holds one
  * or two; the bound covers a caller passing arbitrary strings, and is far above any real render.
  */
 const LOCALE_FORMATTER_CAP = 32;
@@ -29,9 +29,8 @@ interface LocaleResolvingFormatter {
 }
 
 /**
- * The console's `Intl` instances of one kind, one per resolved locale. A relative time is the
- * most repeated figure (every row with an age re-renders on the reading tick), so the formatter
- * is held, not minted per call. Generic over the formatter; a caller supplies only the mint.
+ * The app's `Intl` instances of one style, one per resolved locale. Generic over the formatter;
+ * a caller supplies only the mint.
  *
  * Keyed on what `Intl` resolved, so `en-US` and `en-us` share one formatter; the requested
  * spelling has its own map so a repeat ask is a lookup, and both maps share the cap.
@@ -74,12 +73,23 @@ class LocaleKeyedFormatters<TFormatter extends LocaleResolvingFormatter> {
   }
 }
 
-/** The one relative-time style the console renders in. */
+/** The one relative-time style the app renders in. */
 const RELATIVE_TIME_STYLE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
 
 const relativeTimeFormatters = new LocaleKeyedFormatters(
   (locale) => new Intl.RelativeTimeFormat(locale, RELATIVE_TIME_STYLE),
 );
+
+/** One named number style. */
+export type NumberStyle =
+  | "count"
+  | "percent"
+  | "wholeNumber"
+  | "oneDecimal"
+  | "upToOneDecimal"
+  | "bareDigits"
+  | "twoDigits"
+  | "dayDuration";
 
 /** The one `Intl.RelativeTimeFormat` held for `locale`; two asks answer with the same object. */
 export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat {
@@ -87,24 +97,58 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
 }
 
 /**
- * The one day-duration style the console renders in. `"long"` because the figure is read as a
- * sentence ("kept for 3 days") and the platform then chooses the singular and plural itself.
- * The unit is `day` only; other units go through `formatDuration`.
+ * Every number style a figure renders in, by name. `dayDuration` is `"long"` because the figure is
+ * read as a sentence ("kept for 3 days") and the platform then chooses the singular and plural.
  */
-const DAY_DURATION_STYLE: Intl.NumberFormatOptions = {
-  style: "unit",
-  unit: "day",
-  unitDisplay: "long",
-  maximumFractionDigits: 0,
+const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
+  count: {},
+  percent: { style: "percent", maximumFractionDigits: 0 },
+  wholeNumber: { minimumFractionDigits: 0, maximumFractionDigits: 0 },
+  oneDecimal: { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+  upToOneDecimal: { maximumFractionDigits: 1 },
+  bareDigits: { useGrouping: false },
+  twoDigits: { minimumIntegerDigits: 2, useGrouping: false },
+  dayDuration: { style: "unit", unit: "day", unitDisplay: "long", maximumFractionDigits: 0 },
 };
 
-const dayDurationFormatters = new LocaleKeyedFormatters(
-  (locale) => new Intl.NumberFormat(locale, DAY_DURATION_STYLE),
-);
+/** One named date or time style. */
+export type DateTimeStyle = "clockTime" | "dateTime" | "date";
 
-/** The one `Intl.NumberFormat` held for day durations in `locale`, under the same cap. */
-export function dayDurationFormatFor(locale?: string): Intl.NumberFormat {
-  return dayDurationFormatters.formatterFor(locale);
+/**
+ * Every date and time style a figure renders in, by name. The hour is `numeric` with no
+ * `hour12`, so the locale's own clock decides between `2:20 PM` and `14:20`.
+ */
+const DATE_TIME_STYLES: Readonly<Record<DateTimeStyle, Intl.DateTimeFormatOptions>> = {
+  clockTime: { hour: "numeric", minute: "2-digit", second: "2-digit" },
+  dateTime: { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  date: { year: "numeric", month: "short", day: "numeric" },
+};
+
+const numberFormatters = new Map<NumberStyle, LocaleKeyedFormatters<Intl.NumberFormat>>();
+const dateTimeFormatters = new Map<DateTimeStyle, LocaleKeyedFormatters<Intl.DateTimeFormat>>();
+
+/** The one `Intl.NumberFormat` held for `style` in `locale`; two asks answer with one object. */
+export function numberFormatFor(style: NumberStyle, locale?: string): Intl.NumberFormat {
+  let formatters = numberFormatters.get(style);
+  if (formatters === undefined) {
+    formatters = new LocaleKeyedFormatters(
+      (requested) => new Intl.NumberFormat(requested, NUMBER_STYLES[style]),
+    );
+    numberFormatters.set(style, formatters);
+  }
+  return formatters.formatterFor(locale);
+}
+
+/** The one `Intl.DateTimeFormat` held for `style` in `locale`; two asks answer with one object. */
+export function dateTimeFormatFor(style: DateTimeStyle, locale?: string): Intl.DateTimeFormat {
+  let formatters = dateTimeFormatters.get(style);
+  if (formatters === undefined) {
+    formatters = new LocaleKeyedFormatters(
+      (requested) => new Intl.DateTimeFormat(requested, DATE_TIME_STYLES[style]),
+    );
+    dateTimeFormatters.set(style, formatters);
+  }
+  return formatters.formatterFor(locale);
 }
 
 /** How many decimals a dollar figure carries: to the cent, or to the hundredth of a cent. */

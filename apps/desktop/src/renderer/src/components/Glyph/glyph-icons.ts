@@ -2,7 +2,7 @@
 // names to faces and sits in `components/` because a face is a React component.
 //
 // A name takes the Tabler face when Tabler draws the same picture from the set's parts. It stays
-// a signature face when it is reserved as ours (users, runs, provenance kinds), when Tabler
+// a signature face when it is reserved as ours (runs, provenance kinds), when Tabler
 // rounds a corner with an explicit radius instead of the stroke join, or when Tabler's icon of
 // that name is a different picture. Both collections compile through the one normalization in
 // `vitest/icon-compilation.ts`; a signature face is an SVG under `assets/icons/signature/` plus
@@ -34,11 +34,11 @@ import WorktreeFace from "~icons/signature/worktree";
 // A provenance kind, and a container Tabler rounds with a two-unit radius rather than the join.
 import RepoFace from "~icons/signature/repo";
 // A picture of the pane it opens; Tabler's `timeline` is a line chart, `list` has no rail.
-import TranscriptIcon from "~icons/signature/transcript";
+import TranscriptFace from "~icons/signature/transcript";
 // A container; Tabler rounds its frame with a two-unit radius rather than the join.
 import TerminalFace from "~icons/signature/terminal";
 // A container, for the reason `terminal` is one.
-import PreviewIcon from "~icons/signature/preview";
+import PreviewFace from "~icons/signature/preview";
 // Two containers and a connector; Tabler's `sitemap` rounds every node with an explicit radius.
 import WorkflowFace from "~icons/signature/workflow";
 // A container with a split; Tabler's layout frames round corners with an explicit radius.
@@ -103,9 +103,9 @@ export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   workspace: WorkspaceFace,
   worktree: WorktreeFace,
   repo: RepoFace,
-  transcript: TranscriptIcon,
+  transcript: TranscriptFace,
   terminal: TerminalFace,
-  browser: PreviewIcon,
+  browser: PreviewFace,
   workflow: WorkflowFace,
   inspector: InspectorFace,
   diff: DiffFace,

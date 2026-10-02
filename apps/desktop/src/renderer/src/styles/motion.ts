@@ -1,4 +1,4 @@
-// The console's one motion module: durations and the settle easing. Motion settles and never
+// The app's one motion module: durations and the settle easing. Motion settles and never
 // bounces. Reduced motion is collapsed to opacity by the generated sheet's own media block, so
 // nothing here reads it, and no View Transitions wrapper exists because nothing starts one.
 //
@@ -11,8 +11,8 @@
 // Node, where `Document` and `Window` do not exist.
 
 /**
- * Motion durations, in milliseconds: 120-180 ms for chrome, 240 ms for an attribution thread
- * drawing itself. Here rather than in `palette.ts`, which answers "what color is this?".
+ * Motion durations, in milliseconds: 120-180 ms for chrome, 240 ms for a settings page settling
+ * in. Here rather than in `palette.ts`, which answers "what color is this?".
  */
 export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
   "motion-quick": 120,
@@ -21,7 +21,7 @@ export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
 };
 
 /**
- * The console's one settle easing: the chrome spring sampled into a `linear()` the compositor
+ * The app's one settle easing: the chrome spring sampled into a `linear()` the compositor
  * runs under the platform's own timing, written out because the spring's inputs are constants.
  * It is emitted under the name every stylesheet reads, `--meridian-ease-settle`.
  */

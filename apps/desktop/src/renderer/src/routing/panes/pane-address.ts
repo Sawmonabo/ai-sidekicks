@@ -89,7 +89,7 @@ interface PaneEntityScopeByKind {
    * shape both untyped boundaries supply for a bare pane.
    */
   readonly browser: never;
-  /** One shared terminal per session, over the runtime node's write lease. */
+  /** Session-scoped: a terminal address names no entity. */
   readonly terminal: never;
   /** Bare is the picker arm: a session is chosen and no agent is named yet. */
   readonly agents: ScopedEntityRef<"agent"> | undefined;

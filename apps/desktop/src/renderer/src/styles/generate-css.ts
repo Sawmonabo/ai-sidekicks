@@ -104,7 +104,7 @@ export function generateMeridianCss(): string {
   ].join("\n");
 
   const baseBlock = [
-    "/* The console's own ground. The host paints its own field behind the",
+    "/* The app's own ground. The host paints its own field behind the",
     "   document, so the body's background is stated rather than inherited. */",
     "html,",
     "body,",
@@ -119,9 +119,6 @@ export function generateMeridianCss(): string {
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
     `  line-height: ${BODY_LINE_HEIGHT};`,
-    // No `font-feature-settings` here: the slashed zero is the mono signature and the property
-    // inherits, so a root declaration would slash every user name and path with no way to scope
-    // it back. It rides the mono `@font-face` descriptors in `typeface.ts`.
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",
@@ -169,13 +166,13 @@ function invariantBlock(): string {
   const lines: string[] = [];
 
   lines.push("");
-  lines.push("  /* User wheel — identity, never attention, never theme. */");
+  lines.push("  /* Agent wheel — identity, never attention, never theme. */");
   HUE_WHEEL.forEach((color, step) => {
     lines.push(declaration(formatHueWheelTokenName(step), formatOklch(color)));
   });
 
   lines.push("");
-  lines.push("  /* Vocabulary aliases — a code or terminal name for a console token.");
+  lines.push("  /* Vocabulary aliases — a code or terminal name for an app token.");
   lines.push("     Emitted here rather than in each scheme layer because the token");
   lines.push("     each one defers to already swaps. */");
   for (const [tokenName, targetTokenName] of Object.entries(TOKEN_ALIASES)) {
@@ -203,7 +200,7 @@ function invariantBlock(): string {
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   // The reflow floor is emitted so a stylesheet reads the property instead of copying the
   // palette's number. It cannot be a media-query condition (custom properties do not reach one);
-  // the console holds this width with one fluid layout, not a breakpoint.
+  // the app holds this width with one fluid layout, not a breakpoint.
   lines.push(declaration("reflow-min-width", `${REFLOW_MIN_WIDTH_PX}px`));
 
   lines.push("");

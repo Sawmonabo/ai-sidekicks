@@ -13,7 +13,6 @@ import { readGuardedProperty } from "./wire-errors.js";
 
 import { parseInstant } from "./instant.js";
 import type { Refusal } from "./refusal.js";
-import { readWireString } from "./wire-strings.js";
 
 /**
  * When the refusing side said the caller may try again. An envelope naming neither bound yields
@@ -32,12 +31,6 @@ export interface WireRetryHint {
 export interface RefusalExtensions {
   /** Registered by `wire-rejection.ts`: when a retry is allowed. */
   readonly retry?: WireRetryHint;
-  /**
-   * Registered by `wire-rejection.ts`: the bindings a fan-out mutation failed on, carried on
-   * `data.fields` for `session.goal_delivery_failed`. Identifiers, not prose; a component
-   * renders them as wire figures.
-   */
-  readonly failedBindingIds?: readonly string[];
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -58,12 +51,6 @@ export function wireRetryExtension(source: unknown): RefusalExtensions {
   return retry === undefined ? {} : { retry };
 }
 
-/** The failed bindings a wire envelope named, as an extension; see {@link wireRetryExtension}. */
-export function wireFailedBindingsExtension(source: unknown): RefusalExtensions {
-  const failedBindingIds = identifierListOf(readGuardedProperty(source, "failedBindingIds"));
-  return failedBindingIds === undefined ? {} : { failedBindingIds };
-}
-
 /** Assembles a hint from two candidate numbers, or none. Shared by both hint readers. */
 function retryHintOf(
   afterSeconds: unknown,
@@ -81,7 +68,7 @@ function retryHintOf(
     : hint;
 }
 
-/** A hint a refusal already carries, in this console's own spelling, read guardedly. */
+/** A hint a refusal already carries, in this app's own spelling, read guardedly. */
 function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
   // One read of `retry`, so a getter answering differently the second time cannot mix two objects.
   const carried = readGuardedProperty(candidate, "retry");
@@ -91,21 +78,6 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
   );
 }
 
-/**
- * A list of non-empty strings, or nothing. Unreadable elements are dropped; a non-array or an
- * all-unreadable list answers `undefined`, since an empty list would claim the daemon named none.
- */
-function identifierListOf(source: unknown): readonly string[] | undefined {
-  if (!Array.isArray(source)) {
-    return undefined;
-  }
-  const identifiers = source.flatMap((element: unknown) => {
-    const identifier = readWireString(element);
-    return identifier === undefined ? [] : [identifier];
-  });
-  return identifiers.length === 0 ? undefined : identifiers;
-}
-
 /** One reader per registered member; the mapped type keeps registry and interface identical. */
 const REFUSAL_EXTENSION_READERS: {
   readonly [Member in keyof Required<RefusalExtensions>]: (
@@ -113,8 +85,6 @@ const REFUSAL_EXTENSION_READERS: {
   ) => Required<RefusalExtensions>[Member] | undefined;
 } = {
   retry: carriedRetryHint,
-  failedBindingIds: (candidate: unknown) =>
-    identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
 };
 
 /**

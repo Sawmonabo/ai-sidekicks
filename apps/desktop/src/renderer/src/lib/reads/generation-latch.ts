@@ -1,23 +1,11 @@
-// Whether an act may be dispatched at all, and what its reply may do; the mutable counterpart of
-// `lib/subject-scoped/subject-scoped-holder.ts`.
+// Whether an act may be dispatched at all, and what its reply may do. A handler settles "may I
+// dispatch" inside its own tick, because a rendered flag belongs to the render that produced the
+// handler and two presses in one frame would both dispatch.
 //
-// A handler must settle "may I dispatch" inside its own tick, before any render: a rendered flag
-// read there belongs to the render that produced the handler, so two presses in one frame both
-// dispatch. One latch serves every act so the predicate cannot drift between copies.
-//
-// Each claim takes a serial from one counter that never reissues a number, and a settlement is
-// admitted only while its key still names that serial. A serial rather than an `AbortController`
-// because a mutation that reached the daemon has happened: a superseded reply is ignored, never
-// stopped (reads add a signal in `read-scope.ts`).
-//
-// The key is one subject's act (one send per composer address, one control per run), never the
-// mount. A subject is held weakly and a settled key is released, so nothing accumulates. The
-// latch is never terminal, since strict mode runs an effect's cleanup between its two invocations.
-//
-// `claim` refuses a second press, `supersedeAndClaim` admits the newest intent (durable writes),
-// and `currentClaim` joins the live round so a reader can measure a settlement it did not start.
-// The joiner's handle cannot release: a `release()` in a `finally` would free a write still in
-// flight. Nothing is queued, since a held press would be an act nobody re-confirmed.
+// Each claim takes a serial that is never reissued, and a settlement is admitted only while its
+// key still names that serial: a mutation that reached the daemon has happened, so a superseded
+// reply is ignored rather than aborted. Keys are per subject, held weakly and released on
+// settlement. Nothing is queued, since a held press would be an act nobody re-confirmed.
 
 /**
  * A handle on the round a key is on: whether it is still live, and one settlement.

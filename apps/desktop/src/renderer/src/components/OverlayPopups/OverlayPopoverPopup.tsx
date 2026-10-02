@@ -19,13 +19,9 @@ export interface OverlayPopoverPopupProps {
   readonly children: React.ReactNode;
 }
 
-/**
- * Anchored portal, positioner and popup for a popover.
- *
- * @consumedBy a popover that must register its airspace over a native view
- */
+/** Anchored portal, positioner and popup for a popover. */
 export function OverlayPopoverPopup(props: OverlayPopoverPopupProps): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration("popover");
+  const airspaceRef = useAirspaceRegistration();
   return (
     <Popover.Portal container={props.container}>
       <Popover.Positioner className={props.positionerClassName} sideOffset={props.sideOffset}>

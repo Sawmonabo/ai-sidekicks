@@ -17,7 +17,7 @@ export interface OverlayComboboxPopupProps {
 
 /** A combobox's portal, positioner and popup, registered as a popover in the airspace. */
 export function OverlayComboboxPopup(props: OverlayComboboxPopupProps): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration("popover");
+  const airspaceRef = useAirspaceRegistration();
   return (
     <Combobox.Portal container={props.container}>
       <Combobox.Positioner className={props.positionerClassName}>

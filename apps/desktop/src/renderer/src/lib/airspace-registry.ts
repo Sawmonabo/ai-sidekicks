@@ -25,20 +25,6 @@ export interface AirspaceRect {
 /** One overlay's live rectangle, read at the moment the predicate asks. */
 export type AirspaceRectReader = () => AirspaceRect | undefined;
 
-/** The closed set of overlay kinds the console draws; a new overlay primitive joins this tuple. */
-export const AIRSPACE_OVERLAY_KINDS = [
-  "dialog",
-  "popover",
-  "context-menu",
-  "toast",
-  "command-palette",
-  "image-lightbox",
-  "diagram-lightbox",
-] as const;
-
-/** One of {@link AIRSPACE_OVERLAY_KINDS}. */
-export type AirspaceOverlayKind = (typeof AIRSPACE_OVERLAY_KINDS)[number];
-
 /**
  * What a registered overlay holds.
  *
@@ -82,14 +68,12 @@ export class AirspaceRegistry {
    * none and reports movement through `moved()`.
    */
   public register(
-    kind: AirspaceOverlayKind,
     read: AirspaceRectReader,
     element?: AirspaceOverlayElement,
   ): AirspaceRegistration {
     const token = this.#nextToken;
     this.#nextToken += 1;
     const overlay: RegisteredOverlay = {
-      kind,
       read,
       element,
       disarmByObserver: new Map<AirspaceMotionObserver, Unsubscribe>(),
@@ -206,7 +190,6 @@ export class AirspaceRegistry {
 }
 
 interface RegisteredOverlay {
-  readonly kind: AirspaceOverlayKind;
   readonly read: AirspaceRectReader;
   readonly element: AirspaceOverlayElement | undefined;
   /** One disarm per installed observer, so an uninstall disarms only its own. */

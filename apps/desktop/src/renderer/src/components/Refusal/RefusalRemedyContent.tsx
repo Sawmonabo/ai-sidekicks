@@ -1,6 +1,6 @@
 // The next move under a refusal, in the region the `action` prop fills; one component for every
-// table's `RefusalRemedy`. It renders nothing for a code with no move, so the daemon's own code and
-// sentence stand alone. Children sit inside the region, not beside it, so a sentence that points
+// table's `RefusalRemedy`. It renders nothing for a code with no move, so the daemon's own sentence
+// stands alone. Children sit inside the region, not beside it, so a sentence that points
 // at data the refusal carried cannot be composed apart from it.
 
 import "./Refusal.css";

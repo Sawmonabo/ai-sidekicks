@@ -1,4 +1,4 @@
-// The console's type system: the faces the console asks for, the line height, and the size scale
+// The app's type system: the faces the app asks for, the line height, and the size scale
 // every line is set on. Separate from `palette.ts`, which answers "what color is this?" through
 // contrast measurements, while this file answers "how is text set?".
 //
@@ -6,17 +6,13 @@
 // the line height and type scale for `ENUMERATION_ROW_HEIGHT_REM`. This file is a leaf that
 // imports nothing local, so that dependency cannot become a cycle.
 //
-// The OpenType features are not declared here. The slashed zero belongs to the mono face and is a
-// descriptor inside its `@font-face` rules in `typeface.ts`; on `body` it would inherit onto every
-// user name, repo path and branch, and CSS Fonts 4 gives `font-feature-settings` precedence over
-// `font-variant-*`, so no descendant could scope it back. Tabular figures need no feature:
-// neither family carries `tnum` or `pnum` in `GSUB` or `GPOS`, and every digit measures 600/1000
-// em, so the digits are tabular by construction. The sheets that set
-// `font-variant-numeric: tabular-nums` do so for the platform fallback faces, which offer both.
+// No OpenType feature is declared. Tabular figures need none: every digit in both families
+// measures 600/1000 em, so the digits are tabular by construction. The sheets that set
+// `font-variant-numeric: tabular-nums` do so for the platform fallback faces.
 
 /**
  * The line height every body line box occupies, as a multiple of its size. Named rather than
- * written into the generator's `body` rule because the console's row rhythm is derived from it.
+ * written into the generator's `body` rule because the app's row rhythm is derived from it.
  */
 export const BODY_LINE_HEIGHT = 1.5;
 
