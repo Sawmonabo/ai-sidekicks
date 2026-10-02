@@ -50,9 +50,10 @@ export const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
 // `-32601`.
 // Routed: `item/tool/call`, the three modern approval methods, the legacy pair (routed so the
 // answer does not depend on the provider's spelling) and `mcpServer/elicitation/request`.
-// Unrouted, so `-32601`: `item/tool/requestUserInput` (experimental, unreachable at
-// `experimentalApi: false`), `attestation/generate` (declined at negotiation) and
-// `account/chatgptAuthTokens/refresh` (credential brokering this driver does not do).
+// Unrouted, so `-32601`: `item/tool/requestUserInput` (experimental, so it arrives on this
+// driver's `experimentalApi` connection; no descriptor composes its answer),
+// `attestation/generate` (declined at negotiation) and `account/chatgptAuthTokens/refresh`
+// (credential brokering this driver does not do).
 // Fail-closed: a routed method with no responder, a refusing one or a throwing one answers with
 // the method's own refusal shape, never `-32601` (a protocol error where a decision was asked) and
 // never silence (which hangs the turn).

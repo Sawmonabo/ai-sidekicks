@@ -55,8 +55,8 @@ const ABSENT_ASK_OPTION_SET: CodexAskOptionSetReading = Object.freeze({ kind: "a
 
 /**
  * Reads the choice set an inbound ask publishes, if any. Pure: it emits no diagnostic, so the
- * caller decides what a `dropped` reading is worth. `item/tool/requestUserInput` is read although
- * gated off by `experimentalApi: false`, so its disposition is defined when the gate opens.
+ * caller decides what a `dropped` reading is worth. `item/tool/requestUserInput` arrives only on
+ * an `experimentalApi` connection, which this driver negotiates.
  */
 export function readCodexAskOptionSet(method: string, params: unknown): CodexAskOptionSetReading {
   if (method === "item/tool/requestUserInput") {
