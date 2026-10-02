@@ -17,8 +17,8 @@
 // The presence check mirrors upstream's `isInstalled()` (same three conditions, same order) as a
 // fast path only: `install.js` performs the same check itself and repairs a partial dist.
 //
-// It reads no `process.argv` and is never imported, so it needs no entry guard; the bug that
-// `tools/__tests__/entry-guard.test.mjs` pins cannot occur.
+// It reads no `process.argv` and is never imported, so it needs no entry guard, and the symlinked
+// path mismatch a hand-written guard can hit cannot occur.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";

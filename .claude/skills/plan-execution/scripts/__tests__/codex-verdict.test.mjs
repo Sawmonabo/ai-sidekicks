@@ -79,7 +79,7 @@ test("baseline: +1 reaction on green CI is a mergeable clean pass", () => {
 });
 
 test("RACE: a fresh review on HEAD with no visible threads is NOT clean", () => {
-  // Codex submits a findings review at T=0; its threads have not materialised.
+  // Codex submits a findings review at T=0; its threads have not materialized.
   // Read naively this is indistinguishable from a clean pass, and scored
   // merge_ok=1 it would merge a PR that has open findings.
   const result = computeVerdict(
@@ -147,7 +147,7 @@ test("a non-firing comment leg contributes Infinity, not its age", () => {
 
 test("a sha-citing comment alone never reaches ack_clean, even with 0 threads", () => {
   // The false pass this closes: a findings comment naming HEAD satisfied the ack
-  // leg, and in the window before its inline threads materialised the gate saw
+  // leg, and in the window before its inline threads materialized the gate saw
   // an ack with zero open threads and reported merge_ok=1 on a commit with open
   // findings. Settled here on purpose — the settle window must NOT be what saves
   // it, or the two guards would be one guard.
@@ -691,7 +691,7 @@ test("an absent pushAnchorKnown signal fails closed", () => {
 // ------------------------------------------------------- exhaustive sweep
 
 /**
- * Every combination of the named dimensions, STREAMED rather than materialised.
+ * Every combination of the named dimensions, STREAMED rather than materialized.
  *
  * The `flatMap` form this replaces built the whole space as one array, so each
  * dimension added multiplied resident memory as well as time. The space is now
@@ -706,7 +706,7 @@ function* cartesianProduct(dimensions) {
   // every one of the ~19 levels, so it allocates ~19 objects per combination and
   // bubbles each result back up through as many generator frames. The odometer
   // allocates exactly one. Measured on this suite, recursion cost 2.3x the
-  // materialised array it replaced; this pays that back and then some.
+  // materialized array it replaced; this pays that back and then some.
   const odometer = new Array(dimensionEntries.length).fill(0);
   for (;;) {
     const combination = {};
@@ -1448,7 +1448,7 @@ test("comments from anyone but the bot are ignored entirely", () => {
 test("a sha-citing comment WITH findings acks HEAD but asserts nothing about it", () => {
   // The hole: `commentAcksHead` was the whole story, so a findings comment
   // naming HEAD reached ack_clean during the window before its threads
-  // materialised. Naming a commit proves Codex looked; it is not a verdict.
+  // materialized. Naming a commit proves Codex looked; it is not a verdict.
   const result = deriveCommentSignals(
     [comment({ body: `**Reviewed commit:** \`${HEAD_SHA_SHORT}\`\n\n3 issues found.` })],
     commentAnchors,
@@ -1969,7 +1969,7 @@ test("PR #259's findings shape still reports ack_with_findings", () => {
   assert.equal(result.mergeOk, false);
 });
 
-test("the findings review with its threads not yet materialised is held, not merged", () => {
+test("the findings review with its threads not yet materialized is held, not merged", () => {
   // Same review, zero visible threads — the original race, end to end.
   const result = verdictForShape({
     reviews: [review({ submitted_at: "2026-07-27T16:40:00Z" })],
@@ -2134,7 +2134,7 @@ test("PR #28's comment-only findings pass reports findings, not no_ack_yet", () 
 
 test("comment-borne findings outrank the settle window", () => {
   // Zero threads inside the window would normally be `ack_unsettled` — waiting to
-  // tell "clean" from "threads still materialising". The findings are already in
+  // tell "clean" from "threads still materializing". The findings are already in
   // hand, so there is nothing left to wait for.
   const result = verdictForShape({
     comments: [

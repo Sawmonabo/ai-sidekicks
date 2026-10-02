@@ -668,7 +668,7 @@ if (verdict === "ack_unsettled" && !ackAgeUnknown) {
     `  !! ${unsettledAckLeg} ack of HEAD is ${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
   );
   lines.push(
-    "     cannot distinguish 'clean' from 'threads not yet materialised'. Re-poll; do NOT merge.",
+    "     cannot distinguish 'clean' from 'threads not yet materialized'. Re-poll; do NOT merge.",
   );
 }
 // Same verdict, different remediation, and printing the other one here would be

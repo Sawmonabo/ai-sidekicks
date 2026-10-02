@@ -337,7 +337,8 @@ export function runBundleBudgetCommand(argumentList: readonly string[]): Promise
 // CLI only when this file is the entry point, so Vitest can import it without side effects. Both
 // sides go through `realpathSync`: Node resolves the module URL through symlinks while argv[1]
 // keeps the path as typed, so the naive comparison silently no-ops through a symlinked or spaced
-// checkout and exits 0 over an unrun gate (`tools/__tests__/entry-guard.test.mjs` pins this).
+// checkout and exits 0 over an unrun gate. Node's own `import.meta.main` (from 24.2, below the
+// `.nvmrc` floor, still marked early development) answers the same question without a comparison.
 const invokedPath = process.argv[1];
 if (
   invokedPath !== undefined &&

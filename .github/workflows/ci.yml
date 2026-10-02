@@ -485,10 +485,10 @@ jobs:
           version: 10.33.2
           run_install: false
 
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install dependencies
@@ -651,10 +651,10 @@ jobs:
           version: 10.33.2
           run_install: false
 
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install dependencies
@@ -695,10 +695,10 @@ jobs:
           # A pull request's changed files are read against its base commit.
           fetch-depth: 0
 
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           # This job runs no install; with pnpm absent, the cache lookup fails.
           package-manager-cache: false
 
@@ -739,10 +739,10 @@ jobs:
           version: 10.33.2
           run_install: false
 
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install dependencies
@@ -821,10 +821,10 @@ jobs:
         with:
           ref: ${{ env.SWEEP_REF }}
 
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           # This job runs no install; with pnpm absent, the cache lookup fails.
           package-manager-cache: false
 
@@ -877,10 +877,10 @@ jobs:
           version: 10.33.2
           run_install: false
 
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron: the desktop
@@ -982,10 +982,10 @@ jobs:
       # the shipped configuration. The 13.x prebuilds are Node-API 10: a Node-API-9 host (22.12,
       # 22.13) cannot load the binding at all, seen as a silent SIGSEGV at the first
       # `new Database()` rather than Node's documented load-time throw.
-      - name: Setup Node.js 24.16
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install (runtime-daemon and its workspace dependencies only)

@@ -23,7 +23,7 @@ min_version: "2.1.6"
 # linked worktree) plus the shared `refs/stash`, so concurrent runs overwrite and drop each other's.
 # The rc file is the only repo-owned code that can wrap the window, since it opens before the first
 # job below runs and closes after the last. See `tools/lefthook-worktree-lock.mjs` for the primary
-# sources and `CONTRIBUTING.md` §Hooks for the operator description.
+# sources and `CONTRIBUTING.md` §Hooks for what the hooks need from you.
 rc: tools/lefthook-rc.sh
 
 pre-commit:
