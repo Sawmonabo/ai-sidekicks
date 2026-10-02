@@ -13,6 +13,7 @@
 // process is never woken to check for work.
 
 import type { Clock } from "../clock.js";
+import { elideText } from "../elide-text.js";
 import { DIAGNOSTIC_CAPTURE_BOUNDS } from "./diagnostic-capture-bounds.js";
 
 /** How bad one record is. */
@@ -50,9 +51,6 @@ const CAPTURE_SOURCE = "lib/diagnostic-capture";
 
 /** The probe name the forward seam is unreadable under when no forwarder is installed. */
 const DIAGNOSTIC_FORWARD_PROBE = "diagnostic-forward";
-
-/** What a truncated detail ends with, so a reader can tell truncation from brevity. */
-const TRUNCATION_SUFFIX = "…";
 
 /** The app's diagnostic capture; a class so a test gets its own. */
 export class DiagnosticCapture {
@@ -187,13 +185,9 @@ export function toJsonLines(records: readonly DiagnosticRecord[]): string {
 }
 
 function boundedDetail(detail: string): string {
-  if (detail.length <= DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount) {
-    return detail;
-  }
-  return (
-    detail.slice(0, DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount - TRUNCATION_SUFFIX.length) +
-    TRUNCATION_SUFFIX
-  );
+  return elideText(detail, DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount, {
+    ellipsisWithinBound: true,
+  });
 }
 
 /**
