@@ -39,7 +39,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/policy/` (Plan-009-owned directory: `policy-artifact.ts`, `permission-check-service.ts`, `provider-rule-service.ts`, `codex-session-rule-answers.ts`, `provider-rule-revocation.ts`, `permission-ask-normalizer.ts` + `execution-posture-service.ts` + `__tests__/` incl. `permission-check-service.bench.ts`)
 - `packages/runtime-daemon/policies/` (the built-in rules as `.cedar` files, compiled into the service with it and changed only by an app update — D-009-9)
 - `packages/runtime-daemon/src/ipc/handlers/` (the `approval.*` binder files + `index.ts` EXTEND)
-- `packages/client-sdk/src/approval-client.ts` + `packages/client-sdk/src/index.ts` + `packages/client-sdk/test/approval-client.integration.test.ts`
+- `packages/client-sdk/src/approval-client.ts` + `packages/client-sdk/src/index.ts` + `packages/client-sdk/src/__tests__/approval-client.integration.test.ts`
 - `apps/desktop/src/renderer/src/features/composer/approval/` (`components/ApprovalCard.tsx` with its test beside it, and the card's read hook in `hooks/`)
 - `apps/desktop/src/renderer/src/services/daemon/` (EXTEND — `daemon-method-contract.ts` and `daemon-reply-registry.ts` register the `approval.*` methods the card's hook calls)
 
@@ -307,7 +307,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-009-11
 - **Consumes:** `MethodRegistryImpl` test harness ← Plan-005-partial (shipped); binders ← T3.1, T3.2, T3.5
 - **T3.8 — SDK integration tests.**
-- **Files:** `packages/client-sdk/test/approval-client.integration.test.ts` (CREATE — per the `session-client.integration.test.ts` location convention)
+- **Files:** `packages/client-sdk/src/__tests__/approval-client.integration.test.ts` (CREATE — per the `session-client.integration.test.ts` location convention)
 - In-process daemon registry + real transport: one happy-path round-trip per method with branded-type preservation; `projectionRead` returns historical rows whose answering device's id + `decision` + `effectiveScope` + `rememberedScope` equal the daemon payload verbatim (AC-3 wire-observable); the `state` filter round-trips; every call the client makes goes out over the `JsonRpcClient` it was built with; outbound frames carry the declared strings; schema-invalid daemon responses throw the SDK validation error; a repeated `projectionRead` sends a second request and returns the daemon's second answer, not a cached one.
 - **Tests:** the file IS the tests.
 - **Spec coverage:** Spec-010 AC3 (visibility half), Spec-010 §Interfaces And Contracts (pending + historical in one surface), Spec-010 AC2 (the client reaches only the local daemon)
@@ -321,7 +321,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-009-10
 - **Consumes:** revocation + seams ← T3.4; provider handover and Codex hook answer ← T2.4; the `session.closed` application ← T2.12
 - **T3.10 — Typed wire-error round-trips for resolve/rule conflicts.**
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/approval-handlers.test.ts` (EXTEND), `packages/client-sdk/test/approval-client.integration.test.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/approval-handlers.test.ts` (EXTEND), `packages/client-sdk/src/__tests__/approval-client.integration.test.ts` (EXTEND)
 - Wire-asserts the D-009-4 codes end-to-end per the `DaemonDomainError` envelope (standard JSON-RPC numeric + `data.type === 'approval.already_resolved'` etc. per error-contracts.md §JSON-RPC Wire Mapping; SDK rejection surfaces `data.type`): double-resolve → `approval.already_resolved` (first record unchanged); resolve after cancel → `approval.request_canceled`; unknown request → `approval.not_found`; persistence-unavailable fixture → `approval.persistence_unavailable` fail-closed with no partial row; unknown rule → `approval.rule_not_found`; double-revoke → `approval.rule_already_revoked`. Negative control: a `PermissionCheck` denial is a NORMAL in-process response (`allowed: false`), never a wire error — pinning the no-`approval.permission_denied` decision.
 - **Tests:** the file extensions ARE the tests.
 - **Spec coverage:** Spec-010 §Interfaces And Contracts (second resolve refused, record immutable), Spec-010 §Fallback Behavior (fail-closed persistence refusal)

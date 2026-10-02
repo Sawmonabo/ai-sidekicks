@@ -24,15 +24,16 @@ import type {
   SessionStreamFrame,
 } from "@ai-sidekicks/contracts";
 import {
-  SessionCreateRequestSchema,
-  SessionCreateResponseSchema,
-  SessionEventSchema,
-  SessionReadRequestSchema,
-  SessionReadResponseSchema,
-  SessionStreamFrameSchema,
+  SESSION_DIRECTORY_METHOD_DESCRIPTORS,
+  SESSION_METHOD_DESCRIPTORS,
 } from "@ai-sidekicks/contracts";
 
-import type { JsonRpcClient } from "./transport/json-rpc-client.js";
+import {
+  callMethod,
+  subscribeMethod,
+  withCancelFailure,
+  type JsonRpcClient,
+} from "./transport/json-rpc-client.js";
 import type { LocalSubscriptionConsumer } from "./transport/types.js";
 
 /**
@@ -62,8 +63,6 @@ export class SessionStreamDroppedError extends Error {
   }
 }
 
-const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(SessionEventSchema);
-
 /**
  * Subscribe options. Without `afterCursor` the daemon replays from the start of the session; with
  * it, from the event strictly after that cursor. `signal` cancels the subscription early and
@@ -75,15 +74,16 @@ export interface SessionSubscribeOptions {
   readonly signal?: AbortSignal | undefined;
 }
 
-/** The `session.*` JSON-RPC method names the daemon registers. */
-const SESSION_METHOD_CREATE = "session.create";
-const SESSION_METHOD_READ = "session.read";
-const SESSION_METHOD_SUBSCRIBE = "session.subscribe";
-
 /** The typed session operations a client calls on the daemon. */
 export interface SessionClient {
+  /** Create a session with its lead; resolves with the new session's id and starting state. */
   create(request: SessionCreateRequest): Promise<SessionCreateResponse>;
+  /** Read one session's snapshot from the daemon's record, never from a client cache. */
   read(request: SessionReadRequest): Promise<SessionReadResponse>;
+  /**
+   * Follow one session's events in ascending order. Each call opens a fresh daemon subscription;
+   * the iteration ends in `SessionStreamDroppedError` when the daemon dropped changes for it.
+   */
   subscribe(options: SessionSubscribeOptions): AsyncIterable<SessionEventEnvelope>;
 }
 
@@ -97,19 +97,8 @@ export interface SessionClient {
 export function createDaemonSessionClient(client: JsonRpcClient): SessionClient {
   return {
     create: (request) =>
-      client.call(
-        SESSION_METHOD_CREATE,
-        request,
-        SessionCreateRequestSchema,
-        SessionCreateResponseSchema,
-      ),
-    read: (request) =>
-      client.call(
-        SESSION_METHOD_READ,
-        request,
-        SessionReadRequestSchema,
-        SessionReadResponseSchema,
-      ),
+      callMethod(client, SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.create"], request),
+    read: (request) => callMethod(client, SESSION_METHOD_DESCRIPTORS["session.read"], request),
     subscribe: (options) => daemonSubscribe(client, options),
   };
 }
@@ -135,10 +124,10 @@ async function* daemonSubscribe(
     ...(options.afterCursor !== undefined ? { afterCursor: options.afterCursor } : {}),
   };
 
-  const subscription = client.subscribe<SessionStreamFrame<SessionEvent>>(
-    SESSION_METHOD_SUBSCRIBE,
+  const subscription = subscribeMethod(
+    client,
+    SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.subscribe"],
     params,
-    SESSION_STREAM_FRAME_SCHEMA,
   );
 
   // A listener, not a check inside the loop: the consumer parks on `next()` between values, so a
@@ -155,8 +144,8 @@ async function* daemonSubscribe(
     // subscription stays live and the loop parks forever on a canceled stream.
     if (sig.aborted) {
       sig.removeEventListener("abort", abortListener);
-      // Over a socket the subscribe reply has not arrived yet, so this cancel only ends the
-      // subscription locally, and the transport sends the wire cancel once the reply lands.
+      // Over a socket the subscribe reply has not arrived yet, so this cancel waits for it and
+      // then cancels on the wire.
       const cancelFailure = await cancelAndReadFailure(subscription);
       if (cancelFailure !== undefined) {
         throw cancelFailure;
@@ -219,22 +208,4 @@ async function cancelAndReadFailure(
     return subscriptionError;
   }
   return undefined;
-}
-
-/**
- * The error a failed stream ends with: its own, carrying the cancel's failure as `cause` when the
- * cancel failed too and the stream's error has no cause yet, or both in an `AggregateError`.
- */
-function withCancelFailure(streamError: unknown, cancelFailure: unknown): unknown {
-  if (cancelFailure === undefined || cancelFailure === streamError) {
-    return streamError;
-  }
-  if (streamError instanceof Error && streamError.cause === undefined) {
-    streamError.cause = cancelFailure;
-    return streamError;
-  }
-  return new AggregateError(
-    [streamError, cancelFailure],
-    "The session stream failed, and canceling it failed too.",
-  );
 }

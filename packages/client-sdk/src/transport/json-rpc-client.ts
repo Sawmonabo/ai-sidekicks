@@ -1,6 +1,8 @@
 // Typed JSON-RPC client over a pluggable byte-frame transport: `call` and `subscribe` validate
 // every outbound payload with Zod before the wire write and every inbound payload before it
-// reaches the caller. Validation errors surface; they are never swallowed.
+// reaches the caller. Validation errors surface; they are never swallowed. A subscription holds
+// at most `maxQueuedValuesPerSubscription` unread values, so a stalled consumer cannot grow memory
+// without bound.
 //
 // Works at the JSON-RPC envelope layer above the transport's framing. It does not perform the
 // `daemon.hello` handshake: the caller negotiates a version and passes it as `protocolVersion`.
@@ -13,6 +15,8 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
+  MethodDescriptor,
+  SubscriptionMethodDescriptor,
 } from "@ai-sidekicks/contracts";
 import {
   JSONRPC_VERSION,
@@ -77,12 +81,28 @@ export class JsonRpcSchemaError extends Error {
  */
 export class JsonRpcTransportClosedError extends Error {
   public constructor(reason: Error | undefined) {
-    super(reason !== undefined ? `Transport closed: ${reason.message}` : "Transport closed");
+    super(
+      reason !== undefined ? `Transport closed: ${reason.message}` : "Transport closed",
+      reason !== undefined ? { cause: reason } : undefined,
+    );
     this.name = "JsonRpcTransportClosedError";
-    if (reason !== undefined) {
-      // `Object.assign` because older lib targets do not model `cause` on Error.
-      Object.assign(this, { cause: reason });
-    }
+  }
+}
+
+/**
+ * Ends a subscription whose consumer left `maxQueuedValues` values unread. The client canceled it
+ * on the daemon; values queued before the overflow are still delivered first.
+ */
+export class JsonRpcSubscriptionOverflowError extends Error {
+  /** The bound the consumer reached, from `JsonRpcClientOptions.maxQueuedValuesPerSubscription`. */
+  public readonly maxQueuedValues: number;
+
+  public constructor(maxQueuedValues: number) {
+    super(
+      `${String(maxQueuedValues)} unread values filled the subscription's queue; it was canceled.`,
+    );
+    this.name = "JsonRpcSubscriptionOverflowError";
+    this.maxQueuedValues = maxQueuedValues;
   }
 }
 
@@ -91,12 +111,11 @@ export class JsonRpcTransportClosedError extends Error {
 interface PendingRequest {
   readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
-  readonly resultSchema: ZodType<unknown>;
   /**
    * Set for a subscribe-init request. `#handleResponse` registers the subscription synchronously
    * so a response and its first `$/subscription/notify`, parsed from one transport read, do not
-   * lose the notification to the unknown-id drop. Registration is skipped if a cancel already
-   * moved the state out of `"pending"`.
+   * lose the notification to the unknown-id drop. Registration is skipped if the consumer already
+   * canceled.
    *
    * A required `| undefined` rather than optional, so `exactOptionalPropertyTypes` narrows
    * correctly.
@@ -110,10 +129,10 @@ interface PendingRequest {
  * Lifecycle of one subscription:
  *   * `pending` - the init response has not arrived.
  *   * `active` - the id is known and notifications drain into the queue.
- *   * `completed` - cancelled or transport closed; `next()` drains the queue, then returns
+ *   * `completed` - canceled or transport closed; `next()` drains the queue, then returns
  *     `undefined`.
- *   * `errored` - a value failed validation or the transport failed; `next()` rejects with the
- *     stored error.
+ *   * `errored` - the init, a value, the queue bound, the cancel or the transport failed; `next()`
+ *     drains the queue, then rejects with the stored error.
  */
 type SubscriptionStatus = "pending" | "active" | "completed" | "errored";
 
@@ -130,7 +149,10 @@ interface SubscriptionState<T> {
   }>;
   /** Set when status becomes `errored`. */
   error: Error | undefined;
-  /** Set while a wire cancel is in flight, so a second `cancel()` awaits the same promise. */
+  /**
+   * Set once a cancel starts, by the consumer or by the client ending a failed subscription, so a
+   * second `cancel()` awaits the same promise and no second wire cancel is sent.
+   */
   cancelInFlight: Promise<void> | undefined;
 }
 
@@ -205,13 +227,10 @@ function pullFromSubscription<T>(state: SubscriptionState<T>): Promise<T | undef
 /**
  * Push an already-validated value to a waiting consumer, or queue it. The caller must have
  * validated `value` against `state.valueSchema`; `#handleNotification` does that with the wrapper
- * schema.
+ * schema. Only a registered subscription receives values, and a registered one is always active:
+ * every path that ends it also untracks it, before any value can arrive.
  */
 function pushSubscriptionValue<T>(state: SubscriptionState<T>, value: T): void {
-  if (state.status === "completed" || state.status === "errored") {
-    // Frames racing a cancel or an error are dropped, as the daemon's streaming primitive does.
-    return;
-  }
   const waiter = state.waiters.shift();
   if (waiter !== undefined) {
     waiter.resolve(value);
@@ -264,16 +283,24 @@ export interface JsonRpcClientOptions {
    * the handshake request itself is exempt from the check.
    */
   readonly protocolVersion: string;
+  /**
+   * The most values one subscription holds unread. When a value arrives with the queue full and no
+   * `next()` waiting, the subscription is canceled on the daemon and ends with
+   * `JsonRpcSubscriptionOverflowError`. Required because the right bound depends on the caller's
+   * workload: how large its values are and how far behind its consumer may fall.
+   */
+  readonly maxQueuedValuesPerSubscription: number;
 }
 
 /**
- * Typed JSON-RPC client for one `ClientTransport`, with `call<P, R>` and `subscribe<T>`. The
+ * Typed JSON-RPC client for one `ClientTransport`, with `call<P, R>` and `subscribe<P, T>`. The
  * constructor registers the transport's inbound and close handlers, so use one client per
  * transport.
  */
 export class JsonRpcClient {
   readonly #transport: ClientTransport;
   readonly #protocolVersion: string;
+  readonly #maxQueuedValuesPerSubscription: number;
   readonly #pending = new Map<JsonRpcId, PendingRequest>();
   readonly #subscriptions = new Map<string, SubscriptionState<unknown>>();
   #nextId = 1;
@@ -283,6 +310,7 @@ export class JsonRpcClient {
   public constructor(transport: ClientTransport, opts: JsonRpcClientOptions) {
     this.#transport = transport;
     this.#protocolVersion = opts.protocolVersion;
+    this.#maxQueuedValuesPerSubscription = opts.maxQueuedValuesPerSubscription;
 
     // The transport allows one inbound handler; this is it.
     transport.onMessage((msg) => {
@@ -327,11 +355,7 @@ export class JsonRpcClient {
     // Fail fast on bad params before any wire I/O.
     const paramsParsed = paramsSchema.safeParse(params);
     if (!paramsParsed.success) {
-      throw new JsonRpcSchemaError(
-        "params",
-        `Request params for ${method} failed schema validation`,
-        paramsParsed.error.issues,
-      );
+      throw paramsSchemaError(method, paramsParsed.error.issues);
     }
 
     // Refuse calls made after close so callers see a typed error.
@@ -361,7 +385,6 @@ export class JsonRpcClient {
           resolve(resultParsed.data);
         },
         reject,
-        resultSchema: resultSchema as ZodType<unknown>,
         subscriptionInitState,
       });
 
@@ -380,12 +403,12 @@ export class JsonRpcClient {
           // `Promise.resolve` turns any thenable into a native Promise.
           Promise.resolve(sendResult as PromiseLike<void>).catch((err: unknown) => {
             this.#pending.delete(id);
-            reject(err instanceof Error ? err : new Error(String(err)));
+            reject(asError(err));
           });
         }
       } catch (err) {
         this.#pending.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
+        reject(asError(err));
       }
     });
   }
@@ -396,14 +419,20 @@ export class JsonRpcClient {
    * not read it synchronously. Each `$/subscription/notify` value is validated against
    * `valueSchema` before it is queued.
    *
-   * `params` are not validated here: the typed wrappers own per-method params. The daemon's
-   * response must carry at least `{ subscriptionId }`.
+   * @throws JsonRpcSchemaError when `params` fail `paramsSchema` (phase `"params"`), thrown from
+   *   this call before anything is sent, so a bad request never yields a live-looking handle.
    */
-  public subscribe<T>(
+  public subscribe<P, T>(
     method: string,
-    params: unknown,
+    params: P,
+    paramsSchema: ZodType<P>,
     valueSchema: ZodType<T>,
   ): LocalSubscriptionConsumer<T> {
+    const paramsParsed = paramsSchema.safeParse(params);
+    if (!paramsParsed.success) {
+      throw paramsSchemaError(method, paramsParsed.error.issues);
+    }
+
     const state: SubscriptionState<T> = {
       status: "pending",
       subscriptionId: "",
@@ -414,64 +443,26 @@ export class JsonRpcClient {
       cancelInFlight: undefined,
     };
 
-    // Built before the request so `cancel()` works while the init response is in flight.
-    const handle = new LocalSubscriptionHandle<T>(state, () => this.#cancelSubscription(state));
-
-    // Params are not validated here; the typed wrappers own them.
-    const passthroughParams: ZodType<unknown> = passthroughSchema;
-
     // Cast through `unknown`: `T` sits in a contravariant position on the waiter callbacks, so
     // `SubscriptionState<T>` is not assignable to `SubscriptionState<unknown>`. The map only
     // routes by id.
     const dispatcherState = state as unknown as SubscriptionState<unknown>;
 
     // Going through `#issueRequest` lets `#handleResponse` register the subscription
-    // synchronously.
-    void this.#issueRequest(
+    // synchronously, so a valid init needs no handling here: a registration deferred to a later
+    // microtask would lose a notification that arrives in the same transport read as the response.
+    const initAck = this.#issueRequest(
       method,
-      params,
-      passthroughParams,
+      paramsParsed.data,
+      passthroughSchema,
       subscribeInitResultSchema,
       dispatcherState,
-    ).then(
-      (result) => {
-        // The consumer cancelled while the init was in flight, so `#handleResponse` skipped
-        // registration. Send a best-effort wire cancel so the daemon does not keep an orphan
-        // subscription until the transport closes.
-        if (state.status === "completed" || state.status === "errored") {
-          void this.call(
-            SUBSCRIPTION_CANCEL_METHOD,
-            { subscriptionId: result.subscriptionId },
-            passthroughSchema,
-            SubscriptionCancelResultSchema,
-          ).catch(() => {
-            // The local state is already terminal; a failed cleanup cancel changes nothing.
-          });
-          return;
-        }
-        // Otherwise nothing to do: `#handleResponse` already set the id, made the state
-        // `"active"` and registered it. Do not register here: a registration deferred to this
-        // microtask loses a notification that arrives in the same transport read as the
-        // response.
-      },
-      (err: unknown) => {
-        // Init failed, so end the subscription with the error. No `#subscriptions` entry
-        // exists to clean up, because `#handleResponse` registers only on a valid init result.
-        completeSubscriptionWithError(state, err instanceof Error ? err : new Error(String(err)));
-      },
     );
+    void initAck.catch((err: unknown) => {
+      completeSubscriptionWithError(state, asError(err));
+    });
 
-    return handle;
-  }
-
-  /** Number of in-flight requests. For tests that check cleanup on close and on error. */
-  public get pendingCount(): number {
-    return this.#pending.size;
-  }
-
-  /** Number of registered subscriptions. For tests. */
-  public get subscriptionCount(): number {
-    return this.#subscriptions.size;
+    return new LocalSubscriptionHandle<T>(state, () => this.#cancelSubscription(state, initAck));
   }
 
   // Internals
@@ -518,18 +509,16 @@ export class JsonRpcClient {
     // Register a subscribe-init subscription right here, not in a later microtask. The daemon
     // writes the init response before the first notify, and a stream socket can deliver both in
     // one read, so `#handleNotification` runs before any microtask. Parsing with the same
-    // schema as the resolve path keeps a malformed init from ever registering. Skipped when a
-    // cancel already moved the state out of `"pending"`; `subscribe()` then cancels on the wire.
+    // schema as the resolve path keeps a malformed init from ever registering. Skipped when the
+    // consumer already canceled; that cancel sends the wire cancel once the id is known.
     if (pending.subscriptionInitState !== undefined) {
       const initParse = subscribeInitResultSchema.safeParse(env.result);
-      if (initParse.success) {
-        const state = pending.subscriptionInitState;
-        if (state.status === "pending") {
-          const sid = initParse.data.subscriptionId;
-          state.subscriptionId = sid;
-          state.status = "active";
-          this.#subscriptions.set(sid, state);
-        }
+      const state = pending.subscriptionInitState;
+      if (initParse.success && state.cancelInFlight === undefined) {
+        const sid = initParse.data.subscriptionId;
+        state.subscriptionId = sid;
+        state.status = "active";
+        this.#subscriptions.set(sid, state);
       }
     }
 
@@ -553,15 +542,16 @@ export class JsonRpcClient {
     }
     const state = this.#subscriptions.get(subscriptionIdRaw);
     if (state === undefined) {
-      // A notification for a subscription we no longer track (cancelled, failed init): drop.
+      // A notification for a subscription we no longer track (canceled, failed init): drop.
       return;
     }
     // One parse validates the wrapper and the per-subscription `value`.
     const wrapperSchema = SubscriptionNotifyParamsSchema(state.valueSchema);
     const parsed = wrapperSchema.safeParse(params);
+    // A failed value or a full queue ends the subscription and cancels it on the daemon. No
+    // cancel can be in flight here: every cancel untracks the subscription first.
     if (!parsed.success) {
-      // Ends the stream with a `value`-phase error; consumers only see per-value validation.
-      completeSubscriptionWithError(
+      state.cancelInFlight = this.#emitCancelRpc(
         state,
         new JsonRpcSchemaError(
           "value",
@@ -569,17 +559,13 @@ export class JsonRpcClient {
           parsed.error.issues,
         ),
       );
-      // Untrack the id so stray frames hit the unknown-id drop.
-      this.#subscriptions.delete(state.subscriptionId);
-      // Best-effort wire cancel so the daemon stops streaming to a dead subscription.
-      void this.call(
-        SUBSCRIPTION_CANCEL_METHOD,
-        { subscriptionId: state.subscriptionId },
-        passthroughSchema,
-        SubscriptionCancelResultSchema,
-      ).catch(() => {
-        // Ignore failures: the local state is already terminal.
-      });
+      return;
+    }
+    if (state.waiters.length === 0 && state.queue.length >= this.#maxQueuedValuesPerSubscription) {
+      state.cancelInFlight = this.#emitCancelRpc(
+        state,
+        new JsonRpcSubscriptionOverflowError(this.#maxQueuedValuesPerSubscription),
+      );
       return;
     }
     // The wrapper parse already validated `value` against `state.valueSchema`.
@@ -612,58 +598,143 @@ export class JsonRpcClient {
   }
 
   /**
-   * Cancels a subscription; safe to call repeatedly. Terminal state returns immediately; before
-   * the init response there is no id to cancel, so the subscription completes locally and
-   * `subscribe()` sends the wire cancel once the id arrives; a cancel already in flight is
-   * awaited rather than sent twice.
+   * Cancels a subscription on the daemon and resolves once that settles; safe to call repeatedly.
+   * Terminal state returns immediately and a cancel already in flight is awaited rather than sent
+   * twice. Before the init response there is no id to cancel, so it waits for the init and then
+   * cancels on the wire; an init that fails ends the subscription with that error instead.
    */
-  async #cancelSubscription<T>(state: SubscriptionState<T>): Promise<void> {
+  async #cancelSubscription<T>(
+    state: SubscriptionState<T>,
+    initAck: Promise<{ subscriptionId: SubscriptionId }>,
+  ): Promise<void> {
     if (state.status === "completed" || state.status === "errored") {
       return;
     }
-    if (state.status === "pending" || state.subscriptionId === "") {
-      // Cancel before init: end locally without a wire frame.
-      completeSubscription(state);
-      return;
-    }
     if (state.cancelInFlight !== undefined) {
-      // A wire cancel is in flight; wait for the same outcome.
       return state.cancelInFlight;
     }
-    // Store the promise before any await so a concurrent caller sees it.
-    state.cancelInFlight = this.#emitCancelRpc(state);
+    // Stored before any await so a concurrent caller sees it.
+    state.cancelInFlight =
+      state.status === "pending"
+        ? initAck.then(
+            (ack) => {
+              state.subscriptionId = ack.subscriptionId;
+              return this.#emitCancelRpc(state, undefined);
+            },
+            (err: unknown) => {
+              completeSubscriptionWithError(state, asError(err));
+            },
+          )
+        : this.#emitCancelRpc(state, undefined);
     return state.cancelInFlight;
   }
 
   /**
-   * Sends the wire cancel for an active subscription and untracks it. A failed cancel still ends
-   * the subscription locally, with the error. Only `#cancelSubscription` calls it.
+   * Untracks a subscription, sends its wire cancel and ends it: with `endingError` when the client
+   * ends it for a failure, cleanly otherwise. A failed cancel is recorded as the terminal error, as
+   * the `cause` of `endingError` when there is one.
    */
-  async #emitCancelRpc<T>(state: SubscriptionState<T>): Promise<void> {
+  async #emitCancelRpc<T>(
+    state: SubscriptionState<T>,
+    endingError: Error | undefined,
+  ): Promise<void> {
+    // Untracked before the wire cancel, so frames racing it hit the unknown-id drop.
+    this.#subscriptions.delete(state.subscriptionId);
     try {
       await this.call(
         SUBSCRIPTION_CANCEL_METHOD,
         { subscriptionId: state.subscriptionId },
-        // The cancel params are internal, so skip brand validation; the daemon validates.
+        // The id was validated when the init registered it; the daemon validates the params.
         passthroughSchema,
         SubscriptionCancelResultSchema,
       );
     } catch (err) {
-      // End locally even if the daemon did not confirm, so `next()` does not hang; the
-      // consumer sees the cancel error.
-      completeSubscriptionWithError(state, err instanceof Error ? err : new Error(String(err)));
-      // Untrack so stray notifications do not reactivate it.
-      this.#subscriptions.delete(state.subscriptionId);
+      completeSubscriptionWithError(
+        state,
+        endingError === undefined ? asError(err) : withCancelFailure(endingError, err),
+      );
       return;
     }
-    completeSubscription(state);
-    this.#subscriptions.delete(state.subscriptionId);
+    if (endingError === undefined) {
+      completeSubscription(state);
+    } else {
+      completeSubscriptionWithError(state, endingError);
+    }
   }
+}
+
+/**
+ * Calls one daemon method by its contract descriptor, so the method name and both schemas come
+ * from the table the daemon registers from.
+ */
+export function callMethod<RequestType, ResponseType>(
+  client: JsonRpcClient,
+  descriptor: MethodDescriptor<string, RequestType, ResponseType>,
+  params: RequestType,
+): Promise<ResponseType> {
+  return client.call(
+    descriptor.method,
+    params,
+    descriptor.requestSchema,
+    descriptor.responseSchema,
+  );
+}
+
+/**
+ * Opens one daemon subscription by its contract descriptor: params are checked against its request
+ * schema and each value against its emission schema.
+ *
+ * @throws JsonRpcSchemaError when `params` fail the request schema, before anything is sent.
+ */
+export function subscribeMethod<RequestType, EmissionType>(
+  client: JsonRpcClient,
+  descriptor: SubscriptionMethodDescriptor<string, RequestType, unknown, EmissionType>,
+  params: RequestType,
+): LocalSubscriptionConsumer<EmissionType> {
+  return client.subscribe(
+    descriptor.method,
+    params,
+    descriptor.requestSchema,
+    descriptor.emissionSchema,
+  );
+}
+
+/**
+ * The error a subscription ends with when canceling it failed too: `error` carrying the cancel's
+ * failure as `cause` when it has none yet, or both in an `AggregateError`.
+ */
+export function withCancelFailure<ErrorType>(
+  error: ErrorType,
+  cancelFailure: unknown,
+): ErrorType | AggregateError {
+  if (cancelFailure === undefined || cancelFailure === error) {
+    return error;
+  }
+  if (error instanceof Error && error.cause === undefined) {
+    error.cause = cancelFailure;
+    return error;
+  }
+  return new AggregateError(
+    [error, cancelFailure],
+    "The subscription failed, and canceling it failed too.",
+  );
+}
+
+function paramsSchemaError(method: string, issues: unknown): JsonRpcSchemaError {
+  return new JsonRpcSchemaError(
+    "params",
+    `Request params for ${method} failed schema validation`,
+    issues,
+  );
+}
+
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 // Internal helper schemas
 
-/** Accepts any value; used where the daemon owns validation. */
+/** Accepts any value; used for params already validated or validated by the daemon. */
 const passthroughSchema: ZodType<unknown> = z.unknown();
 
 /**

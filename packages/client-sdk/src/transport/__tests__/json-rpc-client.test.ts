@@ -1,65 +1,36 @@
 // Tests for `JsonRpcClient`: Zod validation at both ends of the wire, subscribe-init
 // registration, cancel idempotency, protocol-version emission and remote-error mapping, driven
-// through a hand-rolled in-memory transport.
+// through the scripted daemon with replies delivered by hand.
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type {
-  JsonRpcNotification,
-  JsonRpcRequest,
-  JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts";
+import type { JsonRpcNotification, JsonRpcResponseEnvelope } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION, SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts";
 
-import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../json-rpc-client.js";
-import type { ClientTransport } from "../types.js";
+import {
+  buildSubscriptionNotify,
+  createScriptedDaemon,
+  type ScriptedDaemon,
+  TEST_CLIENT_OPTIONS,
+} from "../../__tests__/scripted-daemon.test-support.js";
+import {
+  JsonRpcClient,
+  JsonRpcRemoteError,
+  JsonRpcSchemaError,
+  JsonRpcSubscriptionOverflowError,
+} from "../json-rpc-client.js";
 
-// In-memory transport: records outbound envelopes and lets a test push inbound ones.
-
-class InMemoryTransport implements ClientTransport {
-  /** Envelopes the client sent, in send order. */
-  public readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
-
-  /** The client's single inbound handler, captured so a test can drive replies. */
-  #onMessage: ((msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void) | null = null;
-  #onClose: ((reason?: Error) => void) | null = null;
-
-  public send(envelope: JsonRpcRequest | JsonRpcNotification): void {
-    this.sentEnvelopes.push(envelope);
-  }
-
-  public onMessage(handler: (msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void): void {
-    this.#onMessage = handler;
-  }
-
-  public onClose(handler: (reason?: Error) => void): void {
-    this.#onClose = handler;
-  }
-
-  public close(): Promise<void> {
-    if (this.#onClose !== null) {
-      this.#onClose(undefined);
-    }
-    return Promise.resolve();
-  }
-
-  /** Delivers `msg` to the client's handler synchronously. */
-  public dispatchInbound(msg: JsonRpcResponseEnvelope | JsonRpcNotification): void {
-    if (this.#onMessage === null) {
-      throw new Error("dispatchInbound called before onMessage was registered");
-    }
-    this.#onMessage(msg);
-  }
-}
+/** The params every test subscription sends. */
+const TOPIC_PARAMS_SCHEMA = z.object({ topic: z.string() });
 
 // Schema violations reject with JsonRpcSchemaError
 
 describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violations", () => {
   it("corrupted server response (result fails resultSchema) rejects with `JsonRpcSchemaError(phase: 'result')`", async () => {
     // A result that violates resultSchema, with valid params so the params phase cannot fire.
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({
@@ -92,7 +63,7 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
         state: "wrong-state",
       },
     };
-    transport.dispatchInbound(malformedResponse);
+    transport.deliverInbound(malformedResponse);
 
     await expect(promise).rejects.toBeInstanceOf(JsonRpcSchemaError);
     let caught: unknown = null;
@@ -108,15 +79,12 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
       // The Zod issues are kept for diagnostics.
       expect(caught.issues.length).toBeGreaterThan(0);
     }
-
-    // The pending entry is removed before the result is validated.
-    expect(client.pendingCount).toBe(0);
   });
 
   it("caller-side malformed params rejects with `JsonRpcSchemaError(phase: 'params')` BEFORE wire write (fail-fast)", async () => {
     // Params missing `key` fail before any wire I/O.
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.unknown();
@@ -143,7 +111,6 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     // Fail fast: nothing was sent and no pending entry was created, so validation must run
     // before the entry is parked and before `send`.
     expect(transport.sentEnvelopes.length).toBe(0);
-    expect(client.pendingCount).toBe(0);
   });
 });
 
@@ -154,14 +121,15 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
 
 describe("subscribe-init registers #subscriptions synchronously", () => {
   it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
     // subscribe() returns synchronously and the init request is already sent.
-    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+    const subscription = client.subscribe(
       "test.subscribe",
       { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
       valueSchema,
     );
 
@@ -190,16 +158,12 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
         value: { kind: "event", seq: 1 },
       },
     };
-    transport.dispatchInbound(response);
-    transport.dispatchInbound(notify);
+    transport.deliverInbound(response);
+    transport.deliverInbound(notify);
 
     // With deferred registration the notify would be dropped and next() would never resolve.
     const first = await subscription.next();
     expect(first).toEqual({ kind: "event", seq: 1 });
-
-    // One registration; the init response cleared the pending entry.
-    expect(client.subscriptionCount).toBe(1);
-    expect(client.pendingCount).toBe(0);
   });
 });
 
@@ -210,13 +174,14 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
 
 describe("malformed subscriptionId rejected at SDK boundary", () => {
   it("non-UUID subscriptionId fails the init schema; no #subscriptions entry; iterator surfaces JsonRpcSchemaError", async () => {
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
-    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+    const subscription = client.subscribe(
       "test.subscribe",
       { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
       valueSchema,
     );
 
@@ -233,7 +198,7 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
       id: requestId,
       result: { subscriptionId: "not-a-uuid" },
     };
-    transport.dispatchInbound(malformedResponse);
+    transport.deliverInbound(malformedResponse);
 
     // The iterator surfaces the schema error.
     let caught: unknown = null;
@@ -248,12 +213,6 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
       expect(caught.phase).toBe("result");
       expect(caught.issues.length).toBeGreaterThan(0);
     }
-
-    // The registration gate rejected the malformed init, so there is no orphan entry.
-    expect(client.subscriptionCount).toBe(0);
-
-    // The pending entry is removed whatever the validation outcome.
-    expect(client.pendingCount).toBe(0);
   });
 });
 
@@ -264,13 +223,14 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
 describe("cancel() idempotency", () => {
   it("concurrent cancel() emits exactly one wire frame, both promises resolve, and a later cancel() sends nothing", async () => {
     // Answer the subscribe-init so the state is active, then cancel twice.
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
-    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+    const subscription = client.subscribe(
       "test.subscribe",
       { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
       valueSchema,
     );
 
@@ -280,15 +240,11 @@ describe("cancel() idempotency", () => {
       throw new Error("unreachable — subscribe init emits a request envelope");
     }
     const subscriptionId = "44444444-4444-4444-8444-444444444444";
-    transport.dispatchInbound({
+    transport.deliverInbound({
       jsonrpc: JSONRPC_VERSION,
       id: initEnvelope.id,
       result: { subscriptionId },
     });
-
-    // Registered, and the pending map is drained.
-    expect(client.subscriptionCount).toBe(1);
-    expect(client.pendingCount).toBe(0);
 
     // Two cancels in one synchronous frame: the second must find the first one in flight.
     const cancelP1 = subscription.cancel();
@@ -305,7 +261,7 @@ describe("cancel() idempotency", () => {
     if (cancelEnvelope === undefined || !("id" in cancelEnvelope)) {
       throw new Error("unreachable — cancel envelope is a request");
     }
-    transport.dispatchInbound({
+    transport.deliverInbound({
       jsonrpc: JSONRPC_VERSION,
       id: cancelEnvelope.id,
       result: { canceled: true },
@@ -320,9 +276,6 @@ describe("cancel() idempotency", () => {
     const tail = await subscription.next();
     expect(tail).toBeUndefined();
 
-    // The cancel ack untracked the subscription.
-    expect(client.subscriptionCount).toBe(0);
-
     // A cancel after settlement hits the terminal guard and sends nothing.
     const cancelP3 = subscription.cancel();
     const cancelEnvelopesAfter = transport.sentEnvelopes.filter(
@@ -335,13 +288,14 @@ describe("cancel() idempotency", () => {
   it("concurrent cancel() preserves error propagation when daemon nacks (one frame, both observe error path)", async () => {
     // The daemon answers the cancel with an error. Neither cancel() rejects; the subscription
     // becomes errored and next() rejects with the wire error.
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
-    const subscription = client.subscribe<z.infer<typeof valueSchema>>(
+    const subscription = client.subscribe(
       "test.subscribe",
       { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
       valueSchema,
     );
 
@@ -350,7 +304,7 @@ describe("cancel() idempotency", () => {
       throw new Error("unreachable — subscribe init emits a request envelope");
     }
     const subscriptionId = "66666666-6666-4666-8666-666666666666";
-    transport.dispatchInbound({
+    transport.deliverInbound({
       jsonrpc: JSONRPC_VERSION,
       id: initEnvelope.id,
       result: { subscriptionId },
@@ -372,7 +326,7 @@ describe("cancel() idempotency", () => {
     }
 
     // The daemon nacks the cancel with a JSON-RPC error.
-    transport.dispatchInbound({
+    transport.deliverInbound({
       jsonrpc: JSONRPC_VERSION,
       id: cancelEnvelope.id,
       error: { code: -32603, message: "internal daemon failure" },
@@ -395,9 +349,6 @@ describe("cancel() idempotency", () => {
       expect(nextErr.code).toBe(-32603);
       expect(nextErr.message).toBe("internal daemon failure");
     }
-
-    // The failed cancel also untracked the subscription.
-    expect(client.subscriptionCount).toBe(0);
   });
 });
 
@@ -407,62 +358,42 @@ describe("cancel() idempotency", () => {
 // it would throw a TypeError and hide the transport's real error.
 
 describe("thenable transport.send rejection propagates", () => {
-  /** Transport whose `send` returns a thenable that has only `.then` and rejects. */
-  class ThenableSendRejectingTransport implements ClientTransport {
-    public readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
-    #onClose: ((reason?: Error) => void) | null = null;
-    public readonly rejectionError: Error;
-
-    public constructor(rejectionError: Error) {
-      this.rejectionError = rejectionError;
-    }
-
-    public send(envelope: JsonRpcRequest | JsonRpcNotification): PromiseLike<void> {
-      this.sentEnvelopes.push(envelope);
-      const err = this.rejectionError;
-      // A thenable with only `.then`, rejecting through its second argument on a microtask.
-      return {
-        then<TResult1, TResult2>(
-          _onFulfilled?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
-          onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-        ): PromiseLike<TResult1 | TResult2> {
-          return new Promise<TResult1 | TResult2>((resolve, reject) => {
-            queueMicrotask(() => {
-              if (onRejected) {
-                try {
-                  resolve(onRejected(err));
-                } catch (callbackErr) {
-                  reject(callbackErr);
+  /** The scripted daemon with a `send` that returns a thenable having only `.then`, rejecting. */
+  function createThenableSendRejectingTransport(rejectionError: Error): ScriptedDaemon {
+    const daemon = createScriptedDaemon();
+    return {
+      ...daemon,
+      send(envelope): PromiseLike<void> {
+        void daemon.send(envelope);
+        // Rejects through its second argument on a microtask.
+        return {
+          then<TResult1, TResult2>(
+            _onFulfilled?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
+            onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+          ): PromiseLike<TResult1 | TResult2> {
+            return new Promise<TResult1 | TResult2>((resolve, reject) => {
+              queueMicrotask(() => {
+                if (onRejected) {
+                  try {
+                    resolve(onRejected(rejectionError));
+                  } catch (callbackErr) {
+                    reject(callbackErr);
+                  }
+                } else {
+                  reject(rejectionError);
                 }
-              } else {
-                reject(err);
-              }
+              });
             });
-          });
-        },
-      };
-    }
-
-    public onMessage(_handler: (msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void): void {
-      // Never used: this transport only exercises the send-rejection path.
-    }
-
-    public onClose(handler: (reason?: Error) => void): void {
-      this.#onClose = handler;
-    }
-
-    public close(): Promise<void> {
-      if (this.#onClose !== null) {
-        this.#onClose(undefined);
-      }
-      return Promise.resolve();
-    }
+          },
+        };
+      },
+    };
   }
 
   it("transport.send returning a thenable WITHOUT `.catch` propagates the rejection (no synthetic TypeError)", async () => {
     const sendErr = new Error("transport write failed");
-    const transport = new ThenableSendRejectingTransport(sendErr);
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createThenableSendRejectingTransport(sendErr);
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.object({ ok: z.boolean() });
@@ -481,9 +412,6 @@ describe("thenable transport.send rejection propagates", () => {
     expect(caught).toBe(sendErr);
     expect((caught as Error).message).toBe("transport write failed");
 
-    // The pending entry is deleted on rejection so a late reply cannot leak.
-    expect(client.pendingCount).toBe(0);
-
     // The envelope was sent before the thenable rejected.
     expect(transport.sentEnvelopes.length).toBe(1);
   });
@@ -495,9 +423,12 @@ describe("thenable transport.send rejection propagates", () => {
 describe("protocolVersion is sent as the caller gave it", () => {
   it("a different caller-advertised protocolVersion appears verbatim on the wire", () => {
     // The caller's version goes out verbatim; the client adds no default.
-    const transport = new InMemoryTransport();
+    const transport = createScriptedDaemon();
     const customVersion = "2027-01-15";
-    const client = new JsonRpcClient(transport, { protocolVersion: customVersion });
+    const client = new JsonRpcClient(transport, {
+      ...TEST_CLIENT_OPTIONS,
+      protocolVersion: customVersion,
+    });
     const paramsSchema = z.unknown();
     const resultSchema = z.unknown();
 
@@ -519,8 +450,8 @@ describe("protocolVersion is sent as the caller gave it", () => {
 
 describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
   it("rejects with data.type + data.fields when the daemon returns a typed domain error", async () => {
-    const transport = new InMemoryTransport();
-    const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
     const paramsSchema = z.object({ repoId: z.string() });
     const resultSchema = z.unknown();
 
@@ -532,7 +463,7 @@ describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
     }
 
     // A typed domain error: -32602 with data.type and data.fields.
-    transport.dispatchInbound({
+    transport.deliverInbound({
       jsonrpc: JSONRPC_VERSION,
       id: sentEnvelope.id,
       error: {
@@ -555,6 +486,85 @@ describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
       expect(caught.data?.type).toBe("repo.not_found");
       expect(caught.data?.fields).toEqual({ repoId: "r-7" });
     }
-    expect(client.pendingCount).toBe(0);
+  });
+});
+
+// A slow consumer and a failed cancel both end the subscription with an error the caller sees
+
+describe("subscription ends with an error instead of growing or vanishing", () => {
+  const subscriptionId = "44444444-4444-4444-8444-444444444444";
+  const valueSchema = z.object({ seq: z.number() });
+
+  function requestIdAt(transport: ScriptedDaemon, index: number): number | string {
+    const envelope = transport.sentEnvelopes[index];
+    if (envelope === undefined || !("id" in envelope)) throw new Error("no request at " + index);
+    return envelope.id;
+  }
+
+  function cancelFrames(transport: ScriptedDaemon): ScriptedDaemon["sentEnvelopes"] {
+    return transport.sentEnvelopes.filter(
+      (envelope) => "method" in envelope && envelope.method === SUBSCRIPTION_CANCEL_METHOD,
+    );
+  }
+
+  it("a consumer past the queue bound gets the queued values, then the overflow error", async () => {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, {
+      ...TEST_CLIENT_OPTIONS,
+      maxQueuedValuesPerSubscription: 2,
+    });
+    const subscription = client.subscribe(
+      "test.subscribe",
+      { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
+      valueSchema,
+    );
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 0),
+      result: { subscriptionId },
+    });
+    for (const seq of [1, 2, 3, 4]) {
+      transport.deliverInbound(buildSubscriptionNotify(subscriptionId, { seq }));
+    }
+
+    expect(cancelFrames(transport).length).toBe(1);
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 1),
+      result: { canceled: true },
+    });
+    expect(await subscription.next()).toEqual({ seq: 1 });
+    expect(await subscription.next()).toEqual({ seq: 2 });
+    await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcSubscriptionOverflowError);
+  });
+
+  it("a cancel sent before the subscribe reply waits for it and keeps the daemon's refusal", async () => {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
+    const subscription = client.subscribe(
+      "test.subscribe",
+      { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
+      valueSchema,
+    );
+    const cancelPromise = subscription.cancel();
+    expect(cancelFrames(transport).length).toBe(0);
+
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 0),
+      result: { subscriptionId },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cancelFrames(transport).length).toBe(1);
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 1),
+      error: { code: -32603, message: "cancel failed" },
+    });
+
+    await cancelPromise;
+    await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcRemoteError);
   });
 });

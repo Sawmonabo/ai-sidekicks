@@ -321,7 +321,7 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 ##### T5.1 — `session-client.ts` daemon transport
 
-**Files:** `packages/client-sdk/src/session-client.ts`, `packages/client-sdk/test/session-client.integration.test.ts` **Spec coverage:** Spec-001 AC1, AC3, AC6 **Verifies invariant:** none (integration-layer wrapper; I1, I3 and I4 run over the daemon transport)
+**Files:** `packages/client-sdk/src/session-client.ts`, `packages/client-sdk/src/__tests__/session-client.integration.test.ts` **Spec coverage:** Spec-001 AC1, AC3, AC6 **Verifies invariant:** none (integration-layer wrapper; I1, I3 and I4 run over the daemon transport)
 
 ##### T5.2 — The sidecar drain at the service's stop via polymorphic `PtyHost.shutdown()`
 

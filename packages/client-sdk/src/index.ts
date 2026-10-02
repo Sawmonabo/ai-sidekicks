@@ -10,6 +10,7 @@ export {
   JsonRpcClient,
   JsonRpcRemoteError,
   JsonRpcSchemaError,
+  JsonRpcSubscriptionOverflowError,
   JsonRpcTransportClosedError,
   type JsonRpcClientOptions,
 } from "./transport/json-rpc-client.js";

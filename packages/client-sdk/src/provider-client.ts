@@ -34,21 +34,20 @@ import type {
   ListModelsRequest,
   ListModelsResult,
   ListModesResult,
-  MethodDescriptor,
 } from "@ai-sidekicks/contracts";
 import {
   DRIVER_EVENT_METHOD_DESCRIPTORS,
   DRIVER_METHOD_DESCRIPTORS,
 } from "@ai-sidekicks/contracts";
 
-import { JsonRpcSchemaError, type JsonRpcClient } from "./transport/json-rpc-client.js";
+import { callMethod, subscribeMethod, type JsonRpcClient } from "./transport/json-rpc-client.js";
 import type { LocalSubscriptionConsumer } from "./transport/types.js";
 
 /** The request the two no-arg reads send, frozen so no caller can alter what a later call sends. */
 const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
 
 /**
- * The client-facing driver surface: seven request/response verbs plus `subscribeEvents`.
+ * The client-facing driver surface: six request/response verbs plus `subscribeEvents`.
  *
  * `compactContext` and `applyIntervention` resolve refusals as values: a `refused` or `failed`
  * compaction (including the daemon's `not_permitted`) and a `degraded` intervention are data a
@@ -103,6 +102,12 @@ export interface DriverClient {
    *
    * The value type is `DriverEvent`, the contracts-owned union over the seven driver-event
    * categories, so a caller never has to handle an approval or audit event on a driver stream.
+   * The daemon already filters non-driver events, so a refused value means its filter regressed
+   * or a peer widened the stream; the subscription then ends in a `value`-phase
+   * `JsonRpcSchemaError`.
+   *
+   * @throws JsonRpcSchemaError when `params` fail the request schema (a bad `runId`), from this
+   *   call and before anything is sent, so no daemon state is orphaned.
    */
   subscribeEvents(params: DriverSubscribeEventsParams): LocalSubscriptionConsumer<DriverEvent>;
 }
@@ -112,7 +117,7 @@ export interface DriverClient {
  *
  * The caller owns the `ClientTransport` and the `JsonRpcClient`, and must complete the
  * `daemon.hello` handshake before the first mutating call. The daemon marks `interruptRun`,
- * `applyIntervention` and `compactContext` as mutating and the other four methods as not, so a
+ * `applyIntervention` and `compactContext` as mutating and the other three methods as not, so a
  * version-mismatched connection keeps the reads and loses exactly the three verbs that drive a run.
  *
  * The daemon's reply is the return value, unwrapped and unchanged. A daemon-side refusal surfaces
@@ -121,65 +126,18 @@ export interface DriverClient {
 export function createDaemonProviderClient(client: JsonRpcClient): DriverClient {
   return {
     listCapabilities: () =>
-      callDriverMethod(
-        client,
-        DRIVER_METHOD_DESCRIPTORS["driver.listCapabilities"],
-        EMPTY_READ_PARAMS,
-      ),
+      callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listCapabilities"], EMPTY_READ_PARAMS),
     interruptRun: (params) =>
-      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.interruptRun"], params),
+      callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.interruptRun"], params),
     applyIntervention: (params) =>
-      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], params),
+      callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], params),
     listModels: (params) =>
-      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModels"], params),
+      callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModels"], params),
     listModes: () =>
-      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], EMPTY_READ_PARAMS),
+      callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], EMPTY_READ_PARAMS),
     compactContext: (params) =>
-      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], params),
-    subscribeEvents: (params) => daemonSubscribeEvents(client, params),
+      callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], params),
+    subscribeEvents: (params) =>
+      subscribeMethod(client, DRIVER_EVENT_METHOD_DESCRIPTORS["driver.subscribeEvents"], params),
   };
-}
-
-// Calls one `driver.*` method by its contract descriptor, so the name and both schemas come from
-// the one table the daemon registers from.
-function callDriverMethod<RequestType, ResponseType>(
-  client: JsonRpcClient,
-  descriptor: MethodDescriptor<string, RequestType, ResponseType>,
-  params: RequestType,
-): Promise<ResponseType> {
-  return client.call(
-    descriptor.method,
-    params,
-    descriptor.requestSchema,
-    descriptor.responseSchema,
-  );
-}
-
-/**
- * Open the `driver.subscribeEvents` subscription.
- *
- * Each streamed value is parsed against `DriverEventSchema`. The daemon already filters non-driver
- * events, so the schema only refuses against a daemon whose filter regressed or a peer that widened
- * the stream; the subscription then ends in a `JsonRpcSchemaError` on the `value` phase.
- *
- * Params are validated here because `JsonRpcClient.subscribe` erases them and this function
- * returns its handle synchronously: an unvalidated bad `runId` would give the caller a live-looking
- * handle whose failure only shows at a later `next()`. The refusal is a `JsonRpcSchemaError` on the
- * `params` phase, thrown before any wire write so no daemon state is orphaned.
- */
-function daemonSubscribeEvents(
-  client: JsonRpcClient,
-  params: DriverSubscribeEventsParams,
-): LocalSubscriptionConsumer<DriverEvent> {
-  const descriptor = DRIVER_EVENT_METHOD_DESCRIPTORS["driver.subscribeEvents"];
-  const parsed = descriptor.requestSchema.safeParse(params);
-  if (!parsed.success) {
-    throw new JsonRpcSchemaError(
-      "params",
-      `Request params for ${descriptor.method} failed schema validation`,
-      parsed.error.issues,
-    );
-  }
-
-  return client.subscribe<DriverEvent>(descriptor.method, parsed.data, descriptor.emissionSchema);
 }

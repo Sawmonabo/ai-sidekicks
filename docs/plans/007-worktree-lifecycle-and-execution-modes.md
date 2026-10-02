@@ -39,7 +39,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 - `packages/runtime-daemon/src/git/` (Plan-007-owned directory: `worktree-event-emitter.ts`, `worktree-service.ts`, `worktree-git.ts`, `worktree-branch-name.ts`, `removed-worktree-store.ts`, `worktree-projector.ts`, `worktree-errors.ts`, `turn-snapshot-service.ts`, `turn-snapshot-types.ts`, `turn-snapshot-git.ts`, `turn-snapshot-capture.ts`, `turn-snapshot-retention.ts` + `__tests__/`)
 - `packages/runtime-daemon/src/workspace/execution-root-service.ts` + `packages/runtime-daemon/src/workspace/run-setup-gate.ts` (the Plan-007 files in Plan-006-owned `workspace/` — [Plan-006 §Target Areas](./006-repo-attachment-and-workspace-binding.md#target-areas))
 - `packages/runtime-daemon/src/ipc/handlers/repo-methods.ts` (EXTEND — the worktree verbs beside Plan-006's)
-- `packages/client-sdk/src/worktree-client.ts` + `packages/client-sdk/src/index.ts` + `packages/client-sdk/test/worktree-client.integration.test.ts`
+- `packages/client-sdk/src/worktree-client.ts` + `packages/client-sdk/src/index.ts` + `packages/client-sdk/src/__tests__/worktree-client.integration.test.ts`
 
 ## Data And Storage Changes
 
@@ -258,14 +258,14 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-007-15
 - **Consumes:** binders ← T3.3, T3.4; registry test harness ← Plan-005-partial precedent
 - **T3.7 — SDK integration tests.**
-- **Files:** `packages/client-sdk/test/worktree-client.integration.test.ts` (CREATE)
+- **Files:** `packages/client-sdk/src/__tests__/worktree-client.integration.test.ts` (CREATE)
 - In-process daemon registry + real transport (precedent): one happy-path round-trip per method with branded-type preservation; a `Create and move here` prepare yields a root and a status-read row carrying provenance; a discard followed by `Put back` returns the tree with its staged set and ignored files.
 - **Tests:** the file IS the tests.
 - **Spec coverage:** [Spec-008 §Acceptance Criteria](../specs/008-worktree-lifecycle-and-execution-modes.md#acceptance-criteria) (the contract is `bound-root | provisioned-worktree`; a kept tree comes back whole; a tree a session moved into stays linked to its branch and prior runs)
 - **Verifies invariant:** I-007-16
 - **Consumes:** SDK ← T3.5; binders ← T3.3, T3.4; services ← Phase 2
 - **T3.8 — Typed error round-trips for the spec-named failure modes.**
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/worktree-handlers.test.ts` (EXTEND), `packages/client-sdk/test/worktree-client.integration.test.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/worktree-handlers.test.ts` (EXTEND), `packages/client-sdk/src/__tests__/worktree-client.integration.test.ts` (EXTEND)
 - Wire-asserts the D-007-4 codes end-to-end: `worktree.branch_collision` (supplied-name collision), `worktree.retire_conflict` with `reason: root_busy` (an agent running in the tree) and `reason: has_changes` (the tree changed since the risks were read), the put-back refusals, `workspace.stale` (stale prepare refusal), `workspace.branch_name_required` (a `provisioned-worktree` wire prepare without a branch, D-007-18). Asserts no path echo in any error message (sanitization).
 - **Tests:** the file extensions ARE the tests.
 - **Spec coverage:** [Spec-008 §Required Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#required-behavior) (no substituted place; removal refused only while an agent runs), [Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior) (stale refusal observable; removal refusal reasons), [Spec-008 §Acceptance Criteria](../specs/008-worktree-lifecycle-and-execution-modes.md#acceptance-criteria) (creation failure blocks with a typed error, never a mutation)
