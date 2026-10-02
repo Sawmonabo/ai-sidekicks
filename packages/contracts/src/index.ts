@@ -1505,7 +1505,6 @@ export {
   PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   PROVIDER_ACCOUNT_USAGE_MODEL_MAX_LEN,
-  PROVIDER_ACCOUNT_WIRE_SHAPES,
   PROVIDER_WAKE_HELPER_REASON_MAX_LEN,
   ProviderAccountInUseDetailsSchema,
   ProviderAccountMemoryImportRequestSchema,
@@ -1540,8 +1539,6 @@ export type {
   ProviderAccountUsageReadResponse,
   ProviderAccountUsageRow,
   ProviderAccountUsageScope,
-  ProviderAccountWireDirection,
-  ProviderAccountWireShape,
   ProviderWakeHelperState,
 } from "./provider-account-methods.js";
 export {

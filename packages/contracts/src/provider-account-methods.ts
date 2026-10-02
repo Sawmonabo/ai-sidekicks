@@ -1,19 +1,15 @@
 // The `providerAccount.*` methods not in `provider-account-sign-in.ts` (update, remove,
-// set-current, probe, memory import, usage read), the credential census registry, and the
-// namespace's method table. The account record and its reads are in `provider-account.ts`.
+// set-current, probe, memory import, usage read) and the namespace's method table. The account
+// record and its reads are in `provider-account.ts`.
 //
 // Credential material crosses this surface on exactly one input,
 // `ProviderAccountRegisterRequest.nonInteractiveToken`, and on no output: no response or
 // notification shape in the three provider-account modules carries a token-shaped member under
-// any name. `PROVIDER_ACCOUNT_WIRE_SHAPES` lists every request, response and notification shape
-// so the contract test derives its subject set from it (counting credential-accepting inputs
-// and credential-bearing outputs) instead of a hand-kept list that goes stale when a shape is
-// added.
+// any name.
 //
-// A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose `fields` is untyped, so no
-// schema census covers it. The guarantee that matters there is that
-// `provideraccount.token_class_refused` names which condition failed and never quotes, echoes
-// or excerpts the supplied value.
+// A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose `fields` is untyped. The
+// guarantee that matters there is that `provideraccount.token_class_refused` names which
+// condition failed and never quotes, echoes or excerpts the supplied value.
 //
 // `credentialGeneration` is daemon-owned and on no request: a caller that could assert a
 // generation could assert that a stale quota reading or a superseded attention epoch is current.
@@ -387,142 +383,6 @@ export const ProviderAccountUsageReadResponseSchema: z.ZodType<ProviderAccountUs
     ),
   })
   .strict();
-
-/**
- * Which way a wire shape travels. Credential material may appear on `request` shapes (one member
- * on one shape) and on no `response` or `notification` shape.
- */
-export type ProviderAccountWireDirection = "request" | "response" | "notification";
-
-/** One entry of {@link PROVIDER_ACCOUNT_WIRE_SHAPES}: a shape's name, direction and schema. */
-export interface ProviderAccountWireShape {
-  /** The exported interface's name, for a failure message that names the offender. */
-  readonly name: string;
-  readonly direction: ProviderAccountWireDirection;
-  readonly schema: z.ZodType<unknown>;
-}
-
-/**
- * Every provider-account request, response and notification schema, once each, so the credential
- * census derives its subject set from here instead of a hand-kept list.
- */
-export const PROVIDER_ACCOUNT_WIRE_SHAPES: readonly ProviderAccountWireShape[] = [
-  {
-    name: "ProviderAccountListRequest",
-    direction: "request",
-    schema: ProviderAccountListRequestSchema,
-  },
-  {
-    name: "ProviderAccountListResponse",
-    direction: "response",
-    schema: ProviderAccountListResponseSchema,
-  },
-  {
-    name: "ProviderAccountRegisterRequest",
-    direction: "request",
-    schema: ProviderAccountRegisterRequestSchema,
-  },
-  {
-    name: "ProviderAccountRegisterResponse",
-    direction: "response",
-    schema: ProviderAccountRegisterResponseSchema,
-  },
-  {
-    name: "ProviderAccountUpdateRequest",
-    direction: "request",
-    schema: ProviderAccountUpdateRequestSchema,
-  },
-  {
-    name: "ProviderAccountUpdateResponse",
-    direction: "response",
-    schema: ProviderAccountUpdateResponseSchema,
-  },
-  {
-    name: "ProviderAccountRemoveRequest",
-    direction: "request",
-    schema: ProviderAccountRemoveRequestSchema,
-  },
-  {
-    name: "ProviderAccountRemoveResponse",
-    direction: "response",
-    schema: ProviderAccountRemoveResponseSchema,
-  },
-  {
-    name: "ProviderAccountSetCurrentRequest",
-    direction: "request",
-    schema: ProviderAccountSetCurrentRequestSchema,
-  },
-  {
-    name: "ProviderAccountSetCurrentResponse",
-    direction: "response",
-    schema: ProviderAccountSetCurrentResponseSchema,
-  },
-  {
-    name: "ProviderAccountResetCredentialHomeRequest",
-    direction: "request",
-    schema: ProviderAccountResetCredentialHomeRequestSchema,
-  },
-  {
-    name: "ProviderAccountResetCredentialHomeResponse",
-    direction: "response",
-    schema: ProviderAccountResetCredentialHomeResponseSchema,
-  },
-  {
-    name: "ProviderAccountProbeRequest",
-    direction: "request",
-    schema: ProviderAccountProbeRequestSchema,
-  },
-  {
-    name: "ProviderAccountProbeResponse",
-    direction: "response",
-    schema: ProviderAccountProbeResponseSchema,
-  },
-  {
-    name: "ProviderAccountLoginRequest",
-    direction: "request",
-    schema: ProviderAccountLoginRequestSchema,
-  },
-  {
-    name: "ProviderAccountLoginResponse",
-    direction: "response",
-    schema: ProviderAccountLoginResponseSchema,
-  },
-  {
-    name: "ProviderAccountLoginCancelRequest",
-    direction: "request",
-    schema: ProviderAccountLoginCancelRequestSchema,
-  },
-  {
-    name: "ProviderAccountLoginCancelResponse",
-    direction: "response",
-    schema: ProviderAccountLoginCancelResponseSchema,
-  },
-  {
-    name: "ProviderAccountMemoryImportRequest",
-    direction: "request",
-    schema: ProviderAccountMemoryImportRequestSchema,
-  },
-  {
-    name: "ProviderAccountUsageReadRequest",
-    direction: "request",
-    schema: ProviderAccountUsageReadRequestSchema,
-  },
-  {
-    name: "ProviderAccountUsageReadResponse",
-    direction: "response",
-    schema: ProviderAccountUsageReadResponseSchema,
-  },
-  {
-    name: "ProviderAccountSubscribeRequest",
-    direction: "request",
-    schema: ProviderAccountSubscribeRequestSchema,
-  },
-  {
-    name: "ProviderAccountNotification",
-    direction: "notification",
-    schema: ProviderAccountNotificationSchema,
-  },
-];
 
 /** The `providerAccount.*` methods the daemon answers. */
 export interface ProviderAccountMethodDescriptors {

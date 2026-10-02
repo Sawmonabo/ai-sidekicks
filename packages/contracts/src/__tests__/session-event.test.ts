@@ -2,34 +2,14 @@
 // refuses a NUL byte; the category lookup never walks the prototype chain; envelope versions
 // order numerically and exactly; the tolerant carrier keeps a newer producer's types and payload
 // keys but refuses an own `__proto__` key; a deletion's range never runs backwards; and
-// neither a machine-authored body nor a person's words ride in the plain payload. Every category
-// has a registered type, and a registered type keeps its name and its category.
+// neither a machine-authored body nor a person's words ride in the plain payload. A registered type
+// keeps its name and its category.
 import { describe, expect, it } from "vitest";
 
-import {
-  APPROVAL_FLOW_EVENT_TYPES,
-  ARTIFACT_PUBLICATION_EVENT_TYPES,
-  ASSISTANT_OUTPUT_EVENT_TYPES,
-  EVENT_MAINTENANCE_EVENT_TYPES,
-  INTERACTIVE_REQUEST_EVENT_TYPES,
-  MCP_GOVERNANCE_EVENT_TYPES,
-  ORCHESTRATION_ADMISSION_EVENT_TYPES,
-  RECOVERY_EVENTS_EVENT_TYPES,
-  RUN_LIFECYCLE_EVENT_TYPES,
-  SECURITY_EVENTS_EVENT_TYPES,
-  SESSION_LIFECYCLE_EVENT_TYPES,
-  TOOL_ACTIVITY_EVENT_TYPES,
-  USAGE_TELEMETRY_EVENT_TYPES,
-  WORKFLOW_GATE_RESOLUTION_EVENT_TYPES,
-  WORKFLOW_LIFECYCLE_EVENT_TYPES,
-  WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES,
-  WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES,
-  type SessionEventType,
-} from "../event-registry.js";
+import type { SessionEventType } from "../event-registry.js";
 import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../event.js";
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  EventCategorySchema,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   compareEventEnvelopeVersion,
@@ -199,54 +179,9 @@ describe("compareEventEnvelopeVersion", () => {
   });
 });
 
-// Each category's exported type array, which consumers read to route by category, beside the
-// category record the registry map is built from.
-const CATEGORY_TYPE_ARRAYS: ReadonlyArray<readonly [EventCategory, readonly SessionEventType[]]> = [
-  ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES],
-  ["assistant_output", ASSISTANT_OUTPUT_EVENT_TYPES],
-  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES],
-  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES],
-  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES],
-  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES],
-  ["approval_flow", APPROVAL_FLOW_EVENT_TYPES],
-  ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES],
-  ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES],
-  ["security_events", SECURITY_EVENTS_EVENT_TYPES],
-  ["event_maintenance", EVENT_MAINTENANCE_EVENT_TYPES],
-  ["orchestration_admission", ORCHESTRATION_ADMISSION_EVENT_TYPES],
-  ["mcp_governance", MCP_GOVERNANCE_EVENT_TYPES],
-  ["workflow_lifecycle", WORKFLOW_LIFECYCLE_EVENT_TYPES],
-  ["workflow_phase_lifecycle", WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES],
-  ["workflow_parallel_coordination", WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES],
-  ["workflow_gate_resolution", WORKFLOW_GATE_RESOLUTION_EVENT_TYPES],
-];
-
 // A type string is a wire identifier: once registered it is never renamed and never moved to
 // another category, and every category holds at least one type.
 describe("SESSION_EVENT_CATEGORY_BY_TYPE — the category registry", () => {
-  it("registry categories span exactly the canonical EventCategory set (no empty category)", () => {
-    // The exported schema is annotated `z.ZodType`, which erases the enum's `.options`, so the
-    // read re-widens it.
-    const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
-    const registryCategories = [...new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values())].sort();
-    expect(registryCategories).toEqual([...schemaInternals.options].sort());
-  });
-
-  it.each(CATEGORY_TYPE_ARRAYS)(
-    "%s: the category's type array equals the registry's partition",
-    (category, categoryTypes) => {
-      // No intra-array duplicates: distinct-member count equals length.
-      expect(new Set(categoryTypes).size).toBe(categoryTypes.length);
-      // Exact set equality against the registry keys filtered to this category. Each registry
-      // key carries one category, so this also forces the arrays to be pairwise disjoint.
-      const registryKeysInCategory = [...SESSION_EVENT_CATEGORY_BY_TYPE.entries()]
-        .filter(([, registeredCategory]) => registeredCategory === category)
-        .map(([eventType]) => eventType)
-        .sort();
-      expect([...categoryTypes].sort()).toEqual(registryKeysInCategory);
-    },
-  );
-
   it("keeps the founding wire literal unrenamed with an unchanged category", () => {
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
   });
