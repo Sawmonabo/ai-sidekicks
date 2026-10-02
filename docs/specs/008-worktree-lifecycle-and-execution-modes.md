@@ -142,7 +142,7 @@ At each turn boundary of a repo-bound run — turn completion is first-class via
 
 - Branch-name defaults should be deterministic and human-readable, but collision handling must be explicit.
 - A new session gets a worktree of its own by default; moving into an existing tree or working in the checkout is the person's choice.
-- Repository setup commands are the project's own recorded steps, run in place in the setup card under no approval; the repository's own scripts and hooks never run.
+- Repository setup commands are the project's own recorded steps, run in place in the setup card under no approval; the repository's own setup scripts never run, and its git hooks run as its own git config says.
 
 ## Pitfalls To Avoid
 

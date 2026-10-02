@@ -109,7 +109,7 @@ Each bullet below verifies a numbered invariant from §Invariants; the trailing 
 
 ## Implementation Phase Sequence
 
-Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the attention contracts and the kinds every later layer keys on; Phase 2 lands the replay-derived projection, the gate at entry write, the mute's withdrawal and the windowless start in the daemon; Phase 3 lands the delivery surfaces: the main process's notifications, the renderer's surfaces and settings page, the web address, the email digest and the per-device push. Each phase carries a `**Precondition:**` line. None of the work below is built yet.
+Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the attention contracts and the kinds every later layer keys on; Phase 2 lands the replay-derived projection, the gate at entry write, the mute's withdrawal and the windowless start in the daemon; Phase 3 lands the delivery surfaces: the main process's notifications, the renderer's surfaces and settings page, the web address, the email digest and the per-device push. Each phase carries a `**Precondition:**` line.
 
 ### Phase 1 — Attention Contracts And Kinds
 
@@ -201,7 +201,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ### Phase 3 — Notification Emission And Delivery Surfaces
 
-**Precondition:** Phase 2 merged; Plan-010 Phase 4 merged — the desktop timeline rendering surface the attention surfaces attach to; the workflow-secret keychain store module ([ADR-036](../decisions/036-workflow-secrets-in-the-os-keychain.md)) landed, for T3.4 and T3.5; Plan-025's push key and senders, for T3.6.
+**Precondition:** Phase 2 merged; Plan-010 Phase 4 merged — the desktop timeline rendering surface the attention surfaces attach to; the workflow-secret keychain store module ([ADR-036](../decisions/036-workflow-secrets-in-the-os-keychain.md)) landed, for T3.4 and T3.5; Plan-025's push key and senders, for T3.6. T3.5, the email digest, is built last of all, after Phase 11, Release ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
 
 **Goal:** the main process posts, settles and withdraws notifications and sets the app-icon count; the renderer draws the bell's list, the muted row mark and the Notifications page; the daemon sends to the web address, sends the email digest and pushes to devices with no live connection.
 
@@ -241,6 +241,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T3.5 — The email digest
 
+- **When:** built last of all, after every other unit ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
 - **Files:** the digest scheduler and sender and the password verbs' handlers in `packages/runtime-daemon/src/attention/delivery/`; `nodemailer` in `packages/runtime-daemon/package.json`; plus co-located tests.
 - **Step:** One timer, no polling: at most one email per `After` period, sent only when a moment qualifies (at least one period old, in no earlier email, a `Waiting on you` still unresolved or a `Finished`, `Failed` or Notify-step moment whose session or run is unseen, never a muted session's `Finished` or `Failed`); stamp `digested_at` on each entry it carries. Load Nodemailer on the first send; send over TLS only (port 465 from the start, 587 with `requireTLS`), refusing a server that will not encrypt before the password is written. `attention.mailPasswordSave` and `attention.mailPasswordRemove` seal and remove the password through the workflow-secret keychain store. A failure is written to the outcome row and never retried within the same period.
 - **Test:** the password never appears in a reply, event, log line or error, including an SMTP refusal whose text echoes the user name; against a local SMTP server that offers no STARTTLS, `attention.deliveryTest` answers `notEncrypted` and the password is never written to the socket; a moment already in one digest is never in a second, across a daemon restart.
@@ -250,7 +251,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 ##### T3.6 — Push to a device with no live connection
 
 - **Files:** `packages/runtime-daemon/src/attention/push/` (new) plus co-located tests; the plaintext notice in `packages/contracts/src/attention.ts` and `push.send`'s request in `packages/contracts/src/push.ts` (new), which Plan-025 Phase 5's senders read.
-- **Step:** For each linked device, apply in order the device's own `Notify me outside the app` and kind switch (the copy it last handed over), the session's mute, the quiet rule (nothing while an app window is in front on any device, except a Notify step), then the path: nothing when the device has a live connection with a window in front, the device's own post when it has a live connection and no window in front, and a push when it has no live connection. Seal the notice on the machine to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push) and call `push.send`, authenticated through the constructor-injected `DaemonCredentialProvider` (Plan-004 CP-004-7; Plan-015 CP-015-7 and T5.3 inject the real one), with the moment's id as the collapse id, `Waiting on you` and a Notify step at high priority, `Finished` and `Failed` at normal priority, and a 24-hour expiry. Write nothing to any session log.
+- **Step:** For each linked device, apply in order the device's own `Notify me outside the app` and kind switch (the copy it last handed over), the session's mute, the quiet rule (nothing while an app window is in front on any device, except a Notify step), then the path: nothing when the device has a live connection with a window in front, the device's own post when it has a live connection and no window in front, and a push when it has no live connection. Seal the notice on the machine to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push) and call `push.send`, authenticated through the constructor-injected `DaemonCredentialProvider` (Plan-004 CP-004-7; Plan-015 CP-015-7 and T5.3 inject the real one), with the moment's id as the collapse id, `Waiting on you` and a Notify step at high priority, `Finished` and `Failed` at normal priority, and a 24-hour expiry. Keep one `push_deliveries` row per device a push went to, so a withdrawal reaches exactly the devices that got the entry; a row goes when its entry is withdrawn or 24 hours after it was sent. Write nothing to any session log.
 - **Test:** a muted session's `Finished` is never pushed while its `Waiting on you` is; no push goes out while an app window is in front on any device, except a Notify step's; what reaches `push.send` is sealed and holds no name in the clear.
 - **Spec coverage:** Spec-017 §Cross-Device Delivery (push; when the web address and push send)
 - **Verifies invariant:** I-016-3, I-016-5

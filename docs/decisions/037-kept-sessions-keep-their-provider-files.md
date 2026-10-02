@@ -49,7 +49,7 @@ The rule that nothing deletes a session automatically, set against a probe showi
 1. **Every Claude Code process the daemon starts carries `"cleanupPeriodDays": 36500` in its `--settings` JSON**, in the same JSON as the daemon's other flag settings. The flag outranks a repository's project and local files, so no repository can shorten retention for the home. 36,500 days reaches back before 1970, so no file's age can pass it.
 2. **Each account home's `settings.json` holds the same value**, for a process started in that home without the flag, such as a sign-in.
 3. **A managed value below it raises `settings_ignored`.** A managed policy outranks the flag. After each spawn the daemon reads `effective.cleanupPeriodDays` from `get_settings`, and when it is lower the session shows the `session.notice` kind `settings_ignored`.
-4. **`Delete old data` removes each purged session's provider files from every account home it ran in** — an account switch copies the conversation file into the new home, so a session can have its file in more than one. On Claude Code that is the conversation file with its subagent and tool-result files, its file history, session environment, todo and task lists, plan file and debug log; on Codex it is `thread/delete`. A session typed in a terminal keeps its conversation in the person's own Codex folder, which the purge never touches.
+4. **`Delete old data` removes each purged session's provider files from every account home it ran in.** On Claude Code that is the conversation file with its subagent and tool-result files, its file history, session environment, todo and task lists, plan file and debug log; on Codex it is `thread/delete`. A session typed in a terminal keeps its conversation in the person's own Codex folder, which the purge never touches.
 5. **The provider's other files go past `Keep diagnostic logs for`.** With the sweep held off, what the provider writes into an account home and never reads back for a session — its logs, telemetry, traces, shell snapshots and paste cache — is diagnostic data and follows the service's own diagnostic bound. The list is the pinned build's own cleanup list minus what belongs to a session, and it is read again on every pin move.
 
 The daemon never writes these values into the person's own `~/.claude` or `~/.codex`: a home the person uses in a terminal keeps the person's own settings.
@@ -139,7 +139,7 @@ The product already promises the person that nothing goes until they say so, and
 ### Negative (accepted trade-offs)
 
 - The value is home-wide and keeps every kind of file the sweep would have removed; accepted because the purge and the diagnostic bound delete what the sweep would have.
-- The purge must reach every account home a session ran in, since an account switch copies the conversation file; accepted because the purge already runs per session.
+- The purge must reach every account home a session ran in; accepted because the purge already runs per session.
 
 ### Unknowns
 

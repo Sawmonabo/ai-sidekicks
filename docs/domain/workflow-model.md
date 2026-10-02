@@ -56,7 +56,7 @@ The workflow model describes how reusable, multi-step execution templates are de
 | `running` | At least one step is executing, or the run is advancing between steps. |
 | `waiting` | A step of the run is waiting — on a person (an approval, a form or a chat reply), on a child run held behind its chain's question, or on a spent provider account — and the run is neither progressing nor finished. The wait's cause, and the resume instant where one was armed, are per-step state ([Spec-015 §Park integrity and cancelability (SA-41)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-41)). A step held by the memory gate before it starts reads `waiting-memory` and leaves the run `running`. |
 | `succeeded` | Every step reached a terminal state and the run finished successfully. |
-| `failed` | A step failed and its node's `onError` is `stop` (after the retries its node allows), a `flow.stop-error` step ran, or a set run cap elapsed. |
+| `failed` | A step failed and its node's `onError` is `stop` (after the retries its node allows), a `flow.stop-error` step ran, or a set run cap elapsed. A run parked on a failed step reads `failed` while it waits, with `Resume` and `Cancel` both open. |
 | `canceled` | The workflow run was explicitly canceled by a user or system action, through `workflow.runCancel` ([Spec-015 §Run control (SA-44)](../specs/015-workflow-authoring-and-execution.md#run-control-sa-44)). |
 | `crashed` | The daemon restarted while the run was `new` or `running`, or in a state the sweep does not recognize, so the run was swept to this state on the next start. A run in `waiting` is never swept and is never pruned. |
 
@@ -68,14 +68,16 @@ Allowed transitions:
 - `running -> waiting` (a step waits on a person, on a child run held behind its chain's question, or on a provider usage-limit reset)
 - `waiting -> running` (the wait is answered, a person resumes a parked run, or a durable auto-resume schedule fires)
 - `waiting -> failed` (a waiting step reaches its `Timeout` and its node's `onError` is `stop`; time a step waits never counts against the run cap)
+- `failed -> running` (`Resume` on a run parked on a failed step runs that step again)
 - `running -> canceled` (explicit cancellation)
 - `waiting -> canceled` (a parked run is cancelable from `waiting` without precondition)
 - `new -> canceled` (canceled before execution begins)
+- `failed -> canceled` (`Cancel` on a run parked on a failed step, waiting on `Resume`)
 - `new -> crashed`, `running -> crashed` (swept on daemon start)
 
 ### Workflow Definition (no state machine)
 
-Workflow definitions do not have a lifecycle state machine. They exist once created and are versioned through `WorkflowVersion`. A definition carries these flags: whether it is enabled, which arms or disarms every one of its triggers and holds until someone changes it, and whether it is deleted. Deleting a workflow is a soft delete: the definition leaves every list and its triggers are never armed again, while its runs stay readable against the versions they are pinned to, and the delete reports how many there are. The values `Keep for later runs` kept for the workflow are deleted with it.
+Workflow definitions do not have a lifecycle state machine. They exist once created and are versioned through `WorkflowVersion`. A definition carries these flags: whether it is enabled, which arms or disarms every one of its triggers and holds until someone changes it, and whether it is deleted. It also carries its own permission level, set on the workflow and starting at `YOLO`, outside the document's hashed body, so a change mints no version: every run of the workflow uses that level wherever the run lives, a chat's session or the workflow's own, and a change reaches a live run from its next step ([Spec-015 §Node-Kind Taxonomy](../specs/015-workflow-authoring-and-execution.md#node-kind-taxonomy)). Deleting a workflow is a soft delete: the definition leaves every list and its triggers are never armed again, while its runs stay readable against the versions they are pinned to, and the delete reports how many there are. The values `Keep for later runs` kept for the workflow are deleted with it.
 
 ### Workflow Version (no state machine)
 

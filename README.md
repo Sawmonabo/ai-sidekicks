@@ -5,11 +5,11 @@
      .-.
   .--┴-┴--.
   | O   O |   >> An agentic coding runtime for you and your sidekicks.
-  | ||||| |   >> Your machine, your subscription, any device.
+  | ||||| |   >> Your accounts, any device.
   '--___--'
 ```
 
-AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agents that delegate to other agents, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
+AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agents that delegate to other agents, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent works under your own provider account. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
 
 <p align="center">
   <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />
@@ -67,7 +67,7 @@ A session contains the user, agents, runs, repo mounts, approvals, artifacts, an
                     └──────────────────────────────────┘
 ```
 
-You open a session from any linked device, chat directly in it, and attach one or more agents. The work itself always executes on a runtime node — a machine of yours that holds the repo and runs the provider processes.
+You open a session from any linked device and chat directly in it. A session has one main agent; other agents take part when the main agent delegates to them or when you name one in the composer. The work itself executes on a runtime node — a machine of yours that holds the repo and runs the provider processes.
 
 ---
 
@@ -75,7 +75,7 @@ You open a session from any linked device, chat directly in it, and attach one o
 
 ### Multi-Agent Sessions
 
-Start a session and attach as many sidekicks as the work needs — Claude and Codex together, each on your own provider subscription, with credentials that never leave the machine. Sidekicks hand work to each other, and run under one set of approval policies. Session content — messages, events, artifacts — is end-to-end encrypted in transit between your devices and your runtime node: the relay never sees plaintext.
+Start a session and let as many sidekicks take part as the work needs — Claude and Codex together, each on your own provider account, with credentials that never leave the machine. Sidekicks hand work to each other, and run under one set of approval policies. Session content — messages, events, artifacts — is end-to-end encrypted in transit between your devices and your runtime node: the relay never sees plaintext.
 
 ### Queue, Steer, Pause, Resume
 
@@ -99,7 +99,7 @@ AI agents run behind explicit driver adapters — `claude-driver` and `codex-dri
 
 ### Remote Control
 
-Agent execution stays on your machine. Any device you have linked drives the same session with full parity — read the run, steer it, answer an approval — while the work keeps running where it started. The control plane handles auth, your device directory, and the encrypted relay; it never executes code. A session on the machine that owns it works offline.
+Any device you have linked drives the same session with full parity — read the run, steer it, answer an approval — while the work keeps running where it started. The control plane handles auth, your device directory, and the encrypted relay; it never executes code. A session on the machine that owns it works offline.
 
 ---
 
@@ -169,8 +169,8 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
 | Desktop App | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 59 tables) |
-| Shared Database | Postgres (10 tables) |
+| Local Database | SQLite (WAL mode) |
+| Shared Database | Postgres |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
 | Relay Encryption | Noise `Noise_KK_25519_ChaChaPoly_SHA256`, one channel per device and machine |
 | State Machines | XState v5 |
@@ -203,7 +203,7 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-014: V1 Feature Sc
 | 12 | Desktop GUI | Electron main process + React/Vite renderer over the same typed SDK |
 | 13 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session timeline, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
 | 14 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-025](docs/decisions/025-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-024](docs/decisions/024-visual-node-graph-workflow-authoring.md) |
-| 15 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-024](docs/specs/024-mcp-server-configuration-and-governance.md) + [Plan-022](docs/plans/022-mcp-server-configuration-and-governance.md) |
+| 15 | MCP server configuration and governance | Server-config CRUD, status/health probing, server OAuth per [Spec-024](docs/specs/024-mcp-server-configuration-and-governance.md) + [Plan-022](docs/plans/022-mcp-server-configuration-and-governance.md) |
 | 16 | Undo to an earlier message | Put back the conversation and the files, the conversation alone, or the files alone, as one request with one reported result; the conversation goes back through the provider's own cut and the files through the daemon's checkpoints, and every undo is recorded forward, so the log never truncates |
 | 17 | Session goals | `/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet; a session is never named by its goal |
 | 18 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |

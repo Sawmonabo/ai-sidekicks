@@ -33,7 +33,7 @@ The product combines one account, several of that account's devices, one or more
 ## Data Flow
 
 1. Identity claims enter through the control plane.
-2. Session ownership determines whether the caller reaches the session at all.
+2. A connection carries its device, and a write records the device it came from; nothing checks ownership per caller.
 3. A device reaches a machine only over a channel whose keys that machine finds trusted in the account's statement chain.
 4. Runs request tool, file, or network permissions when needed.
 5. Approval decisions are recorded and propagated back into the run engine.
