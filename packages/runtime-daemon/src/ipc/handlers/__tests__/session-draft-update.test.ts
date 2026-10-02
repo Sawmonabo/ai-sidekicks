@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../../session/migration-runner.js";
 import { SessionDraftStore } from "../../../session/session-draft-store.js";
-import { SessionService, TestSeedingAppendToken } from "../../../session/session-service.js";
+import { insertStoredEvent } from "../../../session/__tests__/stored-event.test-support.js";
 import { MethodRegistryImpl } from "../../registry.js";
 import { SessionNotFoundError } from "../../session-errors.js";
 import { registerSessionDraftUpdate } from "../session-draft-update.js";
@@ -45,9 +45,7 @@ function heldDraft(): { text: string; updated_at: string } | undefined {
 beforeEach(() => {
   temporaryFolder = mkdtempSync(join(tmpdir(), "session-draft-update-"));
   database = openDatabase(join(temporaryFolder, "daemon.db"));
-  new SessionService(database, {
-    allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
-  }).append({
+  insertStoredEvent(database, {
     id: "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001",
     sessionId: SESSION_ID,
     sequence: 0,

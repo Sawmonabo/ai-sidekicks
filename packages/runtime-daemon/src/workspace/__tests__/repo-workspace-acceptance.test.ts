@@ -16,7 +16,7 @@ import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts";
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService, TestSeedingAppendToken } from "../../session/session-service.js";
+import { SessionService } from "../../session/session-service.js";
 import { RepoMountService } from "../repo-mount-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import { WorkspaceService } from "../workspace-service.js";
@@ -132,9 +132,7 @@ function buildDaemonStack(database: DatabaseType, now: () => string): DaemonStac
     }),
   });
   // The production id sources run; assertions name ids by identity or set membership.
-  const sessions = new SessionService(database, {
-    allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
-  });
+  const sessions = new SessionService(database);
   const workspaces = new WorkspaceService({ database, events: emitter, sessions, now });
   return {
     emitter,
@@ -189,8 +187,8 @@ beforeEach(async () => {
     boundRootCheckout,
   };
 
-  seedSession(harness.stack.sessions, SESSION_ID);
-  seedSession(harness.stack.sessions, OTHER_SESSION_ID);
+  seedSession(database, SESSION_ID);
+  seedSession(database, OTHER_SESSION_ID);
 });
 
 afterEach(() => {

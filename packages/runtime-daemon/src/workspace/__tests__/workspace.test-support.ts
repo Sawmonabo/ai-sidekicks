@@ -6,7 +6,9 @@ import { join } from "node:path";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
-import type { SessionService } from "../../session/session-service.js";
+import type { Database } from "better-sqlite3";
+
+import { insertStoredEvent } from "../../session/__tests__/stored-event.test-support.js";
 import { DISCOVERY_REDIRECTING_GIT_ENV_KEYS } from "../repo-root-resolver.js";
 
 /**
@@ -61,8 +63,8 @@ export function runFixtureGit(
 }
 
 /** Seeds a session's log so `SessionService.replay` returns a snapshot for it. */
-export function seedSession(sessions: SessionService, sessionId: SessionId): void {
-  sessions.append({
+export function seedSession(database: Database, sessionId: SessionId): void {
+  insertStoredEvent(database, {
     id: `evt-${sessionId}`,
     sessionId,
     sequence: 0,

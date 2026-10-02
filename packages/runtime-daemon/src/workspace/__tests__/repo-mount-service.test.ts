@@ -15,7 +15,7 @@ import type { NodeId, RepoMountId, SessionId } from "@ai-sidekicks/contracts";
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService, TestSeedingAppendToken } from "../../session/session-service.js";
+import { SessionService } from "../../session/session-service.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
@@ -310,9 +310,7 @@ beforeEach(async () => {
       db,
     }),
   });
-  const sessions = new SessionService(db, {
-    allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
-  });
+  const sessions = new SessionService(db);
   const workspaces = new WorkspaceService({
     database: db,
     events: emitter,
@@ -333,8 +331,8 @@ beforeEach(async () => {
     tmpDir,
   };
 
-  seedSession(sessions, SESSION_ID);
-  seedSession(sessions, OTHER_SESSION_ID);
+  seedSession(db, SESSION_ID);
+  seedSession(db, OTHER_SESSION_ID);
 });
 
 afterEach(() => {

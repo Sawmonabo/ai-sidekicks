@@ -5,10 +5,8 @@
 import type { SessionState } from "@ai-sidekicks/contracts";
 
 /**
- * One `session_events` row as the daemon writes and reads it: the input to `SessionService.append`
- * and what `SessionService.readEvents` returns to the projector. The content column is left out
- * and stays NULL on append. `monotonicNs` is supplied by the writer so tests can drive
- * non-monotonic values; `sequence`, not `monotonicNs`, is the replay key.
+ * One `session_events` row as `SessionService.readEvents` returns it to the projector. The content
+ * column is left out. `sequence`, not `monotonicNs`, is the replay key.
  */
 export interface StoredEvent {
   readonly id: string;
