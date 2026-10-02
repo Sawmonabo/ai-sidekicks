@@ -21,7 +21,7 @@
 - [8. Client SDK](#8-client-sdk)
 - [Core Domain Model](#core-domain-model)
 - [Critical Design Choices](#critical-design-choices)
-- [Execution Locality Vs Remote Control](#execution-locality-vs-remote-control)
+- [Runtime Placement Vs Remote Control](#runtime-placement-vs-remote-control)
 - [Provider Drivers And The Run Model](#provider-drivers-and-the-run-model)
 - [Files Vs Database](#files-vs-database)
 - [Agent Chat Vs Workflow Engine](#agent-chat-vs-workflow-engine)
@@ -118,11 +118,11 @@ A session contains:
 
 ## Architectural Position
 
-The target system is a distributed runtime with local execution nodes and remote views onto them.
+The target system is a distributed runtime: each session lives in a runtime daemon on a computer the person runs, and every device they carry is a view onto it.
 
 That implies this split:
 
-- local execution must stay local
+- the session lives in the runtime daemon, and its agents work under the person's own provider accounts
 - the device registry and the relay must live in a hosted or self-hosted control plane, which keeps no session record
 - the event model must unify chat, orchestration, git activity, approvals, and interventions
 - providers must be adapters into the runtime, not the center of the product
@@ -258,11 +258,11 @@ If these are modeled cleanly, most major features become straightforward instead
 
 ## Critical Design Choices
 
-### Execution Locality Vs Remote Control
+### Runtime Placement Vs Remote Control
 
 - A purely local runtime is simpler.
 - Reaching it from anywhere is harder.
-- The right synthesis is local execution plus a device directory, device presence, and an encrypted relay.
+- The right synthesis is a runtime daemon on a computer the person runs, plus a device directory, device presence, and an encrypted relay.
 
 ### Provider Drivers And The Run Model
 
@@ -424,11 +424,11 @@ For details beyond this vision document, see:
 
 ## Strategic Conclusion
 
-If a session must be reachable from every device its owner carries while the work itself keeps running on their own machine, then this system is not just an agent runner.
+If a session must be reachable from every device its owner carries while it lives in a runtime daemon on a computer they run, then this system is not just an agent runner.
 
-It is a distributed runtime with local execution nodes and remote views onto them.
+It is a distributed runtime: runtime daemons that hold the sessions, and remote views onto them.
 
-Reaching an agent from a phone is not novel on its own: several cloud-hosted agent platforms ship a mobile client. What remains unoccupied is the conjunction this architecture is built around — execution on the user's own machine under their own provider subscription, a phone that can do everything the desktop can rather than a read-only status view, a real policy engine governing steering and dispatch, and an encrypted relay that carries the session without being able to read it. The products with good mobile clients host the session in their own cloud; the products that run on your machine give you no way to reach them from anywhere else. Holding both at once is the position, and every architectural choice in this document exists to hold it.
+Reaching an agent from a phone is not novel on its own: several cloud-hosted agent platforms ship a mobile client. What remains unoccupied is the conjunction this architecture is built around — agents working under the person's own provider accounts, a phone that can do everything the desktop can rather than a read-only status view, a real policy engine governing steering and dispatch, and an encrypted relay that carries the session without being able to read it. The products with good mobile clients host the session in their own cloud; the products whose session lives on a computer you run give you no way to reach it from anywhere else. Holding both at once is the position, and every architectural choice in this document exists to hold it.
 
 If the architecture is built around that truth from the beginning, it will establish the correct foundation for a runtime people can actually live in.
 
