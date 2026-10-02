@@ -144,7 +144,7 @@ export interface CallbackToolHostOptions {
   readonly diagnostics: DriverDiagnosticsEmitter;
   readonly executor: CallbackToolExecutor;
   readonly activitySink: CallbackToolActivitySink;
-  /** Optional so the daemon can run before the approval pipeline is composed (see the header). */
+  /** Optional: without it the registry is withheld at spawn and a stray invocation is denied. */
   readonly approvalSeam?: CallbackToolApprovalSeam | undefined;
 }
 

@@ -5,10 +5,11 @@
 //   read-decide-write instead of landing between that caller's read and its write.
 // - Content: machine-authored prose is kept in `content_payload` beside the event, and the payload
 //   gains the members that describe it; both are written as a unit.
-// Dual-write: `options.transactionalPrelude` is a synchronous closure run in the same transaction
-// just before the INSERT, because a better-sqlite3 transaction cannot span an `await`. The append
-// lock is keyed on `sessionId`, so a producer whose event depends on its own row re-checks that
-// state as the prelude's first statement and throws if it moved; an abort consumes no sequence.
+// - Dual-write: `options.transactionalPrelude` is a synchronous closure run in the same transaction
+//   just before the INSERT, because a better-sqlite3 transaction cannot span an `await`. The
+//   append lock is keyed on `sessionId`, so a producer whose event depends on its own row
+//   re-checks that state as the prelude's first statement and throws if it moved; an abort
+//   consumes no sequence.
 
 import type { EventEnvelope, SessionId } from "@ai-sidekicks/contracts";
 import type { Database, Statement } from "better-sqlite3";

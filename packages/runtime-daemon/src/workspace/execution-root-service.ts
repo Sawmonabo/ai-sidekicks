@@ -124,7 +124,7 @@ export interface ExecutionRootServiceDeps {
    * the one the worktree services resolve.
    */
   readonly executionRootsDirectory: string;
-  /** Git process seam. Required: no sibling exports a reusable executor to default to. */
+  /** Git process seam; required, so the composition root names the runner. */
   readonly git: ExecutionRootGitRunner;
   /** Filesystem seam. Required, like `git`. */
   readonly filesystem: ExecutionRootFilesystem;

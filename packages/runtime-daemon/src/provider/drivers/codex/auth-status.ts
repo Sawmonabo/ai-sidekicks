@@ -1,6 +1,6 @@
 /**
- * Reads the account state Codex reports, turns it into an auth probe result or a resume recovery
- * condition, and normalizes a provider failure into the detail a caller can show.
+ * Reads the account state Codex reports and turns it into an auth probe result or a resume
+ * recovery condition.
  */
 
 import { type RecoveryCondition } from "@ai-sidekicks/contracts";
@@ -45,7 +45,7 @@ export function buildAuthProbeResult(
 /**
  * Maps a `getAuthStatus` answer onto the probe result. Only `authMethod` is read, never
  * `authToken`; it is a closed mechanism enum, safe as `detail` (unlike `account/read`, which
- * carries a plan name and seat email). A `null` method is `unauthenticated` even if no OpenAI
+ * carries a plan name and account email). A `null` method is `unauthenticated` even if no OpenAI
  * sign-in is required.
  */
 export function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResult {
