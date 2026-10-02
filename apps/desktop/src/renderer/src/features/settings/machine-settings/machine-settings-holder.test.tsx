@@ -81,7 +81,7 @@ describe("machine settings binding — acquisition happens after the commit", ()
     const firstBridge = freshBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />, windowOf(firstBridge));
     await settle();
-    const firstStore = machineSettingsHolder.storeIfCurrent(firstBridge);
+    const firstStore = machineSettingsHolder.valueIfCurrent(firstBridge);
     expect(firstStore).toBeDefined();
 
     const abandonedBridge = freshBridge();
@@ -101,8 +101,8 @@ describe("machine settings binding — acquisition happens after the commit", ()
     consoleErrors.mockRestore();
 
     expect(firstStoreDisposals).not.toHaveBeenCalled();
-    expect(machineSettingsHolder.storeIfCurrent(firstBridge)).toBe(firstStore);
-    expect(machineSettingsHolder.storeIfCurrent(abandonedBridge)).toBeUndefined();
+    expect(machineSettingsHolder.valueIfCurrent(firstBridge)).toBe(firstStore);
+    expect(machineSettingsHolder.valueIfCurrent(abandonedBridge)).toBeUndefined();
   });
 });
 
@@ -167,8 +167,8 @@ describe("machine settings — the lookup a render body performs", () => {
     const committedDisposals = vi.spyOn(committed, "dispose");
     const replacementBridge = freshBridge();
 
-    expect(machineSettingsHolder.storeIfCurrent(replacementBridge)).toBeUndefined();
+    expect(machineSettingsHolder.valueIfCurrent(replacementBridge)).toBeUndefined();
     expect(committedDisposals).not.toHaveBeenCalled();
-    expect(machineSettingsHolder.storeIfCurrent(committedBridge)).toBe(committed);
+    expect(machineSettingsHolder.valueIfCurrent(committedBridge)).toBe(committed);
   });
 });

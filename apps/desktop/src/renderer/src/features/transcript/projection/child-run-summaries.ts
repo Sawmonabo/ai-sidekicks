@@ -3,22 +3,15 @@
 // parent is a child run, said by the daemon; the summary is stamped on that one row per
 // child, the only row naming both, so it takes a fresh object each pass.
 
+import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
 import {
-  type ChildRunSummary,
-  type RunId,
-  type RunState,
-  type SessionEventType,
-} from "@ai-sidekicks/contracts";
-import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
+  RUN_INITIAL_STATE,
+  RUN_QUEUED_EVENT_KIND,
+  runStateForTransitionKind,
+} from "@renderer/store/session-events/run-state-kinds.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
-
-/** The one event type that carries the child-run links. */
-const RUN_CREATED_TYPE: Extract<SessionEventType, "run.queued"> = "run.queued";
-
-/** The state a creation row announces; the transition mapping deliberately omits `queued`. */
-const RUN_CREATED_STATE: RunState = "queued";
 
 /**
  * Every child run this log names, keyed by the event id of the row it is stamped on.
@@ -37,7 +30,7 @@ export function deriveChildRunSummaries(
     if (runId === undefined) {
       continue;
     }
-    if (event.kind === RUN_CREATED_TYPE) {
+    if (event.kind === RUN_QUEUED_EVENT_KIND) {
       admitChildRun(readingsByRunId, event, runId);
     }
     const reading = readingsByRunId.get(runId);
@@ -81,7 +74,7 @@ function admitChildRun(
   readingsByRunId.set(runId, {
     creationEventId: event.id,
     parentRunId,
-    state: RUN_CREATED_STATE,
+    state: RUN_INITIAL_STATE,
     eventCount: 0,
   });
 }

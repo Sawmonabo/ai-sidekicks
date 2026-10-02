@@ -43,7 +43,7 @@ import {
   type SchemaControlView,
   type SchemaListEntryView,
 } from "../answer/schema-projection.js";
-import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
+import { schemaValidatorCompilerLoader } from "../json-schema-validator-loader.js";
 import { type SchemaMemberPath } from "../schema-member-path.js";
 import { type SchemaValidationReport } from "../json-schema-validator.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
@@ -123,7 +123,7 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   useEffect(() => {
     // A new round supersedes the last: the newest schema is the one on screen.
     const round = compileRounds.supersedeAndClaim(compileRounds, VALIDATOR_COMPILE_KEY);
-    void loadSchemaValidatorCompiler().then(
+    void schemaValidatorCompilerLoader.load().then(
       (compileSchemaValidator) => {
         round.settle(() => {
           setCompiled({ inputSchema, validator: compileSchemaValidator(inputSchema) });

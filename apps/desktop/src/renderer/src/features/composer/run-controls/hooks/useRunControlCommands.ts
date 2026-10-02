@@ -8,7 +8,7 @@ import { useMemo } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { type WhenClauseKey } from "@renderer/registries/commands/window-command-registry.js";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import {
@@ -21,12 +21,6 @@ import {
 
 /** The palette category the controls sit under. */
 const RUN_CONTROL_COMMAND_GROUP = "Run";
-
-/**
- * The clause these commands are offered under: `sessionActive` and nothing narrower, since a
- * fact that changes with every event does not belong in a vocabulary recomputed per route.
- */
-const RUN_CONTROL_COMMAND_WHEN: WhenClauseKey = "sessionActive";
 
 /** Contributes the controls of every described run while the caller is mounted. */
 export function useRunControlCommands(input: RunControlCommandInput): void {
@@ -61,7 +55,9 @@ function buildRunControlCommand(
     id: `runs.${row.control}.${row.runId}`,
     title: row.title,
     group: RUN_CONTROL_COMMAND_GROUP,
-    when: RUN_CONTROL_COMMAND_WHEN,
+    // Nothing narrower: a fact that changes with every event does not belong in a vocabulary
+    // recomputed per route.
+    when: WHEN_SESSION_ACTIVE,
     keywords: [row.runId, RUN_CONTROL_PRESENTATION[row.control].label],
     run: () => {
       dispatchRunControlCommand(row, inputRef.current);

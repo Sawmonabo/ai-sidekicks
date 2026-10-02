@@ -10,7 +10,7 @@ import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { settle } from "@test/helpers/settle.js";
 import { useSchemaForm, type SchemaFormState } from "./useSchemaForm.js";
 import { schemaFormAnswerBody } from "../schema-form-mounts.js";
-import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
+import { schemaValidatorCompilerLoader } from "../json-schema-validator-loader.js";
 import { type SchemaMemberPath } from "../schema-member-path.js";
 
 /**
@@ -21,14 +21,14 @@ import { type SchemaMemberPath } from "../schema-member-path.js";
  * because the loader-backed body holds a second memo.
  */
 export async function resolveSchemaFormChunks(): Promise<void> {
-  await loadSchemaValidatorCompiler();
+  await schemaValidatorCompilerLoader.load();
   await schemaFormAnswerBody.load();
 }
 
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */
 export async function mountForm(inputSchema: unknown): Promise<() => SchemaFormState> {
   // Warmed before the mount so the hook's own load resolves off the registry.
-  await loadSchemaValidatorCompiler();
+  await schemaValidatorCompilerLoader.load();
   let latest: SchemaFormState | undefined;
   function Probe(props: { readonly inputSchema: unknown }): React.JSX.Element {
     latest = useSchemaForm(props.inputSchema);

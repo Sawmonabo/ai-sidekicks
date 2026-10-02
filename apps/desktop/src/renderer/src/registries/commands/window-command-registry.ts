@@ -32,6 +32,12 @@ export const WHEN_CLAUSE_KEYS = [
 /** One key of the window's `when` vocabulary. */
 export type WhenClauseKey = (typeof WHEN_CLAUSE_KEYS)[number];
 
+/**
+ * The clause a session-scoped command or chord is offered under: true while the window has a
+ * session open. Imported rather than spelled, since a mistyped clause silently hides a command.
+ */
+export const WHEN_SESSION_ACTIVE: WhenClauseKey = "sessionActive";
+
 /** What the window evaluates a `when` clause against; narrower than `WhenClauseContext`. */
 export type WindowWhenClauseContext = Readonly<Record<WhenClauseKey, boolean>>;
 

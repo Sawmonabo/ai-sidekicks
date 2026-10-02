@@ -9,6 +9,8 @@ import { useMemo } from "react";
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
+import { APPROVAL_COMMAND_GROUP } from "@renderer/lib/approval-vocabulary.js";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 import {
   REVOKE_RULE_COMMAND_OWNER,
   askToRevokeFromCommand,
@@ -16,12 +18,6 @@ import {
   type RevokeRuleCommandInput,
   type RevokeRuleCommandRow,
 } from "../contributions/revoke-rule-commands.js";
-
-/** The palette category these sit under, beside the approval rows. */
-const REVOKE_COMMAND_GROUP = "Approvals";
-
-/** The clause these rows are offered under: the key every session-scoped act uses. */
-const REVOKE_COMMAND_WHEN = "sessionActive";
 
 /** Contribute a row per revocable rule for as long as the list is mounted. */
 export function useRevokeRuleCommands(input: RevokeRuleCommandInput): void {
@@ -49,8 +45,8 @@ function buildRevokeCommand(
   return {
     id: `approvals.ruleRevoke.${row.ruleId}`,
     title: row.title,
-    group: REVOKE_COMMAND_GROUP,
-    when: REVOKE_COMMAND_WHEN,
+    group: APPROVAL_COMMAND_GROUP,
+    when: WHEN_SESSION_ACTIVE,
     keywords: ["revoke", "permission", "grant"],
     run: () => {
       askToRevokeFromCommand(row, inputRef.current);

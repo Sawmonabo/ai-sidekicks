@@ -17,6 +17,7 @@ import type { Clock } from "@renderer/lib/clock.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
+import { RUN_QUEUED_EVENT_KIND } from "@renderer/store/session-events/run-state-kinds.js";
 import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
@@ -37,7 +38,7 @@ const AGENT_LIST_EVENT_KINDS: readonly SessionEventType[] = [
  * `orchestration.rejected`, the only record of a refused create (no link row is left).
  */
 const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
-  "run.queued",
+  RUN_QUEUED_EVENT_KIND,
   "orchestration.rejected",
 ];
 
