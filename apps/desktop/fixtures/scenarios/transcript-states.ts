@@ -30,6 +30,7 @@
 //     it; the body is stored in `content_payload`.
 
 import {
+  composeScenarioInstant,
   composeScriptBeats,
   createRunEntryBuilders,
   type ScriptEntry,
@@ -39,7 +40,6 @@ import {
   type ScenarioAgent,
   composeOpeningEntry,
   composeResolvedAgent,
-  composeScenarioInstant,
   findScenarioMember,
 } from "../data/opening-entries.js";
 
@@ -71,7 +71,7 @@ export const RUN_ARCHITECT_CHILD = "019b793b-7b60-740e-8140-d1a4c1150114";
 
 /**
  * The provider-native subagent the reviewer's run opens, in the provider's own shape. It is
- * not a UUID and is unique only within that provider's run scope, so the console keys a
+ * not a UUID and is unique only within that provider's run scope, so the app keys a
  * subagent by `(runId, provider, subagentId)`.
  */
 export const SUBAGENT_REVIEWER = "sub_01k9wq4m2h";
@@ -432,7 +432,6 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   purpose:
     "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
-  thisDeviceId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({
     sessionId: SESSION_ID,
@@ -457,7 +456,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           },
           {
             sequence: 13,
-            content: "A node-local answer is reversible; a control-plane answer is not.",
+            content: "An answer kept on this machine is reversible; a hosted answer is not.",
             timestamp: composeScenarioInstant(startedAtMs, 2_520),
           },
         ],

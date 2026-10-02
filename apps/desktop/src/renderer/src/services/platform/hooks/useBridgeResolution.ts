@@ -23,7 +23,7 @@ export function useBridgeResolution(): BridgeResolution {
 export function useReadyBridgeResolution(): Extract<BridgeResolution, { status: "ready" }> {
   const resolution = useBridgeResolution();
   if (resolution.status === "unavailable") {
-    throw new Error(`console bridge unavailable: ${resolution.unavailable.detail}`);
+    throw new Error(`The platform bridge is unavailable: ${resolution.unavailable.detail}`);
   }
   return resolution;
 }

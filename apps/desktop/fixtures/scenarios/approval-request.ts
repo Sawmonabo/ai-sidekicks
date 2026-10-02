@@ -24,6 +24,11 @@ import {
   type SessionId,
 } from "@ai-sidekicks/contracts";
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
+import {
+  composeScenarioInstant,
+  composeScriptBeats,
+  type ScriptEntry,
+} from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
 
 // UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
@@ -44,6 +49,136 @@ const PERMISSION_ASK_ID = "ask-permission-force-push";
 // The device the answer came from: this machine's own screen.
 const ANSWERING_DEVICE_ID = "019b7a33-3300-7d02-8110-d1a4c1150541";
 
+// The base instant, built with `Date.UTC` rather than by parsing a string, so the ISO spelling
+// below cannot disagree with it.
+const STARTED_AT_MS: number = Date.UTC(2026, 0, 1, 13, 30);
+const STARTED_AT_ISO: string = composeScenarioInstant(STARTED_AT_MS, 0);
+
+// The stem row ids are minted from; `composeScriptBeats` completes it with the beat's position.
+const EVENT_ID_STEM = "019b7a33-3300-7e00-8110-e5e0c335";
+
+const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
+  {
+    atMs: 0,
+    kind: "session.created",
+    actorId: USER_YOU,
+    payload: composeSessionCreatedPayload({
+      sessionId: SESSION_ID,
+      shape: "project",
+      openedBy: USER_YOU,
+      lead: {
+        agentId: AGENT_IMPLEMENTER,
+        name: "Implementer",
+        driverName: "claude",
+        modelId: "claude-sonnet-5",
+      },
+      createdAt: STARTED_AT_ISO,
+    }),
+  },
+  // The run every request below was raised by. The execution posture is stamped only on
+  // `run.running`, where the workspace root and effective posture are final.
+  {
+    atMs: 120,
+    kind: "run.running",
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      runVersion: 2,
+      previousState: "starting",
+      newState: "running",
+      executionPosture: {
+        mode: "workspace-sandboxed",
+        credentialPolicyRef: "policy://workspace",
+        networkAccess: "allowed-domains",
+        allowedDomains: ["registry.npmjs.org", "github.com"],
+        writableRoots: ["/Users/dev/code/ai-sidekicks"],
+      },
+    },
+  },
+  {
+    atMs: 200,
+    kind: "approval.requested",
+    actorId: AGENT_IMPLEMENTER,
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      approvalRequestId: APPROVAL_RESOLVED,
+      category: "tool_execution",
+      scope: "run",
+      requestedBy: AGENT_IMPLEMENTER,
+      resourceDescriptor: { command: "pnpm --filter @ai-sidekicks/desktop run build" },
+    },
+  },
+  // A resolution carries the scope that took effect (never broader than requested), the device
+  // that answered and the id the answering client minted.
+  {
+    atMs: 420,
+    kind: "approval.approved",
+    actorId: USER_YOU,
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      approvalRequestId: APPROVAL_RESOLVED,
+      category: "tool_execution",
+      scope: "run",
+      effectiveScope: "run",
+      deviceId: ANSWERING_DEVICE_ID,
+      clientResolutionId: "019b7a33-3300-7c01-8110-d1a4c1150531",
+    },
+  },
+  {
+    atMs: 600,
+    kind: "approval.requested",
+    actorId: AGENT_IMPLEMENTER,
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      approvalRequestId: APPROVAL_PENDING_GIT_RESET,
+      category: "destructive_git",
+      scope: "session",
+      requestedBy: AGENT_IMPLEMENTER,
+      resourceDescriptor: { command: "git reset --hard origin/develop", branch: "develop" },
+    },
+  },
+  {
+    atMs: 900,
+    kind: "approval.requested",
+    actorId: AGENT_IMPLEMENTER,
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      approvalRequestId: APPROVAL_PENDING_WRITE,
+      category: "file_write",
+      scope: "session",
+      requestedBy: AGENT_IMPLEMENTER,
+      resourceDescriptor: {
+        path: "packages/runtime-daemon/src/store/migrations/0012.sql",
+        bytes: 4096,
+      },
+    },
+  },
+  // The request that arrived as a provider permission ask: `askId` reaches the app on this
+  // event and on no read, so the pane's framing comes from the event.
+  {
+    atMs: 1_100,
+    kind: "approval.requested",
+    actorId: AGENT_IMPLEMENTER,
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      approvalRequestId: APPROVAL_PENDING_ASK,
+      askId: PERMISSION_ASK_ID,
+      category: "tool_execution",
+      scope: "run",
+      requestedBy: AGENT_IMPLEMENTER,
+      resourceDescriptor: {
+        command: "git push --force origin feature/rebased",
+        branch: "feature/rebased",
+      },
+    },
+  },
+];
+
 /** One approved and three waiting approval requests raised by one agent in one run. */
 export const APPROVAL_REQUEST_SCENARIO: Scenario = {
   id: "approval-request",
@@ -53,170 +188,12 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
     "already approved, so a view that lists the waiting ones can be held to leaving the " +
     "approved one out.",
   sessionId: SESSION_ID,
-  thisDeviceId: USER_YOU,
-  startedAtIso: "2026-01-01T13:30:00.000Z",
-  beats: [
-    {
-      atMs: 0,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350001",
-        sessionId: SESSION_ID,
-        sequence: 1,
-        kind: "session.created",
-        occurredAt: "2026-01-01T13:30:00.000Z",
-        actorId: USER_YOU,
-        payload: composeSessionCreatedPayload({
-          sessionId: SESSION_ID,
-          shape: "project",
-          openedBy: USER_YOU,
-          lead: {
-            agentId: AGENT_IMPLEMENTER,
-            name: "Implementer",
-            driverName: "claude",
-            modelId: "claude-sonnet-5",
-          },
-          createdAt: "2026-01-01T13:30:00.000Z",
-        }),
-      },
-    },
-    {
-      atMs: 120,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350003",
-        sessionId: SESSION_ID,
-        sequence: 2,
-        // The run every request below was raised by. The execution posture is stamped only on
-        // `run.running`, where the workspace root and effective posture are final.
-        kind: "run.running",
-        occurredAt: "2026-01-01T13:30:00.120Z",
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          runVersion: 2,
-          previousState: "starting",
-          newState: "running",
-          executionPosture: {
-            mode: "workspace-sandboxed",
-            credentialPolicyRef: "policy://workspace",
-            networkAccess: "allowed-domains",
-            allowedDomains: ["registry.npmjs.org", "github.com"],
-            writableRoots: ["/Users/dev/code/ai-sidekicks"],
-          },
-        },
-      },
-    },
-    {
-      atMs: 200,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350004",
-        sessionId: SESSION_ID,
-        sequence: 3,
-        kind: "approval.requested",
-        occurredAt: "2026-01-01T13:30:00.200Z",
-        actorId: AGENT_IMPLEMENTER,
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          approvalRequestId: APPROVAL_RESOLVED,
-          category: "tool_execution",
-          scope: "run",
-          requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: { command: "pnpm --filter @ai-sidekicks/desktop run build" },
-        },
-      },
-    },
-    {
-      atMs: 420,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350005",
-        sessionId: SESSION_ID,
-        sequence: 4,
-        kind: "approval.approved",
-        occurredAt: "2026-01-01T13:30:00.420Z",
-        actorId: USER_YOU,
-        // A resolution carries the scope that took effect (never broader than requested), the
-        // device that answered and the id the answering client minted.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          approvalRequestId: APPROVAL_RESOLVED,
-          category: "tool_execution",
-          scope: "run",
-          effectiveScope: "run",
-          deviceId: ANSWERING_DEVICE_ID,
-          clientResolutionId: "019b7a33-3300-7c01-8110-d1a4c1150531",
-        },
-      },
-    },
-    {
-      atMs: 600,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350006",
-        sessionId: SESSION_ID,
-        sequence: 5,
-        kind: "approval.requested",
-        occurredAt: "2026-01-01T13:30:00.600Z",
-        actorId: AGENT_IMPLEMENTER,
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          approvalRequestId: APPROVAL_PENDING_GIT_RESET,
-          category: "destructive_git",
-          scope: "session",
-          requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: { command: "git reset --hard origin/develop", branch: "develop" },
-        },
-      },
-    },
-    {
-      atMs: 900,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350008",
-        sessionId: SESSION_ID,
-        sequence: 6,
-        kind: "approval.requested",
-        occurredAt: "2026-01-01T13:30:00.900Z",
-        actorId: AGENT_IMPLEMENTER,
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          approvalRequestId: APPROVAL_PENDING_WRITE,
-          category: "file_write",
-          scope: "session",
-          requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: {
-            path: "packages/runtime-daemon/src/store/migrations/0012.sql",
-            bytes: 4096,
-          },
-        },
-      },
-    },
-    {
-      atMs: 1_100,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350009",
-        sessionId: SESSION_ID,
-        sequence: 7,
-        // The request that arrived as a provider permission ask: `askId` reaches the console
-        // on this event and on no read, so the pane's framing comes from the event.
-        kind: "approval.requested",
-        occurredAt: "2026-01-01T13:30:01.100Z",
-        actorId: AGENT_IMPLEMENTER,
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          approvalRequestId: APPROVAL_PENDING_ASK,
-          askId: PERMISSION_ASK_ID,
-          category: "tool_execution",
-          scope: "run",
-          requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: {
-            command: "git push --force origin feature/rebased",
-            branch: "feature/rebased",
-          },
-        },
-      },
-    },
-  ],
+  startedAtIso: STARTED_AT_ISO,
+  beats: composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs: STARTED_AT_MS,
+    entries: APPROVAL_REQUEST_SCRIPT,
+  }),
   replies: [],
 };

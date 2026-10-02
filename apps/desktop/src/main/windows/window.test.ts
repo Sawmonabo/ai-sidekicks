@@ -56,7 +56,7 @@ describe("the main window factory", () => {
 
       const browserWindow = createMainWindow();
 
-      expect(asMockWindow(browserWindow).loadedUrls).toEqual([DEV_SERVER_URL]);
+      expect(asMockWindow(browserWindow).loadedUrls).toEqual([new URL(DEV_SERVER_URL).href]);
     });
 
     // The load-bearing half: a packaged binary that inherited the variable must refuse it.
@@ -67,7 +67,6 @@ describe("the main window factory", () => {
 
       const browserWindow = createMainWindow();
 
-      expect(asMockWindow(browserWindow)).toBeDefined();
       expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
     });
 

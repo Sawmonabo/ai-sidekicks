@@ -8,17 +8,16 @@
 // never appear.
 //
 // The daemon's calls and subscriptions are typed by the daemon's method map in
-// `@ai-sidekicks/contracts`. The control plane's procedure types are stubs until it serves a
-// procedure. Every other shape is declared here or beside this file in `src/shared/`, with no
-// dependency on the `electron` package.
+// `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
+// `src/shared/`, with no dependency on the `electron` package.
 //
-// A member whose main handler is not built throws `NotImplementedError`; `createStubBridge`
-// is that whole object, and the preload replaces the members main answers.
+// `PreloadApi` carries the members main answers and the members the renderer already calls.
+// A member main does not answer yet throws `NotImplementedError`; `createStubBridge` is that
+// whole object, and the preload replaces the members main answers. The request and reply types
+// of the bridge calls not built yet are declared here as well, and each call joins `PreloadApi`
+// with its main handler.
 
 import type {
-  AppLinkTarget,
-  BackupId,
-  BrowserPageChord,
   DaemonEvent,
   DaemonEventPayload,
   DaemonMethod,
@@ -35,17 +34,6 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { AppFacts } from "./app-facts.js";
-import type { AppearanceGrounds, AppearanceRecord } from "./appearance.js";
-import type { DAEMON_STATUS_TOPIC, MainProcessState } from "./daemon-status-topic.js";
-
-/** Control-plane tRPC procedure name brand (stub until the control plane serves a procedure). */
-export type CpProcedure = string & { readonly __cp_procedure__: never };
-
-/** Control-plane procedure input (stub). */
-export type CpInput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
-
-/** Control-plane procedure output (stub). */
-export type CpOutput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
@@ -87,16 +75,6 @@ export interface OpenDialogResult {
   readonly refs: readonly PickedFile[];
 }
 
-/** Electron `MessageBoxOptions` shape (stub). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface MessageBoxOptions {}
-/** Electron `MessageBoxReturnValue` shape (stub). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface MessageBoxResult {}
-/** Electron `NotificationConstructorOptions` shape (stub). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface NotificationOptions {}
-
 /**
  * Whether this machine will show an OS notification for this application.
  *
@@ -111,6 +89,8 @@ export interface NotificationPermission {
 /**
  * One editor the app looks for. `installed` is whether this machine has it, found through the
  * operating system's register of installed apps; one that is not can be shown, not chosen.
+ *
+ * @consumedBy the editor list in Settings, when main answers it
  */
 export interface EditorEntry {
   readonly id: string;
@@ -183,6 +163,8 @@ export type ServiceUpdateOutcome =
 /**
  * One delivery of a service update's progress, the first being the current state.
  * `cancelable` turns false once main has asked the old service to stop.
+ *
+ * @consumedBy the background service update on Settings › Runtime
  */
 export interface ServiceUpdateProgress {
   readonly step: ServiceUpdateStep;
@@ -206,6 +188,8 @@ export type ServicePlaceReading =
 /**
  * One place the service can run from on a Windows computer, with what was found there and
  * whether the service uses it.
+ *
+ * @consumedBy the places list on Windows, when main answers it
  */
 export interface ServicePlace {
   readonly place: ServicePlaceLocation;
@@ -219,7 +203,11 @@ export interface ServicePlace {
   readonly reading: ServicePlaceReading;
 }
 
-/** One delivery of a service move's progress, ending in `moved` or `failed`. */
+/**
+ * One delivery of a service move's progress, ending in `moved` or `failed`.
+ *
+ * @consumedBy moving the background service on Windows
+ */
 export type ServiceMoveProgress =
   | { readonly step: "installing" }
   | { readonly step: "stopping" }
@@ -249,12 +237,20 @@ export interface KeyboardMapReading {
   readonly repair?: SettingsFileRepair;
 }
 
-/** A preview pane: the one session whose active page it shows. */
+/**
+ * A preview pane: the one session whose active page it shows.
+ *
+ * @consumedBy the Preview pane's page host in main
+ */
 export interface BrowserPane {
   readonly sessionId: SessionId;
 }
 
-/** A pane's rectangle in the window's content area, in CSS pixels. */
+/**
+ * A pane's rectangle in the window's content area, in CSS pixels.
+ *
+ * @consumedBy the Preview pane's page host in main
+ */
 export interface BrowserPaneRect {
   readonly x: number;
   readonly y: number;
@@ -265,10 +261,16 @@ export interface BrowserPaneRect {
 /**
  * An act the pane performs on its page: its own editing, copying its address, and moving focus
  * into it. Back, forward and reload are the daemon's navigation, so history has one owner.
+ *
+ * @consumedBy the Preview pane's page host in main
  */
 export type BrowserPaneAct = "cut" | "copy" | "paste" | "selectAll" | "copyLink" | "focus";
 
-/** A captured page, for marks: PNG bytes, their size, and the scale read from the image. */
+/**
+ * A captured page, for marks: PNG bytes, their size, and the scale read from the image.
+ *
+ * @consumedBy the Preview pane's page host in main
+ */
 export interface CapturedPage {
   readonly image: Uint8Array;
   readonly width: number;
@@ -276,12 +278,20 @@ export interface CapturedPage {
   readonly scaleFactor: number;
 }
 
-/** Something that happened to a pane's page that the pane shows. */
+/**
+ * Something that happened to a pane's page that the pane shows.
+ *
+ * @consumedBy the Preview pane's page host in main
+ */
 export type BrowserPaneEvent =
   | { readonly kind: "downloadRefused"; readonly fileName: string }
   | { readonly kind: "pageCrashed" };
 
-/** A window's minimum size, in CSS pixels. */
+/**
+ * A window's minimum size, in CSS pixels.
+ *
+ * @consumedBy the window's minimum size call to main
+ */
 export interface WindowSize {
   readonly width: number;
   readonly height: number;
@@ -301,68 +311,20 @@ export interface DaemonWire {
 }
 
 /**
- * The one object the preload exposes on `window.desktopBridge`: the daemon's calls and the
- * supervisor's acts, the control plane, OS calls main makes for the renderer, the updater,
- * machine settings, the keyboard map, window acts, the preview pane's page host, and build meta.
+ * The one object the preload exposes on `window.desktopBridge`: the daemon's wire, the OS calls
+ * main makes for the renderer, the updater, the machine settings, the keyboard map, and build
+ * facts.
  */
 export interface PreloadApi {
-  readonly daemon: DaemonWire & {
-    /** The supervisor's own topic, which main publishes beside the daemon's subscriptions. */
-    subscribe(
-      topic: typeof DAEMON_STATUS_TOPIC,
-      handler: (state: MainProcessState) => void,
-    ): Unsubscribe;
-    /** Start the service. The state it reaches rides the `daemon.status` topic. */
-    requestStart(): Promise<void>;
-    /** Update the service; it waits for running work to finish and never stops work. */
-    requestUpdate(): Promise<void>;
-    /** Cancel the service update, until main has asked the old service to stop. */
-    cancelUpdate(): Promise<void>;
-    subscribeUpdate(handler: (progress: ServiceUpdateProgress) => void): Unsubscribe;
-    /** Replace the service's data with a backup's; the passphrase only where it is needed. */
-    requestRestore(backupId: BackupId, passphrase?: string): Promise<void>;
-    /** The places the service can run from; answered before any service exists. */
-    listPlaces(): Promise<readonly ServicePlace[]>;
-    /** Each place's reading as it lands, the first delivery the list as it stands. */
-    subscribePlaces(handler: (places: readonly ServicePlace[]) => void): Unsubscribe;
-    /** Move the service to another place. */
-    requestMove(place: ServicePlaceLocation): Promise<void>;
-    /** Cancel the move, until the old service is asked to stop. */
-    cancelMove(): Promise<void>;
-    subscribeMove(handler: (progress: ServiceMoveProgress) => void): Unsubscribe;
-  };
-
-  readonly controlPlane: {
-    /**
-     * Forwards one control-plane request/response procedure. The renderer never negotiates or
-     * reaches the relay.
-     */
-    call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
-  };
+  readonly daemon: DaemonWire;
 
   readonly native: {
     showOpenDialog<Purpose extends OpenDialogPurpose>(
       options: OpenDialogOptions<Purpose>,
     ): Promise<OpenDialogResults[Purpose]>;
-    /** The chosen file's token, or `null` when the person canceled. */
-    showSaveDialog(): Promise<FilePathRef | null>;
-    /** A file dropped on the page: the preload reads its path and main mints the token. */
-    getDroppedFileRef(file: File): Promise<FilePathRef>;
-    /** A picture pasted on the page: main writes the bytes to a temporary file. */
-    savePastedImage(bytes: Uint8Array): Promise<FilePathRef>;
-    showMessageBox(options: MessageBoxOptions): Promise<MessageBoxResult>;
-    showNotification(options: NotificationOptions): void;
-    getNotificationPermission(): Promise<NotificationPermission>;
     /** Open a web address in the system browser; refused unless it is `http:` or `https:`. */
     openExternal(url: string): Promise<void>;
     copyToClipboard(text: string): Promise<void>;
-    /** Open a file, at a line where one is given, in the editor Settings names. */
-    openInEditor(ref: FilePathRef, line?: number): Promise<void>;
-    /** Open the session's own folder in the platform's terminal. */
-    openInTerminal(target: { readonly sessionId: SessionId }): Promise<void>;
-    revealInFileExplorer(ref: FilePathRef): Promise<void>;
-    /** Every editor the app looks for, installed or not. */
-    listEditors(): Promise<readonly EditorEntry[]>;
   };
 
   readonly update: {
@@ -375,7 +337,6 @@ export interface PreloadApi {
 
   /** The machine's settings file, carried by the service's live read and its one writer. */
   readonly machineSettings: {
-    read(): Promise<MachineSettingsReading>;
     /** Write one change; answers the file as written. */
     write(change: MachineSettingsChange): Promise<MachineSettings>;
     /** Each written change, the first delivery the file as it stands. */
@@ -392,85 +353,38 @@ export interface PreloadApi {
     write(map: KeyboardMap): Promise<KeyboardMap>;
   };
 
-  readonly window: {
-    /** A `sidekicks://` link, or a notification's press, asks to show its target. */
-    subscribeToNavigationRequest(handler: (target: AppLinkTarget) => void): Unsubscribe;
-    /** Keep the appearance record, tell the platform, and tick the View menu's scheme. */
-    setAppearance(appearance: AppearanceRecord, grounds: AppearanceGrounds): Promise<void>;
-    /** The record, to every console window, and to a document once it has loaded. */
-    subscribeAppearance(handler: (appearance: AppearanceRecord) => void): Unsubscribe;
-    /** Whether the window is fullscreen, the first delivery being the current state. */
-    subscribeFullscreen(handler: (fullscreen: boolean) => void): Unsubscribe;
-    setMinimumSize(size: WindowSize): Promise<void>;
-  };
-
-  readonly browser: {
-    /** Place the pane's page over its rectangle; `null` hides it. */
-    publishPaneRect(pane: BrowserPane, rect: BrowserPaneRect | null): void;
-    act(pane: BrowserPane, act: BrowserPaneAct): Promise<void>;
-    capturePage(pane: BrowserPane): Promise<CapturedPage>;
-    subscribe(pane: BrowserPane, handler: (event: BrowserPaneEvent) => void): Unsubscribe;
-    /** The chords the console keeps while focus is in the page, in the key map's spelling. */
-    publishPageChords(chords: readonly string[]): void;
-    /** Each of those chords pressed while focus is in the page. */
-    subscribePageChords(handler: (press: BrowserPageChord) => void): Unsubscribe;
-  };
-
   readonly app: AppFacts;
 }
 
 /**
- * Thrown by a preload method whose IPC handler is not wired yet. Its `name` is stable, so a
- * caller can test it without importing the class.
+ * Thrown by a preload member main has no handler for yet. Its `name` is stable, so a caller can
+ * test it without importing the class.
  */
 export class NotImplementedError extends Error {
-  public constructor(method: string) {
-    super(`PreloadApi.${method} is not implemented (stub).`);
+  public constructor(member: string) {
+    super(`The bridge member ${member} has no handler in the main process yet.`);
     this.name = "NotImplementedError";
   }
 }
 
-function stubThrow(method: string): never {
-  throw new NotImplementedError(method);
+function stubThrow(member: string): never {
+  throw new NotImplementedError(member);
 }
 
 /**
- * The preload API with every round-trip method throwing `NotImplementedError`. The caller
- * supplies the build meta, because only the preload can read what main passed.
+ * The preload API with every round-trip member throwing `NotImplementedError`. The caller
+ * supplies the build facts, because only the preload can read what main passed.
  */
 export function createStubBridge(app: AppFacts): PreloadApi {
   return {
     daemon: {
       call: () => stubThrow("daemon.call"),
       subscribe: () => stubThrow("daemon.subscribe"),
-      requestStart: () => stubThrow("daemon.requestStart"),
-      requestUpdate: () => stubThrow("daemon.requestUpdate"),
-      cancelUpdate: () => stubThrow("daemon.cancelUpdate"),
-      subscribeUpdate: () => stubThrow("daemon.subscribeUpdate"),
-      requestRestore: () => stubThrow("daemon.requestRestore"),
-      listPlaces: () => stubThrow("daemon.listPlaces"),
-      subscribePlaces: () => stubThrow("daemon.subscribePlaces"),
-      requestMove: () => stubThrow("daemon.requestMove"),
-      cancelMove: () => stubThrow("daemon.cancelMove"),
-      subscribeMove: () => stubThrow("daemon.subscribeMove"),
-    },
-    controlPlane: {
-      call: () => stubThrow("controlPlane.call"),
     },
     native: {
       showOpenDialog: () => stubThrow("native.showOpenDialog"),
-      showSaveDialog: () => stubThrow("native.showSaveDialog"),
-      getDroppedFileRef: () => stubThrow("native.getDroppedFileRef"),
-      savePastedImage: () => stubThrow("native.savePastedImage"),
-      showMessageBox: () => stubThrow("native.showMessageBox"),
-      showNotification: () => stubThrow("native.showNotification"),
-      getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       openExternal: () => stubThrow("native.openExternal"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
-      openInEditor: () => stubThrow("native.openInEditor"),
-      openInTerminal: () => stubThrow("native.openInTerminal"),
-      revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
-      listEditors: () => stubThrow("native.listEditors"),
     },
     update: {
       getState: () => stubThrow("update.getState"),
@@ -480,28 +394,12 @@ export function createStubBridge(app: AppFacts): PreloadApi {
       requestRestart: () => stubThrow("update.requestRestart"),
     },
     machineSettings: {
-      read: () => stubThrow("machineSettings.read"),
       write: () => stubThrow("machineSettings.write"),
       subscribe: () => stubThrow("machineSettings.subscribe"),
     },
     keyboardMap: {
       read: () => stubThrow("keyboardMap.read"),
       write: () => stubThrow("keyboardMap.write"),
-    },
-    window: {
-      subscribeToNavigationRequest: () => stubThrow("window.subscribeToNavigationRequest"),
-      setAppearance: () => stubThrow("window.setAppearance"),
-      subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
-      subscribeFullscreen: () => stubThrow("window.subscribeFullscreen"),
-      setMinimumSize: () => stubThrow("window.setMinimumSize"),
-    },
-    browser: {
-      publishPaneRect: () => stubThrow("browser.publishPaneRect"),
-      act: () => stubThrow("browser.act"),
-      capturePage: () => stubThrow("browser.capturePage"),
-      subscribe: () => stubThrow("browser.subscribe"),
-      publishPageChords: () => stubThrow("browser.publishPageChords"),
-      subscribePageChords: () => stubThrow("browser.subscribePageChords"),
     },
     app,
   };

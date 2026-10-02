@@ -15,8 +15,6 @@
  *
  * Two files and two hunks; the second file is a rename with no textual change, which a
  * renderer deriving its notes from `hunks.length` would report as nothing having happened.
- *
- * @consumedBy the diff pane's scripted diff replies
  */
 export const RUN_ATTRIBUTED_DIFF_PATCH: string = `diff --git a/packages/runtime-daemon/src/rate-limit/lease-store.ts b/packages/runtime-daemon/src/rate-limit/lease-store.ts
 index 1f0a3c9..8b41d02 100644
@@ -60,22 +58,20 @@ rename to packages/runtime-daemon/src/rate-limit/lease-timing.ts
  *
  * Three files: a textual change, a mode change with no hunks, and a binary file that
  * carries no text.
- *
- * @consumedBy the diff pane's scripted diff replies
  */
-export const WORKSPACE_FALLBACK_DIFF_PATCH: string = `diff --git a/apps/desktop/src/renderer/src/console/repos/repos.css b/apps/desktop/src/renderer/src/console/repos/repos.css
+export const WORKSPACE_FALLBACK_DIFF_PATCH: string = `diff --git a/apps/desktop/src/renderer/src/components/Nothing/Nothing.css b/apps/desktop/src/renderer/src/components/Nothing/Nothing.css
 index 4c1e8a7..d90fe31 100644
---- a/apps/desktop/src/renderer/src/console/repos/repos.css
-+++ b/apps/desktop/src/renderer/src/console/repos/repos.css
-@@ -3,7 +3,7 @@
- .meridian-repo-section {
+--- a/apps/desktop/src/renderer/src/components/Nothing/Nothing.css
++++ b/apps/desktop/src/renderer/src/components/Nothing/Nothing.css
+@@ -8,7 +8,7 @@
+ .meridian-nothing--block {
    display: flex;
    flex-direction: column;
 -  gap: var(--meridian-space-2);
 +  gap: var(--meridian-space-3);
  }
 
- .meridian-repo-section__summary {
+ /* \`not-loaded\`: a skeleton in the row's shape, with the transcript row's edge unattributed. */
 diff --git a/scripts/prepare-execution-root.sh b/scripts/prepare-execution-root.sh
 old mode 100644
 new mode 100755

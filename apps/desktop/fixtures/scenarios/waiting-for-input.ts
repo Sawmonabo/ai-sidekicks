@@ -39,6 +39,12 @@ import {
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts";
 import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
+import {
+  composeScenarioInstant,
+  composeScriptBeats,
+  createRunEntryBuilders,
+  type ScriptEntry,
+} from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
@@ -230,6 +236,76 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   },
 ];
 
+// The base instant, built with `Date.UTC` rather than by parsing a string, so the ISO spelling
+// below cannot disagree with it.
+const STARTED_AT_MS: number = Date.UTC(2026, 0, 1, 11, 5);
+const STARTED_AT_ISO: string = composeScenarioInstant(STARTED_AT_MS, 0);
+
+// The stem row ids are minted from; `composeScriptBeats` completes it with the beat's position.
+const EVENT_ID_STEM = "019b7a11-1100-7e00-8110-e5e0c115";
+
+const run = createRunEntryBuilders(SESSION_ID);
+
+const WAITING_FOR_INPUT_SCRIPT: readonly ScriptEntry[] = [
+  {
+    atMs: 0,
+    kind: "session.created",
+    actorId: USER_YOU,
+    // The creation event carries no title; its `.strict()` payload rejects one.
+    payload: composeSessionCreatedPayload({
+      sessionId: SESSION_ID,
+      shape: "project",
+      openedBy: USER_YOU,
+      lead: COMPOSER_LEAD,
+      createdAt: STARTED_AT_ISO,
+    }),
+  },
+  // `previousState` is absent here and only here: a queued run is being born.
+  run.transition(RUN_ID, {
+    atMs: 260,
+    runVersion: 1,
+    newState: "queued",
+    agentId: AGENT_IMPLEMENTER,
+    actorId: USER_YOU,
+  }),
+  // No actor: the daemon moves a run out of `queued`.
+  run.transition(RUN_ID, {
+    atMs: 320,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+  run.transition(RUN_ID, {
+    atMs: 400,
+    runVersion: 3,
+    previousState: "starting",
+    newState: "running",
+  }),
+  // Waiting is not pausing: this run is blocked on someone, and the composer is where they
+  // answer.
+  run.transition(RUN_ID, {
+    atMs: 480,
+    runVersion: 4,
+    previousState: "running",
+    newState: "waiting_for_input",
+  }),
+  // The implementer's goal lives only in the log: this event is the goal. A person set it, so
+  // the beat carries an actor.
+  {
+    atMs: 540,
+    kind: "session.goal_updated",
+    actorId: USER_YOU,
+    payload: {
+      sessionId: SESSION_ID,
+      agentId: AGENT_IMPLEMENTER,
+      goal: {
+        text: "Land the rate-limit wiring behind the enforcement legs, then close the backlog items it names.",
+      },
+      status: "active",
+    },
+  },
+];
+
 /** A session whose newest run is blocked on the person's next message. */
 export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   id: "waiting-for-input",
@@ -237,122 +313,12 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
-  thisDeviceId: USER_YOU,
-  startedAtIso: "2026-01-01T11:05:00.000Z",
-  beats: [
-    {
-      atMs: 0,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150001",
-        sessionId: SESSION_ID,
-        sequence: 1,
-        kind: "session.created",
-        occurredAt: "2026-01-01T11:05:00.000Z",
-        actorId: USER_YOU,
-        // The creation event carries no title; its `.strict()` payload rejects one.
-        payload: composeSessionCreatedPayload({
-          sessionId: SESSION_ID,
-          shape: "project",
-          openedBy: USER_YOU,
-          lead: COMPOSER_LEAD,
-          createdAt: "2026-01-01T11:05:00.000Z",
-        }),
-      },
-    },
-    {
-      atMs: 260,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150003",
-        sessionId: SESSION_ID,
-        sequence: 2,
-        kind: "run.queued",
-        occurredAt: "2026-01-01T11:05:00.260Z",
-        actorId: USER_YOU,
-        // `previousState` is absent here and only here: a queued run is being born.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          runVersion: 1,
-          newState: "queued",
-          agentId: AGENT_IMPLEMENTER,
-        },
-      },
-    },
-    {
-      atMs: 320,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150004",
-        sessionId: SESSION_ID,
-        sequence: 3,
-        kind: "run.starting",
-        occurredAt: "2026-01-01T11:05:00.320Z",
-        // No actor: the daemon moves a run out of `queued`.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          runVersion: 2,
-          previousState: "queued",
-          newState: "starting",
-        },
-      },
-    },
-    {
-      atMs: 400,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150005",
-        sessionId: SESSION_ID,
-        sequence: 4,
-        kind: "run.running",
-        occurredAt: "2026-01-01T11:05:00.400Z",
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          runVersion: 3,
-          previousState: "starting",
-          newState: "running",
-        },
-      },
-    },
-    {
-      atMs: 480,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150006",
-        sessionId: SESSION_ID,
-        sequence: 5,
-        // Waiting is not pausing: this run is blocked on someone, and the composer is where
-        // they answer.
-        kind: "run.waiting_for_input",
-        occurredAt: "2026-01-01T11:05:00.480Z",
-        payload: {
-          sessionId: SESSION_ID,
-          runId: RUN_ID,
-          runVersion: 4,
-          previousState: "running",
-          newState: "waiting_for_input",
-        },
-      },
-    },
-    {
-      atMs: 540,
-      event: {
-        id: "019b7a11-1100-7e00-8110-e5e0c1150007",
-        sessionId: SESSION_ID,
-        sequence: 6,
-        // The implementer's goal lives only in the log: this event is the goal. A person set
-        // it, so the beat carries an actor.
-        kind: "session.goal_updated",
-        occurredAt: "2026-01-01T11:05:00.540Z",
-        actorId: USER_YOU,
-        payload: {
-          sessionId: SESSION_ID,
-          agentId: AGENT_IMPLEMENTER,
-          goal: {
-            text: "Land the rate-limit wiring behind the enforcement legs, then close the backlog items it names.",
-          },
-          status: "active",
-        },
-      },
-    },
-  ],
+  startedAtIso: STARTED_AT_ISO,
+  beats: composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs: STARTED_AT_MS,
+    entries: WAITING_FOR_INPUT_SCRIPT,
+  }),
   replies: COMPOSER_REPLIES,
 };

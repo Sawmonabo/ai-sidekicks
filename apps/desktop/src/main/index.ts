@@ -25,7 +25,7 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
-// which hold the console's UI state.
+// which hold the app's UI state.
 registerRendererScheme();
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default

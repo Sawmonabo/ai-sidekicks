@@ -4,7 +4,6 @@
 // read elsewhere. A preload that did not run is a real state, so `readInstalledBridge` returns
 // `undefined` and the caller renders a stated failure instead of a blank window.
 import { isWireRecord } from "@renderer/lib/wire-record.js";
-import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "@shared/fixture-launch.js";
 import type { PreloadApi } from "@shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
@@ -28,7 +27,7 @@ export function readFixtureLaunch(): FixtureLaunch | undefined {
   return (window as unknown as Record<string, FixtureLaunch | undefined>)[FIXTURE_LAUNCH_GLOBAL];
 }
 
-/** Wraps the installed preload bridge for console use. */
+/** Wraps the installed preload bridge as the window's platform bridge. */
 export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
     ...preloadApi,
@@ -41,13 +40,28 @@ export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
 }
 
 /**
+ * Every namespace `PreloadApi` declares. The annotation makes it exhaustive in both directions: a
+ * namespace missing here, or one not on `PreloadApi`, is a compile error.
+ */
+const PRELOAD_NAMESPACE_PRESENCE: Readonly<Record<keyof PreloadApi, true>> = {
+  daemon: true,
+  native: true,
+  update: true,
+  machineSettings: true,
+  keyboardMap: true,
+  app: true,
+};
+
+const PRELOAD_NAMESPACES = Object.keys(PRELOAD_NAMESPACE_PRESENCE);
+
+/**
  * A shallow "did the preload run" probe over the namespaces the contract declares, not a
- * validator. The namespace list is `bridge-shape.ts`'s table. It uses `isWireRecord` because a
- * `typeof === "object"` pair admits an array-valued namespace.
+ * validator. It uses `isWireRecord` because a `typeof === "object"` pair admits an array-valued
+ * namespace.
  */
 function isBridgeShaped(candidate: unknown): candidate is PreloadApi {
   if (!isWireRecord(candidate)) {
     return false;
   }
-  return DESKTOP_BRIDGE_NAMESPACES.every((namespace) => isWireRecord(candidate[namespace]));
+  return PRELOAD_NAMESPACES.every((namespace) => isWireRecord(candidate[namespace]));
 }

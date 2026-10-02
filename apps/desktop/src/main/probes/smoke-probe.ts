@@ -55,7 +55,7 @@ export function installReadinessBreadcrumbs(
  * round-trip, a mounted React tree), and `net.fetch` of the served `index.html` to read back
  * the `Content-Security-Policy` header, which is the policy's only carrier.
  *
- * The renderer expression waits, bounded, for the root to mount because React's initial
+ * The renderer expression watches the root, for at most three seconds, because React's initial
  * render is not guaranteed to have flushed at `did-finish-load`. The probe runs on the
  * trusted side because CDP attachment is too heavy and renderer `console.log` parsing would
  * couple untrusted product code to the test mechanism.
@@ -65,7 +65,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
     (() => {
       const readLocalStorage = () => {
         try {
-          const probeKey = "__console_smoke_probe__";
+          const probeKey = "__sidekicks_smoke_probe__";
           window.localStorage.setItem(probeKey, "ok");
           const readBack = window.localStorage.getItem(probeKey);
           window.localStorage.removeItem(probeKey);
@@ -76,17 +76,23 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
       };
       const rootChildren = () =>
         new Promise((resolve) => {
-          const deadline = Date.now() + 3000;
-          const poll = () => {
-            const rootElement = document.getElementById("root");
-            const childCount = rootElement === null ? 0 : rootElement.childElementCount;
-            if (childCount > 0 || Date.now() >= deadline) {
-              resolve(childCount);
-              return;
+          const rootElement = document.getElementById("root");
+          if (rootElement === null || rootElement.childElementCount > 0) {
+            resolve(rootElement === null ? 0 : rootElement.childElementCount);
+            return;
+          }
+          const observer = new MutationObserver(() => {
+            if (rootElement.childElementCount > 0) {
+              observer.disconnect();
+              window.clearTimeout(deadline);
+              resolve(rootElement.childElementCount);
             }
-            window.setTimeout(poll, 25);
-          };
-          poll();
+          });
+          observer.observe(rootElement, { childList: true });
+          const deadline = window.setTimeout(() => {
+            observer.disconnect();
+            resolve(rootElement.childElementCount);
+          }, 3000);
         });
       return rootChildren().then((childCount) =>
         JSON.stringify({

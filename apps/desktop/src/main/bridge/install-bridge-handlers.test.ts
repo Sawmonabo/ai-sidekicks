@@ -1,4 +1,4 @@
-// Every bridge channel refuses a frame that is not a console document.
+// Every bridge channel refuses a frame that is not one of the app's own documents.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,7 +53,7 @@ describe("the bridge's channels", () => {
     }
   });
 
-  it("negative control: answers the console's own document", async () => {
+  it("negative control: answers the app's own document", async () => {
     await expect(
       invokeFrom("sidekicks-renderer://app/index.html", BRIDGE_CHANNELS.readKeyboardMap),
     ).resolves.toStrictEqual({ map: {} });

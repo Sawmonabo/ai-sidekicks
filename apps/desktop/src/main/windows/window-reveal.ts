@@ -1,30 +1,18 @@
-// Unobtrusive windows for the automated tiers, in test builds only.
+// Unobtrusive windows for the automated tiers, in test builds only. On macOS `show()` activates
+// the app: the Dock icon appears, focus moves, and a person on a full-screen Space is switched
+// away. So when a test tier sets one environment variable, a test build:
 //
-// Every Electron tier (smoke probe, GC probe, end-to-end, endurance) launches the real main
-// process with a real window. On macOS `BrowserWindow.show()` activates the application: the
-// Dock icon appears, focus moves, and the person on a full-screen Space is switched away. The
-// tiers therefore ask for unobtrusive windows through one environment variable, and a test
-// build honors it in three places:
+//   1. sets the macOS activation policy to `accessory`: no Dock icon, never activated for a window;
+//   2. never reveals the window on macOS, where `show()` would activate even an accessory app, and
+//      reveals it with `showInactive()` elsewhere;
+//   3. switches background throttling off, so a hidden or occluded window keeps drawing frames and
+//      a measurement describes an unthrottled renderer.
 //
-//   1. the activation policy: macOS `accessory`, so the app has no Dock icon and is never
-//      activated on a window's behalf;
-//   2. the reveal: on macOS the window is never revealed and stays hidden as constructed (an
-//      accessory app can still be activated programmatically, and `show()` is such an
-//      activation); elsewhere it is revealed with `showInactive()`, which orders the window in
-//      front without making it key;
-//   3. background throttling is switched off: Chromium throttles timers and animation frames for
-//      a hidden or occluded window, and a measurement there describes a throttled renderer. With
-//      throttling off the document stays `visible` and frames are still drawn.
-//      `tests/helpers/launch-readiness.ts` asserts both on every launch.
-//
-// The platform split in (2) is measured: Electron's `disable_hidden` patch, which throttling-off
-// switches on, keeps animation frames running for an occluded, minimized and hidden window on
-// macOS, but on Windows only for the first two; a hidden window there stops painting
-// (electron/electron#31016). Linux runs under Xvfb, where there is no person to disturb, and
-// takes the inactive reveal.
-//
-// All three sit behind the compile-time build flag, so a release bundle carries neither the
-// environment read nor the branch. Within a test build the variable is still an opt-in.
+// The split in (2) is measured: with throttling off, Electron keeps frames running for a hidden
+// window on macOS but not on Windows (electron/electron#31016). Linux runs under Xvfb and takes
+// the inactive reveal. `tests/helpers/launch-readiness.ts` checks on every launch that the
+// document stays visible and draws. A release bundle carries none of this: all three sit behind
+// the compile-time build flag.
 
 import type { App, BrowserWindow, WebContents } from "electron";
 
@@ -50,12 +38,11 @@ type WindowRevealMode = "active" | "inactive" | "hidden";
 type ActivationPolicyChange = "accessory" | null;
 
 /**
- * Decides how a window is revealed from the build kind, the environment and the platform. Pure:
- * the build flag is an argument so a unit project whose flag is `false` can reach the test-build
- * arm. Only the exact string `"1"` opts in. A requested test build stays hidden on macOS and
- * reveals inactive elsewhere.
+ * Decides how a window is revealed from the build kind, the environment and the platform. Only
+ * the exact string `"1"` opts in. A requested test build stays hidden on macOS and reveals
+ * inactive elsewhere.
  */
-export function resolveWindowRevealMode(
+function resolveWindowRevealMode(
   testBuild: boolean,
   environment: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
@@ -70,7 +57,7 @@ export function resolveWindowRevealMode(
  * Decides whether the activation policy changes. Only macOS has one (`setActivationPolicy`
  * exists nowhere else), so every other platform answers `null`.
  */
-export function resolveActivationPolicyChange(
+function resolveActivationPolicyChange(
   testBuild: boolean,
   environment: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,

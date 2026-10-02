@@ -1,29 +1,18 @@
-// `BrowserWindow` factories for the main process. One private function,
-// `constructLockedWindow`, owns the `webPreferences` literal. ESLint refuses a window built
-// anywhere else under `src/main/` and a security setting written as anything but its hardened
-// literal, so `nodeIntegration: true` or `sandbox: false` is a lint error, never a shipped one.
+// Window construction for the main process. `constructLockedWindow` owns the one
+// `webPreferences` literal; ESLint refuses a window built anywhere else under `src/main/` and a
+// security setting written as anything but its hardened literal.
 //
 // The window is served over `sidekicks-renderer://`, never `file://`, because the hardening
-// baseline disables the `GrantFileProtocolExtraPrivileges` fuse (`../services/renderer-protocol.ts`
-// registers the scheme). Navigation policy lives in `./navigation.ts` and load recovery in
-// `./window-load-failure.ts`; this file is construction, the document-URL resolution, and the
-// load ordering.
-//
-// The preload path uses `import.meta.dirname`, not a `__dirname` reconstruction: electron-vite's
-// `esmShim` plugin injects `const __filename`/`__dirname` into ESM bundles when it sees those
-// tokens in user code, and a second declaration in this file collides with it as
-// `SyntaxError: Identifier '__filename' has already been declared` at boot (verified
-// empirically).
-//
-// The preload is `.cjs`, not `.js`: Electron's sandboxed preload runtime (`sandbox: true`
-// below) supports only CommonJS (verified on Electron 41.6.1 and the 44.x pin; an ESM preload
-// fails with `SyntaxError: Cannot use import statement outside a module`), and the extension
-// overrides the package's `"type": "module"`.
+// baseline disables the `GrantFileProtocolExtraPrivileges` fuse. The preload path uses
+// `import.meta.dirname`: a `__dirname` of our own collides at boot with the one electron-vite's
+// ESM shim injects. The preload is `.cjs`, overriding the package's `"type": "module"`, because
+// Electron's sandboxed preload runs only CommonJS; an ESM preload fails with `Cannot use import
+// statement outside a module`.
 
-import { app, BrowserWindow } from "electron";
+import { BrowserWindow } from "electron";
 import path from "node:path";
 
-import { installNavigationPolicy } from "./navigation.js";
+import { devServerUrl, installNavigationPolicy } from "./navigation.js";
 import { RENDERER_INDEX_URL } from "../services/renderer-scheme.js";
 import { loadDocument } from "./window-load-failure.js";
 import { applyRevealPreferences, revealWindow } from "./window-reveal.js";
@@ -70,22 +59,13 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
 }
 
 /**
- * Resolves the document URL a window loads. Under `electron-vite dev` the dev server is loaded
- * so HMR works; in a packaged app, or with no dev server running, the built bundle is loaded
- * over the renderer scheme. `./navigation.ts` reads the same variable for the allowed origins.
- * The dev server serves the same Content-Security-Policy as the protocol handler
- * (`../services/renderer-scheme.ts`, `electron.vite.config.ts`).
- *
- * The two origins have different browser-storage partitions. That store holds UI state only
- * (layouts, selection, pins, expansion); composer text, form values, paths and code stay in
- * window memory, so a partition split can cost a pane its layout and never a draft.
+ * The document a window loads: the dev server under `electron-vite dev`, so hot reload works,
+ * and otherwise the built bundle over the renderer scheme. The two origins have separate
+ * browser-storage partitions; that store holds UI state only, so a split can cost a pane its
+ * layout and never a draft.
  */
 function resolveRendererDocumentUrl(): string {
-  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (!app.isPackaged && devServerUrl !== undefined && devServerUrl !== "") {
-    return devServerUrl;
-  }
-  return RENDERER_INDEX_URL;
+  return devServerUrl()?.href ?? RENDERER_INDEX_URL;
 }
 
 /**
