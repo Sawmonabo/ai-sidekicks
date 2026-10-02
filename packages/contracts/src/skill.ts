@@ -494,6 +494,23 @@ export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> =
   })
   .strict();
 
+/**
+ * A save whose `name` would rename a folder of ours onto a name another folder of
+ * ours already holds in the same place; nothing is renamed and nothing is written.
+ */
+export type SkillNameTakenCode = "skill.name_taken";
+/** The code of a refused rename. */
+export const SKILL_NAME_TAKEN_CODE: SkillNameTakenCode = "skill.name_taken";
+
+/** The folder already holding the name, so the screen names it under the Name field. */
+export interface SkillNameTakenDetails {
+  folderPath: string;
+}
+/** Parses {@link SkillNameTakenDetails}. */
+export const SkillNameTakenDetailsSchema: z.ZodType<SkillNameTakenDetails> = z
+  .object({ folderPath: z.string().max(FILE_PATH_MAX_LEN) })
+  .strict();
+
 // The skill.* method table
 
 /**
