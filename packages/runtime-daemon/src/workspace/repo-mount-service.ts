@@ -105,6 +105,8 @@ interface DependentWorkspaceRow {
   readonly id: string;
   readonly session_id: string;
   readonly state: string;
+  /** 1 while a run started in this workspace has not released its execution root. */
+  readonly has_running_agent: 0 | 1;
 }
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
@@ -263,10 +265,18 @@ export class RepoMountService {
           AND state = '${ATTACHED_MOUNT_STATE}'`,
     );
 
-    // Every state: the busy check needs `busy` rows, and `archived` rows must be seen to be
-    // skipped. `id` breaks ties between workspaces created in the same tick.
+    // Every state: the running check needs `busy` rows and rows staled mid-run, and `archived`
+    // rows must be seen to be skipped. An unreleased run context marks a running agent even after
+    // its workspace went `stale`, which drops the busy hold while the run goes on. `id` breaks
+    // ties between workspaces created in the same tick.
     this.#selectDependentWorkspacesStmt = database.prepare(
-      `SELECT id, session_id, state
+      `SELECT id, session_id, state,
+              EXISTS (
+                SELECT 1
+                  FROM run_execution_contexts AS run_context
+                 WHERE run_context.workspace_id = workspaces.id
+                   AND run_context.released_at IS NULL
+              ) AS has_running_agent
          FROM workspaces
         WHERE repo_mount_id = @repo_mount_id
         ORDER BY created_at ASC, id ASC`,
@@ -341,7 +351,8 @@ export class RepoMountService {
 
   /**
    * Detach a mount and archive its workspaces (a no-op if not `attached`); refuses with
-   * `RepoDetachConflictError`, naming the running session, while one is `busy`. Rejects with
+   * `RepoDetachConflictError`, naming the running session, while an agent runs in any of them
+   * (`busy`, or a run whose execution root is unreleased). Rejects with
    * `detach_notification_incomplete` if committed but an event append failed; the rows are the
    * truth and a rerun is a no-op.
    */
@@ -413,10 +424,12 @@ export class RepoMountService {
       repo_mount_id: repoMountId,
     }) as DependentWorkspaceRow[];
 
-    // The refusal names one running session; the oldest busy workspace's, by the query's order.
-    const busyDependent = dependents.find((dependent) => dependent.state === BUSY_WORKSPACE_STATE);
-    if (busyDependent !== undefined) {
-      throw new RepoDetachConflictError(busyDependent.session_id);
+    // The refusal names one running session; the oldest running workspace's, by the query's order.
+    const runningDependent = dependents.find(
+      (dependent) => dependent.state === BUSY_WORKSPACE_STATE || dependent.has_running_agent === 1,
+    );
+    if (runningDependent !== undefined) {
+      throw new RepoDetachConflictError(runningDependent.session_id);
     }
 
     const archivedWorkspaces: DependentWorkspaceRow[] = [];

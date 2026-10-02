@@ -1,5 +1,6 @@
 // Proves RepoMountService keeps one active mount per canonical root and detaches atomically:
-// every dependent is archived and announced, a busy one blocks the detach, and a race rolls back.
+// every dependent is archived and announced, a running agent blocks the detach, and a race rolls
+// back.
 // Real git, SQLite and services; a clock that writes on its first read opens the race windows.
 
 import { mkdirSync, rmSync } from "node:fs";
@@ -399,6 +400,53 @@ describe("RepoMountService.detach", () => {
     expect(requireWorkspaceRow(harness.db, busyWorkspaceId).state).toBe("busy");
     expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(idleEventsBeforeRefusal);
     expect(readLifecycleEventTypes(harness.db, OTHER_SESSION_ID)).toEqual(busyEventsBeforeRefusal);
+  });
+
+  it("refuses while an agent still runs in a dependent that went stale mid-run", async () => {
+    // Going stale drops the busy hold while the run goes on, so only the run's unreleased
+    // execution root says an agent is still running in the project.
+    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+    const workspaceId = await bindReadyWorkspace(
+      harness.workspaces,
+      SESSION_ID,
+      attached.repoMountId,
+      gitFixtures.repositoryRoot,
+    );
+    await harness.workspaces.markBusy(workspaceId, RUN_ID);
+    const branchContextId = "0190f9a7-0000-7000-8000-000000000001";
+    harness.db
+      .prepare(
+        `INSERT INTO branch_contexts (
+           id, workspace_id, base_branch, head_branch, created_at, updated_at
+         ) VALUES (?, ?, 'main', 'main', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+      )
+      .run(branchContextId, workspaceId);
+    harness.db
+      .prepare(
+        `INSERT INTO run_execution_contexts (
+           run_id, session_id, workspace_id, execution_mode, execution_root, git_common_dir,
+           branch_context_id, created_at
+         ) VALUES (?, ?, ?, 'bound-root', ?, ?, ?, '2026-01-01T00:00:00.000Z')`,
+      )
+      .run(
+        RUN_ID,
+        SESSION_ID,
+        workspaceId,
+        gitFixtures.repositoryRoot,
+        join(gitFixtures.repositoryRoot, ".git"),
+        branchContextId,
+      );
+    await harness.workspaces.markStale(workspaceId);
+    expect(requireWorkspaceRow(harness.db, workspaceId).state).toBe("stale");
+
+    const error = await captureRejection(() =>
+      harness.service.detach({ repoMountId: attached.repoMountId }),
+    );
+
+    expect(error).toBeInstanceOf(RepoDetachConflictError);
+    expect((error as RepoDetachConflictError).runningSessionId).toBe(SESSION_ID);
+    expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("attached");
+    expect(requireWorkspaceRow(harness.db, workspaceId).state).toBe("stale");
   });
 
   it("emits no second workspace.archived for an already-archived dependent", async () => {
