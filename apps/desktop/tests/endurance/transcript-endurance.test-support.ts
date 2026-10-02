@@ -59,7 +59,7 @@ const ENDURANCE_AGENTS = [
     agentId: `${ENDURANCE_ID_PREFIX}-7a6e-8110-d1a4c1150201`,
     name: "Architect",
     driverName: "claude",
-    modelId: "claude-opus-5[1m]",
+    modelId: "claude-opus-5-5",
   },
   {
     agentId: `${ENDURANCE_ID_PREFIX}-7a6e-8120-d1a4c1150202`,

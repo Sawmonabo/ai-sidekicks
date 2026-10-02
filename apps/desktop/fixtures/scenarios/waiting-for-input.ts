@@ -181,8 +181,8 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
               fast: false,
             },
             {
-              id: "claude-opus-5[1m]",
-              name: "Opus 5 (1M)",
+              id: "claude-opus-5-5",
+              name: "Opus 5.5",
               capabilities: ["reasoning", "tool_calls"],
               effortLevels: ["low", "medium", "high", "xhigh", "max"],
               fast: true,

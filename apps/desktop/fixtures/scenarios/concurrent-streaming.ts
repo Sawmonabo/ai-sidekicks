@@ -86,7 +86,7 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
     agentId: AGENT_ARCHITECT,
     name: "Architect",
     driverName: "claude",
-    modelId: "claude-opus-5[1m]",
+    modelId: "claude-opus-5-5",
   },
   {
     agentId: AGENT_IMPLEMENTER,
@@ -106,7 +106,7 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
     agentId: AGENT_SCOUT,
     name: "Scout",
     driverName: "codex",
-    modelId: "gpt-5.4-mini",
+    modelId: "gpt-5.6-luna",
     definitionId: "019b79ee-0280-7de1-8140-d1a4c1150024",
   },
 ];
