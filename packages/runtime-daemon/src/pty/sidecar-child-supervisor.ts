@@ -42,7 +42,7 @@ async function loadDefaultSpawn(): Promise<SidecarSpawnFn> {
   return cp.spawn as SidecarSpawnFn;
 }
 
-/** The supervisor's effectful primitives, defaults filled in; `spawn` stays `null` until first use. */
+/** The supervisor's effectful primitives, defaults filled in; `spawn` is `null` until first use. */
 export interface SidecarChildSupervisorDependencies {
   readonly resolveBinaryPath: () => string;
   readonly spawn: SidecarSpawnFn | null;
@@ -51,7 +51,7 @@ export interface SidecarChildSupervisorDependencies {
   readonly spawnTaskkill: (pid: number) => Promise<TaskkillResult>;
 }
 
-/** Where the supervisor hands what the child produces: each complete frame, and its exit or error. */
+/** Where the supervisor hands each complete frame the child produces, and its exit or error. */
 export interface SidecarChildSupervisorEvents {
   readonly onFrame: (body: Buffer) => void;
   readonly onChildExit: (
@@ -273,8 +273,11 @@ export class SidecarChildSupervisor {
         );
         try {
           child.kill("SIGTERM");
-        } catch {
-          // Best-effort — child may have already exited (ESRCH).
+        } catch (killError: unknown) {
+          // The child may have already exited (ESRCH); its exit event runs the teardown.
+          console.warn(`RustSidecarPtyHost (${which}): SIGTERM to the child failed.`, {
+            cause: killError,
+          });
         }
       };
     child.stdin.on("error", pipeErrorHandler("stdin"));
@@ -326,8 +329,11 @@ export class SidecarChildSupervisor {
         if (this.child !== null) {
           try {
             this.child.kill("SIGKILL");
-          } catch {
-            // The child may already have exited.
+          } catch (killError: unknown) {
+            // The child may already have exited; its exit event runs the teardown.
+            console.warn("RustSidecarPtyHost: SIGKILL after a framing error failed.", {
+              cause: killError,
+            });
           }
         }
         return;
@@ -385,8 +391,11 @@ export class SidecarChildSupervisor {
       this.pendingTeardownCause = cause;
       try {
         this.child.kill("SIGKILL");
-      } catch {
-        // The child may already have exited.
+      } catch (killError: unknown) {
+        // The child may already have exited; its exit event runs the teardown.
+        console.warn("RustSidecarPtyHost: SIGKILL after a decode error failed.", {
+          cause: killError,
+        });
       }
     }
   }
@@ -410,8 +419,8 @@ export class SidecarChildSupervisor {
   }
 
   /**
-   * Charges one crash-budget slot for `child`, once. Marks `permanentlyUnavailable` when the budget
-   * is exhausted, so the next `ensureChild` throws.
+   * Charges the crash budget once for `child`. Marks `permanentlyUnavailable` when the budget is
+   * exhausted, so the next `ensureChild` throws.
    */
   public recordCrashOncePerChild(child: SidecarChildProcess, shuttingDown: boolean): void {
     if (this.crashCountedChildren.has(child)) {
@@ -428,6 +437,7 @@ export class SidecarChildSupervisor {
     }
   }
 
+  /** Wakes `drainSidecarHost`'s wait for the sidecar to exit; a no-op outside shutdown. */
   public notifyHostExitWaiter(): void {
     if (this.hostExitWaiter !== null) {
       this.hostExitWaiter();
@@ -459,8 +469,10 @@ export class SidecarChildSupervisor {
     // broken, the sidecar died and the exit event reaches handleChildExit on its own.
     try {
       child.stdin.end();
-    } catch {
-      // Best-effort.
+    } catch (endError: unknown) {
+      console.warn("RustSidecarPtyHost: closing the sidecar's stdin failed.", {
+        cause: endError,
+      });
     }
 
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -490,7 +502,7 @@ export class SidecarChildSupervisor {
   }
 
   /**
-   * Hard-kills the sidecar and its PTY children; errors are swallowed. Windows needs
+   * Hard-kills the sidecar and its PTY children; a failure is logged, never thrown. Windows needs
    * `taskkill /T /F` (`child.kill` ends one process); on POSIX the closed PTY masters SIGHUP the
    * `setsid` children, which a group kill would miss.
    */
@@ -537,8 +549,11 @@ export class SidecarChildSupervisor {
     // POSIX, or a Windows child without a pid: a single-process kill is all that is available.
     try {
       child.kill("SIGKILL");
-    } catch {
+    } catch (killError: unknown) {
       // The `exit` event may already have fired and cleared `this.child`.
+      console.warn("RustSidecarPtyHost: SIGKILL to the wedged sidecar failed.", {
+        cause: killError,
+      });
     }
   }
 }

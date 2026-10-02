@@ -126,6 +126,11 @@ export class RustSidecarPtyHost implements PtyHost {
     });
   }
 
+  /**
+   * Starts a PTY session in the sidecar, spawning the sidecar first if needed. Rejects with the
+   * sidecar's error, or with `PtyBackendUnavailableError` once the crash budget is spent or after
+   * `shutdown()`.
+   */
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
     await this.childProcess.ensureChild(this.shuttingDown);
     // The session is registered in `resolveOutstanding`, not after this await: frames dispatch
@@ -198,8 +203,11 @@ export class RustSidecarPtyHost implements PtyHost {
           { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
           "kill_response",
         );
-      } catch {
-        // close() must not throw when the child already exited mid-request.
+      } catch (err: unknown) {
+        // close() does not throw when the child exited mid-request; the failure is logged.
+        console.warn(`RustSidecarPtyHost: close: kill request failed for session ${sessionId}.`, {
+          cause: err,
+        });
       }
     }
   }
@@ -282,7 +290,7 @@ export class RustSidecarPtyHost implements PtyHost {
         }, timeoutMs);
       });
 
-      // A crash mid-drain fires a -1 exit and rejects the request (swallowed); nothing settles the
+      // A crash mid-drain fires a -1 exit and rejects the request (logged); nothing settles the
       // waiter, so the timer fires and the session counts as forced.
       const gracefulDrain: Promise<"drained"> = (async (): Promise<"drained"> => {
         try {
@@ -290,8 +298,12 @@ export class RustSidecarPtyHost implements PtyHost {
             { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
             "kill_response",
           );
-        } catch {
-          // Best-effort; see the crash case above.
+        } catch (err: unknown) {
+          // Logged, not thrown; see the crash case above.
+          console.warn(
+            `RustSidecarPtyHost: shutdown: SIGTERM request failed for session ${sessionId}.`,
+            { cause: err },
+          );
         }
         await drainWaiter;
         return "drained";
@@ -312,8 +324,11 @@ export class RustSidecarPtyHost implements PtyHost {
       void this.sendRequest(
         { kind: "kill_request", session_id: sessionId, signal: "SIGKILL" },
         "kill_response",
-      ).catch(() => {
-        // Best-effort.
+      ).catch((err: unknown) => {
+        console.warn(
+          `RustSidecarPtyHost: shutdown: SIGKILL request failed for session ${sessionId}.`,
+          { cause: err },
+        );
       });
       // onExit fires with code 1 and no signal, as in NodePtyHost, not the -1 crash sentinel;
       // without it the consumer could wait forever if the sidecar reaps the child but sends no
@@ -328,7 +343,8 @@ export class RustSidecarPtyHost implements PtyHost {
         } catch (err: unknown) {
           const message: string = err instanceof Error ? err.message : String(err);
           console.warn(
-            `RustSidecarPtyHost: synthetic forced-kill onExit listener threw for session ${sessionId}: ${message}; continuing drain.`,
+            `RustSidecarPtyHost: synthetic forced-kill onExit listener threw for session ` +
+              `${sessionId}: ${message}; continuing drain.`,
           );
         }
         this.notifyShutdownWaiter(sessionId);
@@ -451,7 +467,8 @@ export class RustSidecarPtyHost implements PtyHost {
       case "kill_request":
       case "ping_request": {
         console.warn(
-          `RustSidecarPtyHost: unexpected inbound request kind ${envelope.kind} from sidecar; skipping.`,
+          `RustSidecarPtyHost: unexpected inbound request kind ${envelope.kind} ` +
+            `from sidecar; skipping.`,
         );
         break;
       }
@@ -513,7 +530,7 @@ export class RustSidecarPtyHost implements PtyHost {
   /**
    * Resolves or rejects the head of the FIFO for the response's kind. A response carrying `error`
    * rejects it (most often `UnknownSession` for a request that lost a race with natural exit;
-   * close() swallows that) and a rejected `spawn_response` registers no session.
+   * close() logs that) and a rejected `spawn_response` registers no session.
    */
   private resolveOutstanding(envelope: Envelope): void {
     const queue: OutstandingRequest[] | undefined = this.outstanding.get(envelope.kind);
@@ -537,7 +554,8 @@ export class RustSidecarPtyHost implements PtyHost {
     ) {
       head.reject(
         new Error(
-          `RustSidecarPtyHost: sidecar ${envelope.kind} returned error for session_id='${envelope.session_id}': ${envelope.error}`,
+          `RustSidecarPtyHost: sidecar ${envelope.kind} returned error for ` +
+            `session_id='${envelope.session_id}': ${envelope.error}`,
         ),
       );
       return;
@@ -672,7 +690,8 @@ export class RustSidecarPtyHost implements PtyHost {
         } catch (err: unknown) {
           const message: string = err instanceof Error ? err.message : String(err);
           console.warn(
-            `RustSidecarPtyHost: crash-time onExit listener threw for session ${sessionId}: ${message}; continuing teardown.`,
+            `RustSidecarPtyHost: crash-time onExit listener threw for session ${sessionId}: ` +
+              `${message}; continuing teardown.`,
           );
         }
       }
@@ -703,7 +722,8 @@ export class RustSidecarPtyHost implements PtyHost {
     this.rejectAllOutstanding(
       stashed ??
         new Error(
-          `RustSidecarPtyHost: sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"}) ` +
+          `RustSidecarPtyHost: sidecar exited ` +
+            `(code=${code ?? "null"}, signal=${signal ?? "null"}) ` +
             "before response was received",
         ),
     );

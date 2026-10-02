@@ -28,7 +28,7 @@ export class PtyBackendUnavailableError extends Error {
   }
 }
 
-/** Injection slots for `resolveSidecarBinaryPath`; production passes none of them. */
+/** Injectable overrides for `resolveSidecarBinaryPath`; production passes none of them. */
 export interface ResolveSidecarBinaryPathOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly nodeRequire?: { resolve: (id: string) => string };
@@ -157,8 +157,8 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
       : { attemptedBackend: "rust-sidecar" };
   throw new PtyBackendUnavailableError(
     details,
-    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps ` +
-      `. Attempts:\n${enumerated}\n` +
+    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps. ` +
+      `Attempts:\n${enumerated}\n` +
       `Set SIDEKICKS_PTY_SIDECAR_BIN=<absolute path> to override, or install the ` +
       `published @ai-sidekicks/pty-sidecar package, or run \`cargo build --release\` ` +
       `inside packages/sidecar-rust-pty/.`,

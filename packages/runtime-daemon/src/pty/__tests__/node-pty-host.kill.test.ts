@@ -1,6 +1,6 @@
-// `NodePtyHost` kill and close: the Windows translation (SIGINT to CTRL_C_EVENT, SIGTERM to
-// CTRL_BREAK_EVENT then `taskkill /T /F` after 2 s, SIGKILL to `taskkill /T /F`), the bounded reap,
-// and the POSIX pass-through. Only the root PID is asserted; `/T` makes the OS walk the tree.
+// `NodePtyHost` kill and close: the Windows translation (SIGINT to CTRL_C_EVENT, SIGTERM and SIGHUP
+// to CTRL_BREAK_EVENT then `taskkill /T /F` after 2 s, SIGKILL to `taskkill /T /F`), the bounded
+// reap, and the POSIX pass-through. Only the root PID is asserted; `/T` makes the OS walk the tree.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -81,41 +81,45 @@ afterEach(() => {
 // 2 s escalation, tree-kill and onExit emission
 
 describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
-  it("SIGTERM whose child ignores CTRL_BREAK_EVENT escalates to taskkill at the 2 s budget and emits onExit regardless of OS reap status", async () => {
-    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+  // SIGHUP takes the SIGTERM path on Windows.
+  it.each(["SIGTERM", "SIGHUP"] as const)(
+    "%s whose child ignores CTRL_BREAK_EVENT escalates to taskkill at the 2 s budget and emits onExit regardless of OS reap status",
+    async (signal) => {
+      const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-    // The graceful kill arms a 2 s timer and returns without waiting for it.
-    await ctx.host.kill(session_id, "SIGTERM");
+      // The graceful kill arms a 2 s timer and returns without waiting for it.
+      await ctx.host.kill(session_id, signal);
 
-    // T+0: CTRL_BREAK_EVENT was sent (the sender is a no-op here).
-    expect(ctx.mockGCCE).toHaveBeenCalledTimes(1);
-    expect(ctx.mockGCCE).toHaveBeenCalledWith(1, FIXTURE_PID);
+      // T+0: CTRL_BREAK_EVENT was sent (the sender is a no-op here).
+      expect(ctx.mockGCCE).toHaveBeenCalledTimes(1);
+      expect(ctx.mockGCCE).toHaveBeenCalledWith(1, FIXTURE_PID);
 
-    // Before the budget, taskkill has not run.
-    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
-    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+      // Before the budget, taskkill has not run.
+      expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+      expect(ctx.exitRecorder).not.toHaveBeenCalled();
 
-    // Just under the budget: still no escalation.
-    await vi.advanceTimersByTimeAsync(1999);
-    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
-    expect(ctx.exitRecorder).not.toHaveBeenCalled();
+      // Just under the budget: still no escalation.
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+      expect(ctx.exitRecorder).not.toHaveBeenCalled();
 
-    // Crossing 2 s fires the timer and starts `invokeTaskkill`; the async advance also drains
-    // microtasks, so the taskkill mock resolves and `onExit` is observable.
-    await vi.advanceTimersByTimeAsync(1);
+      // Crossing 2 s fires the timer and starts `invokeTaskkill`; the async advance also drains
+      // microtasks, so the taskkill mock resolves and `onExit` is observable.
+      await vi.advanceTimersByTimeAsync(1);
 
-    // taskkill gets the root PID; the production spawn adds `/T /F`, and the injected mock
-    // receives only the pid.
-    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
-    expect(ctx.mockTaskkill).toHaveBeenCalledWith(FIXTURE_PID);
+      // taskkill gets the root PID; the production spawn adds `/T /F`, and the injected mock
+      // receives only the pid.
+      expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+      expect(ctx.mockTaskkill).toHaveBeenCalledWith(FIXTURE_PID);
 
-    // `onExit` fires even though the OS-level reap is opaque (a failing taskkill also emits; see
-    // the next tests).
-    expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
-    const [emittedSessionId, emittedExitCode] = ctx.exitRecorder.mock.calls[0]!;
-    expect(emittedSessionId).toBe(session_id);
-    expect(emittedExitCode).toBe(1);
-  });
+      // `onExit` fires even though the OS-level reap is opaque (a failing taskkill also emits; see
+      // the next tests).
+      expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
+      const [emittedSessionId, emittedExitCode] = ctx.exitRecorder.mock.calls[0]!;
+      expect(emittedSessionId).toBe(session_id);
+      expect(emittedExitCode).toBe(1);
+    },
+  );
 
   it("if the child exits BEFORE the 2 s budget elapses, the escalation is canceled and taskkill is never called", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
@@ -328,7 +332,7 @@ describe("NodePtyHost — close() on Windows routes through taskkill", () => {
     expect(ctx.exitRecorder).not.toHaveBeenCalled();
   });
 
-  it("close() on POSIX still uses record.child.kill() — the fix is scoped to Windows", async () => {
+  it("close() on POSIX uses record.child.kill()", async () => {
     // A POSIX host: `record.child.kill()` signals the session leader and the TTY foreground
     // process group carries the signal to descendants, so POSIX has no orphan hazard.
     const { child } = makeFakeChild(54321);

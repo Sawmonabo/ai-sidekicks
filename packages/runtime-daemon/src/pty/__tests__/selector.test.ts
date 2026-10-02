@@ -1,16 +1,16 @@
-// Tests for the `SIDEKICKS_PTY_BACKEND` grammar of `selectPtyHost`. The env reader, warn sink and both
-// factories are injected, so no real env, console, `node-pty` or sidecar binary is touched and
-// the suite runs on every platform.
+// Tests for the `SIDEKICKS_PTY_BACKEND` grammar of `selectPtyHost`. The env reader, warn sink and
+// both factories are injected, so no real env, console, `node-pty` or sidecar binary is touched
+// and the suite runs on every platform.
 
+import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { selectPtyHost } from "../pty-host-selector.js";
 import type { PtyHostSelectorDeps } from "../pty-host-selector.js";
-import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
-
-import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
 import type { PtyHost } from "../pty-host.js";
+import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
+import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 
 /** Stands in for a `NodePtyHost`; the tests assert identity, so the right factory was called. */
 const NODE_PTY_SENTINEL: PtyHost = { kind: "NodePtyHost-mock" } as unknown as PtyHost;
@@ -111,7 +111,7 @@ describe("selectPtyHost — SIDEKICKS_PTY_BACKEND=rust-sidecar", () => {
     }
   });
 
-  it("wraps an unknown thrown value as PtyBackendUnavailableError with attemptedBackend=rust-sidecar", () => {
+  it("wraps an unknown thrown value as PtyBackendUnavailableError with attemptedBackend=rust-sidecar", async () => {
     // A raw error from the factory is wrapped, so consumers always see the structured shape.
     const rawError = new Error("spawn EACCES");
     const { ctx, deps } = buildDeps({
@@ -121,12 +121,7 @@ describe("selectPtyHost — SIDEKICKS_PTY_BACKEND=rust-sidecar", () => {
       },
     });
 
-    let thrown: unknown = null;
-    try {
-      selectPtyHost(deps);
-    } catch (err) {
-      thrown = err;
-    }
+    const thrown = await captureRejection(async () => selectPtyHost(deps));
 
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {

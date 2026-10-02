@@ -1,7 +1,7 @@
 // In-process `node-pty` implementation of the `PtyHost` contract.
 //
-// - It is the backend on macOS and Linux, and the Windows fallback when the Rust sidecar is not
-//   resolvable; today the selector also picks it on Windows (see `pty-host-selector.ts`).
+// - The selector picks it by default on every platform (see `pty-host-selector.ts`); on Windows
+//   the Rust sidecar is the alternative.
 // - `node-pty.kill(signal)` on Windows signals one PID and does not walk console-control or
 //   process-tree semantics (microsoft/node-pty#167, #437), so the Windows kill translation
 //   lives here:
@@ -210,8 +210,7 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
       "NodePtyHost: `koffi` is required for Windows kill-translation but " +
         "is not installed. Install with `pnpm add koffi` (or restore the " +
         "optional dep via `pnpm install` without `--no-optional`). The Rust " +
-        "sidecar backend is no alternative: it does not translate kills on " +
-        "Windows yet.",
+        "sidecar backend does not help here: its kill returns an error on Windows.",
       { cause },
     );
   }
@@ -352,10 +351,7 @@ export class NodePtyHost implements PtyHost {
 
     this.sessions.set(sessionId, record);
 
-    return await Promise.resolve({
-      kind: "spawn_response",
-      session_id: sessionId,
-    });
+    return { kind: "spawn_response", session_id: sessionId };
   }
 
   /** Resizes the PTY. Throws for an unknown session id. */
@@ -365,7 +361,6 @@ export class NodePtyHost implements PtyHost {
       throw new Error(`NodePtyHost.resize: unknown sessionId '${sessionId}'`);
     }
     record.child.resize(cols, rows);
-    return await Promise.resolve();
   }
 
   /** Writes bytes to the PTY. Throws for an unknown session id. */
@@ -375,7 +370,6 @@ export class NodePtyHost implements PtyHost {
       throw new Error(`NodePtyHost.write: unknown sessionId '${sessionId}'`);
     }
     record.child.write(bytes);
-    return await Promise.resolve();
   }
 
   /**
@@ -408,14 +402,13 @@ export class NodePtyHost implements PtyHost {
 
     // POSIX: `node-pty` takes the signal name.
     record.child.kill(signal);
-    return await Promise.resolve();
   }
 
   /** Disposes the session and stops its child. Closing an unknown session is not an error. */
   public async close(sessionId: string): Promise<void> {
     const record: SessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
-      return await Promise.resolve();
+      return;
     }
     // Cancel a pending escalation so a stale `taskkill` cannot fire 2 s after close.
     this.clearPendingEscalation(record);
@@ -432,15 +425,17 @@ export class NodePtyHost implements PtyHost {
         void this.invokeTaskkill(sessionId, record, record.child.pid);
       } else {
         // POSIX: the TTY's foreground-process-group semantics carry the kill to descendants.
+        // Close does not fail on a child that is already gone; the failure is logged.
         try {
           record.child.kill();
-        } catch {
-          // Best-effort close: the child may already be gone.
+        } catch (err: unknown) {
+          console.warn(`NodePtyHost: close: child.kill() threw for session=${sessionId}.`, {
+            cause: err,
+          });
         }
       }
     }
     this.sessions.delete(sessionId);
-    return await Promise.resolve();
   }
 
   /**
@@ -520,11 +515,14 @@ export class NodePtyHost implements PtyHost {
     );
 
     try {
-      // Go through `kill()` so the Windows translation and POSIX path stay in one place.
+      // Go through `kill()` so the Windows translation and POSIX path stay in one place. A failed
+      // kill is logged, not thrown: the timeout below still bounds the drain and escalates.
       try {
         await this.kill(sessionId, "SIGTERM");
-      } catch {
-        // `kill()` throws when the session is already gone; the waiter resolves from `onExit`.
+      } catch (err: unknown) {
+        console.warn(`NodePtyHost: shutdown: SIGTERM failed for session=${sessionId}.`, {
+          cause: err,
+        });
       }
 
       // The injected timer lets tests advance time under fake timers.
@@ -552,11 +550,14 @@ export class NodePtyHost implements PtyHost {
         return outcome;
       }
 
-      // Timed out: SIGKILL is fire-and-forget and shutdown does not wait for the exit.
+      // Timed out: SIGKILL is fire-and-forget and shutdown does not wait for the exit. A failed
+      // escalation is logged; the session still counts as forced.
       try {
         await this.kill(sessionId, "SIGKILL");
-      } catch {
-        // Best-effort escalation.
+      } catch (err: unknown) {
+        console.warn(`NodePtyHost: shutdown: SIGKILL escalation failed for session=${sessionId}.`, {
+          cause: err,
+        });
       }
       return "forced";
     } finally {
@@ -579,11 +580,12 @@ export class NodePtyHost implements PtyHost {
 
   // ---- PtyHost callback surface (settable by the daemon) ----------------
 
+  /** Delivers a data chunk to the consumer registered with `setOnData`. */
   public onData(sessionId: string, chunk: Uint8Array): void {
-    // Contract hook; forwards to the consumer registered with `setOnData`.
     this.dataListener(sessionId, chunk);
   }
 
+  /** Delivers an exit event to the consumer registered with `setOnExit`. */
   public onExit(sessionId: string, exitCode: number, signalCode?: number): void {
     this.exitListener(sessionId, exitCode, signalCode);
   }
@@ -725,7 +727,7 @@ export class NodePtyHost implements PtyHost {
         } catch (err: unknown) {
           // A failed taskkill must not stop the synthetic `onExit`, so it is logged, not thrown.
           // Without the log, a persistent failure (bad PATH, blocked taskkill.exe) looks like a
-          // healthy exit. TRIPWIRE: replace `console.warn` once a structured logger exists.
+          // healthy exit.
           console.warn(
             `NodePtyHost: invokeTaskkill: spawnTaskkill rejected for ` +
               `session=${sessionId} pid=${pid}; synthetic onExit will ` +

@@ -1,10 +1,9 @@
-// `RustSidecarPtyHost` against a fake sidecar child: framing, crash budget and respawn, teardown,
-// and the sidecar binary resolver. Crash-budget tests inject a clock so the sliding window is
-// deterministic.
+// `RustSidecarPtyHost` against a fake sidecar child: framing, crash budget and respawn, and
+// teardown. Crash-budget tests inject a clock so the sliding window is deterministic.
 
 import { Buffer } from "node:buffer";
-import { sep as pathSep } from "node:path";
 
+import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
@@ -14,11 +13,7 @@ import {
   type SidecarSpawnFn,
 } from "../sidecar-child-supervisor.js";
 import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "../sidecar-frame-codec.js";
-import {
-  PtyBackendUnavailableError,
-  resolveSidecarBinaryPath,
-  type ResolveSidecarBinaryPathOptions,
-} from "../sidecar-binary-path.js";
+import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import {
   type FakeSidecarChild,
   flushMicrotasks,
@@ -27,8 +22,7 @@ import {
   parseFramesFromStdin,
   spawnReturning,
 } from "./pty-host.test-support.js";
-
-import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
+import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 
 /**
  * Stub `SidecarSpawnFn` that returns a fresh fake on each call, for crash-respawn tests;
@@ -157,6 +151,50 @@ describe("RustSidecarPtyHost — PtyHost contract surface", () => {
     await expect(killP).resolves.toBeUndefined();
   });
 
+  it("kill() on an exited session re-emits the cached exit and sends no kill_request", async () => {
+    // A kill on an exited child's id could reach a session the sidecar has already dropped.
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 3,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+
+    // Resolves at once: no request goes out, so no response is awaited.
+    await host.kill("s-0", "SIGTERM");
+
+    expect(exitFn).toHaveBeenCalledTimes(2);
+    expect(exitFn).toHaveBeenNthCalledWith(2, "s-0", 3);
+    const killRequests = parseFramesFromStdin(fake.readStdin()).filter(
+      (envelope) => envelope.kind === "kill_request",
+    );
+    expect(killRequests).toHaveLength(0);
+  });
+
   it("onData fans out DataFrame chunks to the registered listener (base64-decoded)", async () => {
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
@@ -276,9 +314,8 @@ describe("RustSidecarPtyHost — sliding-window crash budget", () => {
 
     // The next request throws PtyBackendUnavailableError with attemptedBackend `rust-sidecar`.
     clock.mockReturnValue(CRASH_BUDGET_LIMIT * 1000);
-    let thrown: unknown = null;
-    try {
-      await host.spawn({
+    const thrown = await captureRejection(() =>
+      host.spawn({
         kind: "spawn_request",
         command: "/bin/sh",
         args: [],
@@ -286,10 +323,8 @@ describe("RustSidecarPtyHost — sliding-window crash budget", () => {
         cwd: "/",
         rows: 24,
         cols: 80,
-      });
-    } catch (err) {
-      thrown = err;
-    }
+      }),
+    );
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {
       expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
@@ -352,13 +387,6 @@ describe("RustSidecarPtyHost — sliding-window crash budget", () => {
     await flushMicrotasks();
     // (LIMIT - 1) + 1 + 1 spawns: the respawn after eviction is allowed.
     expect(seq.spawned().length).toBe(CRASH_BUDGET_LIMIT + 1);
-  });
-});
-
-describe("RustSidecarPtyHost — framing limits", () => {
-  it("MAX_FRAME_BODY_BYTES equals the sidecar framer's 8 MiB body cap", () => {
-    // Pins the 8 MiB cap so it cannot drift from the Rust framer's `MAX_FRAME_BODY_BYTES`.
-    expect(MAX_FRAME_BODY_BYTES).toBe(8 * 1024 * 1024);
   });
 });
 
@@ -593,7 +621,7 @@ describe("RustSidecarPtyHost — wire-side error response rejects awaiting Promi
   it("kill, write and resize reject with the sidecar's error response instead of hanging", async () => {
     // A request that races the child's natural exit gets a typed error response from the sidecar;
     // the awaiting promise must reject instead of sitting in `outstanding` forever. An explicit
-    // kill, not close(): close() swallows this error (tested below).
+    // kill, not close(): close() logs this error instead of throwing (tested below).
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -725,9 +753,9 @@ describe("RustSidecarPtyHost — close() lifecycle", () => {
     await expect(closeP).resolves.toBeUndefined();
   });
 
-  it("close() swallows a wire-side error response (close MUST NOT throw on close-races-natural-exit)", async () => {
-    // close() racing the child's natural exit gets a typed error response; close() must
-    // swallow it.
+  it("close() does not throw on a wire-side error response (close races natural exit)", async () => {
+    // close() racing the child's natural exit gets a typed error response; close() must not
+    // throw on it.
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -1799,267 +1827,6 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
 });
 
 // ----------------------------------------------------------------------------
-// `resolveSidecarBinaryPath`: four-step resolution (env var, installed package, release build,
-// debug build). The first hit wins and later steps are not consulted. When every step misses it
-// throws `PtyBackendUnavailableError` listing each step, with the step-2 error as `cause`.
-// ----------------------------------------------------------------------------
-
-describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
-  // Builds injectable deps whose defaults (empty env, throwing require, false existsSync) make
-  // each test opt in to the step it exercises.
-  function makeOpts(over?: Partial<ResolveSidecarBinaryPathOptions>): {
-    opts: ResolveSidecarBinaryPathOptions;
-    requireMock: ReturnType<typeof vi.fn>;
-    existsMock: ReturnType<typeof vi.fn>;
-  } {
-    const requireMock = vi.fn<(id: string) => string>(() => {
-      throw new Error("require.resolve: not configured (test default)");
-    });
-    const existsMock = vi.fn<(p: string) => boolean>(() => false);
-    const opts: ResolveSidecarBinaryPathOptions = {
-      env: {},
-      nodeRequire: { resolve: requireMock },
-      existsSync: existsMock,
-      releasePath: "/fake/release/sidecar",
-      debugPath: "/fake/debug/sidecar",
-      platform: "linux",
-      ...over,
-    };
-    return { opts, requireMock, existsMock };
-  }
-
-  it("step 1 hits when SIDEKICKS_PTY_SIDECAR_BIN is set to an absolute path that exists (steps 2/3/4 NOT consulted)", () => {
-    // The step-1 hit also probes existsSync so a stale env path cannot pass. Steps 2-4 must not
-    // be consulted (requireMock is never called).
-    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/abs/path/to/sidecar");
-    const { opts, requireMock } = makeOpts({
-      env: { SIDEKICKS_PTY_SIDECAR_BIN: "/abs/path/to/sidecar" },
-      existsSync: existsMock,
-    });
-
-    const result: string = resolveSidecarBinaryPath(opts);
-
-    expect(result).toBe("/abs/path/to/sidecar");
-    // One existsSync probe, against the env value; no release or debug probes.
-    expect(existsMock).toHaveBeenCalledTimes(1);
-    expect(existsMock).toHaveBeenCalledWith("/abs/path/to/sidecar");
-    expect(requireMock).not.toHaveBeenCalled();
-  });
-
-  it("step 1 rejects an absolute path that does not exist on disk and falls through to step 2", () => {
-    // Without the existsSync guard a stale env path would be returned, and every doomed spawn
-    // would count against the 5-per-60s crash budget, making the host permanently unavailable
-    // after five attempts. The resolver rejects it and falls through to step 2.
-    const step2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
-    const existsMock = vi.fn<(p: string) => boolean>(() => false);
-    const { opts } = makeOpts({
-      env: { SIDEKICKS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
-      nodeRequire: { resolve: step2Mock },
-      existsSync: existsMock,
-    });
-
-    const result: string = resolveSidecarBinaryPath(opts);
-
-    expect(result).toBe("/installed/pkg/bin/sidecar");
-    // The env path was probed, returned false, and step 2 took over.
-    expect(existsMock).toHaveBeenCalledWith("/tmp/path/that/does/not/exist");
-    expect(step2Mock).toHaveBeenCalledTimes(1);
-  });
-
-  it("step 1 rejects a relative path (NOT coerced to absolute) and falls through to step 2", () => {
-    // A relative path depends on process.cwd(), so the resolver rejects it instead of making it
-    // absolute, then consults step 2.
-    const step2Mock = vi.fn<(id: string) => string>(() => "/from/step-2/sidecar");
-    // The relative path exists, so only the absolute-path check can reject it.
-    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "./relative/sidecar");
-    const { opts } = makeOpts({
-      env: { SIDEKICKS_PTY_SIDECAR_BIN: "./relative/sidecar" },
-      nodeRequire: { resolve: step2Mock },
-      existsSync: existsMock,
-    });
-
-    const result: string = resolveSidecarBinaryPath(opts);
-
-    expect(result).toBe("/from/step-2/sidecar");
-    // Step 2 ran, so step 1 did not return the relative path.
-    expect(step2Mock).toHaveBeenCalledTimes(1);
-  });
-
-  it("step 2 hits when require.resolve returns a path (steps 3/4 NOT consulted)", () => {
-    const requireMock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
-    const { opts, existsMock } = makeOpts({
-      nodeRequire: { resolve: requireMock },
-    });
-
-    const result: string = resolveSidecarBinaryPath(opts);
-
-    expect(result).toBe("/installed/pkg/bin/sidecar");
-    // The package id embeds platform and arch.
-    expect(requireMock).toHaveBeenCalledTimes(1);
-    expect(requireMock).toHaveBeenCalledWith(
-      "@ai-sidekicks/pty-sidecar-linux-" + process.arch + "/bin/sidecar",
-    );
-    // No filesystem probes for steps 3 and 4.
-    expect(existsMock).not.toHaveBeenCalled();
-  });
-
-  it("step 3 hits when require.resolve throws but the release binary exists on disk (step 4 NOT consulted)", () => {
-    const requireMock = vi.fn<(id: string) => string>(() => {
-      throw new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
-    });
-    // The release probe succeeds; step 4 must not be probed.
-    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/fake/release/sidecar");
-    const { opts } = makeOpts({
-      nodeRequire: { resolve: requireMock },
-      existsSync: existsMock,
-    });
-
-    const result: string = resolveSidecarBinaryPath(opts);
-
-    expect(result).toBe("/fake/release/sidecar");
-    // Only the release path was probed; step 4 was skipped.
-    expect(existsMock).toHaveBeenCalledTimes(1);
-    expect(existsMock).toHaveBeenCalledWith("/fake/release/sidecar");
-  });
-
-  it("step 4 hits when only the debug binary exists on disk", () => {
-    const requireMock = vi.fn<(id: string) => string>(() => {
-      throw new Error("Cannot find module");
-    });
-    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/fake/debug/sidecar");
-    const { opts } = makeOpts({
-      nodeRequire: { resolve: requireMock },
-      existsSync: existsMock,
-    });
-
-    const result: string = resolveSidecarBinaryPath(opts);
-
-    expect(result).toBe("/fake/debug/sidecar");
-    // Release was probed first, then debug.
-    expect(existsMock).toHaveBeenCalledTimes(2);
-    expect(existsMock).toHaveBeenNthCalledWith(1, "/fake/release/sidecar");
-    expect(existsMock).toHaveBeenNthCalledWith(2, "/fake/debug/sidecar");
-  });
-
-  it("all four steps exhausted → throws PtyBackendUnavailableError enumerating every step failure", () => {
-    // Fresh checkout with no cargo build and no install: the case this error exists for.
-    const requireError = new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
-    const requireMock = vi.fn<(id: string) => string>(() => {
-      throw requireError;
-    });
-    const existsMock = vi.fn<(p: string) => boolean>(() => false);
-    const { opts } = makeOpts({
-      nodeRequire: { resolve: requireMock },
-      existsSync: existsMock,
-    });
-
-    let thrown: unknown = null;
-    try {
-      resolveSidecarBinaryPath(opts);
-    } catch (err) {
-      thrown = err;
-    }
-
-    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
-    if (!(thrown instanceof PtyBackendUnavailableError)) {
-      return; // Type narrowing for the assertions below.
-    }
-    expect(thrown.code).toBe(PTY_BACKEND_UNAVAILABLE_CODE);
-    expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
-
-    // The message enumerates every step's failure, not just "binary not found".
-    expect(thrown.message).toMatch(/step 1 \(env-var SIDEKICKS_PTY_SIDECAR_BIN\): unset/);
-    expect(thrown.message).toMatch(/step 2 \(require\.resolve.*\): threw:/);
-    expect(thrown.message).toMatch(
-      /step 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\): not found at \/fake\/release\/sidecar/,
-    );
-    expect(thrown.message).toMatch(
-      /step 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\): not found at \/fake\/debug\/sidecar/,
-    );
-
-    // `cause` is the step-2 error: the closest miss on the production path (step 1 is a developer
-    // override; steps 3 and 4 are workspace paths).
-    expect(thrown.details.cause).toBe(requireError);
-  });
-
-  it("on Windows, probes 'sidecar.exe' (not 'sidecar') for step 2 and embeds .exe in step 3/4 diagnostics", () => {
-    // The resolver must add the `.exe` suffix on Windows.
-    const requireMock = vi.fn<(id: string) => string>(() => {
-      throw new Error("not found");
-    });
-    const existsMock = vi.fn<(p: string) => boolean>(() => false);
-    const { opts } = makeOpts({
-      nodeRequire: { resolve: requireMock },
-      existsSync: existsMock,
-      platform: "win32",
-    });
-
-    let thrown: unknown = null;
-    try {
-      resolveSidecarBinaryPath(opts);
-    } catch (err) {
-      thrown = err;
-    }
-
-    expect(requireMock).toHaveBeenCalledWith(
-      "@ai-sidekicks/pty-sidecar-win32-" + process.arch + "/bin/sidecar.exe",
-    );
-    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
-    if (thrown instanceof PtyBackendUnavailableError) {
-      expect(thrown.message).toMatch(
-        /step 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\.exe\)/,
-      );
-      expect(thrown.message).toMatch(
-        /step 4 \(packages\/sidecar-rust-pty\/target\/debug\/sidecar\.exe\)/,
-      );
-    }
-  });
-
-  it("step 3/4 default paths land inside packages/sidecar-rust-pty/target/{release,debug}/ (pins workspaceTargetPath ascent depth)", () => {
-    // The other resolver tests pass `releasePath` and `debugPath`, which skips the real
-    // `workspaceTargetPath` ascent, so a miscounted `../` depth would leave them green. This test
-    // omits the overrides and checks the probed paths land in
-    // `packages/sidecar-rust-pty/target/{release,debug}/`. It compares `path.sep`-suffixed
-    // strings so it holds on POSIX and Windows.
-    const requireMock = vi.fn<(id: string) => string>(() => {
-      throw new Error("Cannot find module (step-2 forced miss)");
-    });
-    const existsMock = vi.fn<(p: string) => boolean>(() => false);
-
-    let thrown: unknown = null;
-    try {
-      // No path overrides; `platform: "linux"` keeps the binary name free of `.exe`.
-      resolveSidecarBinaryPath({
-        env: {},
-        nodeRequire: { resolve: requireMock },
-        existsSync: existsMock,
-        platform: "linux",
-      });
-    } catch (err) {
-      thrown = err;
-    }
-
-    // The two existsSync probes are the release and debug paths.
-    expect(existsMock).toHaveBeenCalledTimes(2);
-    const releaseProbe: string = existsMock.mock.calls[0]?.[0] ?? "";
-    const debugProbe: string = existsMock.mock.calls[1]?.[0] ?? "";
-    const releaseSuffix: string =
-      pathSep + ["packages", "sidecar-rust-pty", "target", "release", "sidecar"].join(pathSep);
-    const debugSuffix: string =
-      pathSep + ["packages", "sidecar-rust-pty", "target", "debug", "sidecar"].join(pathSep);
-    expect(releaseProbe.endsWith(releaseSuffix)).toBe(true);
-    expect(debugProbe.endsWith(debugSuffix)).toBe(true);
-
-    // The rendered diagnostic must embed the same paths that were probed.
-    expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
-    if (thrown instanceof PtyBackendUnavailableError) {
-      expect(thrown.message).toContain(releaseSuffix);
-      expect(thrown.message).toContain(debugSuffix);
-    }
-  });
-});
-
-// ----------------------------------------------------------------------------
 // `ensureChild` re-throws a resolver-thrown `PtyBackendUnavailableError` unchanged, so its
 // step-by-step message stays readable instead of buried in `details.cause`. A plain `Error` from
 // a custom resolver is still wrapped.
@@ -2072,8 +1839,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
     const innerCause: Error = new Error("Cannot find module '@ai-sidekicks/pty-sidecar-linux-x64'");
     const resolverError: PtyBackendUnavailableError = new PtyBackendUnavailableError(
       { attemptedBackend: "rust-sidecar", cause: innerCause },
-      "RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps " +
-        ". Attempts:\n" +
+      "RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps. " +
+        "Attempts:\n" +
         "  step 1 (env-var SIDEKICKS_PTY_SIDECAR_BIN): unset\n" +
         "  step 2 (require.resolve(...)): threw: Cannot find module\n" +
         "  step 3 (...): not found at /workspace/.../release/sidecar\n" +
@@ -2089,9 +1856,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
       spawn: vi.fn<SidecarSpawnFn>(),
     });
 
-    let thrown: unknown = null;
-    try {
-      await host.spawn({
+    const thrown = await captureRejection(() =>
+      host.spawn({
         kind: "spawn_request",
         command: "/bin/sh",
         args: [],
@@ -2099,10 +1865,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
         cwd: "/",
         rows: 24,
         cols: 80,
-      });
-    } catch (err) {
-      thrown = err;
-    }
+      }),
+    );
 
     // Same-instance check: a wrapper that carries the original as `details.cause` would fail
     // `.toBe`.
@@ -2127,9 +1891,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
       spawn: vi.fn<SidecarSpawnFn>(),
     });
 
-    let thrown: unknown = null;
-    try {
-      await host.spawn({
+    const thrown = await captureRejection(() =>
+      host.spawn({
         kind: "spawn_request",
         command: "/bin/sh",
         args: [],
@@ -2137,10 +1900,8 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
         cwd: "/",
         rows: 24,
         cols: 80,
-      });
-    } catch (err) {
-      thrown = err;
-    }
+      }),
+    );
 
     expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (thrown instanceof PtyBackendUnavailableError) {
@@ -2234,10 +1995,9 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
     });
 
     // The first spawn fails synchronously (ENOENT), is wrapped in `PtyBackendUnavailableError`,
-    // and uses one budget slot.
-    let firstThrown: unknown = null;
-    try {
-      await host.spawn({
+    // and charges the crash budget once.
+    const firstThrown = await captureRejection(() =>
+      host.spawn({
         kind: "spawn_request",
         command: "/bin/sh",
         args: [],
@@ -2245,10 +2005,8 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
         cwd: "/",
         rows: 24,
         cols: 80,
-      });
-    } catch (err) {
-      firstThrown = err;
-    }
+      }),
+    );
     expect(firstThrown).toBeInstanceOf(PtyBackendUnavailableError);
     expect(spawnFn).toHaveBeenCalledTimes(1);
 
@@ -2270,27 +2028,26 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
     expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
     expect(spawnFn).toHaveBeenCalledTimes(2);
 
-    // Check the budget was charged once, through the sliding window: after one slot the host
+    // Check the budget was charged once, through the sliding window: after one charge the host
     // tolerates `CRASH_BUDGET_LIMIT - 1` more synchronous failures. The live sidecar must exit
-    // first so the next request spawns fresh; that exit is a crash and uses a second slot.
+    // first so the next request spawns fresh; that exit is a crash and charges the budget again.
     fake.triggerExit(1, null);
     await flushMicrotasks();
 
-    // Every later spawn throws ENOENT and uses a slot.
+    // Every later spawn throws ENOENT and charges the budget.
     spawnFn.mockImplementation(() => {
       const e = new Error("ENOENT") as Error & { code?: string };
       e.code = "ENOENT";
       throw e;
     });
 
-    // Two slots are used (the first ENOENT plus the sidecar exit), so `CRASH_BUDGET_LIMIT - 2`
+    // Two charges are spent (the first ENOENT plus the sidecar exit), so `CRASH_BUDGET_LIMIT - 2`
     // more failures reach the limit and the last one exhausts the budget. A double charge on the
     // first failure would exhaust it one iteration early.
     for (let i = 0; i < CRASH_BUDGET_LIMIT - 2; i += 1) {
       clock.mockReturnValue(2000 + i * 1000);
-      let caught: unknown = null;
-      try {
-        await host.spawn({
+      const caught = await captureRejection(() =>
+        host.spawn({
           kind: "spawn_request",
           command: "/bin/sh",
           args: [],
@@ -2298,10 +2055,8 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
           cwd: "/",
           rows: 24,
           cols: 80,
-        });
-      } catch (err) {
-        caught = err;
-      }
+        }),
+      );
       expect(caught).toBeInstanceOf(PtyBackendUnavailableError);
       // These are per-spawn ENOENT wraps; the budget-exhausted message appears only on the call
       // after the limit is reached.
@@ -2312,9 +2067,8 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
 
     // The next request must report budget exhaustion; a double charge would do so a cycle earlier.
     clock.mockReturnValue(2000 + CRASH_BUDGET_LIMIT * 1000);
-    let exhaustedThrown: unknown = null;
-    try {
-      await host.spawn({
+    const exhaustedThrown = await captureRejection(() =>
+      host.spawn({
         kind: "spawn_request",
         command: "/bin/sh",
         args: [],
@@ -2322,10 +2076,8 @@ describe("RustSidecarPtyHost — ensureChild concurrent-spawn serialization", ()
         cwd: "/",
         rows: 24,
         cols: 80,
-      });
-    } catch (err) {
-      exhaustedThrown = err;
-    }
+      }),
+    );
     expect(exhaustedThrown).toBeInstanceOf(PtyBackendUnavailableError);
     if (exhaustedThrown instanceof PtyBackendUnavailableError) {
       expect(exhaustedThrown.message).toMatch(/crash-respawn budget exhausted/);

@@ -1,6 +1,7 @@
 // On Windows, through the real Rust sidecar, `git worktree remove` succeeds while a translated PTY
 // session in that worktree runs: the spawn-call cwd is the stable parent, so Windows holds no lock
-// (`ERROR_SHARING_VIOLATION`, microsoft/node-pty#647). Opt-in; no CI job runs it yet.
+// (`ERROR_SHARING_VIOLATION`, microsoft/node-pty#647). It runs only when
+// `SIDEKICKS_RUN_SIDECAR_INTEGRATION=1` is set and a sidecar binary resolves.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -10,24 +11,28 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
-import { resolveSidecarBinaryPath } from "../sidecar-binary-path.js";
+import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "../sidecar-binary-path.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
 import type { SpawnRequest, SpawnResponse } from "../pty-host-protocol.js";
 
 // Returns `null` when the production resolver finds no binary (it throws
-// `PtyBackendUnavailableError`), so the test can skip with a message instead of failing.
+// `PtyBackendUnavailableError`), so the test can skip with a message instead of failing. Any
+// other error fails the test.
 function resolveBinaryOrNull(): string | null {
   try {
     return resolveSidecarBinaryPath();
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    if (error instanceof PtyBackendUnavailableError) {
+      return null;
+    }
+    throw error;
   }
 }
 
 // Opt-in gate, so a Windows dev machine with the sidecar built locally does not run a real
 // Win32 PTY spawn by accident.
 function isIntegrationOptedIn(): boolean {
-  return process.env["RUN_W3_INTEGRATION"] === "1";
+  return process.env["SIDEKICKS_RUN_SIDECAR_INTEGRATION"] === "1";
 }
 
 interface TestContext {
@@ -65,13 +70,10 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // A skipped test never spawned, so `host` is null; `close` is idempotent for an exited session.
+  // A skipped test never spawned, so `host` is null. `close` is idempotent for an exited session
+  // and does not throw: a failed kill request inside it is logged.
   if (ctx.host !== null && ctx.sessionId !== null) {
-    try {
-      await ctx.host.close(ctx.sessionId);
-    } catch {
-      // Best-effort cleanup; a failing close here would mask the real assertion failure.
-    }
+    await ctx.host.close(ctx.sessionId);
   }
   // `force` because the tree may be partly built if the test threw mid-setup.
   rmSync(ctx.tmpRoot, { recursive: true, force: true });
@@ -83,7 +85,9 @@ describe.runIf(process.platform === "win32")(
     it("git worktree remove succeeds without ERROR_SHARING_VIOLATION while a translated session is alive", async (ctxRunner) => {
       // Checked here, not at suite level, so the skip message names this test in the reporter.
       if (!isIntegrationOptedIn()) {
-        ctxRunner.skip("RUN_W3_INTEGRATION is not set; this test runs only on opt-in.");
+        ctxRunner.skip(
+          "SIDEKICKS_RUN_SIDECAR_INTEGRATION is not set; this test runs only on opt-in.",
+        );
         return;
       }
       const binaryPath: string | null = resolveBinaryOrNull();
