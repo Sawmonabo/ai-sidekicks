@@ -8,7 +8,7 @@ import type { RunId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
 import { settle } from "@test/helpers/settle.js";
-import { bridgeFailingUntilCleared, callsTo, inBridge } from "@test/helpers/recoverable-bridge.js";
+import { bridgeFailingUntilCleared, callsTo, inBridge } from "./useReasoningRead.test-support.js";
 import { useReasoningRead } from "./useReasoningRead.js";
 
 const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;

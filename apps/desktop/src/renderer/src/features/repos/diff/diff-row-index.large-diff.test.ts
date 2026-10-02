@@ -1,22 +1,19 @@
-// Tier: endurance.
-//
-// `steady-state.test.ts` measures the app held open for a working day; this measures one
-// view handed a body far larger than anything it is scrolled through, held open and worked. A
-// forty-file, five-thousand-line change set is the shape the diff feature is written against,
+// One view handed a body far larger than anything it is scrolled through, held open and worked.
+// A forty-file, five-thousand-line change set is the shape the diff feature is written against,
 // and every property here holds at ten rows and can quietly stop holding at five thousand.
 //
-// It runs in the Node project and opens no Electron window: the subject is the diff's
-// flattening (`diff-row-index.ts`), arithmetic over a model that touches no DOM, so the claims
-// are checkable in milliseconds on any runner with no bundle to build. The window over those
-// rows is `@tanstack/react-virtual`'s and is asserted against the DOM in `DiffRenderer.test.ts`.
+// The subject is the diff's flattening (`diff-row-index.ts`), arithmetic over a model that
+// touches no DOM, so the claims are checkable in milliseconds with no bundle to build. The window
+// over those rows is `@tanstack/react-virtual`'s and is asserted against the DOM in
+// `DiffRenderer.test.ts`.
 //
-// It asserts four things the unit tier cannot:
+// It asserts four things the small-diff cases in `diff-row-index.test.ts` cannot:
 //
 // 1. Cost does not scale with the diff. Flattening is paid once per expansion, and a scroll
 //    costs a handful of `rowAt` reads bounded by the viewport; a `rowAt` that walked from the
-//    top would pass every unit case and make a scroll to row 5,000 cost 5,000 steps.
+//    top would pass every small case and make a scroll to row 5,000 cost 5,000 steps.
 // 2. Sustained work retains nothing: a hundred gap expansions leave no growing structure, the
-//    leak class a fast tier cannot see.
+//    leak class a small diff cannot show.
 // 3. Every row is addressable, not a sample: every one of the ~6,600 rows resolves to a row
 //    value and every line row to a line, since an off-by-one in the per-file walk shows up as
 //    one unreachable row that no spot check finds.
@@ -24,25 +21,23 @@
 //    changed pair is quadratic in tokens, so one 20,000-character line would cost more than the
 //    other five thousand together; no fixture of uniform lines contains that shape.
 
-import process from "node:process";
-
 import { describe, expect, it } from "vitest";
 
-import { buildDiffFixture, fixtureChangedLineCount } from "../helpers/diff-fixture.js";
+import { buildDiffFixture, fixtureChangedLineCount } from "@test/helpers/diff-fixture.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
-} from "../helpers/diff-fixture-shapes.js";
-import { diffLineText, type DiffLine } from "@renderer/features/repos/diff/diff-model.js";
+} from "@test/helpers/diff-fixture-shapes.js";
+import { diffLineText, type DiffLine } from "./diff-model.js";
 import {
   diffGapKey,
   expandGap,
   type DiffGapExpansion,
   type DiffLineRow,
-} from "@renderer/features/repos/diff/diff-row-model.js";
-import { DiffRowIndex } from "@renderer/features/repos/diff/diff-row-index.js";
-import { IntralineSegmentCache } from "@renderer/features/repos/diff/intraline-segment-cache.js";
-import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js";
+} from "./diff-row-model.js";
+import { DiffRowIndex } from "./diff-row-index.js";
+import { IntralineSegmentCache } from "./intraline-segment-cache.js";
+import { parseUnifiedPatch } from "./patch-parse.js";
 
 const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
 
@@ -53,7 +48,7 @@ const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
  */
 const SINGLE_LARGE_HUNK_DIFF = buildDiffFixture(SINGLE_LARGE_HUNK_DIFF_SHAPE);
 
-describe("endurance — a forty-file, five-thousand-line diff", () => {
+describe("a forty-file, five-thousand-line diff", () => {
   it("addresses every row, and resolves every line row to a line", () => {
     const index = new DiffRowIndex(ENDURANCE_DIFF);
     let lineRowCount = 0;
@@ -81,10 +76,6 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
       index,
       Math.floor(index.rowCount * 0.99),
       index.rowCount / 100,
-    );
-    process.stdout.write(
-      `[endurance] rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
-        `tail ${tailMilliseconds.toFixed(2)} ms\n`,
     );
     // A generous ceiling: the tail must not be a multiple of the head, and shared-runner timing
     // noise needs the headroom.
@@ -143,10 +134,6 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
     }
     // Fifty viewports of sixty rows, and not one further flattening.
     expect(index.bodyLayoutBuildCount).toBe(1);
-    process.stdout.write(
-      `[endurance] one hunk: ${String(index.rowCount)} rows, ` +
-        `${String(index.bodyLayoutBuildCount)} body layouts built\n`,
-    );
   });
 
   it("costs no more per scroll deep inside one hunk than at its top", () => {
@@ -158,10 +145,6 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
       index,
       Math.floor(index.rowCount * 0.99),
       index.rowCount / 100,
-    );
-    process.stdout.write(
-      `[endurance] one hunk rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
-        `tail ${tailMilliseconds.toFixed(2)} ms\n`,
     );
     expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds * 8, 1));
   });
@@ -185,11 +168,11 @@ const PATHOLOGICAL_LINE_TOKEN_COUNT = 1_200;
  */
 const PATHOLOGICAL_PARSE_BUDGET_MS = 200;
 
-describe("endurance — one pathological line inside a five-thousand-line patch", () => {
+describe("one pathological line inside a five-thousand-line patch", () => {
   it("parses inside its budget, and the wide row falls back rather than being compared", () => {
     const patchText = pathologicalPatchText();
     const startedAt = performance.now();
-    const model = parseUnifiedPatch(patchText, { baseRef: "main", headRef: "feat/endurance" });
+    const model = parseUnifiedPatch(patchText, { baseRef: "main", headRef: "feat/large-diff" });
     const parseMilliseconds = performance.now() - startedAt;
 
     // The subject in numbers first, so a generator that quietly shrank cannot pass.
@@ -197,10 +180,6 @@ describe("endurance — one pathological line inside a five-thousand-line patch"
     expect(lines).toHaveLength(PATHOLOGICAL_PATCH_LINE_COUNT);
     const widestLineLength = diffLineText(lines[0] as DiffLine).length;
     expect(widestLineLength).toBeGreaterThan(20_000);
-    process.stdout.write(
-      `[endurance] pathological parse: ${parseMilliseconds.toFixed(1)} ms, ` +
-        `${String(lines.length)} lines, widest ${String(widestLineLength)} chars\n`,
-    );
     expect(parseMilliseconds).toBeLessThan(PATHOLOGICAL_PARSE_BUDGET_MS);
 
     // The row a reader scrolls to keeps its whole line, unsplit: the cost is not moved from

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { artifactManifest } from "@test/helpers/artifact-summaries.js";
+import { artifactManifest } from "./artifact-model.test-support.js";
 import { artifactManifestRowFrom, type ArtifactManifestRow } from "./artifact-model.js";
 
 describe("artifact manifest row — free-form maps a daemon can send and JSON cannot hold", () => {
@@ -73,7 +73,7 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
     // take down the list read.
     expect(rowWithMetadata(null).metadata).toStrictEqual({});
     expect(rowWithMetadata(undefined).metadata).toStrictEqual({});
-    expect(rowWithMetadata(null).digest).toBe("sha256:3b1f0c");
+    expect(rowWithMetadata(null).digest).toBe("sha256:2b4c");
   });
 
   it("negative control: a member that IS there is still read", () => {
