@@ -50,8 +50,8 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
   Object.freeze({
     // `--resume` / `--resume-session-at`.
     resume: true,
-    // No mid-turn content injection exists on the programmatic surface. Steer degrades to queue
-    // plus interrupt, a reported degradation; declaring `true` would turn it into a lost message.
+    // The driver sends no steer, so steer degrades to queue plus interrupt, a reported
+    // degradation; declaring `true` would turn it into a lost message.
     steer: false,
     // Control-request registry: tool-permission and clarification requests.
     interactive_requests: true,
