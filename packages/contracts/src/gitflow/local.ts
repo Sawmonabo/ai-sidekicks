@@ -312,14 +312,12 @@ const DiffCommitSchema: z.ZodType<DiffCommit> = z
   .strict();
 
 /**
- * The `gitflow.diffRead` result. `head` and `base` name the two ends. `partial` is
- * true when the daemon cut the diff short at the size the machine can hold.
- * `commits` is present on the branch comparison.
+ * The `gitflow.diffRead` result, always the whole diff: the daemon never cuts a patch at a size.
+ * `head` and `base` name the two ends; `commits` is present on the branch comparison.
  */
 export interface GitflowDiffReadResponse {
   head: string;
   base: string;
-  partial: boolean;
   files: DiffFile[];
   commits?: DiffCommit[] | undefined;
 }
@@ -328,7 +326,6 @@ export const GitflowDiffReadResponseSchema: z.ZodType<GitflowDiffReadResponse> =
   .object({
     head: z.string().min(1),
     base: z.string().min(1),
-    partial: z.boolean(),
     files: z.array(DiffFileSchema),
     commits: z.array(DiffCommitSchema).optional(),
   })

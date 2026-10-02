@@ -30,7 +30,6 @@ describe("gitflow.diffRead", () => {
   const result = (files: unknown[]) => ({
     head: "sidekicks/4f2a/rotate-keys",
     base: "main",
-    partial: false,
     files,
     commits: [
       {
