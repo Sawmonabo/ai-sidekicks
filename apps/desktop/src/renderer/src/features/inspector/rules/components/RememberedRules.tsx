@@ -34,7 +34,7 @@ export interface RememberedRulesProps {
 /** The standing permissions this session has granted, each with its revoke control. */
 export function RememberedRules(props: RememberedRulesProps): React.JSX.Element {
   const [confirmingRuleId, setConfirmingRuleId] = useState<string | undefined>(undefined);
-  // Ahead of the absence arms because a hook may not run behind a branch; with no readable
+  // Ahead of the empty-state arms because a hook may not run behind a branch; with no readable
   // rule the contribution is empty, which is what those arms show.
   useRevokeRuleCommands({
     rules: props.rules,

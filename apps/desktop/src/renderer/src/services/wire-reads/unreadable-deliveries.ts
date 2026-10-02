@@ -4,44 +4,49 @@
 // saw it, and the reading reports the stream as live but behind. Streams that tail a registered
 // union share these two fields so they do not drift into two vocabularies for one fact.
 // Whether a snapshot supersedes earlier counts is each owner's call, not a flag passed in here.
+// The failing member paths go to diagnostics, never into the refusal's sentence.
 
-import { refuse, refusedMemberPaths, type Refusal } from "@renderer/lib/refusal.js";
+import {
+  recordRefusedMemberPaths,
+  type RefusedMemberIssues,
+} from "@renderer/lib/diagnostic-capture/refused-member-record.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /** What a reading carries about the deliveries its stream could not read. */
 export interface UnreadableDeliveryReading {
   /** Deliveries that parsed as no registered shape on this stream. */
   readonly unreadableDeliveryCount: number;
-  /**
-   * The newest unreadable delivery's parse refusal, naming the members that failed. Only the
-   * newest is kept, and it carries member paths, never the payload.
-   */
+  /** The refusal standing for the stream's unreadable deliveries, once there has been one. */
   readonly unreadableRefusal: Refusal | undefined;
 }
 
-/**
- * A parse's issue list, narrowed to the `path` member a refusal sentence reads.
- *
- * Matches the parameter of `refusedMemberPaths`, so a composer built on that helper fits.
- */
-export type UnreadableDeliveryIssues = readonly { readonly path: readonly PropertyKey[] }[];
-
-/** The composer one stream hands its counter: an issue list in, that stream's refusal out. */
-export type UnreadableDeliveryRefusalComposer = (issues: UnreadableDeliveryIssues) => Refusal;
+/** One stream's own words for a delivery it could not read. */
+export interface UnreadableDeliveryStream {
+  /** The subsystem name every refusal this stream raises carries. */
+  readonly origin: string;
+  /**
+   * Which delivery did not parse, against which registered shape, and what did not change. No
+   * trailing punctuation.
+   */
+  readonly sentence: string;
+}
 
 /** The one code every stream raises for a delivery it could not read. */
 const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
 
 /**
- * One stream's unreadable-delivery count. The count and the refusal move together, so a
- * holder cannot advance one without the other; the stream owner supplies the refusal composer.
+ * One stream's unreadable-delivery count. The count and the refusal move together, so a holder
+ * cannot advance one without the other.
  */
 export class UnreadableDeliveryCounter {
-  readonly #refusalFor: UnreadableDeliveryRefusalComposer;
+  readonly #stream: UnreadableDeliveryStream;
+  readonly #refusal: Refusal;
   #unreadableDeliveryCount = 0;
   #unreadableRefusal: Refusal | undefined = undefined;
 
-  public constructor(refusalFor: UnreadableDeliveryRefusalComposer) {
-    this.#refusalFor = refusalFor;
+  public constructor(stream: UnreadableDeliveryStream) {
+    this.#stream = stream;
+    this.#refusal = refuse(stream.origin, UNREADABLE_DELIVERY_REFUSAL_CODE, `${stream.sentence}.`);
   }
 
   /** The two members a feed carries, as they stand. */
@@ -52,10 +57,16 @@ export class UnreadableDeliveryCounter {
     };
   }
 
-  /** Record one delivery this build could not read, and what it failed on. */
-  public record(issues: UnreadableDeliveryIssues): void {
+  /** Record one delivery this build could not read; what it failed on goes to diagnostics. */
+  public record(issues: RefusedMemberIssues): void {
     this.#unreadableDeliveryCount += 1;
-    this.#unreadableRefusal = this.#refusalFor(issues);
+    this.#unreadableRefusal = this.#refusal;
+    recordRefusedMemberPaths({
+      source: this.#stream.origin,
+      kind: UNREADABLE_DELIVERY_REFUSAL_CODE,
+      subject: "delivery",
+      issues,
+    });
   }
 
   /** Forget what is recorded, for a stream whose own reading has superseded it. */
@@ -63,26 +74,4 @@ export class UnreadableDeliveryCounter {
     this.#unreadableDeliveryCount = 0;
     this.#unreadableRefusal = undefined;
   }
-}
-
-/**
- * Builds a stream's unreadable-delivery refusal composer from that stream's own words. The
- * sentence names the failing member paths and never the payload, which is unvalidated and
- * unbounded.
- */
-export function unreadableDeliveryRefusalComposerFor(stream: {
-  /** The subsystem name every refusal this stream raises carries. */
-  readonly origin: string;
-  /**
-   * What a person reads before the failing members: which delivery did not parse, against
-   * which registered shape, and what did not change. No trailing punctuation.
-   */
-  readonly sentence: string;
-}): UnreadableDeliveryRefusalComposer {
-  return (issues) =>
-    refuse(
-      stream.origin,
-      UNREADABLE_DELIVERY_REFUSAL_CODE,
-      `${stream.sentence}: ${refusedMemberPaths(issues).join(", ")}.`,
-    );
 }

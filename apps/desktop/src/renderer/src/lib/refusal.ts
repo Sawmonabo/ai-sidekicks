@@ -53,18 +53,6 @@ export function refuse<Code extends string>(
 }
 
 /**
- * The member paths a parse refused on, for a refusal's sentence. Paths only, never the refused
- * value: a stream payload may be user content.
- */
-export function refusedMemberPaths(
-  issues: readonly { readonly path: readonly PropertyKey[] }[],
-): readonly string[] {
-  return issues.map((issue) =>
-    issue.path.length === 0 ? "the payload" : issue.path.map(String).join("."),
-  );
-}
-
-/**
  * True when a value is a refusal. Total: callers are on a failure path holding whatever was
  * thrown, so each read goes through `readGuardedProperty` and a throwing getter or Proxy trap
  * counts as absent instead of escaping the guard.

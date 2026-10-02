@@ -104,7 +104,7 @@ function navigationRegistry(ran: string[]): CommandRegistry {
     {
       id: "frame.goToSessions",
       title: "Sessions",
-      group: "Console",
+      group: "App",
       run: () => {
         ran.push("sessions");
       },
@@ -112,7 +112,7 @@ function navigationRegistry(ran: string[]): CommandRegistry {
     {
       id: "frame.goToWorkflows",
       title: "Flows",
-      group: "Console",
+      group: "App",
       run: () => {
         ran.push("workflows");
       },

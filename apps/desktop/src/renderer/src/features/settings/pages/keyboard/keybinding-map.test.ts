@@ -8,6 +8,7 @@ import {
   type CommandDefinition,
   type Keybinding,
 } from "@renderer/registries/commands/command-types.js";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,
@@ -16,7 +17,7 @@ import {
   type ChordRecording,
 } from "./keybinding-map.js";
 
-function command(id: string, title: string, group = "Navigation"): CommandDefinition {
+function command(id: string, title: string, group = "App"): CommandDefinition {
   return { id, title, group, run: () => undefined };
 }
 
@@ -39,13 +40,13 @@ function press(
 
 describe("composing rows", () => {
   const commands = [
-    command("frame.goToWorkflows", "Go to workflows"),
-    command("frame.goToSessions", "Go to sessions"),
-    command("app.checkForUpdates", "Check for updates", "Application"),
+    command("frame.goToWorkflows", "Workflows"),
+    command("frame.goToSessions", "Sessions"),
+    command("bridge.checkForUpdates", "Check for updates", "Help"),
   ];
   const bindings: readonly Keybinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions" },
-    { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
+    { chord: "$mod+2", commandId: "frame.goToWorkflows", when: WHEN_SESSION_ACTIVE },
   ];
 
   it("carries each command's chord, and invents none for an unbound command", () => {
@@ -57,11 +58,11 @@ describe("composing rows", () => {
     });
     const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workflows?.chord).toBe("$mod+2");
-    expect(rows.find((row) => row.commandId === "app.checkForUpdates")?.chord).toBeUndefined();
+    expect(rows.find((row) => row.commandId === "bridge.checkForUpdates")?.chord).toBeUndefined();
     // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
     // the first.
     expect(
-      rows.find((row) => row.commandId === "app.checkForUpdates")?.shippedChord,
+      rows.find((row) => row.commandId === "bridge.checkForUpdates")?.shippedChord,
     ).toBeUndefined();
   });
 
@@ -86,14 +87,15 @@ describe("composing rows", () => {
       commands,
       bindings,
       shippedBindings: bindings,
-      overrides: { "frame.goToSessions": "$mod+1", "app.checkForUpdates": null },
+      overrides: { "frame.goToSessions": "$mod+1", "bridge.checkForUpdates": null },
       platform: "darwin",
     });
     const changed = rows.filter((row) => row.overridden).map((row) => row.commandId);
-    expect(changed).toStrictEqual(["app.checkForUpdates", "frame.goToSessions"]);
+    // In the page's order: by group, so `App` before `Help`.
+    expect(changed).toStrictEqual(["frame.goToSessions", "bridge.checkForUpdates"]);
   });
 
-  it("carries the chord the console ships, so a reset can name what it restores", () => {
+  it("carries the chord the app ships, so a reset can name what it restores", () => {
     // Composed against a changed effective table: the shipped chord must survive the override.
     const rows = composeKeybindingRows({
       commands,
@@ -109,7 +111,7 @@ describe("composing rows", () => {
 });
 
 describe("reading a keystroke as a chord", () => {
-  it("composes the held modifiers and the physical key, in the console's order", () => {
+  it("composes the held modifiers and the physical key, in the app's order", () => {
     const read = readChordFromEvent(
       press({ key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
       "darwin",
@@ -209,12 +211,12 @@ describe("reading what is held right now", () => {
 
 describe("filtering rows", () => {
   const bindings: readonly Keybinding[] = [
-    { chord: "$mod+1", commandId: "frame.goToSessions", when: "sessionActive" },
+    { chord: "$mod+1", commandId: "frame.goToSessions", when: WHEN_SESSION_ACTIVE },
   ];
   const rows = composeKeybindingRows({
     commands: [
-      command("frame.goToSessions", "Go to sessions"),
-      command("app.checkForUpdates", "Check for updates", "Application"),
+      command("frame.goToSessions", "Sessions"),
+      command("bridge.checkForUpdates", "Check for updates", "Help"),
     ],
     bindings,
     shippedBindings: bindings,

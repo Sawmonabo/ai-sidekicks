@@ -97,7 +97,7 @@ export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Elemen
 }
 
 /**
- * The panel's arms; each absence is its own kind.
+ * The panel's arms; each empty state is its own kind.
  *
  * The session-empty copy is gated on what the read returned, so a filter that matches
  * nothing never tells a session holding artifacts it has none.

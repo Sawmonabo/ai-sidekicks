@@ -10,7 +10,7 @@ import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 
 /**
  * What the header knows about one of its reads at one moment. There is no `unasked` arm: a
- * route naming no session stays at `reading` and the header words the absence itself.
+ * route naming no session stays at `reading` and the header draws that empty state itself.
  */
 export type SessionHeaderReadState<TValue> =
   | { readonly status: "reading" }

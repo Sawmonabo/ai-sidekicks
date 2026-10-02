@@ -20,7 +20,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
   return {
     // The scenario's untyped reply is cast to `DaemonResult<M>` here, the one place the fixture
     // claims a type. The check holds each registered method to its response schema; a method
-    // the console does not call passes unchecked.
+    // the app does not call passes unchecked.
     call: async <MethodName extends DaemonMethod>(
       method: MethodName,
       params: DaemonParams<MethodName>,
@@ -35,7 +35,7 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
       _params: DaemonSubscribeParams<EventName>,
       handler: (payload: DaemonEventPayload<EventName>) => void,
     ): Unsubscribe =>
-      // The delivery is untyped scenario data cast to `DaemonEventPayload<E>`; the console
+      // The delivery is untyped scenario data cast to `DaemonEventPayload<E>`; the app
       // parses every delivery at its own boundary, as it does the live bridge's.
       subscribeToScenario(scenarioEngine, event, (delivered) => {
         handler(delivered as DaemonEventPayload<EventName>);

@@ -1,5 +1,5 @@
 // The fixture's whole-session stream answers as the daemon's does: replay-then-tail, in frames
-// within the contract's bound. The console's real subscriber names this stream, so every scenario
+// within the contract's bound. The app's real subscriber names this stream, so every scenario
 // tier reads the session through it. Every case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";

@@ -30,7 +30,7 @@ export type ScenarioRefusalEnvelope = WireErrorEnvelope & {
  * A canned reply that refuses, in the shape the wire refuses in. Without this arm no typed daemon
  * refusal a view renders would be reachable, since `FixtureBridgeError` names only what the
  * fixture could not do. The shape is `WireErrorEnvelope` from `lib/wire-errors.ts`, the
- * console's one reading of it; any other shape would train a view against a value the live bridge
+ * app's one reading of it; any other shape would train a view against a value the live bridge
  * never sends.
  */
 export interface ScenarioRejectingReply extends ScenarioReplyBase {

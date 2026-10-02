@@ -18,8 +18,8 @@ import { TerminalPane } from "./components/TerminalPane.js";
  *
  * It is not detachable into a window of its own: a session has one shared shell, and its write
  * lease is held from one device at a time, so a torn-off pane would put it behind two mount
- * points. `render` goes through `paneBodyForKind` so a mount at another kind's address is
- * refused rather than opening a second view on that shell.
+ * points. `render` goes through `paneBodyForKind`, which narrows the context to this kind and
+ * throws on another, so no mount at another kind's address opens a second view on that shell.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "terminal",

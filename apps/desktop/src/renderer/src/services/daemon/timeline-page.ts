@@ -1,8 +1,8 @@
-// Reads one backward `timeline.read` window as the console's own event log. The store's log is
+// Reads one backward `timeline.read` window as the app's own event log. The store's log is
 // `ProjectedSessionEvent` and no feature reads a wire shape, so this is the second decode boundary
 // after `session-event-payload.ts`.
 //
-// A page is decoded into the log rather than shown as rows because the console projects the
+// A page is decoded into the log rather than shown as rows because the app projects the
 // daemon's derived `summary`, `position` and `epoch` itself over the whole window it holds; a row
 // spliced in with ordinals from another window would disagree with its neighbors. The decode is
 // total: every member the log holds is required on the row except an optional `actor`, so no row is
@@ -15,7 +15,7 @@ import type { ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 /** One backward window, in the shape the store's log speaks. */
 export interface EarlierTimelinePage {
   /**
-   * The window's rows as console events, in the order the producer sent them. Not re-sorted: the
+   * The window's rows as app events, in the order the producer sent them. Not re-sorted: the
    * response schema already orders `entries` oldest to newest, and the store's merge orders what
    * it admits.
    */
@@ -34,7 +34,7 @@ export interface EarlierTimelinePage {
 }
 
 /**
- * Reads one backward `timeline.read` window into the console's event log. It takes the parsed
+ * Reads one backward `timeline.read` window into the app's event log. It takes the parsed
  * response because `callDaemon` has already held the reply to the registered schema.
  */
 export function readEarlierTimelinePage(response: TimelineReadResponse): EarlierTimelinePage {

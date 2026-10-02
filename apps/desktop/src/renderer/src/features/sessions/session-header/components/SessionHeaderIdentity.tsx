@@ -8,7 +8,7 @@ import { SessionTitle } from "./SessionTitle.js";
 
 /** What the identity renders from. */
 export interface SessionHeaderIdentityProps {
-  /** `undefined` on a route that names no session, rendered as an absence. */
+  /** `undefined` on a route that names no session, rendered as an empty state. */
   readonly sessionId: string | undefined;
   /** The session's display title, where it has one. */
   readonly title: string | undefined;

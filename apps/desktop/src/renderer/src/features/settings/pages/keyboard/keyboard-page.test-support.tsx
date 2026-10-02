@@ -22,7 +22,7 @@ import { KeyboardPage } from "./KeyboardPage.js";
 const TEST_COMMAND_IDS = [
   "frame.goToSessions",
   "frame.goToWorkflows",
-  "app.checkForUpdates",
+  "bridge.checkForUpdates",
 ] as const;
 
 /**
@@ -80,20 +80,20 @@ beforeEach(() => {
   commandRegistry.registerAll([
     {
       id: "frame.goToSessions",
-      title: "Go to sessions",
-      group: "Navigation",
+      title: "Sessions",
+      group: "App",
       run: () => undefined,
     },
     {
       id: "frame.goToWorkflows",
-      title: "Go to workflows",
-      group: "Navigation",
+      title: "Workflows",
+      group: "App",
       run: () => undefined,
     },
     {
-      id: "app.checkForUpdates",
+      id: "bridge.checkForUpdates",
       title: "Check for updates",
-      group: "Application",
+      group: "Help",
       run: () => undefined,
     },
   ]);

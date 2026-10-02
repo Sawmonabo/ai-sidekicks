@@ -22,8 +22,8 @@ registerTranscriptRows();
 
 /**
  * The transcript at an address the pane layout resolved to this kind. `paneBodyForKind` does the
- * narrowing and renders a refusal for a mismatched arm, so one bad layout row loses that row, not
- * the pane layout. `createElement` because this is a `.ts` module and `.tsx` is for components.
+ * narrowing and throws on a context of another kind, which only a body registered under the wrong
+ * kind receives. `createElement` because this is a `.ts` module and `.tsx` is for components.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "transcript",

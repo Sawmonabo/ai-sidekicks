@@ -1,7 +1,7 @@
 // Renders TeX with KaTeX: the renderer's one `dangerouslySetInnerHTML` site, because KaTeX only
 // produces a markup string. KaTeX loads lazily, settled blocks only, with `trust: false` (model
 // output must not emit `\href`, `\url` or a class), MathML output and `strict: false`. An
-// unparseable formula shows its source beside a named absence, never KaTeX's red error text.
+// unparseable formula shows its source beside an error state, never KaTeX's red error text.
 
 import { useEffect, useState } from "react";
 
@@ -15,7 +15,7 @@ export interface MathBlockProps {
   readonly isDisplayMode: boolean;
 }
 
-/** A formula typeset by KaTeX, or its source beside a named absence when it cannot be. */
+/** A formula typeset by KaTeX, or its source beside an error state when it cannot be. */
 export function MathBlock(props: MathBlockProps): React.JSX.Element {
   const state = useKatexMarkup(props.source, props.isDisplayMode);
 

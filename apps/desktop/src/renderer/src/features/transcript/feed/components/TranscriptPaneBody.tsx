@@ -1,13 +1,13 @@
-// The transcript pane's body: the feed, or the one absence that stands in for it while no session
-// is open. It draws no body box: `PaneFrame` renders `.meridian-pane__body`, and a wrapper would
-// break the flex chain the feed's scroll container depends on.
+// The transcript pane's body: the feed, or the one empty state that stands in for it while no
+// session is open. It draws no body box: `PaneFrame` renders `.meridian-pane__body`, and a wrapper
+// would break the flex chain the feed's scroll container depends on.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
-/** What the body needs to choose between the feed and its absence. */
+/** What the body needs to choose between the feed and its empty state. */
 export interface TranscriptPaneBodyProps {
   /** The registered row renderer. */
   readonly renderTranscriptRow: TranscriptRowRenderer;

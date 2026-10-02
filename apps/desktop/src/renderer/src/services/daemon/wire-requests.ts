@@ -1,7 +1,7 @@
 // Readers for the three composed requests a caller builds by hand. `callDaemon` parses every
 // request before sending it, so most callers need no reader. These three are discriminated arms
 // whose required members depend on which control was pressed, and only the view can say "the
-// console could not build a request for this control", so it reads the composed value first and
+// app could not build a request for this control", so it reads the composed value first and
 // `callDaemon` parses it again on the way out. A contracts `*Schema` is importable only in
 // `services/`, so features consume a typed reader. Each returns the value or `undefined`; the
 // caller composes any refusal.

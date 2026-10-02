@@ -1,4 +1,4 @@
-// The schemas each daemon method the console calls is parsed against, in both directions. A
+// The schemas each daemon method the app calls is parsed against, in both directions. A
 // registry keyed by method name makes the parse unskippable: the bridge's `daemon.call` is typed
 // by the method map, but a type does not check what the other process actually sent.
 //
@@ -36,7 +36,7 @@ export type DaemonMethodBindings = {
   };
 };
 
-/** The namespaces the console calls into, merged so one lookup finds any of their methods. */
+/** The namespaces the app calls into, merged so one lookup finds any of their methods. */
 const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...DRIVER_METHOD_DESCRIPTORS,
   ...TIMELINE_METHOD_DESCRIPTORS,
@@ -60,7 +60,7 @@ export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = Object.freeze(
 /**
  * The descriptor for one method name known only at runtime, or `undefined`.
  * For the fixture bridge, which is handed a call name by a scenario and must decide whether the
- * console parses that method; typed callers index the table directly.
+ * app parses that method; typed callers index the table directly.
  */
 export function daemonMethodBindingFor(method: string): AnyMethodDescriptor | undefined {
   return Object.hasOwn(DAEMON_METHOD_BINDINGS, method)

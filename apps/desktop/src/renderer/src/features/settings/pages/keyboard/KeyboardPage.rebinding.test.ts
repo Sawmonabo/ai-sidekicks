@@ -26,12 +26,12 @@ describe("keyboard page — what it changes", () => {
     await recordChordOnto(container, "Check for updates", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBe("Alt+KeyJ");
     });
     // The seam the frame installs from, not a copy the page keeps.
     expect(
       keybindingOverrides.snapshot.bindings.find(
-        (binding) => binding.commandId === "app.checkForUpdates",
+        (binding) => binding.commandId === "bridge.checkForUpdates",
       )?.chord,
     ).toBe("Alt+KeyJ");
     expect(rowOf(container, "Check for updates").textContent ?? "").toContain("Reset");
@@ -41,13 +41,13 @@ describe("keyboard page — what it changes", () => {
     const { container } = renderKeyboardPage();
     await recordChordOnto(container, "Check for updates", RECORDED_PRESS);
     await waitFor(() => {
-      expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBe("Alt+KeyJ");
     });
 
-    await recordChordOnto(container, "Go to sessions", RECORDED_PRESS);
+    await recordChordOnto(container, "Sessions", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(rowOf(container, "Go to sessions").textContent ?? "").toContain(
+      expect(rowOf(container, "Sessions").textContent ?? "").toContain(
         "already opens Check for updates.",
       );
     });
@@ -62,7 +62,7 @@ describe("keyboard page — what it changes", () => {
     const { container } = renderKeyboardPage();
     expect(keybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
 
-    const reset = rowOf(container, "Go to sessions").querySelector(".meridian-keymap__reset");
+    const reset = rowOf(container, "Sessions").querySelector(".meridian-keymap__reset");
     expect(reset).not.toBeNull();
     await act(async () => {
       fireEvent.click(reset as Element);
@@ -84,7 +84,7 @@ describe("keyboard page — what it changes", () => {
       altKey: true,
     });
 
-    expect(keybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBeUndefined();
     // Still armed, so the next press is the chord.
     expect(recorderOf(container, "Check for updates").getAttribute("aria-pressed")).toBe("true");
     expect(politeText(container)).toBe("");

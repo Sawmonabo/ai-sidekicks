@@ -1,4 +1,4 @@
-// Widens a console-held id string to the branded id a registered request declares. Held ids are
+// Widens an app-held id string to the branded id a registered request declares. Held ids are
 // plain strings (route params, scenario data, rendered rows), so a caller widens where a held id
 // meets a request. `callDaemon` parses the whole request through the contracts schema that owns the
 // brand, so a malformed id is refused as `request-unsendable`; a cast anywhere else would carry no
