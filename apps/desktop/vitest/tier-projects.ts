@@ -167,7 +167,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     //
     // It imports renderer source, and the global it asserts on belongs to the renderer in another
     // process, so the fixture flag is `false` as in `e2e`, like `main-unit`'s
-    // `__SIDEKICKS_SMOKE_BUILD__` define.
+    // `__SMOKE_BUILD__` define.
     define: {
       __FIXTURE_BUILD__: "false",
     },

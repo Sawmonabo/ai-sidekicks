@@ -56,7 +56,7 @@ export default defineConfig({
           // Mirrors the release substitution in `electron.vite.config.ts`, so `main/index.ts`'s
           // probe branch is statically dead here exactly as in a release bundle. Without it the
           // bare identifier is a ReferenceError the moment the ready continuation runs.
-          __SIDEKICKS_SMOKE_BUILD__: "false",
+          __SMOKE_BUILD__: "false",
           // `main/index.ts`'s fixture-launch check and `src/main/windows/window-reveal.ts`'s hidden
           // windows; substituted for the same reason as above.
           __FIXTURE_BUILD__: "false",

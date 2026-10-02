@@ -19,7 +19,7 @@
 // the npm package's installer script, which returns a binary path. The preset declares this, but
 // the `rollupOptions.output` override loses it through `mergeConfig`, so it is re-declared here.
 //
-// The smoke probe: `main`'s `define` substitutes `__SIDEKICKS_SMOKE_BUILD__` with `false` in every
+// The smoke probe: `main`'s `define` substitutes `__SMOKE_BUILD__` with `false` in every
 // build but `--mode=smoke`, and the probe branch in `src/main/index.ts` is gated on it, so Rollup
 // folds the branch out of a release bundle. A runtime `SIDEKICKS_SMOKE_PROBE=1` gate keeps even the
 // smoke bundle from running the probe on its own.
@@ -135,7 +135,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // See the header on `define`: a textual substitution, so Rollup folds `if (false && expr)`
       // and drops the probe body from the release bundle.
       define: {
-        __SIDEKICKS_SMOKE_BUILD__: JSON.stringify(isSmokeBuild),
+        __SMOKE_BUILD__: JSON.stringify(isSmokeBuild),
         // The fixture gate reaches `main` too, because main checks a
         // `--fixture` launch against the scenario catalog. A release main bundle
         // folds the check and its catalog import away and refuses the argument.

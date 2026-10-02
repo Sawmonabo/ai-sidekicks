@@ -1,4 +1,4 @@
-// The smoke probe. The caller's compile-time `__SIDEKICKS_SMOKE_BUILD__` gate means a release
+// The smoke probe. The caller's compile-time `__SMOKE_BUILD__` gate means a release
 // build references nothing here and, with no top-level side effects, Rollup drops the whole
 // module from `out/main/index.js`.
 

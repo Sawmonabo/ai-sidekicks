@@ -1,4 +1,4 @@
-// The window lifecycle-reachability probe. The caller's compile-time `__SIDEKICKS_SMOKE_BUILD__`
+// The window lifecycle-reachability probe. The caller's compile-time `__SMOKE_BUILD__`
 // gate means a release build references nothing here and Rollup drops the module.
 //
 // It runs GC-pressure cycles sampling `v8.queryObjects(BrowserWindow)`, closes every window,
