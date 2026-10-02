@@ -144,7 +144,7 @@ export function KeyboardPage(): ReactNode {
             value={query}
             spellCheck={false}
             autoComplete="off"
-            placeholder="Settings, $mod+K, session"
+            placeholder="Go to settings, $mod+K, session"
             onChange={(event) => {
               setQuery(event.target.value);
             }}

@@ -70,7 +70,7 @@ export function buildNavigationCommands(
   return RAIL_DESTINATIONS.map((destination) => ({
     id: RAIL_NAVIGATION_DETAILS[destination].commandId,
     title: RAIL_ENTRY_TEMPLATES[destination].label,
-    group: "Console",
+    group: "App",
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
       warmDestination(screenRegistry, destination);
