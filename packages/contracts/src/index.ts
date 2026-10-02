@@ -1120,8 +1120,16 @@ export type {
   VoiceSettings,
   WebAddressSettings,
 } from "./machine-settings.js";
-export { MCP_EVENT_METHOD_DESCRIPTORS, McpGovernanceEventSchema } from "./mcp-event.js";
-export type { McpEventMethodDescriptors, McpGovernanceEvent } from "./mcp-event.js";
+export {
+  MCP_EVENT_METHOD_DESCRIPTORS,
+  McpGovernanceEventSchema,
+  McpSubscribeEmissionSchema,
+} from "./mcp-event.js";
+export type {
+  McpEventMethodDescriptors,
+  McpGovernanceEvent,
+  McpSubscribeEmission,
+} from "./mcp-event.js";
 export {
   MCP_CONFIG_INVALID_CODE,
   MCP_CONFIG_WRITE_CONFLICT_CODE,
@@ -1165,6 +1173,7 @@ export {
   McpRegistrySearchResponseSchema,
   McpRemoveServerResultSchema,
   McpServerBindingRefSchema,
+  McpServerConfigChangedNoticeSchema,
   McpServerNameSchema,
   McpServerStatusSchema,
   McpSetEnabledRequestSchema,
@@ -1199,6 +1208,7 @@ export type {
   McpRegistryServer,
   McpRemoveServerResult,
   McpServerBindingRef,
+  McpServerConfigChangedNotice,
   McpServerConfigInput,
   McpServerConfigView,
   McpServerFailedReason,

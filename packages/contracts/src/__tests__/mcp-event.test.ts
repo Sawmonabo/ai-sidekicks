@@ -1,4 +1,4 @@
-// The `mcp.subscribe` stream carries governance events and nothing else: a
+// The session events on the `mcp.subscribe` stream are governance events only: a
 // client validating a frame with `McpGovernanceEventSchema` is refused any other
 // session event, so a daemon that filtered wrongly cannot hand it one.
 import { describe, expect, it } from "vitest";

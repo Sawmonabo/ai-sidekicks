@@ -135,6 +135,21 @@ const bindingAddressed = <Extra extends z.ZodRawShape>(extra: Extra) =>
 export const McpServerBindingRefSchema: z.ZodType<McpServerBindingRef, McpServerBindingRef> =
   bindingAddressed({});
 
+/**
+ * The live notice `mcp.subscribe` sends after each edit to a binding, from this machine or a
+ * linked device: an add, a change, a switch on or off, a tool override or a removal. A page
+ * showing the binding reads it again with `mcp.get`; a removed one answers
+ * `mcp.server_not_found`. The notice is sent live only and is written to no session's log.
+ */
+export type McpServerConfigChangedNotice = McpServerBindingRef & {
+  type: "mcp.server_config_changed";
+};
+/** Parses an {@link McpServerConfigChangedNotice}. */
+export const McpServerConfigChangedNoticeSchema: z.ZodType<
+  McpServerConfigChangedNotice,
+  McpServerConfigChangedNotice
+> = bindingAddressed({ type: z.literal("mcp.server_config_changed") });
+
 /** Turns one binding on or off. A retry of one press reuses its key. */
 export type McpSetEnabledRequest = McpServerBindingRef & {
   clientIdempotencyKey: string;

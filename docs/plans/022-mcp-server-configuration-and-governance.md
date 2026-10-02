@@ -289,7 +289,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T28.2.10 — `mcp.subscribe` live-tail fan-out with the gap-free handshake.**
   - Files: `packages/runtime-daemon/src/ipc/handlers/mcp-subscribe-handler.ts` (CREATE)
-  - Long-lived subscription the person reads, delivering every `mcp_governance` envelope — sentinel-bound and session-bound alike — as the daemon appends it. Registration MUST be live before the first delivery so the subscribe-acknowledgment-then-`mcp.list` handshake is gap-free (the Plan-005 I-005-9 wire-ordering invariant). Live-tail only: nothing appended before the acknowledgment is delivered; history remains the sentinel session's log.
+  - Long-lived subscription the person reads, delivering every `mcp_governance` envelope — sentinel-bound and session-bound alike — as the daemon appends it. Registration MUST be live before the first delivery so the subscribe-acknowledgment-then-`mcp.list` handshake is gap-free (the Plan-005 I-005-9 wire-ordering invariant). Live-tail only: nothing appended before the acknowledgment is delivered; history remains the sentinel session's log. After each committed edit to a binding — `mcp.upsertServer`, `mcp.removeServer`, `mcp.setEnabled`, `mcp.setToolOverride`, `mcp.clearToolOverride` — it also sends the live notice `McpServerConfigChangedNotice` (`packages/contracts/src/mcp.ts`), the binding's address under `type: 'mcp.server_config_changed'`, appended to no log.
   - **Spec coverage:** Spec-024 §Status Observation and Events
   - **Verifies invariant:** none (delivery ordering; the gap-free assertion rides T28.5.8's AC sweep)
   - **Consumes:** the streaming primitive + I-005-9 ordering guarantee ← Plan-005-partial `streaming-primitive.ts` (shipped).
