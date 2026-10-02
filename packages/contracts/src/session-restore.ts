@@ -89,6 +89,13 @@ const SessionRestoreScopeSchema: z.ZodType<SessionRestoreScope, SessionRestoreSc
   "files",
 ]);
 
+const partsOf = (scope: SessionRestoreScope | "nothing"): SessionRestorePart[] =>
+  scope === "nothing"
+    ? []
+    : scope === "conversation-and-files"
+      ? ["conversation", "files"]
+      : [scope];
+
 /**
  * Why a file is skipped rather than put back:
  *
@@ -259,8 +266,8 @@ export interface SessionRestoreFileOutcome {
 }
 
 /**
- * A finished undo: what was asked, what went back, and why each other asked-for part did not.
- * `files` is present exactly when the files went back.
+ * A finished undo: what was asked, what went back, and the daemon's reason for every asked-for
+ * part that did not. `files` is present exactly when the files went back.
  */
 export interface SessionRestoreFinished {
   outcome: "restore-finished";
@@ -307,11 +314,21 @@ export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.dis
       .strict()
       .refine(
         (finished) =>
-          (finished.files !== undefined) ===
-          (finished.restored === "files" || finished.restored === "conversation-and-files"),
+          (finished.files !== undefined) === partsOf(finished.restored).includes("files"),
         {
           path: ["files"],
           message: "The files outcome is present exactly when the files went back.",
+        },
+      )
+      .refine(
+        (finished) =>
+          partsOf(finished.requested).every(
+            (part) =>
+              partsOf(finished.restored).includes(part) || finished.failures?.[part] !== undefined,
+          ),
+        {
+          path: ["failures"],
+          message: "Every asked-for part that did not go back carries the daemon's reason.",
         },
       ),
     z.object({ outcome: z.literal("resend-unapplied"), reason: z.string().min(1) }).strict(),

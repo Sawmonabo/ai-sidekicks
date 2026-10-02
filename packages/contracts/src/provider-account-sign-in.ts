@@ -232,9 +232,9 @@ export const ProviderAccountLoginResponseSchema: z.ZodType<ProviderAccountLoginR
       PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN,
       "ProviderAccountLoginResponse.attemptId",
     ),
-    // A URL, not a free-form string: the person opens this value, so a non-URL must fail here
-    // rather than reach a browser. The length cap guards against a pathological query string.
-    verificationUri: z.url().max(PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN),
+    // An https URL, not a free-form string: the person opens this value, so anything else must
+    // fail here rather than reach a browser.
+    verificationUri: z.url({ protocol: /^https$/u }).max(PROVIDER_LOGIN_VERIFICATION_URI_MAX_LEN),
     userCode: wireFreeFormString(
       PROVIDER_LOGIN_USER_CODE_MAX_LEN,
       "ProviderAccountLoginResponse.userCode",

@@ -333,7 +333,10 @@ const mcpRequestText = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
 
 /** An `http:` or `https:` address, taken as typed, a user name or password in it included. */
-const mcpServerAddressSchema = z.url({ protocol: /^https?$/ }).max(MCP_REQUEST_TEXT_MAX_LEN);
+// An `http:` or `https:` address; `http:` is legal because a server may listen on loopback.
+const mcpHttpAddressSchema = z.url({ protocol: /^https?$/u });
+
+const mcpServerAddressSchema = mcpHttpAddressSchema.max(MCP_REQUEST_TEXT_MAX_LEN);
 
 const mcpTimeoutSecondsSchema = z.number().positive();
 
@@ -711,7 +714,7 @@ export interface McpOauthLoginResponse {
 }
 /** Parses an {@link McpOauthLoginResponse}. */
 export const McpOauthLoginResponseSchema: z.ZodType<McpOauthLoginResponse> = z
-  .object({ authorizationUrl: z.url().optional() })
+  .object({ authorizationUrl: mcpHttpAddressSchema.optional() })
   .strict();
 
 /** What signing out answers with; each binding's new status arrives on the stream. */
@@ -791,7 +794,7 @@ export const McpRegistrySearchResponseSchema: z.ZodType<McpRegistrySearchRespons
               })
               .strict(),
           ),
-          remotes: z.array(z.object({ type: z.string(), url: z.url() }).strict()),
+          remotes: z.array(z.object({ type: z.string(), url: mcpHttpAddressSchema }).strict()),
           environmentVariables: z.array(
             z
               .object({

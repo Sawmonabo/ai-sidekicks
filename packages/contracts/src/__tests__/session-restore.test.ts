@@ -57,4 +57,19 @@ describe("session.restore", () => {
     };
     expect(SessionRestoreResultSchema.safeParse(figuresWithoutFiles).success).toBe(false);
   });
+
+  it("refuses a result that leaves an asked-for part unrestored with no reason", () => {
+    const nothingBack = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "nothing",
+      failures: { files: { reason: "A file is locked." } },
+    };
+    expect(SessionRestoreResultSchema.safeParse(nothingBack).success).toBe(false);
+    const withBothReasons = {
+      ...nothingBack,
+      failures: { ...nothingBack.failures, conversation: { reason: "The provider refused." } },
+    };
+    expect(SessionRestoreResultSchema.safeParse(withBothReasons).success).toBe(true);
+  });
 });
