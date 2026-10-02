@@ -138,9 +138,9 @@ describe("daemon.machineSettingsUpdate", () => {
   });
 
   it.each([
-    ["ANTHROPIC_API_KEY", "credentialShaped"],
-    ["DISABLE_AUTOUPDATER", "setByApp"],
-    ["NOT-A-NAME", "notAName"],
+    ["ANTHROPIC_API_KEY", "credential_shaped"],
+    ["DISABLE_AUTOUPDATER", "set_by_app"],
+    ["NOT-A-NAME", "not_a_name"],
   ] as const)("refuses the row %s as %s and writes nothing", async (name, reason) => {
     const dispatched = registry.dispatch(
       "daemon.machineSettingsUpdate",

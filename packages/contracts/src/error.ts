@@ -1,4 +1,4 @@
-// Wire error envelopes and their codes: `resource.limit_exceeded`, `PtyBackendUnavailable` and
+// Wire error envelopes and their codes: `resource.limit_exceeded`, `pty.backend_unavailable` and
 // `event.cursor_unresolvable`.
 import { z } from "zod";
 
@@ -11,12 +11,9 @@ export type ResourceLimitExceededCode = "resource.limit_exceeded";
 export const RESOURCE_LIMIT_EXCEEDED_CODE: ResourceLimitExceededCode = "resource.limit_exceeded";
 
 /** Type of {@link PTY_BACKEND_UNAVAILABLE_CODE}. */
-export type PtyBackendUnavailableCode = "PtyBackendUnavailable";
-/**
- * Error code for a PTY backend that cannot be constructed. The PascalCase literal is fixed:
- * daemon throwers and SDK consumers compare against this exact string.
- */
-export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBackendUnavailable";
+export type PtyBackendUnavailableCode = "pty.backend_unavailable";
+/** Error code for a PTY backend that cannot be constructed. */
+export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "pty.backend_unavailable";
 
 /** Type of {@link EVENT_CURSOR_UNRESOLVABLE_CODE}. */
 export type EventCursorUnresolvableCode = "event.cursor_unresolvable";

@@ -83,19 +83,19 @@ describe("the environment-name rule", () => {
   });
 
   it("refuses what is not a name", () => {
-    expect(environmentNameRefusal("1PROXY")).toBe("notAName");
-    expect(environmentNameRefusal("MY-PROXY")).toBe("notAName");
+    expect(environmentNameRefusal("1PROXY")).toBe("not_a_name");
+    expect(environmentNameRefusal("MY-PROXY")).toBe("not_a_name");
   });
 
   it("refuses a credential-shaped name in any case", () => {
-    expect(environmentNameRefusal("ANTHROPIC_API_KEY")).toBe("credentialShaped");
-    expect(environmentNameRefusal("github_token")).toBe("credentialShaped");
-    expect(environmentNameRefusal("DB_PASSWORD")).toBe("credentialShaped");
+    expect(environmentNameRefusal("ANTHROPIC_API_KEY")).toBe("credential_shaped");
+    expect(environmentNameRefusal("github_token")).toBe("credential_shaped");
+    expect(environmentNameRefusal("DB_PASSWORD")).toBe("credential_shaped");
   });
 
   it("refuses a name the app sets itself, in any case", () => {
-    expect(environmentNameRefusal("DISABLE_AUTOUPDATER")).toBe("setByApp");
-    expect(environmentNameRefusal("disable_updates")).toBe("setByApp");
-    expect(environmentNameRefusal("CODEX_APP_SERVER_BIN")).toBe("setByApp");
+    expect(environmentNameRefusal("DISABLE_AUTOUPDATER")).toBe("set_by_app");
+    expect(environmentNameRefusal("disable_updates")).toBe("set_by_app");
+    expect(environmentNameRefusal("CODEX_APP_SERVER_BIN")).toBe("set_by_app");
   });
 });
