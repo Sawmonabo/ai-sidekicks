@@ -1,4 +1,4 @@
-// One scripted answer per call, one call the corpus registers, and one spendable latency.
+// One scripted answer per call, one call the app registers, and one spendable latency.
 //
 // All three claims are about a `ScenarioReply`: the entry can be reached, the call it answers
 // exists, and the delay it scripts can be spent. A scenario failing any of them has a reply no
@@ -6,23 +6,12 @@
 //
 // The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
 // to make up as to transcribe: a scenario answering `workflow.runList` renders a view that looks
-// served and ships a reference image of it. The registry is the daemon call set the console
+// served and ships a reference image of it. The registry is the daemon call set the app
 // binds, so nothing here is a second list.
 
 import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-method-contract.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "../../../fixtures/scenario.js";
-
-/**
- * A daemon method the corpus registers that no console view calls yet.
- *
- * `REGISTERED_DAEMON_METHODS` admits a method only when a view calls it, so a scenario may script
- * such a call ahead of its view; the entry moves to a binding row once a view calls it, because a
- * bound method is validated in both directions and one listed here is served unchecked. It is
- * written by hand because no runtime list of every daemon method exists to derive it from, and
- * empty is the state to return it to.
- */
-export const CORPUS_DAEMON_METHODS_NOT_YET_BOUND: readonly string[] = [];
 
 /**
  * Every reply defect in one scenario: unreachable entries, unregistered calls, unspendable
@@ -94,22 +83,17 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
 }
 
 /**
- * A call the corpus registers nowhere, or `undefined` when it registers one.
- *
- * The registry is read, so a method added to the console's call set is scriptable the same day;
- * only the hand-written unbound list above is unioned into the same admission.
+ * A call the app registers nowhere, or `undefined` when it registers one. The registry is read,
+ * so a method added to the app's call set is scriptable the same day.
  */
 function describeCallDefect(call: string): string | undefined {
-  if (
-    (REGISTERED_DAEMON_METHODS as readonly string[]).includes(call) ||
-    CORPUS_DAEMON_METHODS_NOT_YET_BOUND.includes(call)
-  ) {
+  if ((REGISTERED_DAEMON_METHODS as readonly string[]).includes(call)) {
     return undefined;
   }
   return (
-    `it answers "${call}", which the corpus registers nowhere — not as a daemon method ` +
-    "the console binds a request and response shape for. A scenario answering an " +
-    "invented name renders a view that looks served and reaches nothing on the day " +
-    "the fixture define flips. Script the registered method."
+    `it answers "${call}", which the app registers nowhere — not as a daemon method ` +
+    "the app binds a request and response shape for. A scenario answering an " +
+    "invented name renders a view that looks served and reaches nothing once the app runs " +
+    "against the real daemon. Script the registered method."
   );
 }

@@ -6,19 +6,13 @@
 // keyboard map is held in memory: the first read is empty and a write is read back, which is the
 // Keyboard page's whole contract with main.
 
-import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts";
-import { DAEMON_STATUS_TOPIC } from "@shared/daemon-status-topic.js";
 import type {
-  CpInput,
-  CpOutput,
-  CpProcedure,
   KeyboardMap,
   KeyboardMapReading,
   Unsubscribe,
   UpdateState,
 } from "@shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
-import { resolveScriptedReply } from "@renderer/services/daemon/scripted-reply.fixture.js";
 import {
   FixtureBridgeError,
   refuseAbsentCapability,
@@ -62,57 +56,15 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   const bridge: PlatformBridge = {
     daemon: {
       call: fixtureDaemon.call,
-      // The supervisor's topic is main's, and the fixture has no main to publish it.
-      subscribe: ((
-        event: DaemonEvent | typeof DAEMON_STATUS_TOPIC,
-        params: DaemonSubscribeParams<DaemonEvent>,
-        handler: () => void,
-      ) =>
-        event === DAEMON_STATUS_TOPIC
-          ? refuseAbsentSubscription("daemon.subscribe(daemon.status)")
-          : fixtureDaemon.subscribe(
-              event,
-              params,
-              handler,
-            )) as PlatformBridge["daemon"]["subscribe"],
-      requestStart: () => refuseAbsentCapability("daemon.requestStart"),
-      requestUpdate: () => refuseAbsentCapability("daemon.requestUpdate"),
-      cancelUpdate: () => refuseAbsentCapability("daemon.cancelUpdate"),
-      subscribeUpdate: () => refuseAbsentSubscription("daemon.subscribeUpdate"),
-      requestRestore: () => refuseAbsentCapability("daemon.requestRestore"),
-      listPlaces: () => refuseAbsentCapability("daemon.listPlaces"),
-      subscribePlaces: () => refuseAbsentSubscription("daemon.subscribePlaces"),
-      requestMove: () => refuseAbsentCapability("daemon.requestMove"),
-      cancelMove: () => refuseAbsentCapability("daemon.cancelMove"),
-      subscribeMove: () => refuseAbsentSubscription("daemon.subscribeMove"),
-    },
-    controlPlane: {
-      call: async <ProcedureName extends CpProcedure>(
-        procedure: ProcedureName,
-        input: CpInput<ProcedureName>,
-      ): Promise<CpOutput<ProcedureName>> =>
-        (await resolveScriptedReply(scenarioEngine, procedure, input)) as CpOutput<ProcedureName>,
+      subscribe: fixtureDaemon.subscribe,
     },
     native: {
       showOpenDialog: () => refuseAbsentCapability("native.showOpenDialog"),
-      showSaveDialog: () => refuseAbsentCapability("native.showSaveDialog"),
-      getDroppedFileRef: () => refuseAbsentCapability("native.getDroppedFileRef"),
-      savePastedImage: () => refuseAbsentCapability("native.savePastedImage"),
-      showMessageBox: () => refuseAbsentCapability("native.showMessageBox"),
-      showNotification: () => {
-        // Fire-and-forget on the live bridge too; a throw from a `void` method the caller cannot
-        // catch would be worse than doing nothing observable.
-      },
-      getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
       openExternal: () => refuseAbsentCapability("native.openExternal"),
       copyToClipboard: async () => {
         // A no-op is safe: nothing reads the result back, and a refusal would make every "copy id"
         // affordance untestable.
       },
-      openInEditor: () => refuseAbsentCapability("native.openInEditor"),
-      openInTerminal: () => refuseAbsentCapability("native.openInTerminal"),
-      revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
-      listEditors: () => refuseAbsentCapability("native.listEditors"),
     },
     update: {
       // The scenario's declaration, or a bare `idle`. The default omits the optional
@@ -127,7 +79,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
     machineSettings: {
-      read: () => refuseAbsentCapability("machineSettings.read"),
       write: () => refuseAbsentCapability("machineSettings.write"),
       subscribe: () => refuseAbsentSubscription("machineSettings.subscribe"),
     },
@@ -137,22 +88,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         keyboardMap = map;
         return map;
       },
-    },
-    window: {
-      subscribeToNavigationRequest: () =>
-        refuseAbsentSubscription("window.subscribeToNavigationRequest"),
-      setAppearance: () => refuseAbsentCapability("window.setAppearance"),
-      subscribeAppearance: () => refuseAbsentSubscription("window.subscribeAppearance"),
-      subscribeFullscreen: () => refuseAbsentSubscription("window.subscribeFullscreen"),
-      setMinimumSize: () => refuseAbsentCapability("window.setMinimumSize"),
-    },
-    browser: {
-      publishPaneRect: () => refuseAbsentSubscription("browser.publishPaneRect"),
-      act: () => refuseAbsentCapability("browser.act"),
-      capturePage: () => refuseAbsentCapability("browser.capturePage"),
-      subscribe: () => refuseAbsentSubscription("browser.subscribe"),
-      publishPageChords: () => refuseAbsentSubscription("browser.publishPageChords"),
-      subscribePageChords: () => refuseAbsentSubscription("browser.subscribePageChords"),
     },
     app: FIXTURE_APP_META,
     transportReconnect: new TransportReconnectSignal(),

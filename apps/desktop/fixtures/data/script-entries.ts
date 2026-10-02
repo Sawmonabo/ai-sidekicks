@@ -1,6 +1,6 @@
-// The beat vocabulary scripted sessions share: `composeScriptBeats` and the run, assistant,
-// tool and subagent entry builders. `opening-entries.ts` holds the session opening and reads
-// the entry type from here.
+// The beat vocabulary scripted sessions share: `composeScriptBeats`, the instant a tick lands
+// on, and the run, assistant, tool and subagent entry builders. `opening-entries.ts` holds the
+// session opening and reads the entry type from here.
 //
 // The beat builder guarantees:
 //   - The row id is minted from a stem the scenario owns plus the beat's position, never
@@ -74,6 +74,11 @@ interface RunTransitionInput {
   readonly resolvedAgent?: AgentListEntry;
 }
 
+/** The ISO instant `atMs` after the scenario's start. */
+export function composeScenarioInstant(startedAtMs: number, atMs: number): string {
+  return new Date(startedAtMs + atMs).toISOString();
+}
+
 /**
  * Turn one ordered script into beats, positioned and stamped.
  *
@@ -99,7 +104,7 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
         kind: entry.kind,
-        occurredAt: new Date(options.startedAtMs + entry.atMs).toISOString(),
+        occurredAt: composeScenarioInstant(options.startedAtMs, entry.atMs),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
         payload: entry.payload ?? {},
       },

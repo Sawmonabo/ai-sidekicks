@@ -21,11 +21,13 @@ import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
 import { paneHarnessInstances } from "./pane-harness-instances.js";
 import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
-/** The harness screen's inputs: the route's context and the pane board it resolves from. */
+/** The harness screen's inputs: the route's context, its harness route, and the pane board. */
 export interface PaneHarnessScreenProps {
   readonly context: ScreenContext;
+  readonly route: Extract<AppRoute, { readonly kind: "pane-harness" }>;
   readonly paneRegistry: PaneRegistry;
 }
 
@@ -35,26 +37,10 @@ export interface PaneHarnessScreenProps {
  * Exported so its co-located test can drive it without a route, by handing it a context.
  */
 export function PaneHarnessScreen(props: PaneHarnessScreenProps): React.JSX.Element {
-  const { context, paneRegistry } = props;
+  const { context, route, paneRegistry } = props;
   const [openInstanceCount, setOpenInstanceCount] = useState(0);
-  const { route } = context;
 
-  if (route.kind !== "pane-harness") {
-    // Unreachable through `findScreenNameForRoute`. Rendered rather than thrown, since a throw
-    // would take the window's error boundary for a composition mistake.
-    return (
-      <PaneHarnessFrame instanceCount={0} paneKindLabel={undefined}>
-        <Nothing
-          kind="error"
-          placement="block"
-          title="This screen was opened at an address it does not serve."
-          detail={`The pane harness reads its pane kind off the "#/pane-harness/…" address and this window is on a "${route.kind}" route.`}
-        />
-      </PaneHarnessFrame>
-    );
-  }
-
-  // The console's one admission point for an untyped address, the same predicate a layout
+  // The app's one admission point for an untyped address, the same predicate a layout
   // snapshot read off disk is held to; a typed hash is that second boundary.
   const address = parsePaneAddress(route.paneKind, undefined);
   if ("code" in address) {

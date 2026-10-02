@@ -12,7 +12,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
-import { DEFAULT_RENDERER_OUTPUT_DIRECTORY } from "../../scripts/budget/measure-bundle.mjs";
+import { DEFAULT_RENDERER_OUTPUT_DIRECTORY } from "../../scripts/budget/measure-bundle.mts";
 
 /** One built file: where it sits in the renderer output, and what it holds. */
 export interface BuiltFile {

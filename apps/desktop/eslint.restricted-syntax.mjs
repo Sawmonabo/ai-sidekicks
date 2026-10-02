@@ -14,7 +14,7 @@
 // Only `eslint.config.mjs` imports this module.
 
 /**
- * How the corpus spells a wire instant, as a regular-expression source. One declaration for every
+ * How this package spells a wire instant, as a regular-expression source. One declaration for every
  * selector below that keys on the name of a stamp.
  */
 const WIRE_STAMP_NAME_SUFFIX = "(?:At|Iso)$";
@@ -22,9 +22,9 @@ const WIRE_STAMP_NAME_SUFFIX = "(?:At|Iso)$";
 /**
  * How the renderer spells a numeric instant, the one construction `new Date(...)` leaves open.
  *
- * It comes from a census of this tree: the only bare name any `new Date(...)` in the renderer
+ * It comes from a search of this tree: the only bare name any `new Date(...)` in the renderer
  * passes is `sequence`, a fixture counter, and the millisecond and epoch suffixes are how the
- * corpus spells a numeric instant wherever it composes one
+ * package spells a numeric instant wherever it composes one
  * (`ATTENTION_SCENARIO_STARTED_AT_MILLISECONDS + atMs`). A name outside this set is refused, the
  * opposite of a heuristic that cannot see `new Date(iso)`.
  *
@@ -49,7 +49,7 @@ const NUMERIC_INSTANT_NAME_SUFFIX =
  * selector cannot bind a catch parameter and compare it to the identifier being stringified, and
  * the spellings outside a `CatchClause` (`"" + error`, `error.toString()`, `.catch((error) => …)`)
  * are out of reach. A selector that catches half a class reads exactly like one that catches the
- * class, so `apps/desktop/AGENTS.md` states that claim for reviewers instead.
+ * class, so that claim is left to review.
  */
 export const TIME_READING_SELECTORS = [
   {
@@ -141,8 +141,8 @@ export const TIME_READING_EXEMPT_FILES = ["src/renderer/src/lib/instant.test.ts"
  * are lifted for the negative controls above, and this one is lifted for nothing.
  */
 export const EXPORTED_COLLECTION_SELECTOR = {
-  // A collection published through a module door, which the state-and-views rules in
-  // `apps/desktop/AGENTS.md` reject and no other gate can see: a `ReadonlySet` or `ReadonlyMap`
+  // A collection a module exports, which the State and views rules in `apps/desktop/AGENTS.md`
+  // reject and no other gate can see: a `ReadonlySet` or `ReadonlyMap`
   // annotation hides `add` and `set` from a reader and from nothing at runtime, so an exported one
   // is a single object every importer in the window shares and any of them can grow.
   // `Object.freeze` cannot close it (freezing a `Set` leaves `Set.prototype.add` working), so the

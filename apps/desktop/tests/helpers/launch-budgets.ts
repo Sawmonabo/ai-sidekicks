@@ -1,16 +1,16 @@
-// The timing bounds a console launch and its test body are held to, read once from
+// The timing bounds an app launch and its test body are held to, read once from
 // `tests/budget/budgets.json` through `BudgetRegistry`. One module so `frame-paint-probe.ts` and
 // `launch-deadline.ts` share each figure without either owning the other's. These are
 // `harness`-scoped rows: no product figure stands behind them.
 
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
 
 const BUDGETS = BudgetRegistry.load();
 
 /**
  * How long the whole readiness ladder gets, in aggregate.
  *
- * It bounds a cold Electron start on a shared CI runner, a different quantity from the console's
+ * It bounds a cold Electron start on a shared CI runner, a different quantity from the app's
  * budgets: a tight bound would turn runner contention into a red tier. Its four phases share it.
  */
 export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue("launch-readiness");
@@ -22,7 +22,7 @@ export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue("launch
  * disabled under SwiftShader, ten under a load average near 280): 1-18 ms in the renderer and
  * 2-47 ms driver-side. The 47 ms outlier is a CDP round trip queued behind a busy main thread; its
  * renderer reported 4 ms. No local host reproduces the driver-side queue a 2-vCPU runner shows
- * while mounting the console, so the bound is not the local worst case plus a margin.
+ * while mounting the app, so the bound is not the local worst case plus a margin.
  *
  * It is derived from the cost asymmetry instead: too tight fails a working window, too loose
  * only delays reporting a throttled launch, which delivers no frame and spends the whole budget

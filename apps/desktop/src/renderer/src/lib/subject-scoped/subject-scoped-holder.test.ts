@@ -190,7 +190,7 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     // The superseding pass can still settle into what it addressed.
     holder.publisherFor(SUBJECT_TWO, "beta")("what the new pass read");
     expect(holder.value).toBe("what the new pass read");
-    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+    expect(windowTripwires.firingCount("unheld-resource")).toBe(0);
   });
 });
 
@@ -217,7 +217,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
     expect(closed).toStrictEqual(["the connection that opened too late"]);
     expect(holder.value).toBe("the connection the second visit opened");
-    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.firingCount("unheld-resource")).toBe(1);
     expect(windowTripwires.reports().at(-1)?.detail).toContain("had already ended");
   });
 

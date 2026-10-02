@@ -1,12 +1,12 @@
-// The node's session directory, read for as long as a caller is mounted. The state is scoped to
+// The service's session directory, read for as long as a caller is mounted. The state is scoped to
 // the call: a replaced call re-seeds it to `reading`, and an answer from the old call writes
-// nowhere.
+// nowhere. A rejected read settles `failed` and records its cause, so the list never reads
+// `reading` forever.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import {
   sessionDirectoryStaleness,
-  type SessionDirectoryEntry,
   type SessionDirectoryReadCall,
   type SessionDirectoryState,
 } from "./session-directory.js";
@@ -15,23 +15,29 @@ import { useWindowReadTriggers } from "../reads/hooks/useWindowReadTriggers.js";
 import { useSubjectRead, type SubjectReadProjection } from "@renderer/hooks/useSubjectRead.js";
 import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
+import { RealClock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { isReadAbandoned } from "@renderer/lib/reads/read-scope.js";
+import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 
-/** `reading` until the node answers, then the sessions it listed. */
+/** `reading` until the service answers, then what the read settled as. */
 const SESSION_DIRECTORY_PROJECTION: SubjectReadProjection<
-  readonly SessionDirectoryEntry[],
+  SessionDirectoryState,
   SessionDirectoryState
 > = {
   unsettled: () => ({ status: "reading" }),
-  settled: (sessions) => ({ status: "served", sessions }),
+  settled: (state) => state,
 };
 
 /**
- * Read the node's session directory for as long as the caller is mounted.
+ * Read the service's session directory for as long as the caller is mounted.
  *
  * A re-render never re-reads; a replaced call does. A stale revision re-reads over the same
  * address, so the answer on screen stays until the new one lands. Only the window triggers
- * apply, since no one session's repair bears on the node's list. A rejected call is not
- * caught: it surfaces as an unhandled rejection and the state stays `reading`.
+ * apply, since no one session's repair bears on the service's list.
  */
 export function useSessionDirectory(
   read: SessionDirectoryReadCall,
@@ -54,7 +60,7 @@ export function useSessionDirectory(
   const { value: state } = useSubjectRead(
     read,
     undefined,
-    (_key, signal) => read(signal),
+    (_key, signal) => readDirectoryOnce(read, signal),
     SESSION_DIRECTORY_PROJECTION,
     directoryRevision,
   );
@@ -75,4 +81,27 @@ export function useSessionDirectory(
     transportReconnect,
   );
   return state;
+}
+
+/** Read the directory once, settling a rejection as `failed` with its cause recorded. */
+async function readDirectoryOnce(
+  read: SessionDirectoryReadCall,
+  signal: AbortSignal,
+): Promise<SessionDirectoryState> {
+  try {
+    return { status: "served", sessions: await read(signal) };
+  } catch (error: unknown) {
+    // An abandoned read's rejection is the abandonment itself, not a failure of the list.
+    if (!isReadAbandoned(signal)) {
+      const refusal = normalizeWireRejection("session-directory", error);
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(new RealClock()),
+        severity: "warning",
+        source: "store/session-directory",
+        kind: "directory-read-failed",
+        detail: `${refusal.code}: ${refusal.detail}`,
+      });
+    }
+    return { status: "failed" };
+  }
 }

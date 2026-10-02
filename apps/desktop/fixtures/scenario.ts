@@ -26,17 +26,15 @@ export interface Scenario {
   /** What this scenario is for, so a reader knows which to reach for. */
   readonly purpose: string;
   readonly sessionId: string;
-  /** Which of the session's users this window is, when the scenario states one. */
-  readonly thisDeviceId?: string;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**
-   * Whether this scenario's daemon refuses a resume position the console submits.
+   * Whether this scenario's daemon refuses a resume position the app submits.
    *
    * A flag rather than the cursor, which the scenario's `session.read` reply already
    * carries. It is not a `replies` row because a row answers a call with one fixed value,
    * while this refuses only the read that carries a position and serves the same call
-   * without one, so the console's recovery is observable. Absent means the daemon resolves
+   * without one, so the app's recovery is observable. Absent means the daemon resolves
    * what it acknowledged.
    */
   readonly refusesSubmittedResumeCursor?: boolean;
@@ -45,7 +43,7 @@ export interface Scenario {
    *
    * The default is a bare `idle` with no `lastCheckedAt`, the state of a fresh install. It
    * is a scenario member rather than a `replies` row because the reply table is keyed by
-   * daemon method or control-plane procedure name, and `update.getState` is neither.
+   * daemon method name, and `update.getState` is not one.
    */
   readonly updaterState?: UpdateState;
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */

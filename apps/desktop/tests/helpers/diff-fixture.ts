@@ -1,6 +1,6 @@
 // Diff models the diff views are built and measured against, until a wire produces one.
 //
-// Nothing in the running console produces a `DiffModel` (no daemon method returns patch bytes), so
+// Nothing in the running app produces a `DiffModel` (no daemon method returns patch bytes), so
 // this fixture stands in for the producer. It is deleted when a wire supplies patch bytes, along
 // with `diff-fixture-shapes.ts`, `diff-fixture-patch.test-support.ts` and their imports;
 // `patch-parse.ts` is the real producer and stays. Only tests import it, so it cannot ship.

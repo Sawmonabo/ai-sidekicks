@@ -56,7 +56,7 @@ export function frameProps(
 /**
  * A bridge host for the frame, because the frame resolves the window's clock.
  *
- * `AppFrame` mounts the live announcer, which arms the one timeout the console's idle budget
+ * `AppFrame` mounts the live announcer, which arms the one timeout the app's idle budget
  * counts, so the clock is a property of the window and the frame reads it from the resolution.
  * Both arms are real: `createStubBridge()` is what the preload exposes to a shipped window, and
  * `createFixtureBridge` builds the real engine over a scenario, whose frozen clock a case hands

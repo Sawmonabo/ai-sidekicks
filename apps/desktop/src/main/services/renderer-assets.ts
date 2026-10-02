@@ -17,7 +17,7 @@
 //   miss / directory ........... not-found
 //
 // Refusals carry no member beyond the verdict, so a probe learns nothing about the tree. There
-// is no `index.html` fallback: the console routes by hash, so every navigable URL is
+// is no `index.html` fallback: the app routes by hash, so every navigable URL is
 // `index.html` plus a fragment.
 
 import type { Stats } from "node:fs";

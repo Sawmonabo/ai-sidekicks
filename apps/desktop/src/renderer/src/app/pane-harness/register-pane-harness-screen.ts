@@ -19,6 +19,12 @@ export function registerPaneHarnessScreen(
   screenRegistry.register({
     name: "pane-harness",
     owner: "pane-harness",
-    render: (context) => createElement(PaneHarnessScreen, { context, paneRegistry }),
+    render: (context) => {
+      // The router mounts this screen only for its own route; any other is a composition defect.
+      if (context.route.kind !== "pane-harness") {
+        throw new Error(`the pane harness screen was mounted for a ${context.route.kind} route`);
+      }
+      return createElement(PaneHarnessScreen, { context, route: context.route, paneRegistry });
+    },
   });
 }

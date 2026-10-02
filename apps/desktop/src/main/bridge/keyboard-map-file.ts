@@ -15,6 +15,7 @@ import type { SettingsFileRepair, SettingsFileRepairCause } from "@ai-sidekicks/
 import * as z from "zod/mini";
 
 import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
+import { isMissingPath } from "../services/missing-path.js";
 
 /** The file's name inside the app's user-data folder. */
 export const KEYBOARD_MAP_FILE_NAME = "keyboard-map.json";
@@ -29,14 +30,14 @@ const keyboardMapTextSchema = z
   .string()
   .check(z.minLength(1), z.maxLength(KEYBOARD_MAP_TEXT_MAX_LEN));
 
-const KeyboardMapSchema: z.ZodMiniType<KeyboardMap> = z.record(
+const keyboardMapSchema: z.ZodMiniType<KeyboardMap> = z.record(
   keyboardMapTextSchema,
   z.nullable(keyboardMapTextSchema),
 );
 
 /** Parses a map the renderer asks to store; throws on anything that is not one. */
 export function parseKeyboardMap(candidate: unknown): KeyboardMap {
-  return KeyboardMapSchema.parse(candidate);
+  return keyboardMapSchema.parse(candidate);
 }
 
 /** Where the keyboard map file lives and the clock that stamps a repair. */
@@ -90,7 +91,7 @@ export class KeyboardMapFile {
     try {
       fileText = await readFile(this.#filePath, "utf8");
     } catch (error) {
-      if (isMissingFileError(error)) {
+      if (isMissingPath(error)) {
         return this.#readingOf(EMPTY_MAP);
       }
       throw error;
@@ -101,7 +102,7 @@ export class KeyboardMapFile {
     } catch {
       return this.#repairWithEmptyMap("unparseable");
     }
-    const parsed = KeyboardMapSchema.safeParse(fileJson);
+    const parsed = keyboardMapSchema.safeParse(fileJson);
     if (!parsed.success) {
       return this.#repairWithEmptyMap("schemaRefused");
     }
@@ -136,8 +137,4 @@ export class KeyboardMapFile {
       throw error;
     }
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

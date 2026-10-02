@@ -33,6 +33,7 @@ import { describe, expect, it } from "vitest";
 
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
+import { percentileByNearestRank } from "../helpers/sample-statistics.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture-global-names.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
@@ -44,8 +45,8 @@ import {
   CONCURRENT_STREAMING_SCENARIO,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -75,33 +76,15 @@ const WARM_UP_FRAME_COUNT = 30;
  * How many fresh launches the reported figure is the median of.
  *
  * Each is its own launch because the frozen clock does not rewind: repeat passes in one window
- * would measure a console whose script was already delivered.
+ * would measure an app whose script was already delivered.
  */
 const MEASURED_RUN_COUNT = 3;
 
 /**
- * The per-frame stall the negative control plants, in milliseconds.
- *
- * Well over the ceiling and synchronous inside the frame's callback, so the verdict does not
- * depend on the display's cadence. Measured p95 was 37.40-38.30 ms against 6.80-9.20 ms clean.
+ * The per-frame stall the negative control plants, in milliseconds: twice the row's ceiling and
+ * synchronous inside the frame's callback, so the verdict does not depend on the display's cadence.
  */
-const PLANTED_FRAME_STALL_MS = 30;
-
-/**
- * The percentile a sorted sample answers at, by nearest rank.
- *
- * The result is a frame that was observed, not an interpolated number no frame took.
- */
-function percentileByNearestRank(samples: readonly number[], fraction: number): number {
-  const sorted = [...samples].sort((left, right) => left - right);
-  const rank = Math.ceil(fraction * sorted.length);
-  return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))] ?? Number.NaN;
-}
-
-/** The median of a small set of readings, by the same nearest-rank rule. */
-function medianOf(readings: readonly number[]): number {
-  return percentileByNearestRank(readings, 0.5);
-}
+const PLANTED_FRAME_STALL_MS: number = Math.ceil(budget.limit.canonicalValue * 2);
 
 /** What one sampled run measured. */
 interface FrameTimingRun {
@@ -119,12 +102,12 @@ interface FrameTimingRun {
  * measurement is ever open.
  */
 async function sampleFrameTimings(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   plantedStallMilliseconds: number,
 ): Promise<FrameTimingRun | null> {
   const scriptSpanMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
   const advanceMillisecondsPerFrame = Math.max(1, Math.ceil(scriptSpanMs / SAMPLED_FRAME_COUNT));
-  return consoleApplication.window.evaluate(
+  return appUnderTest.window.evaluate(
     async ([
       scenarioGlobalName,
       warmUpFrames,
@@ -194,16 +177,14 @@ async function sampleFrameTimings(
 
 /** One launch, opened on the concurrent-streaming session and sampled. */
 async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun> {
-  return await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-    await openConcurrentStreamingSessionRoute(consoleApplication);
-    const run = await sampleFrameTimings(consoleApplication, plantedStallMilliseconds);
-    expect(
-      run,
-      `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, so no frame in it was driven by a ` +
-        "scenario and every interval sampled would describe an idle window",
-    ).not.toBeNull();
+  return await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
+    await openConcurrentStreamingSessionRoute(appUnderTest);
+    const run = await sampleFrameTimings(appUnderTest, plantedStallMilliseconds);
     if (run === null) {
-      throw new Error("unreachable: the assertion above fails first");
+      throw new Error(
+        `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, so no frame in it was driven by a ` +
+          "scenario and every interval sampled would describe an idle window",
+      );
     }
     expect(run.frameDurationsMs).toHaveLength(SAMPLED_FRAME_COUNT);
     return run;
@@ -219,12 +200,12 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   expect(
     run.beatsAtWindowEnd,
     "the concurrent-streaming script had not finished delivering by the end of the sampled window, so the " +
-      "reading describes a console the session never fully reached",
+      "reading describes an app the session never fully reached",
   ).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
   expect(
     run.beatsAtWindowEnd,
     "every beat had already been delivered before sampling started, so these frames measured a " +
-      "settled console rather than one with a session arriving in it",
+      "settled app rather than one with a session arriving in it",
   ).toBeGreaterThan(run.beatsAtWindowStart);
   expect(
     peakConcurrentStreamingRuns(
@@ -233,7 +214,7 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
       run.beatsAtWindowEnd,
     ),
     "fewer than four agent lanes were mid-turn at any point inside the sampled window, so this " +
-      "figure bounds a console that was not doing the work the budget row names",
+      "figure bounds an app that was not doing the work the budget row names",
   ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
 }
 
@@ -247,9 +228,9 @@ describe.skipIf(!bundleIsBuilt)(
         const run = await runOnce(0);
         expectFourLaneWorkloadInsideWindow(run);
         perRunPercentiles.push(percentileByNearestRank(run.frameDurationsMs, 0.95));
-        perRunMedians.push(medianOf(run.frameDurationsMs));
+        perRunMedians.push(percentileByNearestRank(run.frameDurationsMs, 0.5));
       }
-      const measuredP95 = medianOf(perRunPercentiles);
+      const measuredP95 = percentileByNearestRank(perRunPercentiles, 0.5);
       const verdict = evaluateBudget(budget, measuredP95);
 
       // Printed before the assertion on every machine, so a shrinking margin shows before a
@@ -261,7 +242,7 @@ describe.skipIf(!bundleIsBuilt)(
           `${perRunPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
           `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
           `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
-          `p50 ${medianOf(perRunMedians).toFixed(2)} ms ` +
+          `p50 ${percentileByNearestRank(perRunMedians, 0.5).toFixed(2)} ms ` +
           `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}) — ` +
           `${RUNNER_CLASS_DESCRIPTION}\n`,
       );

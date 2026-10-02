@@ -42,7 +42,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
-import { type MountedView } from "./mount-queries.js";
+import { requireLabeledRegion, type MountedView } from "./mount-queries.js";
 
 /**
  * A store holding the scenario's beats up to and including the named kind.
@@ -127,7 +127,7 @@ async function mountComposerAt(options: {
       focusedPane={options.focusedPane}
     />,
   );
-  return { element: requireRegion(container, "Message composer"), bridge };
+  return { element: requireLabeledRegion(container, "Message composer"), bridge };
 }
 
 /** The composer with focus outside the pane layout: addressed at the session. */
@@ -155,17 +155,4 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedView> 
       entity: { kind: "agent", id: scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO) },
     },
   });
-}
-
-/**
- * Finds the one element a view renders itself as.
- *
- * Scoped by accessible name rather than class, which is what assistive technology navigates by.
- */
-function requireRegion(container: HTMLElement, accessibleName: string): HTMLElement {
-  const region = container.querySelector(`[aria-label="${accessibleName}"]`);
-  if (!(region instanceof HTMLElement)) {
-    throw new Error(`nothing in the mounted tree is labeled \`${accessibleName}\``);
-  }
-  return region;
 }

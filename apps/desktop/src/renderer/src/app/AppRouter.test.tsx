@@ -14,7 +14,7 @@ import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
-import { PaneHarnessScreen } from "./pane-harness/PaneHarnessScreen.js";
+import { registerPaneHarnessScreen } from "./pane-harness/register-pane-harness-screen.js";
 import { AppRouter } from "./AppRouter.js";
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
@@ -105,8 +105,6 @@ async function pressControl(controlName: string): Promise<void> {
 }
 
 describe("AppRouter — the screen across an address change", () => {
-  const HARNESS_OWNER = "pane-harness-route-keying-test";
-
   // Cleared before a case, since the file's `cleanup` unmounts the previous tree and would log
   // into the next case.
   beforeEach(() => {
@@ -117,13 +115,9 @@ describe("AppRouter — the screen across an address change", () => {
     screenRegistry.unregister("pane-harness");
   });
 
-  /** Claim the screen the way the fixture registration does, from a board built here. */
+  /** Claim the screen through the fixture registration, from a board built here. */
   function registerHarnessScreen(paneRegistry: PaneRegistry): void {
-    screenRegistry.register({
-      name: "pane-harness",
-      owner: HARNESS_OWNER,
-      render: (context) => <PaneHarnessScreen context={context} paneRegistry={paneRegistry} />,
-    });
+    registerPaneHarnessScreen(screenRegistry, paneRegistry);
   }
 
   function screenAt(route: AppRoute): React.JSX.Element {

@@ -1,9 +1,9 @@
-// The console's clock seam, an interface rather than direct calls to `Date.now` and
+// The app's clock seam, an interface rather than direct calls to `Date.now` and
 // `requestAnimationFrame` for two reasons:
 //
 //   1. In fixture mode the fixture clock is the only clock the renderer reads; a pinned frame
 //      is one exact tick only if nothing reaches past it to the wall clock.
-//   2. A test can count armed timers only if every timer in the console is minted through one
+//   2. A test can count armed timers only if every timer in the app is minted through one
 //      object.
 //
 // `ManualClock` is that counting instrument and the fixture's frozen clock: nothing advances
@@ -12,7 +12,7 @@
 /** An opaque handle for canceling scheduled work. */
 export type ScheduledHandle = number;
 
-/** The clock and scheduler every console subsystem takes as a dependency. */
+/** The clock and scheduler every app subsystem takes as a dependency. */
 export interface Clock {
   /** Milliseconds since an arbitrary epoch. Monotonic within one clock. */
   now(): number;

@@ -1,4 +1,4 @@
-// The console's one live announcer: a single object every feature announces through, so there
+// The app's one live announcer: a single object every feature announces through, so there
 // are not several `aria-live` nodes talking over each other.
 //
 // 1. The regions live for the window. A live region inserted already carrying text is not
@@ -118,11 +118,6 @@ export class LiveAnnouncer {
    */
   public get state(): LiveAnnouncementState {
     return this.#state;
-  }
-
-  /** True while a clear is armed; the idle-CPU check reads this. */
-  public get isArmed(): boolean {
-    return this.#armedHandle !== undefined;
   }
 
   /** True once `dispose` has run; the provider re-mints on it. */

@@ -79,7 +79,7 @@ describe("PaneGeometryPublisher", () => {
     const { publisher, clock, occlusion } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     clock.runFrame();
-    occlusion.register("dialog", () => rect(0, 0, 500, 500));
+    occlusion.register(() => rect(0, 0, 500, 500));
     clock.runFrame();
     expect(pageHost.samples.at(-1)?.visible).toBe(false);
     publisher.dispose();

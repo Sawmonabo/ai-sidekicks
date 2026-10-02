@@ -1,5 +1,6 @@
 // The renderer never holds a path: a picked file comes back as a `FilePathRef` token and main
-// keeps the path. Tokens die with the page that received them, which bounds the table.
+// keeps the path. A token stays valid while the page that received it lives, because later
+// bridge calls take it again; the page's tokens are dropped when the page is destroyed.
 
 import { randomUUID } from "node:crypto";
 

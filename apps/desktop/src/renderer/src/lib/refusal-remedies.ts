@@ -25,7 +25,7 @@ export interface AppRefusalRemedy {
    * reaches the session screen from a control pressed in one pane.
    */
   readonly rendering: RefusalRendering;
-  /** The person's next move, in the console's own words. Never a paraphrase. */
+  /** The person's next move, in the app's own words. Never a paraphrase. */
   readonly nextMove: string;
   /**
    * Whether the request this refusal names is finished. `true` means the control has nothing
@@ -65,22 +65,14 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
   "session.not_found": {
     rendering: "banner",
     nextMove:
-      "This session is gone from this node. Open it again from the session list, or open another one.",
+      "This session is gone from the background service. Open it again from the session list, or open another one.",
     settled: true,
   },
-  // Somebody else answered; the next projection read drops the card, so its actions come off now.
+  // Another device answered; the next projection read drops the card, so its actions come off now.
   "approval.already_resolved": {
     rendering: "card",
-    nextMove: "Somebody else answered this request. It leaves the list on the next read.",
+    nextMove: "This was answered on another linked device. It leaves the list on the next read.",
     settled: true,
-  },
-  // No event was appended, so the goal did not change. The inline refusal names the failing
-  // bindings beside this.
-  "session.goal_delivery_failed": {
-    rendering: "inline",
-    nextMove:
-      "No event was appended, so the goal did not change. Try again once every named binding is answering.",
-    settled: false,
   },
 };
 

@@ -1,4 +1,4 @@
-// The console at its narrowest supported viewport.
+// The app at its narrowest supported viewport.
 //
 // WCAG 2.2 SC 1.4.10 (Reflow) is the one criterion no axe rule in this directory reaches,
 // because reflow is a property of a layout at a width, not of a node. This file narrows the
@@ -7,12 +7,11 @@
 //
 // The rail destinations are derived from `RAIL_DESTINATIONS`, so a new destination is audited
 // the day it is declared. The concurrent-streaming scenario is used rather than the first-run
-// one because an empty console reflows trivially; real sessions, runs and wire identifiers
+// one because an empty app reflows trivially; real sessions, runs and wire identifiers
 // decide whether a 320 px column holds.
 //
-// A clean result is guarded twice: the narrowing throws if the viewport did not move (see
-// `reflow.ts`), and the planted box below is wider than the floor but narrower than the
-// tier's 1440 px window, so it goes unreported exactly when the narrowing failed.
+// A clean result is guarded by the narrowing, which throws if the viewport did not move (see
+// `reflow.ts`).
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -65,7 +64,7 @@ afterEach(() => {
   restoreTesterViewport();
 });
 
-describe("reflow — the console at 320 CSS px", () => {
+describe("reflow — the app at 320 CSS px", () => {
   for (const destination of RAIL_DESTINATIONS) {
     it(`needs no horizontal scroll at the ${destination} destination`, async () => {
       document.location.hash = formatRoute(routeForDestination(destination));
@@ -113,7 +112,7 @@ describe("reflow — the console at 320 CSS px", () => {
     expect(frame?.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
   });
 
-  // The session row on its own, at the floor, carrying an identifier the console did not choose
+  // The session row on its own, at the floor, carrying an identifier the app did not choose
   // the width of. The destination cases measure the scenario's own ids in whatever face the host
   // resolves, so they answer "these ids fit here today"; the row owes that its identity column
   // wraps whatever the wire sent, which one row can be asked directly with an identifier no font
@@ -137,7 +136,7 @@ describe("reflow — the console at 320 CSS px", () => {
     expect(describeHorizontalOverflow(container)).toStrictEqual([]);
   });
 
-  // The keyboard row on its own, at the floor, carrying a command id the console did not choose
+  // The keyboard row on its own, at the floor, carrying a command id the app did not choose
   // the width of. The page cases measure the ids the command table holds today, so they answer
   // "these ids fit here"; the meta line owes that it wraps whatever the wire named. The id below
   // is wider than the floor in any face, leaving only whether the line may break inside a

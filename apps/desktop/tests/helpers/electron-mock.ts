@@ -28,11 +28,6 @@ import {
   type MockBrowserWindowOptions,
 } from "./electron-mock-window.js";
 
-// Republished so a suite that reads a constructed window need not know this module is two files.
-// Only the window itself: the options and `webContents` are reached through it, and a re-export of
-// each would be an unused export.
-export type { MockBrowserWindow } from "./electron-mock-window.js";
-
 /**
  * One entry of a `Menu.buildFromTemplate` template, as a test reads it.
  *

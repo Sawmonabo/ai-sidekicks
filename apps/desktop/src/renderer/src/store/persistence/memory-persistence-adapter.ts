@@ -16,6 +16,7 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./persistence-adapter.js";
+import { measureRecordByteLength } from "./persisted-value-classes.js";
 import { refusePersistence } from "./persistence-refusals.js";
 
 /** Options for a `MemoryPersistenceAdapter`. */
@@ -24,11 +25,6 @@ export interface MemoryPersistenceAdapterOptions {
    * Why the durable adapter is not in use. `"not-attempted"` is the honest value for a
    * deliberate in-memory construction (a test); anything else came from a failed open and is
    * disclosed to the person.
-   */
-  /**
-   * Why the durable adapter is not in use. `"not-attempted"` is the honest value
-   * for a deliberate in-memory construction (a test); anything else came from a
-   * real failed open and gets disclosed to the person.
    */
   readonly unavailableReason?: PersistenceUnavailableReason;
   /**
@@ -72,7 +68,9 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   public write(record: StoredRecord): Promise<void> {
     this.#assertOpen();
     if (this.#capacityBytes !== undefined) {
-      const projected = this.#measureUsageBytes(record) + estimateRecordBytes(record);
+      const projected =
+        this.#measureUsageBytes(record) +
+        measureRecordByteLength(record.partition, record.key, record.valueClass, record.value);
       if (projected > this.#capacityBytes) {
         return Promise.reject(
           new PersistenceAdapterError(
@@ -90,18 +88,6 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
       this.#recordsByPartition.set(record.partition, partition);
     }
     partition.set(record.key, record);
-    return Promise.resolve();
-  }
-
-  public delete(partition: string, key: string): Promise<void> {
-    this.#assertOpen();
-    const records = this.#recordsByPartition.get(partition);
-    if (records !== undefined) {
-      records.delete(key);
-      if (records.size === 0) {
-        this.#recordsByPartition.delete(partition);
-      }
-    }
     return Promise.resolve();
   }
 
@@ -182,22 +168,14 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
         ) {
           continue;
         }
-        total += estimateRecordBytes(record);
+        total += measureRecordByteLength(
+          record.partition,
+          record.key,
+          record.valueClass,
+          record.value,
+        );
       }
     }
     return total;
   }
-}
-
-/**
- * A cheap, deterministic size estimate for the capacity ceiling and the gauge, which want a
- * stable number more than an exact one.
- */
-function estimateRecordBytes(record: StoredRecord): number {
-  return (
-    record.partition.length +
-    record.key.length +
-    record.valueClass.length +
-    JSON.stringify(record.value).length
-  );
 }

@@ -6,7 +6,7 @@
 // popup is visible for at least one frame before the input holds focus, and keystrokes in that
 // window go to the document and are dropped. The query stays empty, `autoHighlight` highlights the
 // first row of the unfiltered list, and `Enter` runs whatever command that is, reported ten
-// seconds later as a console failure. It is invisible on a developer's machine, where the frame
+// seconds later as an app failure. It is invisible on a developer's machine, where the frame
 // lands between two Playwright calls, and reachable on a two-core runner under Xvfb and
 // SwiftShader.
 //
@@ -29,17 +29,17 @@ import { LaunchDeadline } from "./launch-deadline.js";
  * name, not class, because that is the contract for a screen-reader user and a class may be
  * renamed without breaking any promise.
  */
-export const PALETTE_INPUT_ACCESSIBLE_NAME = "Search commands";
+const PALETTE_INPUT_ACCESSIBLE_NAME = "Search commands";
 
 /** The palette's own chord, pressed as a real key event through the real window. */
 const PALETTE_OPEN_CHORD = "ControlOrMeta+Shift+KeyP";
 
 /**
- * What these helpers need of a launched console: the window and the allowance. Narrowed, as
+ * What these helpers need of a launched app: the window and the allowance. Narrowed, as
  * `withBoundedBody` is, so a case that owns no Electron can drive the phase arithmetic. A full
  * `AppUnderTest` satisfies it.
  */
-type PaletteConsole = Pick<AppUnderTest, "window" | "bodyAllowance">;
+type PaletteApp = Pick<AppUnderTest, "window" | "bodyAllowance">;
 
 /**
  * What one look at the palette input can find. Three states, not a boolean: an absent input is a
@@ -61,8 +61,8 @@ type PaletteInputFocus = "absent" | "present-unfocused" | "focused";
  * name as `aria-label`, and Base UI's combobox root sets `role="combobox"` on the input
  * explicitly. A change to either reads as `absent`.
  */
-async function readPaletteInputFocus(consoleWindow: Page): Promise<PaletteInputFocus> {
-  return await consoleWindow.evaluate((accessibleName): PaletteInputFocus => {
+async function readPaletteInputFocus(appWindow: Page): Promise<PaletteInputFocus> {
+  return await appWindow.evaluate((accessibleName): PaletteInputFocus => {
     const paletteInput = document.querySelector(
       `[role="combobox"][aria-label="${accessibleName}"]`,
     );
@@ -81,29 +81,25 @@ async function readPaletteInputFocus(consoleWindow: Page): Promise<PaletteInputF
  * charged to the body's allowance so neither's sentence is replaced by the generic overrun. They
  * draw on one phase minted here, so the pair costs the one ten-second opening
  * `launch-body` counts, and an opening that spends the whole phase fails on the focus
- * reading inside it. `now` is the seam every clock here takes, since a case proving the second
- * wait gets the remainder cannot wait one out.
+ * reading inside it.
  */
-export async function openPalette(
-  consoleApplication: PaletteConsole,
-  now: () => number = Date.now,
-): Promise<Locator> {
-  const consoleWindow = consoleApplication.window;
-  const openingPhase = new LaunchDeadline(IN_WINDOW_STEP_TIMEOUT_MS, now);
-  await consoleWindow.keyboard.press(PALETTE_OPEN_CHORD);
-  await consoleWindow.getByRole("dialog").waitFor({
+export async function openPalette(appUnderTest: PaletteApp): Promise<Locator> {
+  const appWindow = appUnderTest.window;
+  const openingPhase = new LaunchDeadline(IN_WINDOW_STEP_TIMEOUT_MS);
+  await appWindow.keyboard.press(PALETTE_OPEN_CHORD);
+  await appWindow.getByRole("dialog").waitFor({
     state: "visible",
-    timeout: consoleApplication.bodyAllowance.boundedMs(openingPhase.remainingMs()),
+    timeout: appUnderTest.bodyAllowance.boundedMs(openingPhase.remainingMs()),
   });
 
   await expect
-    .poll(async () => await readPaletteInputFocus(consoleWindow), {
-      timeout: consoleApplication.bodyAllowance.boundedMs(openingPhase.remainingMs()),
+    .poll(async () => await readPaletteInputFocus(appWindow), {
+      timeout: appUnderTest.bodyAllowance.boundedMs(openingPhase.remainingMs()),
       message:
         "the palette opened but never moved focus into its input — the reading names whether the input was absent or present and unfocused",
     })
     .toBe("focused");
-  return consoleWindow.getByRole("combobox", { name: PALETTE_INPUT_ACCESSIBLE_NAME });
+  return appWindow.getByRole("combobox", { name: PALETTE_INPUT_ACCESSIBLE_NAME });
 }
 
 /**
@@ -111,11 +107,11 @@ export async function openPalette(
  * without observing the dismissal would leave the next step racing a dialog still trapping focus.
  * It is one wait, so it takes its own bound directly.
  */
-export async function closePalette(consoleApplication: PaletteConsole): Promise<void> {
-  const consoleWindow = consoleApplication.window;
-  await consoleWindow.keyboard.press("Escape");
-  await consoleWindow.getByRole("dialog").waitFor({
+export async function closePalette(appUnderTest: PaletteApp): Promise<void> {
+  const appWindow = appUnderTest.window;
+  await appWindow.keyboard.press("Escape");
+  await appWindow.getByRole("dialog").waitFor({
     state: "hidden",
-    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+    timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
   });
 }

@@ -2,10 +2,9 @@
 //
 // Everything here gets a probe reading out of a real Electron process: isolating a profile,
 // arranging the activation gates, spawning through the one owner, scanning the tagged line, and
-// releasing what the spawn held. Whether a reading is acceptable is the suite's decision. It is a
-// sibling of `smoke-probe-harness.ts` and shares its bundle paths and spawner; the two probes read
-// different things and carry different diagnostics. The harness asserts nothing, so a probe
-// failure has one origin.
+// releasing what the spawn held. Whether a reading is acceptable is the suite's decision. It
+// shares the bundle paths, spawner and spawn deadline with `helpers/smoke-probe-harness.ts`; the
+// two probes read different things and carry different diagnostics.
 //
 // The GC probe in `src/main/probes/gc-probe.ts` runs 20 cycles of two `gc()` calls, an 8 MB
 // allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BrowserWindow)` count. It
@@ -24,26 +23,20 @@
 // `.github/workflows/ci.yml`), so `needsXvfb()` is false and the binary is spawned directly. The
 // `xvfb-run -a` arm is the fallback for a contributor with no display server.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import process from "node:process";
 
 import type { GcProbeReading } from "@main/probes/gc-probe.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
 import { GC_PROBE_TAG } from "@shared/probe-tags.js";
-import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
-import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "./smoke-probe-harness.js";
-import { needsXvfb } from "./display-readiness.js";
-import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
-import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
-
-/**
- * The spawn deadline: 20 cycles of about 150 ms plus Electron boot (1-2 s on Linux runners),
- * with a generous backstop.
- */
-export const SPAWN_TIMEOUT_MS = 30_000;
+import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron-child-cleanup.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
+import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture-bundle.js";
+import { needsXvfb } from "./helpers/display-readiness.js";
+import { createLaunchProfile } from "./helpers/launch-profile.js";
+import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
+import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./helpers/process-tree/budget.js";
+import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe-harness.js";
+import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";
 
 /**
  * The enclosing vitest budget, derived from the phases it must contain: the spawn's blocking host
@@ -62,6 +55,8 @@ export const GC_TEST_TIMEOUT_MS: number =
 /** What one spawn produced, reading or not, with the context to diagnose it. */
 interface GcProbeSpawnResult {
   readonly probe: GcProbeReading | null;
+  /** Tagged lines that did not parse, each with the parser's reason. */
+  readonly malformedProbeLines: readonly string[];
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
@@ -73,30 +68,24 @@ interface GcProbeSpawnResult {
  * Spawn Electron on the GC probe path and resolve with what it emitted.
  *
  * It resolves on every outcome (a missing reading, a spawn error, a deadline kill) because the
- * suite's diagnosis needs the stdout, stderr and exit code that explain which happened.
+ * suite's diagnosis needs the stdout, stderr and exit code that explain which happened. The
+ * private profile comes off disk after the child is gone, at the end of the test; a removal that
+ * fails fails the test.
  */
 export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   const startedAt = Date.now();
 
-  // A per-spawn userData dir keeps this Electron off the default profile's `SingletonLock`: a
-  // second instance sees `gotTheLock === false` and exits 0 before the probe runs.
-  // `removeProfileDirectory` below takes it off disk from both paths that can reach it.
-  const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
-
-  // The one remover of this spawn's profile, called from the close and error path and from the
-  // settle-time disposer; `force: true` lets both run. Best-effort, since a leftover temporary
-  // profile must not replace the result the reader came for.
-  const removeProfileDirectory = (): void => {
-    try {
-      rmSync(userDataDir, { recursive: true, force: true });
-    } catch {
-      // Best-effort; see above.
-    }
-  };
+  // A private profile keeps this Electron off the default profile's `SingletonLock`: a second
+  // instance sees `gotTheLock === false` and exits 0 before the probe runs.
+  const profile = createLaunchProfile("sidekicks-gc-test-");
 
   // `--js-flags=--expose-gc` must precede the entry script so Electron forwards it to V8; the
   // suite asserts `globalGcAvailable` to fail loudly without it.
-  const electronArgs = ["--js-flags=--expose-gc", `--user-data-dir=${userDataDir}`, MAIN_ENTRY];
+  const electronArgs = [
+    "--js-flags=--expose-gc",
+    `--user-data-dir=${profile.directory}`,
+    MAIN_ENTRY_PATH,
+  ];
   const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
   const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
@@ -105,11 +94,8 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   const { SIDEKICKS_SMOKE_PROBE: _smokeProbeSwitch, ...envWithoutSmoke } = process.env;
 
   return new Promise<GcProbeSpawnResult>((resolve) => {
-    // The shared owner makes the spawn survivable: the child leads its own process group, so the
-    // kill reaches the browser behind the `node_modules/.bin/electron` shim (SIGKILL cannot be
-    // forwarded), and the kill runs on `onTestFinished`, so it covers every outcome. The same call
-    // binds profile removal to the test after the kill, covering a vitest timeout, which runs
-    // neither `close` nor `error`.
+    // The shared owner kills the whole process group at the end of the test, whatever its
+    // outcome, then removes the profile.
     const managed = spawnChildCleanedUpAtSettleTime(
       {
         command: spawnCommand,
@@ -122,15 +108,14 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
         },
       },
-      removeProfileDirectory,
+      profile.remove,
     );
 
     const child = managed.child;
 
     let stdout = "";
     let stderr = "";
-    let probe: GcProbeReading | null = null;
-    let pending = "";
+    const probeLines = new TaggedJsonReadingScanner<GcProbeReading>(GC_PROBE_TAG);
 
     const spawnDeadline = setTimeout(() => {
       // SIGTERM first so the shim forwards it and Electron closes the stdout write end `close`
@@ -144,58 +129,40 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
       managed.captureTreeDescendants();
       const text = chunk.toString("utf8");
       stdout += text;
-      pending += text;
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        const probeTagIndex = line.indexOf(GC_PROBE_TAG);
-        if (probeTagIndex < 0) continue;
-        const payload = line.slice(probeTagIndex + GC_PROBE_TAG.length).trim();
-        if (!payload.startsWith("{")) continue;
-        try {
-          probe = JSON.parse(payload) as GcProbeReading;
-        } catch {
-          // Tagged but malformed; keep scanning.
-        }
-      }
+      probeLines.push(text);
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
     });
 
-    const cleanup = (): void => {
+    const settle = (
+      result: Omit<GcProbeSpawnResult, "probe" | "malformedProbeLines" | "elapsedMs">,
+    ): void => {
+      clearTimeout(spawnDeadline);
       // Releases the escalation timer. On the ordinary `close` path it signals nothing, since the
       // pid and its group are the OS's to reissue by then. On a spawn `error` it is the only kill,
       // aimed at the direct handle.
       managed.dispose();
-      removeProfileDirectory();
+      resolve({
+        ...result,
+        probe: probeLines.reading,
+        malformedProbeLines: probeLines.malformedLines,
+        elapsedMs: Date.now() - startedAt,
+      });
     };
 
     child.on("error", (err: Error) => {
-      clearTimeout(spawnDeadline);
-      cleanup();
-      resolve({
-        probe: null,
+      settle({
         stdout,
         stderr: stderr + `\n[spawn error] ${err.message}`,
         exitCode: null,
         signal: null,
-        elapsedMs: Date.now() - startedAt,
       });
     });
 
     child.on("close", (exitCode, signal) => {
-      clearTimeout(spawnDeadline);
-      cleanup();
-      resolve({
-        probe,
-        stdout,
-        stderr,
-        exitCode,
-        signal,
-        elapsedMs: Date.now() - startedAt,
-      });
+      settle({ stdout, stderr, exitCode, signal });
     });
   });
 }

@@ -20,9 +20,9 @@ import type { TransportReconnectSignal } from "./transport-reconnect.js";
 
 /**
  * Takes one daemon subscription and reports what taking it observed. The open is a thunk because
- * callers spell the underlying call differently (a stream name the daemon's method map lists, or a
- * run stream it does not yet), and a signature taking an event name would force one spelling. A
- * failure is re-raised unchanged, since every caller has an arm for an open that threw.
+ * callers spell the underlying call differently, and a signature taking an event name would force
+ * one spelling. A failure is re-raised unchanged, since every caller has an arm for an open that
+ * threw.
  */
 export function openObservedSubscription(
   signal: TransportReconnectSignal,

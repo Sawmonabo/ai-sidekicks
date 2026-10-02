@@ -1,8 +1,8 @@
 // The persistence adapter seam. The renderer has IndexedDB only because the custom scheme is
-// registered `standard: true` before `app.ready`; without it the console falls back to
-// in-memory state and says so. `describe()` returns the sentence the diagnostics view renders,
-// `durable` is false so a caller does not pretend a write stuck, and the quota gauge carries
-// the same reason so a view reading only the gauge still discloses the degradation.
+// registered `standard: true` before `app.ready`; without it the console falls back to in-memory
+// state and says so. `describe()` returns the sentence that says why storage is not durable,
+// `durable` is false so a caller does not pretend a write stuck, and the quota gauge carries the
+// same reason so a view reading only the gauge still discloses the degradation.
 
 import { RefusalError } from "@renderer/lib/refusal.js";
 import type { PersistenceRefusal } from "./persistence-refusals.js";
@@ -14,7 +14,7 @@ export type PersistenceAdapterKind = "indexeddb" | "memory";
 /**
  * Why the durable adapter is not in use, and the sentence each reason renders as.
  *
- * The reason vocabulary is the keys of this table, so a reason cannot exist without an
+ * The reason vocabulary is the keys of this table, so a reason cannot exist without a
  * sentence for the person. It lives with the seam because the gauge, the health read and the
  * fallback adapter all render it.
  */
@@ -76,14 +76,13 @@ export interface PersistenceAdapter {
   readonly durable: boolean;
   /** Present only when `durable` is false. Names what went wrong. */
   readonly unavailableReason: PersistenceUnavailableReason | undefined;
-  /** A sentence for the diagnostics view. Complete and non-technical enough to act on. */
+  /** One sentence on why storage is or is not durable. Complete enough to act on. */
   describe(): string;
 
   read(partition: string, key: string): Promise<StoredRecord | undefined>;
   readPartition(partition: string): Promise<readonly StoredRecord[]>;
   /** Rejects with a `PersistenceAdapterError` on quota exhaustion. */
   write(record: StoredRecord): Promise<void>;
-  delete(partition: string, key: string): Promise<void>;
   summarizePartitions(): Promise<readonly PartitionSummary[]>;
   /**
    * Drops least-recently-touched session partitions until at most `keepSessionPartitions`
@@ -132,13 +131,19 @@ export function isQuotaExceeded(error: unknown): boolean {
   if (error instanceof PersistenceAdapterError) {
     return error.refusal.code === "quota-exceeded";
   }
-  // `QuotaExceededError` is a DOMException in browsers and a plain error under
-  // some polyfills; both carry the name, and Safari historically used code 22.
-  if (typeof error === "object" && error !== null && "name" in error) {
-    const name = (error as { readonly name: unknown }).name;
-    return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED";
+  // `QuotaExceededError` is a DOMException in browsers and a plain error under some polyfills;
+  // both carry the name.
+  const name = readErrorName(error);
+  return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED";
+}
+
+/** The `name` a thrown DOMException or error carries, or `undefined` where it carries none. */
+export function readErrorName(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("name" in error)) {
+    return undefined;
   }
-  return false;
+  const name: unknown = error.name;
+  return typeof name === "string" ? name : undefined;
 }
 
 /**

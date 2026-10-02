@@ -1,13 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates `build/`, the build's own code and its tests, without emitting. The production `tsconfig.json` has `rootDir: ./src` and does not cover it; this
-  // sibling mirrors `tsconfig.test.json` (noEmit, isolated buildinfo) so it is typechecked without
-  // touching the project-references graph or the production `dist/` layout.
+  // Type-validates `build/` (the release artifact's fuse check) without emitting. The production
+  // `tsconfig.json` has `rootDir: ./src` and does not cover it; this sibling mirrors
+  // `tsconfig.test.json` (noEmit, isolated buildinfo) so it stays out of the project-references
+  // graph and the production `dist/` layout.
   //
-  // One owner per directory: `scripts/` belongs to `tsconfig.scripts.json`. Two projects over one
-  // directory means two sets of compiler options over it, and they disagreed about
-  // `allowImportingTsExtensions`, which the `scripts/` harnesses need because
-  // `node --experimental-strip-types` resolves the extension it is given and rewrites no specifier.
+  // One owner per directory: `scripts/` belongs to `tsconfig.scripts.json`, whose harnesses need
+  // `allowImportingTsExtensions` because `node --experimental-strip-types` rewrites no specifier.
   "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,

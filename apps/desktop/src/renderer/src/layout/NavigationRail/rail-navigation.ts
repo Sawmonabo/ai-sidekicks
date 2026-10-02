@@ -9,6 +9,7 @@ import {
   findScreenNameForRoute,
   type ScreenRegistry,
 } from "@renderer/registries/screens/screen-registry.js";
+import { preloadQuietly } from "@renderer/components/LazyBody/lazy-body-warm.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**
@@ -60,5 +61,5 @@ async function warmRouteScreen(screenRegistry: ScreenRegistry, route: AppRoute):
   if (screenName === undefined) {
     return;
   }
-  await screenRegistry.preload(screenName).catch(() => undefined);
+  await preloadQuietly(screenRegistry.preload(screenName));
 }

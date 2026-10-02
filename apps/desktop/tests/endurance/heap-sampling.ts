@@ -40,8 +40,12 @@ function resolveExposedCollector(): (() => void) | undefined {
     v8.setFlagsFromString("--expose-gc");
     const compiled: unknown = vm.runInNewContext("gc");
     return typeof compiled === "function" ? (compiled as () => void) : undefined;
-  } catch {
-    return undefined;
+  } catch (error: unknown) {
+    // A runtime that ignored the flag has no `gc` to look up; any other failure is raised.
+    if (error instanceof ReferenceError) {
+      return undefined;
+    }
+    throw error;
   } finally {
     // Left off downstream: the flag is needed to compile the accessor, not to hold it, and
     // leaving it on changes how the rest of the run is optimized.
@@ -53,18 +57,9 @@ function resolveExposedCollector(): (() => void) | undefined {
  * One owner of one resolution attempt: it runs at most once per instance, and its outcome,
  * including a failure, belongs to that instance alone.
  */
-export class HeapCollector {
-  readonly #resolveCollector: () => (() => void) | undefined;
+class HeapCollector {
   #collect: (() => void) | undefined;
   #hasResolved = false;
-
-  /**
-   * Takes how the collector is reached, so a test can drive a runtime that refuses or one that
-   * hands a collector over later.
-   */
-  public constructor(resolveCollector: () => (() => void) | undefined = resolveExposedCollector) {
-    this.#resolveCollector = resolveCollector;
-  }
 
   /** Whether a collection can be forced at all. A caller that gets `false` skips. */
   public available(): boolean {
@@ -79,7 +74,7 @@ export class HeapCollector {
   #resolved(): (() => void) | undefined {
     if (!this.#hasResolved) {
       this.#hasResolved = true;
-      this.#collect = this.#resolveCollector();
+      this.#collect = resolveExposedCollector();
     }
     return this.#collect;
   }
@@ -101,11 +96,7 @@ export const SETTLE_ROUNDS = 4;
  * not decide what later ones can measure.
  */
 export class HeapSampler {
-  readonly #collector: HeapCollector;
-
-  public constructor(collector: HeapCollector = new HeapCollector()) {
-    this.#collector = collector;
-  }
+  readonly #collector: HeapCollector = new HeapCollector();
 
   /**
    * Whether a heap reading is admissible here: a reading with no collection behind it is noise,

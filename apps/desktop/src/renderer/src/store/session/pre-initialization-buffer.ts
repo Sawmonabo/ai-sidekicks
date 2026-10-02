@@ -4,8 +4,8 @@
 // is not. Events drain when the read response lands.
 //
 // The hold is bounded at `PRE_INITIALIZATION_BUFFER_CAP`, since a longer wait is a read that is
-// not coming. Past it the oldest is dropped and counted; the drain re-derives what the drop
-// cost, as an ordinary gap between the snapshot cursor and the oldest survivor.
+// not coming. Past it the oldest is dropped; the drain re-derives what the drop cost, as an
+// ordinary gap between the snapshot cursor and the oldest survivor.
 
 import { PRE_INITIALIZATION_BUFFER_CAP } from "./session-store-caps.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
@@ -13,19 +13,10 @@ import type { ProjectedSessionEvent } from "./entities/entities.js";
 /** Events held for a base state, oldest first, never more than the cap. */
 export class PreInitializationBuffer {
   readonly #held: ProjectedSessionEvent[] = [];
-  #dropCount = 0;
 
   /** Events waiting for a base state. Never more than `PRE_INITIALIZATION_BUFFER_CAP`. */
   public get pendingCount(): number {
     return this.#held.length;
-  }
-
-  /**
-   * Events dropped at the cap over this buffer's life. Counted because a stream still filling a
-   * store nothing can project is an upstream fault.
-   */
-  public get dropCount(): number {
-    return this.#dropCount;
   }
 
   /**
@@ -39,7 +30,6 @@ export class PreInitializationBuffer {
       return false;
     }
     this.#held.shift();
-    this.#dropCount += 1;
     return true;
   }
 

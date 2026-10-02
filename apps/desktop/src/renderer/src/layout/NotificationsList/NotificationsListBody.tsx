@@ -1,65 +1,50 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
-import { uncheckedSessionsSentence } from "./attention-sentences.js";
-import { ReadCompleteness } from "./ReadCompleteness.js";
-import { SessionNotificationGroup } from "./SessionNotificationGroup.js";
+import { NotificationEntryList } from "./NotificationEntryList.js";
 
-/** The list body: the reading state, the completeness notice, and one group per session. */
+/**
+ * The list body: a `Waiting on you` group with its count over an `Earlier` group, newest first in
+ * each. A group with no entries is not drawn, and with no entries at all nothing is drawn.
+ */
 export function NotificationsListBody(props: {
   readonly reading: AttentionReading;
+  readonly nowMilliseconds: number;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element | null {
   if (props.reading.phase === "reading") {
-    return <Nothing kind="not-loaded" placement="block" title="Reading what needs you." />;
+    return null;
   }
-  const { summary, droppedCount, refusedSessions } = props.reading;
-  if (summary.groups.length === 0) {
-    // Why nothing survived decides what is drawn. A read every session answered with an empty
-    // projection draws nothing. A read some session never answered, or one whose every member the
-    // boundary rejected, must not look like that, or a person is told they are free on an
-    // unanswered question.
-    if (refusedSessions.length > 0) {
-      return (
-        <>
-          <Nothing
-            kind="not-checked"
-            placement="block"
-            title="Some sessions could not be checked."
-            detail={`${uncheckedSessionsSentence(refusedSessions.length)} Nothing was found in the ones that answered, which is not an all-clear.`}
-          />
-          <ReadCompleteness reading={props.reading} />
-        </>
-      );
-    }
-    if (droppedCount === 0) {
-      return null;
-    }
-    return (
-      <>
-        <Nothing
-          kind="not-checked"
-          placement="block"
-          title="Nothing in that read could be recognized."
-        />
-        <ReadCompleteness reading={props.reading} />
-      </>
-    );
+  const newestFirst = [...props.reading.summary.liveItems].reverse();
+  const waiting = newestFirst.filter((item) => item.severity === "actionable");
+  const earlier = newestFirst.filter((item) => item.severity !== "actionable");
+  if (waiting.length === 0 && earlier.length === 0) {
+    return null;
   }
   return (
     <>
-      <ReadCompleteness reading={props.reading} />
-      <ul className="meridian-attention__groups">
-        {summary.groups.map((group) => (
-          <li key={group.sessionId}>
-            <SessionNotificationGroup
-              group={group}
-              foldInformational={summary.hasActionable}
-              onOpen={props.onOpen}
-            />
-          </li>
-        ))}
-      </ul>
+      {waiting.length === 0 ? null : (
+        <section className="meridian-attention__group" aria-label="Waiting on you">
+          <h3 className="meridian-attention__group-title">
+            Waiting on you <span>{formatCount(waiting.length)}</span>
+          </h3>
+          <NotificationEntryList
+            items={waiting}
+            nowMilliseconds={props.nowMilliseconds}
+            onOpen={props.onOpen}
+          />
+        </section>
+      )}
+      {earlier.length === 0 ? null : (
+        <section className="meridian-attention__group" aria-label="Earlier">
+          <h3 className="meridian-attention__group-title">Earlier</h3>
+          <NotificationEntryList
+            items={earlier}
+            nowMilliseconds={props.nowMilliseconds}
+            onOpen={props.onOpen}
+          />
+        </section>
+      )}
     </>
   );
 }

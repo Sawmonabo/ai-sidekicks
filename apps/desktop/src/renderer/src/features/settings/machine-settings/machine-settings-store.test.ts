@@ -35,10 +35,6 @@ class HandDrivenMachineSettings implements MachineSettingsBridge {
     return this.#subscriptions;
   }
 
-  public read(): Promise<MachineSettingsReading> {
-    return Promise.reject(new Error("the store reads through the feed"));
-  }
-
   public write(change: MachineSettingsChange): Promise<MachineSettings> {
     this.writes.push(change);
     return new Promise((resolve, reject) => {

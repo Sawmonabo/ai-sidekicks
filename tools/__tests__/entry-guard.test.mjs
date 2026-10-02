@@ -28,11 +28,6 @@ const CLI_SCRIPTS = [
     nodeOptions: ["--experimental-strip-types"],
     args: () => ["--no-such-flag"],
   },
-  {
-    relativePath: "apps/desktop/scripts/budget/measure-heap.mts",
-    nodeOptions: ["--experimental-strip-types"],
-    args: () => ["--no-such-flag"],
-  },
   { relativePath: "tools/lefthook-worktree-lock.mjs", args: () => ["no-such-command"] },
 ];
 

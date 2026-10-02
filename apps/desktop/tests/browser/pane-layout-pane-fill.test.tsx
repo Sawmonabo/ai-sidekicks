@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app-harness.js";
+import { mountTerminalPaneInGridCell } from "./terminal-pane-in-grid-cell.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
@@ -59,23 +60,6 @@ async function mountPaneInPaneLayout(): Promise<MountedPane> {
   return { layoutCell, pane };
 }
 
-/** The same pane under the arrangement that always worked, for the control below. */
-async function mountPaneInGridCell(): Promise<MountedPane> {
-  installMeridianTokens(document);
-  const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
-  const { container } = await renderSettled(
-    <div style={{ display: "grid", height: `${String(PANE_LAYOUT_HEIGHT_PX)}px` }}>
-      <TerminalPane {...terminalPaneContext(undefined, bridge)} />
-    </div>,
-  );
-  const layoutCell = container.firstElementChild;
-  const pane = container.querySelector(".meridian-pane");
-  if (!(layoutCell instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
-    throw new Error("the pane did not mount into a grid cell");
-  }
-  return { layoutCell, pane };
-}
-
 describe("browser — a pane fills the cell the pane layout gives it", () => {
   it("takes the whole cell height in the pane layout's column-flex arrangement", async () => {
     const { layoutCell, pane } = await mountPaneInPaneLayout();
@@ -91,7 +75,7 @@ describe("browser — a pane fills the cell the pane layout gives it", () => {
     // Keeps the rule about growing rather than a height: a pane given `height: 100%` would pass
     // the case above and break here once a cell stopped being its parent's full height. It also
     // pins that the flex rule leaves the grid path alone, since `flex` is inert on a grid item.
-    const { layoutCell, pane } = await mountPaneInGridCell();
+    const { layoutCell, frame: pane } = await mountTerminalPaneInGridCell(PANE_LAYOUT_HEIGHT_PX);
 
     expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(pane.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);

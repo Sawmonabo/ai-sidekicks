@@ -158,80 +158,11 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* Empty states: each absence gets its own shape because the next move differs. */
+/* The one empty state: the query matched nothing. */
 .command-palette__empty-state {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
   padding: var(--meridian-space-5) var(--meridian-space-4);
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
-}
-
-.command-palette__empty-state-headline {
-  color: var(--meridian-text);
-}
-
-.command-palette__empty-state-detail {
-  color: var(--meridian-text-faint);
-}
-
-/* Loading: a skeleton in the row's shape. */
-.command-palette__skeleton-row {
-  height: 1.25rem;
-  margin: var(--meridian-space-2) var(--meridian-space-4);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-sunken);
-}
-
-.command-palette__skeleton-row:nth-child(2) {
-  width: 72%;
-}
-
-.command-palette__skeleton-row:nth-child(3) {
-  width: 54%;
-}
-
-/* Error: a red-edged row carrying the code and the message verbatim. */
-.command-palette__empty-state--error {
-  border-left: var(--meridian-leading-edge) solid var(--meridian-red-mark);
-  background: var(--meridian-red-ground);
-  color: var(--meridian-red-text);
-}
-
-.command-palette__empty-state--error .command-palette__empty-state-headline {
-  color: var(--meridian-red-text);
-}
-
-.command-palette__error-code {
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-xs);
-}
-
-.command-palette__error-list {
-  margin: 0;
-  padding-left: var(--meridian-space-5);
-  color: var(--meridian-red-text);
-  font-size: var(--meridian-text-xs);
-}
-
-/* Not checked: a dotted badge. */
-.command-palette__badge {
-  align-self: flex-start;
-  padding: 0 var(--meridian-space-2);
-  border: 1px dashed var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.6;
-}
-
-/* Still computing: a badge with a clock glyph. */
-.command-palette__badge--computing {
-  border-style: solid;
-  border-color: var(--meridian-amber-mark);
-  background: var(--meridian-amber-ground);
-  color: var(--meridian-amber-text);
 }
 
 .command-palette__footer {
@@ -244,11 +175,6 @@
   background: var(--meridian-surface);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
-}
-
-.command-palette__footer-hints {
-  display: flex;
-  gap: var(--meridian-space-3);
 }
 
 /* The refused press, below the rows. */

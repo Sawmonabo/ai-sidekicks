@@ -1,12 +1,18 @@
 // Can two `when` scopes be true at the same time? A decision procedure over the semantics
 // in `when-clause.ts`, run once per chord collision at install time, never on the input path.
 
-import { WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS } from "@renderer/styles/palette.js";
 import {
   collectWhenClauseIdentifiers,
   evaluateWhenClause,
   type WhenClauseNode,
 } from "./when-clause.js";
+
+/**
+ * Distinct context keys a pair of clauses may name before the check stops enumerating. Twelve
+ * keys is 4096 assignments per pair, checked once at install and only for bindings that share a
+ * chord; a clause names two or three keys.
+ */
+const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
 /** What `whenClausesCanOverlap` could establish about two scopes. */
 export type WhenClauseOverlap = "overlap" | "disjoint" | "undecided";

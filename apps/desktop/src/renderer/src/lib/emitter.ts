@@ -6,11 +6,13 @@
 //     re-raised together, so delivery does not depend on subscription order and a defect in a
 //     diagnostic path is not hidden.
 
+import type { Unsubscribe } from "@shared/preload-api.js";
+
+/** The handle `subscribe` returns, the one the bridge's subscriptions return. */
+export type { Unsubscribe };
+
 /** A subscriber to an {@link Emitter}. */
 export type EmitterSink<Event> = (event: Event) => void;
-
-/** Call to stop receiving. Idempotent: calling it twice is not an error. */
-export type Unsubscribe = () => void;
 
 /**
  * A set of sinks that receive every emitted event.
@@ -53,11 +55,6 @@ export class Emitter<Event> {
         `${String(failures.length)} sinks failed while receiving a ${this.#describeWhat}`,
       );
     }
-  }
-
-  /** How many sinks are attached. */
-  public get sinkCount(): number {
-    return this.#sinks.size;
   }
 
   /** Drop every sink. For teardown, never as a way to "reset" a live emitter. */

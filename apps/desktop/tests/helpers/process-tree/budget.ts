@@ -40,7 +40,7 @@ export const TERMINATION_CONSUMES_CAPTURED_DESCENDANTS: boolean = process.platfo
  * Two: the owner's live capture and the intersection the root's `exit` runs. A third reading
  * needs this figure raised with it.
  */
-export const DESCENDANT_LISTINGS_PER_CHILD = 2;
+const DESCENDANT_LISTINGS_PER_CHILD = 2;
 
 /**
  * What a managed child's own host queries may cost, per enclosing per-test budget.
@@ -49,7 +49,7 @@ export const DESCENDANT_LISTINGS_PER_CHILD = 2;
  * everywhere because `SpawnedTreeIdentity`'s constructor reads it at the spawn, before any
  * harness has armed its timer.
  */
-export function spawnedTreeHostQueryCeilingMs(consumesCapturedDescendants: boolean): number {
+function spawnedTreeHostQueryCeilingMs(consumesCapturedDescendants: boolean): number {
   const descendantListings = consumesCapturedDescendants ? DESCENDANT_LISTINGS_PER_CHILD : 0;
   return HOST_QUERY_TIMEOUT_MS * (1 + descendantListings);
 }
@@ -67,27 +67,19 @@ export const SPAWNED_TREE_HOST_QUERY_CEILING_MS: number = spawnedTreeHostQueryCe
   TERMINATION_CONSUMES_CAPTURED_DESCENDANTS,
 );
 
-/**
- * One deadline, shared by every host command a single termination runs.
- *
- * The clock is injectable because the state this exists for, a host query spending its whole
- * five-second ceiling, cannot be produced on demand in a test.
- */
+/** One deadline, shared by every host command a single termination runs. */
 export class HostCommandBudget {
   readonly #expiresAt: number | undefined;
-  readonly #readClock: () => number;
 
   /**
    * @param remainingBudgetMilliseconds What is left of the caller's deadline, or `undefined`
    *   for a caller that holds none.
-   * @param readClock How the instant is read.
    */
-  constructor(remainingBudgetMilliseconds?: number, readClock: () => number = Date.now) {
-    this.#readClock = readClock;
+  constructor(remainingBudgetMilliseconds?: number) {
     this.#expiresAt =
       remainingBudgetMilliseconds === undefined
         ? undefined
-        : readClock() + remainingBudgetMilliseconds;
+        : Date.now() + remainingBudgetMilliseconds;
   }
 
   /**
@@ -100,6 +92,6 @@ export class HostCommandBudget {
     if (this.#expiresAt === undefined) {
       return undefined;
     }
-    return Math.max(0, this.#expiresAt - this.#readClock());
+    return Math.max(0, this.#expiresAt - Date.now());
   }
 }

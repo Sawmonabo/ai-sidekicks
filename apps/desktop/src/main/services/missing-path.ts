@@ -1,6 +1,6 @@
-// A main-side leaf that imports nothing. `diagnostic-log.ts` (a log not yet written) and
-// `renderer-assets.ts` (an asset the built tree lacks) need the same answer to "is the path
-// just not there?".
+// A main-side leaf that imports nothing. `diagnostic-log.ts` (a log not yet written),
+// `renderer-assets.ts` (an asset the built tree lacks) and `keyboard-map-file.ts` (a map never
+// saved) need the same answer to "is the path just not there?".
 //
 // Two codes count: `ENOENT` (no entry at the path) and `ENOTDIR` (a component that would have
 // to be a directory is a file); both mean the path names nothing. Every other code (`EACCES`,
@@ -8,7 +8,7 @@
 // unreadable log as empty and a permission refusal as a 404.
 
 /** The rejection codes that mean the path names nothing. */
-const ABSENCE_ERROR_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
+const MISSING_PATH_ERROR_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
 
 /**
  * Whether a rejected `node:fs` operation failed because the path is not there. Reads `code`
@@ -19,5 +19,5 @@ export function isMissingPath(failure: unknown): boolean {
     return false;
   }
   const { code } = failure;
-  return typeof code === "string" && ABSENCE_ERROR_CODES.includes(code);
+  return typeof code === "string" && MISSING_PATH_ERROR_CODES.includes(code);
 }

@@ -204,7 +204,9 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     });
     typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
     await submit(container);
-    expect(container.textContent).toContain("in-flight");
+    expect(container.textContent).toContain(
+      "An earlier request for this run is still settling, so nothing was sent.",
+    );
     expect(container.textContent).toContain("still settling");
     expect(bodyValue(container)).toBe("the second body");
     expect(dismissals).toBe(0);
@@ -276,7 +278,8 @@ describe("the composer outlives its dispatch", () => {
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
-    expect(container.textContent).toContain("run_not_paused");
+    expect(container.querySelector('[data-refusal-code*="run_not_paused"]')).not.toBeNull();
+    expect(container.textContent).toContain("The background service did not apply this.");
   });
 });
 

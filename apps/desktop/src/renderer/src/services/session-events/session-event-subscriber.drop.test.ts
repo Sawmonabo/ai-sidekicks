@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
-import { settleMicrotasks } from "@test/helpers/session-store-fixtures.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
@@ -56,7 +56,7 @@ async function createBoundHarness(): Promise<DropHarness> {
   subscriber.attach();
   registry.open(SESSION_ID);
   engine.advance(0);
-  await settleMicrotasks();
+  await crossMacrotaskBoundary();
   expect(reasonsSeen).toEqual(["subscribe"]);
   reasonsSeen.length = 0;
   const [handler] = handlers;
@@ -82,7 +82,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
 
     expect(registry.peek(SESSION_ID)?.snapshot().degradedCause).toBe("sequence-gap");
     engine.advance(0);
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
     expect(reasonsSeen).toEqual(["gap-repull"]);
     expect(subscriber.unreadableDeliveryCount).toBe(0);
 

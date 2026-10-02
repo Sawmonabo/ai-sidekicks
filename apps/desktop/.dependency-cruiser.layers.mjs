@@ -1,11 +1,12 @@
 // The renderer's layer vocabulary, for `.dependency-cruiser.mjs` beside it.
 //
-// Split from the rule set because they are two jobs: this half says what the layers are (where each
-// lives and what sits above it) and is what a branch adding a top-level folder touches; the other
-// half says what is forbidden over that vocabulary and is what a branch tightening a rule touches.
+// Kept apart from the rule set because they are two jobs: this half says what the layers are
+// (where each lives and what sits above it) and is what a branch adding a top-level folder touches;
+// the other half says what is forbidden over that vocabulary and is what a branch tightening a rule
+// touches.
 //
-// Every name here is exported because the rule set is its only reader: a name it stops using is a
-// name to delete rather than one to hide.
+// A name is exported only when the rule set reads it: a name it stops using is a name to delete
+// rather than one to hide.
 
 /** The renderer source root. */
 export const RENDERER = "^src/renderer/src";
@@ -24,7 +25,7 @@ export const SERVICES = `${RENDERER}/services/`;
 export const REGISTRIES = `${RENDERER}/registries/`;
 export const FEATURES = `${RENDERER}/features/`;
 export const LAYOUT = `${RENDERER}/layout/`;
-export const APP = `${RENDERER}/app/`;
+const APP = `${RENDERER}/app/`;
 
 /**
  * The two stores held apart inside `store/`: one per window, one per open session.
@@ -101,22 +102,6 @@ export const FEATURE_PUBLIC_APIS = `${FEATURES}[^/]+/index\\.ts$`;
  * catastrophic-backtracking shape) and bails out of the cruise rather than running slowly.
  */
 export const BARRELS = [`${RENDERER}/index\\.ts$`, `${RENDERER}/.+/index\\.ts$`];
-
-/** Every layer, low to high — the closed set the import direction orders. */
-export const LAYERS = [
-  LIB,
-  STYLES,
-  ASSETS,
-  ROUTING,
-  COMPONENTS,
-  HOOKS,
-  STORE,
-  SERVICES,
-  REGISTRIES,
-  FEATURES,
-  LAYOUT,
-  APP,
-];
 
 /** Everything strictly above each rung, as one alternation. */
 export const ABOVE_LIB_STYLES_ASSETS = [

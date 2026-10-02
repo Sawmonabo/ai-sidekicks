@@ -34,10 +34,10 @@ describe("WindowStore — a feature's modal dialog publishes whether it is up", 
       published.push(state.isModalDialogOpen);
     });
 
-    store.modalDialogClaims.hold("the-sign-in-card");
+    store.modalDialogClaims.hold("a-modal-dialog");
     expect(store.readable.getState().isModalDialogOpen).toBe(true);
 
-    store.modalDialogClaims.release("the-sign-in-card");
+    store.modalDialogClaims.release("a-modal-dialog");
     expect(store.readable.getState().isModalDialogOpen).toBe(false);
 
     unsubscribe();

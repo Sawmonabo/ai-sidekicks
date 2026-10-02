@@ -1,4 +1,4 @@
-// The command line one console launch is given, and the graphics stack it names.
+// The command line one app launch is given, and the graphics stack it names.
 //
 // Every switch the harness passes is decided here.
 //
@@ -40,7 +40,7 @@ const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
  * passes it silently; the frame interval `launch-readiness.ts` prints on every launch is the
  * evidence to read.
  */
-export const SOFTWARE_GRAPHICS_SWITCHES: readonly string[] = [
+const SOFTWARE_GRAPHICS_SWITCHES: readonly string[] = [
   "--use-gl=angle",
   "--use-angle=swiftshader",
   "--enable-unsafe-swiftshader",
@@ -57,7 +57,7 @@ export const SOFTWARE_GRAPHICS_SWITCHES: readonly string[] = [
 const SOFTWARE_GRAPHICS_PLATFORMS: readonly LaunchPlatform[] = ["linux"];
 
 /** The graphics switches `platform` needs, which is none where the host has GL. */
-export function softwareGraphicsSwitchesFor(platform: LaunchPlatform): readonly string[] {
+function softwareGraphicsSwitchesFor(platform: LaunchPlatform): readonly string[] {
   return SOFTWARE_GRAPHICS_PLATFORMS.includes(platform) ? SOFTWARE_GRAPHICS_SWITCHES : [];
 }
 
@@ -71,7 +71,7 @@ export interface LaunchArgsOptions {
   readonly isPreciseHeapReadingRequired: boolean;
   /** The host being launched on, which decides the graphics stack. */
   readonly platform: LaunchPlatform;
-  /** The fixture scenario the console plays, or `undefined` for a normal launch. */
+  /** The fixture scenario the app plays, or `undefined` for a normal launch. */
   readonly fixtureScenarioId?: string;
 }
 

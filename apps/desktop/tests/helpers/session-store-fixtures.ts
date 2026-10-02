@@ -41,13 +41,6 @@ export function emptySnapshot(cursor: number): SessionSnapshot {
   return { cursor, entities: [] };
 }
 
-/** Let every queued continuation run. The registry settles across microtasks. */
-export async function settleMicrotasks(): Promise<void> {
-  for (let tick = 0; tick < 8; tick += 1) {
-    await Promise.resolve();
-  }
-}
-
 /**
  * An initialized store, so an appended event is admitted rather than buffered.
  *

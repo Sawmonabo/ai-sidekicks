@@ -1,14 +1,15 @@
-// The single ordered teardown one spawned child settles through.
-//
-// Split from `electron-child.ts`, the spawner (the one file under `tests/` allowed to reach
-// `spawn`), because sequencing a settlement is a second job. It sits below the spawner and imports
-// only the lifetime object.
+// The single ordered teardown one spawned child settles through. It sits below the spawner
+// (`electron-child.ts`) and imports only the lifetime object.
 //
 // The question it answers is an order: a child holds a resource, the platform may refuse to kill
 // that child, and the resource must come off disk after the last attempt, not between two of them.
 // That needs exactly one teardown per spawned child, registered by the spawner and nothing else.
 
-import { DISPOSAL_ATTEMPTS, type ManagedElectronChild } from "./managed-electron-child.js";
+import {
+  DISPOSAL_ATTEMPTS,
+  TERMINATION_GRACE_MS,
+  type ManagedElectronChild,
+} from "./managed-electron-child.js";
 
 /** What a spawn releases once its child is gone: the resource that child held. */
 export type ChildRelease = () => void;
@@ -30,17 +31,11 @@ export type ChildRelease = () => void;
  */
 export class OrderedChildTeardown {
   readonly #managed: ManagedElectronChild;
-  readonly #exitWaitMs: number;
   readonly #release: ChildRelease | undefined;
   #settled = false;
 
-  constructor(
-    managed: ManagedElectronChild,
-    exitWaitMs: number,
-    release: ChildRelease | undefined,
-  ) {
+  constructor(managed: ManagedElectronChild, release: ChildRelease | undefined) {
     this.#managed = managed;
-    this.#exitWaitMs = exitWaitMs;
     this.#release = release;
   }
 
@@ -85,7 +80,7 @@ export class OrderedChildTeardown {
       const bound = setTimeout(() => {
         child.removeListener("close", onClosed);
         resolve();
-      }, this.#exitWaitMs);
+      }, TERMINATION_GRACE_MS);
       child.once("close", onClosed);
     });
   }

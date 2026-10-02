@@ -1,6 +1,6 @@
 // The loader form on the pane registry: the pane reserves its own chrome while the module is in
 // flight and then mounts the body, a re-render does not rebuild a mounted body, and a rejected
-// load is not kept, so the error boundary's "Try again" reaches a fresh one. Bodies are synthetic;
+// load is not kept, so the error boundary's "Retry" reaches a fresh one. Bodies are synthetic;
 // the loaders stand in for a feature's `import()`.
 
 import { fireEvent, render, within } from "@testing-library/react";
@@ -12,7 +12,7 @@ import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
-import { countingLoader, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
+import { countingLoader, syntheticPaneContextAt } from "./pane-registry.lazy-body.test-support.js";
 import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
@@ -129,7 +129,7 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
 
   it("mounts the body the retry's own load lands", async () => {
     // A `LoaderBackedBody` lives as long as the window, so a kept rejected promise would answer
-    // every later ask and "Try again" would remount onto the same dead promise.
+    // every later ask and "Retry" would remount onto the same dead promise.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
@@ -140,9 +140,9 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
       </ErrorBoundary>,
     );
     await settle();
-    expect(container.textContent).toContain(CHUNK_FETCH_FAILURE);
+    expect(container.textContent).toContain("The diff pane stopped rendering.");
 
-    fireEvent.click(within(container).getByRole("button", { name: "Try again" }));
+    fireEvent.click(within(container).getByRole("button", { name: "Retry" }));
     await settle();
 
     expect(container.textContent).toContain("the diff body");

@@ -1,7 +1,7 @@
 // The dependency every ingest case drives the client against, and the sources it is driven with.
 //
-// A shared module because four case files ask different questions of one script (open path, chunk
-// loop, retry, abandonment), and four copies would drift when a request member moved. The port
+// A shared module because more than one case file asks questions of one script (open path, chunk
+// loop, retry, abandonment), and copies would drift when a request member moved. The port
 // records rather than asserts, and can be held: only a dependency across the seam can see
 // that a retry re-sent one sequence number with identical bytes, and only one that can be stopped
 // mid-call can put an abandonment inside an await. The recorded shapes are derived from
@@ -46,9 +46,9 @@ export class ScriptedIngestPort {
   /**
    * The decoded bytes this port has appended, per stream and per sequence number.
    *
-   * A real running total, because the registered `AttachmentIngestChunkResponse` carries it and
-   * the client advances its ledger from it; a constant would let a client that ignored the reply
-   * pass. The length comes from the platform's base64 decoder rather than arithmetic over the
+   * A real running total, because the registered `AttachmentIngestChunkResponse` carries it and the
+   * client advances its own running total from it; a constant would let a client that ignored the
+   * reply pass. The length comes from the platform's base64 decoder rather than arithmetic over the
    * encoded string. Keyed by sequence number so the total is idempotent under the replay the
    * contract makes safe: a chunk resent after a lost response is not appended twice.
    */

@@ -1,33 +1,15 @@
-// The rules the shipped schemas do not carry, each read off the module that owns it.
+// The rules the shipped schemas do not carry, each read off the module that owns it; where no
+// module owns one, it is written here once.
 //
-// `SessionEventSchema` registers no payload variant for a run's state transitions after creation,
-// for the forward run rows, or for any queue kind. Where a module in this tree owns a rule it is
-// read, not restated; where none does, the rule is written here once.
-//
-// - The run state machine's transition table. A beat whose members are each registered but whose
-//   combination is not, such as `previousState` equal to `newState`, passes every schema layer;
-//   the table defines a self-transition for no state.
-// - The queue payload's required member. The `queue_item.*` kinds are census-only in the strict
-//   layer, so a beat that omits `state` passes all three schema legs.
-// - The registered payload of a run-lifecycle kind no stream projects. Some run rows reach a
-//   subscriber only through `session.subscribe`: the creation row `run.queued`, the forward rows
-//   (`run.provider_initialized`, `run.turn_started`, `run.worker_shutdown`), the step bound and the
-//   recovery answer. `run.provider_initialized` with no `provider` passed every other leg and was
-//   folded into a run entity built from half a payload. The table is keyed by the census's `run.`
-//   root less the kinds `session-event-stream-kinds.ts` puts on a narrowed stream, so a newly
-//   excluded kind is a compile error here.
-// - The projection the run-lifecycle stream delivers. `run-stream-projection.fixture.ts` builds
-//   the `RunStateChangeEvent` or `RunRolledBackEvent` a `run.subscribeState` subscriber receives,
-//   and this leg calls it and reports its refusal. A beat carrying only `{newState: "starting"}`
-//   names a registered kind and passes every other leg, yet the fixture refuses it at delivery for
-//   want of `sessionId`, `runId`, `runVersion` and `previousState`, and the run-lifecycle projector
-//   drops it for naming no `runId`. Partial copies of that rule would let a scenario pass this
-//   predicate and fail at delivery.
-//
-// The queue leg is not the same call: the queue arm of that projection yields a `QueueItemSummary`
-// with `priority` and `createdAt`, which no queue event carries and the queue rows' own read
-// supplies. Routing queue kinds through it would refuse every scenario that scripts a queue beat
-// without that read, a claim about replies rather than about a beat.
+// - The run state machine's transition table: a self-transition passes every schema layer.
+// - The queue payload's required `state`: the `queue_item.*` kinds are census-only in the strict
+//   layer.
+// - The payload of each run kind that reaches a subscriber only through `session.subscribe`,
+//   keyed by the census's `run.` kinds less those `session-event-stream-kinds.ts` narrows, so a
+//   newly excluded kind is a compile error here.
+// - The projection `run-stream-projection.fixture.ts` delivers to a `run.subscribeState`
+//   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
+//   `priority` and `createdAt`, which only the queue rows' own read supplies.
 
 import {
   RunIdSchema,

@@ -1,4 +1,4 @@
-// Account-plane notifications held across the registry's opening read.
+// Provider-account notifications held across the registry's opening read.
 //
 // The tail opens before the read, and the read answers with the whole registry at one instant
 // the tail has already moved past. A removal or change arriving in between would be
@@ -19,9 +19,9 @@
 import type { ProviderAccountNotification } from "@ai-sidekicks/contracts";
 
 /**
- * The cap on account-plane notifications held while the registry's opening read is in flight.
+ * The cap on provider-account notifications held while the registry's opening read is in flight.
  *
- * A memory bound, not a policy: a node's accounts and limit windows are a handful. Past it the
+ * A memory bound, not a policy: a machine's accounts and limit windows are a handful. Past it the
  * reading applies what it holds live and takes a fresh read, so nothing is dropped.
  */
 export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;

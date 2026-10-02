@@ -10,7 +10,7 @@ import { eventOfKind } from "@test/helpers/session-events.js";
 const SESSION_ID = "session-earlier-store";
 
 function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[] {
-  return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence));
+  return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.running", sequence));
 }
 
 function openStore(options: { readonly timelineCap?: number } = {}): SessionStore {
@@ -37,7 +37,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
 
   it("refuses an event belonging to another session", () => {
     const store = openStore();
-    const merge = store.prependEarlierEvents([eventOfKind("some-other-session", "run.started", 5)]);
+    const merge = store.prependEarlierEvents([eventOfKind("some-other-session", "run.running", 5)]);
 
     expect(merge.admitted).toBe(0);
     expect(store.snapshot().timeline).toHaveLength(3);

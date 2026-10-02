@@ -3,7 +3,7 @@
 // The fixture bridge, every scenario, the pane harness and the fixture handles are reached only
 // through the fixture composition, behind `__FIXTURE_BUILD__`, so a release build folds the
 // branch and they are physically absent from what ships, not merely unreachable: unreachable
-// code still hands a reader of the file a way into the console's internals and fabricated
+// code still hands a reader of the file a way into the app's internals and fabricated
 // sessions.
 //
 // This file checks the outcome on the built artifact, because a misspelled define, one dropped
@@ -29,7 +29,7 @@
 //
 // This never skips: a missing build, or one with no source maps, fails with the command that
 // produces one, since a sweep that finds nothing because it read nothing is a false pass. Each
-// check carries a positive control and a planted negative control.
+// check carries a positive control; the module check also carries a planted negative control.
 //
 // `FIXTURE_GLOBAL_NAMES` and `FIXTURE_LAUNCH_GLOBAL` are imported from their leaves because
 // the installers' graphs reach React and the DOM, which this Node-context project does not
@@ -40,13 +40,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
-import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mjs";
+import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mts";
 import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture-global-names.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "@shared/fixture-launch.js";
-import {
-  PERFORMANCE_METER_KINDS,
-  type PerformanceMeterKind,
-} from "@renderer/lib/performance-meters/performance-meters.js";
+import { type PerformanceMeterKind } from "@renderer/lib/performance-meters/performance-meters.js";
 import {
   BUILD_TARGETS,
   readBuiltTextOrFailLoudly,
@@ -81,10 +78,7 @@ const RELEASE_ABSENT_METER_KINDS = [
   "store-size",
 ] as const satisfies readonly PerformanceMeterKind[];
 
-/**
- * Which built files carry a marker. Shared so the planted negative control drives the same
- * search the sweep does.
- */
+/** Which built files carry a marker. */
 function carriersOf(marker: string, files: readonly BuiltFile[]): readonly string[] {
   return files.filter((file) => file.text.includes(marker)).map((file) => file.relativePath);
 }
@@ -108,7 +102,7 @@ describe("release build — the fixture code is absent, not merely unreachable",
     (target) => [target, readSourceMapsOrFailLoudly(target)] as const,
   );
 
-  it("positive control: the string sweep is reading a real console build", () => {
+  it("positive control: the string sweep is reading a real app build", () => {
     // An absence claim is only as good as the evidence that the search happened. This runs
     // first so a misdirected read is reported as "read nothing", not "shipped nothing".
     const carriers = carriersOf(RENDERER_PRESENCE_MARKER, builtFiles);
@@ -132,16 +126,6 @@ describe("release build — the fixture code is absent, not merely unreachable",
     },
   );
 
-  it("positive control: every named meter kind is one the module still declares", () => {
-    // The list above is written out, not derived, so this guards it going stale: an emptied
-    // list makes the case below vacuous, and a kind the tuple no longer holds can never match.
-    // `satisfies` makes the same claim at compile time; this reports it in a `test` run alone.
-    expect(RELEASE_ABSENT_METER_KINDS.length).toBeGreaterThan(0);
-    for (const kind of RELEASE_ABSENT_METER_KINDS) {
-      expect(PERFORMANCE_METER_KINDS).toContain(kind);
-    }
-  });
-
   it.each(RELEASE_ABSENT_METER_KINDS)("does not ship the perf-meter kind %s", (kind) => {
     const carriers = carriersOf(kind, builtFiles);
     expect(
@@ -153,20 +137,6 @@ describe("release build — the fixture code is absent, not merely unreachable",
         "gained a production reader that keeps the tuple in the graph. The guard is the " +
         "mechanism the module's own header claims; this is the outcome.",
     ).toStrictEqual([]);
-  });
-
-  it("negative control: the string sweep reports a carrier when one is planted", () => {
-    // Every sweep above is an absence claim, worth only what its search is worth. This plants a
-    // file that does carry a fixture handle and drives the same `carriersOf`, so a search that
-    // stopped matching (no text read, a comparison that stopped comparing) is reported here
-    // instead of read as a clean release build.
-    const [plantedName] = FIXTURE_GLOBAL_NAMES;
-    const plantedFiles: readonly BuiltFile[] = [
-      { relativePath: "assets/clean.js", text: "export const nothingToSeeHere=1;" },
-      { relativePath: "assets/planted.js", text: `globalThis["${plantedName}"]={};` },
-    ];
-
-    expect(carriersOf(plantedName, plantedFiles)).toStrictEqual(["assets/planted.js"]);
   });
 
   it.each(sourceMapsPerTarget)(

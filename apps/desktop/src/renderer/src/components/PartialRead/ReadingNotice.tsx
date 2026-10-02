@@ -2,9 +2,8 @@
 // reaches the screen through (the not-loaded absence, or the refusal); `PartialRead` decides that
 // a view owes one notice per reading.
 //
-// It branches on the shape once and never re-reads the state, since `partial-read.ts` maps more
-// states onto fewer shapes. It creates no live region: `Nothing` and `InlineRefusal` own theirs,
-// and a view speaks the sentence with `useAnnounceOncePerSentence`.
+// It branches on the shape once and never re-reads the state. It creates no live region: `Nothing`
+// and `InlineRefusal` own theirs, and a view speaks the sentence with `useAnnounceOncePerSentence`.
 
 import "./PartialRead.css";
 
@@ -31,12 +30,7 @@ export function ReadingNotice(props: ReadingNoticeProps): React.JSX.Element | nu
   return (
     <div className="meridian-partial-read">
       <p className="meridian-partial-read__copy">
-        {notice.shape === "counted-sentence" ? (
-          <>
-            <DerivedFigure text={notice.figure} />{" "}
-          </>
-        ) : null}
-        {notice.copy}
+        <DerivedFigure text={notice.figure} /> {notice.copy}
       </p>
       {notice.refusal === undefined ? null : (
         <InlineRefusal code={notice.refusal.code} detail={notice.refusal.detail} />

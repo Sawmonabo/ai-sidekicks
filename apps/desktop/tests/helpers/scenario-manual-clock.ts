@@ -1,6 +1,6 @@
 // How a case moves the fixture's frozen clock, for every view that schedules a read.
 //
-// Every read a console view performs goes through the console's one `RefreshScheduler`, which arms
+// Every read an app view performs goes through the app's one `RefreshScheduler`, which arms
 // its debounce on the window's clock, and under the fixture that is the scenario's frozen one.
 // Real time moves none of those views, so a case that polled it would poll a still picture until
 // its budget ran out. The helper is shared because the views that need moving are in every
@@ -8,10 +8,9 @@
 // loops forever against a view that never answers; the last pass runs the caller's assertion
 // outside the `try`, so a case that never settles fails with the assertion's own message.
 
-import { act } from "@testing-library/react";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
+import { settle } from "./settle.js";
 
 /**
  * How many debounce intervals a case may drive before giving up.
@@ -22,14 +21,6 @@ import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
  * raising this number would hide which it was.
  */
 const SCENARIO_SETTLE_PASSES = 24;
-
-/** Move scenario time one debounce interval and flush whatever it released. */
-export async function advanceScenarioOneInterval(engine: ScenarioEngine): Promise<void> {
-  await act(async () => {
-    engine.advance(REFRESH_DEBOUNCE_MS);
-    await crossMacrotaskBoundary();
-  });
-}
 
 /**
  * Drive scenario time until `assert` holds, or fail with `assert`'s own message.
@@ -47,7 +38,9 @@ export async function advanceScenarioUntil(
       assert();
       return;
     } catch {
-      await advanceScenarioOneInterval(engine);
+      await settle(() => {
+        engine.advance(REFRESH_DEBOUNCE_MS);
+      });
     }
   }
   assert();

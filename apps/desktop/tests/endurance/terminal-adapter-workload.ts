@@ -1,6 +1,6 @@
 // The adapter-level workload the two terminal endurance files share: a real
 // `XtermTerminalAdapter` on this tier's DOM shim, filled at a working width and given back
-// before the next case. The mount, batched write and teardown ledger are the measurement's
+// before the next case. The mount, batched write and teardown are the measurement's
 // instrument, so one copy keeps the budget's two halves priced at the same width, batch size
 // and teardown.
 //

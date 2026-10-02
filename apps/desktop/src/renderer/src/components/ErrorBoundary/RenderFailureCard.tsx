@@ -1,23 +1,21 @@
-/** What {@link RenderFailureCard} needs: the failed region's name, the error, and a retry. */
+/** What {@link RenderFailureCard} needs: the failed region's name and a retry. */
 export interface RenderFailureCardProps {
-  /** What failed, in the person's words: "the transcript", "the inspector". */
+  /** What failed, in the person's words: "The transcript", "The inspector". */
   readonly regionName: string;
-  readonly error: Error;
   readonly onRetry: () => void;
 }
 
 /**
- * The error boundary's default fallback: what stopped working, and the one thing that
- * might fix it. The error message is shown because a person who reports a bug needs it.
+ * The error boundary's default fallback: one line naming the region and a faint `Retry` word
+ * beside it. The error itself goes to the tripwire report, not the screen.
  */
 export function RenderFailureCard(props: RenderFailureCardProps): React.JSX.Element {
   return (
-    <div className="meridian-render-failure" role="alert">
-      <p className="meridian-render-failure__title">{props.regionName} stopped rendering.</p>
-      <p className="meridian-render-failure__detail">{props.error.message}</p>
-      <button className="meridian-render-failure__action" type="button" onClick={props.onRetry}>
-        Try again
+    <p className="meridian-render-failure" role="alert">
+      {props.regionName} stopped rendering.{" "}
+      <button className="meridian-render-failure__retry" type="button" onClick={props.onRetry}>
+        Retry
       </button>
-    </div>
+    </p>
   );
 }

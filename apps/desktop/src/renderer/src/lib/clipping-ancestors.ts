@@ -32,26 +32,24 @@ export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
   if (typeof window === "undefined") {
     return;
   }
-  // `?? null`: a test double standing in for a host may carry no `parentElement`.
-  let ancestor: HTMLElement | null = element.parentElement ?? null;
+  let ancestor = element.parentElement;
   while (ancestor !== null) {
     if (styleClipsItsContents(window.getComputedStyle(ancestor))) {
       yield ancestor;
     }
-    ancestor = ancestor.parentElement ?? null;
+    ancestor = ancestor.parentElement;
   }
 }
 
-// The shorthand arm splits on whitespace because `overflow` takes `<x> [<y>]`. The `?? ""` reads
-// cover test doubles of a computed style that supply only the members a case needs.
+// The shorthand arm splits on whitespace because `overflow` takes `<x> [<y>]`.
 
 function styleClipsItsContents(style: CSSStyleDeclaration): boolean {
-  const horizontalAxis = style.overflowX ?? "";
-  const verticalAxis = style.overflowY ?? "";
+  const horizontalAxis = style.overflowX;
+  const verticalAxis = style.overflowY;
   if (horizontalAxis !== "" || verticalAxis !== "") {
     return clipsItsContents(horizontalAxis) || clipsItsContents(verticalAxis);
   }
-  return (style.overflow ?? "")
+  return style.overflow
     .trim()
     .split(/\s+/u)
     .some((axisValue) => clipsItsContents(axisValue));

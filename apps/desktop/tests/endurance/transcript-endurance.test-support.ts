@@ -18,14 +18,11 @@
 // `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer `SessionEventSchema`, both in
 // `packages/contracts/src/event.ts`), so a reading is taken over rows the daemon could send.
 
-import {
-  composeOpeningEntry,
-  composeResolvedAgent,
-  composeScenarioInstant,
-} from "../../fixtures/data/opening-entries.js";
+import { composeOpeningEntry, composeResolvedAgent } from "../../fixtures/data/opening-entries.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
+  composeScenarioInstant,
   composeScriptBeats,
   toolActivityEntry,
   type ScriptEntry,
@@ -46,7 +43,7 @@ const USER_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
 /**
  * The base instant, minted from its fields rather than parsed from a string: `Date.parse` is not
  * a validator (it reads a timezone-less stamp in the host's zone and normalizes a day that does
- * not exist), and the console bans it. The ISO spelling every reply carries is derived from this
+ * not exist), and the app bans it. The ISO spelling every reply carries is derived from this
  * value so the two cannot disagree.
  */
 const startedAtMs = Date.UTC(2026, 0, 1, 8, 0);
@@ -91,7 +88,7 @@ const RUN_LIFECYCLE_BEAT_COUNT = 4;
  *
  * Eight entries so the log is not two alternating rows: a run group carries thinking, prose,
  * three tool calls of which one fails, and one compaction seam. That mix is what the run group
- * fold folds, the find field searches and the row-height ledger measures; a uniform body would
+ * fold folds, the find field searches and the row-height record measures; a uniform body would
  * have each measuring its easiest case.
  */
 const ENDURANCE_BODY_CYCLE_LENGTH = 8;

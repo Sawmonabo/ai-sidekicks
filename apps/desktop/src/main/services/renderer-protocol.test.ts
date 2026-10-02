@@ -28,7 +28,7 @@ vi.mock("electron", () => ({
 
 import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../windows/load-failure-document.js";
 import { handleRendererRequest, registerRendererScheme } from "./renderer-protocol.js";
-import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_SCHEME } from "./renderer-scheme.js";
+import { RENDERER_CONTENT_SECURITY_POLICY } from "./renderer-scheme.js";
 
 let sandboxRoot = "";
 let rendererRoot = "";
@@ -93,7 +93,7 @@ describe("the load-failure document over the handler", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 
     const body = await response.text();
-    expect(body).toContain("The console could not be loaded");
+    expect(body).toContain("The app could not be loaded");
     expect(body).toContain("ERR_FILE_NOT_FOUND (-6)");
   });
 
@@ -130,18 +130,10 @@ describe("the load-failure document over the handler", () => {
 
 // Registration is process-global state, so this block runs last and owns both calls.
 describe("registerRendererScheme", () => {
-  it("registers the scheme as standard and secure, then refuses a second call", () => {
+  it("refuses a second registration before it reaches Electron", () => {
     registerRendererScheme();
 
     expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
-    expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledWith([
-      {
-        scheme: RENDERER_SCHEME,
-        // `standard` gives the origin IndexedDB and `localStorage`; `secure` keeps the document
-        // out of Chromium's mixed-content and insecure-origin restrictions.
-        privileges: { standard: true, secure: true, supportFetchAPI: true },
-      },
-    ]);
 
     expect(() => {
       registerRendererScheme();

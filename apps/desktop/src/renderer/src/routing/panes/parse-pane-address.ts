@@ -1,9 +1,11 @@
 // Admits one pane address that arrived untyped, or refuses it by name. `pane-address.ts` owns
 // which pane kind is a view of which entity; this file is the boundary check against that table.
 
-import { IDENTIFIER_MAX_LENGTH } from "@renderer/lib/identifier-grammar.js";
+import {
+  IDENTIFIER_MAX_LENGTH,
+  isSingleNameIdentifierShaped,
+} from "@renderer/lib/identifier-grammar.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
-import { isSingleNameIdentifierShaped } from "@renderer/lib/identifier-grammar.js";
 import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { isEntityOptionalPaneKind, paneEntityScopeFor, type PaneAddress } from "./pane-address.js";
 import { PANE_KINDS, isPaneKind } from "./pane-kinds.js";
@@ -83,7 +85,7 @@ export function parsePaneAddress(
 /**
  * The entity reference an untyped boundary supplied, or `undefined` when it supplied none.
  *
- * The id is held to the console's one identifier grammar, the same predicate the durable layout
+ * The id is held to the app's one identifier grammar, the same predicate the durable layout
  * snapshot is written through, so route resolution never admits an id the layout path refuses.
  * `packages/contracts` has no schema for it: `EntityRef.id` is kind-agnostic and wire-verbatim.
  */

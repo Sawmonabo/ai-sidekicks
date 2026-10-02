@@ -13,13 +13,15 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
 /**
- * Let every queued continuation reach React state, inside `act`.
+ * Let every queued continuation reach React state, inside `act`, after running `advance` (a step
+ * of a frozen clock or a scenario) in the same scope.
  *
  * One microtask turn is not enough where an arrival settles an effect that schedules the next,
  * and neither is a fixed count, so this crosses a macrotask boundary.
  */
-export async function settle(): Promise<void> {
+export async function settle(advance?: () => void): Promise<void> {
   await act(async () => {
+    advance?.();
     await crossMacrotaskBoundary();
   });
 }

@@ -17,7 +17,6 @@ describe("the agent hue wheel runs out of steps", () => {
 
     const assignments = agentIds.map((agentId) => allocator.admit(agentId));
 
-    expect(allocator.admittedCount).toBe(agentIds.length);
     const firstTwelve = assignments.slice(0, HUE_WHEEL_STEPS);
     expect(new Set(firstTwelve.map((one) => one.step)).size).toBe(HUE_WHEEL_STEPS);
     expect(firstTwelve.some((one) => one.sharesStepWithEarlierAgent)).toBe(false);

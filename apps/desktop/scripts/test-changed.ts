@@ -1,5 +1,5 @@
 // `pnpm run test:changed <base-ref> [vitest args...]`: the unit tiers over what changed since a
-// base ref. Each rule below stops a run that selects nothing from exiting 0, which a lane would
+// base ref. Each rule below stops a run that selects nothing from exiting 0, which a person would
 // read as "my changes are covered".
 //
 // - The ref is the first argument and is attached as `--changed=<ref>`. pnpm appends the caller's
@@ -41,7 +41,7 @@ const USAGE =
 const MISUSE_EXIT_CODE = 2;
 
 /**
- * The projects a lane's changed-file verification may run. Each runs from a clean checkout with
+ * The projects the changed-file run may use. Each runs from a clean checkout with
  * no prior `pnpm build`: `bundle` reads `out/**`, `smoke`, `e2e` and `endurance` launch Electron,
  * and the browser-mode tiers need a real browser. A file owned by one of those is refused, not
  * skipped. The names are checked against the resolved project set, so a rename in the vitest

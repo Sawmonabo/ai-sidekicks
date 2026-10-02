@@ -41,7 +41,6 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     document.body.append(element);
     registrations.push(
       airspaceRegistryFor(document).register(
-        "dialog",
         () => ({ x: 0, y: 0, width: 10, height: 10 }),
         element,
       ),

@@ -5,13 +5,11 @@ import { useSyncExternalStore } from "react";
  * It subscribes to no store, so it lives here and not among the frame store selectors.
  */
 export function useLocationHash(): string {
-  return useSyncExternalStore(subscribeToHashChange, readLocationHash, readServerLocationHash);
+  // The renderer never renders on a server, so the server snapshot is the same reader.
+  return useSyncExternalStore(subscribeToHashChange, readLocationHash, readLocationHash);
 }
 
 function subscribeToHashChange(onStoreChange: () => void): () => void {
-  if (typeof window === "undefined") {
-    return () => undefined;
-  }
   window.addEventListener("hashchange", onStoreChange);
   return () => {
     window.removeEventListener("hashchange", onStoreChange);
@@ -19,9 +17,5 @@ function subscribeToHashChange(onStoreChange: () => void): () => void {
 }
 
 function readLocationHash(): string {
-  return typeof window === "undefined" ? "" : window.location.hash;
-}
-
-function readServerLocationHash(): string {
-  return "";
+  return window.location.hash;
 }

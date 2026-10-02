@@ -47,10 +47,9 @@
       // No `entry` declaration, deliberately. knip's defaults already cover the three process
       // entries (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/main.tsx`) and the
       // two tool configs (`vitest.config.ts`, `electron.vite.config.ts`), and knip resolves the
-      // rest from this package's manifest: a file named in a `scripts` entry is an entry, so both
-      // `scripts/budget/measure-*.mts` are roots because the `budget:bundle` and `budget:heap`
-      // scripts run them. Measured: dropping the globs
-      // moved no file into `Unused files`.
+      // rest from this package's manifest: a file named in a `scripts` entry is an entry, so
+      // `scripts/budget/measure-bundle.mts` is a root because the `budget:bundle` script runs it.
+      // Measured: dropping the globs moved no file into `Unused files`.
       //
       // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a
       // root, so a dead export in `scripts/budget/budget-registry.mts`, a module nothing invokes by
@@ -129,9 +128,6 @@
         // The anchored popover that registers its airspace over the Preview page, for the worktree
         // popover and the context ring's compaction popover.
         "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
-        // The row that offers wire identifiers to choose between, for the sessions list and the
-        // Workflows scope picker.
-        "src/renderer/src/components/WireChoiceList/WireChoiceList.tsx",
         // The provider, model, effort and account pickers of the agent definition editor and of
         // the workflow node inspector.
         "src/renderer/src/features/agents/binding/components/AxisCombobox.tsx",
@@ -179,6 +175,9 @@
         "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
         "src/renderer/src/services/daemon/session-reads.ts",
+        // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
+        // for the run controls and the queue rows.
+        "src/renderer/src/services/daemon/daemon-streams.ts",
         // The fixture bridge's session read, which plays the transcript-states scenario's refused
         // resume position for the resume refusal banner.
         "src/renderer/src/services/daemon/session-answers.fixture.ts",

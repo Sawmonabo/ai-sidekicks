@@ -23,7 +23,7 @@ export const COMMAND_PALETTE_OPEN_CHORD = "$mod+Shift+KeyP";
 export type ChordPlatform = (typeof CHORD_PLATFORMS)[number];
 
 /**
- * The platform the console is running on, read once at module load from the user agent (the
+ * The platform the app is running on, read once at module load from the user agent (the
  * renderer has no `process`). A wrong guess costs a wrong glyph in a hint, never a wrong
  * binding, because `tinykeys` resolves `$mod` against the host itself.
  */

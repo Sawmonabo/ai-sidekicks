@@ -1,4 +1,4 @@
-// The window lifecycle-reachability probe. The caller's compile-time `__SIDEKICKS_SMOKE_BUILD__`
+// The window lifecycle-reachability probe. The caller's compile-time `__SMOKE_BUILD__`
 // gate means a release build references nothing here and Rollup drops the module.
 //
 // It runs GC-pressure cycles sampling `v8.queryObjects(BrowserWindow)`, closes every window,
@@ -67,19 +67,14 @@ export class GcProbe {
   public async run(electronApp: App): Promise<void> {
     const counts: number[] = [];
     const queryObjectsAvailable = typeof queryObjects === "function";
-    const globalGcAvailable = typeof globalThis.gc === "function";
+    const collectGarbage = globalThis.gc;
+    const globalGcAvailable = collectGarbage !== undefined;
 
     for (let iteration = 0; iteration < PROBE_ITERATIONS; iteration++) {
-      if (globalGcAvailable) {
-        globalThis.gc?.();
-        globalThis.gc?.();
-      }
+      collectTwice(collectGarbage);
       const throwaway = new Uint8Array(PROBE_ALLOCATION_BYTES);
       throwaway[0] = iteration & 0xff;
-      if (globalGcAvailable) {
-        globalThis.gc?.();
-        globalThis.gc?.();
-      }
+      collectTwice(collectGarbage);
       await wait(PROBE_SETTLE_MS);
       counts.push(queryObjects(BrowserWindow, { format: "count" }));
     }
@@ -100,10 +95,7 @@ export class GcProbe {
     // Two macrotasks let the `closed` dispatch and its native frames unwind before a collection.
     await nextMacrotask();
     await nextMacrotask();
-    if (globalGcAvailable) {
-      globalThis.gc?.();
-      globalThis.gc?.();
-    }
+    collectTwice(collectGarbage);
     await wait(PROBE_SETTLE_MS);
     const closedCount = queryObjects(BrowserWindow, { format: "count" });
 
@@ -123,6 +115,15 @@ export class GcProbe {
     console.log(`${GC_PROBE_TAG} ${JSON.stringify(reading)}`);
     electronApp.exit(0);
   }
+}
+
+/** Two collections, where the process exposes `gc`; nothing where it does not. */
+function collectTwice(collectGarbage: (() => void) | undefined): void {
+  if (collectGarbage === undefined) {
+    return;
+  }
+  collectGarbage();
+  collectGarbage();
 }
 
 /**

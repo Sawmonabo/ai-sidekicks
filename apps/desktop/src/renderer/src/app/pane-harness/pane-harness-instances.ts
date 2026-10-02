@@ -35,7 +35,7 @@ export function paneInstanceId(
  * What a pane body is handed here.
  *
  * The bridge and the frame, session, UI-state and draft stores come off the screen context, as
- * they would from a pane layout, so the pane runs in a real console. Nothing opened the pane
+ * they would from a pane layout, so the pane runs in a real app. Nothing opened the pane
  * from another pane, so `linkedSourcePaneId` is `undefined`.
  */
 export function paneContextFor(
@@ -56,11 +56,7 @@ export function paneContextFor(
   };
 }
 
-/**
- * The `openInstanceCount` instances of one registered kind, in mount order.
- *
- * The count is floored at zero because a negative length would make `Array.from` throw.
- */
+/** The `openInstanceCount` instances of one registered kind, in mount order. */
 export function paneHarnessInstances(
   descriptor: PaneDescriptor,
   context: ScreenContext,
@@ -68,7 +64,7 @@ export function paneHarnessInstances(
   sessionId: string,
   openInstanceCount: number,
 ): readonly PaneHarnessInstance[] {
-  return Array.from({ length: Math.max(0, openInstanceCount) }, (_unused, instanceIndex) => ({
+  return Array.from({ length: openInstanceCount }, (_unused, instanceIndex) => ({
     key: paneInstanceId(address, sessionId, instanceIndex),
     PaneBody: descriptor.render,
     context: paneContextFor(context, address, sessionId, instanceIndex),

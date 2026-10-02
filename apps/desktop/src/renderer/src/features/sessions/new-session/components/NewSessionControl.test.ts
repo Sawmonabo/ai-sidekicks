@@ -39,7 +39,9 @@ describe("the composed new-session draft — what a send reports", () => {
     // The session exists and what could not follow is named. Only `session.create` is
     // scripted, so the turn's call is refused by the fixture, under a different code from a
     // refused create.
-    expect(container.textContent).toContain("first-turn-failed");
+    expect(container.textContent).toContain(
+      "The session was created, but the first turn was not queued.",
+    );
     // The calls that did land are named beneath the refusal.
     expect(container.textContent).toContain("Already sent: session.create");
     // Said once in the announcer, in the vocabulary of what happened rather than the wire's.
@@ -55,7 +57,7 @@ describe("the composed new-session draft — what a send reports", () => {
     await openDraftWithFirstTurn();
     await press("Send");
 
-    expect(container.textContent).toContain("session-create-failed");
+    expect(container.textContent).toContain("The session could not be created.");
     expect(politeText(container)).toBe("Nothing was sent, and the draft is still here.");
   });
 
@@ -76,7 +78,9 @@ describe("the composed new-session draft — what a send reports", () => {
     // Pressable again once it settles, since the partial leaves a draft the person may
     // correct; a flag that never cleared would freeze the control.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-    expect(container.textContent).toContain("first-turn-failed");
+    expect(container.textContent).toContain(
+      "The session was created, but the first turn was not queued.",
+    );
   });
 });
 
@@ -114,7 +118,9 @@ describe("the composed new-session draft — what a completed send hands out", (
     await press("Send");
 
     expect(settledSessionIds).toStrictEqual([]);
-    expect(container.textContent).toContain("first-turn-failed");
+    expect(container.textContent).toContain(
+      "The session was created, but the first turn was not queued.",
+    );
     expect(container.querySelector(".meridian-new-session")).not.toBeNull();
   });
 });
@@ -133,7 +139,9 @@ describe("the composed new-session draft — the create it cannot answer for", (
     await openDraftWithFirstTurn();
     await press("Send");
 
-    expect(container.textContent).toContain("session-create-unreadable");
+    expect(container.textContent).toContain(
+      "A session may have been created, and this window could not read the reply.",
+    );
     expect(container.textContent).toContain("Check the sessions list");
     // Closed, and stays closed: this draft can put nothing else on the wire.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);

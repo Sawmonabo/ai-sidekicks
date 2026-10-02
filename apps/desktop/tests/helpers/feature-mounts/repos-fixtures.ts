@@ -1,16 +1,13 @@
-// Every value and dependency the repos views are drawn against.
-//
-// Split from `repos.tsx`: that module owns how each view is reached (what it is mounted into and
-// what settled means), this one owns what it is drawn against: the bridge and store the views are
-// handed, and the change set no wire produces. Every export is inert, so a tier wanting a
-// different composition states a new mount instead of mutating one of these.
+// Every value and dependency the repos views are drawn against: the bridge and store they are
+// handed, and the change set no wire produces. `repos.tsx` owns how each view is mounted. Every
+// export is inert, so a tier wanting a different composition states a new mount.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { buildDiffFixture } from "../diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../diff-fixture-shapes.js";
 import type { DiffModel } from "@renderer/features/repos/diff/diff-model.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeOnClock } from "../fixture-bridge.js";
 import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";

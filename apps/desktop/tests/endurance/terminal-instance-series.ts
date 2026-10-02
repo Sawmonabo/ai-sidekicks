@@ -25,7 +25,8 @@
 // before any reading unless every instance reports `webgl`.
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
-import { medianOfHeapReadings, type RendererHeapProbe } from "./heap-instrument.js";
+import { medianOf } from "../helpers/sample-statistics.js";
+import type { RendererHeapProbe } from "./heap-instrument.js";
 import { closeEveryPane, openPaneAndAwaitWebglReadiness } from "./terminal-pane-harness.js";
 
 /**
@@ -34,7 +35,7 @@ import { closeEveryPane, openPaneAndAwaitWebglReadiness } from "./terminal-pane-
  * Three: one gives a delta and no slope, two give a slope from a single interval whose noise is
  * the whole reading, and three give two intervals whose agreement is evidence, hence a reading
  * after every instance in `measureTerminalInstanceSeries`. More would spend a WebGL context per
- * instance against a page ledger capped at twelve (see `terminal/emulator/renderer-pool.ts`).
+ * instance against a page cap of twelve contexts (see `terminal/emulator/renderer-pool.ts`).
  */
 export const MEASURED_INSTANCE_COUNT: number = 3;
 
@@ -46,7 +47,7 @@ export const MEASURED_INSTANCE_COUNT: number = 3;
  * discards it. Five would cost two more forced-collection round trips per point to survive a
  * second outlier in the same triple, which the one re-measure already covers. Each read is
  * `RendererHeapProbe.readSettledBytes`, so this is a median over floors, not over snapshots.
- * The median is `medianOfHeapReadings` from `heap-instrument.js`, shared with the precision proof.
+ * The median is `medianOf` from `sample-statistics.ts`, shared with the precision proof.
  */
 export const HEAP_READING_SAMPLE_COUNT: number = 3;
 
@@ -59,7 +60,7 @@ export const HEAP_READING_SAMPLE_COUNT: number = 3;
  * 200 kB is under a quarter of the smallest honest reading and well over the few-kilobyte drift
  * between two settled reads of an unchanged page. A figure below it is reported as instrument
  * noise, never as a fixed cost: the sweep cannot tell a collapsed per-instance cost from a
- * wobbling heap reading, and saying the first sends a reviewer to the console for a defect on
+ * wobbling heap reading, and saying the first sends a reviewer to the app for a defect on
  * the runner.
  */
 export const INSTRUMENT_NOISE_FLOOR_BYTES: number = 200 * 1024;
@@ -136,7 +137,7 @@ async function readMedianSettledBytes(heapProbe: RendererHeapProbe): Promise<num
   for (let sample = 0; sample < HEAP_READING_SAMPLE_COUNT; sample += 1) {
     reads.push(await heapProbe.readSettledBytes());
   }
-  return medianOfHeapReadings(reads);
+  return medianOf(reads);
 }
 
 /**
@@ -147,25 +148,25 @@ async function readMedianSettledBytes(heapProbe: RendererHeapProbe): Promise<num
  * baseline is the caller's, since it is paid once for the page.
  */
 export async function measureTerminalInstanceSeries(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   heapProbe: RendererHeapProbe,
 ): Promise<TerminalInstanceSeries> {
   const baselineHeapBytes = await readMedianSettledBytes(heapProbe);
 
-  await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
+  await openPaneAndAwaitWebglReadiness(appUnderTest, 1);
   const oneInstanceHeapBytes = await readMedianSettledBytes(heapProbe);
   const paneStandingBytes = oneInstanceHeapBytes - baselineHeapBytes;
 
   const perInstanceIntervalBytes: number[] = [];
   let previousHeapBytes = oneInstanceHeapBytes;
   for (let instance = 2; instance <= MEASURED_INSTANCE_COUNT; instance += 1) {
-    await openPaneAndAwaitWebglReadiness(consoleApplication, instance);
+    await openPaneAndAwaitWebglReadiness(appUnderTest, instance);
     const heapBytes = await readMedianSettledBytes(heapProbe);
     perInstanceIntervalBytes.push(heapBytes - previousHeapBytes);
     previousHeapBytes = heapBytes;
   }
 
-  await closeEveryPane(consoleApplication, MEASURED_INSTANCE_COUNT);
+  await closeEveryPane(appUnderTest, MEASURED_INSTANCE_COUNT);
   const afterTeardownHeapBytes = await readMedianSettledBytes(heapProbe);
 
   const everyInstanceBytes = [paneStandingBytes, ...perInstanceIntervalBytes];

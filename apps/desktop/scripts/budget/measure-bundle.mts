@@ -6,8 +6,7 @@
 // lazy chunks stay out; the initial/lazy split is the bundler's and is not re-derived here.
 //
 // One walk, two sums, because code and fonts are not commensurable:
-//   - code: scripts and stylesheets, gated gzipped, since the spec's figure is a gzip figure and a
-//     script is served compressed.
+//   - code: scripts and stylesheets, gated gzipped, since the spec's figure is a gzip figure.
 //   - fonts: the self-hosted `woff2` faces `src/renderer/src/styles/typeface.ts` declares, gated
 //     raw. A `woff2` is already Brotli-compressed; gzipping one measured 28 B larger than the file.
 //
@@ -23,8 +22,9 @@ import process from "node:process";
 import console from "node:console";
 import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
-import { gzipSync, brotliCompressSync } from "node:zlib";
+import { gzipSync } from "node:zlib";
 
+import { errorText } from "./budget-document.mts";
 import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./budget-registry.mts";
 import {
   BudgetSubjectMissingError,
@@ -88,7 +88,6 @@ export interface RendererBundleAsset {
   readonly assetClass: RendererBundleAssetClass;
   readonly rawByteCount: number;
   readonly gzipByteCount: number;
-  readonly brotliByteCount: number;
 }
 
 /** One class's share of the walk. Each figure sums exactly the assets of that class. */
@@ -96,7 +95,6 @@ export interface RendererBundleClassTotals {
   readonly assetCount: number;
   readonly rawByteCount: number;
   readonly gzipByteCount: number;
-  readonly brotliByteCount: number;
 }
 
 /** One walk of the initial graph: every asset, and the totals of each class. */
@@ -161,8 +159,11 @@ export class RendererBundleMeasurer {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(this.#resolve(RENDERER_MANIFEST_RELATIVE_PATH), "utf8"));
-    } catch {
-      this.#refuse(`no readable chunk manifest at ${RENDERER_MANIFEST_RELATIVE_PATH}`);
+    } catch (manifestError) {
+      this.#refuse(
+        `no readable chunk manifest at ${RENDERER_MANIFEST_RELATIVE_PATH} ` +
+          `(${errorText(manifestError)})`,
+      );
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       this.#refuse(`${RENDERER_MANIFEST_RELATIVE_PATH} is not a record of chunks`);
@@ -183,20 +184,22 @@ export class RendererBundleMeasurer {
     let contents: Buffer;
     try {
       contents = readFileSync(this.#resolve(relativePath));
-    } catch {
-      // Counting a named-but-absent file as zero bytes would be a silent under-count.
-      this.#refuse(`the chunk manifest names ${relativePath}, which the output tree does not hold`);
+    } catch (readError) {
+      // Counting a named-but-unreadable file as zero bytes would be a silent under-count.
+      this.#refuse(
+        `the chunk manifest names ${relativePath}, which the output tree cannot give ` +
+          `(${errorText(readError)})`,
+      );
     }
     return {
       relativePath,
       assetClass,
       rawByteCount: contents.byteLength,
       gzipByteCount: gzipSync(contents, { level: GZIP_LEVEL }).byteLength,
-      brotliByteCount: brotliCompressSync(contents).byteLength,
     };
   }
 
-  /** The four figures of one class, summed over exactly the assets in it. */
+  /** The figures of one class, summed over exactly the assets in it. */
   #totalsFor(
     assets: readonly RendererBundleAsset[],
     assetClass: RendererBundleAssetClass,
@@ -208,7 +211,6 @@ export class RendererBundleMeasurer {
       assetCount: inClass.length,
       rawByteCount: sumOf((asset) => asset.rawByteCount),
       gzipByteCount: sumOf((asset) => asset.gzipByteCount),
-      brotliByteCount: sumOf((asset) => asset.brotliByteCount),
     };
   }
 
@@ -253,10 +255,7 @@ export class RendererBundleMeasurer {
 }
 
 function formatAssetSizes(asset: RendererBundleAsset): string {
-  return (
-    `raw ${formatBytes(asset.rawByteCount)}  ` +
-    `gzip ${formatBytes(asset.gzipByteCount)}  brotli ${formatBytes(asset.brotliByteCount)}`
-  );
+  return `raw ${formatBytes(asset.rawByteCount)}  gzip ${formatBytes(asset.gzipByteCount)}`;
 }
 
 /** One class's block: its assets, then the two figures that class can be read in. */
@@ -271,8 +270,7 @@ function formatClassReadings(
     ...measurement.assets
       .filter((asset) => asset.assetClass === assetClass)
       .map((asset) => `  ${asset.relativePath}  ${formatAssetSizes(asset)}`),
-    `  TOTAL  raw ${formatBytes(totals.rawByteCount)}  ` +
-      `gzip ${formatBytes(totals.gzipByteCount)}  brotli ${formatBytes(totals.brotliByteCount)}`,
+    `  TOTAL  raw ${formatBytes(totals.rawByteCount)}  gzip ${formatBytes(totals.gzipByteCount)}`,
   ];
 }
 
@@ -294,8 +292,6 @@ export function formatRendererBundleReport(
         ...formatClassReadings("Code (gated gzipped)", measurement, "code", measurement.code),
         "",
         ...formatClassReadings("Fonts (gated raw)", measurement, "font", measurement.fonts),
-        "",
-        "Brotli is reported for every asset and gated for none.",
       ],
     },
     gateReadings,

@@ -18,7 +18,7 @@ export interface OverlayMenuPopupProps {
 
 /** Anchored portal, positioner and popup for a menu. */
 export function OverlayMenuPopup(props: OverlayMenuPopupProps): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration("context-menu");
+  const airspaceRef = useAirspaceRegistration();
   return (
     <Menu.Portal container={props.container}>
       <Menu.Positioner className={props.positionerClassName} sideOffset={props.sideOffset}>

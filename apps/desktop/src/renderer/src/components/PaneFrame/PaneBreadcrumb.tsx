@@ -1,5 +1,5 @@
 // Session > run > entity > this pane, as far as a pane's address reaches; the one crumb
-// derivation in the console.
+// derivation in the app.
 //
 // Address crumbs are wire strings and wear the mono signature; the last crumb is the pane's own
 // prose name. A crumb the address lacks is left out, not drawn as a placeholder; an address that

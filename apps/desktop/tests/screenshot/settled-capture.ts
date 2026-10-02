@@ -1,17 +1,7 @@
-// The one call every screenshot capture goes through, the settle it refuses, and the window it
-// opens so the whole element is in the image. Capture files call `captureSettled` instead of
-// `toMatchScreenshot`, so an image cannot be written around either check (`eslint.config.mjs`).
-//
-// A capture can be wrong without being red: before a loader-backed pane body lands, the pane is
-// its own chrome alone, and photographing it records a half-built element. So the refusal is
-// structural, not a wait: `PendingPaneBody` stamps a marker while its module is in flight,
-// `listPendingBodyNames` reads it back, and a capture whose tree carries one fails by name. An
-// element that needs its body awaits it in its own mount helper.
-//
-// The window is the second half: an element taller than the tester window was photographed to
-// the window's edge and then page background, since a Playwright clip paints nothing beyond an
-// iframe. `capture-viewport.ts` states the mechanism; this file opens the window, re-runs the
-// refusal on the resized tree and puts the window back.
+// The one call every screenshot capture goes through. Capture files call `captureSettled` instead
+// of `toMatchScreenshot` (`eslint.config.mjs`), so no image skips its two checks: a pane body
+// still loading (its `PendingPaneBody` marker) refuses the capture by name, and the tester window
+// grows until the whole element is painted (`capture-viewport.ts` states why), then goes back.
 
 import { expect } from "vitest";
 import { page } from "vitest/browser";
@@ -28,42 +18,12 @@ import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./c
  * deferred image lands, a container reflows) and settle on the second. An element sized by its
  * window spends two passes being confirmed (see `CONFIRMING_NON_CLOSING_PASSES`); the rest bounds
  * an element that keeps closing the gap a little each pass, which would otherwise resize the
- * console hundreds of times.
+ * app hundreds of times.
  */
 const CAPTURE_SIZING_PASSES = 4;
 
-/**
- * The two acts a sizing pass performs on the tester window. A port so the failure ordering in
- * `CaptureWindow` can be driven: the window must go back even when the settle after a resize
- * rejects, a state no capture produces on demand.
- */
-export interface CaptureWindowDriver {
-  /** Move the tester window, and resolve once Vitest has applied the size. */
-  resize(viewport: CaptureViewport): Promise<void>;
-  /** Let the element answer the move, inside `act`. */
-  settle(): Promise<void>;
-}
-
-/** The real window: Vitest's own viewport command and the shared act-wrapped settle. */
-class TesterWindowDriver implements CaptureWindowDriver {
-  public async resize(viewport: CaptureViewport): Promise<void> {
-    await page.viewport(viewport.width, viewport.height);
-  }
-
-  public async settle(): Promise<void> {
-    await settle();
-  }
-}
-
-/**
- * Refuses a capture whose tree still holds an unloaded pane body. It takes the kinds, not the
- * element, so the refusal is a pure function a node tier can plant a failure into; the DOM read
- * is `listPendingBodyNames`'s, with its own suite. The message names the kinds and the capture.
- */
-export function assertNoPendingPaneBodies(
-  pendingKinds: readonly string[],
-  captureName: string,
-): void {
+/** Refuses a capture whose tree still holds an unloaded pane body, naming the kinds. */
+function assertNoPendingPaneBodies(pendingKinds: readonly string[], captureName: string): void {
   if (pendingKinds.length === 0) {
     return;
   }
@@ -91,21 +51,16 @@ function requiredViewportFor(element: Element): CaptureViewport {
 /**
  * The tester window for the length of one capture, and the size it goes back to. The restore
  * targets the size this capture started from, not a module constant, so a capture that grew the
- * window does not hand the next spec a console laid out at 2 050 px.
+ * window does not hand the next spec an app laid out at 2 050 px.
  */
-export class CaptureWindow {
+class CaptureWindow {
   readonly #restoreTo: CaptureViewport;
-  readonly #driver: CaptureWindowDriver;
   #applied: CaptureViewport;
   #movedTheWindow = false;
 
-  public constructor(
-    startedAt: CaptureViewport,
-    driver: CaptureWindowDriver = new TesterWindowDriver(),
-  ) {
+  public constructor(startedAt: CaptureViewport) {
     this.#restoreTo = startedAt;
     this.#applied = startedAt;
-    this.#driver = driver;
   }
 
   /**
@@ -174,14 +129,14 @@ export class CaptureWindow {
    * Moves the window, recording the move before anything that can fail. `#movedTheWindow` gates
    * `restore`, so it is raised ahead of the resize: raised after the settle, a rejecting settle
    * would leave the window open with `restore` returning early, and every later capture in the
-   * run would lay out in an enlarged console. Raised early costs one redundant resize; a resize
+   * run would lay out in an enlarged app. Raised early costs one redundant resize; a resize
    * that throws part-way has no defined size either.
    */
   async #moveTo(viewport: CaptureViewport): Promise<void> {
     this.#movedTheWindow = true;
     this.#applied = viewport;
-    await this.#driver.resize(viewport);
-    await this.#driver.settle();
+    await page.viewport(viewport.width, viewport.height);
+    await settle();
   }
 }
 

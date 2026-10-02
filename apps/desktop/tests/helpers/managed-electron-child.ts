@@ -1,28 +1,17 @@
-// The object that owns one spawned child's fate, and how it learns that fate.
+// The object that owns one spawned child's fate. The spawner, `electron-child.ts`, constructs it.
 //
-// Split from `electron-child.ts`, the spawner, which is the one file under `tests/` allowed to
-// reach `spawn` (enforced by `apps/desktop/eslint.config.mjs`).
-//
-// `exit` is not `close`. `exit` says the process ended; `close` also says every inherited stdio
-// stream is released. They differ whenever a descendant inherited one, and here one always does:
-// `node_modules/.bin/electron` is a shim that spawns the browser with the shim's stdout, so the
-// shim can be gone while the browser still holds the pipe and runs. Taking a non-null `exitCode`
-// for "the child is gone" is wrong both ways. Releasing a resource on it races descendants still
-// holding it (on Windows a live handle in a Chromium profile directory makes removal fail).
-// Signaling on it is worse: by `close` the pid is reaped and reissuable, so a kill addressed to
-// it or to its group reaches whatever holds that number now.
-//
-// One field answers both questions. It is set from this child's own `close` handler, registered
-// in the constructor so it runs ahead of every caller's listener, and read in two places:
-// `dispose`, which signals nothing once it is true, and `electron-child-cleanup.ts`, which waits
+// The child is gone at `close`, not `exit`: `node_modules/.bin/electron` is a shim that hands the
+// browser its stdout, so the shim can exit while the browser runs and holds the pipe. Releasing a
+// resource at `exit` races that browser, and by `close` the pid is reaped and reissuable, so a
+// kill sent then could reach a stranger. One field, set by this child's own `close` handler,
+// answers both: `dispose` signals nothing once it is set, and `electron-child-teardown.ts` waits
 // for it before releasing what the child held.
 
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
 import { terminateProcessTree } from "./process-tree/termination.js";
-import { type CapturedTreeMember } from "./process-tree/start-stamps.js";
-import { SpawnedTreeRecord, type SpawnedTreeIdentityCapture } from "./spawned-tree-record.js";
+import { SpawnedTreeRecord } from "./spawned-tree-record.js";
 
 /**
  * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it. The shim forwards
@@ -47,13 +36,6 @@ export const DISPOSAL_ATTEMPTS = 3;
 export type ManagedChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 /**
- * How a whole tree is signaled, and whether the signal landed. Injected so a test can make a tree
- * refuse the kill (a `taskkill` that exits non-zero against a live Electron), which a real
- * platform cannot do on demand. The default signals a real tree.
- */
-export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) => boolean;
-
-/**
  * A spawned Electron process whose lifetime is bounded by the test that spawned it.
  *
  * Three layered mechanisms. The process-group kill is load-bearing: it alone reaches the browser
@@ -73,31 +55,14 @@ export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) 
 export class ManagedElectronChild {
   readonly #child: ManagedChildProcess;
   readonly #abortController: AbortController;
-  readonly #terminateTree: ProcessTreeTerminator;
-  readonly #treeRecord: SpawnedTreeRecord;
+  readonly #treeRecord: SpawnedTreeRecord = new SpawnedTreeRecord();
   #escalationTimer: NodeJS.Timeout | null = null;
   #killDelivered = false;
   #closeDelivered = false;
 
-  constructor(
-    child: ManagedChildProcess,
-    abortController: AbortController,
-    terminateTree?: ProcessTreeTerminator,
-    captureRootIdentity?: SpawnedTreeIdentityCapture,
-  ) {
+  constructor(child: ManagedChildProcess, abortController: AbortController) {
     this.#child = child;
     this.#abortController = abortController;
-    this.#treeRecord = new SpawnedTreeRecord(captureRootIdentity);
-    // The record is read inside the closure because the root capture lands after the constructor
-    // returns. An injected terminator bypasses the capture: its caller stands in for the platform.
-    this.#terminateTree =
-      terminateTree ??
-      ((treeProcessId, treeSignal) =>
-        terminateProcessTree(
-          treeProcessId,
-          treeSignal,
-          this.#treeRecord.identityFor(treeProcessId),
-        ));
     // After the root exits its number is no longer this tree's, so this may only remove members
     // from what was recorded while the child was up: a listing from a reaped pid can carry rows a
     // new holder fathered.
@@ -137,22 +102,9 @@ export class ManagedElectronChild {
     );
   }
 
-  /**
-   * The tree members captured while the root was still this child's, as a reading so a caller
-   * cannot mutate the identity.
-   */
-  get capturedTreeMembers(): readonly CapturedTreeMember[] {
-    return this.#treeRecord.members;
-  }
-
   /** The spawned process, for stream wiring and event listeners. */
   get child(): ManagedChildProcess {
     return this.#child;
-  }
-
-  /** Whether a SIGKILL has already been DELIVERED to this child's tree. */
-  get isKilled(): boolean {
-    return this.#killDelivered;
   }
 
   /**
@@ -179,8 +131,11 @@ export class ManagedElectronChild {
     const processId = this.#child.pid;
     // No pid means the spawn failed: there is no group or tree, so the direct handle is the only
     // thing addressable.
+    // The root identity is read at the call because its capture lands after construction.
     const delivered =
-      processId === undefined ? this.#child.kill(signal) : this.#terminateTree(processId, signal);
+      processId === undefined
+        ? this.#child.kill(signal)
+        : terminateProcessTree(processId, signal, this.#treeRecord.identityFor(processId));
     if (signal === "SIGKILL" && delivered) {
       this.#killDelivered = true;
     }
@@ -201,16 +156,6 @@ export class ManagedElectronChild {
       this.#escalationTimer = null;
       this.terminate("SIGKILL");
     }, graceMs);
-  }
-
-  /**
-   * Whether the direct-handle backstop has fired. The abort kills the root only, and the root is
-   * what a tree kill is addressed through (`taskkill /pid <root> /t` walks descendants from it),
-   * so a child with a pid must never see this become true, whether the kill was refused or
-   * delivered.
-   */
-  get directHandleReleased(): boolean {
-    return this.#abortController.signal.aborted;
   }
 
   /**

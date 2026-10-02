@@ -10,8 +10,8 @@
 // depend on `electron` and `node:*`, but a shared module is bundled into the renderer and carries
 // its constraints. The `files` selectors of the blocks below narrow the scope.
 //
-// Ban list: `electron`, the `node:*` family, the bare Node built-ins (`fs`, `child_process`, `net`,
-// `os`, `path`, `process`), and relative-path escapes into `**/main/**` and `**/preload/**`.
+// Ban list: `electron`, every `node:*` specifier, the bare Node built-ins (`fs`, `child_process`,
+// `net`, `os`, `path`, `process`), and relative-path escapes into `**/main/**` and `**/preload/**`.
 // `@ai-sidekicks/runtime-daemon` and `@ai-sidekicks/control-plane` are banned too: the renderer
 // reaches both only through the bridge, and a per-component source scan cannot see a violation
 // reached through a local helper, while lint traverses every renderer file.
@@ -85,7 +85,7 @@ const RENDERER_RESTRICTED_PATHS = [
   {
     name: "@ai-sidekicks/control-plane",
     message:
-      "The renderer is untrusted: the control-plane package must NEVER be imported from renderer source (directly or through a local helper). Route through the preload bridge (`window.desktopBridge.controlPlane`).",
+      "The renderer is untrusted: the control-plane package must NEVER be imported from renderer source (directly or through a local helper). The control plane is reached through the background service, never from renderer source.",
   },
 ];
 
@@ -102,7 +102,7 @@ const RENDERER_RESTRICTED_PATTERNS = [
   },
   {
     // The rule treats `fs` and `node:fs` as distinct specifiers, so `paths` bans the bare forms and
-    // this glob bans the whole `node:*` family and its subpaths (`node:fs`, `node:fs/promises`,
+    // this glob bans every `node:*` specifier and its subpaths (`node:fs`, `node:fs/promises`,
     // `node:stream/web`).
     group: ["node:**"],
     message:
@@ -136,13 +136,13 @@ const ZOD_IMPORT = {
 
 /** A contracts schema, which is a parser; types and non-schema values stay importable. */
 const CONTRACTS_SCHEMA_IMPORT = {
-  // The same claim as the `zod` group, on the schemas the corpus already built. It is a `patterns`
-  // entry because that is where the rule's schema puts `importNamePattern` (`paths` items admit
-  // only `importNames`, measured on the installed engine), and an exhaustive `importNames` list
-  // would go stale with the package's next schema.
+  // The same claim as the `zod` group, on the schemas the contracts package already built. It is a
+  // `patterns` entry because that is where the rule's schema puts `importNamePattern` (`paths`
+  // items admit only `importNames`, measured on the installed engine), and an exhaustive
+  // `importNames` list would go stale with the package's next schema.
   group: ["@ai-sidekicks/contracts"],
   // Every schema the reply registry composes, and every other schema the package exports, ends this
-  // way: the suffix is how this corpus spells a parser.
+  // way: the suffix is how this repository spells a parser.
   importNamePattern: "Schema$",
   message:
     "A surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
@@ -180,7 +180,7 @@ const BRIDGE_GLOBAL_READ = {
   selector:
     ':matches(MemberExpression[object.name="window"][property.name="desktopBridge"], MemberExpression[object.name="globalThis"][property.name="desktopBridge"], MemberExpression[object.type="TSAsExpression"][property.name="desktopBridge"], MemberExpression[computed=true][property.value="desktopBridge"], VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > Property[key.name="desktopBridge"])',
   message:
-    "The import-boundary rules in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `services/platform/live-bridge.ts`, and every surface above it takes the bridge from the platform bridge provider's context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
+    "Mechanical gate 1 in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only through `services/platform/live-bridge.ts`, and every surface above it takes the bridge from the platform bridge provider's context. A second reader is a second idea of when the bridge exists and what stands in for it under test.",
 };
 
 /**
@@ -199,7 +199,7 @@ const BRIDGE_GLOBAL_READ = {
 const EXPORT_DEFAULT_DECLARATION = {
   selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
   message:
-    "The module-shape rules in `apps/desktop/AGENTS.md`: named exports only. `export default` is for tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export — and nowhere else: a default export has no name at the import site, so two importers can call one symbol two things and a rename reaches neither.",
+    "Mechanical gate 3 in `apps/desktop/AGENTS.md`: named exports only. `export default` is for tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export — and nowhere else: a default export has no name at the import site, so two importers can call one symbol two things and a rename reaches neither.",
 };
 
 /**
@@ -217,7 +217,7 @@ const EXPORT_DEFAULT_DECLARATION = {
 const MODULE_LEVEL_LET = {
   selector: ':matches(Program, ExportNamedDeclaration) > VariableDeclaration[kind="let"]',
   message:
-    "The state-and-views rules in `apps/desktop/AGENTS.md`: stateful logic is an encapsulated class with private fields. A module-level `let` is a singleton every importer in the window shares and any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
+    "Mechanical gate 4 in `apps/desktop/AGENTS.md`: stateful logic is an encapsulated class with private fields. A module-level `let` is a singleton every importer in the window shares and any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
 };
 
 /**
@@ -229,12 +229,12 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: "ImportExpression[source.value=/child_process/]",
     message:
-      "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that module; `spawnSync` is untouched.",
   },
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
     message:
-      "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that door; `spawnSync` is untouched.",
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn` from `node:child_process`, and it registers the kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to a timer. Spawn through that module; `spawnSync` is untouched.",
   },
 ];
 
@@ -242,7 +242,8 @@ const WINDOW_CLASS_NAME = "/^(BrowserWindow|BaseWindow|WebContentsView)$/";
 
 /**
  * A window or web view built outside the window factory. The factory holds the one locked
- * `webPreferences` block, so a construction anywhere else ships a window that block does not govern.
+ * `webPreferences` block, so a construction anywhere else ships a window that block does not
+ * govern.
  */
 const WINDOW_CONSTRUCTION_OUTSIDE_FACTORY = {
   selector: `NewExpression:matches([callee.name=${WINDOW_CLASS_NAME}], [callee.property.name=${WINDOW_CLASS_NAME}])`,
@@ -254,8 +255,8 @@ const HARDENED_WHEN_TRUE = "/^(contextIsolation|sandbox|webSecurity)$/";
 const HARDENED_WHEN_FALSE = "/^(nodeIntegration|nodeIntegrationInWorker)$/";
 
 /**
- * A window security setting written as anything but its hardened literal: `sandbox: false`, and also
- * `sandbox: someFlag`, whose value no reader of the source can vouch for.
+ * A window security setting written as anything but its hardened literal: `sandbox: false`, and
+ * also `sandbox: someFlag`, whose value no reader of the source can vouch for.
  */
 const WEAKENED_WINDOW_SETTING = [
   {
@@ -290,7 +291,7 @@ const TEXT_SNAPSHOT_MATCHER_REACH = {
   selector:
     "MemberExpression[property.name=/^toMatch(Inline|File)?Snapshot$/], MemberExpression[computed=true][property.value=/^toMatch(Inline|File)?Snapshot$/]",
   message:
-    "The test rules in `apps/desktop/AGENTS.md`: this package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them, and under that mode a text snapshot rewrites itself instead of failing. Assert the value.",
+    "Mechanical gate 9 in `apps/desktop/AGENTS.md`: this package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them, and under that mode a text snapshot rewrites itself instead of failing. Assert the value.",
 };
 
 /**
@@ -308,7 +309,7 @@ const SCREENSHOT_MATCHER_REACH = {
   selector:
     ':matches(MemberExpression[property.name="toMatchScreenshot"], MemberExpression[computed=true][property.value="toMatchScreenshot"])',
   message:
-    "The test rules in `apps/desktop/AGENTS.md`: a screenshot is taken through `tests/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
+    "Mechanical gate 6 in `apps/desktop/AGENTS.md`: a screenshot is taken through `tests/screenshot/settled-capture.ts` and no other way. A capture taken straight after a mount photographs the region a loader-backed body has not filled yet — stable, green, and a picture of a pane that had not finished loading.",
 };
 
 /**
@@ -329,7 +330,7 @@ const STYLESHEET_OUTSIDE_FOLDER_SPECIFIER = `[source.value=/${STYLESHEET_SPECIFI
 const STYLESHEET_THROUGH_OWNER = {
   selector: `:matches(ImportDeclaration${STYLESHEET_OUTSIDE_FOLDER_SPECIFIER}, ImportExpression${STYLESHEET_OUTSIDE_FOLDER_SPECIFIER})`,
   message:
-    "The stylesheet rule in `apps/desktop/AGENTS.md`: a component imports its own sheet from its own folder (`X.tsx` imports `./X.css`); a sheet that styles several components of a feature is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`); a global sheet in `styles/` is imported by `main.tsx`. A module that reaches into another folder's sheet puts that surface's rules wherever the module loads.",
+    "Mechanical gate 7 in `apps/desktop/AGENTS.md`: a component imports its own sheet from its own folder (`X.tsx` imports `./X.css`); a sheet that styles several components of a feature is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`); a global sheet in `styles/` is imported by `main.tsx`. A module that reaches into another folder's sheet puts that surface's rules wherever the module loads.",
 };
 
 /**
@@ -430,9 +431,9 @@ function rendererFiles(subtree, patterns) {
 }
 
 /**
- * The file sections `AGENTS.md` names under Module shape, in declaration-kind order: exported types
- * and interfaces (the module's contract), then the exported class or function the file is named
- * for, then everything private.
+ * The file sections mechanical gate 10 in `AGENTS.md` names, in declaration-kind order: exported
+ * types and interfaces (the module's contract), then the exported class or function the file is
+ * named for, then everything private.
  *
  * Only the exported forms are ranked. A non-exported declaration matches no listed group and
  * becomes `unknown`, one bucket held last and left unsorted, which keeps the module-shape exception
@@ -453,11 +454,12 @@ const MODULE_SECTION_GROUPS = [
 ];
 
 /**
- * The `AGENTS.md` module-shape rule inside a class: fields, constructor, public methods, private
- * methods. Accessors rank with the methods of their own accessibility (this tree writes `get` after
- * the constructor), and `protected` ranks with `private`, since the split is the externally
- * reachable surface against everything else. An absent accessibility modifier reads as `public` and
- * a `#`-hash member as `private`, so both match this tree's style without an explicit keyword.
+ * Mechanical gate 11 in `AGENTS.md`, the order inside a class: fields, constructor, public methods,
+ * private methods. Accessors rank with the methods of their own accessibility (this tree writes
+ * `get` after the constructor), and `protected` ranks with `private`, since the split is the
+ * externally reachable surface against everything else. An absent accessibility modifier reads as
+ * `public` and a `#`-hash member as `private`, so both match this tree's style without an explicit
+ * keyword.
  */
 const CLASS_SECTION_GROUPS = [
   ["index-signature", "static-block", "property", "accessor-property", "function-property"],
@@ -542,11 +544,11 @@ const desktopConfig = defineConfig(
   // The renderer outside `services/`: the renderer ban plus `zod` and the schemas
   // `@ai-sidekicks/contracts` already ships.
   //
-  // Every daemon reply the renderer reads is parsed at one door, `services/daemon/daemon-reply.ts`,
-  // against the schemas `services/daemon/daemon-reply-registry.ts` binds to each method. A surface
-  // that could reach the validator directly could parse a second time, differently, or skip the
-  // parse and keep the fulfilled `unknown`. A surface needing a shape asks for the method, not for
-  // a schema.
+  // Every daemon reply the renderer reads is parsed in one module,
+  // `services/daemon/daemon-reply.ts`, against the schemas
+  // `services/daemon/daemon-reply-registry.ts` binds to each method. A surface that could reach the
+  // validator directly could parse a second time, differently, or skip the parse and keep the
+  // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
   //
   // Banning `zod` alone left the second parser one import away: the contracts package publicly
   // exports the schema objects the registry composes, so a surface could call `.safeParse()` on a
@@ -647,7 +649,7 @@ const desktopConfig = defineConfig(
   },
   {
     // The main process spawns for real (the daemon supervisor and the PTY sidecar) through its own
-    // supervised lifetimes, not the test door, so it carries the dynamic-reach pair beside the
+    // supervised lifetimes, not the test spawner, so it carries the dynamic-reach pair beside the
     // import ban below, and the window-security bans, which main alone can break.
     files: ["src/main/**/*.ts"],
     rules: { "no-restricted-syntax": ["error", ...MAIN_SYNTAX_BANS] },
@@ -736,7 +738,7 @@ const desktopConfig = defineConfig(
     },
   },
   {
-    // The capture door itself, and nothing else.
+    // The capture module itself, and nothing else.
     files: ["tests/screenshot/settled-capture.ts"],
     rules: {
       "no-restricted-syntax": [
@@ -746,7 +748,7 @@ const desktopConfig = defineConfig(
     },
   },
   {
-    // The spawn door. It registers the kill on `onTestFinished`, which runs on a pass,
+    // The spawn module. It registers the kill on `onTestFinished`, which runs on a pass,
     // on a failure, and on vitest's own timeout kill alike.
     files: ["tests/helpers/electron-child.ts"],
     rules: {
@@ -780,11 +782,17 @@ const desktopConfig = defineConfig(
     },
   },
   {
-    // The Vitest configuration modules, which the `lint` script reads and which set the
-    // process-wide snapshot mode. `export default` is allowed, as that is how a Vitest config is
-    // written, so the union is the snapshot ban and the root's enum ban.
+    // The modules `vitest.config.ts` composes, which set the process-wide snapshot mode. The
+    // config itself sits at the package root, so no file here has a reason to default-export.
     files: ["vitest/**/*.{ts,mts}"],
-    rules: { "no-restricted-syntax": ["error", ENUM_DECLARATION, TEXT_SNAPSHOT_MATCHER_REACH] },
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ENUM_DECLARATION,
+        EXPORT_DEFAULT_DECLARATION,
+        TEXT_SNAPSHOT_MATCHER_REACH,
+      ],
+    },
   },
   {
     // A declaration file carries no runtime code — no call, no assignment, no import of
@@ -808,7 +816,7 @@ const desktopConfig = defineConfig(
         {
           name: "setInterval",
           message:
-            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
       "no-restricted-properties": [
@@ -817,18 +825,18 @@ const desktopConfig = defineConfig(
           object: "window",
           property: "setInterval",
           message:
-            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
         {
           object: "globalThis",
           property: "setInterval",
           message:
-            "The chokepoint rules in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
     },
   },
-  // --- The spawn door, as an import ban -----------------------------------------
+  // --- The spawn module, as an import ban ---------------------------------------
   //
   // The static half of the claim `CHILD_PROCESS_DYNAMIC_REACH` makes about `import()` and
   // `require`. Both specifier spellings are named, since `no-restricted-imports` treats
@@ -845,13 +853,13 @@ const desktopConfig = defineConfig(
               name: "node:child_process",
               importNames: ["spawn"],
               message:
-                "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
+                "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished` — which runs on a pass, on a failure, and on vitest's own timeout kill alike. A child a timer was going to kill is reparented to init when the worker is torn down first. `spawnSync` is untouched.",
             },
             {
               name: "child_process",
               importNames: ["spawn"],
               message:
-                "The test rules in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
+                "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the only module that reaches `spawn`, and it registers the kill on `onTestFinished`. The prefix-less specifier resolves to the same builtin. `spawnSync` is untouched.",
             },
           ],
         },
@@ -863,7 +871,7 @@ const desktopConfig = defineConfig(
     files: ["tests/helpers/electron-child.ts"],
     rules: { "no-restricted-imports": "off" },
   },
-  // --- Member order: the file and class shapes `AGENTS.md` states under Module shape ---
+  // --- Member order: the file and class shapes of mechanical gates 10 and 11 in `AGENTS.md` ---
   //
   // Scope is the renderer source, `src/renderer/src/**/*.{ts,tsx}`, co-located tests included.
   //

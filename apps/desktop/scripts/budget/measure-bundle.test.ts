@@ -7,8 +7,8 @@ import {
   RendererBundleMeasurer,
   RendererBundleOutputMissingError,
   rendererBundleAssetClassOf,
-} from "./measure-bundle.mjs";
-import { plantRendererOutput } from "../../tests/helpers/renderer-output-fixture.js";
+} from "./measure-bundle.mts";
+import { plantRendererOutput } from "./measure-bundle.test-support.js";
 import { TemporaryDirectoryTrail } from "../../tests/helpers/temporary-directory.js";
 
 /** Every out-dir the cases plant, removed after each of them. */

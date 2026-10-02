@@ -1,11 +1,11 @@
 // The streaming block layer's benchmark gate: the bench tier's second arm.
 //
-// The console's streaming block layer is its largest own build: an incremental block
+// The app's streaming block layer is its largest own build: an incremental block
 // segmenter, a memoized settled-block parse, and a tail that is the only text `remend` is
 // applied to. It ships only on a measured win over the library path, and this file measures it.
 //
 // Both arms consume the same recorded stream and produce the same trees, and both call the
-// console's real modules, so a regression in the segmenter or a cache that stops caching moves
+// app's real modules, so a regression in the segmenter or a cache that stops caching moves
 // the number:
 //
 // - own: `MarkdownBlockSegmenter` splits each cumulative snapshot into settled blocks and a
@@ -17,13 +17,9 @@
 // tail, which the segmenter keeps bounded. The gate is therefore on the ratio, not on an
 // absolute time, which depends on the machine.
 //
-// Not measured here: a volatile tail written as a direct DOM text node the framework never
-// reconciles (bounded by a character limit, word-segmented with `Intl.Segmenter`, handed back by
-// keyed remount when the block settles). Its gate needs p95 frame time and retained heap, and
-// this `node`-environment project has no compositor, frame or renderer heap; a DOM-mutation
-// figure taken under `jsdom` would measure `jsdom`, not Chromium. So the direct-DOM tail is not
-// shipped and the library path stands for the tail. A frame-time reading for it would have to
-// come from the endurance tier.
+// Not measured here: a tail written as a direct DOM text node. Its gate needs frame time and
+// renderer heap, which this Node project cannot read (a `jsdom` figure would measure `jsdom`), so
+// it is not shipped and the library path stands for the tail.
 
 import { performance } from "node:perf_hooks";
 import process from "node:process";

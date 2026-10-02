@@ -33,8 +33,7 @@ import { refusePersistence, type PersistenceRefusal } from "./persistence-refusa
 
 /**
  * The classes of UI state the durable store admits. Closed, and the single source
- * for both the type and the validator table. Stable order: tests read it as
- * written.
+ * for both the type and the validator table.
  */
 export const PERSISTED_VALUE_CLASSES = [
   "layout",
@@ -247,7 +246,7 @@ export function measureRecordByteLength(
   partition: string,
   key: string,
   valueClass: string,
-  value: PersistableValue,
+  value: unknown,
 ): number {
   return (
     measureUtf8ByteLength(partition) +

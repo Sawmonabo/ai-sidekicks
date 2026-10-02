@@ -1,5 +1,4 @@
-/* The notification center's styles: a column of session groups, each a heading over a stack of
- * rows. Rows carry no color of their own; severity is already on the chip. */
+/* The notifications list: its heading over two groups, each a header over one-line entries. */
 
 .meridian-attention {
   display: flex;
@@ -10,8 +9,7 @@
 
 .meridian-attention__head {
   display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
+  align-items: center;
 }
 
 .meridian-attention__title {
@@ -21,11 +19,9 @@
   color: var(--meridian-text);
 }
 
-.meridian-attention__groups,
 .meridian-attention__items {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -34,30 +30,33 @@
 .meridian-attention__group {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-2);
+  gap: var(--meridian-space-1);
 }
 
 .meridian-attention__group-title {
+  display: flex;
+  gap: var(--meridian-space-2);
   margin: 0;
   font-size: var(--meridian-text-xs);
   font-weight: 400;
   color: var(--meridian-text-faint);
 }
 
-/* One row in both forms. The button form resets the platform chrome so a pressable row and a
+/* One line in both forms. The button form resets the platform chrome so a pressable entry and a
    plain one share a shape. */
 .meridian-attention__row {
   display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
+  align-items: center;
+  gap: var(--meridian-space-2);
   width: 100%;
   margin: 0;
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 0;
   border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface);
+  background: transparent;
   color: inherit;
   font: inherit;
+  font-size: var(--meridian-text-sm);
   text-align: start;
 }
 
@@ -70,29 +69,37 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-attention__row-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-attention__row-summary {
+.meridian-attention__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.meridian-attention__row-scope {
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-attention__fold-summary {
-  cursor: pointer;
+.meridian-attention__state {
+  flex: none;
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
 }
 
-.meridian-attention__fold[open] > .meridian-attention__fold-summary {
-  margin-bottom: var(--meridian-space-2);
+/* The dot is sized from the line's own text. */
+.meridian-attention__dot {
+  flex: none;
+  box-sizing: border-box;
+  inline-size: 0.5em;
+  block-size: 0.5em;
+  border-radius: 50%;
+}
+
+.meridian-attention__dot--waiting {
+  background: var(--meridian-amber-mark);
+}
+
+.meridian-attention__dot--failed {
+  background: var(--meridian-red-mark);
+}
+
+.meridian-attention__dot--done {
+  border: 1px solid var(--meridian-text-faint);
 }

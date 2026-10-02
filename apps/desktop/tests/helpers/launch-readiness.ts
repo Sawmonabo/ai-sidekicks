@@ -56,9 +56,9 @@ export async function awaitPaintingAppWindow(
   // times the second).
   if (visibilityState !== "visible") {
     throw new Error(
-      `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
-        "nothing measured in it would describe the console; the launched build must honor " +
-        `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
+      `the app document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
+        "nothing measured in it would describe the app; the launched build must honor " +
+        `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/windows/window-reveal.ts)`,
     );
   }
   const frames = await new FramePaintProbe(rendererFrameSource(window)).probe();
@@ -66,8 +66,8 @@ export async function awaitPaintingAppWindow(
     throw new Error(
       `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
         "signaling ready, so it is not painting and nothing timed in it would describe the " +
-        "console; an unrevealed window paints only with background throttling off " +
-        "(src/main/window-reveal.ts)",
+        "app; an unrevealed window paints only with background throttling off " +
+        "(src/main/windows/window-reveal.ts)",
     );
   }
   // Printed on every launch, passing ones included: the bound can only be re-derived from figures

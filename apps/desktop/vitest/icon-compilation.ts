@@ -8,11 +8,11 @@
 // copies of the stroke contract would drift silently, since a face is legible at any weight.
 //
 // The stroke contract is applied here, not at the call site. `styles/glyphs.ts` fixes one
-// geometry for the family: stroked at `GLYPH_STROKE_WIDTH` in a `GLYPH_VIEWBOX_SIZE` box, round
+// geometry for every icon: stroked at `GLYPH_STROKE_WIDTH` in a `GLYPH_VIEWBOX_SIZE` box, round
 // caps and joins, never filled. Tabler draws in a 24-unit box with a 2-unit stroke and puts those
 // attributes on the drawing elements, not the root `<svg>`, so a root attribute cannot override
 // them. `withoutDrawnPresentation` removes them from the body and `strokeContractFor` puts the
-// family's own on the root, scaled to the collection's box so the rendered weight matches.
+// app's own on the root, scaled to the collection's box so the rendered weight matches.
 //
 // Both collections are custom collections on purpose: `unplugin-icons` applies `transform` only to
 // a custom collection (measured: `@iconify/utils`' `getCustomIcon` is its only caller), so loading
@@ -55,7 +55,7 @@ const SVGR_JSX_PLUGIN: SvgrPlugin = resolveSvgrJsxPlugin();
 /** The collection name our own faces answer to: `~icons/signature/<name>`. */
 const SIGNATURE_ICON_COLLECTION = "signature";
 
-/** The Iconify package the borrowed half of the family is drawn from. */
+/** The Iconify package the borrowed icons are drawn from. */
 const TABLER_ICON_PACKAGE = "@iconify-json/tabler";
 
 /**
@@ -77,7 +77,7 @@ const COLLECTION_VIEWBOX_SIZES: Readonly<Record<string, number>> = {
 };
 
 /**
- * The presentation attributes the family owns, wherever an icon set put them. All five inherit,
+ * The presentation attributes the app owns, wherever an icon set put them. All five inherit,
  * so a `<path>` with none draws with whatever the root `<svg>` declares. `fill` is listed because
  * a filled face reads heavier than its neighbors at 16 px.
  */
@@ -90,24 +90,21 @@ const DRAWN_PRESENTATION_ATTRIBUTE =
  */
 function withoutDrawnPresentation(svg: string): string {
   const rootTagEnd = svg.indexOf(">");
-  if (rootTagEnd < 0) {
-    return svg;
-  }
   const rootTag = svg.slice(0, rootTagEnd + 1);
   const body = svg.slice(rootTagEnd + 1);
   return `${rootTag}${body.replace(DRAWN_PRESENTATION_ATTRIBUTE, "")}`;
 }
 
 /**
- * The family's geometry as root attributes for one collection's box. The stroke width is a ratio
- * carried across boxes, so tightening the family is one edit in `styles/glyphs.ts`.
+ * The icons' geometry as root attributes for one collection's box. The stroke width is a ratio
+ * carried across boxes, so tightening every icon is one edit in `styles/glyphs.ts`.
  */
 function strokeContractFor(collection: string, iconName: string): Record<string, string> {
   const viewBoxSize = COLLECTION_VIEWBOX_SIZES[collection];
   if (viewBoxSize === undefined) {
     throw new Error(
-      `The console draws no icons from "${collection}" (asked for "${iconName}"). ` +
-        `Add the collection's own viewBox size beside the ones the console already draws.`,
+      `The app draws no icons from "${collection}" (asked for "${iconName}"). ` +
+        `Add the collection's own viewBox size beside the ones the app already draws.`,
     );
   }
   return {

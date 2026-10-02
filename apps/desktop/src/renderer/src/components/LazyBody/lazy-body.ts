@@ -42,7 +42,7 @@ export class LoaderBackedBody<TContext extends object> {
   /**
    * The mounted form. Its identity is what React reconciles by, so it is built once, and
    * rebuilt only when a load rejects: `lazy` never re-runs a rejected initializer, so without a
-   * fresh one "Try again" would re-throw the cached rejection. Building it starts no load.
+   * fresh one `Retry` would re-throw the cached rejection. Building it starts no load.
    */
   #component: LazyExoticComponent<(context: TContext) => React.ReactNode>;
 

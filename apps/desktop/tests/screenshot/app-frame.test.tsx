@@ -2,10 +2,10 @@
 // capture aid, not a regression gate: every capture is written into the gitignored
 // `tests/screenshot/__screenshots__/`, compared against nothing, in no CI job and in no `pnpm
 // test` chain. Run `pnpm --filter @ai-sidekicks/desktop run test:screenshot` to look at the
-// console without building and launching Electron; images are overwritten on every run. No image
+// app without building and launching Electron; images are overwritten on every run. No image
 // is versioned because font rasterization moves with the operating system, and a gate that is red
 // for a reason the reader must discount stops being read. `settled-capture.ts` still refuses a
-// picture of a half-built console: the pending pane body and an element the window cannot hold.
+// picture of a half-built app: the pending pane body and an element the window cannot hold.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -24,7 +24,7 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
-/** What the console's outermost mounted element is, and what this file captures. */
+/** What the app's outermost mounted element is, and what this file captures. */
 const FRAME_SELECTOR = ".meridian-frame";
 
 beforeEach(async () => {

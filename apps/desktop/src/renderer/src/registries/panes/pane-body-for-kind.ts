@@ -1,12 +1,7 @@
 // Adapts a body written for one pane kind into the render the pane registry stores.
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { type PaneContext } from "./pane-context.js";
-
-/** The subsystem a pane-composition refusal names as its author. */
-const PANE_COMPOSITION_ORIGIN = "pane-composition";
 
 /** The context a body of one pane kind is handed, narrowed to that kind's arm. */
 export type PaneContextOf<TKind extends PaneKind> = Extract<PaneContext, { kind: TKind }>;
@@ -19,9 +14,8 @@ declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
 
 /**
  * Adapts a body written for one pane kind into the render the registry stores, narrowing the whole
- * `PaneContext` union once here. A mismatch renders a refusal and never throws: the layout looks
- * bodies up by kind, but a restored layout row or a typed route can arrive untyped, and a throw
- * would take the whole window down for one pane.
+ * `PaneContext` union once here. The registry looks a body up by the context's own kind, so a
+ * mismatch means a feature registered this body under another kind, and it throws as that defect.
  */
 export function paneBodyForKind<
   TKind extends PaneKind,
@@ -30,15 +24,12 @@ export function paneBodyForKind<
   kind: TKind,
   renderBody: TBody & ExactPaneBody<TKind, TBody>,
 ): (context: PaneContext) => React.ReactNode {
-  return (context) =>
-    context.kind === kind ? (
-      renderBody(context as PaneContextOf<TKind>)
-    ) : (
-      <InlineRefusal
-        code={`${PANE_COMPOSITION_ORIGIN}.pane-kind-mismatch`}
-        detail={`the ${TITLE_BY_PANE_KIND[kind]} pane was mounted at a "${context.kind}" address, which it is not a view of`}
-      />
-    );
+  return (context) => {
+    if (context.kind !== kind) {
+      throw new Error(`The "${kind}" pane body was registered under the "${context.kind}" kind.`);
+    }
+    return renderBody(context as PaneContextOf<TKind>);
+  };
 }
 
 /**

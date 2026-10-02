@@ -1,13 +1,14 @@
-// Runtime tripwires: the console's defect detector for a violation whose evidence is a value, not
+// Runtime tripwires: the app's defect detector for a violation whose evidence is a value, not
 // a token in the source (a rule decidable by reading the tree belongs in lint). One process-wide
 // `TripwireRegistry` per renderer records every firing with a bounded report buffer and an
 // unbounded per-kind count, and hands each report to the subscribed diagnostic sinks.
 //
 // The kinds:
-//   - `bridge-shape-drift`: the live and fixture bridges stopped being shape-identical.
 //   - `persistence-value-class`: a write outside the closed UI-state value classes reached the
 //     store's write chokepoint.
 //   - `apply-chokepoint-bypass`: a store was mutated outside its single `apply`.
+//   - `unheld-resource`: a subject-scoped holder let go of a resource it could not install, either
+//     one that settled into a visit that had already ended or one whose disposal threw.
 //   - `wire-figure-formatting`: a wire figure was rendered outside the two fixed classes.
 //   - `region-render-failure`: an error boundary caught a region that threw while rendering. Its
 //     own kind, since a render crash mutated no state and is not a store-invariant breach.
@@ -23,9 +24,9 @@ import { Emitter, type Unsubscribe } from "./emitter.js";
  * `TripwireKind` is derived so the array and the union cannot diverge.
  */
 export const TRIPWIRE_KINDS = [
-  "bridge-shape-drift",
   "persistence-value-class",
   "apply-chokepoint-bypass",
+  "unheld-resource",
   "wire-figure-formatting",
   "region-render-failure",
 ] as const;
@@ -51,7 +52,7 @@ export class TripwireError extends Error {
   public readonly site: string;
 
   public constructor(report: TripwireReport) {
-    super(`console tripwire ${report.kind} at ${report.site}: ${report.detail}`);
+    super(`tripwire ${report.kind} at ${report.site}: ${report.detail}`);
     this.name = "TripwireError";
     this.kind = report.kind;
     this.site = report.site;
@@ -59,7 +60,7 @@ export class TripwireError extends Error {
 }
 
 /**
- * The console's tripwire recorder. A class so a test can construct and drop one instead of
+ * The app's tripwire recorder. A class so a test can construct and drop one instead of
  * leaking firings through module state.
  */
 export class TripwireRegistry {
@@ -130,7 +131,7 @@ export class TripwireRegistry {
 }
 
 /**
- * The console's registry, one per renderer process. Throws in a
+ * The app's registry, one per renderer process. Throws in a
  * development build; `import.meta.env.DEV` is a Vite compile-time substitution, not a runtime
  * environment read.
  */
@@ -138,7 +139,7 @@ export const windowTripwires: TripwireRegistry = new TripwireRegistry({
   throwOnReport: import.meta.env.DEV,
 });
 
-/** Reports to the console's registry; the one call shape every tripwire uses. */
+/** Reports to the app's registry; the one call shape every tripwire uses. */
 export function reportTripwire(kind: TripwireKind, site: string, detail: string): void {
   windowTripwires.report({ kind, site, detail });
 }

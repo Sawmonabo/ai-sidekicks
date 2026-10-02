@@ -25,12 +25,12 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
-// which hold the console's UI state.
+// which hold the app's UI state.
 registerRendererScheme();
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
 // build. In a release bundle the smoke branch folds away and Rollup drops the probe modules.
-declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
+declare const __SMOKE_BUILD__: boolean;
 
 // The fixture gate, substituted by the same `define` block: `true` in the development and
 // fixtures builds, `false` in every other, the release build included.
@@ -60,7 +60,7 @@ async function resolveFixtureLaunch(): Promise<FixtureLaunch | undefined> {
 const gotTheLock = app.requestSingleInstanceLock();
 
 // The probes live in `./probes/`. Both are gated twice: the compile-time
-// `__SIDEKICKS_SMOKE_BUILD__` (a release bundle references nothing there, so Rollup drops the
+// `__SMOKE_BUILD__` (a release bundle references nothing there, so Rollup drops the
 // modules) and a per-run env var, so even a smoke bundle never auto-runs one. A release binary
 // must not embed a path such as `executeJavaScript` against the renderer, which is untrusted.
 
@@ -93,8 +93,7 @@ if (!gotTheLock) {
       });
 
       // Both conditions must hold: the compile-time smoke flag and the runtime opt-in.
-      const smokeProbeRequested =
-        __SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
+      const smokeProbeRequested = __SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
 
       // Sampled before `createMainWindow`, which starts the load being timed.
       const probeStartedAt = Date.now();
@@ -124,11 +123,7 @@ if (!gotTheLock) {
 
       // The GC probe registers its own listener and defers itself, so nothing scheduled here
       // closes over the window it measures.
-      if (
-        !smokeProbeRequested &&
-        __SIDEKICKS_SMOKE_BUILD__ &&
-        process.env["SIDEKICKS_GC_PROBE"] === "1"
-      ) {
+      if (!smokeProbeRequested && __SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
         startGcProbe(app);
       }
     })

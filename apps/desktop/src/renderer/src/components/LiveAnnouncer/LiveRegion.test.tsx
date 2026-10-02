@@ -20,7 +20,7 @@ describe("LiveRegion — the pair speaks without being replaced", () => {
     const before = regionsOf(container);
 
     act(() => {
-      announcer.announce("that node refused the attach", "assertive");
+      announcer.announce("the request was refused", "assertive");
     });
 
     const after = regionsOf(container);

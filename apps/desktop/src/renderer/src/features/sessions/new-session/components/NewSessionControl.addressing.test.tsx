@@ -43,7 +43,9 @@ describe("the composed new-session draft — which composition a settlement land
       await crossMacrotaskBoundary();
     });
 
-    expect(container.textContent).not.toContain("first-turn-failed");
+    expect(container.textContent).not.toContain(
+      "The session was created, but the first turn was not queued.",
+    );
     expect(politeText(container)).toBe("");
     // The replacement is untouched and still sendable, including its sending flag.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
@@ -67,7 +69,9 @@ describe("the composed new-session draft — which composition a settlement land
     });
 
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-    expect(container.textContent).not.toContain("first-turn-failed");
+    expect(container.textContent).not.toContain(
+      "The session was created, but the first turn was not queued.",
+    );
 
     await act(async () => {
       queued.answerOldest();
@@ -76,7 +80,9 @@ describe("the composed new-session draft — which composition a settlement land
 
     // The newer draft's own settlement is the one that lands.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-    expect(container.textContent).toContain("first-turn-failed");
+    expect(container.textContent).toContain(
+      "The session was created, but the first turn was not queued.",
+    );
   });
 
   it("negative control: a settlement for the draft still on screen is rendered", async () => {
@@ -91,7 +97,9 @@ describe("the composed new-session draft — which composition a settlement land
       await crossMacrotaskBoundary();
     });
 
-    expect(container.textContent).toContain("first-turn-failed");
+    expect(container.textContent).toContain(
+      "The session was created, but the first turn was not queued.",
+    );
     expect(politeText(container)).toBe(
       "The session was created, but not everything the draft asked for could be sent.",
     );

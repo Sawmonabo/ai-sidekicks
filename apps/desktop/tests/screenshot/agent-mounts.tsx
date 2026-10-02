@@ -1,6 +1,5 @@
-// The agents pane, mounted once for the tiers that look at it. Not a test file. `app-harness.ts`
-// owns how the app is mounted and this module owns what of the agents feature is mounted into it,
-// like the modules in `tests/helpers/feature-mounts/`.
+// The agents pane, mounted for the screenshot tier, the only tier that looks at it. Not a test
+// file.
 //
 // The pane is mounted over an unscripted fixture bridge with the agent list handed in as a plain
 // call; the agent-list rows come from the module the feature keeps them in, so a capture cannot
@@ -14,21 +13,18 @@ import type { ReactNode } from "react";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
-import { AGENT_ON_CLAUDE, AGENT_ON_CODEX } from "@test/helpers/agent-list.js";
+import { AGENT_ON_CLAUDE, AGENT_ON_CODEX } from "../helpers/agent-list.js";
 import { agentsPaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
 import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-support.js";
 import type { AgentsPaneCalls } from "@renderer/features/agents/agent-reads.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { unscriptedScenario } from "../helpers/fixture-bridge.js";
 import { FixtureBridgeProvider } from "../helpers/app-frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
+import { paneBinding } from "../helpers/feature-mounts/pane-body-resolution.js";
+import { requireCapturedElement } from "./captured-element.js";
 
 /** The session the store is open on, so the agent-list read is asked rather than skipped. */
 const SESSION_ID = "session-agents";
@@ -44,44 +40,11 @@ const AGENTS_PANE_CALLS: AgentsPaneCalls = {
     }),
 };
 
-/**
- * The one element a mount hands back, or a throw naming what was missing. It throws so a pane that
- * stopped rendering its root fails here, with the selector named, instead of handing a tier an
- * absent element.
- */
-function requireRendered(root: ParentNode, selector: string): HTMLElement {
-  const element = root.querySelector<HTMLElement>(selector);
-  if (element === null) {
-    throw new Error(`the agents pane rendered no ${selector}, so there is nothing to mount`);
-  }
-  return element;
-}
-
 const renderAgentsPaneBody = agentsPaneBody(AGENTS_PANE_CALLS);
 
 /** The pane body as a component, because bodies hold hooks and must be mounted, not called. */
 function AgentsPaneBody(props: { readonly context: PaneContext }): ReactNode {
   return renderAgentsPaneBody(props.context);
-}
-
-/** The pane layout context a pane is mounted with, about one named agent. */
-function paneContext(
-  bridge: PlatformBridge,
-  sessionStore: SessionStore,
-  agentId: string,
-): PaneContext {
-  return {
-    kind: "agents",
-    paneId: "pane-agents",
-    entity: { kind: "agent", id: agentId },
-    frameStore: new WindowStore(),
-    uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-    // Nothing opened this pane from another: every tier mounts one body directly.
-    linkedSourcePaneId: undefined,
-    bridge,
-    sessionStore,
-  };
 }
 
 /** An open session with no history, folded the way a window folds one. */
@@ -94,14 +57,15 @@ function agentsSessionStore(): SessionStore {
   return store;
 }
 
-/** The pane mounted over the fixture agent list, addressed at the agent on `claude`. */
-async function renderAgentsPane(): Promise<{
-  readonly container: HTMLElement;
-  readonly bridge: PlatformBridge;
-}> {
+/** The whole agents pane over the fixture agent list, addressed at the agent on `claude`. */
+export async function mountAgentsPane(): Promise<{ readonly element: Element }> {
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
   const { bridge } = fixture;
-  const context = paneContext(bridge, agentsSessionStore(), AGENT_ON_CLAUDE.agentId);
+  const context: PaneContext = {
+    kind: "agents",
+    entity: { kind: "agent", id: AGENT_ON_CLAUDE.agentId },
+    ...paneBinding({ paneId: "pane-agents", bridge, sessionStore: agentsSessionStore() }),
+  };
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={fixture}>
       <AgentsPaneBody context={context} />
@@ -116,11 +80,5 @@ async function renderAgentsPane(): Promise<{
       throw new Error("the agent-list read has not landed yet");
     }
   });
-  return { container, bridge };
-}
-
-/** The whole agents pane, chrome and column, over the fixture agent list. */
-export async function mountAgentsPane(): Promise<HTMLElement> {
-  const { container } = await renderAgentsPane();
-  return requireRendered(container, ".meridian-pane");
+  return { element: requireCapturedElement(container, ".meridian-pane") };
 }

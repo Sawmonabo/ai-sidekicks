@@ -1,6 +1,6 @@
 // Mounting the composed window once for every suite that drives it. The `AppProviders` suites
 // drive the real composition root against the fixture bridge, and one copy of the mount gives
-// one answer to "when has the console settled".
+// one answer to "when has the app settled".
 
 import { act, render, type RenderResult } from "@testing-library/react";
 
@@ -13,7 +13,7 @@ import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 export const SESSIONS_HASH = "#/sessions";
 
 /**
- * Mount the console playing the transcript-states scenario, and let the settled promises land.
+ * Mount the app playing the transcript-states scenario, and let the settled promises land.
  *
  * The scenario is the busy transcript because a window with rows exercises what these suites
  * drive. `AppProviders` opens persistence on mount and swaps the durable adapter in when it
@@ -30,7 +30,7 @@ export async function mountApp(): Promise<RenderResult> {
     await crossMacrotaskBoundary();
   });
   if (mounted === undefined) {
-    throw new Error("the console never mounted");
+    throw new Error("the app never mounted");
   }
   return mounted;
 }

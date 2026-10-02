@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../clock.js";
 import type { ReadRound } from "./read-scope.js";
 import { RefreshScheduler, type RefreshReason } from "./refresh-scheduler.js";
-import { settleMicrotasks } from "@test/helpers/session-store-fixtures.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 /** A local debounce: the round is under test, not the shipped interval. */
 const TEST_DEBOUNCE_MS = 120;
@@ -28,7 +28,7 @@ function schedulerRecordingRounds(clock: ManualClock, rounds: ReadRound[]): Refr
 /** Advance past the debounce and let the fire's own microtasks settle. */
 async function runOneRead(clock: ManualClock): Promise<void> {
   clock.advance(TEST_DEBOUNCE_MS);
-  await settleMicrotasks();
+  await crossMacrotaskBoundary();
 }
 
 describe("RefreshScheduler — one read per burst, and one under a stream", () => {
@@ -52,7 +52,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
       clock.advance(100);
       scheduler.request("terminal-event");
     }
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     // One read, at the absolute deadline counted from the first request; a bare debounce would
     // have been pushed out ten times.
@@ -94,9 +94,9 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     expect(batches).toHaveLength(1);
 
     releaseInFlightRead?.();
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
     clock.advance(10);
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     // Exactly `gap-repull`: the re-arm invents no reason of its own.
     expect(batches[1]).toStrictEqual(["gap-repull"]);
@@ -117,7 +117,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
 
     scheduler.request("reconnect");
     clock.advance(10);
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(failures).toHaveLength(1);
     expect(failures[0]).toBeInstanceOf(Error);
@@ -143,7 +143,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     scheduler.request("window-focus");
     scheduler.dispose();
     releaseInFlightRead?.();
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     // After dispose, neither the in-flight read's `finally` nor a later request may arm a timer.
     expect(clock.pendingCount).toBe(0);
@@ -205,7 +205,7 @@ describe("RefreshScheduler — every read runs inside a round", () => {
     expect(inFlight?.isCurrent).toBe(false);
 
     releaseRead();
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
     expect(clock.pendingCount).toBe(0);
   });
 });

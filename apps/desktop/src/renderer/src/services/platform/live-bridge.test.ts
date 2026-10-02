@@ -1,16 +1,15 @@
 // The "did the preload run" probe over the installed bridge. A window whose preload did not run
-// must read as absent, so the provider shows a window to reopen rather than a console calling
+// must read as absent, so the provider shows a window to reopen rather than an app calling
 // methods on a namespace that is not there.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createStubBridge } from "@shared/preload-api.js";
-import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 import { FIXTURE_APP_META } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 
 /**
- * Installs a bridge the way the preload does and returns the live `PlatformBridge` the console
+ * Installs a bridge the way the preload does and returns the live `PlatformBridge` the window
  * would resolve. It goes through `readInstalledBridge` so the "did the preload run" probe is on
  * the path this test drives.
  */
@@ -32,11 +31,9 @@ describe("readInstalledBridge — the preload probe", () => {
     expect(resolveLiveBridgeFrom({ daemon: {} })).toBeUndefined();
 
     // A hand-written `typeof === "object"` probe admits an array, so a namespace that arrived as
-    // one passed and the console called methods on it. `isWireRecord` rejects it.
+    // one passed and the app called methods on it. `isWireRecord` rejects it.
     const installed = createStubBridge(FIXTURE_APP_META);
-    const [firstNamespace] = DESKTOP_BRIDGE_NAMESPACES;
-    expect(firstNamespace).toBeDefined();
-    const arrayValued = { ...installed, [firstNamespace ?? "daemon"]: [] };
+    const arrayValued = { ...installed, daemon: [] };
 
     expect(resolveLiveBridgeFrom(arrayValued)).toBeUndefined();
     // The same object with that namespace intact is admitted, so the case above fails for the

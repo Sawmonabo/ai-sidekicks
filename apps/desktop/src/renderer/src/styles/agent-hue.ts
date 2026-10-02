@@ -35,8 +35,7 @@ export class AgentHueAllocator {
 
   /**
    * Admit an identity in log order and return its assignment. Idempotent, so a re-join keeps its
-   * color. The store keys the wheel on each event's `actorId`, which is a user id, an agent id or
-   * nobody with no discriminator between the first two.
+   * color. The store keys the wheel on each event's `actorId`.
    */
   public admit(agentId: string): AgentHueAssignment {
     const existing = this.#assignmentsByAgentId.get(agentId);
@@ -67,16 +66,6 @@ export class AgentHueAllocator {
    */
   public assignmentFor(agentId: string): AgentHueAssignment | undefined {
     return this.#assignmentsByAgentId.get(agentId);
-  }
-
-  /** Every assignment, in log order. */
-  public assignments(): readonly AgentHueAssignment[] {
-    return [...this.#assignmentsByAgentId.values()];
-  }
-
-  /** How many identities the wheel has admitted. */
-  public get admittedCount(): number {
-    return this.#assignmentsByAgentId.size;
   }
 
   /**

@@ -101,13 +101,10 @@ export function classifyNavigation(
  * the target.
  */
 export async function openExternalUrl(targetUrl: string): Promise<void> {
+  // With no in-window origins the verdict is `external` or `refused`.
   const verdict = classifyNavigation(targetUrl, []);
-  if (verdict.kind !== "external") {
-    throw new Error(
-      `Refused to open an outside address: ${
-        verdict.kind === "refused" ? verdict.reason : "target is an in-window origin"
-      }.`,
-    );
+  if (verdict.kind === "refused") {
+    throw new Error(`Refused to open an outside address: ${verdict.reason}.`);
   }
   await new Promise<void>((resolve) => {
     setImmediate(resolve);
@@ -126,22 +123,28 @@ function openExternalFromWindow(targetUrl: string): void {
 }
 
 /**
+ * The dev server's address, on an unpackaged run that `electron-vite dev` started. The window
+ * loads it and navigation admits its origin, so both read this one answer. A malformed address
+ * throws, which stops the window at startup instead of loading a document no policy admits.
+ */
+export function devServerUrl(): URL | undefined {
+  const configuredUrl = process.env["ELECTRON_RENDERER_URL"];
+  if (app.isPackaged || configuredUrl === undefined || configuredUrl === "") {
+    return undefined;
+  }
+  return new URL(configuredUrl);
+}
+
+/**
  * The origins a window may navigate within, evaluated per navigation because the dev branch
  * reads the environment and a window outlives its construction. The renderer scheme is always
- * in the set; the dev-server origin joins only under the same condition that decides what
- * `./window.ts` loads, so the allowed set and the loaded document cannot disagree.
+ * in the set; the dev server's origin joins when `./window.ts` loads it.
  */
 export function inWindowOrigins(): readonly InWindowOrigin[] {
   const origins: InWindowOrigin[] = [{ protocol: `${RENDERER_SCHEME}:`, host: RENDERER_HOST }];
-  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (!app.isPackaged && devServerUrl !== undefined && devServerUrl !== "") {
-    try {
-      const parsedDevServerUrl = new URL(devServerUrl);
-      origins.push({ protocol: parsedDevServerUrl.protocol, host: parsedDevServerUrl.host });
-    } catch {
-      // A malformed dev-server URL is not loaded either; adding nothing keeps the allowed set
-      // narrower than the loaded one, never wider.
-    }
+  const devServer = devServerUrl();
+  if (devServer !== undefined) {
+    origins.push({ protocol: devServer.protocol, host: devServer.host });
   }
   return origins;
 }
@@ -164,7 +167,7 @@ function decideNavigation(event: Electron.Event, targetUrl: string, seam: string
     openExternalFromWindow(targetUrl);
     return;
   }
-  console.warn(`[ai-sidekicks/desktop] refused an in-window ${seam}: ${verdict.reason}`);
+  console.warn(`[ai-sidekicks/desktop] refused a ${seam}: ${verdict.reason}`);
 }
 
 /**

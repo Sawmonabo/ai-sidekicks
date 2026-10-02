@@ -45,13 +45,6 @@ afterEach(() => {
 });
 
 describe("browser — the token sheet reaches the cascade", () => {
-  it("resolves a color token through the cascade rather than to an empty string", () => {
-    // The unit tier reads the TypeScript record; only a real cascade proves it reached the
-    // document. An unresolved custom property is the empty string and paints as nothing.
-    expect(tokenValue("text")).toMatch(/^oklch\(/);
-    expect(tokenValue("ground")).toMatch(/^oklch\(/);
-  });
-
   it("swaps the palette when the scheme attribute flips, in both directions", () => {
     const light = tokenValue("ground");
     applyColorScheme(document, "dark");

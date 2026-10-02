@@ -14,7 +14,7 @@ import { describeViolations, runTierAxe } from "./axe-run.js";
 import "@renderer/features/agents/index.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { AgentBindingCard } from "@renderer/features/agents/pane/components/AgentBindingCard.js";
-import { agentEntry, resolvedConfiguration } from "@test/helpers/agent-list.js";
+import { agentEntry, resolvedConfiguration } from "../helpers/agent-list.js";
 
 /** An agent whose echo fills every row the card can draw, including the tail. */
 const AGENT_WITH_FULL_ECHO = agentEntry({

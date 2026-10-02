@@ -16,8 +16,10 @@
 // `((((` and `!!!!` recurse and are refused past the bound so a hostile clause cannot overflow
 // the stack inside a visibility check.
 
-import { WHEN_CLAUSE_MAX_DEPTH } from "@renderer/styles/palette.js";
 import type { WhenClauseNode } from "./when-clause.js";
+
+/** The deepest nesting a clause may reach; past it the clause is refused and evaluates false. */
+const WHEN_CLAUSE_MAX_DEPTH = 8;
 
 /** Why a clause did not parse. */
 export type WhenClauseParseErrorKind =

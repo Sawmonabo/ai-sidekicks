@@ -1,4 +1,4 @@
-// One reading of a wire instant for the whole console. An RFC 3339 instant has many spellings that
+// One reading of a wire instant for the whole app. An RFC 3339 instant has many spellings that
 // sort by neither text order nor `Date.parse`: `2026-01-01T10:00:00+02:00` is earlier than
 // `2026-01-01T09:00:00Z` yet sorts after it as text. `Date.parse` is no validator: it reads a
 // timezone-less time in the host's zone and normalizes a day that does not exist (`2026-02-30`).
@@ -26,7 +26,7 @@ const RFC_3339_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
 
 /**
- * Milliseconds in a second. The console does arithmetic only on epoch milliseconds, so every
+ * Milliseconds in a second. The app does arithmetic only on epoch milliseconds, so every
  * duration is a multiple of these factors; each is derived from the one before it so a wrong
  * factor is a wrong multiplier, not a mistyped magnitude.
  */
@@ -38,7 +38,7 @@ export const MILLISECONDS_PER_HOUR: number = 60 * MILLISECONDS_PER_MINUTE;
 /** Milliseconds in a day, ignoring daylight-saving shifts. */
 export const MILLISECONDS_PER_DAY: number = 24 * MILLISECONDS_PER_HOUR;
 
-/** A stamp this console could read. */
+/** A stamp this app could read. */
 export interface Instant {
   readonly kind: "instant";
   /** Epoch milliseconds. The only number any caller may do arithmetic on. */
@@ -48,7 +48,7 @@ export interface Instant {
 }
 
 /**
- * A stamp this console could not read.
+ * A stamp this app could not read.
  *
  * `epochMilliseconds` is declared `undefined` rather than omitted so it can be read off the
  * union as `number | undefined` without narrowing; a caller that must tell the arms apart
@@ -66,7 +66,7 @@ export type InstantReading = Instant | MalformedInstant;
 
 /**
  * Which of RFC 3339's spellings the caller's wire contract declares; the two contracts the
- * console reads declare different encodings.
+ * app reads declare different encodings.
  *
  *   - `"any-offset"`: `Z` or `z`, a signed `HH:MM` offset, and either case of `T`. The default.
  *   - `"utc-only"`: `Z` and `T`, exactly, so a producer's encoding change is reported instead of
@@ -85,7 +85,7 @@ export type InstantOrder = "oldest-first" | "newest-first";
  * not exist. A fraction wider than milliseconds is truncated, never rounded, so a reading is
  * never later than the wire's instant.
  *
- * The runtime `typeof` guard runs first because the input is wire data the console did not
+ * The runtime `typeof` guard runs first because the input is wire data the app did not
  * validate, and `RegExp.prototype.exec` throws on a null-prototype object, a symbol or a broken
  * `toString`. Such a value is malformed, and its `text` comes from {@link lossyStringify}.
  */

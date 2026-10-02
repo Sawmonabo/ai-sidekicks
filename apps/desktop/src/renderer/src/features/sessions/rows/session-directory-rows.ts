@@ -10,8 +10,8 @@
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
 import type { SessionListRow } from "./session-rows.js";
 
-/** The kind of nothing the destination renders when it has no row: two of the five kinds. */
-export type SessionListNothingKind = "not-loaded" | "empty";
+/** The kind of nothing the destination renders when it has no row: three of the five kinds. */
+export type SessionListNothingKind = "not-loaded" | "empty" | "error";
 
 /** What a caller hands in for the sessions only this window can describe. */
 export interface SessionRowSources {
@@ -32,6 +32,8 @@ export function sessionListNothingKindFor(
       return "not-loaded";
     case "served":
       return "empty";
+    case "failed":
+      return "error";
   }
 }
 

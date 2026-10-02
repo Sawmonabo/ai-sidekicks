@@ -1,4 +1,4 @@
-// The time-to-first-transcript-row budget, measured: 800 ms from window show, in fixture mode.
+// The time-to-first-transcript-row budget, measured from window show, in fixture mode.
 // This file is the row's `measuredBy`, and it compares through the registry's own
 // `evaluateBudget`, so the gate and the budget row share one number in one file.
 //
@@ -12,14 +12,13 @@
 // `performance`'s monotonic timeline, where the end of the interval is also read, so the whole
 // measurement is one clock in one process.
 //
-// The session route is opened, the frozen clock is walked over the concurrent-streaming script,
-// and the first painted transcript row ends the interval, all inside one page function so no
-// driver round trip sits between the steps. The one round trip inside the interval is the gap
-// between the launch handshake settling and this function starting; it is reported separately
-// rather than subtracted, and measured at 15-23 ms of a 45-50 ms reading on one machine. The
-// clock is walked because a fixture build's clock is frozen: the script's opening beats are what
-// a live daemon would deliver at launch, and a run that never advanced would time a session that
-// had not arrived.
+// The session route is opened, the frozen clock is walked over the concurrent-streaming script, and
+// the first painted transcript row ends the interval, all inside one page function so no driver
+// round trip sits between the steps. The one round trip inside the interval is the gap between the
+// launch handshake settling and this function starting; it is reported separately rather than
+// subtracted. The clock is walked because a fixture build's clock is frozen: the script's opening
+// beats are what a live daemon would deliver at launch, and a run that never advanced would time a
+// session that had not arrived.
 
 import process from "node:process";
 
@@ -36,8 +35,8 @@ import {
   concurrentStreamingDeliverySchedule,
 } from "./endurance-workload.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -49,23 +48,22 @@ const budget = registry.requireBudget(FIRST_TRANSCRIPT_ROW_BUDGET_ID);
 
 /**
  * How long the page function waits for each paint before giving up. Far above the budget: it
- * bounds a console that never mounted the transcript, not a slow one, and must be loose enough
+ * bounds an app that never mounted the transcript, not a slow one, and must be loose enough
  * that runner contention is not mistaken for it. Well under the tier's timeout so the failure
  * names the selector.
  */
 const PAINT_WAIT_BUDGET_MS = 30_000;
 
 /**
- * The stall the negative control plants, in milliseconds. It is over the 800 ms ceiling on its
- * own, so the verdict does not depend on machine speed. Measured 931 ms against a 45-50 ms clean
- * reading on an eight-core laptop.
+ * The stall the negative control plants, in milliseconds: over the row's ceiling on its own, so
+ * the verdict does not depend on machine speed.
  */
-const PLANTED_PAINT_STALL_MS = 900;
+const PLANTED_PAINT_STALL_MS: number = budget.limit.canonicalValue + 100;
 
 /**
  * Why a launch produced no reading, one arm per place the page function gives up. The first two
  * say the instrument was not ready (no start instant, or no scenario handle); the last two say
- * the console did not paint (a body that never mounted, or one with no transcript row), which is
+ * the app did not paint (a body that never mounted, or one with no transcript row), which is
  * the regression this row exists to catch. One collapsed sentence would read as a harness
  * failure the person retries rather than investigates.
  */
@@ -99,17 +97,17 @@ type FirstTranscriptRowOutcome = FirstTranscriptRowReading | UnmeasuredLaunch;
  * Open the concurrent-streaming session, deliver its script, and time the first painted row.
  *
  * Everything happens inside the renderer for one reason: a step issued from the
- * driver process costs a round trip, and a round trip inside an interval bounded at
- * 800 ms is the harness measuring itself. The stall is an argument rather than a
+ * driver process costs a round trip, and a round trip inside an interval this short is the
+ * harness measuring itself. The stall is an argument rather than a
  * second copy of this function, so the negative control drives the REAL instrument
  * rather than a re-implementation of it.
  */
 async function measureFirstTranscriptRow(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   plantedStallMilliseconds: number,
 ): Promise<FirstTranscriptRowOutcome> {
   const { stepMilliseconds, stepCount } = concurrentStreamingDeliverySchedule();
-  return consoleApplication.window.evaluate(
+  return appUnderTest.window.evaluate(
     async ([
       sessionRouteHash,
       paneSelector,
@@ -248,7 +246,7 @@ async function measureFirstTranscriptRow(
       stepMilliseconds,
       stepCount,
       plantedStallMilliseconds,
-      PAINT_WAIT_BUDGET_MS,
+      appUnderTest.bodyAllowance.boundedMs(PAINT_WAIT_BUDGET_MS),
     ] as [string, string, string, string, number, number, number, number],
   );
 }
@@ -260,34 +258,32 @@ function elapsedFromWindowShow(reading: FirstTranscriptRowReading): number {
 
 /**
  * What each unmeasured launch means and whose fault it is. The first two say the figure would
- * have been the harness's; the last two say the instrument worked and the console did not paint,
+ * have been the harness's; the last two say the instrument worked and the app did not paint,
  * which is the defect this row measures, not a reason to re-run. Keyed by cause, so a fifth arm
  * is a compile error.
  */
 const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
   "no-paint-entry":
-    `the launched console recorded no first-contentful-paint entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
+    `the launched app recorded no first-contentful-paint entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
     "so the interval has no start instant: nothing was timed, and reporting a figure would be " +
     "reporting the harness",
   "no-scenario-handle":
-    "the launched console exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
+    "the launched app exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
   "pane-never-painted":
-    `the console never painted the session screen's pane inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
-    "The instrument was ready and the console did not mount — this is a console failure, not a " +
+    `the app never painted the session screen's pane inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
+    "The instrument was ready and the app did not mount — this is an app failure, not a " +
     "harness that was not there yet, and re-running it will not change the answer",
   "row-never-painted":
-    `the console painted the session screen's pane but no transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
-    "A console that mounts no transcript row at all is the regression this budget row exists to catch — " +
-    "this is a console failure, not a harness that was not there yet",
+    `the app painted the session screen's pane but no transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
+    "An app that mounts no transcript row at all is the regression this budget row exists to catch — " +
+    "this is an app failure, not a harness that was not there yet",
 };
 
 /** The reading, or a failure naming which of the four things did not happen. */
 function requireReading(outcome: FirstTranscriptRowOutcome): FirstTranscriptRowReading {
   if ("unmeasured" in outcome) {
-    // The arm is the asserted value, so the diff line names it and the message explains it.
-    expect(outcome.unmeasured, UNMEASURED_LAUNCH_SENTENCES[outcome.unmeasured]).toBeUndefined();
-    throw new Error("unreachable: the assertion above fails first");
+    throw new Error(`${outcome.unmeasured}: ${UNMEASURED_LAUNCH_SENTENCES[outcome.unmeasured]}`);
   }
   return outcome;
 }
@@ -307,8 +303,8 @@ function reportReading(label: string, reading: FirstTranscriptRowReading): void 
 
 describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after launch", () => {
   it("paints the first transcript row inside the budget's ceiling", async () => {
-    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-      const reading = requireReading(await measureFirstTranscriptRow(consoleApplication, 0));
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
+      const reading = requireReading(await measureFirstTranscriptRow(appUnderTest, 0));
 
       // The run delivered a session rather than timing an empty one: the whole script is in and
       // it reached the screen.
@@ -332,16 +328,16 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after la
     // whose two instants came from the same frame. The stall is a real synchronous hold on the
     // renderer's main thread driven through the same measurement function, so this gate's own
     // comparison is shown to fail on a slow boot.
-    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
       const reading = requireReading(
-        await measureFirstTranscriptRow(consoleApplication, PLANTED_PAINT_STALL_MS),
+        await measureFirstTranscriptRow(appUnderTest, PLANTED_PAINT_STALL_MS),
       );
       reportReading("planted stall", reading);
 
       expect(elapsedFromWindowShow(reading)).toBeGreaterThan(PLANTED_PAINT_STALL_MS);
       expect(
         evaluateBudget(budget, elapsedFromWindowShow(reading)).withinBudget,
-        "a console that took nearly a second to paint its first row passed the budget, so this gate " +
+        "an app that took longer than the ceiling to paint its first row passed the budget, so this gate " +
           "would report green over the one failure it exists to catch",
       ).toBe(false);
     });

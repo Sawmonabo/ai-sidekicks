@@ -35,6 +35,7 @@
 // never carry it; the body is stored in `content_payload`.
 
 import {
+  composeScenarioInstant,
   composeScriptBeats,
   type ScriptEntry,
   createRunEntryBuilders,
@@ -44,7 +45,6 @@ import {
   type ScenarioAgent,
   composeOpeningEntry,
   composeResolvedAgent,
-  composeScenarioInstant,
   findScenarioMember,
 } from "../data/opening-entries.js";
 
@@ -512,7 +512,6 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   purpose:
     "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
-  thisDeviceId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({
     sessionId: SESSION_ID,

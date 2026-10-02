@@ -4,7 +4,7 @@
 // folder so `command-registry.ts`, `command-ranking.ts` and `keybinding-conflicts.ts` do not
 // form an import cycle (type-only cycles count in the layering check).
 
-/** One act the console offers. */
+/** One act the app offers. */
 export interface CommandDefinition {
   /** Stable, unique, namespaced by owning feature — `session.rename`, not `rename`. */
   readonly id: string;

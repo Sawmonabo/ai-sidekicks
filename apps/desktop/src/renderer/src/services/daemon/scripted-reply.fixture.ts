@@ -117,8 +117,7 @@ export async function resolveScriptedReply(
  * Reads the same `daemon-reply-registry.ts` table `daemon-reply.ts` parses live replies against,
  * so an impossible reply fails in the scenario's own tests and two tables cannot disagree. It
  * asserts and does not substitute: the original value travels on, so a scenario cannot lean on a
- * coercion or default a live daemon lacks. A method the registry does not bind passes through,
- * which includes control-plane procedures.
+ * coercion or default a live daemon lacks. A method the registry does not bind passes through.
  */
 export function assertScriptedReplyOnContract(method: string, value: unknown): unknown {
   const binding = daemonMethodBindingFor(method);

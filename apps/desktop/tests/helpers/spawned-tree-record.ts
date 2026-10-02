@@ -11,32 +11,11 @@
 // reserves exactly that many listings.
 
 import { SpawnedTreeIdentity } from "./process-tree/identity.js";
-import { type CapturedTreeMember } from "./process-tree/start-stamps.js";
-
-/**
- * How a tree's root identity is captured, as an injectable act. The capture must happen at the
- * spawn, so a test reads the moment; it also lets a test drive a failed `ps` read.
- */
-export type SpawnedTreeIdentityCapture = (processId: number) => SpawnedTreeIdentity;
-
-/** The real capture, which every production spawn takes. */
-const captureRealTreeIdentity: SpawnedTreeIdentityCapture = (processId) =>
-  new SpawnedTreeIdentity(processId);
 
 /** What one spawned tree's owner has written down about it, and when. */
 export class SpawnedTreeRecord {
-  readonly #captureRootIdentity: SpawnedTreeIdentityCapture;
   #identity: SpawnedTreeIdentity | undefined;
   #descendantsCaptured = false;
-
-  constructor(captureRootIdentity: SpawnedTreeIdentityCapture = captureRealTreeIdentity) {
-    this.#captureRootIdentity = captureRootIdentity;
-  }
-
-  /** The members recorded while the root was still alive, each with its stamp. */
-  get members(): readonly CapturedTreeMember[] {
-    return this.#identity?.capturedDescendants ?? [];
-  }
 
   /**
    * Takes this tree's root identity now. Idempotent, so a later call cannot replace a capture made
@@ -46,7 +25,7 @@ export class SpawnedTreeRecord {
     if (processId === undefined || this.#identity !== undefined) {
       return;
     }
-    this.#identity = this.#captureRootIdentity(processId);
+    this.#identity = new SpawnedTreeIdentity(processId);
   }
 
   /**
@@ -68,7 +47,7 @@ export class SpawnedTreeRecord {
 
   /**
    * The identity a signal is re-verified against. A tree whose root was never captured (the
-   * settle-time registrar refused) gets the unverified reading.
+   * test refused the teardown registration, or the capture threw) gets the unverified reading.
    */
   identityFor(processId: number): SpawnedTreeIdentity {
     return this.#identity ?? SpawnedTreeIdentity.unverified(processId);

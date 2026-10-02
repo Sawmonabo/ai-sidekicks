@@ -12,8 +12,8 @@
 // content height is zero, `calculateRange` returns `null` for `outerSize === 0`, and nothing
 // ever mounts to grow it back.
 //
-// These cases assert the sheet, not a composition: the two class names under the real
-// stylesheet in the two child arrangements that ship (one in-flow child and two).
+// This asserts the sheet, not a composition: the two class names under the real stylesheet, with
+// the scroll container as the only in-flow child.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,15 +26,11 @@ import "@renderer/features/transcript/viewport/components/transcript-viewport.cs
 /** The box the viewport is given. Every assertion below is against this number. */
 const VIEWPORT_BOX_HEIGHT_PX = 600;
 
-/** What an error region occupies when it renders, so the two-child case can subtract it. */
-const ERROR_REGION_HEIGHT_PX = 40;
-
-async function mountViewportScrollContainer(withErrorRegion: boolean): Promise<HTMLElement> {
+async function mountViewportScrollContainer(): Promise<HTMLElement> {
   installMeridianTokens(document);
   const { container } = await renderSettled(
     <div style={{ display: "grid", height: `${String(VIEWPORT_BOX_HEIGHT_PX)}px` }}>
       <div className="meridian-transcript-viewport">
-        {withErrorRegion ? <div style={{ height: `${String(ERROR_REGION_HEIGHT_PX)}px` }} /> : null}
         <div className="meridian-transcript-viewport__scroll-container" />
       </div>
     </div>,
@@ -50,7 +46,7 @@ async function mountViewportScrollContainer(withErrorRegion: boolean): Promise<H
 
 describe("browser — the transcript's scroll container takes the viewport's height", () => {
   it("fills the box when it is the only child in flow, which is the ordinary case", async () => {
-    const scrollContainer = await mountViewportScrollContainer(false);
+    const scrollContainer = await mountViewportScrollContainer();
 
     expect(
       scrollContainer.getBoundingClientRect().height,

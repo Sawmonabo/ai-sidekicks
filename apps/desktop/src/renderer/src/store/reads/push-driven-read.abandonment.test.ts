@@ -1,15 +1,12 @@
-// Tier: endurance.
-//
-// A pane closed while its read is on the wire pays for nothing after it closes, and a console
+// A pane closed while its read is on the wire pays for nothing after it closes, and an app
 // that opens and closes panes all day accumulates nothing. Both claims are about sustained
 // churn: one abandoned read costs too little for a unit case to tell, so this drives open,
 // read, close mid-read, several hundred times.
 //
-// It runs in the Node project and opens no Electron window. The subject is
-// `store/reads/push-driven-read.ts` over `lib/reads/refresh-scheduler.ts`,
-// `lib/reads/read-scope.ts` and `callDaemon`, none of which touches the DOM, so the claims are
-// checkable in milliseconds on any runner, as in `diff-row-index.test.ts` beside it. That a
-// closed pane is gone from the tree belongs to the browser tiers.
+// The subject is `push-driven-read.ts` over `lib/reads/refresh-scheduler.ts`,
+// `lib/reads/read-scope.ts` and `callDaemon`, none of which opens a window, so the claims are
+// checkable in milliseconds on any runner. That a closed pane is gone from the tree belongs to
+// the browser tiers.
 //
 // The real mechanism is driven top to bottom: a `PushDrivenRead` over a `RefreshScheduler` on a
 // `ManualClock`, whose read body calls the real `callDaemon` against the fixture bridge with the
@@ -32,10 +29,10 @@ import { describe, expect, it } from "vitest";
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { bridgeAnswering } from "../helpers/fixture-bridge.js";
+import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 
 /**
@@ -66,7 +63,6 @@ interface ChurnTally {
 
 /** A call held open, and the release that answers it. */
 interface HeldCall {
-  readonly answered: Promise<unknown>;
   readonly release: (body: unknown) => void;
 }
 
@@ -82,7 +78,7 @@ function openChurnSubject(
 ): {
   readonly model: PushDrivenRead<number>;
   readonly held: Promise<HeldCall>;
-  readonly releaseSubscription: () => void;
+  readonly expectNoSubscriptionHeld: () => void;
 } {
   let handOverCall: (call: HeldCall) => void = () => undefined;
   const held = new Promise<HeldCall>((resolve) => {
@@ -92,7 +88,6 @@ function openChurnSubject(
     async () =>
       await new Promise<unknown>((answer) => {
         handOverCall({
-          answered: Promise.resolve(),
           release: (body: unknown) => {
             answer(body);
           },
@@ -127,7 +122,7 @@ function openChurnSubject(
   return {
     model,
     held,
-    releaseSubscription: () => {
+    expectNoSubscriptionHeld: () => {
       expect(subscriptionsHeld).toBe(0);
     },
   };
@@ -159,7 +154,7 @@ async function runOneCycle(
   }
 
   await crossMacrotaskBoundary();
-  subject.releaseSubscription();
+  subject.expectNoSubscriptionHeld();
 }
 
 /** A tally that has counted nothing yet. */
@@ -168,7 +163,7 @@ function emptyTally(): ChurnTally {
 }
 
 describe("read abandonment under churn — a closed pane pays for nothing", () => {
-  it("projects nothing across hundreds of close-mid-read cycles", async () => {
+  it("projects nothing and leaves nothing armed across hundreds of close-mid-read cycles", async () => {
     const clock = new ManualClock(0);
     const tally = emptyTally();
 
@@ -184,18 +179,8 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
     // No model reached a rendering state, `failed` included: an abandoned read has no failure
     // to report and no view left to report it to.
     expect(tally.settlements).toBe(0);
-  });
-
-  it("leaves no timer armed and no subscription held", async () => {
-    const clock = new ManualClock(0);
-    const tally = emptyTally();
-
-    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-      await runOneCycle(clock, tally, true);
-    }
-
-    // `releaseSubscription` asserted the subscription count per cycle; this is the other
-    // accumulation, an armed re-read behind a model nothing holds.
+    // Each cycle checked that no subscription is held; no re-read is armed behind a model nothing
+    // holds either.
     expect(clock.pendingCount).toBe(0);
   });
 

@@ -63,7 +63,7 @@ export function createFixture(
  * {@link subscribeToSessionStream}), and the two narrowed run streams deliver the registered
  * projection.
  */
-export function subscribeThroughBridge<Delivered = EventEnvelope>(
+function subscribeThroughBridge<Delivered = EventEnvelope>(
   fixture: FixtureUnderTest,
   eventName: string,
 ): readonly Delivered[] {
@@ -104,21 +104,15 @@ export function subscribeToSessionStream(fixture: FixtureUnderTest): SessionStre
 }
 
 /**
- * Reach one bridge's call function, whichever bridge that is; the casts live here once. The
- * suites using it test the fixture's reply seam, which answers by method name, so a request that
- * does not match the method's contract, or none at all, is part of what they send.
+ * Call a method on the fixture's bridge with no params. The suites using it test the fixture's
+ * reply seam, which answers by method name, so a request that does not match the method's
+ * contract is part of what they send; the casts live here once.
  */
-export function callBridge(
-  bridge: PlatformBridge,
-  method: string,
-  params?: unknown,
-): Promise<unknown> {
-  return bridge.daemon.call(method as DaemonMethod, params as DaemonParams<DaemonMethod>);
-}
-
-/** Call a method on the fixture's bridge with no params. */
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
-  return callBridge(fixture.bridge, method);
+  return fixture.bridge.daemon.call(
+    method as DaemonMethod,
+    undefined as unknown as DaemonParams<DaemonMethod>,
+  );
 }
 
 /**

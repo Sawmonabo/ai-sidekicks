@@ -190,12 +190,7 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
       {renderFact(
         "State",
         connection.kind === "unreported" ? (
-          <Nothing
-            kind="not-checked"
-            placement="inline"
-            title={UNREPORTED_DAEMON_NOTICE.title}
-            detail={UNREPORTED_DAEMON_NOTICE.detail}
-          />
+          <Nothing kind="not-checked" placement="inline" title={UNREPORTED_DAEMON_NOTICE.title} />
         ) : (
           <span>{describeDaemonConnection(connection)}</span>
         ),
@@ -255,7 +250,7 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
           />
         ) : (
           <span>
-            <WireFigure value={negotiation.consoleProtocolVersion} /> here,{" "}
+            <WireFigure value={negotiation.appProtocolVersion} /> here,{" "}
             <WireFigure value={negotiation.daemonProtocolVersion} /> there
           </span>
         ),

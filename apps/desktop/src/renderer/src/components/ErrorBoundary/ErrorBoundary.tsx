@@ -10,10 +10,10 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 
 /** What a boundary wraps, what to call it when it fails, and an optional fallback. */
 export interface ErrorBoundaryProps {
-  /** What failed, in the person's words: "the transcript", "the inspector". */
+  /** What failed, in the person's words: "The transcript", "The inspector". */
   readonly regionName: string;
   readonly children: ReactNode;
-  /** Rendered instead of the default card, when a region wants its own. */
+  /** Rendered instead of the default line, when a region wants its own. */
   readonly fallback?: (error: Error, retry: () => void) => ReactNode;
 }
 
@@ -55,7 +55,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.props.fallback !== undefined) {
       return this.props.fallback(error, retry);
     }
-    return <RenderFailureCard regionName={this.props.regionName} error={error} onRetry={retry} />;
+    return <RenderFailureCard regionName={this.props.regionName} onRetry={retry} />;
   }
 }
 

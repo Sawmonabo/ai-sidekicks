@@ -14,10 +14,10 @@ export const RENDERER_SCHEME = "sidekicks-renderer";
 export const RENDERER_HOST = "app";
 
 /** Origin of the served bundle — the persistence partition key for IndexedDB. */
-export const RENDERER_ORIGIN = "sidekicks-renderer://app";
+export const RENDERER_ORIGIN: string = `${RENDERER_SCHEME}://${RENDERER_HOST}`;
 
 /** The one navigable document; every route is this URL plus a hash fragment. */
-export const RENDERER_INDEX_URL = "sidekicks-renderer://app/index.html";
+export const RENDERER_INDEX_URL: string = `${RENDERER_ORIGIN}/index.html`;
 
 // A response header is the policy's only carrier; the shipped `index.html` has no meta tag.
 // `connect-src` is `'self'` alone, stricter than the baseline's text, which also admits a

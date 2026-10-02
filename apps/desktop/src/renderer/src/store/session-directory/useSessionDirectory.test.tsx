@@ -1,4 +1,4 @@
-// The directory read holds one answer and asks again when the node's list moves. The call is a
+// The directory read holds one answer and asks again when the service's list moves. The call is a
 // plain function the test hands the hook, so the hook's own logic is measured.
 
 import { act, cleanup, render } from "@testing-library/react";

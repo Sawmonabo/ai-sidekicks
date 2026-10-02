@@ -1,4 +1,4 @@
-// One rejection normalizer for the whole console. A rejected bridge promise can be anything (an
+// One rejection normalizer for the whole app. A rejected bridge promise can be anything (an
 // `Error`, a wire envelope as a plain object, an SDK error carrying a code, a `Refusal`, a string,
 // `undefined`, a null-prototype object), and every caller answers it through this module.
 //
@@ -25,7 +25,6 @@ import {
 
 import {
   readRefusalExtensions,
-  wireFailedBindingsExtension,
   wireRetryExtension,
   withRefusalExtensions,
   type RefusalExtensions,
@@ -45,13 +44,13 @@ export interface RejectionFallback {
 }
 
 /**
- * A rejection as the one shape the console renders: a `Refusal` widened only by the registered
+ * A rejection as the one shape the app renders: a `Refusal` widened only by the registered
  * extension members (`refusal-extensions.ts`), so any renderer that takes a refusal takes it.
  */
 export type WireRefusal = ExtendedRefusal;
 
 /**
- * Normalizes any rejection into the console's one refusal shape. Total: it answers a refusal for
+ * Normalizes any rejection into the app's one refusal shape. Total: it answers a refusal for
  * every input and never throws. `origin` is the calling subsystem and builds the synthesized
  * `<origin>-call-failed` code, so even an unreadable rejection names its seam.
  *
@@ -63,15 +62,9 @@ export function normalizeWireRejection(
   rejection: unknown,
   fallback?: RejectionFallback,
 ): WireRefusal {
-  try {
-    const classified = classifyRejection(origin, rejection, fallback);
-    if (classified !== undefined) {
-      return classified;
-    }
-  } catch {
-    // Backstop: the arms are already total through the guarded readers. A value whose access
-    // throws carries no readable code, so the terminal arm answers. Not reported: this is the
-    // report path.
+  const classified = classifyRejection(origin, rejection, fallback);
+  if (classified !== undefined) {
+    return classified;
   }
   // Read guardedly: a subclass may define an accessor over `message`, and this arm is reached
   // when the value has already misbehaved.
@@ -135,7 +128,7 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
 
 /**
  * The typed arms, most specific first, since each carries a code the later ones would discard.
- * May throw; {@link normalizeWireRejection} owns totality.
+ * Total: every member is read through the guarded readers, so a throwing access reads as absent.
  *
  *   1. A value that already is a `Refusal` keeps its author, code and extensions.
  *   2. A value carrying a refusal (`RefusalError` or any error built around one) is unwrapped.
@@ -166,20 +159,18 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
-    // One read of `fields`, so a getter answering differently the second time cannot mix two
-    // envelopes. The readers are merged: an envelope may carry a retry bound, failed bindings,
-    // both, or neither.
-    const fields = readGuardedProperty(data, "fields");
-    return withRefusalExtensions(refuse(origin, dottedCode, envelopeDetail(message, fallback)), {
-      ...wireRetryExtension(fields),
-      ...wireFailedBindingsExtension(fields),
-    });
+    // The retry bound rides on `data.fields` in this envelope.
+    return withRefusalExtensions(
+      refuse(origin, dottedCode, envelopeDetail(message, fallback)),
+      wireRetryExtension(readGuardedProperty(data, "fields")),
+    );
   }
   // The flat envelope, from the readings already taken. It carries its retry bound at the root.
   if (typeof members.code === "string") {
-    return withRefusalExtensions(refuse(origin, members.code, envelopeDetail(message, fallback)), {
-      ...wireRetryExtension(rejection),
-    });
+    return withRefusalExtensions(
+      refuse(origin, members.code, envelopeDetail(message, fallback)),
+      wireRetryExtension(rejection),
+    );
   }
   if (fallback !== undefined) {
     return refuse(origin, fallback.code, fallback.detail);

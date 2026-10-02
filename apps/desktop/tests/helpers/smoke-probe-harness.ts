@@ -3,15 +3,12 @@
 // `smoke-probe-diagnosis.ts` explains a missing one. `src/main/probes/smoke-probe.ts` emits the
 // lines.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./fixture-bundle.js";
+import { createLaunchProfile } from "./launch-profile.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
 import {
@@ -23,35 +20,21 @@ import {
 import {
   DIAGNOSTIC_BUDGET_MS,
   DIAGNOSTIC_COLLECTION_CEILING_MS,
-  ReadinessLineScanner,
   captureDiagnostics,
 } from "./smoke-probe-diagnosis.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-/** Package root (`apps/desktop/`); the sibling GC harness spawns with it as `cwd` too. */
-export const PACKAGE_ROOT: string = path.resolve(__dirname, "../..");
-
-/** The `electron-vite build` main entry the spawn loads. */
-export const MAIN_ENTRY: string = path.join(PACKAGE_ROOT, "out/main/index.js");
-
-/** The `electron-vite build` preload entry. */
-export const PRELOAD_ENTRY: string = path.join(PACKAGE_ROOT, "out/preload/index.cjs");
-
-/** Absolute path to the `electron` launcher shim, so the spawn does not depend on `$PATH`. */
-export const ELECTRON_BIN: string = path.join(PACKAGE_ROOT, "node_modules/.bin/electron");
+import { TaggedJsonReadingScanner, TaggedLineScanner } from "./tagged-line-scanner.js";
 
 /** The in-app window budget (5 s); the spawn deadline below is only a backstop around it. */
 export const WINDOW_BUDGET_MS = 5_000;
 
 /**
- * Spawn-side backstop that kills a stuck Electron rather than hanging the suite. The
- * `WINDOW_BUDGET_MS` assertion stays the load-bearing timing check.
+ * Spawn-side backstop that kills a stuck Electron rather than hanging the suite, for the smoke and
+ * GC probes alike. The `WINDOW_BUDGET_MS` assertion stays the load-bearing timing check.
  *
  * Measured boot-and-probe times: 462-510 ms on an unloaded macOS M1 Pro, and 4129 / 6732 /
  * 13008 ms on three runs on a 4-vCPU hosted Linux runner. The local figure does not transfer, so
- * the ceiling is 30 s (about 2.3x the worst hosted run) and is not tightened on three samples.
+ * the ceiling is 30 s (about 2.3x the worst hosted run). The GC probe's 20 cycles of about 150 ms
+ * fit inside the same margin.
  */
 export const SPAWN_TIMEOUT_MS = 30_000;
 
@@ -92,6 +75,8 @@ interface SmokeProbe {
 /** What a spawn produced: the parsed probe, the captured streams, and the timing readings. */
 export interface SpawnResult {
   readonly probe: SmokeProbe | null;
+  /** Tagged lines that did not parse, each with the parser's reason. */
+  readonly malformedProbeLines: readonly string[];
   readonly stdout: string;
   readonly stderr: string;
   // stdout and stderr in arrival order. `xvfb-run` merges the child's stderr into stdout, so
@@ -129,7 +114,9 @@ const LINUX_HEADLESS_CHROMIUM_SWITCHES: readonly string[] = [
 
 /**
  * Spawns Electron on a private profile and resolves with everything it produced. It never
- * rejects: a refused or failed spawn resolves with a null probe and the reason in the output.
+ * rejects: a refused or failed spawn resolves with a null probe and the reason in the output. The
+ * profile comes off disk after the child is gone, at the end of the test; a removal that fails
+ * fails the test.
  */
 export function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
@@ -139,21 +126,6 @@ export function spawnElectron(): Promise<SpawnResult> {
   // Resolved once so the display the harness gated on is the one the child receives.
   const childDisplay = resolvedDisplay();
 
-  // A private profile makes Electron's `SingletonLock` per-spawn. On the default profile a second
-  // Electron on the machine holds the lock, and the loser quits before any window exists and exits
-  // 0 with no output, which looks like a failed boot.
-  const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-smoke-test-"));
-
-  // The one remover of this spawn's profile, shared by the refusal, settlement and settle-time
-  // paths; `force` makes it idempotent. A leftover temporary profile must not replace the result.
-  const removeProfileDirectory = (): void => {
-    try {
-      rmSync(userDataDir, { recursive: true, force: true });
-    } catch {
-      // A leftover temporary directory must not replace the run's result.
-    }
-  };
-
   // Refuse before spawning when the named display is not serving, instead of discovering it as a
   // spawn-deadline silence.
   const display = resolvedDisplay();
@@ -162,6 +134,7 @@ export function spawnElectron(): Promise<SpawnResult> {
     if (displayFailure !== null) {
       const refusal: SpawnResult = {
         probe: null,
+        malformedProbeLines: [],
         stdout: "",
         stderr: displayFailure,
         combinedOutput: displayFailure,
@@ -175,26 +148,29 @@ export function spawnElectron(): Promise<SpawnResult> {
         diagnosticCollectionMs: null,
         childDisplay,
       };
-      removeProfileDirectory();
       return Promise.resolve(refusal);
     }
   }
+
+  // A private profile makes Electron's `SingletonLock` per-spawn. On the default profile a second
+  // Electron on the machine holds the lock, and the loser quits before any window exists and exits
+  // 0 with no output, which looks like a failed boot.
+  const profile = createLaunchProfile("sidekicks-smoke-test-");
 
   // `xvfb-run -a` picks an unused display number; it is the local fallback when no display is
   // set. Chromium switches must precede the entry script so Electron routes them to the browser
   // process.
   const electronArgs = [
     ...(process.platform === "linux" ? LINUX_HEADLESS_CHROMIUM_SWITCHES : []),
-    `--user-data-dir=${userDataDir}`,
-    MAIN_ENTRY,
+    `--user-data-dir=${profile.directory}`,
+    MAIN_ENTRY_PATH,
   ];
   const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
   const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
   return new Promise<SpawnResult>((resolve) => {
     // The shared owner binds the child's lifetime to this test, not to the timers below, so a
-    // pass, an assertion failure and vitest's own timeout all kill it. The same call binds the
-    // profile removal to the test.
+    // pass, an assertion failure and vitest's own timeout all kill it, then remove the profile.
     const managed = spawnChildCleanedUpAtSettleTime(
       {
         command: spawnCommand,
@@ -220,7 +196,7 @@ export function spawnElectron(): Promise<SpawnResult> {
             : {}),
         },
       },
-      removeProfileDirectory,
+      profile.remove,
     );
 
     // Every kill goes through `managed`, which owns the process group the detached spawn created.
@@ -229,12 +205,9 @@ export function spawnElectron(): Promise<SpawnResult> {
     let stdout = "";
     let stderr = "";
     let combinedOutput = "";
-    let probe: SmokeProbe | null = null;
+    const probeLines = new TaggedJsonReadingScanner<SmokeProbe>(SMOKE_PROBE_TAG);
     const readinessBreadcrumbs: string[] = [];
     const diagnostics: string[] = captureDiagnostics("at-spawn", child, null);
-    // Carries the unfinished trailing piece of stdout between chunks, so a probe line split
-    // across two chunks still matches.
-    let pending = "";
     let deadlineFired = false;
     let collectionMs: number | null = null;
 
@@ -263,22 +236,19 @@ export function spawnElectron(): Promise<SpawnResult> {
       managed.terminateWithEscalation(TERMINATION_GRACE_MS);
     }, spawnBudgetMs);
 
-    // Settles once: clears the deadline, releases the escalation timer and removes the profile.
-    // The settle-time registration above covers outcomes where no terminal event arrives.
+    // Settles once: clears the deadline and releases the escalation timer. The settle-time
+    // registration above covers outcomes where no terminal event arrives.
     const settle = (result: SpawnResult): void => {
       clearTimeout(spawnDeadline);
       // On the ordinary `close` path this signals nothing: the child is reaped and its pid, and
       // its group, belong to the operating system again.
       managed.dispose();
-      removeProfileDirectory();
       resolve(result);
     };
 
     // Breadcrumbs go to stderr, which the `xvfb-run` fallback merges into stdout, so scan both.
-    // One scanner per stream; see `ReadinessLineScanner`.
-    // shared.
-    const stdoutReadiness = new ReadinessLineScanner();
-    const stderrReadiness = new ReadinessLineScanner();
+    const stdoutReadiness = new TaggedLineScanner(READINESS_BREADCRUMB_TAG);
+    const stderrReadiness = new TaggedLineScanner(READINESS_BREADCRUMB_TAG);
 
     child.stdout.on("data", (chunk: Buffer) => {
       // Output is the evidence the tree is up; record its descendants now, because the root's own
@@ -288,22 +258,7 @@ export function spawnElectron(): Promise<SpawnResult> {
       stdout += text;
       combinedOutput += text;
       readinessBreadcrumbs.push(...stdoutReadiness.push(text));
-      // Split on newlines and carry the unterminated suffix to the next chunk.
-      pending += text;
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      // The tag is unique, so a substring match suffices; the payload after it is JSON.
-      for (const line of lines) {
-        const probeTagIndex = line.indexOf(SMOKE_PROBE_TAG);
-        if (probeTagIndex < 0) continue;
-        const payload = line.slice(probeTagIndex + SMOKE_PROBE_TAG.length).trim();
-        if (!payload.startsWith("{")) continue;
-        try {
-          probe = JSON.parse(payload) as SmokeProbe;
-        } catch {
-          // Tagged but malformed: keep scanning, so a partial chunk cannot mask a later valid line.
-        }
-      }
+      probeLines.push(text);
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
@@ -317,7 +272,8 @@ export function spawnElectron(): Promise<SpawnResult> {
     // a throw. Settle it so the null-probe path reports the reason instead of crashing vitest.
     child.on("error", (err: Error) => {
       settle({
-        probe: null,
+        probe: probeLines.reading,
+        malformedProbeLines: probeLines.malformedLines,
         stdout,
         stderr: stderr + `\n[spawn error] ${err.message}`,
         combinedOutput: combinedOutput + `\n[spawn error] ${err.message}`,
@@ -335,7 +291,8 @@ export function spawnElectron(): Promise<SpawnResult> {
 
     child.on("close", (exitCode, signal) => {
       settle({
-        probe,
+        probe: probeLines.reading,
+        malformedProbeLines: probeLines.malformedLines,
         stdout,
         stderr,
         combinedOutput,

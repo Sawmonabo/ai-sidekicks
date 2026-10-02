@@ -1,17 +1,19 @@
 // The reply chokepoint: a reply off the contract never reaches a caller, a request off the contract
 // never reaches the wire, a rejection becomes a refusal and never an exception, and a read whose
-// owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the real
-// registry and the shipped fixture bridge, so a hand-rolled parser cannot pass with the shipped one
-// deleted. The shared helpers are `tests/helpers/daemon-reply-refusal.ts` and `fixture-bridge.ts`.
+// owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the
+// real registry and the shipped fixture bridge, so a hand-rolled parser cannot pass with the
+// shipped one deleted. The helpers are `daemon-reply.test-support.ts` beside this file and the
+// shared `tests/helpers/fixture-bridge.ts`.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { vi } from "vitest";
 
+import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { isRefusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
 import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
-import { refusalOf } from "@test/helpers/daemon-reply-refusal.js";
+import { refusalOf } from "./daemon-reply.test-support.js";
 import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
 
 /** A device id the response schema accepts. */
@@ -37,6 +39,26 @@ function servedPresenceReply(state: string): unknown {
   };
 }
 
+/**
+ * What the window's diagnostic capture received while `act` ran, as JSONL text. Whatever was
+ * pending before is drained first so the reading holds only this act's records.
+ */
+async function diagnosticsDuring(act: () => Promise<unknown>): Promise<string> {
+  const lines: string[] = [];
+  const detach = windowDiagnosticCapture.installForwarder(() => undefined);
+  detach();
+  const detachCollector = windowDiagnosticCapture.installForwarder((jsonLines) => {
+    lines.push(jsonLines);
+  });
+  try {
+    await act();
+    windowDiagnosticCapture.flush();
+  } finally {
+    detachCollector();
+  }
+  return lines.join("\n");
+}
+
 describe("callDaemon — a served reply is a parsed reply", () => {
   it("serves the registered shape the daemon answered with", async () => {
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
@@ -57,22 +79,34 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
   it("refuses an entirely wrong reply under the console's own code and origin", async () => {
     const { bridge } = bridgeAnswering(async () => ({ rows: [] }));
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
+    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
+    const diagnostics = await diagnosticsDuring(async () => {
+      reply = await callDaemon(bridge, "presence.read", {});
+    });
+    const refusal = refusalOf(reply ?? { status: "served", value: undefined });
 
     expect(refusal.code).toBe("reply-unreadable");
     expect(refusal.origin).toBe(DAEMON_REPLY_REFUSAL_ORIGIN);
-    expect(refusal.detail).toContain("presence.read");
+    // The method is wire spelling: diagnostics carry it and the screen does not.
+    expect(refusal.detail).not.toContain("presence.read");
+    expect(diagnostics).toContain("presence.read");
     expect(isRefusal(refusal)).toBe(true);
   });
 
-  it("names the failing member path and never the refused value", async () => {
-    // `callDaemon` composes its own sentence because the validator's interpolates the
-    // rejected member, which can be a user's words, a path or a credential.
+  it("records the failing member path and never the refused value", async () => {
+    // The validator's own message interpolates the rejected member, which can be a user's
+    // words, a path or a credential, so only the path is kept, and only for diagnostics.
     const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT));
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
+    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
+    const diagnostics = await diagnosticsDuring(async () => {
+      reply = await callDaemon(bridge, "presence.read", {});
+    });
+    const refusal = refusalOf(reply ?? { status: "served", value: undefined });
 
-    expect(refusal.detail).toContain("devices.0.state");
+    expect(diagnostics).toContain("devices.0.state");
+    expect(refusal.detail).not.toContain("devices.0.state");
+    expect(diagnostics).not.toContain(OFF_CONTRACT);
     expect(refusal.detail).not.toContain(OFF_CONTRACT);
   });
 });
@@ -83,15 +117,18 @@ describe("callDaemon — a request the contract does not admit is never sent", (
 
     // The branded id is a compile-time marker over a string, so a caller can hand this seam a
     // value the wire would refuse; the parse stops it becoming a failing round trip.
-    const refusal = refusalOf(
-      await callDaemon(bridge, "session.read", {
+    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
+    const diagnostics = await diagnosticsDuring(async () => {
+      reply = await callDaemon(bridge, "session.read", {
         sessionId: "not-a-session-id" as SessionId,
-      }),
-    );
+      });
+    });
+    const refusal = refusalOf(reply ?? { status: "served", value: undefined });
 
     expect(refusal.code).toBe("request-unsendable");
     expect(refusal.origin).toBe(DAEMON_REPLY_REFUSAL_ORIGIN);
-    expect(refusal.detail).toContain("session.read");
+    expect(refusal.detail).not.toContain("session.read");
+    expect(diagnostics).toContain("session.read");
     expect(calls).toStrictEqual([]);
   });
 });
@@ -117,15 +154,20 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     expect(refusal.code).not.toBe("call-rejected");
   });
 
-  it("names a rejection that carries nothing machine-readable", async () => {
+  it("records a rejection that carries nothing machine-readable", async () => {
     const { bridge } = bridgeAnswering(async () => {
       throw new Error("the socket went away");
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
+    let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
+    const diagnostics = await diagnosticsDuring(async () => {
+      reply = await callDaemon(bridge, "presence.read", {});
+    });
+    const refusal = refusalOf(reply ?? { status: "served", value: undefined });
 
     expect(refusal.code).toBe("call-rejected");
-    expect(refusal.detail).toContain("presence.read");
+    expect(refusal.detail).not.toContain("presence.read");
+    expect(diagnostics).toContain("presence.read");
   });
 
   it("returns a refusal for a bridge that throws in the caller's own frame", async () => {

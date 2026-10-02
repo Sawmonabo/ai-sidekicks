@@ -17,9 +17,9 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**
- * This window's UI-state store, rebuilt on a new bridge and closed when the console unmounts.
+ * This window's UI-state store, rebuilt on a new bridge and closed when the app unmounts.
  *
- * One store and one open connection per mounted console per bridge. The bridge comes from
+ * One store and one open connection per mounted app per bridge. The bridge comes from
  * context so every caller gets the clock the rest of the frame runs on.
  */
 export function useUiStateStore(): UiStateStore {

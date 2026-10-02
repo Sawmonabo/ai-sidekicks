@@ -26,7 +26,6 @@
   text-overflow: ellipsis;
 }
 
-/* The slashed zero is an `@font-face` descriptor on the mono faces, not set here. */
 .meridian-chip--mono .meridian-chip__label {
   font-family: var(--meridian-font-mono);
   font-variant-numeric: tabular-nums;

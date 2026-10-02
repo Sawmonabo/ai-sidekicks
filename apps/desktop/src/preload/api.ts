@@ -1,5 +1,6 @@
-// The object the preload exposes: the stub bridge, with the members main answers carried
-// over IPC. A member main does not answer yet throws `NotImplementedError`.
+// The object the preload exposes: the stub bridge, with the members main answers carried over
+// IPC. The daemon's wire, the updater and the machine settings have no main handler yet, so
+// those members still throw `NotImplementedError`.
 
 import { ipcRenderer } from "electron";
 

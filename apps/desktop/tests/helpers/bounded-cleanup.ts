@@ -1,4 +1,4 @@
-// Closes a launched console within the cleanup ceiling and removes its private profile.
+// Closes a launched app within the cleanup ceiling and removes its private profile.
 //
 // The bound is the registered `launch-cleanup` ceiling on both the launch-failure path and
 // the success path. A bound drawn from what the launch deadline has left would be near zero on the
@@ -11,44 +11,20 @@
 // `cleanup-disposition.ts` decides what a caller is told.
 
 import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "./managed-electron-child.js";
-import {
-  type CleanupClock,
-  type CleanupOutcome,
-  type ClosableApplication,
-  type ProcessTerminator,
-} from "./cleanup-contract.js";
+import { type CleanupOutcome, type ClosableApplication } from "./cleanup-contract.js";
 import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
 import { type LaunchProfile, removeLaunchProfile } from "./launch-profile.js";
+import { processHasTerminated } from "./process-tree/liveness.js";
+import { terminateProcessTree } from "./process-tree/termination.js";
 
-/**
- * Closes an application within the cleanup budget, or kills it.
- *
- * The application, terminator and profile are constructor arguments so a test can drive a close
- * that never settles or a removal that fails. The budget and termination wait are arguments so a
- * test can exhaust them without waiting out the registered ceiling.
- */
+/** Closes an application within the registered cleanup ceiling, or kills its process tree. */
 export class BoundedCleanup {
   readonly #application: ClosableApplication;
-  readonly #terminator: ProcessTerminator;
   readonly #profile: LaunchProfile;
-  readonly #budgetMs: number;
-  readonly #terminationWaitMs: number;
-  readonly #readClock: CleanupClock;
 
-  constructor(
-    application: ClosableApplication,
-    terminator: ProcessTerminator,
-    profile: LaunchProfile,
-    budgetMs: number = CLEANUP_BUDGET_MS,
-    terminationWaitMs: number = TERMINATION_GRACE_MS,
-    readClock: CleanupClock = Date.now,
-  ) {
+  constructor(application: ClosableApplication, profile: LaunchProfile) {
     this.#application = application;
-    this.#terminator = terminator;
     this.#profile = profile;
-    this.#budgetMs = budgetMs;
-    this.#terminationWaitMs = terminationWaitMs;
-    this.#readClock = readClock;
   }
 
   /**
@@ -65,8 +41,8 @@ export class BoundedCleanup {
 
   /** Races the close against the bound and SIGKILLs the process tree if the bound wins. */
   async #closeOrTerminate(): Promise<CleanupOutcome> {
-    const startedAt = this.#readClock();
-    const budgetMs = this.#budgetMs;
+    const startedAt = Date.now();
+    const budgetMs = CLEANUP_BUDGET_MS;
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<"expired">((resolveExpiry) => {
       timeoutHandle = setTimeout(() => {
@@ -90,19 +66,16 @@ export class BoundedCleanup {
       clearTimeout(timeoutHandle);
     }
     if (raced === "closed") {
-      return { settlement: "closed", waitedMs: this.#readClock() - startedAt, budgetMs };
+      return { settlement: "closed", waitedMs: Date.now() - startedAt, budgetMs };
     }
     const processId = this.#application.processId();
     if (raced === "rejected") {
       // Nothing to kill when the handle or the process is gone, but the close still failed: the
       // rejection travels on the outcome. The probe is charged to what the close has left.
-      if (
-        processId === undefined ||
-        !this.#terminator.isRunning(processId, this.#budgetLeftSince(startedAt))
-      ) {
+      if (processId === undefined || !isRunning(processId, this.#budgetLeftSince(startedAt))) {
         return {
           settlement: "closed-after-rejection",
-          waitedMs: this.#readClock() - startedAt,
+          waitedMs: Date.now() - startedAt,
           budgetMs,
           closeRejection,
           processId,
@@ -110,7 +83,7 @@ export class BoundedCleanup {
       }
       return {
         settlement: (await this.#terminateUntilGone(processId)) ? "terminated" : "unterminable",
-        waitedMs: this.#readClock() - startedAt,
+        waitedMs: Date.now() - startedAt,
         budgetMs,
         closeRejection,
         processId,
@@ -121,7 +94,7 @@ export class BoundedCleanup {
     const terminated = processId !== undefined && (await this.#terminateUntilGone(processId));
     return {
       settlement: terminated ? "terminated" : "unterminable",
-      waitedMs: this.#readClock() - startedAt,
+      waitedMs: Date.now() - startedAt,
       budgetMs,
       processId,
     };
@@ -130,7 +103,7 @@ export class BoundedCleanup {
   /**
    * Signals the tree and asks again while the platform refuses, until it is gone or time is out.
    *
-   * A terminator that reports delivery ends the loop at once, so an ordinary cleanup is one call.
+   * A kill that reports delivery ends the loop at once, so an ordinary cleanup is one call.
    * After a refusal the tree itself is checked rather than the platform's exit status, since a
    * tree that is gone is gone whatever `taskkill` said. The close is idempotent, so a caller cannot
    * ask again by closing again; the retry belongs inside this pass, with `DISPOSAL_ATTEMPTS`
@@ -144,20 +117,20 @@ export class BoundedCleanup {
    * the profile removal in `close()`.
    */
   async #terminateUntilGone(processId: number): Promise<boolean> {
-    const terminationStartedAt = this.#readClock();
+    const terminationStartedAt = Date.now();
     for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
       const budgetBeforeAttempt = this.#budgetLeftSince(terminationStartedAt);
       if (budgetBeforeAttempt <= 0) {
         return false;
       }
-      if (this.#terminator.terminate(processId, budgetBeforeAttempt)) {
+      if (terminateProcessTree(processId, undefined, undefined, budgetBeforeAttempt)) {
         return true;
       }
       await this.#whenTerminationHasHadTime(terminationStartedAt);
       // The liveness read is not behind the budget guard: it decides the verdict, and skipping it
       // would report `unterminable` over a tree a refused-then-landed kill already took down. Its
       // budget is read afresh; at zero it spawns nothing and answers "still there".
-      if (!this.#terminator.isRunning(processId, this.#budgetLeftSince(terminationStartedAt))) {
+      if (!isRunning(processId, this.#budgetLeftSince(terminationStartedAt))) {
         return true;
       }
     }
@@ -171,7 +144,7 @@ export class BoundedCleanup {
    * from that loop's first attempt, because the close's own deadline is already spent there.
    */
   #budgetLeftSince(origin: number): number {
-    return Math.max(0, this.#budgetMs - (this.#readClock() - origin));
+    return Math.max(0, CLEANUP_BUDGET_MS - (Date.now() - origin));
   }
 
   /**
@@ -182,9 +155,18 @@ export class BoundedCleanup {
    * liveness recheck is a second reading and not the same one.
    */
   async #whenTerminationHasHadTime(terminationStartedAt: number): Promise<void> {
-    const waitMs = Math.min(this.#terminationWaitMs, this.#budgetLeftSince(terminationStartedAt));
+    const waitMs = Math.min(TERMINATION_GRACE_MS, this.#budgetLeftSince(terminationStartedAt));
     await new Promise<void>((resolve) => {
       setTimeout(resolve, waitMs);
     });
   }
+}
+
+/**
+ * Whether the process may still execute, asked without signaling it and charged to the caller's
+ * deadline. `processHasTerminated`, not `processExists`, because an exited, unreaped process holds
+ * its pid and will never run again, which is what a group SIGKILL leaves every grandchild as.
+ */
+function isRunning(processId: number, remainingBudgetMilliseconds: number): boolean {
+  return !processHasTerminated(processId, remainingBudgetMilliseconds);
 }

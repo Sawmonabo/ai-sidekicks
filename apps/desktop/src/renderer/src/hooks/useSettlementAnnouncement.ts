@@ -8,10 +8,9 @@
 // timestamp), or every push is a new sentence; each caller's test pins that with a negative
 // control.
 //
-// It lives in `hooks/` because several features and the layout read it and one feature never
-// imports another. It owns no latch: it composes over `useAnnounceOncePerSentence.ts`,
-// handing it `undefined` for an unsettled read (no claim), where the set arity hands an empty
-// array and so forgets what it said.
+// It owns no latch: it composes over `useAnnounceOncePerSentence.ts`, handing it `undefined` for
+// an unsettled read (no claim), where the set arity hands an empty array and so forgets what it
+// said.
 //
 // Unlike `layout/AppShell/hooks/useRefusalBannerAnnouncements.ts`, which diffs a list by id
 // and speaks assertively, this holds one string and speaks politely: a view finishing its own

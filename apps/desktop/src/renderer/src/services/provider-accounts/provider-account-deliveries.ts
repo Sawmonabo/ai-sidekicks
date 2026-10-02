@@ -1,5 +1,5 @@
-// What arrives on the account-plane tail and the order in which it reaches the fold. Nothing here
-// opens, reads, closes or publishes; it applies frames to the fold it is handed and says when
+// What arrives on the provider-account tail and the order in which it reaches the fold. Nothing
+// here opens, reads, closes or publishes; it applies frames to the fold it is handed and says when
 // something moved.
 //
 // A frame arriving across the opening read is held and replayed rather than overwritten by the
@@ -28,6 +28,11 @@ export type ProviderLoginCompletion = Extract<
   { kind: "login_completed" }
 >;
 
+import { RealClock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import {
   PROVIDER_QUOTA_REFUSAL_ORIGIN,
   unreadableProviderQuotaDeliveryRefusal,
@@ -52,8 +57,8 @@ export interface ProviderAccountDeliverySink {
 }
 
 /**
- * One account-plane tail: the frames it carries and the order they reach the fold in. The hold,
- * the unreadable ledger and the once-only high-water diagnostic move only on a delivery, so a
+ * One provider-account tail: the frames it carries and the order they reach the fold in. The hold,
+ * the unreadable count and the once-only high-water diagnostic move only on a delivery, so a
  * reading cannot apply a held frame twice. The fold is a constructor parameter because the reading
  * also loads the registry snapshot into it and composes its readout from it.
  *
@@ -78,8 +83,8 @@ export class ProviderAccountDeliveries {
   }
 
   /**
-   * The newest completion the tail has carried, or `undefined` before any. One, not a ledger: the
-   * node runs one brokered flow at a time and a set would grow for the tail's life with nothing
+   * The newest completion the tail has carried, or `undefined` before any. One, not a list: the
+   * daemon runs one brokered flow at a time and a set would grow for the tail's life with nothing
    * entitled to prune it.
    */
   public get newestLoginCompletion(): ProviderLoginCompletion | undefined {
@@ -131,9 +136,15 @@ export class ProviderAccountDeliveries {
       return;
     }
     this.#hasReportedHighWaterDrop = true;
-    console.warn(
-      `${PROVIDER_QUOTA_REFUSAL_ORIGIN}: dropped-below-high-water: account ${usageWindow.accountId} limit "${usageWindow.limitId}" reported ${String(usageWindow.usedPercent)}% used inside a window already observed higher; consumption does not fall inside one window, so the higher reading stands. Further such readings are dropped without another line.`,
-    );
+    // Consumption does not fall inside one window, so the higher reading stands; the drop is a
+    // wire fact for diagnostics, recorded once.
+    windowDiagnosticCapture.record({
+      at: diagnosticStampAt(new RealClock()),
+      severity: "warning",
+      source: PROVIDER_QUOTA_REFUSAL_ORIGIN,
+      kind: "dropped-below-high-water",
+      detail: `account ${usageWindow.accountId} limit "${usageWindow.limitId}" reported ${String(usageWindow.usedPercent)}% used inside a window already observed higher`,
+    });
   }
 
   /** Holds one notification across the opening read, or takes the overflow's way out. */
@@ -168,7 +179,7 @@ export class ProviderAccountDeliveries {
       case "login_completed":
         // The fold is untouched: a finished login flow is not a reading of the account, and the
         // daemon publishes `account_changed` next for that. It records that the attempt is over and
-        // publishes, so a card does not stay up over a flow the node reported finished.
+        // publishes, so a card does not stay up over a flow the service reported finished.
         this.#newestLoginCompletion = notification;
         return true;
     }

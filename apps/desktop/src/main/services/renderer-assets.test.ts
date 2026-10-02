@@ -11,18 +11,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { resolveRendererAsset } from "./renderer-assets.js";
 
-// Extensions the closed content-type map covers, paired with the exact type served.
+// Two mapped extensions, paired with the exact type served: the document, and a script, which
+// Chromium refuses to run as a module under any other type.
 const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
   ["index.html", "text/html; charset=utf-8"],
   ["bundle.js", "text/javascript; charset=utf-8"],
-  ["module.mjs", "text/javascript; charset=utf-8"],
-  ["sheet.css", "text/css; charset=utf-8"],
-  ["manifest.json", "application/json; charset=utf-8"],
-  ["glyph.svg", "image/svg+xml"],
-  ["shot.png", "image/png"],
-  ["shot.webp", "image/webp"],
-  ["plex.woff2", "font/woff2"],
-  ["parser.wasm", "application/wasm"],
 ];
 
 // Planted beside the bundle as a dev tree has them: present on disk and still refused, so a

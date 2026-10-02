@@ -25,7 +25,7 @@
     "allowImportingTsExtensions": true
   },
   "include": ["scripts/**/*"],
-  // The executables' tests import shared test helpers from `tests/helpers/`, outside `rootDir`;
-  // `tsconfig.test.json` typechecks them.
-  "exclude": ["dist", "out", "node_modules", "scripts/**/*.test.ts"]
+  // The executables' tests and their support import shared test helpers from `tests/helpers/`,
+  // outside `rootDir`; `tsconfig.test.json` typechecks them.
+  "exclude": ["dist", "out", "node_modules", "scripts/**/*.test.ts", "scripts/**/*.test-support.ts"]
 }

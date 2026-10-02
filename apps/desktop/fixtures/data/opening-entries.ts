@@ -11,7 +11,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { Scenario } from "../scenario.js";
-import { type ScriptEntry } from "./script-entries.js";
+import type { ScriptEntry } from "./script-entries.js";
 
 /**
  * One agent of a scenario's cast, stated once so `session.created` and any beat that names
@@ -57,11 +57,6 @@ export function findScenarioMember(cast: readonly ScenarioAgent[], agentId: stri
     throw new RangeError(`no cast member of this scenario is agent ${agentId}`);
   }
   return member;
-}
-
-/** The ISO instant `atMs` after the scenario's start. */
-export function composeScenarioInstant(startedAtMs: number, atMs: number): string {
-  return new Date(startedAtMs + atMs).toISOString();
 }
 
 /**

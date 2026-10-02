@@ -5,45 +5,24 @@
 // Across 20 cycles of explicit GC pressure, `v8.queryObjects(BrowserWindow)` must hold a stable
 // count and `window-all-closed` must not fire; once every window is closed the count must drop by
 // at least one per window (the delta separates the instance from a fixed non-instance match that
-// a count-only sample cannot tell apart). Electron's native `BaseWindow::self_ref_` (read against
-// 41.6.1) is the reachability anchor, not the module-scope `let mainWindow` in
-// `src/main/index.ts`; reverting that did not fail this test. So it guards against a future
-// Electron shifting `self_ref_` lifetime, or an unrelated bug that fires `window-all-closed`.
+// a count-only sample cannot tell apart). The reachability anchor is Electron's native
+// `BaseWindow::self_ref_` (read in the Electron 41.6.1 source), not the module-scope
+// `let mainWindow` in `src/main/index.ts`, so this guards against an Electron release changing that
+// lifetime, or an unrelated bug that fires `window-all-closed`.
 //
-// The probe, its gates, the spawn and the display handling are in `helpers/gc-probe-harness.ts`
+// The probe, its gates, the spawn and the display handling are in `lifecycle.gc.test-support.ts`
 // and `src/main/probes/gc-probe.ts`. Failure shapes: A, count drift or a missing per-window
 // delta; B, `allClosedFired`; C, no probe line (usually environmental: no `xvfb-run`, smoke
 // bundle unbuilt, or `--js-flags=--expose-gc` not forwarded).
-
-import { existsSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
 import { GC_PROBE_TAG } from "@shared/probe-tags.js";
 
-import { ELECTRON_BIN, MAIN_ENTRY, PRELOAD_ENTRY } from "./helpers/smoke-probe-harness.js";
-import {
-  GC_TEST_TIMEOUT_MS,
-  SPAWN_TIMEOUT_MS,
-  spawnElectronGcProbe,
-} from "./helpers/gc-probe-harness.js";
+import { GC_TEST_TIMEOUT_MS, spawnElectronGcProbe } from "./lifecycle.gc.test-support.js";
+import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe-harness.js";
 
 describe("BrowserWindow lifecycle reachability", () => {
-  it("verifies smoke bundle exists before spawning Electron", () => {
-    expect(
-      existsSync(MAIN_ENTRY),
-      `Main entry missing at ${MAIN_ENTRY}. Run \`pnpm --filter @ai-sidekicks/desktop test\` (which rebuilds the smoke bundle).`,
-    ).toBe(true);
-    expect(
-      existsSync(PRELOAD_ENTRY),
-      `Preload entry missing at ${PRELOAD_ENTRY}. Run \`pnpm --filter @ai-sidekicks/desktop test\` (which rebuilds the smoke bundle).`,
-    ).toBe(true);
-    expect(
-      existsSync(ELECTRON_BIN),
-      `Electron launcher missing at ${ELECTRON_BIN}. Run \`pnpm install\` first.`,
-    ).toBe(true);
-  });
-
   it(
     "main-process BrowserWindow handle survives K GC cycles after .then(...) unwind",
     async () => {
@@ -60,6 +39,7 @@ describe("BrowserWindow lifecycle reachability", () => {
             `BrowserWindow lifecycle regression is also possible — check the ` +
             `Electron version and the BaseWindow::self_ref_ semantics if so.\n` +
             `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
+            `--- tagged lines that did not parse ---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
             `--- stdout ---\n${result.stdout}\n` +
             `--- stderr ---\n${result.stderr}\n`,
         );

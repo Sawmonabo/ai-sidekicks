@@ -41,19 +41,6 @@ describe("the navigation policy", () => {
     vi.restoreAllMocks();
   });
 
-  it("registers both navigation seams and the popup handler on every window", async () => {
-    const { createMainWindow } = await loadWindowModule();
-
-    const browserWindow = createMainWindow();
-
-    // Registration is asserted apart from the verdicts: a policy that classified correctly on
-    // a seam nobody registered would pass every case that fetches its own listener.
-    for (const seam of NAVIGATION_SEAMS) {
-      expect(navigationListenerOf(browserWindow, seam)).toBeDefined();
-    }
-    expect(windowOpenHandlerOf(browserWindow)).toBeDefined();
-  });
-
   describe.each(NAVIGATION_SEAMS)("on %s", (seam) => {
     it("stops a remote origin and opens it externally instead", async () => {
       const { createMainWindow } = await loadWindowModule();

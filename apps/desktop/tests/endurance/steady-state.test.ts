@@ -1,7 +1,7 @@
-// Tier: endurance. A desktop console is left open for a working day while events arrive, and
+// Tier: endurance. A desktop app is left open for a working day while events arrive, and
 // the defects that matter over that span (a listener never unsubscribed, a store array never
 // trimmed, a detached DOM node held by a closure) pass every fast tier. This file holds the
-// console open over a sustained workload and gates the steady-state heap: the reading after the
+// app open over a sustained workload and gates the steady-state heap: the reading after the
 // application has settled against the reading after a long stretch of the same work, near zero
 // whatever happened in between. It asserts no ceiling on the heap itself; that is
 // `heap-at-rest.test.ts`'s budget, and one number must not have two owners.
@@ -82,7 +82,7 @@ const STEADY_HEAP_GROWTH_CEILING_BYTES = 8 * 1024 * 1024;
  * that ran a React application. `HTMLDivElement`, the attached one, is the naming control:
  * `"Detached HTMLDivElement"` is a V8/Blink snapshot node name with no other reader in this
  * repository, so a Chromium that spelled DOM nodes differently would leave the subject a
- * permanent zero while the others stayed non-zero. A console with a window open has divs, so a
+ * permanent zero while the others stayed non-zero. An app with a window open has divs, so a
  * zero there fails the case.
  */
 const RETAINED_READING_CONSTRUCTORS = [
@@ -124,33 +124,33 @@ const SCENARIO_ADVANCE_MS_PER_CYCLE = Math.max(
   Math.ceil((CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0) / CHURN_CYCLE_COUNT),
 );
 
-describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
+describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
   it("does not grow its steady-state heap across sustained use", async () => {
-    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
       // Both readings are taken behind a forced collection: the precision precondition below
       // allocates four megabytes and drops them, which is half this ceiling standing unreachable
       // in front of the baseline and would otherwise be counted as growth or reclaimed mid-run.
-      const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+      const heapProbe = await RendererHeapProbe.attachTo(appUnderTest);
       try {
         // The workload is named before it is measured: a launch playing another scenario would
         // churn the wrong script and pass every reading. This fails on the regression (no
         // argument, no read, no composition) that makes this tier idle.
         expect(
-          await readPlayingScenarioId(consoleApplication),
+          await readPlayingScenarioId(appUnderTest),
           `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
         ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
         // One warm-up cycle before the baseline, so the one-time allocation of the palette, its
         // portal and the settings route is not reported as growth.
-        const warmUpCycle = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+        const warmUpCycle = await churnOnce(appUnderTest, SCENARIO_ADVANCE_MS_PER_CYCLE);
         const beatsAfterWarmUp = warmUpCycle.deliveredBeatCount;
         const appliedEventsAfterWarmUp = await readAppliedEventCount(
-          consoleApplication,
+          appUnderTest,
           CONCURRENT_STREAMING_SESSION_ID,
         );
         // Every figure below is a difference of two heap readings, which the default quantized
         // instrument cannot carry, so the instrument is proved first.
-        await expectPreciseHeapInstrument(consoleApplication, heapProbe);
+        await expectPreciseHeapInstrument(appUnderTest, heapProbe);
 
         const baselineHeapBytes = await heapProbe.readSettledBytes();
 
@@ -163,7 +163,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         let cyclesWithTranscriptRows = 0;
         let transcriptRowsHaveMounted = false;
         for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
-          const cycleReading = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+          const cycleReading = await churnOnce(appUnderTest, SCENARIO_ADVANCE_MS_PER_CYCLE);
           beatsDelivered = cycleReading.deliveredBeatCount;
           if (transcriptRowsHaveMounted) {
             expect(
@@ -177,7 +177,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           }
           if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
             appliedEventsAtMidRun = await readAppliedEventCount(
-              consoleApplication,
+              appUnderTest,
               CONCURRENT_STREAMING_SESSION_ID,
             );
           }
@@ -190,7 +190,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         const growthKilobytes = Math.round(growthBytes / 1024);
         const perCycleBytes = Math.round(growthBytes / CHURN_CYCLE_COUNT);
         const appliedEventCount = await readAppliedEventCount(
-          consoleApplication,
+          appUnderTest,
           CONCURRENT_STREAMING_SESSION_ID,
         );
         process.stdout.write(
@@ -206,7 +206,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         );
 
         // Zero here is the vacuous run: every route wait satisfied by pane chrome, every heap
-        // reading taken over a console whose transcript never came up.
+        // reading taken over an app whose transcript never came up.
         expect(
           cyclesWithTranscriptRows,
           "no churn cycle found a mounted transcript row, so the whole loop churned a route whose transcript never drew — the pane's chrome is what satisfied every wait",
@@ -241,13 +241,11 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         ).toBeGreaterThan(Number(appliedEventsAtMidRun));
 
         // And they reached a store through a real subscription rather than a side channel,
-        // which fails the day the console binds nothing and the tier becomes an idle loop.
-        expect(await readBoundSessionIds(consoleApplication)).toContain(
-          CONCURRENT_STREAMING_SESSION_ID,
-        );
+        // which fails the day the app binds nothing and the tier becomes an idle loop.
+        expect(await readBoundSessionIds(appUnderTest)).toContain(CONCURRENT_STREAMING_SESSION_ID);
 
         // The window is still a window, which the frame's cost depends on. The viewport mounts
-        // the visible range plus an overscan either side; a console that mounts a row per
+        // the visible range plus an overscan either side; an app that mounts a row per
         // admitted event is laying out and painting the whole session every frame.
         //
         // Asserted here because the height chain bounding the transcript is observable only once
@@ -257,15 +255,13 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // and reads the window either way, so a stalled transcript arrives with figures that say
         // why rather than a bare zero.
         const transcriptWindow = await readTranscriptWindow(
-          consoleApplication,
+          appUnderTest,
           CONCURRENT_STREAMING_SESSION_ID,
         );
-        expect(
-          transcriptWindow,
-          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport for this session, so nothing here says anything about windowing`,
-        ).not.toBeNull();
         if (transcriptWindow === null) {
-          throw new Error("unreachable: the assertion above fails first");
+          throw new Error(
+            `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport for this session, so nothing here says anything about windowing`,
+          );
         }
         process.stdout.write(
           `[endurance] transcript window ${String(transcriptWindow.mountedRowCount)} mounted / ` +
@@ -311,16 +307,16 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
     const snapshotDirectory = await mkdtemp(join(tmpdir(), "sidekicks-endurance-heap-"));
     const snapshotPath = join(snapshotDirectory, "renderer.heapsnapshot");
     try {
-      await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-        const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+      await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
+        const heapProbe = await RendererHeapProbe.attachTo(appUnderTest);
         try {
           expect(
-            await readPlayingScenarioId(consoleApplication),
+            await readPlayingScenarioId(appUnderTest),
             `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
           ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
           for (let cycle = 0; cycle < SNAPSHOT_CHURN_CYCLE_COUNT; cycle += 1) {
-            await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+            await churnOnce(appUnderTest, SCENARIO_ADVANCE_MS_PER_CYCLE);
           }
 
           // Collects first, then streams the snapshot to a file, over the same DevTools session
@@ -366,7 +362,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
           expect(
             retainedBytesOf("Detached HTMLDivElement"),
-            "the console is retaining detached DOM subtrees across route churn — a frame or a store is holding a reference into a tree it unmounted",
+            "the app is retaining detached DOM subtrees across route churn — a frame or a store is holding a reference into a tree it unmounted",
           ).toBeLessThanOrEqual(DETACHED_NODE_RETENTION_CEILING_BYTES);
         } finally {
           await heapProbe.detach();
@@ -379,16 +375,16 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   });
 
   it("leaves no tripwire firing after sustained use", async () => {
-    // The heap is one coarse signal. The console reports invariant breaches through its tripwire
+    // The heap is one coarse signal. The app reports invariant breaches through its tripwire
     // registry, and a run this long is the best chance any has to fire. An empty registry is a
     // sharper claim than the heap bound and costs one evaluate. It runs with the clock moving
     // because the breaches worth catching are the ones a delivering scenario causes, such as a
     // beat applied outside the store's chokepoint or a tick that outlived its pane.
-    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
-        await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+        await churnOnce(appUnderTest, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }
-      const firings = await consoleApplication.window.evaluate((globalName: string) => {
+      const firings = await appUnderTest.window.evaluate((globalName: string) => {
         const registry = (
           globalThis as unknown as Record<string, { reports(): readonly unknown[] } | undefined>
         )[globalName];

@@ -14,8 +14,11 @@
 // lock in `index.ts` prevents that except for a relaunch overlapping a first instance that is
 // still failing to start.
 //
-// A write never throws at its caller and never fails silently: it stops accepting and counts
-// (`writeFailureCount`, `lastWriteFailure`), which the exit path reads.
+// A write never throws at its caller and never fails silently: it stops accepting and records
+// why (`lastWriteFailure`), which the exit path reads.
+
+import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { isMissingPath } from "./missing-path.js";
 
@@ -92,7 +95,6 @@ export class MainDiagnosticLog {
   /** `null` until the first queued write reads the file's own size. */
   #liveFileByteCount: number | null = null;
   #writtenEntryCount = 0;
-  #filteredEntryCount = 0;
   #rotationCount = 0;
   #writeFailureCount = 0;
   #lastWriteFailure: string | null = null;
@@ -110,11 +112,7 @@ export class MainDiagnosticLog {
    * on the disk; `drain()` is how a test and the quit path wait.
    */
   public write(entry: MainDiagnosticEntry): void {
-    if (levelRank(entry.level) > this.#minimumRank) {
-      this.#filteredEntryCount += 1;
-      return;
-    }
-    if (!this.#accepting) {
+    if (levelRank(entry.level) > this.#minimumRank || !this.#accepting) {
       return;
     }
     const line = toLogLine(entry);
@@ -181,11 +179,6 @@ export class MainDiagnosticLog {
     return this.#writtenEntryCount;
   }
 
-  /** Entries the level filter refused. Counted, so a filtered log is not a silent one. */
-  public get filteredEntryCount(): number {
-    return this.#filteredEntryCount;
-  }
-
   /** How many times the file has rotated. */
   public get rotationCount(): number {
     return this.#rotationCount;
@@ -216,7 +209,6 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
   #ensuredDirectory: string | null = null;
 
   public async byteCountOf(filePath: string): Promise<number> {
-    const { stat } = await import("node:fs/promises");
     try {
       return (await stat(filePath)).size;
     } catch (statFailure) {
@@ -234,8 +226,6 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
    * set, so a sink handed a second path still creates that path's directory without growing.
    */
   public async appendUtf8(filePath: string, text: string): Promise<void> {
-    const { appendFile, mkdir } = await import("node:fs/promises");
-    const { dirname } = await import("node:path");
     const directory = dirname(filePath);
     if (this.#ensuredDirectory !== directory) {
       await mkdir(directory, { recursive: true });
@@ -245,13 +235,11 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
   }
 
   public async replace(fromPath: string, toPath: string): Promise<void> {
-    const { rename } = await import("node:fs/promises");
     await rename(fromPath, toPath);
   }
 
   /** Force-tolerant: rotation removes a previous generation that may never have existed. */
   public async remove(filePath: string): Promise<void> {
-    const { rm } = await import("node:fs/promises");
     await rm(filePath, { force: true });
   }
 }

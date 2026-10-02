@@ -5,13 +5,10 @@
     // --- The three build flavors ------------------------------------------
     //
     // All three write `out/**` and differ in the `define` that decides what the renderer talks to
-    // and whether the main process carries its test probes. All three are `cache: false`, a
-    // correctness requirement: a Turborepo cache hit restores the files it saved and does not empty
-    // the directory first, while a real `electron-vite build` does (Vite's `emptyOutDir`). A cached
-    // restore layered over a sibling flavor's output leaves that flavor's content-hashed chunks
-    // beside the restored ones (seen when the bundle tier replayed a cached `build` over a fixtures
-    // tree and `release-absence.test.ts` found the fixture tripwire handle in an orphaned chunk).
-    // Running the build makes the flavor switch total.
+    // and whether the main process carries its test probes. All three are `cache: false`: a
+    // Turborepo cache hit restores its saved files without emptying the directory, while a real
+    // `electron-vite build` empties it first (Vite's `emptyOutDir`), so a cached restore over a
+    // sibling flavor's output would leave that flavor's content-hashed chunks beside its own.
     "build": {
       "inputs": [
         "src/**",
@@ -59,7 +56,6 @@
         "src/**",
         "fixtures/**",
         "tests/**",
-        "test/**",
         "build/**",
         "scripts/**",
         "tsconfig*.json",
@@ -72,7 +68,6 @@
         "src/**",
         "fixtures/**",
         "tests/**",
-        "test/**",
         "build/**",
         "scripts/**",
         "vitest/**",
@@ -99,7 +94,6 @@
         "src/**",
         "fixtures/**",
         "tests/**",
-        "test/**",
         "build/**",
         "scripts/**",
         "$TURBO_ROOT$/knip.json",
@@ -169,13 +163,12 @@
     },
     "test:smoke": {
       "dependsOn": ["build:smoke"],
-      // Narrowed from `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs,
-      // and leaving them here would invalidate the ~25-30 s smoke build on every tier test edit.
+      // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
+      // test edit must not invalidate the smoke build.
       // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
       // pull the budget harnesses in with it.
       "inputs": [
         "tests/*.test.ts",
-        "test/*.test.ts",
         "tests/helpers/**",
         "scripts/materialize-electron.ts",
         "vitest.config.*",
@@ -200,7 +193,6 @@
         "src/renderer/src/**",
         "src/shared/**",
         "fixtures/**",
-        "tests/scenarios/**",
         "tests/helpers/**",
         "tests/endurance/streaming-lanes*",
         "tests/endurance/transcript-endurance.test-support*",
@@ -342,12 +334,10 @@
     },
     // --- Scripts invoked by name (`scripts/**`) --------------------------------
     //
-    // The two budget gates `package.json` declares as scripts, `budget:bundle` and `budget:heap`.
-    // Each gets a task with `inputs`, like every tier above, so a run by name from a terminal, CI
-    // or `turbo run` has one declared input set. Both are `cache: false`: they report on a tree or
-    // build present now, and a cached pass would report on one that is not. The `test` aggregate
-    // below is a chain of `turbo run` invocations, not a `scripts/**` executable, so it sits
-    // outside this group.
+    // The budget gate `package.json` declares as a script gets a task with `inputs`, like every tier
+    // above, so a run by name from a terminal, CI or `turbo run` has one declared input set. It is
+    // `cache: false`: it reports on a build present now, and a cached pass would report on one that
+    // is not.
 
     "budget:bundle": {
       // Measures a build, so it carries the same load-bearing edge the bundle tier does: the
@@ -360,16 +350,6 @@
         "out/renderer/**",
         "package.json"
       ],
-      "outputs": [],
-      "cache": false
-    },
-    "budget:heap": {
-      // No build edge, because this harness takes no reading at all. The `renderer-heap-at-rest`
-      // row is `enforced` and its `measuredBy` names the endurance tier, which launches the built
-      // renderer; `measure-heap.mts` reads the registry, reports where the reading lives, and
-      // refuses if the registry ever names it as the measurer. The gate's own source and the
-      // registry are the whole input set, and `out/**` would be an input nothing here opens.
-      "inputs": ["scripts/budget/**", "tests/budget/budgets.json", "package.json"],
       "outputs": [],
       "cache": false
     },

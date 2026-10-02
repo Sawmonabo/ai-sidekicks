@@ -1,27 +1,11 @@
-// The `run` partition's projector: run-lifecycle events folded into run entities. It lives in
-// `store/session-events/`, below every feature, because it reads wire member names (which the
-// session store's entities do not) and the composition root registers it.
+// The `run` partition's projector: run-lifecycle events folded into run entities. It sits below
+// every feature because it reads wire member names, and the composition root registers it.
 //
-// The claimed kinds come from `SESSION_EVENT_CATEGORY_BY_TYPE` filtered to `run_lifecycle`, so a
-// new run event cannot silently stop projecting. The body's members are derived, not hand-kept:
-// `DurableRunMemberName` (`run-entity-body.ts`) is the key union of `RunStateChangeEvent` and
-// `RunRolledBackEvent` (`packages/contracts/src/run-control.ts`) minus `runId`, `sessionId` and
-// `timestamp`, plus `agentId`; a new member fails the reader table's `satisfies` until
-// classified. Those are `run.subscribeState` shapes while this folds the durable rows off
-// `session.subscribe`, so `PER_TYPE_RUN_BODY_MEMBER_READERS` holds the per-kind members neither
-// declares, keyed by kind so a member is never read off another.
-//
-// `state` is written only where the payload names `newState`: a non-state event must not
-// rewrite it, and `undefined` would erase it through the store's spread merge. A recognized
-// transition must supply exactly the state it announces (`statedStateFailsKind`, using
-// `runStateForTransitionKind`); the creation kind and forward, non-state rows announce none.
-//
-// The payload's `sessionId` is held to the envelope's once at entry, for every kind
-// (`lib/wire-session-attribution.ts`); the durable row registers it, so omitting it is malformed.
-//
-// A projector is pure, because the apply path replays prefixes and a side effect would fire
-// twice. A run event naming no `runId` yields no mutation rather than a throw; the timeline
-// still records that it arrived.
+// The claimed kinds and the body's members are derived from the contract, so a new run event or
+// member fails to compile until it is classified. `state` is written only where the payload
+// names `newState`, and a recognized transition must name exactly the state it announces. The
+// projector is pure, because the apply path replays prefixes; a run event naming no `runId`
+// yields no mutation rather than a throw.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";

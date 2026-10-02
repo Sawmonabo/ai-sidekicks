@@ -1,13 +1,13 @@
 // What the always-on diagnostic capture may hold, kept beside its reader
 // (`diagnostic-capture.ts`) like the performance-meter bounds. Capture is on in every build, on
 // a machine that may be short of the resource it reports on, so retention is a stated number.
-// At each edge a dropped record is counted, a refused probe is counted and announced once by a
-// record of its own, and an over-long detail is truncated with a suffix.
+// At each edge the oldest pending record is dropped, the first refused probe is announced once by
+// a record of its own, and an over-long detail is truncated with a suffix.
 //
-// The capture's own forward seam is excluded from the refused-probe edge: `flush` marks it blind
-// whenever no forwarder is installed and `record` flushes at every batch, so counting it would
-// measure how often the capture ran. Past a full set it is neither counted nor recorded; reaching
-// that needs all thirty-two authored probe names blind first.
+// The capture's own forward seam is excluded from the refused-probe edge: `flush` marks it
+// unreadable whenever no forwarder is installed and `record` flushes at every batch, so
+// announcing it would measure how often the capture ran. Reaching a full set needs all
+// thirty-two authored probe names unreadable first.
 
 /** The retention bounds, by name. */
 export const DIAGNOSTIC_CAPTURE_BOUNDS = {
@@ -16,7 +16,7 @@ export const DIAGNOSTIC_CAPTURE_BOUNDS = {
    *
    * 512 records at the detail bound below is about 1 MB worst case (the bound counts UTF-16
    * code units, two bytes each). The oldest goes first, since a cascade's first record is
-   * usually the cause; the drop is counted so the band is told what it did not receive.
+   * usually the cause.
    */
   pendingRecordCount: 512,
 
@@ -38,7 +38,7 @@ export const DIAGNOSTIC_CAPTURE_BOUNDS = {
   detailCharacterCount: 1024,
 
   /**
-   * Distinct blind probes the capture remembers.
+   * Distinct unreadable probes the capture remembers.
    *
    * Probe names are authored, so 32 is far above the number that can exist; the bound catches a
    * name built from a value and keeps this module from growing without limit.

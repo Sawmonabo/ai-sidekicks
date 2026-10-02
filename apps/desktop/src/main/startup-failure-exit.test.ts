@@ -62,7 +62,7 @@ describe("a failed startup exits, whatever the record of it does first", () => {
     writtenEntries.length = 0;
     reportUnwrittenDiagnosticsOutcome = async () => {};
     createMainWindow.mockClear();
-    // Both cases deliberately log a failure; keep the run output clean.
+    // Every case deliberately logs a failure; keep the run output clean.
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 

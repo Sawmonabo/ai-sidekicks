@@ -2,7 +2,7 @@
 // reference to one entity.
 
 /**
- * The entity kinds the console partitions by, in a stable order. Not the pane-kind set: a pane
+ * The entity kinds the app partitions by, in a stable order. Not the pane-kind set: a pane
  * is a view of an entity, and several pane kinds render the same kind of entity.
  */
 export const ENTITY_KINDS = [

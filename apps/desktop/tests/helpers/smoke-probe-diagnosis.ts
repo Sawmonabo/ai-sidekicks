@@ -1,5 +1,5 @@
-// Reads a smoke spawn's output and explains a spawn that produced no probe line: the tagged-line
-// scanner, the environment readings taken under one bounded budget, and the failure classifier.
+// Explains a smoke spawn that produced no probe line: the environment readings taken under one
+// bounded budget, and the failure classifier.
 
 import { spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -10,16 +10,16 @@ import {
   localDisplaySocketPath,
   needsXvfb,
   resolvedDisplay,
-  xdpyinfoMissing,
+  isXdpyinfoMissing,
 } from "./display-readiness.js";
 import type { SpawnResult } from "./smoke-probe-harness.js";
-import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+import { SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
 /**
  * Longest a single at-deadline subprocess reading may run; healthy readings take under 100 ms, so
  * this is about 15 times that.
  */
-export const DIAGNOSTIC_PROBE_TIMEOUT_MS = 1_500;
+const DIAGNOSTIC_PROBE_TIMEOUT_MS = 1_500;
 
 /**
  * Wall bound for the whole at-deadline collection. One shared bound keeps the enclosing test
@@ -80,7 +80,7 @@ export function captureDiagnostics(
 
   const display = resolvedDisplay();
   if (externalProbeDeadline !== null && display !== undefined && process.platform !== "win32") {
-    if (xdpyinfoMissing) {
+    if (isXdpyinfoMissing()) {
       // No `x11-utils` on the ubuntu-24.04 runner image, so read the display socket instead.
       const socketPath = localDisplaySocketPath(display);
       readings.push(
@@ -118,40 +118,17 @@ function renderDiagnosticDump(result: SpawnResult): string {
   return (
     `--- readiness events observed ---\n${breadcrumbs}\n` +
     `--- environment ---\n${result.diagnostics.join("\n")}\n` +
+    `--- tagged lines that did not parse ---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
     `--- stdout ---\n${result.stdout}\n` +
     `--- stderr ---\n${result.stderr}\n`
   );
 }
 
 /**
- * Line-buffered scanner for the readiness breadcrumb trail on one stream. A chunk boundary can
- * fall inside a breadcrumb, so the unfinished tail is carried into the next chunk. Use one
- * instance per stream: sharing one would splice the tail of stdout onto the head of stderr.
- */
-export class ReadinessLineScanner {
-  #pending = "";
-
-  /** Feeds one chunk; returns the breadcrumbs completed by it, in order. */
-  push(chunk: string): string[] {
-    this.#pending += chunk;
-    const lines = this.#pending.split("\n");
-    // The last piece is unterminated (or empty when the chunk ended on a newline); carry it over.
-    this.#pending = lines.pop() ?? "";
-    const breadcrumbs: string[] = [];
-    for (const line of lines) {
-      const marker = line.indexOf(READINESS_BREADCRUMB_TAG);
-      if (marker < 0) continue;
-      breadcrumbs.push(line.slice(marker + READINESS_BREADCRUMB_TAG.length).trim());
-    }
-    return breadcrumbs;
-  }
-}
-
-/**
  * Names the readiness signal that never arrived when no probe line was parsed. Every marker
  * match reads `combinedOutput`, because `xvfb-run` merges the child's stderr into stdout.
  */
-export function diagnoseMissingProbe(result: SpawnResult): string {
+function diagnoseMissingProbe(result: SpawnResult): string {
   if (result.combinedOutput.includes("did not answer within")) {
     return (
       "the X display named by `$DISPLAY` was not serving, so the spawn was " +
@@ -235,10 +212,7 @@ export function diagnoseMissingProbe(result: SpawnResult): string {
   return "the process exited without emitting the probe line and without a recognized failure marker.";
 }
 
-/**
- * Renders the "no probe line arrived" failure message. The assertion path and the negative
- * control both call it, so the control proves what the real failure prints.
- */
+/** Renders the "no probe line arrived" failure message. */
 export function renderReadinessFailure(result: SpawnResult): string {
   return (
     `Desktop main process never became ready: ${diagnoseMissingProbe(result)}\n` +

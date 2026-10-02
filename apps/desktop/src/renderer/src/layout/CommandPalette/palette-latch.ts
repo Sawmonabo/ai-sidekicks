@@ -3,7 +3,7 @@
 // The scope label and the `when` context are one reading: search, count, printed chords and
 // dispatch all use it, so the row never names X while the list is Y's. A latched reading can go
 // stale (a command may be unregistered while its row is on screen), so the dispatch outcome is
-// read and turned into the console's refusal shape. The registry alone decides eligibility.
+// read and turned into the app's refusal shape. The registry alone decides eligibility.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type {
@@ -31,7 +31,7 @@ export const PALETTE_INVOCATION_REFUSAL_ORIGIN = "palette";
  */
 export type PaletteInvocationRefusalCode = Exclude<CommandInvocationOutcome["status"], "ran">;
 
-/** A typed refusal in the console's one refusal shape, narrowed on `code`. */
+/** A typed refusal in the app's one refusal shape, narrowed on `code`. */
 export interface PaletteInvocationRefusal extends Refusal {
   readonly code: PaletteInvocationRefusalCode;
 }
@@ -51,9 +51,9 @@ const REFUSAL_DETAIL: Readonly<
   Record<Exclude<PaletteInvocationRefusalCode, "unavailable">, string>
 > = {
   "unknown-command":
-    "That command is no longer registered, so the palette did not run it; close and reopen the palette to act on what is here now.",
+    "That command is gone, so the palette did not run it; close and reopen the palette to act on what is here now.",
   "hidden-in-context":
-    "That command is not offered in the scope this palette opened over, so it did not run; close and reopen the palette to act on the current scope.",
+    "That command does not apply here any more, so it did not run; close and reopen the palette to act on what is here now.",
 };
 
 /**

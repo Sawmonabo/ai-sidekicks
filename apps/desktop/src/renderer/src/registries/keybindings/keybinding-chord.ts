@@ -30,7 +30,7 @@ export function parseChord(chord: string): ChordParseResult {
     return {
       ok: false,
       kind: "sequence-unsupported",
-      message: `"${trimmed}" is a multi-press sequence; the console binds single chords only`,
+      message: `"${trimmed}" is a sequence of presses, and a shortcut is one chord`,
     };
   }
   const press = presses[0];

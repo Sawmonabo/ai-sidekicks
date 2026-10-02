@@ -6,9 +6,7 @@
 // would need encrypted storage the renderer does not have, and an IndexedDB copy would put a
 // person's prose in an unencrypted origin-scoped database outside every erasure selector.
 //
-// Eviction is disclosed. The live ceiling drops the least-recently-typed draft, so an eviction
-// arms a notice keyed to the composer that lost the text, cleared when that composer is typed
-// in again or acknowledges it. The armed keys carry the same ceiling as the drafts.
+// The live ceiling drops the least-recently-typed draft, and its subscribers hear `undefined`.
 
 /** One composer's unsent text, keyed by the view that owns the composer. */
 export interface DraftEntry {
@@ -41,11 +39,6 @@ export class DraftStore {
   readonly #subscribersByKey = new Map<string, Set<(draft: DraftEntry | undefined) => void>>();
   readonly #now: () => number;
   readonly #maximumDraftCount: number;
-  /**
-   * Composers whose text the ceiling dropped, in eviction order. A `Set`, because a key evicted
-   * twice without being typed in between is one loss to disclose.
-   */
-  readonly #evictedKeys = new Set<string>();
 
   public constructor(options: DraftStoreOptions) {
     if (!Number.isInteger(options.maximumDraftCount) || options.maximumDraftCount < 1) {
@@ -55,25 +48,6 @@ export class DraftStore {
     }
     this.#now = options.now ?? (() => Date.now());
     this.#maximumDraftCount = options.maximumDraftCount;
-  }
-
-  /**
-   * Whether this composer's unsent text was dropped to keep the window bounded. Cleared, sent
-   * and evicted all notify subscribers with `undefined`, and only eviction is a loss the user
-   * did not ask for, hence the separate notice.
-   */
-  public evictionNoticePendingFor(draftKey: string): boolean {
-    return this.#evictedKeys.has(draftKey);
-  }
-
-  /** The sentence the composer shows. Fixed text; no user content in it. */
-  public get evictionNoticeText(): string {
-    return "Unsent text here was dropped to keep this window bounded, because other composers were used more recently.";
-  }
-
-  /** Stop showing the eviction notice for one composer. */
-  public acknowledgeEvictionNotice(draftKey: string): void {
-    this.#evictedKeys.delete(draftKey);
   }
 
   public read(draftKey: string): DraftEntry | undefined {
@@ -86,17 +60,12 @@ export class DraftStore {
       this.clear(draftKey);
       return;
     }
-    // Typing here answers the notice: there is text again, so nothing is left to disclose.
-    this.#evictedKeys.delete(draftKey);
     this.#draftsByKey.set(draftKey, { draftKey, text, updatedAt: this.#now() });
     this.#evictOldestBeyondCeiling();
     this.#notify(draftKey);
   }
 
   public clear(draftKey: string): void {
-    // A clear is the user's own act (sending, or emptying the box), so it retires any notice on
-    // this key.
-    this.#evictedKeys.delete(draftKey);
     if (this.#draftsByKey.delete(draftKey)) {
       this.#notify(draftKey);
     }
@@ -121,15 +90,10 @@ export class DraftStore {
     };
   }
 
-  public get liveDraftCount(): number {
-    return this.#draftsByKey.size;
-  }
-
   /** Drop everything. The window is closing; nothing here outlives it anyway. */
   public dispose(): void {
     this.#draftsByKey.clear();
     this.#subscribersByKey.clear();
-    this.#evictedKeys.clear();
   }
 
   #evictOldestBeyondCeiling(): void {
@@ -146,25 +110,7 @@ export class DraftStore {
         return;
       }
       this.#draftsByKey.delete(oldestKey);
-      this.#armEvictionNotice(oldestKey);
       this.#notify(oldestKey);
-    }
-  }
-
-  /**
-   * Records one loss to disclose, under the same ceiling the drafts carry. Re-added rather than
-   * left in place, so insertion order stays the eviction order and the oldest notice is the one
-   * dropped when the bound bites.
-   */
-  #armEvictionNotice(draftKey: string): void {
-    this.#evictedKeys.delete(draftKey);
-    this.#evictedKeys.add(draftKey);
-    while (this.#evictedKeys.size > this.#maximumDraftCount) {
-      const oldestNotice = this.#evictedKeys.values().next();
-      if (oldestNotice.done === true) {
-        return;
-      }
-      this.#evictedKeys.delete(oldestNotice.value);
     }
   }
 

@@ -8,7 +8,7 @@ import type { DriverCapabilityFlag, ProviderName } from "@ai-sidekicks/contracts
 import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-readout.js";
 
 /**
- * The node's declarations, joined to one session's run-to-driver bindings.
+ * The service's declarations, joined to one session's run-to-driver bindings.
  *
  * Joined at the consumer, not in the per-bridge cache, which holds no session. The readout is
  * returned untouched where there is nothing to join, so a caller compares the same pointer.
@@ -104,9 +104,9 @@ export function readingForRun(
 }
 
 /**
- * The one driver this node reported, where it reported exactly one.
+ * The one driver the service reported, where it reported exactly one.
  *
- * `driver.listCapabilities` is addressed at the node and names no run, so refusing to answer
+ * `driver.listCapabilities` is addressed at the service and names no run, so refusing to answer
  * on a one-driver installation would take every capability-gated control off every run. With
  * two drivers reported the question really is unanswered.
  */

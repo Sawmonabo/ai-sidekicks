@@ -9,10 +9,10 @@ import type { AttentionReading } from "../attention-summary.js";
  * the reading and can ask for the directory again.
  */
 export interface WindowAttention {
-  /** The node's own session list, as the read settled it. */
+  /** The service's session list, as the read settled it. */
   readonly directory: SessionDirectoryState;
   readonly reading: AttentionReading;
-  /** Declare the node's directory stale, so it is read again. */
+  /** Declare the session list stale, so it is read again. */
   readonly recheckDirectory: () => void;
 }
 

@@ -12,11 +12,8 @@
 // would run first and remove the profile under a tree whose kill was refused. It travels into the
 // spawn as `releaseAfterTermination` and the spawner sequences it.
 
-import {
-  spawnManagedElectronChild,
-  type ChildRelease,
-  type ElectronChildSpawnOptions,
-} from "./electron-child.js";
+import { spawnManagedElectronChild, type ElectronChildSpawnOptions } from "./electron-child.js";
+import { type ChildRelease } from "./electron-child-teardown.js";
 import { type ManagedElectronChild } from "./managed-electron-child.js";
 
 /**

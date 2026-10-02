@@ -3,39 +3,23 @@
   display: contents;
 }
 
+/* One line in the region's slot; `Retry` is a faint word with no box, border or icon. */
 .meridian-render-failure {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  align-items: flex-start;
-  max-width: 46rem;
-  margin: var(--meridian-space-6) auto;
-  padding: var(--meridian-space-4);
-  border: 1px solid var(--meridian-red-mark);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-red-ground);
-}
-
-.meridian-render-failure__title {
   margin: 0;
-  font-size: var(--meridian-text-md);
-  font-weight: 600;
-  color: var(--meridian-red-text);
-}
-
-.meridian-render-failure__detail {
-  margin: 0;
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-sm);
+  padding: var(--meridian-space-3) var(--meridian-space-4);
   color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
 }
 
-.meridian-render-failure__action {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface);
-  color: var(--meridian-text);
+.meridian-render-failure__retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-faint);
   font: inherit;
-  cursor: default;
+  cursor: pointer;
+}
+
+.meridian-render-failure__retry:hover {
+  text-decoration: underline;
 }

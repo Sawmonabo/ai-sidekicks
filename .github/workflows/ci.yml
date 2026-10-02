@@ -320,7 +320,7 @@ jobs:
         run: pnpm turbo run build ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Production safety: the smoke and GC-reachability probes in `apps/desktop/src/main/index.ts`
-      # are gated by the compile-time constant `__SIDEKICKS_SMOKE_BUILD__` (a Vite `define` in
+      # are gated by the compile-time constant `__SMOKE_BUILD__` (a Vite `define` in
       # `apps/desktop/electron.vite.config.ts`). A release build substitutes `false`, and Rollup
       # then strips the probe markers below from `apps/desktop/out/main/index.js`. This step greps
       # the bundle for them; a match means dead-code elimination regressed (a Vite or Rollup change,
@@ -339,7 +339,7 @@ jobs:
             fi
           done
           if [ $fail -ne 0 ]; then
-            echo "::error::compile-time-static gate __SIDEKICKS_SMOKE_BUILD__ should substitute to 'false' in release builds; check apps/desktop/electron.vite.config.ts define block"
+            echo "::error::compile-time-static gate __SMOKE_BUILD__ should substitute to 'false' in release builds; check apps/desktop/electron.vite.config.ts define block"
             exit 1
           fi
           echo "ok: release bundle excludes test-machinery markers"

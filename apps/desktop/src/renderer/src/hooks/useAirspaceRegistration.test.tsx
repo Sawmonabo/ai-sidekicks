@@ -11,7 +11,7 @@ import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { useAirspaceRegistration } from "./useAirspaceRegistration.js";
 
 function OverlayProbe(props: { readonly open: boolean }): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration("dialog");
+  const airspaceRef = useAirspaceRegistration();
   return props.open ? <div ref={airspaceRef} data-testid="popup" /> : <div />;
 }
 

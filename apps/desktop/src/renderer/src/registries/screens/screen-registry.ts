@@ -38,8 +38,7 @@ export interface ScreenDescriptor {
 
 /**
  * What a feature hands `register`, in one of two forms, as for panes: a screen painted before a
- * person acts (the one the console opens on) keeps `render` in the entry graph, and a screen
- * reached
+ * person acts (the one the app opens on) keeps `render` in the entry graph, and a screen reached
  * from a rail destination or another window takes the loader form.
  */
 export type ScreenRegistration =

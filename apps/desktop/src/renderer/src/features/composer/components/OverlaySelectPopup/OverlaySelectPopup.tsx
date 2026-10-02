@@ -17,7 +17,7 @@ export interface OverlaySelectPopupProps {
 
 /** The floating list of a select, anchored by its positioner and registered as a popover. */
 export function OverlaySelectPopup(props: OverlaySelectPopupProps): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration("popover");
+  const airspaceRef = useAirspaceRegistration();
   return (
     <Select.Portal container={props.container}>
       <Select.Positioner className={props.positionerClassName}>

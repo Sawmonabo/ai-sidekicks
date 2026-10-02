@@ -16,8 +16,6 @@ import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import { findReplyDefects } from "./reply-checks.js";
 import type { Scenario } from "../../../fixtures/scenario.js";
 
-export type { ScenarioContractDefect };
-
 /** Every scenario contract defect across the given scenarios. Empty is the passing state. */
 export function findScenarioContractDefects(
   scenarios: readonly Scenario[],

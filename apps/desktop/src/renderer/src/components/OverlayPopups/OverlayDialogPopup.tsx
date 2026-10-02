@@ -1,8 +1,7 @@
 // A modal dialog's portal, backdrop and popup, registered in the window's airspace once here
 // rather than per overlay, so a consumer cannot mount one without registering it.
 //
-// The caller keeps `Dialog.Root` (open state, modality, trigger). The airspace kind defaults to
-// `dialog`; the command palette names its own.
+// The caller keeps `Dialog.Root` (open state, modality, trigger).
 //
 // A `Dialog.Title` already names the popup (Base UI sets `aria-labelledby`, which wins over
 // `aria-label`), so `label` is only for a caller that heads its popup with an ordinary element.
@@ -10,12 +9,9 @@
 import { Dialog } from "@base-ui/react/dialog";
 
 import { useModalOverlayAirspace } from "@renderer/hooks/useModalOverlayAirspace.js";
-import type { AirspaceOverlayKind } from "@renderer/lib/airspace-registry.js";
 
 /** Props for `OverlayDialogPopup`. */
 export interface OverlayDialogPopupProps {
-  /** The overlay kind to register; `dialog` unless it is its own kind. */
-  readonly airspaceKind?: AirspaceOverlayKind;
   /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly container?: HTMLElement | null | undefined;
   readonly backdropClassName: string;
@@ -31,7 +27,7 @@ export interface OverlayDialogPopupProps {
  * Portal, backdrop and popup for a modal dialog; registers the popup and backdrop in the airspace.
  */
 export function OverlayDialogPopup(props: OverlayDialogPopupProps): React.JSX.Element {
-  const airspace = useModalOverlayAirspace(props.airspaceKind ?? "dialog");
+  const airspace = useModalOverlayAirspace();
   return (
     <Dialog.Portal container={props.container}>
       <Dialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />

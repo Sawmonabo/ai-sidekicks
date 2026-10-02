@@ -13,10 +13,10 @@
 // lifecycles have no base-state carrier, so a request raised below the window's head is
 // unreadable from here; {@link WaitingOnPersonRecords.isWindowHeadUnread} reports that.
 
+import { RUN_STATE_KINDS } from "@renderer/store/session-events/run-state-kinds.js";
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/entities.js";
 import {
   ATTENTION_RUN_STATE_KINDS,
-  RUN_STATE_KINDS,
   identifiedRequestKeyOf,
   isAttentionRunState,
   lifecycleFor,
@@ -97,7 +97,7 @@ export class WaitingOnPersonRegister {
     }
   }
 
-  /** Fold rows into the ledger. Safe in any order, at either end of the log. */
+  /** Fold rows into the register. Safe in any order, at either end of the log. */
   public admit(events: readonly ProjectedSessionEvent[]): void {
     for (const event of events) {
       this.#admitOne(event);
@@ -108,7 +108,7 @@ export class WaitingOnPersonRegister {
    * What the register holds, as one frozen reading. Cached between changes, and the maps are
    * copies so a render cannot watch them change.
    */
-  public get ledger(): WaitingOnPersonRecords {
+  public get records(): WaitingOnPersonRecords {
     const reading = this.#reading;
     if (reading !== undefined && this.#readingRevision === this.#revision) {
       return reading;

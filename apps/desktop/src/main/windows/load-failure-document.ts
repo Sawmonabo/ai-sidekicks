@@ -7,7 +7,7 @@
 //
 // It carries no script (the CSP would refuse an inline one), no link out, and no reload
 // control: a retry needs a renderer-to-main channel that does not exist, and a control that
-// claims a capability nothing implements is what the console's copy rules forbid. It is split
+// claims a capability nothing implements is what the app's copy rules forbid. It is split
 // from `../services/renderer-protocol.ts` so its grammar is unit-testable with no Electron
 // import.
 
@@ -101,7 +101,7 @@ export function renderLoadFailureDocument(reason: string): string {
     '<html lang="en">',
     "<head>",
     '<meta charset="utf-8">',
-    "<title>The console could not be loaded</title>",
+    "<title>The app could not be loaded</title>",
     "<style>",
     "html{color-scheme:light dark}",
     "body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;",
@@ -115,11 +115,11 @@ export function renderLoadFailureDocument(reason: string): string {
     "</head>",
     "<body>",
     "<main>",
-    "<h1>The console could not be loaded</h1>",
+    "<h1>The app could not be loaded</h1>",
     "<p>The application window is running, but its interface could not be served.</p>",
     `<p><code>${escapeHtmlText(shown)}</code></p>`,
     "<p>Close this window and start the application again. If it keeps happening, the",
-    "installed files may be incomplete — reinstall, or run the application from a fresh build.</p>",
+    "installed files may be incomplete — reinstall the application.</p>",
     "</main>",
     "</body>",
     "</html>",

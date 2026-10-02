@@ -9,13 +9,12 @@ import { readRefusalExtensions } from "./refusal-extensions.js";
 import { RefusalError, refuse, type Refusal } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
-/** A refusal widened by both registered members, plus a member that is not registered. */
+/** A refusal widened by the registered member, plus a member that is not registered. */
 function widenedRefusal(): Refusal & Record<string, unknown> {
   return {
-    ...refuse("sessions", "session.goal_delivery_failed", "Not delivered to every agent."),
+    ...refuse("sessions", "session.not_found", "The session is gone."),
     status: "unavailable",
     retry: { afterSeconds: 30 },
-    failedBindingIds: ["binding-a"],
   };
 }
 
@@ -42,12 +41,12 @@ describe("refusal extensions — a rebuild carries the registered set and nothin
   it("keeps an unregistered member off the rebuilt refusal", () => {
     // Spreading the candidate would put whatever a producer invented on screen.
     const normalized = normalizeWireRejection("repos", {
-      ...refuse("repos", "repo.locked", "Another node holds it."),
+      ...refuse("repos", "repo.locked", "The repository is locked."),
       authorizationHeader: "Bearer a-token",
-      failedBindingIds: ["binding-a"],
+      retry: { afterSeconds: 30 },
     });
 
-    expect(normalized.failedBindingIds).toStrictEqual(["binding-a"]);
+    expect(normalized.retry).toStrictEqual({ afterSeconds: 30 });
     expect(Object.hasOwn(normalized, "authorizationHeader")).toBe(false);
   });
 });

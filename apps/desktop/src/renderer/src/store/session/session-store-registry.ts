@@ -222,20 +222,6 @@ export class SessionStoreRegistry {
     return this.#changes.subscribe(listener);
   }
 
-  /** Listeners attached. Read by tests. */
-  public get listenerCount(): number {
-    return this.#changes.sinkCount;
-  }
-
-  /**
-   * Resume-settlement listeners attached: an assertion seam for tests. `disposeAll` clearing this
-   * emitter is otherwise unobservable, since every entry closes in the same act, and a sink left
-   * on a disposed registry would keep a React tree's closure alive unreported.
-   */
-  public get resumeSettlementListenerCount(): number {
-    return this.#resumeSettlements.sinkCount;
-  }
-
   /** True once `disposeAll` has run. A disposed registry opens nothing. */
   public get isDisposed(): boolean {
     return this.#disposed;

@@ -5,19 +5,23 @@
 // daemon's method map because it must speak while no service answers: at boot, while a start
 // is retried, and on Windows when the service wrote down why it cannot start.
 
-/** The topic's name on `daemon.subscribe`. */
+/**
+ * The topic's name on `daemon.subscribe`.
+ *
+ * @consumedBy the window's subscription to the service's status, when main publishes it
+ */
 export const DAEMON_STATUS_TOPIC = "daemon.status";
 
 /**
  * What the handshake settled, as `DaemonHelloAck` carries it. The members are the ack's own;
- * the console renders them and compares nothing.
+ * the app renders them and compares nothing.
  */
 export interface MainProcessNegotiation {
   readonly compatible: boolean;
   /** The daemon's chosen protocol version, verbatim. */
   readonly daemonProtocolVersion: string;
   /** The version this build proposed, verbatim. */
-  readonly consoleProtocolVersion: string;
+  readonly appProtocolVersion: string;
   /** The daemon's full supported set, where the refused ack carried one. */
   readonly daemonSupportedProtocols: readonly string[];
   /** The ack's own `reason`, present only on the incompatible arm. */
@@ -30,7 +34,7 @@ export interface MainProcessNegotiation {
 }
 
 /**
- * Where this window stands with its local runtime, in the supervisor's steps: `probing` is
+ * Where this window stands with the background service, in the supervisor's steps: `probing` is
  * the startup probe, `starting` the spawn and its readiness wait, `version-incompatible` a
  * refused handshake, `connected` the live link, `reconnecting` the backoff ladder, `offline`
  * that ladder's end, and `stopped` a deliberate shutdown. `unreported` is what a window holds

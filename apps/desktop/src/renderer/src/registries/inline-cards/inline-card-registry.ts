@@ -147,8 +147,3 @@ export class InlineCardRegistry {
 
 /** The process-wide registry the repos, composer and inspector features register into. */
 export const inlineCardRegistry: InlineCardRegistry = new InlineCardRegistry();
-
-/** One card kind's body, or `undefined` while nobody has filled it. */
-export function inlineCardBody(kind: InlineCardKind): InlineCardBodyDescriptor | undefined {
-  return inlineCardRegistry.bodyFor(kind);
-}

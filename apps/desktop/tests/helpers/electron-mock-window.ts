@@ -1,9 +1,6 @@
-// The `BrowserWindow` stand-in the one `electron` mock hands to production code.
-//
-// Split from `electron-mock.ts`, which owns the `electron` module itself (`app`, `Menu`,
-// `ipcMain`, `protocol`, the operation log); this file owns one window: what a test can read off
-// it, and what it does when the code under test loads a URL, focuses it, or destroys it.
-// `electron-mock.ts` re-exports the shapes declared here, so a suite imports one module.
+// The `BrowserWindow` stand-in the one `electron` mock hands to production code: what a test can
+// read off one window, and what it does when the code under test loads a URL, focuses it, or
+// destroys it. `electron-mock.ts` owns the rest of the `electron` module.
 
 import { vi } from "vitest";
 
@@ -43,16 +40,14 @@ export interface MockBrowserWindow {
   readonly webContents: MockWebContents;
   /** Every URL `loadURL` was called with, in order. */
   readonly loadedUrls: readonly string[];
-  /** Listeners registered on the window itself (`ready-to-show`). */
-  readonly onceHandlers: Map<string, () => void>;
   /** How many times this window was brought forward. */
   readonly focusCount: number;
   /**
    * How many times this window was asked to close.
    *
    * Counted apart from `isDestroyed` because Electron's `close` runs the window's teardown and
-   * fires `closed`, and this mock fires neither: suites drive `onceHandlers.get("closed")` by
-   * hand, so a case can assert what a close did before deciding what the ending reports.
+   * fires `closed`, and this mock does neither, so a case can assert what a close did before
+   * deciding what the ending reports.
    */
   readonly closeCount: number;
   isDestroyed(): boolean;
@@ -88,7 +83,6 @@ export class MockBrowserWindowImpl implements MockBrowserWindow {
   public readonly id: number;
   public readonly webContents: MockWebContents;
   public readonly loadedUrls: string[] = [];
-  public readonly onceHandlers: Map<string, () => void> = new Map<string, () => void>();
   #focusCount = 0;
   #closeCount = 0;
   #destroyed = false;
@@ -128,13 +122,12 @@ export class MockBrowserWindowImpl implements MockBrowserWindow {
     mock.recordConstruction(this);
   }
 
-  public once(eventName: string, handler: () => void): MockBrowserWindow {
-    this.onceHandlers.set(eventName, handler);
+  // No suite fires a listener on the window itself, so neither registration is recorded.
+  public on(): MockBrowserWindow {
     return this;
   }
 
-  public on(eventName: string, handler: () => void): MockBrowserWindow {
-    this.onceHandlers.set(eventName, handler);
+  public once(): MockBrowserWindow {
     return this;
   }
 

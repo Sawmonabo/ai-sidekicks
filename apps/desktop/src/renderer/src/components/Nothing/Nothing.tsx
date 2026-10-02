@@ -1,4 +1,4 @@
-// The five kinds of nothing in two shapes. Five absences render differently because the next move
+// The five kinds of empty state in two shapes. They render differently because the next move
 // differs for each; the kind set is closed, the traits table is total over it, and each kind
 // supplies its own copy, glyph and tone.
 //
@@ -8,7 +8,7 @@
 //   - `not-checked`: a dotted boundary; no question was put, which is neither "no" nor unknown.
 //   - `computing`: a clock glyph on a filled boundary; the answer is still being worked out.
 //
-// Kind is what is absent; placement is where it is mounted. `inline` is a badge beside the value
+// Kind is what is missing; placement is where it is mounted. `inline` is a badge beside the value
 // it qualifies; `block` stands in for a region's content. A badge in place of a whole pane reads
 // as unfinished paint and can only carry its second line as a tooltip. Copy is the caller's.
 
@@ -17,31 +17,25 @@ import "./Nothing.css";
 import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
-/** The closed set of absences. A tuple, so a test can count it; the union is derived. */
-export const NOTHING_KINDS = ["not-loaded", "empty", "error", "not-checked", "computing"] as const;
+/** The closed set of empty-state kinds. */
+export type NothingKind = "not-loaded" | "empty" | "error" | "not-checked" | "computing";
 
-/** One of `NOTHING_KINDS`. */
-export type NothingKind = (typeof NOTHING_KINDS)[number];
-
-/** The two shapes an absence takes. */
-export const NOTHING_PLACEMENTS = ["inline", "block"] as const;
-
-/** One of `NOTHING_PLACEMENTS`. */
-export type NothingPlacement = (typeof NOTHING_PLACEMENTS)[number];
+/** The two shapes an empty state takes. */
+export type NothingPlacement = "inline" | "block";
 
 /** Props for `Nothing`. */
 export interface NothingProps {
   readonly kind: NothingKind;
   /**
-   * Where this absence is mounted. Omitted, it is the kind's ordinary placement; name it when
+   * Where this empty state is mounted. Omitted, it is the kind's ordinary placement; name it when
    * the mount differs, such as a whole pane of `not-checked`, which is `block`.
    */
   readonly placement?: NothingPlacement;
-  /** What is absent, in one sentence. For `error`, the refusal's code or headline. */
+  /** What is missing, in one sentence. For `error`, the refusal's code or headline. */
   readonly title: string;
   /**
    * The second line. For `error` it is the daemon's message text, rendered verbatim; for every
-   * other kind it is the console's own prose. A block renders it as prose; a badge carries it
+   * other kind it is the app's own prose. A block renders it as prose; a badge carries it
    * as a tooltip.
    */
   readonly detail?: string;
@@ -113,7 +107,7 @@ const SHAPE_MODIFIER_BY_PLACEMENT: Readonly<Record<NothingPlacement, string>> = 
 const SKELETON_BAR_WIDTHS: readonly string[] = ["38%", "82%", "61%"];
 
 /**
- * Renders an absence of the given kind as a badge or a block; `placement` defaults per kind.
+ * Renders an empty state of the given kind as a badge or a block; `placement` defaults per kind.
  * Its copy comes from the caller.
  */
 export function Nothing(props: NothingProps): React.JSX.Element {
@@ -126,7 +120,7 @@ export function Nothing(props: NothingProps): React.JSX.Element {
 }
 
 /**
- * The badge: an absence that qualifies the value it sits beside. A skeleton badge is one bar,
+ * The badge: an empty state that qualifies the value it sits beside. A skeleton badge is one bar,
  * and carries no action because a read in flight has no next move.
  */
 function renderBadge(
@@ -155,7 +149,7 @@ function renderBadge(
   );
 }
 
-/** The block: an absence standing in for the content that is not there. */
+/** The block: an empty state standing in for the content that is not there. */
 function renderBlock(
   props: NothingProps,
   traits: NothingKindTraits,

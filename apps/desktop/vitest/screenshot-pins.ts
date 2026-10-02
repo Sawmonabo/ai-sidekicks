@@ -3,7 +3,7 @@
 // compares nothing, but these conditions decide what is in that picture: a capture in the host's
 // time zone shows the host's clock, and one through a fractional downscale shows glyphs resampled
 // off the pixel grid. Only conditions Playwright can be told (a context option set when the page
-// is built) belong here. The typeface does not: the console self-hosts its faces through
+// is built) belong here. The typeface does not: the app self-hosts its faces through
 // `src/renderer/src/styles/typeface.ts`, so a pin would show a face the product does not ship.
 
 import process from "node:process";
@@ -23,14 +23,14 @@ import { BROWSER_MODE_VIEWPORT } from "./browser-mode.js";
  * `viewport` sizes the Playwright page the tester iframe lives in, and is not
  * `BROWSER_MODE_VIEWPORT`, which sizes the iframe. Vitest fits the iframe into the page with
  * `scale = min(1, pageWidth / iframeWidth, pageHeight / iframeHeight)` as a CSS `transform:
- * scale()`. Against Playwright's 1280×720 default that was 0.8, so a 1440×900 console was
+ * scale()`. Against Playwright's 1280×720 default that was 0.8, so a 1440×900 window was
  * resampled off the pixel grid; a page at least as large as the iframe on both axes makes the
  * scale exactly 1. The height is `CAPTURE_WINDOW_HEIGHT_CEILING` rather than 900 because a
  * surface taller than the window is laid out whole in a grown tester window (`settled-capture.ts`)
  * and the page must hold the tallest one. The width stays at the measured 1440.
  *
  * The other options restate Playwright's current defaults: `deviceScaleFactor` multiplies into
- * the capture's dimensions (`screenshotOptions.scale` is `"device"`), and the console's base
+ * the capture's dimensions (`screenshotOptions.scale` is `"device"`), and the app's base
  * stylesheet branches on `prefers-reduced-motion` while Chromium branches on forced colors.
  * `colorScheme` is absent because the harness drives it per test through
  * `Emulation.setEmulatedMedia`, and a context-level value would be a second writer.

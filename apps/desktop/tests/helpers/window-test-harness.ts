@@ -5,7 +5,7 @@
 
 import { expect } from "vitest";
 
-import type { MockBrowserWindow } from "./electron-mock.js";
+import type { MockBrowserWindow } from "./electron-mock-window.js";
 
 /** The dev-server origin `ELECTRON_RENDERER_URL` carries under `electron-vite dev`. */
 export const DEV_SERVER_URL = "http://localhost:5173";
@@ -29,7 +29,7 @@ export const POLICY_OPERATIONS: readonly string[] = [
 
 /**
  * The mock window behind an `electron` `BrowserWindow` the factories hand back. Every recording a
- * case reads (`loadedUrls`, `onceHandlers`, the listener map) lives on the mock, not on
+ * case reads (`loadedUrls`, the `webContents` listener map) lives on the mock, not on
  * Electron's type.
  */
 export function asMockWindow(browserWindow: unknown): MockBrowserWindow {

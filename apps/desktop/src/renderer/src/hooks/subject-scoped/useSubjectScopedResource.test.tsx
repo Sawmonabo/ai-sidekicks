@@ -182,7 +182,7 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late"]);
     // The component goes on reading through the visit it is addressed at.
     expect(view.container.textContent).toBe("settled");
-    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.firingCount("unheld-resource")).toBe(1);
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late", "settled"]);

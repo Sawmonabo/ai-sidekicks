@@ -7,10 +7,9 @@
   line-height: 1.55;
 }
 
-/* The code and its mark are the red things in a refusal, set through the color properties
-   `styles/figure.css` and `Glyph.css` expose rather than by redeclaring their classes. */
+/* The mark is the red thing in a refusal, set through the color property `Glyph.css` exposes
+   rather than by redeclaring its class. */
 .meridian-refusal {
-  --meridian-figure-wire-color: var(--meridian-red-text);
   --meridian-glyph-color: var(--meridian-red-mark);
 }
 

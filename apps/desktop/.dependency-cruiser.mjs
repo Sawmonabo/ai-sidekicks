@@ -54,7 +54,7 @@ export default {
     {
       name: "no-circular",
       comment:
-        "A cycle makes module initialisation order load-bearing and un-reviewable. Break it by " +
+        "A cycle makes module initialization order load-bearing and un-reviewable. Break it by " +
         "moving the shared symbol into the lower folder, not by deep-importing past a barrel.",
       severity: "error",
       from: {},

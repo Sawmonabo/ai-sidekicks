@@ -19,14 +19,12 @@ import { effectiveSettings } from "./machine-settings-snapshot.js";
 
 /** A service whose feed never delivers and whose writes never answer. */
 const UNANSWERING_SERVICE: PreloadApi["machineSettings"] = {
-  read: () => NEVER_SETTLES,
   write: () => NEVER_SETTLES,
   subscribe: () => () => undefined,
 };
 
 /** A service whose feed never delivers and whose every write answers the file it holds. */
 const ACCEPTING_SERVICE: PreloadApi["machineSettings"] = {
-  read: () => NEVER_SETTLES,
   write: () => Promise.resolve({ ...MACHINE_SETTINGS_DEFAULTS, updatesAutomatic: false }),
   subscribe: () => () => undefined,
 };

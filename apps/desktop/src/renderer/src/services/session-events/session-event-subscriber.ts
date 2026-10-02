@@ -29,9 +29,13 @@
 
 import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import { RealClock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
-import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { readSessionId } from "../daemon/wire-identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
@@ -41,8 +45,8 @@ import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
-/** The site every tripwire this module reports names. */
-const SITE = "services/session-events/session-event-subscriber.ts";
+/** The source every diagnostic record this module captures names. */
+const DIAGNOSTIC_SOURCE = "services/session-events";
 
 /** Options for `SessionEventSubscriber`. */
 export interface SessionEventSubscriberOptions {
@@ -155,11 +159,6 @@ export class SessionEventSubscriber {
     return this.#unreadableDeliveryCount;
   }
 
-  /** Whether `dispose` has run. */
-  public get isDisposed(): boolean {
-    return this.#disposed;
-  }
-
   /**
    * Releases every subscription this subscriber holds. Final and idempotent. Applied-event counts
    * survive so `diagnostics` stays readable.
@@ -189,9 +188,11 @@ export class SessionEventSubscriber {
    * the window down for a transport that was merely away. Instead the signal is told the wire is
    * unreachable (by `openObservedSubscription`), the store is marked `subscription-closed` so the
    * session shows a named degradation rather than a quiet empty projection, and the id is retained
-   * for the returning edge. The store's cause is sticky until a completed re-pull clears it, and
-   * the retry asks for that re-pull. A session id the daemon does not admit, such as a hand-typed
-   * route address, has no stream to open, so it is marked closed and not retained.
+   * for the returning edge. The failure goes to the window's diagnostic capture: it is a wire
+   * fact, not a broken invariant of this window. The store's cause is sticky until a completed
+   * re-pull clears it, and the retry asks for that re-pull. A session id the daemon does not
+   * admit, such as a hand-typed route address, has no stream to open, so it is marked closed and
+   * not retained.
    */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
@@ -217,10 +218,9 @@ export class SessionEventSubscriber {
     } catch (subscriptionFailure: unknown) {
       this.#retry.retain(sessionId);
       this.#registry.markDegraded(sessionId, "subscription-closed");
-      reportTripwire(
-        "apply-chokepoint-bypass",
-        SITE,
-        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the subscriber holds no subscription for it, its store is marked subscription-closed, and the session is retried on the transport's returning edge`,
+      recordWireFact(
+        "subscription-open-failed",
+        `session ${sessionId}: ${lossyStringify(subscriptionFailure)}`,
       );
       return;
     }
@@ -276,11 +276,7 @@ export class SessionEventSubscriber {
     const refusal = this.#registry.enqueue(sessionId, events);
     if (refusal !== undefined) {
       this.#droppedAfterCloseCount += 1;
-      reportTripwire(
-        "apply-chokepoint-bypass",
-        SITE,
-        `a wire delivery for session ${sessionId} arrived after that session closed; the subscriber dropped it (${refusal.code}) rather than delivering into a store this window no longer holds`,
-      );
+      recordWireFact("delivery-after-close", `session ${sessionId}: ${refusal.code}`);
       return;
     }
     this.#appliedEventCountBySessionId.set(
@@ -298,4 +294,15 @@ export class SessionEventSubscriber {
         transcriptWindowDiagnostics.readingFor(sessionId),
     });
   }
+}
+
+/** Capture a wire fact for diagnostics; it never reaches the screen or the tripwire. */
+function recordWireFact(kind: string, detail: string): void {
+  windowDiagnosticCapture.record({
+    at: diagnosticStampAt(new RealClock()),
+    severity: "warning",
+    source: DIAGNOSTIC_SOURCE,
+    kind,
+    detail,
+  });
 }

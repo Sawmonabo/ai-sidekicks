@@ -98,7 +98,7 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
 
     expect(bar.line().value).toBe("keep going on the parser");
     const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
-    expect(refusal?.textContent).toContain("run.invalid_transition");
+    expect(refusal?.textContent).toContain("The run did not take this steer, so nothing was sent.");
     expect(refusal?.textContent).toContain("still in the line");
   });
 

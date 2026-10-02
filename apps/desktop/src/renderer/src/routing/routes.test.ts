@@ -1,6 +1,6 @@
 // Routes as values: parsed and rendered back. `parseRoute` and `formatRoute` are two hand-written
 // grammars over one shape, so the round trip is the case that catches a route that reopens
-// somewhere else after a reload. A hash the console did not write (a user, a stale bookmark, an
+// somewhere else after a reload. A hash the app did not write (a user, a stale bookmark, an
 // older build) must land somewhere legible: the empty hash is not an error, every shape the
 // grammar does not have resolves to not-found, a malformed escape must not throw, and an empty
 // segment must not be dropped, or `#/session//foo` would open session `foo`.

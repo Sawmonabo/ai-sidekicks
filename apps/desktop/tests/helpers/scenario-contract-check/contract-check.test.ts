@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import { SCENARIOS } from "../../../fixtures/index.js";
+import { EMPTY_SESSION_SCENARIO } from "../../../fixtures/scenarios/empty-session.js";
+import type { Scenario } from "../../../fixtures/scenario.js";
 import { findScenarioContractDefects } from "./contract-check.js";
 
 describe("scenario contract — the shipped scenarios", () => {
@@ -14,5 +16,21 @@ describe("scenario contract — the shipped scenarios", () => {
         (defect) => `${defect.scenarioId}: ${defect.subject} — ${defect.reason}`,
       ),
     ).toStrictEqual([]);
+  });
+
+  it("reports an invented call and a second reply to the same call", () => {
+    const [sessionRead] = EMPTY_SESSION_SCENARIO.replies;
+    if (sessionRead === undefined) {
+      throw new Error("the empty-session scenario no longer answers session.read");
+    }
+    const broken: Scenario = {
+      ...EMPTY_SESSION_SCENARIO,
+      replies: [sessionRead, sessionRead, { call: "workflow.runList", result: [] }],
+    };
+
+    expect(findScenarioContractDefects([broken]).map((defect) => defect.subject)).toStrictEqual([
+      'reply "session.read"',
+      'reply "workflow.runList"',
+    ]);
   });
 });

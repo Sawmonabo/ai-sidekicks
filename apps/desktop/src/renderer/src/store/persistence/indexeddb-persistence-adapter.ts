@@ -20,6 +20,7 @@ import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
   isQuotaExceeded,
+  readErrorName,
   unmeasuredQuota,
   type PartitionSummary,
   type PersistenceAdapter,
@@ -113,12 +114,6 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   public async write(record: StoredRecord): Promise<void> {
     await this.#guard(async () => {
       await this.#database.put(UI_STATE_STORE_NAME, record);
-    });
-  }
-
-  public async delete(partition: string, key: string): Promise<void> {
-    await this.#guard(async () => {
-      await this.#database.delete(UI_STATE_STORE_NAME, [partition, key]);
     });
   }
 
@@ -216,7 +211,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
       throw new PersistenceAdapterError(
         refusePersistence(
           "adapter-unavailable",
-          `the preferences database rejected an operation (${describeError(error)})`,
+          `the preferences database rejected an operation (${readErrorName(error) ?? "unknown error"})`,
         ),
         { cause: error },
       );
@@ -252,7 +247,6 @@ export async function openUiStateDatabase(
           keyPath: ["partition", "key"],
         });
         store.createIndex("by-partition", "partition");
-        store.createIndex("by-updated-at", "updatedAt");
       },
     });
     const settled = await Promise.race([opening, timeout]);
@@ -281,21 +275,12 @@ export async function openUiStateDatabase(
 }
 
 /**
- * Maps an open failure to its reason. Exported because the failures reach it by different
- * routes (Chromium throws `SecurityError` synchronously on an opaque origin, while
- * `VersionError` arrives on the request's `error` event), so a test must drive each.
+ * Maps an open failure to its reason. Only a newer database on disk has a reason of its own;
+ * every other failure (Chromium's synchronous `SecurityError` on an opaque origin among them) is
+ * a refused open.
  */
-export function classifyOpenFailure(error: unknown): PersistenceUnavailableReason {
-  if (typeof error === "object" && error !== null && "name" in error) {
-    const name = (error as { readonly name: unknown }).name;
-    if (name === "VersionError") {
-      return "version-mismatch";
-    }
-    if (name === "SecurityError" || name === "InvalidStateError" || name === "UnknownError") {
-      return "open-refused";
-    }
-  }
-  return "open-refused";
+function classifyOpenFailure(error: unknown): PersistenceUnavailableReason {
+  return readErrorName(error) === "VersionError" ? "version-mismatch" : "open-refused";
 }
 
 interface UiStateDatabaseSchema extends DBSchema {
@@ -304,7 +289,6 @@ interface UiStateDatabaseSchema extends DBSchema {
     value: StoredRecord;
     indexes: {
       "by-partition": string;
-      "by-updated-at": number;
     };
   };
 }
@@ -318,14 +302,4 @@ function resolveIndexedDbFactory(options: OpenUiStateDatabaseOptions): IDBFactor
     return options.indexedDbFactory;
   }
   return typeof indexedDB === "undefined" ? undefined : indexedDB;
-}
-
-function describeError(error: unknown): string {
-  if (typeof error === "object" && error !== null && "name" in error) {
-    const name = (error as { readonly name: unknown }).name;
-    if (typeof name === "string") {
-      return name;
-    }
-  }
-  return "unknown error";
 }
