@@ -36,7 +36,7 @@ import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
  */
 export const TIMELINE_ROW_SUMMARY_MAX_LEN = 4096;
 
-/** The event type the `rollback_boundary` arm pins, as registered in `SESSION_EVENT_TYPES`. */
+/** The event type the `rollback_boundary` arm pins, as registered in `SessionEventType`. */
 export const TIMELINE_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
 
 /**

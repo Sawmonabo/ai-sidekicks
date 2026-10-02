@@ -2,7 +2,6 @@
 // `SESSION_EVENT_CATEGORY_BY_TYPE` in `event.ts`.
 
 import type { EventCategory } from "./event-envelope.js";
-import type { SessionEvent } from "./event-variant-types.js";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "./event.js";
 
 // A type string is an immutable wire identifier, never renamed. Its category is its entry in the
@@ -169,90 +168,6 @@ export type SessionEventType =
   | "workflow.parallel_join_cancellation"
   // workflow_gate_resolution
   | "workflow.gate_resolved";
-
-/**
- * The event types with a payload variant registered in `SessionEventSchema`. The annotation refuses
- * a literal with no variant but not a missing one, so registering a union arm adds its type here.
- */
-export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
-  "session.created",
-  "workspace.preparing",
-  "workspace.ready",
-  "workspace.stale",
-  "workspace.archived",
-  "worktree.created",
-  "worktree.ready",
-  "worktree.dirty",
-  "worktree.merged",
-  "worktree.retired",
-  "event.compacted",
-  "assistant.message",
-  "assistant.thinking_update",
-  "tool.invoked",
-  "tool.result",
-  "tool.error",
-  "approval.rejected",
-  "approval.canceled",
-  "approval.remembered",
-  "approval.rule_revoked",
-  "moderation.review_flagged",
-  "plan.proposed",
-  "plan.accepted",
-  "plan.handed_off",
-  "question.asked",
-  "mcp.server_status_changed",
-  "mcp.server_oauth_completed",
-  "cloud.task_updated",
-  "session.restore_finished",
-  "session.goal_cleared",
-  "session.notice",
-  "session.side_question_answered",
-  "session.spend_limit_reached",
-  "git.settled",
-  "relay.pin_refused",
-  "command.ended",
-  "usage.model_rerouted",
-  "session.archived",
-  "session.reactivated",
-  "session.closed",
-  "session.pinned",
-  "session.unpinned",
-  "session.muted",
-  "session.unmuted",
-  "session.converted",
-  "session.branch_changed",
-  "session.swept_to_repo_root",
-  "agent.provider_binding_changed",
-  "agent.provider_binding_change_failed",
-  "approval.requested",
-  "approval.approved",
-  "approval.reviewer_denied",
-  "approval.denial_overridden",
-  "run.queued",
-  "run.step_limit_reached",
-  "run.token_limit_reached",
-  "run.recovery_resolved",
-  "run.refusal_choice_requested",
-  "run.refusal_choice_resolved",
-  "run.usage_credits_choice_requested",
-  "run.usage_credits_choice_resolved",
-  "session.goal_updated",
-  "session.renamed",
-  "pty.control_changed",
-  "workflow.started",
-  "workflow.resumed",
-  "workflow.canceled",
-  "workflow.results_posted",
-  "workflow.step_started",
-  "workflow.step_finished",
-  "workflow.step_failed",
-  "workflow.step_canceled",
-  "workflow.step_skipped",
-  "workflow.gate_resolved",
-  "backup.completed",
-  "backup.failed",
-  "backup.restored",
-] as const;
 
 // One array per `EventCategory`, derived from `SESSION_EVENT_CATEGORY_BY_TYPE`, so each holds
 // exactly its category's types and together they partition the registry.

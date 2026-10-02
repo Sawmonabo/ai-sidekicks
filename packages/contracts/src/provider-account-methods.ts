@@ -8,8 +8,8 @@
 // any name.
 //
 // A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose `fields` is untyped. The
-// guarantee that matters there is that `provideraccount.token_class_refused` names which
-// condition failed and never quotes, echoes or excerpts the supplied value.
+// guarantee that matters there is that a refusal of a supplied token names which condition failed
+// and never quotes, echoes or excerpts the supplied value.
 //
 // `credentialGeneration` is daemon-owned and on no request: a caller that could assert a
 // generation could assert that a stale quota reading or a superseded attention epoch is current.

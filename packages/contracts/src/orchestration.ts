@@ -25,6 +25,7 @@ import { defineMethodDescriptors, type MethodDescriptor } from "./method-descrip
 import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
 import { DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
+import { refuseSelfParentingRun } from "./timeline/child-run-summary.js";
 import {
   OrchestrationBudgetReadRequestSchema,
   OrchestrationBudgetStateSchema,
@@ -171,10 +172,12 @@ export const ChildRunLinkSchema: z.ZodType<ChildRunLink> = z.discriminatedUnion(
       head: ChildRunHeadSchema,
     })
     .strict()
-    .refine((link) => link.childRunId !== link.parentRunId, {
-      path: ["parentRunId"],
-      message: "No run is its own parent.",
-    }),
+    .superRefine((link, issueContext) =>
+      refuseSelfParentingRun(
+        { runId: link.childRunId, parentRunId: link.parentRunId },
+        issueContext,
+      ),
+    ),
   z
     .object({
       kind: z.literal("providerChild"),

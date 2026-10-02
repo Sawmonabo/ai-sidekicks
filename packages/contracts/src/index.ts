@@ -733,7 +733,6 @@ export {
   RECOVERY_EVENTS_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   SECURITY_EVENTS_EVENT_TYPES,
-  SESSION_EVENT_TYPES,
   SESSION_LIFECYCLE_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
@@ -809,7 +808,11 @@ export type {
   WorkflowStepSkippedEvent,
   WorkflowStepStartedEvent,
 } from "./event-variant-types.js";
-export { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "./event.js";
+export {
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  SESSION_EVENT_TYPES,
+  SessionEventSchema,
+} from "./event.js";
 // The git-flow contracts import one way, shared <- hosting <- local <- methods, and each holds
 // eager module-scope Zod schemas, so the chain must stay acyclic. `gitflow/shared.ts` is not
 // exported: its scalars are building blocks of the public schemas.
