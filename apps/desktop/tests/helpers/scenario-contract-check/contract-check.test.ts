@@ -33,4 +33,15 @@ describe("scenario contract — the shipped scenarios", () => {
       'reply "workflow.runList"',
     ]);
   });
+
+  it("reports a scripted value its method's response schema refuses", () => {
+    const drifted: Scenario = {
+      ...EMPTY_SESSION_SCENARIO,
+      replies: [{ call: "mcp.list", result: { servers: [{ serverName: "filesystem" }] } }],
+    };
+
+    expect(findScenarioContractDefects([drifted]).map((defect) => defect.subject)).toStrictEqual([
+      'reply "mcp.list"',
+    ]);
+  });
 });

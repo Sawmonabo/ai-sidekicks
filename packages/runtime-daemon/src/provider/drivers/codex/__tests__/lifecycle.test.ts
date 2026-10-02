@@ -97,7 +97,7 @@ import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver
 // --------------------------------------------------------------------------
 
 describe("CodexDriver spawn and handshake", () => {
-  it("spawns the provider behind the termios prelude and declines experimental surfaces", async () => {
+  it("spawns the provider behind the termios prelude and opts into the experimental API", async () => {
     const harness = createHarness();
     await createdSession(harness);
 
@@ -116,7 +116,7 @@ describe("CodexDriver spawn and handshake", () => {
 
     const initialize = harness.server.framesForMethod("initialize")[0];
     expect(initialize?.["params"]).toMatchObject({
-      capabilities: { experimentalApi: false, requestAttestation: false },
+      capabilities: { experimentalApi: true, requestAttestation: false },
     });
     expect(harness.server.framesForMethod("initialized")).toHaveLength(1);
   });

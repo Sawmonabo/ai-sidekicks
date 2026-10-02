@@ -14,7 +14,7 @@ import {
 import { buildAuthProbeResult, type DriverAuthProbeResult } from "../../provider-driver.js";
 
 /**
- * Zero-turn auth probe; answerable with `experimentalApi: false`. Preferred over the `codex login
+ * Zero-turn auth probe, which no experimental gate guards. Preferred over the `codex login
  * status` and `codex doctor --json` CLIs, which spawn a second process and parse human-shaped
  * output.
  */

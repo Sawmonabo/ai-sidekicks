@@ -74,7 +74,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       ? selectAddressedBindingGroup(enumeration.groups, addressed)
       : undefined;
   const catalog = composeCommandList({
-    offeredCommands: readCommands().offeredCommands,
+    runnableCommands: readCommands().runnableCommands,
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCommandList(catalog, prefix);

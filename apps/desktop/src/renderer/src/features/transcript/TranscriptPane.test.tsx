@@ -7,11 +7,10 @@ import { registerTranscriptRowRenderer } from "./transcript-row-renderer.js";
 // The shared stub: `happy-dom` reports zero for both box readings, and a viewport with no
 // box holds no rows.
 import { withLaidOutViewport } from "./viewport/viewport-controller.test-support.js";
-import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
   openSessionStoreWithPaneLog,
-  paneContext,
   renderTranscriptPane as renderPane,
+  transcriptPaneContext,
 } from "./TranscriptPane.test-support.js";
 
 beforeEach(() => {
@@ -32,7 +31,7 @@ describe("TranscriptPane — the body", () => {
     ));
     const sessionStore = openSessionStoreWithPaneLog();
     const pane = renderPane({
-      context: paneContext({ sessionStore } as Partial<TranscriptPaneContext>),
+      context: transcriptPaneContext(sessionStore),
     });
     const feed = pane.querySelector('[role="feed"]');
     expect(feed).not.toBeNull();

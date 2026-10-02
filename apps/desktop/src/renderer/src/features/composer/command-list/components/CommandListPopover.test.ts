@@ -1,5 +1,6 @@
-// What a press on the popover does: a provider row runs nothing and a console row runs. Driven
-// through the whole composer, because that is where an open popover exists.
+// What the popover draws and what a press on it does: a closed console command is not drawn, a
+// provider row runs nothing and a console row runs. Driven through the whole composer, because
+// that is where an open popover exists.
 
 import { describe, expect, it } from "vitest";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
@@ -75,6 +76,34 @@ describe("CommandList — the list activates its active row", () => {
 
     expect(counted.runCount()).toBe(1);
     expect(mounted.container.querySelector(".meridian-command-discovery__notice")).toBeNull();
+  });
+});
+
+describe("CommandList — only what runs here is drawn", () => {
+  it("leaves a closed command out of the list and keeps an open one", async () => {
+    const closedCommandId = `${TEST_COMMAND_ID}.closed`;
+    for (const [commandId, unavailable] of [
+      [TEST_COMMAND_ID, undefined],
+      [closedCommandId, "Closed while the test runs"],
+    ] as const) {
+      commandRegistry.register({
+        id: commandId,
+        title: "A console act",
+        group: "Test",
+        run: () => undefined,
+        ...(unavailable === undefined ? {} : { unavailable }),
+      });
+      registeredIds.push(commandId);
+    }
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerLeadAgentId()),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    expect(optionNames(mounted.container)).toContain(TEST_COMMAND_ID);
+    expect(optionNames(mounted.container)).not.toContain(closedCommandId);
   });
 });
 

@@ -28,11 +28,8 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 // Imported deeply, not through the feature's `index.ts`: widening the public entry for one test
 // would be wrong.
 import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
-import {
-  TranscriptPane,
-  type TranscriptPaneContext,
-} from "@renderer/features/transcript/TranscriptPane.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
+import { TranscriptPane } from "@renderer/features/transcript/TranscriptPane.js";
+import { transcriptPaneContext } from "@renderer/features/transcript/TranscriptPane.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
@@ -43,24 +40,6 @@ import { SessionScreenContainer } from "@renderer/features/transcript/SessionScr
  * before the first beat and mark itself degraded.
  */
 const SCENARIO_BASE_CURSOR = 0;
-
-/**
- * The pane context, with the members this pane reads real and the rest cast. The bridge
- * handle, the durable UI-state store and the draft store are never touched, and one of them
- * opens a database, so they are cast rather than constructed. The bridge the transcript does
- * read is the provider's, which is real.
- */
-function transcriptPaneContext(
-  sessionId: string,
-  sessionStore: SessionStore,
-): TranscriptPaneContext {
-  return {
-    kind: "transcript",
-    paneId: "transcript-pane",
-    frameStore: new WindowStore({ initialRoute: { kind: "session", sessionId } }),
-    sessionStore,
-  } as unknown as TranscriptPaneContext;
-}
 
 /**
  * A real store holding the whole of one scenario's log, so the projection, the run group fold
@@ -88,7 +67,7 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario })}>
       <SessionScreenContainer>
-        <TranscriptPane context={transcriptPaneContext(scenario.sessionId, sessionStore)} />
+        <TranscriptPane context={transcriptPaneContext(sessionStore, scenario.sessionId)} />
       </SessionScreenContainer>
     </FixtureBridgeProvider>,
   );

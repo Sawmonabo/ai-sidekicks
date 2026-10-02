@@ -5,6 +5,7 @@
 import { useMemo, type ReactNode } from "react";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
+import { MCP_NOTICE_STREAM } from "@renderer/services/daemon/session-event-streams.js";
 import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -30,7 +31,7 @@ function mcpServerOperationsOver(bridge: PlatformBridge): McpServerOperations {
       unwrapDaemonReply(await callDaemon(bridge, "mcp.list", {}, { signal })),
     subscribeInventoryChanges: (onChange) =>
       openObservedSubscription(bridge.transportReconnect, () =>
-        bridge.daemon.subscribe("mcp.subscribe", {}, () => {
+        bridge.daemon.subscribe(MCP_NOTICE_STREAM, {}, () => {
           onChange();
         }),
       ),

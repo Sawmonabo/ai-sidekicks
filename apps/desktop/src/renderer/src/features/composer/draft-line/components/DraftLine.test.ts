@@ -1,12 +1,23 @@
 // The message line, Send, and the draft beneath them: an unsent body lives in the supplied
 // draft store, so a send that did not land must leave what the person wrote (a line with its
-// own copy would lose it). Two presses inside one frame send once.
+// own copy would lose it). Two presses inside one frame send once, and a line-reading command
+// sent with Send runs instead of going out as a message.
 
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { QUEUE_CREATED, sendCallsAnswering } from "../send-router.test-support.js";
+import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send-router.test-support.js";
+import {
+  WORKFLOW_COMMAND_ROOT,
+  WORKFLOW_START_COMMAND_PREFILL,
+} from "../../command-list/workflow-command/workflow-command-grammar.js";
+import {
+  fixtureWorkflowStartOperations,
+  recordedWorkflowCalls,
+} from "../../command-list/workflow-command/workflow-command.test-support.js";
+import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow-command/hooks/useWorkflowStartPrefill.js";
 import {
   FIRST_AGENT_ID,
   SECOND_AGENT_ID,
@@ -174,5 +185,48 @@ describe("DraftLine — one send in flight", () => {
       });
     }
     expect(settleCalls).toHaveLength(2);
+  });
+});
+
+describe("DraftLine — Send runs a line-reading command", () => {
+  afterEach(() => {
+    commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
+  });
+
+  it("starts the workflow a sent `/workflow start <name>` names, and sends no message", async () => {
+    // Registered here as the palette entry would register it: the executor sends an unlisted
+    // name as typed before any handler runs.
+    commandRegistry.register({
+      id: WORKFLOW_COMMAND_ROOT,
+      title: "Start a workflow",
+      group: WORKFLOW_START_COMMAND_GROUP,
+      run: () => undefined,
+    });
+    const sentMethods: string[] = [];
+    const workflowCalls = recordedWorkflowCalls();
+    const { line, result } = mountDraftLine({
+      calls: sendCallsAnswering(async ({ method }) => {
+        sentMethods.push(method);
+        return QUEUE_CREATED;
+      }),
+      draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+      sessionStore: openSessionStore(),
+      workflowStartOperations: fixtureWorkflowStartOperations({
+        definitions: [{ name: "nightly-review" }],
+        calls: workflowCalls,
+      }),
+    });
+
+    fireEvent.change(line, {
+      target: { value: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review` },
+    });
+    await act(async () => {
+      pressSend(result.container);
+    });
+
+    expect(workflowCalls.started).toStrictEqual([
+      { workflowVersionId: "version-nightly-review", sessionId: SESSION_ID },
+    ]);
+    expect(sentMethods).toStrictEqual([]);
   });
 });

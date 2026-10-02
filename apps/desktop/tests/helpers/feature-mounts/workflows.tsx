@@ -40,10 +40,10 @@ import {
   registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { paneBinding, resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
+import { paneContext } from "../pane-context.js";
+import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";
 
@@ -66,28 +66,11 @@ async function paneBodyComponent(
 }
 
 /**
- * The pane layout context a pane is mounted with, minus what each caller supplies.
- *
- * The caller passes the address union, not a `Pick`: `entity` is not a key every arm has, and
- * the union stops a tier mounting a workflow pane over an entity kind the registry refuses.
+ * The session store a workflows pane is bound to, opened with the fold a window composes;
+ * without projectors every event folds into no entity.
  */
-function paneContext(
-  address: PaneAddress & { readonly paneId: string },
-  bridge: PlatformBridge,
-): PaneContext {
-  return {
-    ...address,
-    ...paneBinding({
-      paneId: address.paneId,
-      bridge,
-      // Opened with the fold a window composes; without projectors every event folds into no
-      // entity.
-      sessionStore: new SessionStore({
-        sessionId: PROBE_SESSION_ID,
-        projectors: COMPOSED_ENTITY_PROJECTORS,
-      }),
-    }),
-  };
+function probeSessionStore(): SessionStore {
+  return new SessionStore({ sessionId: PROBE_SESSION_ID, projectors: COMPOSED_ENTITY_PROJECTORS });
 }
 
 /**
@@ -183,12 +166,8 @@ export async function mountWorkflowRunPane(): Promise<MountedView> {
     <FixtureBridgeProvider fixture={fixture}>
       <WorkflowRunPaneBody
         context={paneContext(
-          {
-            kind: "workflow-run",
-            paneId: "pane-workflow-run",
-            entity: { kind: "workflow-run", id: PARKED_RUN.workflowRunId },
-          },
-          bridge,
+          { kind: "workflow-run", entity: { kind: "workflow-run", id: PARKED_RUN.workflowRunId } },
+          { paneId: "pane-workflow-run", bridge, sessionStore: probeSessionStore() },
         )}
       />
     </FixtureBridgeProvider>,
@@ -225,10 +204,15 @@ export async function mountWorkflowBuilderPane(): Promise<MountedView> {
         context={paneContext(
           {
             kind: "workflow-builder",
-            paneId: "pane-workflow-builder",
             entity: { kind: "workflow-definition", id: definition().id },
           },
-          bridge,
+          {
+            paneId: "pane-workflow-builder",
+            bridge,
+            sessionStore: probeSessionStore(),
+            // The builder hands its canvas the UI-state store, node layout's home, so it answers.
+            uiStateStore: UiStateStore.opening(),
+          },
         )}
       />
     </FixtureBridgeProvider>,

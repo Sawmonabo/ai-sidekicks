@@ -8,13 +8,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { RepoMountsReader } from "@renderer/features/repos/mounts/repo-mounts-reader.js";
-import { scriptedRepoOperations } from "@renderer/features/repos/repo-operations.test-support.js";
 import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { OpenSessionEntry } from "@renderer/store/session/open-session-entry.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
+import { failingRepoMountsReader } from "@test/helpers/failing-repo-mounts-reader.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
@@ -97,12 +96,7 @@ describe("SessionCatchUpLine", () => {
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
-    // Every repository call rejects until scripted, so each mounts pass fails.
-    const mountsReader = new RepoMountsReader({
-      operations: scriptedRepoOperations(),
-      sessionStore: entry.store,
-      clock,
-    });
+    const mountsReader = failingRepoMountsReader(entry.store, clock);
     const container = renderLine(entry.store, clock, () => {
       entry.refreshScheduler.request("user-request");
     });

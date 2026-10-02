@@ -12,14 +12,14 @@ import { type CommandDefinition } from "@renderer/registries/commands/command-ty
 import type { AppRoute } from "@renderer/routing/routes.js";
 
 /**
- * The narrow face of the console's command list the composer reads and acts through.
- * `offeredCommands` is what the popover may list; `runnableCommandIds` is what a typed name is
- * recognized against, so a command hidden or closed here is sent as typed rather than run.
+ * The narrow face of the console's command list the composer reads and acts through. Only what
+ * runs here is listed and recognized: a command hidden or closed here is neither drawn in the
+ * popover nor run when typed, and is sent as typed instead.
  */
 export interface ComposerCommands {
-  /** Every command offered where this composer is, ordered by group then title. */
-  readonly offeredCommands: readonly CommandDefinition[];
-  /** Every offered command whose owner has not closed it, so it would run if typed. */
+  /** Every command offered where this composer is and not closed, ordered by group then title. */
+  readonly runnableCommands: readonly CommandDefinition[];
+  /** The ids of `runnableCommands`, which a typed name is recognized against. */
   readonly runnableCommandIds: readonly string[];
   /** Run one by id, fail-closed on visibility. Never awaits the command itself. */
   invoke(commandId: string): CommandInvocationOutcome;
@@ -31,12 +31,12 @@ export interface ComposerCommands {
  */
 export function readComposerCommands(route: AppRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
-  const offeredCommands = commandRegistry.commandsFor(whenContext);
+  const runnableCommands = commandRegistry
+    .commandsFor(whenContext)
+    .filter((command) => command.unavailable === undefined);
   return {
-    offeredCommands,
-    runnableCommandIds: offeredCommands
-      .filter((command) => command.unavailable === undefined)
-      .map((command) => command.id),
+    runnableCommands,
+    runnableCommandIds: runnableCommands.map((command) => command.id),
     invoke: (commandId: string) => commandRegistry.invoke(commandId, whenContext),
   };
 }

@@ -3,11 +3,13 @@
 // the tripwire, never delivered into a torn-down subscriber.
 //
 // The engine decides what is due; `event-delivery.fixture.ts` decides who gets it (fan-out, replay
-// and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies against
-// engine time. `advance`, the one reach that delivers, is guarded here by the disposed flag.
-// Attaching a sink needs no guard, since `dispose()` clears the emitter.
+// and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies, and the
+// machine notices a settled reply pushes, against engine time. `advance`, the one reach that
+// delivers, is guarded here by the disposed flag. Attaching a sink needs no guard, since
+// `dispose()` clears the emitters.
 
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
@@ -38,6 +40,13 @@ export interface ScenarioProgress {
   readonly isComplete: boolean;
 }
 
+/** A machine notice as its stream's subscribers are handed it. */
+export interface DeliveredNotice {
+  /** The stream name it is pushed on. */
+  readonly stream: string;
+  readonly payload: unknown;
+}
+
 /** How a `ScenarioEngine` is built: the scenario to play, and optionally its clock. */
 export interface ScenarioEngineOptions {
   readonly scenario: Scenario;
@@ -52,8 +61,13 @@ export class ScenarioEngine {
   // Who is listening, and the record of what has landed.
   readonly #delivery = new ScenarioDelivery();
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
+  // Notices parked on the clock, apart from replies so `pendingReplyCount` counts requests only.
+  readonly #heldNotices = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
+  readonly #notices = new Emitter<DeliveredNotice>("scenario notice");
   // How many computed answers this playback has produced for each call name.
   readonly #computedRepliesByCall = new Map<string, number>();
+  // The requests each write has been answered for, in settle order.
+  readonly #answeredRequestsByCall = new Map<string, unknown[]>();
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
   #disposed = false;
@@ -141,8 +155,10 @@ export class ScenarioEngine {
       this.#clock.advance(deltaMs);
     }
     // Held replies are released before this advance's beats, so a caller cannot observe a beat
-    // delivered by an advance whose own reply it is still waiting on.
+    // delivered by an advance whose own reply it is still waiting on. Notices follow replies,
+    // since each is pushed by a reply that has already settled.
     this.#heldReplies.releaseThrough(this.#elapsedMs);
+    this.#heldNotices.releaseThrough(this.#elapsedMs);
     if (due.length > 0) {
       this.#deliveredBeatCount += due.length;
       this.#delivery.admitScriptedBeats(due.map((beat) => beat.event));
@@ -195,12 +211,75 @@ export class ScenarioEngine {
   }
 
   /**
+   * Record that the write `call` was answered for `request`. Read back by a computed reply through
+   * {@link answeredRequests}, so a read can reflect a write the playback has already answered.
+   */
+  public recordAnsweredRequest(call: string, request: unknown): void {
+    const answered = this.#answeredRequestsByCall.get(call);
+    if (answered === undefined) {
+      this.#answeredRequestsByCall.set(call, [request]);
+      return;
+    }
+    answered.push(request);
+  }
+
+  /** The requests the write `call` has been answered for in this playback, oldest first. */
+  public answeredRequests(call: string): readonly unknown[] {
+    return this.#answeredRequestsByCall.get(call) ?? [];
+  }
+
+  /**
+   * Push one machine notice once the frozen clock has moved `afterMs` further, or at once for no
+   * delay. `composeAtDelivery` is asked for the notice when it comes due and answers `undefined`
+   * for none. `false` when the backlog of parked notices is already at its cap. A disposed engine
+   * pushes nothing.
+   */
+  public scheduleNotice(
+    afterMs: number,
+    composeAtDelivery: () => DeliveredNotice | undefined,
+  ): boolean {
+    if (this.#disposed) {
+      return true;
+    }
+    const deliver = (): void => {
+      const notice = composeAtDelivery();
+      if (notice !== undefined) {
+        this.#notices.emit(notice);
+      }
+    };
+    if (afterMs <= 0) {
+      deliver();
+      return true;
+    }
+    return this.#heldNotices.hold(this.#elapsedMs + afterMs, (outcome) => {
+      if (outcome === "due") {
+        deliver();
+      }
+    });
+  }
+
+  /**
+   * Subscribe to the notices pushed on one stream, by the name a subscriber opened it under.
+   * Returns an idempotent unsubscribe.
+   */
+  public subscribeToNotices(stream: string, deliver: (payload: unknown) => void): Unsubscribe {
+    return this.#notices.subscribe((notice) => {
+      if (notice.stream === stream) {
+        deliver(notice.payload);
+      }
+    });
+  }
+
+  /**
    * Final. Later advances are dropped and reported; sinks are released and held replies abandoned,
-   * since an unsettled promise would leave its view loading for the life of the window.
+   * since an unsettled promise would leave its view loading for the life of the window. A parked
+   * notice is dropped, as nothing is left to hear it.
    */
   public dispose(): void {
     this.#disposed = true;
     this.#delivery.clear();
+    this.#notices.clear();
     this.#heldReplies.abandonAll();
+    this.#heldNotices.abandonAll();
   }
 }

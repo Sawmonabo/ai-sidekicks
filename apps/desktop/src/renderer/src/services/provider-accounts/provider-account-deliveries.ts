@@ -18,16 +18,6 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts";
-
-/**
- * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the
- * registered notification union so its members are the wire's own.
- */
-export type ProviderLoginCompletion = Extract<
-  ProviderAccountNotification,
-  { kind: "login_completed" }
->;
-
 import { RealClock } from "@renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -43,6 +33,15 @@ import {
   type UnreadableDeliveryReading,
 } from "../wire-reads/unreadable-deliveries.js";
 import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+
+/**
+ * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the
+ * registered notification union so its members are the wire's own.
+ */
+export type ProviderLoginCompletion = Extract<
+  ProviderAccountNotification,
+  { kind: "login_completed" }
+>;
 
 /** What the reading hands over so a frame can reach a view without this module publishing. */
 export interface ProviderAccountDeliverySink {
@@ -60,9 +59,7 @@ export interface ProviderAccountDeliverySink {
  * One provider-account tail: the frames it carries and the order they reach the fold in. The hold,
  * the unreadable count and the once-only high-water diagnostic move only on a delivery, so a
  * reading cannot apply a held frame twice. The fold is a constructor parameter because the reading
- * also loads the registry snapshot into it and composes its readout from it.
- *
- * @consumedBy the provider account service, which folds quota frames
+ * also loads the registry snapshot into it and draws its accounts and readings from it.
  */
 export class ProviderAccountDeliveries {
   readonly #fold: ProviderAccountFold;

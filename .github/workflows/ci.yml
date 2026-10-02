@@ -96,9 +96,34 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
 
+  # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
+  # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
+  node-version:
+    name: node version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      major-minor: ${{ steps.read.outputs.major-minor }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+          persist-credentials: false
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - name: Read .nvmrc
+        id: read
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < .nvmrc)"
+          echo "major-minor=[\"$(cut -d. -f1,2 <<< "$version")\"]" >> "$GITHUB_OUTPUT"
+
   # Full-repo lint, format check, build, typecheck and test on the Node floor.
   test:
     name: test (${{ matrix.os }} / node ${{ matrix.node }})
+    needs: [node-version]
     runs-on: ${{ matrix.os }}
     # Job-scoped `permissions:` and `env:` are both load-bearing for the Turborepo remote cache:
     #   - A job-level `permissions:` map replaces the workflow-level one, so `contents: read` is
@@ -116,10 +141,8 @@ jobs:
       fail-fast: false
       matrix:
         # One OS and one Node version, the floor; `native-prebuilds` covers the other platforms.
-        # `node` is the `.nvmrc` floor as major.minor. It stays a literal because the job's name
-        # renders it, and reading `.nvmrc` whole would rename the check.
         os: [ubuntu-latest]
-        node: ["24.16"]
+        node: ${{ fromJSON(needs.node-version.outputs.major-minor) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -1130,7 +1153,7 @@ jobs:
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [changes, test, desktop, structure, native-prebuilds]
+    needs: [changes, node-version, test, desktop, structure, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -1141,6 +1164,9 @@ jobs:
         # need to run must not hold the gate pending, and a job skipped by its filter carries as
         # much signal as a green one. `test` is never skipped. A dependency whose result is
         # `cancelled` or `failure` still fails, since neither result is accepted.
+        #
+        # `node-version` is checked for the same reason: `test` needs it, so its failure skips
+        # `test`, which this gate would otherwise read as success.
         #
         # `changes` is checked too, and that is load-bearing: a path filter that errors (a transient
         # files-API failure, a bad expression) skips every job that needs it, the same result a
@@ -1155,6 +1181,7 @@ jobs:
             fi
           }
           check changes "${{ needs.changes.result }}"
+          check node-version "${{ needs.node-version.result }}"
           check test "${{ needs.test.result }}"
           check desktop "${{ needs.desktop.result }}"
           check structure "${{ needs.structure.result }}"

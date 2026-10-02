@@ -11,11 +11,6 @@
 
 import type { ReactNode } from "react";
 
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { ScreenRegistry, type ScreenName } from "@renderer/registries/screens/screen-registry.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
@@ -65,22 +60,4 @@ export async function resolvedScreenBody(
     throw new Error(`no screen is registered under the \`${screenName}\` name`);
   }
   return descriptor.render;
-}
-
-/**
- * What a pane is bound to, minus the address that says which pane it is.
- *
- * The address is a kind-scoped union, so it stays at each mount; this supplies the binding every
- * arm shares.
- */
-export function paneBinding(
-  overrides: Pick<PaneContext, "paneId" | "bridge" | "sessionStore">,
-): Omit<PaneContext, "kind"> {
-  return {
-    frameStore: new WindowStore(),
-    uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-    linkedSourcePaneId: undefined,
-    ...overrides,
-  };
 }

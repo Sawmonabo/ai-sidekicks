@@ -259,7 +259,9 @@ export class CodexAppServerConnection {
         {
           clientInfo: { name: "codex-driver", title: "AI Sidekicks", version: "1" },
           capabilities: {
-            experimentalApi: false,
+            // On because `thread/settings/update`, `thread/backgroundTerminals/list` and
+            // `terminate`, `collaborationMode/list` and `thread/memoryMode/set` answer only then.
+            experimentalApi: true,
             requestAttestation: false,
             optOutNotificationMethods: CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS,
           },

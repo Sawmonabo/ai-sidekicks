@@ -3,13 +3,33 @@
 // backlog-full` and leaves naming the refusal to the bridge; this module looks up the canned reply,
 // parks it on the frozen clock when it scripts a latency, classifies the outcome, and reports a
 // settlement rather than throwing. A computed reply is settled here too, since the request reaches
-// only this seam. The detail sentence travels on the settlement because the diagnosis and remedy
-// are properties of what the engine did.
+// only this seam, and so is what a resolved answer leaves behind: the request it answered, which
+// a later computed read may reflect, and the notices it pushes. The detail sentence travels on the
+// settlement because the diagnosis and remedy are properties of what the engine did.
 
-import type { ScenarioRefusalEnvelope } from "./scenario-reply.fixture.js";
+import {
+  MCP_EVENT_METHOD_DESCRIPTORS,
+  PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
+  type ZodType,
+} from "@ai-sidekicks/contracts";
+
+import type { ScenarioNotice, ScenarioRefusalEnvelope } from "./scenario-reply.fixture.js";
 import { daemonMethodBindingFor } from "./daemon-reply-registry.js";
-import type { ScenarioEngine } from "./engine.fixture.js";
+import type { DeliveredNotice, ScenarioEngine } from "./engine.fixture.js";
 import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "./refusal.fixture.js";
+import {
+  MCP_NOTICE_STREAM,
+  PROVIDER_ACCOUNT_NOTICE_STREAM,
+  type MachineNoticeStreamName,
+} from "./session-event-streams.js";
+
+/** The shape each machine stream registers for what it pushes, from its contract descriptor. */
+const MACHINE_NOTICE_EMISSION_SCHEMAS: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>> =
+  Object.freeze({
+    [MCP_NOTICE_STREAM]: MCP_EVENT_METHOD_DESCRIPTORS[MCP_NOTICE_STREAM].emissionSchema,
+    [PROVIDER_ACCOUNT_NOTICE_STREAM]:
+      PROVIDER_ACCOUNT_METHOD_DESCRIPTORS[PROVIDER_ACCOUNT_NOTICE_STREAM].emissionSchema,
+  });
 
 /**
  * What happened when the fixture went looking for one call's canned reply: a value, nothing
@@ -31,10 +51,11 @@ export type ScriptedReplySettlement =
  * Look up one call's scripted reply and settle it on the frozen clock. `request` is what a
  * `ScenarioComputedReply` reads to answer per entity.
  *
- * Never rejects: a scripted daemon refusal travels back as a value and the caller throws it,
- * keeping the wire's `{code, message}` envelope unwrapped. A scripted latency is spent by parking
- * the reply, never by advancing the clock here, or the loading state would not be observable and
- * beats inside the delay would be delivered as a side effect of a read.
+ * A scripted daemon refusal travels back as a value and the caller throws it, keeping the wire's
+ * `{code, message}` envelope unwrapped. It rejects when a resolved answer pushes a notice past the
+ * backlog cap, or one due at once that is off its stream's contract. A scripted
+ * latency is spent by parking the reply, never by advancing the clock here, or the loading state
+ * would not be observable and beats inside the delay would be delivered as a side effect of a read.
  */
 export async function settleScriptedReply(
   engine: ScenarioEngine,
@@ -60,22 +81,32 @@ export async function settleScriptedReply(
   if (reply.refusal !== undefined) {
     return { status: "refused", refusal: reply.refusal };
   }
+  let value: unknown = reply.result;
   if (reply.resultFor !== undefined) {
     // The instant is read after the hold, so a parked reply answers for the tick it comes due at,
     // on the engine's clock. The ordinal counts askings, not answers: a reply that answered
     // `undefined` has still been asked, and skipping it could reuse an identity.
-    const computed = reply.resultFor(
+    value = reply.resultFor(
       request,
       engine.clock.now(),
       engine.nextComputedReplyOrdinal(call),
+      (answeredCall) => engine.answeredRequests(answeredCall),
     );
     // A request the scenario does not answer is `unscripted`, not an empty resolution: it
     // scripts the method and not this entity.
-    return computed === undefined
-      ? { status: "unscripted" }
-      : { status: "resolved", value: computed };
+    if (value === undefined) {
+      return { status: "unscripted" };
+    }
   }
-  return { status: "resolved", value: reply.result };
+  // Only a write is recorded: a later read reflects writes, and recording every read would grow
+  // the record for the life of the window.
+  if (daemonMethodBindingFor(call)?.mutating === true) {
+    engine.recordAnsweredRequest(call, request);
+  }
+  for (const notice of reply.noticesFor?.(request, value) ?? []) {
+    pushScriptedNotice(engine, call, notice);
+  }
+  return { status: "resolved", value };
 }
 
 /**
@@ -133,6 +164,37 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
     );
   }
   return value;
+}
+
+/**
+ * Schedule one notice a resolved answer pushes. Its payload is composed when it comes due and
+ * held to its stream's registered emission shape then, so a drifted notice fails whoever moved
+ * the clock rather than reaching a subscriber that would read it as nothing.
+ */
+function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: ScenarioNotice): void {
+  const composeAtDelivery = (): DeliveredNotice | undefined => {
+    const payload = notice.payloadAtDelivery((answeredCall) =>
+      engine.answeredRequests(answeredCall),
+    );
+    if (payload === undefined) {
+      return undefined;
+    }
+    if (!MACHINE_NOTICE_EMISSION_SCHEMAS[notice.stream].safeParse(payload).success) {
+      throw new FixtureBridgeError(
+        call,
+        "reply-off-contract",
+        `the scenario pushes a ${notice.stream} notice this build does not register for that stream. Script the registered shape rather than teaching a view a frame the daemon cannot send.`,
+      );
+    }
+    return { stream: notice.stream, payload };
+  };
+  if (!engine.scheduleNotice(notice.afterMs, composeAtDelivery)) {
+    throw new FixtureBridgeError(
+      call,
+      "reply-backlog-full",
+      "the fixture is already holding as many delayed notices as it takes. Advance the frozen clock to release them.",
+    );
+  }
 }
 
 function unansweredReplyDetail(

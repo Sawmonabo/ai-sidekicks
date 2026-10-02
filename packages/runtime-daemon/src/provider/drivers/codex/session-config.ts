@@ -46,9 +46,9 @@ const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
 
 /**
  * Posture members V1 does not realize, asserted absent from every `turn/start`. The provider does
- * not adjudicate `sandboxPolicy` with `permissions` (a default connection refuses `permissions`
- * with `-32600`, an `experimentalApi` one accepts both), so V1 realizes `sandboxPolicy`;
- * `permissionProfile` refuses `-32602` at the pin.
+ * not adjudicate `sandboxPolicy` with `permissions` (an `experimentalApi` connection, which this
+ * driver's is, accepts both), so V1 realizes `sandboxPolicy`; `permissionProfile` refuses
+ * `-32602` at the pin.
  */
 const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = ["permissions", "permissionProfile"];
 

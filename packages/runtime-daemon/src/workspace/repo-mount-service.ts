@@ -265,10 +265,10 @@ export class RepoMountService {
           AND state = '${ATTACHED_MOUNT_STATE}'`,
     );
 
-    // Every state: the running check needs `busy` rows and rows staled mid-run, and `archived`
-    // rows must be seen to be skipped. An unreleased run context marks a running agent even after
-    // its workspace went `stale`, which drops the busy hold while the run goes on. `id` breaks
-    // ties between workspaces created in the same tick.
+    // Every state: the running check needs `busy` rows, and `archived` rows must be seen to be
+    // skipped. A run releases its workspace hold and its execution root separately, so an
+    // unreleased run context marks a running agent on a workspace that is no longer `busy`. `id`
+    // breaks ties between workspaces created in the same tick.
     this.#selectDependentWorkspacesStmt = database.prepare(
       `SELECT id, session_id, state,
               EXISTS (

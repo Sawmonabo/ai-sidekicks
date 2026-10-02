@@ -1,6 +1,7 @@
-// The fixture's whole-session stream answers as the daemon's does: replay-then-tail, in frames
-// within the contract's bound. The app's real subscriber names this stream, so every scenario
-// tier reads the session through it. Every case drives the real fixture bridge and engine.
+// The fixture's streams answer as the daemon's do. The whole-session stream is replay-then-tail,
+// in frames within the contract's bound; the app's real subscriber names it, so every scenario
+// tier reads the session through it. A machine notice stream hands its subscriber the notice a
+// settled write pushes. Every case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
@@ -83,5 +84,35 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
     expect(received.events().map((envelope) => envelope.sequence)).toStrictEqual(
       Array.from({ length: LONG_LOG_BEAT_COUNT }, (_, index) => index + 1),
     );
+  });
+});
+
+describe("fixture bridge — a machine notice stream carries what a write pushes", () => {
+  it("hands an `mcp.subscribe` subscriber the edit notice a settled `mcp.setEnabled` pushes", async () => {
+    const fixture = createFixture();
+    const notices: unknown[] = [];
+    fixture.bridge.daemon.subscribe("mcp.subscribe", {}, (notice) => {
+      notices.push(notice);
+    });
+
+    const settled = fixture.bridge.daemon.call("mcp.setEnabled", {
+      provider: "claude",
+      scope: "user",
+      serverName: "filesystem",
+      enabled: false,
+      clientIdempotencyKey: "019b79ee-0280-7ea1-8110-000000000001",
+    });
+    // The scripted write answers after its latency.
+    fixture.engine.advance(200);
+    await settled;
+
+    expect(notices).toStrictEqual([
+      {
+        provider: "claude",
+        scope: "user",
+        serverName: "filesystem",
+        type: "mcp.server_config_changed",
+      },
+    ]);
   });
 });

@@ -453,20 +453,25 @@ export const SkillRecordDiscardResponseSchema: z.ZodType<SkillRecordDiscardRespo
 
 // Refusals
 
-/** A save or a create that names a file path the folder cannot take; nothing is written. */
+/**
+ * A save or a create that names a file path the folder cannot take, or a send whose picked skill
+ * is not a row of the session's skill list; nothing is written or sent.
+ */
 export const SKILL_PATH_REFUSED_CODE = "skill.path_refused" as const;
 /** The type of {@link SKILL_PATH_REFUSED_CODE}. */
 export type SkillPathRefusedCode = typeof SKILL_PATH_REFUSED_CODE;
 
 /**
- * Why a path was refused: it would land outside the folder, the folder already
- * holds it, or it names `SKILL.md`, which a folder always has exactly one of and
- * which is never replaced, renamed or removed.
+ * Why a path was refused. A save's path would land outside the folder, the folder already
+ * holds it, or it names `SKILL.md`, which a folder always has exactly one of and which is
+ * never replaced, renamed or removed. A send's picked skill matches no row of the session's
+ * skill list by name and path, so the provider is never handed a file it does not list.
  */
 export const SKILL_PATH_REFUSED_REASONS = [
   "escapes_folder",
   "duplicate_path",
   "names_entry_file",
+  "not_listed",
 ] as const;
 /** One of {@link SKILL_PATH_REFUSED_REASONS}. */
 export type SkillPathRefusedReason = (typeof SKILL_PATH_REFUSED_REASONS)[number];

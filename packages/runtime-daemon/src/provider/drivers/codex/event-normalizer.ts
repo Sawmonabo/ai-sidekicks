@@ -5,8 +5,9 @@
 // protocol, as recorded at that build and named as its generated schema names them.
 //
 // - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name at `initialize`),
-//   the experimental `mcpServer/event/stream/notification`, and replies to daemon-issued requests
-//   such as `account/rateLimits/read`.
+//   the experimental `mcpServer/event/stream/notification`, which this driver's `experimentalApi`
+//   connection receives and which takes the unmapped diagnostic below, and replies to
+//   daemon-issued requests such as `account/rateLimits/read`.
 // - `artifact_publication` has no row: no Codex frame maps to it. `turn/diff/updated` is a
 //   `tool.result` row.
 // - An unmapped method gets an `unmapped_wire_kind` diagnostic from
@@ -52,13 +53,13 @@ type CodexInboundFrameMethod =
   | "thread/goal/cleared"
   | "account/rateLimits/updated"
   | "thread/compacted"
-  // Not experimental-gated, so delivered to this driver's `experimentalApi: false` connection.
+  // Not experimental-gated, so delivered to any connection.
   | "skills/changed"
   | "thread/reverted"
   | "item/autoApprovalReview/started"
   | "item/autoApprovalReview/completed"
   | "model/safetyBuffering/updated"
-  // Experimental-gated, so not delivered at `experimentalApi: false`; see
+  // Experimental-gated, so delivered only because this driver negotiates `experimentalApi`; see
   // {@link CODEX_NEGOTIATION_GATED_METHODS}.
   | "process/outputDelta"
   | "process/exited"
@@ -75,9 +76,10 @@ type CodexInboundFrameMethod =
   | "turn/plan/updated";
 
 /**
- * Mapped methods that cannot arrive at `experimentalApi: false`: the provider's transport silently
- * drops the ten notifications, and `item/tool/requestUserInput` is the one experimental request
- * arm. Declared, not derived, since the schema carries no notification-side marker at the pin.
+ * Mapped methods that arrive only on a connection that negotiates `experimentalApi`, as this
+ * driver's does: without it the provider's transport silently drops the ten notifications, and
+ * `item/tool/requestUserInput` is the one experimental request arm. Declared, not derived, since
+ * the schema carries no notification-side marker at the pin.
  *
  * @consumedBy the Codex driver's experimental-API negotiation
  */
@@ -183,7 +185,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     transport: "server-request",
     normalizedKind: "tool_start",
   },
-  // Experimental-gated: the gate decides delivery, this table decides disposition.
+  // Experimental-gated, and delivered on this driver's `experimentalApi` connection.
   "item/tool/requestUserInput": {
     disposition: "normalized",
     nativeMethod: "item/tool/requestUserInput",

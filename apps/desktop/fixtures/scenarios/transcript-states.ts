@@ -92,7 +92,7 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
     agentId: AGENT_ARCHITECT,
     name: "Architect",
     driverName: "claude",
-    modelId: "claude-opus-5[1m]",
+    modelId: "claude-opus-5-5",
   },
   {
     agentId: AGENT_IMPLEMENTER,
