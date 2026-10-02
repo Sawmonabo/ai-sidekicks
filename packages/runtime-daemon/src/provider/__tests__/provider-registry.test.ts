@@ -26,6 +26,7 @@ import type {
   CloseSessionParams,
   CompactContextParams,
   CreateSessionParams,
+  DriverGoalResult,
   DriverAuthProbeResult,
   DriverCliVersionReport,
   DriverResumeResult,
@@ -115,10 +116,10 @@ class FakeProviderDriver implements ProviderDriver {
   respondToRequest(_params: RespondToRequestParams): Promise<void> {
     throw new Error("not implemented in test");
   }
-  setSessionGoal(_params: SetSessionGoalParams): Promise<void> {
+  setSessionGoal(_params: SetSessionGoalParams): Promise<DriverGoalResult> {
     throw new Error("not implemented in test");
   }
-  clearSessionGoal(_params: ClearSessionGoalParams): Promise<void> {
+  clearSessionGoal(_params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     throw new Error("not implemented in test");
   }
   closeSession(_params: CloseSessionParams): Promise<void> {

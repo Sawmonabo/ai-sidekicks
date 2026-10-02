@@ -63,9 +63,9 @@ export interface ProviderDriver {
   forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   // Both goal operations are gated on `session_goals`, like `forkConversation`. A provider that
-  // refuses the goal throws; success returns nothing.
-  setSessionGoal(params: SetSessionGoalParams): Promise<void>;
-  clearSessionGoal(params: ClearSessionGoalParams): Promise<void>;
+  // did not take the goal answers `degraded` rather than throwing an opaque failure.
+  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult>;
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult>;
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
@@ -439,6 +439,14 @@ export const ForkConversationResultSchema: z.ZodType<
 ]);
 
 // ---- Session goals ----
+
+/**
+ * What a goal operation did: `applied` when the provider took it, `degraded` when it did not, with
+ * the fallback the driver took instead. A success carries no fallback.
+ */
+export type DriverGoalResult =
+  | { status: "applied" }
+  | { status: "degraded"; fallbackAction?: string | undefined };
 
 /**
  * Params of `setSessionGoal` (gated on `session_goals`). `goalText` is the daemon-rendered text of

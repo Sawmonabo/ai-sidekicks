@@ -4075,7 +4075,7 @@ describe("CodexDriver session goals (native)", () => {
         runId: RUN_ID,
         goalText: "land the parity legs",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toStrictEqual({ status: "applied" });
     // `status` and `tokenBudget` are provider-side goal state the daemon does not own;
     // sending either would make the driver a second author of them.
     expect(firstParamsFor(harness, "thread/goal/set")).toStrictEqual({
@@ -4095,7 +4095,7 @@ describe("CodexDriver session goals (native)", () => {
         bindingId: "binding-abc",
         runId: RUN_ID,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toStrictEqual({ status: "applied" });
     expect(firstParamsFor(harness, "thread/goal/clear")).toStrictEqual({ threadId: THREAD_ID });
   });
 });

@@ -50,6 +50,7 @@ import type {
   ResumeSessionParams,
   ForkConversationParams,
   SetSessionGoalParams,
+  DriverGoalResult,
   StartRunParams,
 } from "../../provider-driver.js";
 
@@ -191,11 +192,11 @@ export class CodexDriver implements Pick<
     return this.#lifecycle.forkConversation(params);
   }
 
-  setSessionGoal(params: SetSessionGoalParams): Promise<void> {
+  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
     return this.#lifecycle.setSessionGoal(params);
   }
 
-  clearSessionGoal(params: ClearSessionGoalParams): Promise<void> {
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     return this.#lifecycle.clearSessionGoal(params);
   }
 

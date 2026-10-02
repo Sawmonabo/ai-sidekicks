@@ -101,6 +101,7 @@ import {
   type ResumeSessionParams,
   type ForkConversationParams,
   type SetSessionGoalParams,
+  type DriverGoalResult,
   type StartRunParams,
 } from "../../provider-driver.js";
 
@@ -490,18 +491,20 @@ export class CodexLifecycleManager {
    * Binds the session's goal on the provider natively. Only `objective` is sent; `status` and
    * `tokenBudget` are provider-side state the daemon does not own.
    */
-  async setSessionGoal(params: SetSessionGoalParams): Promise<void> {
+  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
     const record = this.#requireSession(params.sessionId);
     await record.connection.request("thread/goal/set", {
       threadId: record.threadId,
       objective: params.goalText,
     });
+    return { status: "applied" };
   }
 
-  /** Clears the session's goal natively; a `cleared: false` answer still resolves. */
-  async clearSessionGoal(params: ClearSessionGoalParams): Promise<void> {
+  /** Clears the session's goal natively; a `cleared: false` answer is still `applied`. */
+  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     const record = this.#requireSession(params.sessionId);
     await record.connection.request("thread/goal/clear", { threadId: record.threadId });
+    return { status: "applied" };
   }
 
   /**
