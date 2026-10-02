@@ -204,9 +204,8 @@ A skeptical staff engineer would argue:
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
 | A plan builds without integration friction across all primitives | Every acceptance criterion of the plan passes with the ADR-021 toolchain unchanged | Each task's acceptance in the plan | When each plan's last phase lands |
-| CI cold-build under target | < 10 minutes from `pnpm install` to all-package build green | CI pipeline timing | Each CI run |
 | Hot-build under target (single-package change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch latency | At each toolchain version change |
-| `better-sqlite3` installs from a bundled Node-API prebuild on every V1 platform | `pnpm install` on macOS x64/arm64, Linux x64/arm64, Windows x64 resolves a bundled `.node` for `better-sqlite3` 13.0.3 with no source compile, and the daemon suite passes on the Node floor (24.16) and under Electron 44's Node ABI 149 | CI matrix run | Each CI run |
+| `better-sqlite3` installs from a bundled Node-API prebuild on every V1 platform | `pnpm install` on macOS x64/arm64, Linux x64/arm64, Windows x64 resolves a bundled `.node` for `better-sqlite3` 13.0.3 with no source compile, and the daemon suite passes on the Node floor (24.16) | CI matrix run | Each CI run |
 
 ---
 

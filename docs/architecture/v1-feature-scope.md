@@ -11,7 +11,7 @@ Every V1 feature has a governing spec; feature #21 (Remote Control) is governed 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
 | 1 | Session creation | [Spec-001](../specs/001-session-core.md) |
-| 2 | Machine registration | [Spec-002](../specs/002-runtime-node-attach.md) — the machine that runs your sessions, which the backend calls a runtime node, registers once with the control plane, keyed by the machine and its owner, and is reached through the relay; it is reachable while its relay connection is up, and a session never moves to another machine |
+| 2 | Machine registration | [Spec-002](../specs/002-machine-registration.md) — the machine that runs your sessions, which the backend calls a runtime node, registers once with the control plane, keyed by the machine and its owner, and is reached through the relay; it is reachable while its relay connection is up, and a session never moves to another machine |
 | 3 | Single-agent runs (Codex, Claude) | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) |
 | 4 | Queue, steer, pause, resume, interrupt | [Spec-003](../specs/003-queue-steer-pause-resume.md) |
 | 5 | Approval gates | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) |

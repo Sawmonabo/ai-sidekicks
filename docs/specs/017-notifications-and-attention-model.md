@@ -39,7 +39,7 @@ This spec covers in-app attention state, the operating system's notification on 
 
 - The system must surface attention-worthy session and run states even when the user is not actively watching the timeline.
 - Attention has four kinds:
-  - `Waiting on you`: an approval, a question, or a plan waiting on its card, or Claude Code's retry-or-edit choice waiting on a refused turn's row, on a session or a workflow run (actionable);
+  - `Waiting on you`: an approval, a question, or a plan waiting on its card, Claude Code's retry-or-edit choice waiting on a refused turn's row, or its switch-or-credits choice waiting on a Fable turn's row, on a session or a workflow run (actionable);
   - `Finished`: a session or a workflow run that finished (informational);
   - `Failed`: a session or a workflow run that stopped on an error (informational);
   - a workflow's Notify step: the notice the person wrote into the workflow (informational).

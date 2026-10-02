@@ -78,7 +78,7 @@ Primary actors:
 ## Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 - [Remote Control](../specs/027-remote-control.md)
 
 ## Related ADRs

@@ -173,7 +173,7 @@ CREATE TABLE interventions (
                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's directive text among them as plain text (Spec-003 §Required Behavior)
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's text among them as plain text (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-002-4): 'user' for a request admitted over the wire, 'system' for the in-process orchestration entrypoint (CP-002-10's budget interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.

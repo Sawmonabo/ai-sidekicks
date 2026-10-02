@@ -130,7 +130,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 ### Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 
 ### Related ADRs
 

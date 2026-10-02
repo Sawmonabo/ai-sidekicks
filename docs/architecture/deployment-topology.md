@@ -179,7 +179,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 ## Related Specs
 
-- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
 - [Remote Control](../specs/027-remote-control.md)
 
