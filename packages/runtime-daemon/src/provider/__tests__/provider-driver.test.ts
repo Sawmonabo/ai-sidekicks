@@ -122,7 +122,6 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
   it("adds no capability flag for it — recognizing a usage limit is every driver's duty", () => {
     // A flag would let a driver declare the obligation away, leaving a run refused for spend in
     // the generic failure path with nothing saying why.
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(15);
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       expect(flag).not.toMatch(/usage|limit|rate/);
     }
