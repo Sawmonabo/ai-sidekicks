@@ -15,10 +15,7 @@ import type { ReactNode } from "react";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
-import {
-  AGENT_ON_CLAUDE,
-  AGENT_ON_CODEX,
-} from "@renderer/features/agents/pane/components/agent-binding-column.test-support.js";
+import { AGENT_ON_CLAUDE, AGENT_ON_CODEX } from "@test/helpers/agent-roster.js";
 import { agentsPaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
 import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-support.js";
 import type { AgentsPaneCalls } from "@renderer/features/agents/agent-reads.js";

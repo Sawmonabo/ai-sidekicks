@@ -12,7 +12,7 @@ import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { createChildRunLinks } from "./agent-reads.js";
 import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { REJECTING_AGENTS_PANE_CALLS } from "./pane/components/run-links.test-support.js";
+import { REJECTING_AGENTS_PANE_CALLS } from "./agent-reads.test-support.js";
 
 /** A started linkage read over a store this case owns, on frozen time. */
 function startedLinkage(

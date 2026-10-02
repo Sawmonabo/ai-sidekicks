@@ -5,7 +5,7 @@ import {
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import type { AgentsPaneCalls } from "../../agent-reads.js";
+import type { AgentsPaneCalls } from "./agent-reads.js";
 
 /** A fixture bridge that scripts no reply, and the engine whose frozen clock its window runs on. */
 export function unscriptedBridge(id: string): FixtureBridge {

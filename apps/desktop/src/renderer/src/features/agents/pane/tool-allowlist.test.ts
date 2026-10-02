@@ -3,10 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  agentEntry,
-  resolvedConfiguration,
-} from "./components/agent-binding-column.test-support.js";
+import { agentEntry, resolvedConfiguration } from "@test/helpers/agent-roster.js";
 import { agentToolAllowlistPosition } from "./tool-allowlist.js";
 
 const IDENTITY_ONLY = agentEntry();
