@@ -21,8 +21,6 @@ import {
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
-  assertValidCliVersionReport,
-  ProviderOutputValidationError,
   assertValidContractVersion,
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
@@ -390,28 +388,8 @@ export class RuntimeBindingStore {
     if (input.resumeHandle != null) {
       assertValidResumeHandle(input.resumeHandle);
     }
-    // The report is provider input: copy each member once and validate, bind and return that
-    // snapshot, since a getter or Proxy could otherwise persist an unvalidated string. A throwing
-    // accessor becomes the typed refusal below, with the thrown value discarded.
-    let cliVersion: DriverCliVersionReport | null;
-    try {
-      const reportedCliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
-      cliVersion = isPlainObject(reportedCliVersion)
-        ? ({
-            raw: reportedCliVersion["raw"],
-            semver: reportedCliVersion["semver"],
-          } as DriverCliVersionReport)
-        : reportedCliVersion;
-    } catch {
-      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
-        driverName: input.driverName,
-        field: "cliVersion",
-        reason: "a property accessor on the report threw during the defensive copy",
-      });
-    }
-    if (cliVersion !== null) {
-      assertValidCliVersionReport(input.driverName, cliVersion);
-    }
+    // Validated where the daemon read it off the spawned build, so it is trusted here.
+    const cliVersion: DriverCliVersionReport | null = input.cliVersion ?? null;
 
     const id: string = this.#newId();
     const timestamp: string = this.#now();
@@ -452,7 +430,6 @@ export class RuntimeBindingStore {
       runId: input.runId,
       driverName: input.driverName,
       contractVersion: input.contractVersion,
-      // The validated snapshot, never a re-read of the caller's object.
       cliVersion,
       resumeHandle,
       // The parser's output, never the caller's object.

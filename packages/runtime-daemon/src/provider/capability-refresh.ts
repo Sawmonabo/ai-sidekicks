@@ -55,8 +55,8 @@ export class DriverCliVersionBelowFloorError extends Error {
   }
 }
 
-// The first `X.Y.Z` token in prose such as `"2.1.245 (Claude Code)"`. Not `semver.coerce`, which
-// would turn `"v2"` into `2.0.0`: a partial version must be unparseable.
+// The first `X.Y.Z` token in prose such as `"cli-name 2.1.245 (build 7)"`. Not `semver.coerce`,
+// which would turn `"v2"` into `2.0.0`: a partial version must be unparseable.
 const SEMVER_TOKEN_PATTERN = /\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?/;
 
 /**

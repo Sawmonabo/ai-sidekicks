@@ -10,7 +10,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts";
  * without a counter is a compile error rather than an unmetered record.
  */
 export type DriverDiagnosticKind =
-  // A wire kind outside the pinned set, or one whose `SessionEventType` is not defined yet.
+  // A wire kind outside the pinned set, or one with no defined `SessionEventType`.
   | "unmapped_wire_kind"
   // A known kind whose `SessionEventType` has no registered payload variant, so no envelope can
   // be built.
@@ -18,9 +18,9 @@ export type DriverDiagnosticKind =
   // The reorder buffer's never-silent conditions.
   | "reorder_buffer_overflow"
   | "tool_pairing_timeout"
-  // The capped seen-initiation ledger evicted its oldest entry, which changes how a later
+  // The capped seen-initiation set evicted its oldest entry, which changes how a later
   // completion for that call routes.
-  | "reorder_initiation_ledger_evicted"
+  | "reorder_seen_initiation_evicted"
   // A decrease on a cumulative axis is floored at zero, never emitted as negative spend.
   | "usage_delta_floor_hit"
   // An unknown axis key or non-finite reading is rejected before it reaches a base register: a
@@ -69,6 +69,9 @@ export type DriverDiagnosticKind =
   // A superseded spawn's teardown ran after replacement; honoring it would tear down the live
   // registry.
   | "callback_tool_registry_release_ignored"
+  // The activity sink threw while recording an invocation that was already answered; the answer
+  // stands and only the activity row is missing.
+  | "callback_tool_activity_record_failed"
   // A subagent definition the daemon cannot boundary-mediate is disabled at spawn.
   | "subagent_definition_disabled"
   // Concurrent subagents above the declared cap; observability only, never fails the run.
@@ -117,7 +120,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     payload_variant_pending: "driver.normalize.payload_variant_pending",
     reorder_buffer_overflow: "driver.reorder_buffer.overflow",
     tool_pairing_timeout: "driver.reorder_buffer.pairing_timeout",
-    reorder_initiation_ledger_evicted: "driver.reorder_buffer.initiation_ledger_evicted",
+    reorder_seen_initiation_evicted: "driver.reorder_buffer.seen_initiation_evicted",
     usage_delta_floor_hit: "driver.usage_delta.floor_hit",
     usage_axis_reading_rejected: "driver.usage_delta.axis_reading_rejected",
     usage_resume_base_unavailable: "driver.usage_delta.resume_base_unavailable",
@@ -136,6 +139,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",
     callback_tool_registry_superseded: "driver.callback_tool.registry_superseded",
     callback_tool_registry_release_ignored: "driver.callback_tool.registry_release_ignored",
+    callback_tool_activity_record_failed: "driver.callback_tool.activity_record_failed",
     subagent_definition_disabled: "driver.subagent.definition_disabled",
     subagent_concurrency_breach: "driver.subagent.concurrency_breach",
     text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
@@ -247,11 +251,6 @@ export class DriverDiagnosticsEmitter {
     }
   }
 
-  /** Most-recent records, oldest first, bounded by the retention capacity. */
-  recentRecords(): readonly DriverDiagnosticRecord[] {
-    return [...this.#recentRecords];
-  }
-
   /** Total records emitted over the emitter's lifetime (sheds not subtracted). */
   emittedRecordCount(): number {
     return this.#emittedRecordCount;
@@ -279,7 +278,7 @@ export interface ReorderBufferedEvent<TEvent> {
  * timeout flush in arrival order, each with a diagnostic; the clock is caller-supplied (`nowMs`).
  */
 export class NormalizedEventReorderBuffer<TEvent> {
-  /** Ledger cap when the caller declares none. */
+  /** Seen-initiation cap when the caller declares none. */
   static readonly DEFAULT_MAX_SEEN_INITIATION_IDS = 1024;
 
   readonly #provider: ProviderName;
@@ -347,16 +346,6 @@ export class NormalizedEventReorderBuffer<TEvent> {
     return this.#releaseExpired(nowMs);
   }
 
-  /** The number of events currently held awaiting a pair. */
-  heldEventCount(): number {
-    return this.#heldCompletions.length;
-  }
-
-  /** Identities currently retained in the seen-initiation ledger. */
-  seenInitiationCount(): number {
-    return this.#seenInitiationToolCallIds.size;
-  }
-
   #admitSeenInitiation(toolCallId: string): void {
     this.#seenInitiationToolCallIds.add(toolCallId);
     while (this.#seenInitiationToolCallIds.size > this.#maxSeenInitiationIds) {
@@ -367,10 +356,10 @@ export class NormalizedEventReorderBuffer<TEvent> {
       this.#seenInitiationToolCallIds.delete(oldestEntry.value);
       this.#diagnostics.emit({
         provider: this.#provider,
-        kind: "reorder_initiation_ledger_evicted",
+        kind: "reorder_seen_initiation_evicted",
         rawWireType: null,
         dispositionReason:
-          "seen-initiation ledger exceeded its declared cap; oldest identity evicted, so a later completion for it holds instead of pairing",
+          "seen-initiation set exceeded its declared cap; oldest identity evicted, so a later completion for it holds instead of pairing",
         details: {
           toolCallId: oldestEntry.value,
           maxSeenInitiationIds: this.#maxSeenInitiationIds,

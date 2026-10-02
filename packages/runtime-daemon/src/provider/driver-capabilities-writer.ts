@@ -24,7 +24,6 @@ import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
   assertValidCapabilityFlags,
-  assertValidCliVersionReport,
   assertValidContractVersion,
   assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
@@ -209,34 +208,16 @@ export class DriverCapabilitiesWriter {
   /**
    * Declares (or refreshes) a driver's capabilities in one IMMEDIATE transaction; an identical
    * re-declare writes no capability row. Throws `ProviderOutputValidationError`, before any
-   * transaction opens, for an invalid version, a bad flag key set, or a malformed or duplicate
-   * tool.
+   * transaction opens, for an invalid contract version, a bad flag key set, or a malformed or
+   * duplicate tool.
    */
   async declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
     // The declared type is erased at runtime, so a malformed driver can ship null or a primitive;
     // this guard keeps the accesses below from raw-throwing a TypeError.
     assertValidGetCapabilitiesResultShape(input.result);
 
-    // The report is untrusted: copy it to two plain strings before validating, so a getter or
-    // Proxy cannot persist a string that never passed validation. A throwing accessor becomes the
-    // typed refusal with the thrown value dropped.
-    let declaredCliVersion: DriverCliVersionReport;
-    try {
-      const reportedCliVersion: DriverCliVersionReport = input.result.cliVersion;
-      declaredCliVersion =
-        typeof reportedCliVersion === "object" &&
-        reportedCliVersion !== null &&
-        !Array.isArray(reportedCliVersion)
-          ? { raw: reportedCliVersion.raw, semver: reportedCliVersion.semver }
-          : reportedCliVersion;
-    } catch {
-      throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
-        driverName: input.driverName,
-        field: "cliVersion",
-        reason: "a property accessor on the report threw during the defensive copy",
-      });
-    }
-    assertValidCliVersionReport(input.driverName, declaredCliVersion);
+    // Validated where the daemon read it off the spawned build, so it is trusted here.
+    const declaredCliVersion: DriverCliVersionReport = input.result.cliVersion;
 
     // Reject a bad contract_version here so the SQL CHECK never fires mid-transaction.
     assertValidContractVersion(input.result.capabilities.contractVersion);

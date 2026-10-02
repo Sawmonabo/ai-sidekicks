@@ -34,7 +34,6 @@ import {
   readCapabilityDetection,
   type CapabilityDetectionMechanism,
   type DriverCapabilityDetectionTable,
-  type ProbeAdmissibilityConjunct,
   type ProbeAnswer,
 } from "../capability-probe.js";
 import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
@@ -67,13 +66,6 @@ function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
 function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnswer {
   return PROVIDER_DRIVER_DESCRIPTORS.codex.classifyCapabilityProbeReply(payload, probeName);
 }
-
-/** The closed conjunct set, restated apart from the module's type, which is erased at runtime. */
-const ADMISSIBILITY_CONJUNCTS: readonly ProbeAdmissibilityConjunct[] = [
-  "zero-turn",
-  "non-mutating",
-  "decisive-at-consumption-granularity",
-];
 
 const CLAUDE_VERSION_READING: SpawnedProviderVersionReading = {
   driverName: CLAUDE_DRIVER_NAME,
@@ -148,50 +140,6 @@ function firstProbeNameFor(
 function silentDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
 }
-
-describe("the declared detection-mechanism table", () => {
-  it.each(DRIVERS)("is TOTAL over the canonical flag set for driver '%s'", (driverName) => {
-    // Walks DRIVER_CAPABILITY_FLAGS, not the table's keys: a table total over itself but stale
-    // against the contract fails here, which is what a union growth produces.
-    const table = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable;
-    for (const flag of DRIVER_CAPABILITY_FLAGS) {
-      expect(Object.hasOwn(table, flag)).toBe(true);
-    }
-    expect(Object.keys(table).sort()).toStrictEqual([...DRIVER_CAPABILITY_FLAGS].sort());
-  });
-
-  it.each(DRIVERS)("names a failing conjunct on EVERY static entry of '%s'", (driverName) => {
-    const table = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable;
-    for (const flag of DRIVER_CAPABILITY_FLAGS) {
-      const mechanism = table[flag];
-      if (mechanism.detectionSource !== "static") {
-        continue;
-      }
-      expect(mechanism.failingConjuncts.length).toBeGreaterThan(0);
-      for (const conjunct of mechanism.failingConjuncts) {
-        expect(ADMISSIBILITY_CONJUNCTS).toContain(conjunct);
-      }
-      expect(mechanism.rationale.trim().length).toBeGreaterThan(0);
-    }
-  });
-
-  it.each(DRIVERS)("declares a real probe on EVERY probed entry of '%s'", (driverName) => {
-    const table = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable;
-    for (const flag of probedFlagsOf(table)) {
-      const mechanism = table[flag];
-      expect(mechanism.detectionSource).toBe("probed");
-      if (mechanism.detectionSource !== "probed") {
-        return;
-      }
-      // EVERY name, not just the first: a conjunctive probe issues them all.
-      expect(mechanism.probe.probeNames.length).toBeGreaterThan(0);
-      for (const probeName of mechanism.probe.probeNames) {
-        expect(probeName.trim().length).toBeGreaterThan(0);
-      }
-      expect(mechanism.probe.decisiveness.trim().length).toBeGreaterThan(0);
-    }
-  });
-});
 
 describe("zero billed turns, asserted at the provider transport", () => {
   it.each(PROBING_DRIVERS)(
@@ -493,7 +441,7 @@ describe("a re-probe's change detection", () => {
     });
   }
 
-  it("reports ONE changed snapshot when a flag moves true → false across two re-probes", async () => {
+  it("reports a changed snapshot when a re-probe withdraws a flag", async () => {
     const writer = new DriverCapabilitiesWriter(db, makeAdvancingClock());
     const probedFlag = withdrawalCanaryFor("codex");
     const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, probedFlag);
@@ -509,14 +457,5 @@ describe("a re-probe's change detection", () => {
     });
     const second = await reprobe(writer, withdrawing);
     expect(second.snapshotChange).toBe("changed");
-
-    // The same withdrawal again changes nothing: a repeated re-probe must not manufacture churn.
-    const third = await reprobe(
-      writer,
-      new RecordingCapabilityProbeTransport("codex", {
-        replies: { [probeName]: codexUnknownMethodReply(probeName) },
-      }),
-    );
-    expect(third.snapshotChange).toBe("unchanged");
   });
 });

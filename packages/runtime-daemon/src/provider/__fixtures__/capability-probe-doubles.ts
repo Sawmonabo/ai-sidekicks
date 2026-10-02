@@ -152,7 +152,7 @@ function defaultReply(driverName: ProviderName, probeName: string): unknown {
 }
 
 /** Per-name reply overrides. */
-export interface RecordingProbeTransportOptions {
+interface RecordingProbeTransportOptions {
   readonly replies?: Readonly<Record<string, unknown>>;
 }
 

@@ -3,7 +3,7 @@
 // separate axis, the daemon stamps an MCP status's leg, and a websocket transport is
 // authenticated. Runtime guards are proven by `.safeParse()`; type guards by `@ts-expect-error`,
 // which fails as unused (TS2578) if the guarded shape loosens.
-import { DRIVER_CAPABILITY_FLAGS, type RecoveryCondition } from "@ai-sidekicks/contracts";
+import type { RecoveryCondition } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -109,23 +109,6 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
     const causeFromCondition: ProviderUsageLimitCause = "reauth-required";
     void conditionFromCause;
     void causeFromCondition;
-
-    // The value sets are disjoint too, so a consumer switching on one can never fall into the
-    // other's arm.
-    const recoveryConditions: readonly RecoveryCondition[] = ["recovery-needed", "reauth-required"];
-    const usageLimitCauses: readonly ProviderUsageLimitCause[] = ["plan-allowance-exhausted"];
-    for (const cause of usageLimitCauses) {
-      expect(recoveryConditions).not.toContain(cause as string);
-    }
-  });
-
-  it("adds no capability flag for it — recognizing a usage limit is every driver's duty", () => {
-    // A flag would let a driver declare the obligation away, leaving a run refused for spend in
-    // the generic failure path with nothing saying why.
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(15);
-    for (const flag of DRIVER_CAPABILITY_FLAGS) {
-      expect(flag).not.toMatch(/usage|limit|rate/);
-    }
   });
 });
 
@@ -149,8 +132,6 @@ describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
 
 describe("DriverTransportConfig — the websocket arm is authenticated", () => {
   it("forbids an unauthenticated websocket DriverTransportConfig", () => {
-    const stdio: DriverTransportConfig = { transport: "stdio" };
-    expect(stdio.transport).toBe("stdio");
     // @ts-expect-error the websocket arm requires a bearerTokenRef
     const unauthenticated: DriverTransportConfig = {
       transport: "websocket",

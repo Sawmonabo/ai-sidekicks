@@ -71,7 +71,7 @@ export interface CapabilityProbeRequest {
 
 /**
  * The injected probe transport, with no default. The implementer owns the deadline and must probe
- * on a connection that has never started a thread (Codex) or sent a user message (Claude).
+ * on a connection that has never started a thread or sent a user message.
  * Returns `unknown` because it is untrusted provider output.
  */
 export type CapabilityProbeExchange = (request: CapabilityProbeRequest) => Promise<unknown>;

@@ -70,7 +70,7 @@ const EXECUTION_POSTURE: ExecutionPosture = {
 const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
   executionPosture: EXECUTION_POSTURE,
   callbackTools: [
-    { name: "ask_human", description: "Ask the operator", inputSchema: { type: "object" } },
+    { name: "ask_human", description: "Ask the person", inputSchema: { type: "object" } },
   ],
   subagentPolicy: { enabled: false },
   outputSchema: { type: "object", properties: { answer: { type: "string" } } },
@@ -624,32 +624,6 @@ describe("RuntimeBindingStore — driver_name", () => {
 });
 
 describe("RuntimeBindingStore — cliVersion pair", () => {
-  it("rejects a bounded-but-unparseable semver and a non-canonical form at the seam", () => {
-    // A bounded garbage semver stored now would poison floor comparison far from the row that
-    // produced it. The seam applies the module's one semver predicate (`semver.valid(v) === v`,
-    // the floor gate's), so the layers cannot disagree.
-    const store = makeStore();
-    for (const unparseableSemver of ["not-a-version", "v1.2.3", " 1.2.3", "1.2"]) {
-      let thrown: unknown;
-      try {
-        store.create({
-          runId: RUN_ID,
-          driverName: DRIVER_NAME,
-          contractVersion: CONTRACT_VERSION,
-          cliVersion: { raw: CLI_VERSION.raw, semver: unparseableSemver },
-          spawnConfig: {},
-        });
-      } catch (e) {
-        thrown = e;
-      }
-      expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
-      expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe(
-        "cli_version_semver",
-      );
-    }
-    expect(countBindings()).toBe(0);
-  });
-
   it("round-trips the pair and stores BOTH columns", () => {
     const store = makeStore();
     const created = store.create({

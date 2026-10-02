@@ -1,5 +1,5 @@
-// The normalized surface every provider driver (Codex, Claude) implements, so the session engine
-// never sees provider-native types. Only the daemon reads these shapes; the ones a client or
+// The normalized surface every provider driver implements, so the session engine never sees
+// provider-native types. Only the daemon reads these shapes; the ones a client or
 // another contract also reads (run ids, capability flags, interventions, execution posture, models
 // and modes) are in `@ai-sidekicks/contracts`.
 //
@@ -75,7 +75,7 @@ export interface ProviderDriver {
   probeAuth(): Promise<DriverAuthProbeResult>;
   // Gated on `context_compaction`. Compacts the bound session's provider-side context on user
   // request only, settling on the provider's typed compaction evidence and never on the request
-  // being accepted (Codex answers an empty ack; Claude's `driver_command` frame only settles).
+  // being accepted (a provider may answer with an empty acknowledgement or not at all).
   // There is no prompt-injected emulation: a driver that cannot compact declares the flag `false`.
   // The wait ends at the driver's declared per-binding bound or when the binding stops being
   // live; a compaction frame that arrives after settlement still normalizes as an unsolicited one.
@@ -93,9 +93,9 @@ export interface ProviderDriver {
 export interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
-  // The session's model. Claude Code takes it at process start as `--model`, so `switch_default`
-  // on its usage-credits prompt moves this session alone and never rewrites the account's saved
-  // default; Codex takes the model per turn.
+  // The session's model. A provider that takes it at process start applies `switch_default` on its
+  // usage-credits prompt to this session alone, never to the account's saved default; a provider
+  // that takes the model per turn reads it there.
   model: string;
   // Realizes the native-cap-escape admitted cap at spawn for providers that bind budget caps then
   // (Claude `--max-budget-usd`), so a cap-admitted leg is never launched capless.
@@ -110,13 +110,14 @@ export interface CreateSessionParams {
   // Requested is not granted: the provider's declared state is observed later as binding-held
   // `ProviderOutputSpeedState`, and neither value is rewritten into the other.
   outputSpeed?: string | undefined;
-  // Gated on `callback_tools`. Claude hosts the registry as a daemon-hosted ephemeral MCP server
-  // (`--mcp-config`), where the tools surface as `mcp__<server>__<tool>`.
+  // Gated on `callback_tools`. A driver may host the registry as a daemon-hosted ephemeral MCP
+  // server, where the tools surface under that server's name.
   callbackTools?: SessionCallbackTool[] | undefined;
   // Gated on the `subagents` flag.
   subagentPolicy?: SubagentPolicy | undefined;
-  // Gated on `structured_output`. A normalized JSON Schema constraining the final output. Claude
-  // binds it per session here (`--json-schema`); Codex per turn via `StartRunParams.outputSchema`.
+  // Gated on `structured_output`. A normalized JSON Schema constraining the final output, for a
+  // provider that binds it per session; one that binds it per turn reads
+  // `StartRunParams.outputSchema`.
   outputSchema?: Record<string, unknown> | undefined;
   // The provider account this leg is admitted against; omitted, the leg spawns against the node's
   // default for that provider. Opaque to the driver, which receives an already-constructed spawn
@@ -135,7 +136,7 @@ export interface CreateSessionParams {
     | undefined;
   // Daemon-injected MCP server-status sink, pre-bound to this leg's identity (session id and the
   // store-minted binding id) at spawn, so a driver cannot misattribute or spoof another leg's rows
-  // and needs no id it does not yet have for the init census it emits during `createSession`.
+  // and needs no id it lacks for the init census it emits during `createSession`.
   onMcpServerStatus?: McpServerStatusProducer | undefined;
 }
 
@@ -189,13 +190,13 @@ export interface StartRunParams {
   // Optionals are `?: T | undefined`, not bare `?: T`, under `exactOptionalPropertyTypes`: the
   // package idiom, which keeps an interface aligned with a schema's inferred type.
   conversationHistory?: unknown[] | undefined;
-  // The per-run effective posture, the same object the daemon stamps on `run.running`. Codex
-  // realizes it per turn (`turn/start` sandbox params); a provider that binds posture at spawn
+  // The per-run effective posture, the same object the daemon stamps on `run.running`. A provider
+  // that takes posture per turn realizes it there; a provider that binds posture at spawn
   // realizes it at session boundaries, and a mid-session change there resolves by session
   // relaunch, never a silent partial application.
   executionPosture?: ExecutionPosture | undefined;
-  // Per-turn schema-constrained final output (Codex `turn/start.outputSchema`); Claude binds the
-  // same schema at spawn via `CreateSessionParams.outputSchema`. Gated on `structured_output`.
+  // Per-turn schema-constrained final output; a provider that binds it at spawn reads
+  // `CreateSessionParams.outputSchema` instead. Gated on `structured_output`.
   outputSchema?: Record<string, unknown> | undefined;
 }
 
@@ -291,8 +292,8 @@ export type CapabilityDetectionSource = "static" | "probed";
  * never silently create a replacement provider session under the same run. The `resumed` arm's
  * required `sessionPosition` is the driver's normalized monotonic position (a turn or event
  * ordinal, as in `ForkConversationResult`); the daemon compares it with its recorded position,
- * which catches a provider answering a resume with a fresh session (e.g. Claude on a
- * working-directory mismatch). Timestamps live on `runtime_bindings.updated_at`.
+ * which catches a provider answering a resume with a fresh session (as on a working-directory
+ * mismatch). Timestamps live on `runtime_bindings.updated_at`.
  */
 export type DriverResumeResult =
   | { status: "resumed"; bindingId: string; sessionPosition: number }
@@ -349,11 +350,10 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
  * condition needs a human, while a spent usage allowance clears when the provider's window turns
  * over. One member on purpose: only `plan-allowance-exhausted`, the subscription allowance for a
  * rolling window, clears on its own. Excluded because a human must act or the state is not a
- * refused turn: a depleted credit balance (Codex `workspace_owner_credits_depleted` and
- * `workspace_member_credits_depleted`, restored by a purchase), a payment fault (Claude
- * `billing_error`), and a spend-control ceiling (Codex `spendControlReached`, an administrative
- * budget state on a snapshot). A turn refused for any of them settles on the driver's ordinary
- * turn-failure path. Widen the union deliberately; never with a free string.
+ * refused turn: a depleted credit balance (restored by a purchase), a payment fault, and a
+ * spend-control ceiling (an administrative budget state on a snapshot). A turn refused for any of
+ * them settles on the driver's ordinary turn-failure path. Widen the union deliberately; never
+ * with a free string.
  */
 type ProviderUsageLimitCause = "plan-allowance-exhausted";
 
@@ -406,8 +406,7 @@ export interface ForkConversationParams {
  * Discriminated on `status` like `DriverResumeResult`: `sessionPosition` is required on `applied`
  * and absent from `degraded`, so a fork without a confirmed position is unrepresentable. The schema
  * bounds shape only (integer >= 0); domain checks need session state and belong to the daemon.
- * `bindingId` is the binding the fork minted (Claude `--resume-session-at` with `--fork-session`;
- * Codex `thread/fork`), a store-minted surrogate and never a resume handle.
+ * `bindingId` is the binding the fork minted, a store-minted surrogate and never a resume handle.
  */
 export type ForkConversationResult =
   | { status: "applied"; sessionPosition: number; bindingId?: string | undefined }
@@ -485,8 +484,8 @@ export interface ClearSessionGoalParams {
 export interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
   // Knowingly PII-bearing: a provider-reported account or plan descriptor whose observed shape is
-  // a plan name plus a seat email. Transient diagnostics for the person only: never persist it or
-  // carry it on an event without a PII classification and the erasure that obliges. Admission
+  // a plan name plus an account email. Transient diagnostics for the person only: never persist it
+  // or carry it on an event without a PII classification and the erasure that obliges. Admission
   // reads `status` for the decision and this field only to tell the person why, so dropping it
   // loses diagnostics, never correctness.
   detail?: string | undefined;
@@ -510,7 +509,7 @@ export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, Drive
 // anything a provider held that never became an event is absent by construction, which is what
 // the declared-loss rule surfaces.
 
-/** Who authored a turn. The transcript carries no third author in V1. */
+/** Who authored a turn. The transcript carries no third author. */
 export type CanonicalTranscriptRole = "user" | "assistant";
 
 /**
@@ -756,9 +755,9 @@ export type SubagentPolicy =
   | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
 
 /**
- * The unified per-subagent definition each driver maps onto its provider form (Claude `--agents`
- * AgentDefinition; Codex `[agents]` config). Every field beyond `name` is optional because each leg
- * maps what its provider supports and ignores the rest, which the capability matrix grades.
+ * The unified per-subagent definition each driver maps onto its provider's own form. Every field
+ * beyond `name` is optional because each leg maps what its provider supports and ignores the
+ * rest, which the capability matrix grades.
  */
 export interface SubagentDefinition {
   name: string;

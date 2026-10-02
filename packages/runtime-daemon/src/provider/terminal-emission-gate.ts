@@ -40,25 +40,24 @@ export type TerminalEmissionDecision =
   | { readonly emit: false; readonly suppressionReason: TerminalSuppressionReason };
 
 /**
+ * How many settled epochs one session remembers by default. A duplicate arrives in the same turn
+ * or the same teardown, never hundreds of runs later, so the oldest epoch is evicted first.
+ */
+const DEFAULT_SETTLED_EPOCH_MEMORY = 256;
+
+/**
  * The terminal-emission gate: one instance per provider session, held by that driver's lifecycle
  * module. It is session-scoped because a close covers whichever run is in flight at teardown,
  * and the lifecycle module does not know which run that is.
  */
 export class TerminalEmissionGate {
-  /**
-   * How many settled epochs one session remembers. A duplicate arrives in the same turn or the
-   * same teardown, never hundreds of runs later, so the oldest epoch is evicted first.
-   */
-  static readonly DEFAULT_SETTLED_EPOCH_MEMORY = 256;
-
   readonly #settledEpochMemory: number;
   readonly #settledEpochKeysInOrder: string[] = [];
   readonly #settledEpochKeys = new Set<string>();
   #intendedCloseSignaled = false;
 
   constructor(options?: { readonly settledEpochMemory?: number }) {
-    this.#settledEpochMemory =
-      options?.settledEpochMemory ?? TerminalEmissionGate.DEFAULT_SETTLED_EPOCH_MEMORY;
+    this.#settledEpochMemory = options?.settledEpochMemory ?? DEFAULT_SETTLED_EPOCH_MEMORY;
   }
 
   /**

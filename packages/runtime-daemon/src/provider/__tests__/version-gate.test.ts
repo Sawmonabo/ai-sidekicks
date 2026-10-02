@@ -2,7 +2,7 @@
 // is the one the spawned build reported, a below-floor or unparseable build is refused before any
 // other use, and every provider child carries its auto-update opt-out.
 
-import { chmod, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,7 +25,6 @@ import {
 import {
   DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
   ProviderExecutableUnresolvableError,
-  composeProviderChildEnvironment,
   readSpawnedProviderVersion,
   resolveProviderExecutable,
   toBindingVersionCarriers,
@@ -72,18 +71,7 @@ function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
 }
 
 describe("auto-update suppression in the spawned child", () => {
-  it("applies the opt-out OVER the inherited environment, so it cannot be re-enabled", () => {
-    const composed = composeProviderChildEnvironment("claude", {
-      PATH: "/usr/bin",
-      DISABLE_AUTOUPDATER: "0",
-    });
-    expect(composed["DISABLE_AUTOUPDATER"]).toBe("1");
-    expect(composed["DISABLE_UPDATES"]).toBe("1");
-    // Everything else passes through untouched.
-    expect(composed["PATH"]).toBe("/usr/bin");
-  });
-
-  it("carries the opt-out into the version handshake's own child", async () => {
+  it("carries the opt-out into the version handshake's own child, over the inherited value", async () => {
     // The handshake spawn is a driver-spawned child too; a build that auto-updated during its
     // own version handshake would falsify that reading.
     const executable = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
@@ -94,7 +82,7 @@ describe("auto-update suppression in the spawned child", () => {
       driverName: "claude",
       requestedCommand: executable,
       handshake: handshake.run,
-      baseEnvironment: { DISABLE_AUTOUPDATER: "0" },
+      baseEnvironment: { PATH: "/usr/bin", DISABLE_AUTOUPDATER: "0" },
       resolver: {
         isExecutableFile: () => Promise.resolve(true),
         realpath: (candidate) => Promise.resolve(candidate),
@@ -105,14 +93,20 @@ describe("auto-update suppression in the spawned child", () => {
     expect(handshake.requests).toHaveLength(1);
     expect(handshake.requests[0]?.environment["DISABLE_AUTOUPDATER"]).toBe("1");
     expect(handshake.requests[0]?.environment["DISABLE_UPDATES"]).toBe("1");
+    // Everything else passes through untouched.
+    expect(handshake.requests[0]?.environment["PATH"]).toBe("/usr/bin");
   });
 });
 
 describe("provider executable resolution", () => {
   const temporaryDirectories: string[] = [];
 
-  afterEach(() => {
-    temporaryDirectories.length = 0;
+  afterEach(async () => {
+    await Promise.all(
+      temporaryDirectories
+        .splice(0)
+        .map((directory) => rm(directory, { recursive: true, force: true })),
+    );
   });
 
   async function makeLauncherFixture(): Promise<{

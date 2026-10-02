@@ -1,3 +1,6 @@
+// A structurally invalid history is a permanent refusal, never a retry, and a request whose
+// outcome a connection loss left unknown is settled by reading the target, not by guessing.
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,9 +14,6 @@ import {
   type ProviderRequestFailureDisposition,
   type ProviderRefusalShape,
 } from "../failure-mapping.js";
-
-// A structurally invalid history is a permanent refusal, never a retry, and a request whose
-// outcome a connection loss left unknown is settled by reading the target, not by guessing.
 
 // --------------------------------------------------------------------------
 // The classification table
@@ -114,13 +114,14 @@ describe("AmbiguousDeliveryReconciler", () => {
       reason: "the pin publishes no turn read",
     });
 
-    const throwing = new AmbiguousDeliveryReconciler(() =>
-      Promise.reject(new Error("read failed")),
-    );
-    // The caller is settling a turn; a propagated reader exception is a failure it cannot classify.
+    const readFailure = new Error("read failed");
+    const throwing = new AmbiguousDeliveryReconciler(() => Promise.reject(readFailure));
+    // The caller is settling a turn; a propagated reader exception is a failure it cannot classify,
+    // so the settlement carries it instead.
     expect(await settle(throwing, 3)).toStrictEqual({
       settlement: "unrecoverable",
       reason: USER_TURN_READ_FAILED,
+      cause: readFailure,
     });
   });
 

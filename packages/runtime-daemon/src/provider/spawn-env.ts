@@ -1,7 +1,7 @@
 /**
- * The child-environment builder every provider driver spawns through: strips the credential
- * policy's denied names and always sets the provider's auto-update opt-out. The version gate's
- * `composeProviderChildEnvironment` applies the same opt-out to a record-shaped environment.
+ * The child-environment builder every provider child spawns through, the version handshake
+ * included: strips the credential policy's denied names and always sets the provider's
+ * auto-update opt-out.
  *
  * - No `credentialEnvPolicy` (a `trusted` posture) strips nothing; the opt-out always applies.
  * - A policy whose name matching differs from the host's is refused, not reconciled.
@@ -38,8 +38,8 @@ export interface ProviderSpawnEnvRequest {
   /** Absent under a `trusted` posture, which denies nothing. */
   readonly credentialEnvPolicy?: CredentialEnvPolicy | undefined;
   /**
-   * Mandated like the opt-out and exempt from the deny strip; a colliding name throws. The Codex
-   * binary path uses it: it pins the build and stands in for that provider's missing opt-out.
+   * Mandated like the opt-out and exempt from the deny strip; a colliding name throws. A driver
+   * whose provider has no opt-out pins its build through it.
    */
   readonly additionalMandatedPairs?: readonly SpawnEnvPair[] | undefined;
 }

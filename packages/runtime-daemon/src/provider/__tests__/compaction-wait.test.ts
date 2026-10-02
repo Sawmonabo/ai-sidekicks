@@ -148,9 +148,10 @@ describe("PendingCompactionRegistry — withdrawal", () => {
 
 describe("PendingCompactionRegistry — scoping by key", () => {
   it("settles EVERY waiter on one key from a single terminal", async () => {
-    // Two users can ask for a compaction on one binding at once, and the result union's refusal
-    // arm is closed at `command_absent` / `not_permitted`, neither of which means "someone else
-    // asked first". One provider compaction is one compaction, and both callers hear about it.
+    // Two requests (the person on two devices) can ask for a compaction on one binding at once,
+    // and the result union's refusal arm is closed at `command_absent` / `not_permitted`, neither
+    // of which means "someone else asked first". One provider compaction is one compaction, and
+    // both callers hear about it.
     const scheduler = makeManualScheduler();
     const registry = new PendingCompactionRegistry(scheduler.schedule);
 

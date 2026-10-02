@@ -254,7 +254,7 @@ describe("bound-account child environment carries no ambient credential inherita
 
   function withAmbientCredential<Result>(run: () => Result): Result {
     const previous = process.env[AMBIENT_CREDENTIAL_NAME];
-    process.env[AMBIENT_CREDENTIAL_NAME] = "sk-ambient-operator-token";
+    process.env[AMBIENT_CREDENTIAL_NAME] = "sk-ambient-person-token";
     try {
       return run();
     } finally {

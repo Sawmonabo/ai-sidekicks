@@ -32,11 +32,9 @@ describe("DriverDiagnosticsEmitter", () => {
       emitter.emit(makeRecord({ rawWireType: `frame-${sequence}` }));
     }
     expect(emitter.emittedRecordCount()).toBe(5);
-    expect(emitter.recentRecords().map((record) => record.rawWireType)).toEqual([
-      "frame-2",
-      "frame-3",
-      "frame-4",
-    ]);
+    expect(
+      emitter.recentRecordsOfKind("unmapped_wire_kind").map((record) => record.rawWireType),
+    ).toEqual(["frame-2", "frame-3", "frame-4"]);
   });
 
   it("contains a throwing sink — a failing sink never takes the boundary down", () => {
@@ -80,7 +78,6 @@ describe("NormalizedEventReorderBuffer", () => {
     expect(
       buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 2),
     ).toEqual(["done-1"]);
-    expect(buffer.heldEventCount()).toBe(0);
   });
 
   it("holds a completion that outran its initiation and releases the pair in order", () => {
@@ -88,12 +85,10 @@ describe("NormalizedEventReorderBuffer", () => {
     expect(
       buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 0),
     ).toEqual([]);
-    expect(buffer.heldEventCount()).toBe(1);
     // The initiation releases itself first, then the completion it unblocks.
     expect(
       buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 1),
     ).toEqual(["start-1", "done-1"]);
-    expect(buffer.heldEventCount()).toBe(0);
   });
 
   it("flushes everything in arrival order on overflow, with the diagnostic + counter", () => {
@@ -115,7 +110,6 @@ describe("NormalizedEventReorderBuffer", () => {
       2,
     );
     expect(released).toEqual(["done-a", "done-b", "done-c"]);
-    expect(buffer.heldEventCount()).toBe(0);
     expect(emitter.recentRecordsOfKind("reorder_buffer_overflow")).toHaveLength(1);
     expect(counterSink.totalFor("driver.reorder_buffer.overflow")).toBe(1);
   });
@@ -125,7 +119,6 @@ describe("NormalizedEventReorderBuffer", () => {
     buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 0);
     expect(buffer.flushExpired(499)).toEqual([]);
     expect(buffer.flushExpired(500)).toEqual(["done-1"]);
-    expect(buffer.heldEventCount()).toBe(0);
     const timeoutRecords = emitter.recentRecordsOfKind("tool_pairing_timeout");
     expect(timeoutRecords).toHaveLength(1);
     expect(timeoutRecords[0]?.details["toolCallId"]).toBe("tool-1");
@@ -141,7 +134,7 @@ describe("NormalizedEventReorderBuffer", () => {
     expect(released).toEqual(["done-1", "later-delta"]);
   });
 
-  it("bounds the seen-initiation ledger: oldest evicted first, each eviction a diagnostic", () => {
+  it("bounds the seen-initiation set: oldest evicted first, each eviction a diagnostic", () => {
     const counterSink = new InMemoryDriverDiagnosticCounterSink();
     const emitter = new DriverDiagnosticsEmitter({
       logSink: { record: () => undefined },
@@ -166,13 +159,12 @@ describe("NormalizedEventReorderBuffer", () => {
         ordinal,
       );
     }
-    expect(buffer.seenInitiationCount()).toBe(2);
 
-    const evictions = emitter.recentRecordsOfKind("reorder_initiation_ledger_evicted");
+    const evictions = emitter.recentRecordsOfKind("reorder_seen_initiation_evicted");
     expect(evictions).toHaveLength(1);
     // Oldest first: the survivors are the ones a late completion is most likely still racing.
     expect(evictions[0]?.details["toolCallId"]).toBe("tool-1");
-    expect(counterSink.totalFor("driver.reorder_buffer.initiation_ledger_evicted")).toBe(1);
+    expect(counterSink.totalFor("driver.reorder_buffer.seen_initiation_evicted")).toBe(1);
 
     // An evicted call's late completion is held, then shed at the pairing timeout with its own
     // diagnostic.

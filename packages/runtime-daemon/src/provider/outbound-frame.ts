@@ -2,7 +2,7 @@
 //
 // A provider CLI that also parses client-side commands consumes a message whose first word is
 // command-shaped and answers with a zero-turn success: no error, no model attribution, no token
-// accounting (verified against the pinned Claude build).
+// accounting (measured against a pinned provider build).
 // - Neutralization changes only the bytes handed to the provider; the user's text is persisted,
 //   evented, replayed and rendered as authored.
 // - `OutboundTextFrame` is nominal (`#private` field): a driver only gets text from the writer.
@@ -99,8 +99,6 @@ const FRAME_MINT_TOKEN: unique symbol = Symbol("outbound-text-frame-mint");
  * the correlation value the tripwire joins on. Only {@link OutboundTextFrameWriter} mints one.
  */
 export class OutboundTextFrame {
-  readonly #mintedByWriter: true;
-
   /** The author's bytes, unchanged — what is persisted, evented, and replayed. */
   readonly authoredText: string;
 
@@ -117,8 +115,8 @@ export class OutboundTextFrame {
   /** True when the sentinel was applied — i.e. `wireText !== authoredText`. */
   readonly neutralized: boolean;
 
-  /** Daemon-minted, one per frame. Never sent to the provider; never persisted. */
-  readonly correlationId: string;
+  // The `#private` field that makes the class nominal; read through `correlationId`.
+  readonly #correlationId: string;
 
   constructor(
     mintToken: symbol,
@@ -137,20 +135,19 @@ export class OutboundTextFrame {
         "An outbound provider text frame may be composed only by the driver-boundary frame writer.",
       );
     }
-    this.#mintedByWriter = true;
     this.authoredText = init.authoredText;
     this.wireText = init.wireText;
     this.origin = init.origin;
     this.detailOrigin = init.detailOrigin;
     this.tripwireExempt = init.tripwireExempt;
     this.neutralized = init.neutralized;
-    this.correlationId = init.correlationId;
+    this.#correlationId = init.correlationId;
     Object.freeze(this);
   }
 
-  /** Reads the nominal marker, so the private field is used rather than merely declared. */
-  get mintedByWriter(): boolean {
-    return this.#mintedByWriter;
+  /** Daemon-minted, one per frame. Never sent to the provider; never persisted. */
+  get correlationId(): string {
+    return this.#correlationId;
   }
 }
 
@@ -282,21 +279,21 @@ export interface TripwireTrip {
 /** A tripwire ruling on a frame: a pass or a trip. */
 export type TripwireDecision = TripwirePass | TripwireTrip;
 
-/** The run terminal for an unproven delivery; a supersede's detail must not claim a swallow. */
-export interface UnprovenDeliveryRunFailure {
+/**
+ * The run terminal for a frame whose delivery was not proven: a trip, or a binding superseded
+ * before its turn settled. A supersede's detail must not claim a swallow.
+ */
+export interface TextNeutralizationRunFailure {
   readonly eventType: "run.failed";
   readonly failureCategory: "provider failure";
   readonly recoveryCondition: "recovery-needed";
   readonly providerFailureDetail: string;
 }
 
-/** A trip's run terminal: the same record as {@link UnprovenDeliveryRunFailure}. */
-export type TextNeutralizationRunFailure = UnprovenDeliveryRunFailure;
-
 /** Composes the run terminal for a trip. */
 export function composeTextNeutralizationRunFailure(
   trip: TripwireTrip,
-): UnprovenDeliveryRunFailure {
+): TextNeutralizationRunFailure {
   return {
     eventType: "run.failed",
     failureCategory: "provider failure",
@@ -319,7 +316,7 @@ const SUPERSEDED_DELIVERY_ORIGIN_PHRASE: Readonly<Record<TripwireDetailOrigin, s
  */
 export function composeSupersededDeliveryRunFailure(
   origin: TripwireDetailOrigin,
-): UnprovenDeliveryRunFailure {
+): TextNeutralizationRunFailure {
   return {
     eventType: "run.failed",
     failureCategory: "provider failure",
@@ -552,7 +549,7 @@ export class OutboundFrameTripwire {
 
   /**
    * Whether any frame is still pending under a scope, whatever its key. On a leg whose envelope
-   * carries no join identity (Claude), admitting a second key into an occupied scope makes `settle`
+   * carries no join identity, admitting a second key into an occupied scope makes `settle`
    * ambiguous, so the session-serialization guard asks this first.
    */
   hasPendingFrameInScope(scopeKey: string): boolean {

@@ -28,7 +28,7 @@ import {
   type BriefTargetGateway,
 } from "../brief-delivery.js";
 import {
-  readDeliveredBriefDeclaredLosses,
+  readAnyBriefContinuityMarkerOccurrences,
   targetTurnsCarryBriefMarker,
 } from "../brief-marker-reader.js";
 import {
@@ -44,6 +44,7 @@ import type {
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
 } from "../../provider-driver.js";
+import { OutboundTextFrame } from "../../outbound-frame.js";
 
 const TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-1" };
 const OTHER_TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-2" };
@@ -190,7 +191,10 @@ const IMMEDIATE_BARRIER: BriefSendSettlementBarrier = () => Promise.resolve();
 const EXPIRED_BARRIER: BriefSendSettlementBarrier = () =>
   Promise.reject(new Error("the bounded wait for the provider session expired"));
 
-/** Records every member name read off the gateway, so a test can show the target was never touched. */
+/**
+ * Records every member name read off the gateway, so a test can show the target was never
+ * touched.
+ */
 function recordingGateway(
   target: FakeTargetSession,
   observedMemberNames: string[],
@@ -774,8 +778,8 @@ describe("brief reconciliation — reading the continuity marker back", () => {
   });
 
   it("declares an upper bound when the delivered summary recorded no losses of its own", async () => {
-    // A summary placed before summaries recorded what they dropped teaches nothing, so the report
-    // is the whole loss vocabulary, stated as a bound rather than an account.
+    // A key-only marker records nothing about what its summary dropped, so the report is the whole
+    // loss vocabulary, stated as a bound rather than an account.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET);
@@ -794,7 +798,7 @@ describe("brief reconciliation — reading the continuity marker back", () => {
     expect(target.sendAttempts).toBe(0);
   });
 
-  it("reads a continuity record strictly, over the whole loss vocabulary of the wire", () => {
+  it("reads a continuity record strictly, over the whole loss vocabulary of the wire", async () => {
     // A record that lists nothing must not read as a brief that dropped nothing. This floor
     // declares its summarization on every path, so a record that omits it was not written by this
     // writer and its omissions cannot be accounted for.
@@ -811,71 +815,79 @@ describe("brief reconciliation — reading the continuity marker back", () => {
       `${marker};dropped=context_truncated++conversation_history_summarized`,
       // A well-formed list that omits the kind this floor always declares.
       `${marker};dropped=context_truncated`,
+      // Fail closed on a token outside the vocabulary: it could name any loss.
+      `${marker};dropped=context_truncated+a_kind_from_later`,
     ];
 
     for (const turnText of unreadable) {
-      expect(readDeliveredBriefDeclaredLosses([turnText], briefIdentityKey)).toBeUndefined();
+      expect(readAnyBriefContinuityMarkerOccurrences([turnText])).toStrictEqual([
+        { form: "unreadable-record", briefIdentityKey },
+      ]);
     }
-
-    // Per occurrence: one readable record does not vouch for the brief beside it, since a target
-    // with two markers under one key holds two summaries.
-    expect(
-      readDeliveredBriefDeclaredLosses(
-        [
-          renderBriefContinuityMarker(briefIdentityKey, [
-            "context_truncated",
-            "conversation_history_summarized",
-          ]),
-          `${marker};dropped=`,
-        ],
-        briefIdentityKey,
-      ),
-    ).toBeUndefined();
 
     // The floor's own single-kind record still reads: the strictness is about records this writer
     // cannot produce, not short ones.
     expect(
-      readDeliveredBriefDeclaredLosses(
-        [`${marker};dropped=conversation_history_summarized`],
+      readAnyBriefContinuityMarkerOccurrences([
+        `${marker};dropped=conversation_history_summarized`,
+      ]),
+    ).toStrictEqual([
+      {
+        form: "recorded",
         briefIdentityKey,
-      ),
-    ).toStrictEqual(["conversation_history_summarized"]);
-
-    // Fail closed on a token outside the vocabulary: it could name any loss.
+        kinds: new Set(["conversation_history_summarized"]),
+      },
+    ]);
     expect(
-      readDeliveredBriefDeclaredLosses(
-        [
-          `${BRIEF_CONTINUITY_MARKER_PREFIX}${briefIdentityKey};dropped=context_truncated+a_kind_from_later`,
-        ],
+      readAnyBriefContinuityMarkerOccurrences([
+        `carried in prose: ${renderBriefContinuityMarker(briefIdentityKey, [
+          "context_truncated",
+          "conversation_history_summarized",
+        ])} and the summary follows.`,
+      ]),
+    ).toStrictEqual([
+      {
+        form: "recorded",
         briefIdentityKey,
-      ),
-    ).toBeUndefined();
-    expect(
-      readDeliveredBriefDeclaredLosses(
-        [
-          `carried in prose: ${renderBriefContinuityMarker(briefIdentityKey, [
-            "context_truncated",
-            "conversation_history_summarized",
-          ])} and the summary follows.`,
-        ],
-        briefIdentityKey,
-      ),
-    ).toStrictEqual(["context_truncated", "conversation_history_summarized"]);
+        kinds: new Set(["context_truncated", "conversation_history_summarized"]),
+      },
+    ]);
 
     // The vocabulary is the wire's, not this build's: a peer daemon on a newer build may record a
     // kind this build never emits, and reading it as unrecognized would report a brief that dropped
     // everything.
     expect(
-      readDeliveredBriefDeclaredLosses(
-        [
-          renderBriefContinuityMarker(briefIdentityKey, [
-            "conversation_history_summarized",
-            "turn_content_truncated",
-          ]),
-        ],
+      readAnyBriefContinuityMarkerOccurrences([
+        renderBriefContinuityMarker(briefIdentityKey, [
+          "conversation_history_summarized",
+          "turn_content_truncated",
+        ]),
+      ]),
+    ).toStrictEqual([
+      {
+        form: "recorded",
         briefIdentityKey,
-      ),
-    ).toStrictEqual(["conversation_history_summarized", "turn_content_truncated"]);
+        kinds: new Set(["conversation_history_summarized", "turn_content_truncated"]),
+      },
+    ]);
+
+    // Per occurrence: one readable record does not vouch for the brief beside it, since a target
+    // with two markers under one key holds two summaries.
+    const target = new FakeTargetSession();
+    target.turns.push(
+      renderBriefContinuityMarker(briefIdentityKey, [
+        "context_truncated",
+        "conversation_history_summarized",
+      ]),
+      `${marker};dropped=`,
+    );
+    const settlement: BriefDeliverySettlement = await deliverVia(
+      new BriefDeliveryCoordinator(target),
+      requestFor(projection, ROOMY_BUDGET),
+    );
+    expect(settlement.disposition).toBe("already-delivered");
+    expect(settlement.declaredLossSource).toBe("unknown");
+    expect(settlement.declaredLosses).toStrictEqual(DECLARED_LOSS_KINDS);
   });
 
   it("admits delivery only on a syntactically COMPLETE marker occurrence", () => {
@@ -900,7 +912,7 @@ describe("brief reconciliation — reading the continuity marker back", () => {
     for (const turnText of notThisMarker) {
       expect(targetTurnsCarryBriefMarker([turnText], briefIdentityKey)).toBe(false);
       // The record reader answers the same, because one grammar serves both.
-      expect(readDeliveredBriefDeclaredLosses([turnText], briefIdentityKey)).toBeUndefined();
+      expect(readAnyBriefContinuityMarkerOccurrences([turnText])).toStrictEqual([]);
     }
 
     const thisMarker: readonly string[] = [
@@ -1286,6 +1298,7 @@ describe("brief delivery — an unreadable target", () => {
 
     expect(settlement.disposition).toBe("withheld");
     expect(settlement.withheldReason).toBe("target-unreadable");
+    expect((settlement.cause as Error).message).toBe("target session could not be read");
     expect(target.sendAttempts).toBe(0);
     expect(target.turns).toHaveLength(0);
   });
@@ -1557,7 +1570,7 @@ describe("brief frame — the key is carried as visible characters", () => {
     expect(frame?.frame.origin).toBe("system_narration");
     expect(frame?.frame.tripwireExempt).toBe(false);
     // Only the frame writer mints a frame, so the brief cannot bypass neutralization.
-    expect(frame?.frame.mintedByWriter).toBe(true);
+    expect(frame?.frame).toBeInstanceOf(OutboundTextFrame);
     // Neutralization is transport-only: the authored text equals the rendering byte for byte.
     expect(frame?.frame.authoredText).toBe(settlement.rendering.text);
     // The correlation id the tripwire joins a turn back on is present.
@@ -1646,7 +1659,7 @@ describe("brief floor — a result whose enclosure cannot be resolved is withhel
     expect(target.turns[0]).not.toContain("42 passed");
   });
 
-  it("keeps a withheld private-enclosed legacy answer out of the summary", () => {
+  it("keeps a withheld private-enclosed unkeyed answer out of the summary", () => {
     // The fold's stand-in for an unkeyed tool result whose reasoning block is private, beside a
     // real sibling so the turn survives the strip.
     const withMarker: CanonicalTranscriptProjection = projectionOf([

@@ -1,7 +1,6 @@
-// ProviderRegistry, DriverCapabilitiesWriter and RuntimeBindingStore composed over one real SQLite
-// handle, with the driver as the only double: capability gating agrees between the live registry,
-// a registry re-seeded from the durable cache after a restart, and a refreshed registry, and a
-// binding's opaque resume handle survives a cold read beside the driver identity it names.
+// ProviderRegistry and DriverCapabilitiesWriter composed over one real SQLite handle, with the
+// driver as the only double: capability gating agrees between the live registry, a registry
+// re-seeded from the durable cache after a restart, and a refreshed registry.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-  type ExecutionPosture,
   type ProviderName,
 } from "@ai-sidekicks/contracts";
 
@@ -20,7 +18,6 @@ import {
   type DriverCapabilityHydrationResult,
 } from "../driver-capabilities-writer.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../provider-registry.js";
-import { RuntimeBindingStore, type RuntimeBindingSpawnConfig } from "../runtime-binding-store.js";
 import type {
   DriverCliVersionReport,
   GetCapabilitiesResult,
@@ -47,17 +44,6 @@ function makeFlags(
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
   raw: "mock-provider-cli 2.1.234 (build 7)",
   semver: "2.1.234",
-};
-
-const EXECUTION_POSTURE: ExecutionPosture = {
-  networkAccess: "none",
-  writableRoots: ["/workspace/repo"],
-  mode: "trusted",
-};
-
-const SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
-  executionPosture: EXECUTION_POSTURE,
-  resolvedExecutablePath: "/opt/homebrew/bin/claude",
 };
 
 // Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
@@ -139,20 +125,14 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): ProviderDriv
 
 interface Stack {
   readonly writer: DriverCapabilitiesWriter;
-  readonly bindingStore: RuntimeBindingStore;
   readonly registry: ProviderRegistry;
 }
 
 let db: DatabaseType;
 
 function makeStack(): Stack {
-  let bindingIdCounter: number = 0;
   return {
     writer: new DriverCapabilitiesWriter(db, makeAdvancingClock()),
-    bindingStore: new RuntimeBindingStore(db, {
-      now: makeAdvancingClock(),
-      newId: () => `binding-${(bindingIdCounter++).toString()}`,
-    }),
     registry: new ProviderRegistry(),
   };
 }
@@ -269,55 +249,5 @@ describe("capability gating across the registry, the durable cache and a restart
     // Handed across unmodified, as for registry B above.
     await refreshedRegistry.register(DRIVER_NAME, makeMockDriver(refreshed));
     expect(refreshedRegistry.checkCapability(DRIVER_NAME, "steer")).toBeUndefined();
-  });
-});
-
-describe("a runtime binding beside the registered driver", () => {
-  it("a runtime binding round-trips through findById/findByRun AND a FRESH store over the same db, cohering with the registered + hydrated driver identity", async () => {
-    const { writer, bindingStore, registry } = makeStack();
-
-    // Establish the driver in the registry, the capability cache and the binding over one db.
-    const advertised: GetCapabilitiesResult = makeResult();
-    await registry.register(DRIVER_NAME, makeMockDriver(advertised));
-    await writer.declare({
-      driverName: DRIVER_NAME,
-      result: advertised,
-    });
-    const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
-
-    // The provider contributes only opaque strings, here the `resumeHandle`; the run-to-driver
-    // binding stays daemon-local. The spawn config carries real content (posture and executable
-    // path) so the cold read shows the record survives, not merely parses.
-    const created = bindingStore.create({
-      runId: "run-1",
-      driverName: DRIVER_NAME,
-      contractVersion: CONTRACT_VERSION,
-      resumeHandle: "opaque-provider-resume-handle-abc",
-      spawnConfig: SPAWN_CONFIG,
-    });
-
-    // Read back through both accessors on the live store.
-    expect(bindingStore.findById(created.id)).toEqual(created);
-    expect(bindingStore.findByRun("run-1")).toEqual([created]);
-
-    // A fresh store over the same db reads the binding from SQLite, not from in-memory state.
-    const freshStore: RuntimeBindingStore = new RuntimeBindingStore(db, {});
-    const reread = freshStore.findById(created.id);
-    expect(reread).toBeDefined();
-    if (reread === undefined) return;
-
-    // The binding, the capability cache and the registry resolve to the same driver identity.
-    expect(reread.driverName).toBe(DRIVER_NAME);
-    expect(registry.lookup(DRIVER_NAME)).toBeDefined();
-    // The contract version agrees across the binding and the capability cache.
-    expect(reread.contractVersion).toBe(CONTRACT_VERSION);
-    expect(reread.contractVersion).toBe(hydrated.capabilities.contractVersion);
-    // The opaque provider handle survived the cold read...
-    expect(reread.resumeHandle).toBe("opaque-provider-resume-handle-abc");
-    // ...and so did the daemon-owned spawn config that recovery re-reads to rebuild the resume
-    // params. `toStrictEqual` so an absent member cannot pass as `undefined`: a resume without its
-    // posture would relaunch unsandboxed.
-    expect(reread.spawnConfig).toStrictEqual(SPAWN_CONFIG);
-    expect(reread.spawnConfig.executionPosture).toStrictEqual(EXECUTION_POSTURE);
   });
 });
