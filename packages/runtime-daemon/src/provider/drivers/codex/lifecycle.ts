@@ -33,7 +33,7 @@ import {
   PermanentStructuralRefusalError,
 } from "../../transcript/failure-mapping.js";
 import { CODEX_SKILLS_CHANGED_METHOD } from "./event-normalizer.js";
-import { CodexTerminalEmissionGate } from "./turn-evidence.js";
+import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
 import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
@@ -127,10 +127,10 @@ export class CodexLifecycleManager {
    * which can only settle `delivered` (re-sends nothing), never `cleared-for-retry`.
    */
   readonly #ambiguousDeliveryReconciler: AmbiguousDeliveryReconciler;
-  // The intended-close producer: one gate per session, latched at the top of `closeSession`, which
-  // `event-normalizer.ts` stamps on the terminal payload. Keyed beside the record map because a
-  // close during establishment holds no installed record.
-  readonly #terminalEmissionGates = new Map<SessionId, CodexTerminalEmissionGate>();
+  // The intended-close producer: one gate per session, latched at the top of `closeSession`; the
+  // gate stamps it on the terminal payload. Keyed beside the record map because a close during
+  // establishment holds no installed record.
+  readonly #terminalEmissionGates = new Map<SessionId, TerminalEmissionGate>();
   // One router and one usage accountant per provider session, keyed beside the record map: a frame
   // can arrive while the slot is establishing, before a record exists.
   readonly #frameRouters = new Map<SessionId, ThreadFrameRouter<CodexRoutableFrame>>();
@@ -558,7 +558,7 @@ export class CodexLifecycleManager {
    * The terminal-emission gate, which stamps `intendedClose` and suppresses a duplicate terminal
    * per `(runId, runVersion)`. Read live at each terminal, never captured.
    */
-  terminalEmissionGateFor(sessionId: SessionId): CodexTerminalEmissionGate {
+  terminalEmissionGateFor(sessionId: SessionId): TerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
   }
 
@@ -592,12 +592,12 @@ export class CodexLifecycleManager {
   }
 
   // Get-or-create, so the latch survives whichever of close and establishment comes first.
-  #intendedCloseGateFor(sessionId: SessionId): CodexTerminalEmissionGate {
+  #intendedCloseGateFor(sessionId: SessionId): TerminalEmissionGate {
     const existing = this.#terminalEmissionGates.get(sessionId);
     if (existing !== undefined) {
       return existing;
     }
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
     this.#terminalEmissionGates.set(sessionId, gate);
     return gate;
   }

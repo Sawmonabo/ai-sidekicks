@@ -29,7 +29,7 @@ import {
   OutboundTextFrameWriter,
   RuntimeBindingQuarantine,
 } from "../../outbound-frame.js";
-import { ClaudeTerminalEmissionGate } from "./turn-evidence.js";
+import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
 import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 import {
   CLAUDE_COMPACTION_COMMAND_NAME,
@@ -88,10 +88,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   // atomic.
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #runRoutes: ClaudeRunRoutes = new ClaudeRunRoutes();
-  // The producer half of the intended-close signal, signaled at the top of `closeSession` and
-  // consumed at the terminal-emission boundary in `event-normalizer.ts`. Keyed beside the slot map
-  // because the intent must be recordable while the slot holds no live session.
-  readonly #terminalEmissionGates: Map<SessionId, ClaudeTerminalEmissionGate> = new Map();
+  // The producer half of the intended-close signal, signaled at the top of `closeSession` before
+  // the channel is disposed, so the `result/*` it provokes reads as a clean shutdown. Keyed beside
+  // the slot map because the intent must be recordable while the slot holds no live session.
+  readonly #terminalEmissionGates: Map<SessionId, TerminalEmissionGate> = new Map();
   // A session's router and accountant, in one map so they are created and released together.
   readonly #routingBands: Map<SessionId, ClaudeSessionRoutingBand> = new Map();
   // The tripwire correlates each frame with the turn that settles it; the quarantine holds
@@ -501,7 +501,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
    * The terminal-emission gate for one session, read live at each terminal because a gate captured
    * before a close would miss the latch the close sets.
    */
-  terminalEmissionGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
+  terminalEmissionGateFor(sessionId: SessionId): TerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
   }
 
@@ -541,12 +541,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
 
   // Get-or-create, so the intent latch survives whichever of close and establishment reaches the
   // session first.
-  #intendedCloseGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
+  #intendedCloseGateFor(sessionId: SessionId): TerminalEmissionGate {
     const existing = this.#terminalEmissionGates.get(sessionId);
     if (existing !== undefined) {
       return existing;
     }
-    const gate = new ClaudeTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
     this.#terminalEmissionGates.set(sessionId, gate);
     return gate;
   }

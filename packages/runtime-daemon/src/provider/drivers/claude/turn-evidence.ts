@@ -1,9 +1,5 @@
-/**
- * Classifies what a Claude turn's `result` frame proves about how the turn ended, and binds the
- * terminal-emission gate to the Claude frame type.
- */
+/** Classifies what a Claude turn's `result` frame proves about how the turn ended. */
 
-import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
 import {
   UNRECOGNIZED_TURN_EVIDENCE,
   observedTurnEvidence,
@@ -11,15 +7,6 @@ import {
   type TurnEvidenceClassification,
 } from "../../outbound-frame.js";
 import { CLAUDE_WIRE_FRAME_KINDS } from "./event-normalizer.js";
-
-// Terminal emission, as in the Codex normalizer, except `ClaudeChannelDisposalReason` carries an
-// explicit `session_closed` intent, so an intended close is read, not inferred from timing.
-// `closeSession` signals before disposing the channel, so the `result/*` it provokes is a clean
-// shutdown, not a crash. Only a frame routed to the session's own thread settles a run, so a
-// subagent's `result/*` never settles the parent's.
-
-/** The Claude terminal-emission gate, one per provider session; empty, like Codex's subclass. */
-export class ClaudeTerminalEmissionGate extends TerminalEmissionGate {}
 
 // Derived from the census so a new subtype joins without a second edit. `success` is excluded:
 // it is the subtype a swallowed turn wears.

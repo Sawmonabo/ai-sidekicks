@@ -1,29 +1,11 @@
-/**
- * Classifies what a Codex turn's terminal frame proves about how the turn ended, and binds the
- * terminal-emission gate to the Codex frame type.
- */
+/** Classifies what a Codex turn's terminal frame proves about how the turn ended. */
 
-import { TerminalEmissionGate, type TerminalRunFrame } from "../../terminal-emission-gate.js";
 import {
   UNRECOGNIZED_TURN_EVIDENCE,
   observedTurnEvidence,
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
 } from "../../outbound-frame.js";
-
-// This module is the sole terminal-emission boundary for the Codex leg. It stamps `intendedClose`
-// on a daemon-initiated close's terminal payload so recovery reads a clean shutdown, and it
-// suppresses a duplicate terminal per `(runId, runVersion)`, which would otherwise hit the partial
-// unique index. The gate settles a run only on a `project` route.
-
-/**
- * The Codex-named alias of the provider-neutral terminal run frame; the suppression rule lives in
- * `provider/terminal-emission-gate.ts` because both driver legs share one uniqueness index.
- */
-export type CodexTerminalRunFrame = TerminalRunFrame;
-
-/** The Codex terminal-emission gate, one per provider session; an empty Codex-named subclass. */
-export class CodexTerminalEmissionGate extends TerminalEmissionGate {}
 
 /** The `ThreadItem` variant that IS model output at the pin. */
 const CODEX_MODEL_OUTPUT_ITEM_TYPE = "agentMessage";

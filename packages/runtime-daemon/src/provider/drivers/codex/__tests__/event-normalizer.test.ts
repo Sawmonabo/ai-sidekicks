@@ -11,7 +11,7 @@ import {
   resolveCodexFrameEmissionRoute,
   UnknownCodexInboundFrameError,
 } from "../event-normalizer.js";
-import { CodexTerminalEmissionGate, type CodexTerminalRunFrame } from "../turn-evidence.js";
+import { TerminalEmissionGate, type TerminalRunFrame } from "../../../terminal-emission-gate.js";
 import { classifyCodexUsageLimitSignal } from "../usage-limit-signal.js";
 
 describe("resolveCodexFrameEmissionRoute", () => {
@@ -59,10 +59,10 @@ describe("classifyCodexFrameFamilyForRouting", () => {
 // terminal for one `(runId, runVersion)` epoch is absorbed at the driver rather than failing
 // against the partial unique index on terminal session events.
 
-describe("CodexTerminalEmissionGate", () => {
+describe("TerminalEmissionGate", () => {
   const PROJECTED_ROUTE = { decision: "project" } as const;
 
-  function terminalFrame(overrides: Partial<CodexTerminalRunFrame> = {}): CodexTerminalRunFrame {
+  function terminalFrame(overrides: Partial<TerminalRunFrame> = {}): TerminalRunFrame {
     return {
       runId: "run-1",
       runVersion: 1,
@@ -73,7 +73,7 @@ describe("CodexTerminalEmissionGate", () => {
   }
 
   it("stamps `intendedClose: false` for a terminal no close preceded", () => {
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
 
     expect(gate.admitTerminalFrame(terminalFrame())).toStrictEqual({
       emit: true,
@@ -84,7 +84,7 @@ describe("CodexTerminalEmissionGate", () => {
   });
 
   it("stamps `intendedClose: true` once a daemon-initiated close is signaled", () => {
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
 
     gate.signalIntendedClose();
 
@@ -98,7 +98,7 @@ describe("CodexTerminalEmissionGate", () => {
   it("suppresses a second terminal for the SAME epoch", () => {
     // The ordinary post-interrupt double, absorbed here rather than failing against the schema
     // backstop.
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
     gate.admitTerminalFrame(terminalFrame());
 
     expect(gate.admitTerminalFrame(terminalFrame({ rawWireType: "turn/failed" }))).toStrictEqual({
@@ -110,7 +110,7 @@ describe("CodexTerminalEmissionGate", () => {
 
   it("admits a NEW epoch for the same run", () => {
     // The key is the epoch, not the run: a re-dispatched run version is a separate settlement.
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
     gate.admitTerminalFrame(terminalFrame());
 
     expect(gate.admitTerminalFrame(terminalFrame({ runVersion: 2 }))).toMatchObject({ emit: true });
@@ -120,7 +120,7 @@ describe("CodexTerminalEmissionGate", () => {
   it("settles no run for a frame the router did not route to the session's thread", () => {
     // Routing is consumed, not re-decided: a child thread's terminal must not settle the parent's
     // run.
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
 
     const decision = gate.admitTerminalFrame(
       terminalFrame({ route: { decision: "suppress-child-transcript", childThreadId: "child-1" } }),
@@ -133,7 +133,7 @@ describe("CodexTerminalEmissionGate", () => {
 
   it("evicts oldest-first so the memory stays proportional to the hazard", () => {
     // A long session's run count is unbounded; the window in which a duplicate arrives is not.
-    const gate = new CodexTerminalEmissionGate({ settledEpochMemory: 2 });
+    const gate = new TerminalEmissionGate({ settledEpochMemory: 2 });
     gate.admitTerminalFrame(terminalFrame({ runId: "run-a" }));
     gate.admitTerminalFrame(terminalFrame({ runId: "run-b" }));
     gate.admitTerminalFrame(terminalFrame({ runId: "run-c" }));
