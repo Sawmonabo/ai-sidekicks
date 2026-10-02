@@ -1,8 +1,8 @@
 // Codex event normalizer: answers "which normalized event category does this native frame belong
 // to". It parses no payload, builds no envelope and touches no session state.
 //
-// The table covers the server-originated JSON-RPC methods of the pinned `codex-cli 0.150.1`
-// app-server protocol, named as its generated schema names them.
+// The table covers the server-originated JSON-RPC methods of the `codex-cli 0.150.1` app-server
+// protocol, as recorded at that build and named as its generated schema names them.
 //
 // - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name at `initialize`),
 //   the experimental `mcpServer/event/stream/notification`, and replies to daemon-issued requests
@@ -54,6 +54,7 @@ type CodexInboundFrameMethod =
   | "thread/compacted"
   // Not experimental-gated, so delivered to this driver's `experimentalApi: false` connection.
   | "skills/changed"
+  | "thread/reverted"
   | "item/autoApprovalReview/started"
   | "item/autoApprovalReview/completed"
   | "model/safetyBuffering/updated"
@@ -63,7 +64,6 @@ type CodexInboundFrameMethod =
   | "process/exited"
   | "turn/moderationMetadata"
   | "autoApprovalReview/strictReviewRequired"
-  | "thread/reverted"
   | "thread/queue/changed"
   | "project/changed"
   | "thread/project/updated"
@@ -76,7 +76,7 @@ type CodexInboundFrameMethod =
 
 /**
  * Mapped methods that cannot arrive at `experimentalApi: false`: the provider's transport silently
- * drops the eleven notifications, and `item/tool/requestUserInput` is the one experimental request
+ * drops the ten notifications, and `item/tool/requestUserInput` is the one experimental request
  * arm. Declared, not derived, since the schema carries no notification-side marker at the pin.
  *
  * @consumedBy the Codex driver's experimental-API negotiation
@@ -87,7 +87,6 @@ export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[]
   "process/exited",
   "turn/moderationMetadata",
   "autoApprovalReview/strictReviewRequired",
-  "thread/reverted",
   "thread/queue/changed",
   "project/changed",
   "thread/project/updated",
@@ -378,14 +377,14 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: null,
   },
 
-  // Gated and not-evented: each echoes a record the daemon already owns, and adopting it would
-  // record the same fact twice.
+  // Not-evented: each echoes a record the daemon already owns, and adopting it would record the
+  // same fact twice. All but `thread/reverted` are experimental-gated.
   "thread/reverted": {
     disposition: "not-evented",
     nativeMethod: "thread/reverted",
     transport: "server-notification",
     reason:
-      'correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, which the driver does not drive: the Codex rewind is `thread/fork` at an inclusive `lastTurnId`, and `thread/revert` is `#[experimental("thread/revert")]` and paginated-threads-only at the pin, so this frame is off the rewind path. Where it does arrive it correlates a revert the daemon requested, and the rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused',
+      "correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, the Codex conversation cut, and it correlates a revert the daemon requested. The rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused",
   },
   "thread/queue/changed": {
     disposition: "not-evented",
