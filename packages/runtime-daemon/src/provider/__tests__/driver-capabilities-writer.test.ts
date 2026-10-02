@@ -30,8 +30,8 @@ const DRIVER_NAME: ProviderName = "claude";
 // A provider upgrade: the version-only cases keep the capability snapshot identical and change
 // only this.
 const UPGRADED_CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "mock-provider-cli 2.9.001 (build 12)",
-  semver: "2.9.1",
+  rawVersion: "mock-provider-cli 2.9.001 (build 12)",
+  parsedVersion: "2.9.1",
 };
 
 let db: DatabaseType;
@@ -273,8 +273,8 @@ describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
     });
     expect(outcome).toEqual({ snapshotChange: "changed", cliVersionRefreshed: true });
     expect(readCliVersionPair(DRIVER_NAME)).toEqual({
-      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.raw,
-      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.semver,
+      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.rawVersion,
+      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.parsedVersion,
     });
   });
 
@@ -300,8 +300,8 @@ describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
     expect(outcome).toEqual({ snapshotChange: "unchanged", cliVersionRefreshed: true });
 
     expect(readCliVersionPair(DRIVER_NAME)).toEqual({
-      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.raw,
-      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.semver,
+      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.rawVersion,
+      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.parsedVersion,
     });
     // The stamp advanced, so the pair was written rather than already holding these bytes.
     expect(readContractMetaRefreshedAt(DRIVER_NAME)).not.toBe(refreshedAtBefore);
@@ -499,8 +499,8 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
     });
     // The pair is populated first, so NULL-ing it below is a real change.
     expect(readCliVersionPair(DRIVER_NAME)).toEqual({
-      cli_version_raw: CLI_VERSION_REPORT.raw,
-      cli_version_semver: CLI_VERSION_REPORT.semver,
+      cli_version_raw: CLI_VERSION_REPORT.rawVersion,
+      cli_version_semver: CLI_VERSION_REPORT.parsedVersion,
     });
 
     // Both columns together, because the table's CHECK rejects NULL-ing just one.

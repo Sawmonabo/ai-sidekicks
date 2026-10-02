@@ -80,7 +80,10 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
   outputSpeed: "on",
 };
 
-const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
+const CLI_VERSION: DriverCliVersionReport = {
+  rawVersion: "2.1.245 (Claude Code)",
+  parsedVersion: "2.1.245",
+};
 
 // Direct-SQL insert that bypasses the write seam: the only way to stage a corrupt
 // `spawn_config` or `driver_name`, or a CLI-version parse with no printed version.
@@ -617,8 +620,8 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     expect(created.cliVersion).toStrictEqual(CLI_VERSION);
     expect(store.findById(created.id)?.cliVersion).toStrictEqual(CLI_VERSION);
     expect(readRawCliVersion(created.id)).toEqual({
-      cli_version_raw: CLI_VERSION.raw,
-      cli_version_semver: CLI_VERSION.semver,
+      cli_version_raw: CLI_VERSION.rawVersion,
+      cli_version_semver: CLI_VERSION.parsedVersion,
     });
   });
 
@@ -628,11 +631,11 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
-      cliVersion: { raw: "Claude Code (unknown build)" },
+      cliVersion: { rawVersion: "Claude Code (unknown build)" },
       spawnConfig: {},
     });
     expect(store.findById(created.id)?.cliVersion).toStrictEqual({
-      raw: "Claude Code (unknown build)",
+      rawVersion: "Claude Code (unknown build)",
     });
     expect(readRawCliVersion(created.id)).toEqual({
       cli_version_raw: "Claude Code (unknown build)",
@@ -666,8 +669,8 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     expect(updated?.spawnConfig).toStrictEqual(FULL_SPAWN_CONFIG);
     expect(store.findById(created.id)?.cliVersion).toStrictEqual(CLI_VERSION);
     expect(readRawCliVersion(created.id)).toEqual({
-      cli_version_raw: CLI_VERSION.raw,
-      cli_version_semver: CLI_VERSION.semver,
+      cli_version_raw: CLI_VERSION.rawVersion,
+      cli_version_semver: CLI_VERSION.parsedVersion,
     });
   });
 });
@@ -718,7 +721,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
       driverName: "claude",
       requestedCommand: LAUNCHER_PATH,
       handshake: claudeHandshake,
-      baseEnvironment: {},
+      baseEnv: [],
       resolver: DRIFTING_RESOLVER,
     });
 
@@ -737,7 +740,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
     // Read back out of the database: the persisted row is the claim, not `create()`'s return.
     const found = store.findById(created.id);
-    expect(found?.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+    expect(found?.cliVersion).toStrictEqual({ rawVersion: "2.1.245", parsedVersion: "2.1.245" });
     expect(found?.spawnConfig.resolvedExecutablePath).toBe(DEREFERENCED_BUILD_PATH);
     // The launcher's build appears nowhere in the row, neither in the version pair nor in the
     // spawn-bound record.

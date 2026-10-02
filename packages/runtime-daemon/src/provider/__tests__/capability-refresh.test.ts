@@ -18,16 +18,22 @@ import {
 describe("parseCliVersionReport", () => {
   it("derives the canonical semver from a prose-wrapped raw string, preserving raw verbatim", () => {
     const report = parseCliVersionReport("codex-cli 0.149.1 (build abc123)");
-    expect(report).toStrictEqual({ raw: "codex-cli 0.149.1 (build abc123)", semver: "0.149.1" });
+    expect(report).toStrictEqual({
+      rawVersion: "codex-cli 0.149.1 (build abc123)",
+      parsedVersion: "0.149.1",
+    });
 
     const claudeReport = parseCliVersionReport("2.1.245 (Claude Code)");
-    expect(claudeReport).toStrictEqual({ raw: "2.1.245 (Claude Code)", semver: "2.1.245" });
+    expect(claudeReport).toStrictEqual({
+      rawVersion: "2.1.245 (Claude Code)",
+      parsedVersion: "2.1.245",
+    });
   });
 
   it.each(["garbage", "2.1"])(
     "keeps %j as the printed version with no parse (no coercion of partial versions)",
-    (raw) => {
-      expect(parseCliVersionReport(raw)).toStrictEqual({ raw });
+    (rawVersion) => {
+      expect(parseCliVersionReport(rawVersion)).toStrictEqual({ rawVersion });
     },
   );
 });

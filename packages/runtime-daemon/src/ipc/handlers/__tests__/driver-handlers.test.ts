@@ -218,7 +218,7 @@ async function realProviderRegistry(
     const capabilitiesResult: GetCapabilitiesResult = {
       capabilities: { flags, contractVersion: "1.0.0" },
       tools: [],
-      cliVersion: { raw: "test-provider-cli 0.0.1", semver: "0.0.1" },
+      cliVersion: { rawVersion: "test-provider-cli 0.0.1", parsedVersion: "0.0.1" },
     };
     await providerRegistry.register(
       driverName,

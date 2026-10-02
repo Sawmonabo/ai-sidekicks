@@ -24,14 +24,14 @@ export class DriverCliVersionBelowFloorError extends Error {
   readonly code = "driver.cli_version_below_floor" as const;
   readonly fields: {
     readonly driverName: ProviderName;
-    readonly reportedSemver: string;
+    readonly parsedVersion: string;
     readonly floor: string;
   };
 
-  constructor(driverName: ProviderName, reportedSemver: string, floor: string) {
+  constructor(driverName: ProviderName, parsedVersion: string, floor: string) {
     super("The provider CLI's reported version is below the configured minimum floor");
     this.name = "DriverCliVersionBelowFloorError";
-    this.fields = { driverName, reportedSemver, floor };
+    this.fields = { driverName, parsedVersion, floor };
   }
 }
 
@@ -40,13 +40,13 @@ export class DriverCliVersionBelowFloorError extends Error {
 const SEMVER_TOKEN_PATTERN = /\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?/;
 
 /**
- * Derives a `DriverCliVersionReport` from a provider-reported raw version: `raw` verbatim, and
- * `semver` only when a canonical version can be extracted.
+ * Derives a `DriverCliVersionReport` from a provider-reported raw version: `rawVersion` verbatim,
+ * and `parsedVersion` only when a canonical version can be extracted.
  */
-export function parseCliVersionReport(raw: string): DriverCliVersionReport {
-  const token = SEMVER_TOKEN_PATTERN.exec(raw)?.[0];
+export function parseCliVersionReport(rawVersion: string): DriverCliVersionReport {
+  const token = SEMVER_TOKEN_PATTERN.exec(rawVersion)?.[0];
   const canonical = token === undefined ? null : semver.valid(token);
-  return canonical === null ? { raw } : { raw, semver: canonical };
+  return canonical === null ? { rawVersion } : { rawVersion, parsedVersion: canonical };
 }
 
 /**
@@ -57,12 +57,12 @@ export function assertCliVersionMeetsFloor(
   driverName: ProviderName,
   report: DriverCliVersionReport,
 ): void {
-  if (report.semver === undefined) {
+  if (report.parsedVersion === undefined) {
     return;
   }
   const floor = PROVIDER_DRIVER_DESCRIPTORS[driverName].cliVersionFloor;
-  if (semver.lt(report.semver, floor)) {
-    throw new DriverCliVersionBelowFloorError(driverName, report.semver, floor);
+  if (semver.lt(report.parsedVersion, floor)) {
+    throw new DriverCliVersionBelowFloorError(driverName, report.parsedVersion, floor);
   }
 }
 

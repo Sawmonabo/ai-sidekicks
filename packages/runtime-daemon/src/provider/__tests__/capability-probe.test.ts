@@ -76,13 +76,13 @@ function probeTransportFor(
 const CLAUDE_VERSION_READING: SpawnedProviderVersionReading = {
   driverName: CLAUDE_DRIVER_NAME,
   resolvedExecutablePath: "/opt/homebrew/bin/claude",
-  report: { raw: "2.1.251", semver: "2.1.251" },
+  report: { rawVersion: "2.1.251", parsedVersion: "2.1.251" },
 };
 
 const CODEX_VERSION_READING: SpawnedProviderVersionReading = {
   driverName: CODEX_DRIVER_NAME,
   resolvedExecutablePath: "/opt/homebrew/Cellar/codex/0.150.1/bin/codex",
-  report: { raw: "codex-cli 0.150.1", semver: "0.150.1" },
+  report: { rawVersion: "codex-cli 0.150.1", parsedVersion: "0.150.1" },
 };
 
 function probedFlagsOf(table: DriverCapabilityDetectionTable): DriverCapabilityFlag[] {
