@@ -392,7 +392,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-014 Phase 3](../plans/014-workflow-authoring-and-execution.md) | multi-agent and human steps. | Plan-013 Phase 3, Plan-014 Phase 2 |
 |  | [Plan-013 Phase 4](../plans/013-multi-agent-orchestration.md) | desktop child-run surface. | Plan-013 Phase 3 |
 | 8 | [Plan-024 Phase 5](../plans/024-agent-definitions-and-peer-invocation.md) | desktop library and editor. | Plan-020 Phase 5, Plan-024 Phase 3 |
-|  | [Plan-016 Phase 3](../plans/016-notifications-and-attention-model.md) | notification emission and delivery. | Plan-010 Phase 4, Plan-016 Phase 2 |
+|  | [Plan-016 Phase 3](../plans/016-notifications-and-attention-model.md) | notification emission and delivery; its email digest (T3.5) comes last of all. | Plan-010 Phase 4, Plan-016 Phase 2 |
 |  | [Plan-014 Phase 4](../plans/014-workflow-authoring-and-execution.md) | parallel steps and memory admission. | Plan-014 Phase 3 |
 |  | [Plan-013 Phase 4B](../plans/013-multi-agent-orchestration.md) | session cost receipt. | Plan-013 Phase 4 |
 |  | [Plan-020 Phase 7](../plans/020-desktop-app-and-renderer.md) | E2E suite, harness, CI gate; the suite's run on a signed, packaged build, the release job and the release runbook are Phase 11's. | Plan-020 Phase 5 |
