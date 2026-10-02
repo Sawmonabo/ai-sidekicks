@@ -4,7 +4,7 @@
 // never disagree on one value.
 // `canonicalizeJson` refuses excess nesting, a callable `toJSON` and an unpaired surrogate;
 // `canonicalizeEvent` also refuses an unsafe-integer `sequence`.
-// The serializer `canonicalize@5.1.0` is pinned exactly so a bump cannot change output bytes; the
+// The `canonicalize` serializer is pinned exactly so a bump cannot change output bytes; the
 // golden-vector suite binds it to RFC 8785 Appendix B, Table 1. Its bare errors (`NaN is not
 // allowed`, `Infinity is not allowed`, `Circular reference detected`) can still surface.
 
@@ -163,15 +163,23 @@ const LONE_SURROGATE_PATTERN =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
+ * The UTF-16 index of the first unpaired surrogate in `text`, or -1 when it is well-formed. An
+ * index, because a refusal names it; `isWellFormed()` only answers yes or no.
+ */
+export function findUnpairedSurrogateIndex(text: string): number {
+  return LONE_SURROGATE_PATTERN.exec(text)?.index ?? -1;
+}
+
+/**
  * Refuses an unpaired surrogate without quoting the text, which may be PII headed for logs. The
  * library refuses one too, but its message names neither the position nor the code unit.
  */
 function assertNoLoneSurrogate(text: string, positionDescription: string): void {
-  const match = LONE_SURROGATE_PATTERN.exec(text);
-  if (match === null) return;
-  const codeUnit = text.charCodeAt(match.index);
+  const unpairedIndex = findUnpairedSurrogateIndex(text);
+  if (unpairedIndex === -1) return;
+  const codeUnit = text.charCodeAt(unpairedIndex);
   throw new Error(
-    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(match.index)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
+    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(unpairedIndex)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
   );
 }
 

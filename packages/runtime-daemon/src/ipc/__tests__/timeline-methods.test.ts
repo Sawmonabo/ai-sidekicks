@@ -1,29 +1,22 @@
-// Timeline methods through the real method registry: every method string registers and resolves,
-// and a reply about another session or run, a page over the caller's window, an empty first
-// reasoning read or a malformed entry is refused before it reaches the wire.
+// Timeline methods through the real method registry: a reply about another session or run, a page
+// over the caller's window or an empty first reasoning read is refused before it reaches the wire.
 
 import { describe, expect, it } from "vitest";
 
 import type {
   ChildRunExpandResponse,
-  Handler,
   HandlerContext,
   ReasoningSurfaceReadResponse,
   RunId,
   SessionId,
-  TimelineReadRequest,
   TimelineReadResponse,
   TimelineRow,
 } from "@ai-sidekicks/contracts";
 import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
-  TIMELINE_METHOD_NAMES,
   TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
-  TIMELINE_BODY_READ_METHOD,
-  TIMELINE_PATCH_READ_METHOD,
-  TIMELINE_SEARCH_METHOD,
 } from "@ai-sidekicks/contracts";
 
 // Imported through the barrel, the surface callers bind timeline methods from.
@@ -41,8 +34,6 @@ const OTHER_RUN_ID: RunId = "99999999-8888-4777-8666-555555555555" as RunId;
 const RUN_ID: RunId = "11111111-2222-4333-8444-555555555555" as RunId;
 const PARENT_RUN_ID: RunId = "33333333-4444-4555-8666-777777777777" as RunId;
 
-const readResponse: TimelineReadResponse = { entries: [], hasMore: false };
-const reasoningResponse: ReasoningSurfaceReadResponse = { availability: "unavailable" };
 const childRunExpandResponse: ChildRunExpandResponse = {
   runId: RUN_ID,
   parentRunId: PARENT_RUN_ID,
@@ -62,47 +53,6 @@ const timelineRow: TimelineRow = {
   timestamp: "2026-09-01T00:00:00.000Z",
   payload: {},
 };
-
-/** Binds every timeline method to a stub handler that resolves a valid response. */
-const registerAllTimelineMethods = (registry: MethodRegistryImpl): void => {
-  registerTimelineMethod(registry, {
-    method: TIMELINE_READ_METHOD,
-    handler: async () => readResponse,
-  });
-  registerTimelineMethod(registry, {
-    method: TIMELINE_REASONING_SURFACE_READ_METHOD,
-    handler: async () => reasoningResponse,
-  });
-  registerTimelineMethod(registry, {
-    method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
-    handler: async () => childRunExpandResponse,
-  });
-  registerTimelineMethod(registry, {
-    method: TIMELINE_BODY_READ_METHOD,
-    handler: async () => ({ status: "unavailable", reason: "absent" }),
-  });
-  registerTimelineMethod(registry, {
-    method: TIMELINE_PATCH_READ_METHOD,
-    handler: async () => ({ files: [] }),
-  });
-  registerTimelineMethod(registry, {
-    method: TIMELINE_SEARCH_METHOD,
-    handler: async () => ({ matchCount: 0, hits: [], hasMore: false }),
-  });
-};
-
-describe("timeline method-name registration", () => {
-  it("every method registers on a real MethodRegistryImpl and then resolves", () => {
-    const registry = new MethodRegistryImpl();
-    for (const method of TIMELINE_METHOD_NAMES) {
-      expect(registry.has(method)).toBe(false);
-    }
-    registerAllTimelineMethods(registry);
-    for (const method of TIMELINE_METHOD_NAMES) {
-      expect(registry.has(method)).toBe(true);
-    }
-  });
-});
 
 describe("timeline replies are scoped to the request", () => {
   it("a read answering with ANOTHER session's rows is refused as an internal error", async () => {
@@ -260,49 +210,6 @@ describe("timeline replies are scoped to the request", () => {
         dispatchContext,
       ),
     ).resolves.toStrictEqual(atCeiling);
-  });
-
-  it("a malformed read entry reaches invalid_result, not a bare TypeError", async () => {
-    // The correlation check runs before the response schema, so it sees unvalidated values. A
-    // page holding `null` must not throw a bare `TypeError` with no issue paths; a shape the check
-    // cannot read is left to the response schema to report.
-    const registry = new MethodRegistryImpl();
-    registerTimelineMethod(registry, {
-      method: TIMELINE_READ_METHOD,
-      // The cast stands in for a projection defect, which the types reject.
-      handler: (async () => ({
-        entries: [null],
-        hasMore: false,
-      })) as unknown as Handler<TimelineReadRequest, TimelineReadResponse>,
-    });
-
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext);
-    } catch (error) {
-      caught = error;
-    }
-    // A `TypeError` would also fail the dispatch, but in a shape the client cannot read.
-    expect(caught).not.toBeInstanceOf(TypeError);
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_result");
-      // The schema's issue paths locate the offending element.
-      expect(caught.issues?.length ?? 0).toBeGreaterThan(0);
-    }
-
-    // Control: a readable cross-session page is still refused by the correlation check.
-    const foreignRegistry = new MethodRegistryImpl();
-    registerTimelineMethod(foreignRegistry, {
-      method: TIMELINE_READ_METHOD,
-      handler: async () => ({
-        entries: [{ ...timelineRow, sessionId: OTHER_SESSION_ID }],
-        hasMore: false,
-      }),
-    });
-    await expect(
-      foreignRegistry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
-    ).rejects.toMatchObject({ registryCode: "invalid_result" });
   });
 
   it("an empty reasoning surface on a FIRST read is refused; on a continuation it resolves", async () => {

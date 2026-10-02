@@ -95,10 +95,7 @@ interface ResolvedAgentBinding {
   readonly providerAccountId: string | null;
 }
 
-/**
- * One agent's live-binding resolution. The `bound` arm is non-empty by type; the handler still
- * guards the empty case so a resolver cast past the type gets `driver.unavailable`.
- */
+/** One agent's live-binding resolution; the `bound` arm is non-empty by type. */
 type AgentBindingsResolution =
   | { readonly kind: "unknown-agent" }
   | { readonly kind: "no-live-binding" }
@@ -140,13 +137,11 @@ export interface DriverListProviderCommandsDeps {
  * protocol-state contract fails.
  */
 export function translateDriverError(thrown: unknown): never {
-  // `detail` is a copy so the mapper's sanitizer cannot mutate the error's own fields; the
-  // JSON-RPC seam reads `jsonRpcCode`, not `httpStatus`.
+  // `detail` is a copy so the mapper's sanitizer cannot mutate the error's own fields.
   if (thrown instanceof DriverUnavailableError) {
     throw new DaemonDomainError(thrown.message, {
       code: thrown.code,
       jsonRpcCode: JsonRpcErrorCode.InternalError,
-      httpStatus: 503,
       detail: { ...thrown.fields },
     });
   }
@@ -155,7 +150,6 @@ export function translateDriverError(thrown: unknown): never {
     throw new DaemonDomainError(thrown.message, {
       code: thrown.code,
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      httpStatus: 400,
       detail: { ...thrown.fields },
     });
   }
@@ -196,7 +190,6 @@ function refuseRunNotFound(runId: RunId): never {
   throw new DaemonDomainError("Run does not exist or is not accessible", {
     code: "run.not_found",
     jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    httpStatus: 404,
     detail: { runId },
   });
 }
@@ -213,7 +206,6 @@ function refuseAgentNotFound(agentId: string): never {
   throw new DaemonDomainError("Agent does not exist in the session", {
     code: "agent.not_found",
     jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    httpStatus: 404,
     detail: { agentId },
   });
 }
@@ -226,14 +218,14 @@ function refuseNoLiveBinding(): never {
   throw new DaemonDomainError("Provider driver is currently unavailable", {
     code: "driver.unavailable",
     jsonRpcCode: JsonRpcErrorCode.InternalError,
-    httpStatus: 503,
   });
 }
 
 /**
  * Asserts a resolved driver implements the operation. Neither shipped driver implements every
  * one (both omit `listModes`), and a missing method would be a `TypeError` mapped to `-32603`;
- * 400 tells the caller not to retry. It names an operation because no capability flag governs it.
+ * `InvalidRequest` tells the caller not to retry. It names an operation because no capability
+ * flag governs it.
  */
 function requireDriverOperation(
   driver: ProviderDriver,
@@ -244,7 +236,6 @@ function requireDriverOperation(
     throw new DaemonDomainError("Requested capability is not supported by the driver", {
       code: "driver.capability_unsupported",
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      httpStatus: 400,
       detail: { driverId: driverName, operation },
     });
   }
@@ -257,11 +248,11 @@ function requireDriverOperation(
  */
 function refuseAttachmentDeliveryUnsupported(driverName: ProviderName): never {
   throw new DaemonDomainError(
-    "Attachment references on a steer cannot be delivered yet, so the whole intervention is refused rather than applied with its attachments dropped. Re-send the steer without attachments; delivery arrives with the daemon's attachment-reference resolver.",
+    "Attachment references on a steer cannot be delivered, so the whole intervention is refused " +
+      "rather than applied with its attachments dropped. Re-send the steer without attachments.",
     {
       code: "driver.capability_unsupported",
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      httpStatus: 400,
       detail: { driverId: driverName, operation: "applyIntervention" },
     },
   );
@@ -400,8 +391,7 @@ export function registerDriverCompactContext(
   deps: DriverCompactContextDeps,
 ): void {
   const handler: Handler<CompactContextRequest, DriverCompactionResult> = async (params) => {
-    // Only the literal `true` admits, so a resolver answering `undefined` refuses.
-    if (deps.resolveSessionAccess(params.sessionId) !== true) {
+    if (!deps.resolveSessionAccess(params.sessionId)) {
       refuseSessionNotFound();
     }
 
@@ -478,7 +468,7 @@ export function registerDriverListProviderCommands(
   const handler: Handler<ListProviderCommandsRequest, ProviderCommandListResult> = async (
     params,
   ) => {
-    if (deps.resolveSessionAccess(params.sessionId) !== true) {
+    if (!deps.resolveSessionAccess(params.sessionId)) {
       refuseSessionNotFound();
     }
 
@@ -487,10 +477,6 @@ export function registerDriverListProviderCommands(
       refuseAgentNotFound(params.agentId);
     }
     if (resolution.kind === "no-live-binding") {
-      refuseNoLiveBinding();
-    }
-    // Guards a resolver cast past the non-empty type: an empty answer would fail result validation.
-    if (resolution.bindings.length === 0) {
       refuseNoLiveBinding();
     }
 

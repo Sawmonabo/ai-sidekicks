@@ -12,8 +12,7 @@
 //     streaming primitive parses every emitted value against `SessionEventSchema` before it
 //     reaches the wire.
 //   * The subscribe-init response precedes the first notify frame: events reported while the
-//     handler runs are buffered and sent on the next `setImmediate`, which runs after the
-//     dispatch promise has written the response (a microtask would not).
+//     handler runs wait in the subscription ack barrier until the response is written.
 //
 // The registration is not `mutating`: it changes no domain row, so a version-mismatched
 // connection keeps this method.
@@ -33,7 +32,8 @@ import {
   SubscribeAckResponseSchema,
 } from "@ai-sidekicks/contracts";
 
-import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../streaming-primitive.js";
+import type { StreamingPrimitive } from "../streaming-primitive.js";
+import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";
 import { translateDriverError } from "./driver-handlers.js";
 
 /** Dependencies for `driver.subscribeEvents`. */
@@ -87,29 +87,12 @@ export function registerDriverSubscribeEvents(
       SessionEventSchema,
     );
 
-    const replayBuffer: SessionEvent[] = [];
-    let replayDrained = false;
+    const barrier = createSubscriptionAckBarrier(sub, "driver.subscribeEvents");
     try {
       const unsubscribe = deps.subscribeToDriverEvents(params.runId, (event) => {
-        // Filtered before buffering so a non-driver event never enters the replay buffer.
-        if (!DRIVER_EVENT_TYPES.has(event.type)) {
-          return;
-        }
-        if (replayDrained) {
-          // The live tail runs outside the setup try/catch: an unguarded
-          // `StreamingValidationError` would escape as an uncaught exception and could stop the
-          // daemon. Cancel this subscription and keep the others alive.
-          try {
-            sub.next(event);
-          } catch (thrown) {
-            cancelAfterDetachedFailure(
-              sub,
-              `[driver.subscribeEvents] live-tail event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-              thrown,
-            );
-          }
-        } else {
-          replayBuffer.push(event);
+        // Filtered before the barrier so a non-driver event is never held.
+        if (DRIVER_EVENT_TYPES.has(event.type)) {
+          barrier.emit(event);
         }
       });
       sub.onCancel(unsubscribe);
@@ -119,21 +102,7 @@ export function registerDriverSubscribeEvents(
       translateDriverError(thrown);
     }
 
-    setImmediate(() => {
-      replayDrained = true;
-      try {
-        for (const event of replayBuffer) {
-          sub.next(event);
-        }
-      } catch (thrown) {
-        cancelAfterDetachedFailure(
-          sub,
-          `[driver.subscribeEvents] replay event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-          thrown,
-        );
-      }
-      replayBuffer.length = 0;
-    });
+    barrier.release();
 
     return { subscriptionId: sub.subscriptionId };
   };

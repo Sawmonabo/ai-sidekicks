@@ -2,9 +2,9 @@
 // provider, billing-mode and health-state unions is stored and a value outside each is refused, a
 // generation below the floor is refused, a provider holds one default account at most, a
 // credential home belongs to one account, a quota reading is keyed by account and limit alone,
-// and a memory-import outcome whose count and time disagree with it is refused. The member lists are
-// `Record<Union, true>` maps, so a member added to the contract is a type error here until its
-// case exists, and that case then fails until the CHECK admits it.
+// and a memory-import outcome whose count and time disagree with it is refused. The member lists
+// are `Record<Union, true>` maps, so a member added to the contract is a type error here until
+// its case exists, and that case then fails until the CHECK admits it.
 
 import {
   CREDENTIAL_GENERATION_MIN,
@@ -77,8 +77,8 @@ describe("provider-account schema", () => {
 
   // Each account gets its own id and, unless a case names one, its own home path, and none is a
   // default unless a case says so, so the unique indexes never refuse a row for a reason other
-  // than the column under test. A health state is stored
-  // with the time it was observed, as the schema requires of the pair.
+  // than the column under test. A health state is stored with the time it was observed, as the
+  // schema requires of the pair.
   function insertAccount(overrides: Partial<AccountColumns>): string {
     const account = { ...VALID_ACCOUNT, ...overrides };
     nextAccountNumber += 1;

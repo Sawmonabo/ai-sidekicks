@@ -1,30 +1,31 @@
 // Binding before load throws, invalid config fails closed with a typed error, the settings view
 // holds only its two keys, and an insecure setting is refused on the wire. The module holds
-// singleton state, so every case starts from a reset.
+// singleton state, so every case imports a fresh module graph.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
-import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
-import { bootstrap, assertLoadedForBind } from "../index.js";
-import {
-  SecureDefaults,
-  SecureDefaultsValidationError,
-  type SecureDefaultsConfig,
-} from "../secure-defaults.js";
+import type { SecureDefaultsConfig } from "../secure-defaults.js";
 
 const VALID_BASE_CONFIG: SecureDefaultsConfig = {
   localIpcPath: "/tmp/ai-sidekicks-test.sock",
   bannerFormat: "text",
 };
 
-beforeEach(() => {
-  SecureDefaults.__resetForTest();
-});
+let SecureDefaults: typeof import("../secure-defaults.js").SecureDefaults;
+let SecureDefaultsValidationError: typeof import("../secure-defaults.js").SecureDefaultsValidationError;
+let assertLoadedForBind: typeof import("../index.js").assertLoadedForBind;
+let bootstrap: typeof import("../index.js").bootstrap;
+let mapJsonRpcError: typeof import("../../ipc/jsonrpc-error-mapping.js").mapJsonRpcError;
 
-afterEach(() => {
-  SecureDefaults.__resetForTest();
+beforeEach(async () => {
+  // The mapper's `instanceof` must see the same class the case throws, so all three come from
+  // one fresh graph.
+  vi.resetModules();
+  ({ SecureDefaults, SecureDefaultsValidationError } = await import("../secure-defaults.js"));
+  ({ assertLoadedForBind, bootstrap } = await import("../index.js"));
+  ({ mapJsonRpcError } = await import("../../ipc/jsonrpc-error-mapping.js"));
 });
 
 describe("load-before-bind", () => {

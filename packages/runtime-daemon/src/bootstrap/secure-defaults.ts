@@ -13,8 +13,8 @@ export interface SecureDefaultsConfig {
 }
 
 /**
- * The non-secret view returned by `effectiveSettings()`. Identical to the config today; kept
- * separate so a secret-bearing setting never leaks through it.
+ * The non-secret view returned by `effectiveSettings()`. It has the config's members; it is kept
+ * separate so a secret-bearing setting added to the config never leaks through it.
  */
 export interface SecureDefaultsEffectiveSettings {
   readonly localIpcPath: string;
@@ -69,7 +69,7 @@ export class SecureDefaults {
   /**
    * Returns the validated, frozen, non-secret settings view.
    *
-   * @throws Error when `load()` has not yet succeeded.
+   * @throws Error when no `load()` has succeeded.
    */
   static effectiveSettings(): SecureDefaultsEffectiveSettings {
     if (loadedSettings === null) {
@@ -83,11 +83,6 @@ export class SecureDefaults {
   /** True once `load()` has succeeded in this process; lets the bind guard avoid the throw. */
   static isLoaded(): boolean {
     return loadedSettings !== null;
-  }
-
-  /** Test-only: clears the loaded settings, since Vitest shares one process across cases. */
-  static __resetForTest(): void {
-    loadedSettings = null;
   }
 }
 

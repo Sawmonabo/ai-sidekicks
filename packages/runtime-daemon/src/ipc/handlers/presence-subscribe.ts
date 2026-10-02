@@ -4,10 +4,10 @@
 // `$/subscription/notify` frame keyed by that id: the whole list of connected devices,
 // validated against `MachinePresenceSchema`. The list lives in memory only.
 //
-// A change reported while the handler is still running is held and sent on the next
-// `setImmediate`, after the `{subscriptionId}` response is written, so no push reaches the
-// client before the id it is keyed by. The registration is not `mutating`, so a connection with
-// an incompatible protocol version can still follow presence.
+// A change reported while the handler is still running is held by the subscription ack barrier
+// until the `{subscriptionId}` response is written, so no push reaches the client before the id
+// it is keyed by. The registration is not `mutating`, so a connection with an incompatible
+// protocol version can still follow presence.
 
 import type {
   Handler,
@@ -22,7 +22,8 @@ import {
   PresenceSubscribeResponseSchema,
 } from "@ai-sidekicks/contracts";
 
-import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../streaming-primitive.js";
+import type { StreamingPrimitive } from "../streaming-primitive.js";
+import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";
 
 /** What `presence.subscribe`'s handler needs. */
 export interface PresenceSubscribeDeps {
@@ -64,27 +65,10 @@ export function registerPresenceSubscribe(
       MachinePresenceSchema,
     );
 
-    // Lists reported before the `{subscriptionId}` response is written wait here.
-    const replayBuffer: MachinePresence[] = [];
-    let replayDrained = false;
+    const barrier = createSubscriptionAckBarrier(sub, "presence.subscribe");
     try {
       const unsubscribe = deps.subscribeToPresence((update) => {
-        if (!replayDrained) {
-          replayBuffer.push(update);
-          return;
-        }
-        // Runs outside the registry's error mapping: a list that fails its schema would escape
-        // as an uncaught exception and could stop the daemon. Cancel this subscription and log;
-        // the connection's other subscriptions keep working.
-        try {
-          sub.next(update);
-        } catch (err) {
-          cancelAfterDetachedFailure(
-            sub,
-            `[presence.subscribe] live-tail update validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-            err,
-          );
-        }
+        barrier.emit(update);
       });
       // Every way a subscription ends detaches the source here, so no watcher is left behind.
       sub.onCancel(unsubscribe);
@@ -93,22 +77,7 @@ export function registerPresenceSubscribe(
       sub.cancel();
       throw err;
     }
-    setImmediate(() => {
-      replayDrained = true;
-      // As on the live path, a schema failure here would escape uncaught.
-      try {
-        for (const update of replayBuffer) {
-          sub.next(update);
-        }
-      } catch (err) {
-        cancelAfterDetachedFailure(
-          sub,
-          `[presence.subscribe] replay update validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-          err,
-        );
-      }
-      replayBuffer.length = 0;
-    });
+    barrier.release();
 
     return { subscriptionId: sub.subscriptionId };
   };

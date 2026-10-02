@@ -170,7 +170,8 @@ interface SanitizationBudget {
 /**
  * Sanitizes a `data.fields` payload for the wire: strings are path-redacted and capped, and values
  * `JSON.stringify` would drop or throw on (BigInt, cycles, symbols) become sentinels or strings.
- * Never throws, since a throw would crash `mapJsonRpcError`; it does not catch non-path secrets.
+ * A nested value that throws when read becomes a sentinel, since a throw would crash
+ * `mapJsonRpcError`. It does not catch non-path secrets.
  */
 export function sanitizeFields(fields: Record<string, unknown>): Record<string, unknown> {
   const budget: SanitizationBudget = { remaining: FIELDS_MAX_NODES };
@@ -178,13 +179,7 @@ export function sanitizeFields(fields: Record<string, unknown>): Record<string, 
   // No prototype, so a reserved key that slips past the skip list cannot pollute one.
   const result: Record<string, unknown> = Object.create(null);
   let keyCount = 0;
-  let entries: [string, unknown][];
-  try {
-    entries = Object.entries(fields);
-  } catch {
-    // `Object.entries` runs getters and a Proxy `ownKeys` trap, either of which can throw.
-    return result;
-  }
+  const entries = Object.entries(fields);
   for (const [key, value] of entries) {
     if (keyCount >= FIELDS_MAX_KEYS) {
       result[SENTINEL_TRUNCATED_KEYS_KEY] = `${entries.length - FIELDS_MAX_KEYS}-more-keys`;
@@ -233,14 +228,7 @@ function sanitizeValue(
 
   if (typeof value === "bigint") {
     // `JSON.stringify` throws on a bigint.
-    let coerced: string;
-    try {
-      coerced = `${value.toString()}n`;
-    } catch {
-      // A Proxy or altered prototype that passes the bigint check could still throw here.
-      return SENTINEL_UNSANITIZEABLE;
-    }
-    return capString(redactPathsFromString(coerced));
+    return capString(redactPathsFromString(`${value.toString()}n`));
   }
 
   if (typeof value === "string") {
@@ -286,12 +274,8 @@ function sanitizeValue(
       // Own enumerable string keys only, the shape JSON emits: class instances show their data
       // fields, and symbol keys are skipped.
       const out: Record<string, unknown> = Object.create(null);
-      let entries: [string, unknown][];
-      try {
-        entries = Object.entries(value);
-      } catch {
-        return SENTINEL_UNSANITIZEABLE;
-      }
+      // A throwing getter or Proxy `ownKeys` trap lands in the catch below.
+      const entries = Object.entries(value);
       let keyCount = 0;
       for (const [key, child] of entries) {
         if (keyCount >= FIELDS_MAX_KEYS) {
@@ -317,9 +301,6 @@ function sanitizeValue(
       seen.delete(value);
     }
   }
-
-  // Unreachable while `typeof` has these eight results; the sentinel guards a type-system gap.
-  return SENTINEL_UNSANITIZEABLE;
 }
 
 /** Cap a string at `FIELDS_VALUE_MAX_LEN` with the same suffix as `sanitizeErrorMessage`. */

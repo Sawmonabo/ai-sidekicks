@@ -59,7 +59,7 @@ interface SubscriptionEntry {
 }
 
 // Runs every handler, then throws one `AggregateError` carrying each failure: a throwing handler
-// does not stop its siblings, and whoever cancelled learns that a release failed.
+// does not stop its siblings, and whoever canceled learns that a release failed.
 function fireCancelHandlers(handlers: Array<() => void>): void {
   const failures: unknown[] = [];
   for (const handler of handlers) {
@@ -286,7 +286,7 @@ export class StreamingPrimitive {
   }
 
   /**
-   * Registers `$/subscription/cancel` with `mutating: false`: cancelling only reclaims a wire
+   * Registers `$/subscription/cancel` with `mutating: false`: canceling only reclaims a wire
    * resource, and the version gate must let a client whose negotiation went incompatible still
    * clean up. A cancel from a non-owning transport returns `{ canceled: false }`, the same as an
    * unknown id, so it does not reveal subscriptions on other transports.

@@ -88,23 +88,11 @@ const refusePageOverRequestedCeiling = (
   ];
 };
 
-// These checks run before the registry validates the result, so the value may not be a response at
-// all (another operation's shape, or `undefined`). Each arm tests every shape it reads and reports
-// nothing when a shape is absent: that is the registry's finding, and reading through it would
-// throw a `TypeError` that replaces the `invalid_result` envelope with an unmapped internal error.
-//
 // The error frame is bounded, so only the first offending entry is reported, with the total count.
 const TIMELINE_REQUEST_CORRELATION_CHECKS: {
   readonly [MethodName in TimelineMethodName]: TimelineRequestCorrelationCheck<MethodName>;
 } = {
   [TIMELINE_READ_METHOD]: (request, result) => {
-    if (!Array.isArray(result?.entries)) {
-      return [];
-    }
-    // An unreadable element is left to the response schema; comparing it would throw.
-    if (!result.entries.every((entry) => typeof entry?.sessionId === "string")) {
-      return [];
-    }
     const violations: RequestCorrelationViolation[] = [
       ...refusePageOverRequestedCeiling(
         "entries",
@@ -139,13 +127,11 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
   // read and is correct for a continuation at the end. The schema carries the continuing arm's
   // non-empty floor; this carries the first read's.
   [TIMELINE_REASONING_SURFACE_READ_METHOD]: (request, result) => {
-    if (request?.afterCursor !== undefined) {
-      return [];
-    }
-    if (result?.availability !== "available") {
-      return [];
-    }
-    if (!Array.isArray(result.reasoningEntries) || result.reasoningEntries.length > 0) {
+    if (
+      request.afterCursor !== undefined ||
+      result.availability !== "available" ||
+      result.reasoningEntries.length > 0
+    ) {
       return [];
     }
     return [
@@ -163,19 +149,14 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
   },
   [TIMELINE_CHILD_RUN_EXPAND_METHOD]: (request, result) => {
     // The request has no `limit`, so the default page ceiling applies.
-    const violations: RequestCorrelationViolation[] = Array.isArray(result?.entries)
-      ? [
-          ...refusePageOverRequestedCeiling(
-            "entries",
-            result.entries.length,
-            TIMELINE_READ_LIMIT_MAX,
-            false,
-          ),
-        ]
-      : [];
-    if (typeof result?.runId !== "string") {
-      return violations;
-    }
+    const violations: RequestCorrelationViolation[] = [
+      ...refusePageOverRequestedCeiling(
+        "entries",
+        result.entries.length,
+        TIMELINE_READ_LIMIT_MAX,
+        false,
+      ),
+    ];
     if (result.runId === request.runId) {
       // The response schema pins every entry to `result.runId` (`requireEntriesToBelongToRun`),
       // so matching the request's run id covers the entries.
@@ -197,14 +178,12 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
   [TIMELINE_PATCH_READ_METHOD]: () => [],
   // A search page holds to the caller's window, as a read does.
   [TIMELINE_SEARCH_METHOD]: (request, result) =>
-    Array.isArray(result?.hits)
-      ? refusePageOverRequestedCeiling(
-          "hits",
-          result.hits.length,
-          request.limit ?? TIMELINE_READ_LIMIT_MAX,
-          request.limit !== undefined,
-        )
-      : [],
+    refusePageOverRequestedCeiling(
+      "hits",
+      result.hits.length,
+      request.limit ?? TIMELINE_READ_LIMIT_MAX,
+      request.limit !== undefined,
+    ),
 };
 
 /** What binds one `timeline.*` method: its name and a handler whose types follow from the name. */

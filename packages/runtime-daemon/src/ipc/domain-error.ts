@@ -29,8 +29,6 @@ export interface DaemonDomainErrorOptions {
   readonly code: string;
   /** Numeric for `error.code`; the mapper uses `-32603` when omitted. */
   readonly jsonRpcCode?: DomainErrorJsonRpcCode;
-  /** Kept for symmetry with the tRPC surface; the JSON-RPC mapper does not read it. */
-  readonly httpStatus?: number;
   /**
    * Structured throw-site detail, projected into `data.fields` after the mapper's `sanitizeFields`
    * (path redaction, JSON-safety, depth and width caps).
@@ -53,8 +51,6 @@ export class DaemonDomainError extends Error {
   readonly code: string;
   /** JSON-RPC numeric; becomes envelope `error.code`. */
   readonly jsonRpcCode?: DomainErrorJsonRpcCode;
-  /** Notional HTTP status; not read by the wire seam. */
-  readonly httpStatus?: number;
   /** Structured detail; becomes envelope `data.fields` after sanitizing. */
   readonly detail?: Record<string, unknown>;
 
@@ -64,9 +60,6 @@ export class DaemonDomainError extends Error {
     this.code = options.code;
     if (options.jsonRpcCode !== undefined) {
       this.jsonRpcCode = options.jsonRpcCode;
-    }
-    if (options.httpStatus !== undefined) {
-      this.httpStatus = options.httpStatus;
     }
     if (options.detail !== undefined) {
       this.detail = options.detail;

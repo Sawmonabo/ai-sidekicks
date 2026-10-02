@@ -1,8 +1,8 @@
 // The daemon's outbound-credential seam for control-plane calls.
 //
-// This module holds an interface and a refusing stub; it mints no credentials. The daemon has
-// no PASETO signing identity yet, so the key that would sign a PASETO v4.public token, its
-// custody, and the control plane's verification are not defined here.
+// This module holds an interface and a refusing stub; it mints no credentials. The daemon holds
+// no PASETO signing identity, so the key that would sign a PASETO v4.public token, its custody,
+// and the control plane's verification are not defined here.
 //
 // Calls use DPoP (RFC 9449), not Bearer. A bearer token is usable by anyone who holds it, so a
 // logged header, a proxy buffer or a crash dump would hand out something replayable. DPoP binds
