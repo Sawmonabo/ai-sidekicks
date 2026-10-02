@@ -362,6 +362,7 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `skill.path_refused` | `skill.update` refused a path in the folder it would save. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` | 422 |
+| `skill.name_taken` | A save would rename a folder of ours onto a name another folder of ours already holds in the same place; nothing is renamed and nothing is written. `data.fields`: `folderPath`, the folder already holding the name, which the screen names under the Name field | 409 |
 | `skill.write_refused` | A write to a skill was refused. `data.fields.reason` is one of `plugin_read_only` (every operation that writes refuses a plugin's skill, which is read-only) or `not_orphaned` (`skill.recordReattach` named a record that is not orphaned) | 409 |
 
 ### Gitflow
@@ -395,7 +396,7 @@ Domain-level quota saturation: a create or an open that would pass a limit the d
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `resource.limit_exceeded` | A request would pass a daemon limit. `data.fields`: `resource` (the limit's name, such as `shell write` for a `pty.write` over the daemon's bound), `limit` and `current`, all required. The screen says the limit was reached in words and draws no figure | 429 |
+| `resource.limit_exceeded` | A request would pass a daemon limit. `data.fields`: `resource` (the limit's name), `limit` and `current`, all required. The screen says the limit was reached in words and draws no figure | 429 |
 
 ### Transport
 

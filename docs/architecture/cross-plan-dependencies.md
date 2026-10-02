@@ -100,7 +100,7 @@ flowchart TD
  n019_3["Plan-019 Phase 3 — the purge's erasure step and the account-deletion alignment"]
  %% Plan-020
  n020_2["Plan-020 Phase 2 — IPC bridge registry and handlers"]
- n020_3["Plan-020 Phase 3 — daemon supervisor and crash reporter"]
+ n020_3["Plan-020 Phase 3 — crash reporter and main startup composition"]
  n020_4["Plan-020 Phase 4 — auto-updater and deep-link handler"]
  n020_5["Plan-020 Phase 5 — renderer layout, router, composer"]
  n020_6["Plan-020 Phase 6 — build pipeline and release signing"]
@@ -357,7 +357,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-026 Phase 1](../plans/026-skills.md) | skill contracts and the read over three origins. | Plan-005 Phase R1, Plan-024 Phase 2 |
 |  | [Plan-013 Phase 2](../plans/013-multi-agent-orchestration.md) | daemon orchestration services. | Plan-002 Phase 2, Plan-005 Phase R1, Plan-013 Phase 1, Plan-023 Phase 3 |
 |  | [Plan-015 Phase 5](../plans/015-identity-and-user-state.md) | credential seam and account. | Plan-015 Phase 4 |
-|  | [Plan-020 Phase 3](../plans/020-desktop-app-and-renderer.md) | daemon supervisor and crash reporter. | Plan-020 Phase 2 |
+|  | [Plan-020 Phase 3](../plans/020-desktop-app-and-renderer.md) | crash reporter and main startup composition. | Plan-020 Phase 2 |
 |  | [Plan-023 Phase 4](../plans/023-provider-accounts-and-credential-homes.md) | cost attribution and client surfaces. | Plan-023 Phase 3 |
 |  | [Plan-014 Phase 5C](../plans/014-workflow-authoring-and-execution.md) | always-on engine event record. | Plan-014 Phase 2B, Plan-017 Phase 2 |
 |  | [Plan-002 Phase 3B](../plans/002-queue-steer-pause-resume.md) | the run side of an undo. | Plan-002 Phase 4 |
