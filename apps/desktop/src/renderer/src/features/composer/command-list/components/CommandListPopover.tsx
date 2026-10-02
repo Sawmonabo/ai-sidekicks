@@ -36,14 +36,14 @@ const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
  * Shown only in answer to the press: the lede already states the standing claim.
  */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
-  "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
+  "Provider commands and skills are listed for reference. This app starts no turn from one, so there is nothing here to run.";
 
 /** The same press on a row the provider declared disabled; it is disabled there too. */
 const PROVIDER_ENTRY_DISABLED =
   "The provider published this entry as disabled, so it is unavailable there as well as here. Nothing was run.";
 
 /** The console group's heading: it names the act, so a person knows what pressing does. */
-const CONSOLE_GROUP_LABEL = "This console's commands — these run here";
+const CONSOLE_GROUP_LABEL = "This app's commands — these run here";
 
 /**
  * The provider group's heading. The entries are the provider's own enumeration and this console
@@ -160,7 +160,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   return (
     <div className="meridian-command-discovery">
       <p className="meridian-command-discovery__lede" id={ledeId}>
-        What this console can do, and what the addressed agent&rsquo;s provider offers. Choosing an
+        What this app can do, and what the addressed sidekick&rsquo;s provider offers. Choosing an
         entry starts no turn.
       </p>
       {entries.length === 0 ? null : (

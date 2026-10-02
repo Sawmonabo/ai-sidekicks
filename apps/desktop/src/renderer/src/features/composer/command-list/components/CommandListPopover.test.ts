@@ -8,7 +8,6 @@ import {
   NOT_RUNNABLE_FRAGMENT,
   TEST_COMMAND_ID,
   activeRow,
-  agentPane,
   composerLeadAgentId,
   mountComposer,
   optionNames,
@@ -17,6 +16,7 @@ import {
   stepIntoList,
   typeIntoLine,
 } from "../command-list.test-support.js";
+import { agentPane } from "../../composer.test-support.js";
 import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { recordingBridge } from "../provider-command-enumeration.test-support.js";
 

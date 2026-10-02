@@ -4,9 +4,9 @@
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { SteerBox } from "./SteerBox.js";
+import { inertBridge } from "../../composer.test-support.js";
 import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
 import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
 import { RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
@@ -41,11 +41,6 @@ export function interventionCalls(
       return answer() as InterventionRequestResponse;
     },
   };
-}
-
-/** The subject the dispatch state keys its holders on; no case calls through it. */
-export function inertBridge(): PlatformBridge {
-  return bridgeAnswering(async () => undefined).bridge;
 }
 
 /** A run in the given state, at the version and identity a case names. */

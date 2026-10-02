@@ -15,7 +15,7 @@ import { useSettlementIdentities, type SettlementIdentities } from "./useSettlem
  * The hook under a tree that can re-address and suspend in one transition. `readdress` is
  * handed back through a holder because it must fire outside React's render.
  */
-function ComposerHost(props: {
+function ComposerHarness(props: {
   readonly bridge: PlatformBridge;
   readonly seen: { current: SettlementIdentities | undefined };
   readonly readdress: { current: (() => void) | undefined };
@@ -40,7 +40,7 @@ describe("the settlement mirrors move at the commit", () => {
     const seen: { current: SettlementIdentities | undefined } = { current: undefined };
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
-      <ComposerHost
+      <ComposerHarness
         bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO }).bridge}
         seen={seen}
         readdress={readdress}
@@ -64,7 +64,7 @@ describe("the settlement mirrors move at the commit", () => {
     const seen: { current: SettlementIdentities | undefined } = { current: undefined };
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
-      <ComposerHost
+      <ComposerHarness
         bridge={createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO }).bridge}
         seen={seen}
         readdress={readdress}

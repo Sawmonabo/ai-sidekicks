@@ -50,14 +50,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         )}
         {chip.isStalled ? (
           <span className="meridian-composer-attachment__note">
-            No chunk has been acknowledged for a while. A stream lasts six hours from the moment it
-            opens.
-          </span>
-        ) : null}
-        {chip.isPastByteAllowance ? (
-          <span className="meridian-composer-attachment__note">
-            Past this deployment&apos;s per-attachment size. The upload is still attempted — the
-            background service decides.
+            No chunk has been acknowledged for a while.
           </span>
         ) : null}
         {chip.offersRetry ? (

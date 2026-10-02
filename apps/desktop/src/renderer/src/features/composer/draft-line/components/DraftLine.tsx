@@ -11,14 +11,14 @@ import { COMPOSER_DRAFT_MAX_ROWS } from "../../composer-bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { readTextNeutralization } from "../text-neutralization.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
-import { composeDraftPlaceholder } from "../draft-line.js";
+import { DRAFT_PLACEHOLDER } from "../draft-line.js";
 import { composerDraftKey } from "../draft-key.js";
 
 /** The message line over the addressed draft. Enter keeps the draft and sends nothing. */
 export function DraftLine(props: ComposerProps): React.JSX.Element {
   const { draftStore } = props;
-  const address = useComposerAddress(props.sessionStore, props.focusedPane);
-  const draftKey = composerDraftKey(address.target);
+  const target = useComposerAddress(props.sessionStore, props.focusedPane);
+  const draftKey = composerDraftKey(target);
   const { text } = useComposerDraftText(draftStore, draftKey);
 
   const onChange = useCallback(
@@ -34,7 +34,7 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
   }, []);
 
   const neutralization = readTextNeutralization(
-    address.target.path === "provider-bound" ? address.target.providerFailureDetail : undefined,
+    target.path === "provider-bound" ? target.providerFailureDetail : undefined,
   );
 
   // Lets a view elsewhere in the window ask for the caret. The ask carries nothing, and one
@@ -54,7 +54,7 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
         ref={lineRef}
         className="meridian-composer__line"
         aria-label="Message"
-        placeholder={composeDraftPlaceholder()}
+        placeholder={DRAFT_PLACEHOLDER}
         value={text}
         rows={1}
         // Grow to the cap, then scroll inside the box so the transcript keeps its room.

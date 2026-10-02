@@ -1,4 +1,4 @@
-// An agent's question bound to its answer path.
+// An agent's question in its session, with the answer path it needs.
 //
 // Its own component so that only a row that is a question arms the answer dispatcher. A
 // row that is not a question renders something else and arms none of it.
@@ -8,8 +8,8 @@ import { type QuestionReading } from "@renderer/store/session-events/question-re
 import { useQuestionAnswer, type ResolveQuestionCall } from "./hooks/useQuestionAnswer.js";
 import { QuestionCard } from "./QuestionCard.js";
 
-/** What the mount hands the bound question card. */
-export interface BoundQuestionCardProps {
+/** What the mount hands the session's question card. */
+export interface SessionQuestionCardProps {
   /** The question this row is blocked on. */
   readonly question: QuestionReading;
   /** Every question of the record, from the row's personal-data half. */
@@ -22,11 +22,10 @@ export interface BoundQuestionCardProps {
  *
  * @consumedBy the composer's question card
  */
-export function BoundQuestionCard(props: BoundQuestionCardProps): React.JSX.Element {
+export function SessionQuestionCard(props: SessionQuestionCardProps): React.JSX.Element {
   const questionAnswer = useQuestionAnswer(props.question.questionId, props.resolveQuestion);
   return (
     <QuestionCard
-      body={undefined}
       question={props.question}
       questions={props.questions}
       delivery={questionAnswer.delivery}

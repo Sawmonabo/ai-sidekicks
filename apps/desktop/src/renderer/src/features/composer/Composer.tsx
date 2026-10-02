@@ -1,9 +1,8 @@
-// The composer host: the region, its accessible framing, and the zones it mounts in order.
-// It reads no wire itself and draws no Send control: Enter keeps the draft as typed and
-// sends nothing. It owns the provider-command enumeration holder and hands it to the command
+// The composer host: the region, and the draft line, the command list and the toolbar it mounts
+// in that order. It owns the provider-command enumeration holder and hands it to the command
 // list, whose enumeration is read live and never cached.
 
-import { useId, useRef } from "react";
+import { useRef } from "react";
 
 import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
@@ -30,12 +29,8 @@ const enumerationDisposal: SubjectScopedDisposal<ProviderCommandEnumeration> = {
   },
 };
 
-/**
- * The composer for one session. The session id sits in a visually hidden description so that
- * two windows on two sessions do not announce identically.
- */
+/** The composer for one session. */
 export function MessageComposer(props: ComposerProps): React.JSX.Element {
-  const descriptionId = useId();
   const regionRef = useRef<HTMLElement | null>(null);
   // One holder per addressed composer, never shared across sessions (the enumeration is not
   // cached). It survives a bridge swap under the same session: the holder's key compares the
@@ -49,15 +44,7 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
     enumerationDisposal,
   );
   return (
-    <section
-      className="meridian-composer"
-      aria-label="Message composer"
-      aria-describedby={descriptionId}
-      ref={regionRef}
-    >
-      <p className="meridian-visually-hidden" id={descriptionId}>
-        Composing in session {props.sessionStore.sessionId}.
-      </p>
+    <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>
       <DraftLine {...props} />
       <CommandList {...props} region={regionRef} commandEnumeration={commandEnumeration} />
       <ComposerToolbar {...props} />

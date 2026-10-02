@@ -14,7 +14,7 @@ import type {
 
 import { interventionNotApplied } from "./send-refusals.js";
 import type { ComposerSendOutcome } from "./send-resolutions.js";
-import type { AnsweredRunVersions } from "./answered-run-versions.js";
+import type { AnsweredRunVersions } from "../answered-run-versions.js";
 
 /** The two daemon calls a send makes, supplied by whoever holds the wire. */
 export interface ComposerSendCalls {

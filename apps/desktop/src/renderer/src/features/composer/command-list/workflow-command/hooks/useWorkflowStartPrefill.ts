@@ -8,6 +8,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type WhenClauseKey } from "@renderer/registries/commands/window-command-registry.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { requestComposerFocus } from "../../../composer-focus-requests.js";
 import {
@@ -17,6 +18,12 @@ import {
 
 /** The owner this command is contributed under. One per feature, one live at a time. */
 const WORKFLOW_START_COMMAND_OWNER = "composer-workflow-start";
+
+/** The palette category the workflow start entry sits under. */
+export const WORKFLOW_START_COMMAND_GROUP = "Workflow";
+
+/** The clause the entry is offered under. */
+const WORKFLOW_START_COMMAND_WHEN: WhenClauseKey = "sessionActive";
 
 /** What the palette entry's act resolves to for the line as it stands. */
 export type WorkflowStartPrefillDecision =
@@ -63,8 +70,8 @@ export function useWorkflowStartPrefill(options: {
       {
         id: WORKFLOW_COMMAND_ROOT,
         title: "Start a workflow",
-        group: "Workflow",
-        when: "sessionActive",
+        group: WORKFLOW_START_COMMAND_GROUP,
+        when: WORKFLOW_START_COMMAND_WHEN,
         keywords: ["workflow", "start", "run"],
         run: () => {
           const decision = decideWorkflowStartPrefill(draftStore.read(draftKey)?.text ?? "");

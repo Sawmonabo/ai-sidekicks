@@ -1,12 +1,8 @@
 // What one attachment chip says, folded from the entry the staged list published. Pure: it
 // reads no clock and holds no state, and every reading comes from the attachment modules that
 // own the ingest, so the chip and the transcript card cannot disagree about an upload.
-// A refusal is the only non-neutral tone; the byte bound is the daemon's and the upload is
-// still attempted, so an entry past it gets no color.
+// A refusal is the only non-neutral tone.
 
-import { SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT } from "@ai-sidekicks/contracts";
-
-import { exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
 import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachment-policy.js";
 import { isIngestStalled } from "./attachment-presentation.js";
 import {
@@ -42,8 +38,6 @@ export interface ComposerAttachmentChipModel {
   readonly progressFraction: number | undefined;
   /** True where this upload has gone quiet long enough to say so. */
   readonly isStalled: boolean;
-  /** True where the payload's own length is past the per-attachment bound. */
-  readonly isPastByteAllowance: boolean;
   /** The daemon's refusal, verbatim, with what it recommends doing next. */
   readonly refusal: ComposerAttachmentRefusal | undefined;
   /** Whether a retry may be offered. False for every settled entry, refused excepted. */
@@ -88,10 +82,6 @@ export function composerAttachmentChip(
     tone: entry.state === "refused" ? "failure" : "neutral",
     progressFraction: ingestProgressFraction(entry),
     isStalled: isIngestStalled(entry, publishedAtMilliseconds),
-    isPastByteAllowance: exceedsAttachmentByteAllowance(
-      entry.declared.byteLength,
-      SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT,
-    ),
     refusal:
       entry.refusal === undefined
         ? undefined

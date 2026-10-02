@@ -18,7 +18,7 @@ import {
   type AnswerDelivery,
 } from "@renderer/store/session-events/question-reading.js";
 
-/** The `question.resolve` call, supplied by the mount until the daemon serves it. */
+/** The `question.resolve` call, supplied by the mount. */
 export type ResolveQuestionCall = (
   request: QuestionResolveRequest,
 ) => Promise<DaemonReply<QuestionResolveResponse>>;

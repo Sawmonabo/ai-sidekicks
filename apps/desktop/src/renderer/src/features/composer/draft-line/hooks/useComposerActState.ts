@@ -31,8 +31,6 @@ export interface ComposerActState {
   readonly refusal: Refusal | undefined;
   /** Publish what the send path is doing. Dropped once the address has moved. */
   readonly publishStatus: SubjectScopedPublish<SendControllerStatus>;
-  /** Retire every held refusal, because the person is composing again. */
-  readonly clearRefusals: () => void;
   /** Write one act's settlement, or discard it because its identity has moved on. */
   readonly settle: (
     identity: ComposerSettlementIdentity,
@@ -64,10 +62,6 @@ export function useComposerActState(
       () => NO_COMPOSER_REFUSALS,
     );
 
-  const clearRefusals = useCallback((): void => {
-    publishRefusalsByOperation(NO_COMPOSER_REFUSALS);
-  }, [publishRefusalsByOperation]);
-
   const clearSentDraft = useCallback(
     (identity: ComposerSettlementIdentity, sentDraftKey: string): void => {
       if (isCurrent(identity)) {
@@ -91,7 +85,6 @@ export function useComposerActState(
     status,
     refusal: renderableRefusal(refusalsByOperation),
     publishStatus,
-    clearRefusals,
     settle,
     clearSentDraft,
   };

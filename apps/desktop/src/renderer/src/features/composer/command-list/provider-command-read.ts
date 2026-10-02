@@ -67,9 +67,5 @@ export async function settleEnumeration(
 /** The refusal for a composer addressed at identifiers the wire would not accept. */
 function unparseableAddress(): Refusal {
   const code: ProviderCommandReadRefusalCode = "addressed-agent-unparseable";
-  return refuse(
-    PROVIDER_COMMAND_READ_ORIGIN,
-    code,
-    "The console is holding identifiers for this agent that the background service would not accept, so it asked for no enumeration. Reopen the session so its identifiers are read again.",
-  );
+  return refuse(PROVIDER_COMMAND_READ_ORIGIN, code, "Could not load this session");
 }

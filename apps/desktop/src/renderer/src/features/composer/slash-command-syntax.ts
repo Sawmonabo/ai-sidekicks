@@ -19,9 +19,18 @@ export function readSlashCommandName(lineText: string): string | undefined {
   if (!opensCommandLine(lineText)) {
     return undefined;
   }
-  const afterTrigger = lineText.slice(SLASH_COMMAND_TRIGGER.length);
-  const firstSpace = afterTrigger.search(FIRST_WHITESPACE);
-  return firstSpace === -1 ? afterTrigger : afterTrigger.slice(0, firstSpace);
+  return splitFirstWord(lineText.slice(SLASH_COMMAND_TRIGGER.length)).word;
+}
+
+/**
+ * The text up to its first whitespace, and what follows from that whitespace on (empty when
+ * there is none), so every command word on a line is read the same way.
+ */
+export function splitFirstWord(text: string): { readonly word: string; readonly rest: string } {
+  const firstSpace = text.search(FIRST_WHITESPACE);
+  return firstSpace === -1
+    ? { word: text, rest: "" }
+    : { word: text.slice(0, firstSpace), rest: text.slice(firstSpace) };
 }
 
 /** Whether this line is claimed by the reserved prefix at all. */

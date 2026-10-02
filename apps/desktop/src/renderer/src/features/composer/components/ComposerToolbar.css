@@ -1,69 +1,21 @@
-/* The composer's toolbar cluster: quiet chrome around one strip of figures. The ring is a hairline
-   and is never colored by how full it is. */
+/* The composer's toolbar: quiet chrome around one strip of figures. */
 
-.meridian-composer__rail {
+.meridian-composer__toolbar {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
 }
 
-/* --- Context ring -------------------------------------------------------- */
-
-.meridian-context-ring {
+.meridian-composer__toolbar-cluster {
   display: flex;
   flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meridian-composer__meters {
+  display: flex;
   gap: var(--meridian-space-2);
   align-items: center;
-  min-inline-size: 0;
-}
-
-.meridian-context-ring__label {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-  letter-spacing: 0.04em;
-}
-
-/* A hairline, not a gauge: the figures beside the bar are the number, not the bar. */
-.meridian-context-ring__track {
-  position: relative;
-  display: block;
-  inline-size: calc(var(--meridian-space-5) * 3);
-  block-size: 3px;
-  overflow: hidden;
-  background: var(--meridian-surface-sunken);
-  border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-context-ring__fill {
-  display: block;
-  block-size: 100%;
-  background: var(--meridian-edge-strong);
-  transition: inline-size var(--meridian-motion-settle) var(--meridian-ease-settle);
-}
-
-.meridian-context-ring__figures,
-.meridian-context-ring__tokens {
-  display: flex;
-  gap: var(--meridian-space-1);
-  align-items: baseline;
-}
-
-.meridian-context-ring__unit,
-.meridian-context-ring__separator {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* The window's provenance, beside the figures; muted so it qualifies the bar. */
-.meridian-context-ring__source {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* What that provenance means, on the two grades where it changes the reading. */
-.meridian-context-ring__source-note {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
 }

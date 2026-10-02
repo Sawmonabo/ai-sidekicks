@@ -90,22 +90,6 @@ describe("ComposerSendRouter — the slash prefix", () => {
   });
 });
 
-describe("ComposerSendRouter — an enumerated provider entry is named, never sent", () => {
-  it("refuses a typed provider command as the discovery entry it is", async () => {
-    // The popover listed `review`, so the send path names it rather than treating it as text.
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call, [], ["review"]).send("/review", RUN_TARGET);
-
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe(
-      "provider-command-discovery-only",
-    );
-    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("review");
-    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("claude");
-    expect(call).not.toHaveBeenCalled();
-  });
-});
-
 describe("ComposerSendRouter — the daemon receives the text the user wrote", () => {
   // Indentation and a trailing blank line are load-bearing (a pasted block, a Markdown
   // paragraph break). The dispatched params are asserted, since two routers can resolve to the

@@ -4,7 +4,7 @@
 // the unregistered name `workflow`. A second verb is a second word here, not a second id. An
 // unrecognized verb is its own reading: a spelling to fix, not a workflow that does not exist.
 
-import { readSlashCommandName } from "../../slash-command-syntax.js";
+import { readSlashCommandName, splitFirstWord } from "../../slash-command-syntax.js";
 
 /** The console command id the workflow command is registered, recognized, and listed under. */
 export const WORKFLOW_COMMAND_ROOT = "workflow";
@@ -38,12 +38,11 @@ export function readWorkflowCommandLine(lineText: string): WorkflowCommandReadin
   if (afterRoot.length === 0) {
     return { status: "verb-missing" };
   }
-  const firstSpace = afterRoot.search(/\s/u);
-  const verb = firstSpace === -1 ? afterRoot : afterRoot.slice(0, firstSpace);
+  const { word: verb, rest } = splitFirstWord(afterRoot);
   if (!isWorkflowCommandVerb(verb)) {
     return { status: "verb-unknown", verb };
   }
-  const argument = firstSpace === -1 ? "" : afterRoot.slice(firstSpace).trim();
+  const argument = rest.trim();
   return { status: "start", definitionName: argument.length === 0 ? undefined : argument };
 }
 

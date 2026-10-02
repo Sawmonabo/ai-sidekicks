@@ -10,6 +10,7 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import {
   RUN_INTERVENTION_REFUSAL_ORIGIN,
   admissionRefusal,
@@ -52,7 +53,7 @@ interface ComposedForm {
   readonly localRefusal: Refusal | undefined;
   readonly pendingDispatch: PendingDispatch | undefined;
   /**
-   * Whether the form has already asked to be closed. The records ledger keeps changing, so
+   * Whether the form has already asked to be closed. The records list keeps changing, so
    * without this the form would keep asking a parent that has stopped rendering it. Held here,
    * not in a ref, so a new run can close again.
    */
@@ -136,11 +137,24 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         publishForm((held) => ({ ...held, localRefusal: admissionRefusal(admission.reason) }));
         return;
       }
+      const { dispatchToken } = admission;
       publishForm((held) => ({
         ...held,
         localRefusal: undefined,
-        pendingDispatch: { dispatchToken: admission.dispatchToken, composedIdentity },
+        pendingDispatch: { dispatchToken, composedIdentity },
       }));
+      // A rejected call records nothing, so the form leaves its latch and holds the rejection.
+      void admission.settled.catch((rejection: unknown) => {
+        publishForm((held) =>
+          held.pendingDispatch?.dispatchToken === dispatchToken
+            ? {
+                ...held,
+                pendingDispatch: undefined,
+                localRefusal: normalizeWireRejection(RUN_INTERVENTION_REFUSAL_ORIGIN, rejection),
+              }
+            : held,
+        );
+      });
     },
     [body, dispatchState, run.runId, comparand, isConfirmLatched, composedIdentity, publishForm],
   );
@@ -177,7 +191,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         </button>
         <button
           type="button"
-          className="meridian-run-composer__dismiss meridian-action-button meridian-action-button--small meridian-action-button--raised"
+          className="meridian-action-button meridian-action-button--small meridian-action-button--raised"
           onClick={onDismiss}
         >
           Cancel

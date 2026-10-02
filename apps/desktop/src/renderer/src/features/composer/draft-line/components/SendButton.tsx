@@ -12,7 +12,6 @@ import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalati
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
 import { noComposerCommandLineHandlers } from "../../command-list/composer-command-line-handlers.js";
-import type { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { useSendController } from "../hooks/useSendController.js";
 
@@ -20,37 +19,23 @@ import { useSendController } from "../hooks/useSendController.js";
 export type SendButtonProps = ComposerProps & {
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
-  /**
-   * The composer's one provider-command enumeration, opened by the command list. Read here, not
-   * opened: a typed name the bound provider published is refused by name from the same reading
-   * the popover shows.
-   */
-  readonly commandEnumeration: ProviderCommandEnumeration;
 };
 
 /** Send for the addressed draft, resolving to the wire call the addressed target admits. */
 export function SendButton(props: SendButtonProps): React.JSX.Element {
-  const address = useComposerAddress(props.sessionStore, props.focusedPane);
+  const target = useComposerAddress(props.sessionStore, props.focusedPane);
   // No handler for a command that reads its arguments off the line, so the executor leaves
   // such a line as typed. Stable, so the zone's latest-ref is not rewritten every render.
   const commandLineHandlers = useMemo(noComposerCommandLineHandlers, []);
   // Recognizer and executor are supplied together by the zone that owns both.
-  const commandZone = useCommandHandling({
-    route: props.route,
-    commandEnumeration: props.commandEnumeration,
-    // The address the send path acts on, so the published-name check uses the addressed run's
-    // own binding.
-    target: address.target,
-    commandLineHandlers,
-  });
+  const commandZone = useCommandHandling({ route: props.route, commandLineHandlers });
   const controller = useSendController({
     bridge: props.bridge,
     calls: props.calls,
-    target: address.target,
+    target,
     draftStore: props.draftStore,
     recognizeConsoleCommand: commandZone.recognizeConsoleCommand,
     commandExecutor: commandZone.commandExecutor,
-    recognizeProviderCommand: commandZone.recognizeProviderCommand,
   });
   // A send that learned the session is gone also escalates to a frame banner; the hook decides
   // which codes qualify and raises each condition once.

@@ -22,7 +22,6 @@ export const COMPOSER_REFUSAL_CODES = [
   "run-version-unread",
   "identifier-unparseable",
   "command-unexecutable",
-  "provider-command-discovery-only",
 ] as const;
 
 /** One composer refusal code, derived from `COMPOSER_REFUSAL_CODES`. */
@@ -34,11 +33,8 @@ export function composerRefusal(code: ComposerRefusalCode, detail: string): Refu
 }
 
 /** The refusal for an identifier the registered wire schema would not accept. */
-export function unparseableIdentifier(subject: string): Refusal {
-  return composerRefusal(
-    "identifier-unparseable",
-    `The console is holding an identifier for ${subject} that the background service would not accept. Reopen the session so its identifiers are read again.`,
-  );
+export function unparseableIdentifier(): Refusal {
+  return composerRefusal("identifier-unparseable", "Send failed");
 }
 
 /**

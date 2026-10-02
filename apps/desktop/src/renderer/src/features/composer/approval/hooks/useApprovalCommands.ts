@@ -7,6 +7,7 @@ import { useMemo } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type WhenClauseKey } from "@renderer/registries/commands/window-command-registry.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import {
   APPROVAL_COMMAND_OWNER,
@@ -20,7 +21,7 @@ import {
 const APPROVAL_COMMAND_GROUP = "Approvals";
 
 /** The clause these commands are offered under, the same key the run controls use. */
-const APPROVAL_COMMAND_WHEN = "sessionActive";
+const APPROVAL_COMMAND_WHEN: WhenClauseKey = "sessionActive";
 
 /** Contribute the card's acts for as long as it is mounted. */
 export function useApprovalCommands(input: ApprovalCommandInput): void {

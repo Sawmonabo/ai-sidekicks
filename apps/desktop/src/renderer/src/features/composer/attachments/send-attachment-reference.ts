@@ -1,5 +1,5 @@
 // The attachment reference a message could carry: an ordered list of artifact ids, never
-// bytes, in the user's own order. The fold never sorts, groups or de-duplicates, so the ledger
+// bytes, in the user's own order. The fold never sorts, groups or de-duplicates, so the record
 // stays the one answer to which attachment is first. Nothing here puts them on a request.
 
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import { resolveComposerTarget, type ComposerTargetInput } from "./composer-target.js";
+import { agentPane } from "./composer.test-support.js";
 
 const AGENT: StoredEntity = {
   kind: "agent",
@@ -39,7 +40,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
   it("takes the provider-bound path only when the pane names an agent with a seen run", () => {
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: agentPane(AGENT.id),
         agents: { [AGENT.id]: AGENT },
         runs: { [RUN.id]: RUN },
       }),
@@ -60,7 +61,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     // The negative control for the arm above: same pane, no run, so the session is addressed.
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: agentPane(AGENT.id),
         agents: { [AGENT.id]: AGENT },
       }),
     );
@@ -73,7 +74,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     const settled: StoredEntity = { ...RUN, state: "failed" };
     const target = resolveComposerTarget(
       input({
-        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
+        focusedPane: agentPane(AGENT.id),
         agents: { [AGENT.id]: AGENT },
         runs: { [settled.id]: settled },
       }),

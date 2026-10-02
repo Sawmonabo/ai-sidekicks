@@ -77,15 +77,15 @@ describe("both guards, on every call", () => {
 describe("the fresh comparand comes from the answer", () => {
   it("threads the acknowledgment's run version back out", async () => {
     const { dispatcher } = dispatcherOver(async () => STUB_ACK);
-    expect(dispatcher.freshComparandFor(RUN_ID)).toBeUndefined();
+    expect(dispatcher.comparandFor(RUN_ID, undefined)).toBeUndefined();
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
-    expect(dispatcher.freshComparandFor(RUN_ID)).toBe(7);
+    expect(dispatcher.comparandFor(RUN_ID, undefined)).toBe(7);
   });
 
   it("threads an applied steer's run version back out, which no event carries", async () => {
     const { dispatcher } = dispatcherOver(async () => appliedIntervention("steer", 11));
     await dispatcher.steer({ runId: RUN_ID, expectedRunVersion: 10 }, { content: "narrower" });
-    expect(dispatcher.freshComparandFor(RUN_ID)).toBe(11);
+    expect(dispatcher.comparandFor(RUN_ID, undefined)).toBe(11);
   });
 });
 

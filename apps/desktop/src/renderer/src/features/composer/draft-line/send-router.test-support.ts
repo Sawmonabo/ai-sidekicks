@@ -74,19 +74,14 @@ export function sendCallsAnswering(
   };
 }
 
-/** A router over one daemon-call mock, recognizing the given client and provider names. */
+/** A router over one daemon-call mock, recognizing the given console command names. */
 export function routerWith(
   call: DaemonCallMock,
   recognized: readonly string[] = [],
-  published: readonly string[] = [],
 ): ComposerSendRouter {
   return new ComposerSendRouter({
     calls: sendCallsAnswering(async (recorded) => call(recorded.method, recorded.params)),
     recognizeConsoleCommand: (name) => recognized.includes(name),
-    recognizeProviderCommand: (name) =>
-      published.includes(name)
-        ? { name, kind: "command" as const, driverName: "claude" }
-        : undefined,
     mintIdempotencyKey: () => PINNED_REQUEST_UUID,
   });
 }

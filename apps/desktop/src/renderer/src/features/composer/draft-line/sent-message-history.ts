@@ -15,16 +15,6 @@ export class SentMessageHistory {
   #recallIndex = -1;
   #stashedDraft = "";
 
-  /** True while a walk is in progress, so the line can be marked as recalled. */
-  public get isRecalling(): boolean {
-    return this.#recallIndex >= 0;
-  }
-
-  /** How many messages are walkable. Bounded by the cap; read by tests and the line. */
-  public get recallableCount(): number {
-    return this.#sentNewestFirst.length;
-  }
-
   /**
    * Record one sent message and end any walk, since the walk's stashed draft was just sent.
    * Stored verbatim: a trimmed copy would drop the indentation the router preserves.
@@ -86,11 +76,6 @@ export class SentMessageHistories {
   /** Insertion order is the recency order the eviction reads. */
   readonly #byAddress = new Map<string, SentMessageHistory>();
   #currentAddress: string | undefined = undefined;
-
-  /** How many addresses are retained. Bounded by the cap; read by tests. */
-  public get retainedAddressCount(): number {
-    return this.#byAddress.size;
-  }
 
   /** The history for this address, made current. Idempotent for the current address. */
   public forAddress(address: string): SentMessageHistory {

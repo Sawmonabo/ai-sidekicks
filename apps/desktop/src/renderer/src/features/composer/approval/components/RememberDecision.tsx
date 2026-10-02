@@ -84,14 +84,14 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           }}
         >
           <Select.Trigger
-            className="meridian-approval-card__scope-trigger meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+            className="meridian-action-button meridian-action-button--regular meridian-action-button--outline"
             aria-label="Remembered scope"
             disabled={!intent.isRemembering}
           >
             <Select.Value />
           </Select.Trigger>
           {/* The primitive anchors the list in the window's airspace; a card-owned portal would be
-              painted over by a native browser-pane view. */}
+              painted over by the Preview pane's native view. */}
           <OverlaySelectPopup className="meridian-approval-card__scope-popup">
             {REMEMBERED_SCOPE_KINDS.map((kind) => (
               <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>

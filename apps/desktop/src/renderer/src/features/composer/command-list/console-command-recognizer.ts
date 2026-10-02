@@ -46,6 +46,14 @@ export function consoleCommandRefusal(code: ConsoleCommandRefusalCode, detail: s
   return refuse(CONSOLE_COMMAND_REFUSAL_ORIGIN, code, detail);
 }
 
+/** The refusal for a typed name no registered command answers to. */
+export function unknownCommandRefusal(name: string): Refusal {
+  return consoleCommandRefusal(
+    "unknown-command",
+    `${name} is not a command here, so there was nothing to run.`,
+  );
+}
+
 /**
  * Decide what one typed name is, without running anything. Takes the name alone because the
  * router's predicate does, so no line has to be fabricated. The refusal arm is reached only
@@ -58,11 +66,5 @@ export function recognizeConsoleCommand(
   if (input.registeredCommandIds.includes(name)) {
     return { status: "recognized", commandId: name };
   }
-  return {
-    status: "refused",
-    refusal: consoleCommandRefusal(
-      "unknown-command",
-      `${name} is not a command this console has registered, so there was nothing to run.`,
-    ),
-  };
+  return { status: "refused", refusal: unknownCommandRefusal(name) };
 }

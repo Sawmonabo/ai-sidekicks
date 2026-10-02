@@ -9,7 +9,7 @@ import type { ComposerTarget } from "../composer-target.js";
 import type { CommandExecutor } from "../types.js";
 import type { DraftCaret } from "./draft-line.js";
 import type { ComposerSendCalls } from "./send-dispatch.js";
-import type { ConsoleCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
+import type { ConsoleCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
@@ -27,12 +27,6 @@ export interface SendControllerDependencies {
    */
   readonly recognizeConsoleCommand?: ConsoleCommandPredicate | undefined;
   /**
-   * Whether a name is one the bound provider published, for discovery only. Read off the
-   * same holder the discovery popover renders from. Absent, a typed provider command is like
-   * any other slash word.
-   */
-  readonly recognizeProviderCommand?: ProviderCommandPredicate | undefined;
-  /**
    * Runs a recognized console command. Absent, an intercepted line refuses, since clearing the
    * line would report success for an act nothing performed.
    */
@@ -41,12 +35,10 @@ export interface SendControllerDependencies {
 
 /** Everything the send bar renders and every act it offers. */
 export interface SendController {
-  readonly text: string;
-  readonly placeholder: string;
   readonly status: SendControllerStatus;
-  /** The last refusal, composer-side or daemon-side, until the person types again. */
+  /** The last refusal, composer-side or daemon-side, until the next act settles. */
   readonly refusal: Refusal | undefined;
-  changeText(next: string): void;
+  /** Send the draft. Never rejects: a rejected call settles as the held refusal. */
   send(): Promise<void>;
   /** Walk one message older. `false` when the caret is not at the start edge. */
   recallOlder(caret: DraftCaret): boolean;

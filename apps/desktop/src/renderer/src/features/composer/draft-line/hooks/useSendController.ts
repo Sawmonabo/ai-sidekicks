@@ -8,23 +8,22 @@
 // settlement identity, so a return to an earlier address does not find a latch held by a parked
 // call. A late settlement releases exactly the key it claimed, but its reading is dropped.
 //
-// The history walk and the comparand ledger are held here: the ledger must outlive the router,
+// The history walk and the comparand record are held here: the record must outlive the router,
 // which is rebuilt whenever the addressed target changes, and the unsent body lives only in
 // the supplied `DraftStore`.
 
 import { useCallback, useMemo, useRef } from "react";
 
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
+import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { composerDraftKey } from "../draft-key.js";
 import { useComposerActState } from "./useComposerActState.js";
-import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { useSettlementIdentities } from "./useSettlementIdentities.js";
-import { composerRefusal } from "../send-refusals.js";
-import { composeDraftPlaceholder } from "../draft-line.js";
+import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../send-refusals.js";
 import { useSentMessageRecall } from "./useSentMessageRecall.js";
 import { addressedOperationKey } from "../send-settlement.js";
 import { ComposerSendRouter } from "../send-router.js";
-import { AnsweredRunVersions } from "../answered-run-versions.js";
+import { AnsweredRunVersions } from "../../answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../send-controller-contract.js";
 
 /** What a recognized command with nowhere to run says; the text is still in the line. */
@@ -33,15 +32,8 @@ const NO_EXECUTOR_DETAIL =
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
-  const {
-    bridge,
-    calls,
-    target,
-    draftStore,
-    commandExecutor,
-    recognizeConsoleCommand,
-    recognizeProviderCommand,
-  } = dependencies;
+  const { bridge, calls, target, draftStore, commandExecutor, recognizeConsoleCommand } =
+    dependencies;
   // Allocated on first use, not on every render.
   const runVersionsRef = useRef<AnsweredRunVersions | null>(null);
   const runVersions = (runVersionsRef.current ??= new AnsweredRunVersions());
@@ -51,9 +43,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         calls,
         runVersions,
         ...(recognizeConsoleCommand === undefined ? {} : { recognizeConsoleCommand }),
-        ...(recognizeProviderCommand === undefined ? {} : { recognizeProviderCommand }),
       }),
-    [calls, runVersions, recognizeConsoleCommand, recognizeProviderCommand],
+    [calls, runVersions, recognizeConsoleCommand],
   );
   // Claimed before the await and released in `finally`, so every settlement releases the round
   // on one path.
@@ -67,25 +58,23 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     isCurrent,
   } = useSettlementIdentities(bridge, draftKey);
   // What the button renders while an act travels, held under the address it was issued at.
-  const { status, refusal, publishStatus, clearRefusals, settle, clearSentDraft } =
-    useComposerActState(bridge, draftKey, draftStore, isCurrent);
+  const { status, refusal, publishStatus, settle, clearSentDraft } = useComposerActState(
+    bridge,
+    draftKey,
+    draftStore,
+    isCurrent,
+  );
 
-  // Shared with the discovery popover watching the same line.
-  const { text, read: readDraftText } = useComposerDraftText(draftStore, draftKey);
+  // Read at press time rather than subscribed: nothing here renders the text.
+  const readDraftText = useCallback(
+    () => draftStore.read(draftKey)?.text ?? "",
+    [draftStore, draftKey],
+  );
   // The walk back through what was sent from this address, and the record a send writes into.
   const { history, recallOlder, recallNewer } = useSentMessageRecall(
     draftStore,
     draftKey,
     readDraftText,
-  );
-
-  const changeText = useCallback(
-    (next: string) => {
-      draftStore.write(draftKey, next);
-      // A refusal answers the act that produced it, so the next edit clears it.
-      clearRefusals();
-    },
-    [draftStore, draftKey, clearRefusals],
   );
 
   const send = useCallback(async () => {
@@ -139,6 +128,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           settle(identity, outcome.refusal);
           return;
       }
+    } catch (rejection) {
+      // A rejected daemon call is held as the daemon's own refusal; the text stays in the line.
+      settle(identity, normalizeWireRejection(DAEMON_REFUSAL_ORIGIN, rejection));
     } finally {
       // Releases the round this act claimed even after a re-address; the reading is published
       // through this address's publisher, so it lands only while the address is current.
@@ -164,11 +156,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   ]);
 
   return {
-    text,
-    placeholder: composeDraftPlaceholder(),
     status,
     refusal,
-    changeText,
     send,
     recallOlder,
     recallNewer,

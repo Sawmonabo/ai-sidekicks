@@ -24,7 +24,7 @@ export interface ChunkAcknowledgement {
   readonly receivedBytes: number;
 }
 
-/** What one acknowledgement leaves the ledger able to say. */
+/** What one acknowledgement leaves the record able to say. */
 export type ChunkAcknowledgementReading =
   | { readonly status: "acknowledged"; readonly receivedBytes: number }
   | { readonly status: "unusable"; readonly detail: string };

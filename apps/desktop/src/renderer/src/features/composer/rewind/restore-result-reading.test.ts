@@ -8,7 +8,7 @@ import type { SessionRestoreResult } from "@ai-sidekicks/contracts";
 import { readRestoreResult, type RestoreTarget } from "./restore-result-reading.js";
 
 const MESSAGE: RestoreTarget = { kind: "message", firstWords: "Rename the config loader" };
-const SNAPSHOT: RestoreTarget = { kind: "snapshot", name: "Before Rename the config loader" };
+const SNAPSHOT: RestoreTarget = { kind: "snapshot", name: "Nightly" };
 
 describe("an undo where part went back", () => {
   it("names the conversation going back and the files not, with the daemon's cause", () => {
@@ -22,7 +22,7 @@ describe("an undo where part went back", () => {
       "Restored to before Rename the config loader · files not restored · The disk is full",
     );
     expect(readRestoreResult(result, SNAPSHOT)).toBe(
-      "Restored to before Rename the config loader · files not restored · The disk is full",
+      "Restored to nightly · files not restored · The disk is full",
     );
   });
 });
@@ -47,7 +47,7 @@ describe("an edit and resend whose send failed after its undo applied", () => {
       "Resend failed · Connection lost · restored to before Rename the config loader",
     );
     expect(readRestoreResult(result, SNAPSHOT)).toBe(
-      "Resend failed · Connection lost · restored to before Rename the config loader",
+      "Resend failed · Connection lost · restored to nightly",
     );
   });
 });

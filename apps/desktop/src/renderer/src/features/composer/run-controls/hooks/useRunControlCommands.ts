@@ -8,6 +8,7 @@ import { useMemo } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type WhenClauseKey } from "@renderer/registries/commands/window-command-registry.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import {
@@ -25,7 +26,7 @@ const RUN_CONTROL_COMMAND_GROUP = "Run";
  * The clause these commands are offered under: `sessionActive` and nothing narrower, since a
  * fact that changes with every event does not belong in a vocabulary recomputed per route.
  */
-const RUN_CONTROL_COMMAND_WHEN = "sessionActive";
+const RUN_CONTROL_COMMAND_WHEN: WhenClauseKey = "sessionActive";
 
 /** Contributes the controls of every described run while the caller is mounted. */
 export function useRunControlCommands(input: RunControlCommandInput): void {

@@ -1,4 +1,4 @@
-// The console's one base64 encoder: the local wire is JSON, so payload bytes ride as RFC 4648
+// The app's one base64 encoder: the local wire is JSON, so payload bytes ride as RFC 4648
 // section 4 strings. Callers pass a bounded slice (one ingest chunk), never a whole file.
 
 import { BASE64_ENCODE_STRIDE_BYTES } from "./attachment-caps.js";

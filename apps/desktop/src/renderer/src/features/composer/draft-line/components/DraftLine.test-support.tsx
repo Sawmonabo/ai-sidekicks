@@ -3,8 +3,7 @@
 // sends it; no product host mounts both.
 
 import { fireEvent, render, type RenderResult } from "@testing-library/react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -12,9 +11,9 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
-import { ProviderCommandEnumeration } from "../../command-list/provider-command-enumeration.js";
 import { SESSION_ID, STEER_APPLIED } from "../send-router.test-support.js";
 import { DraftLine } from "./DraftLine.js";
+import { agentPane, inertBridge } from "../../composer.test-support.js";
 import { SendButton } from "./SendButton.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 
@@ -36,7 +35,6 @@ export function mountDraftLine(options: {
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
   readonly focusedPane?: PaneAddress | undefined;
-  readonly commandEnumeration?: ProviderCommandEnumeration;
 }): MountedDraftLine {
   const frameStore = new WindowStore();
   const result = render(
@@ -50,8 +48,6 @@ export function mountDraftLine(options: {
         focusedPane: options.focusedPane,
       }}
       calls={options.calls}
-      // The host owns the holder; a bar mounted alone is one nobody opened.
-      commandEnumeration={options.commandEnumeration ?? new ProviderCommandEnumeration()}
     />,
   );
   const line = result.container.querySelector("textarea");
@@ -78,25 +74,15 @@ function sendButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-/** The transport the bar's held state belongs to; every call goes through `calls`. */
-function inertBridge(): PlatformBridge {
-  return bridgeAnswering(async () => undefined).bridge;
-}
-
 /** The line beside Send, over one draft store. */
 function LineAndSend(props: {
   readonly composerProps: ComposerProps;
   readonly calls: ComposerSendCalls;
-  readonly commandEnumeration: ProviderCommandEnumeration;
 }): React.JSX.Element {
   return (
     <>
       <DraftLine {...props.composerProps} />
-      <SendButton
-        {...props.composerProps}
-        calls={props.calls}
-        commandEnumeration={props.commandEnumeration}
-      />
+      <SendButton {...props.composerProps} calls={props.calls} />
     </>
   );
 }
@@ -166,18 +152,12 @@ export function storeWithTwoTrippedAgents(): SessionStore {
   return sessionStore;
 }
 
-/** The pane address focused on one agent. */
-export function paneFor(agentId: string): PaneAddress {
-  return { kind: "agents", entity: { kind: "agent", id: agentId } };
-}
-
 /** One mounted bar whose focused pane the case moves, without remounting it. */
 export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine {
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
   });
   const sessionStore = storeWithTwoTrippedAgents();
-  const enumeration = new ProviderCommandEnumeration();
   const frameStore = new WindowStore();
   const bridge = inertBridge();
   const barFor = (agentId: string): React.JSX.Element => (
@@ -188,10 +168,9 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
         draftStore,
         frameStore,
         route: DEFAULT_ROUTE,
-        focusedPane: paneFor(agentId),
+        focusedPane: agentPane(agentId),
       }}
       calls={calls}
-      commandEnumeration={enumeration}
     />
   );
   const result = render(barFor(FIRST_AGENT_ID));

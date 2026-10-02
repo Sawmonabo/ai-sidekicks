@@ -10,7 +10,6 @@ import { useRunControlDispatch } from "../../run-controls/hooks/useRunControlDis
 import {
   APPLIED_STEER,
   bodyValue,
-  inertBridge,
   interventionCalls,
   renderSteerBox,
   runAt,
@@ -18,6 +17,7 @@ import {
   type ScriptedAnswer,
   typeInto,
 } from "./SteerBox.test-support.js";
+import { inertBridge } from "../../composer.test-support.js";
 import { RUN_ID, SECOND_RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
@@ -204,7 +204,6 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     });
     typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
     await submit(container);
-    expect(container.textContent).toContain("in-flight");
     expect(container.textContent).toContain("still settling");
     expect(bodyValue(container)).toBe("the second body");
     expect(dismissals).toBe(0);
@@ -270,13 +269,13 @@ describe("the composer outlives its dispatch", () => {
     runVersion: 9,
   });
 
-  it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
+  it("keeps the text and says it was not applied when the intervention is rejected", async () => {
     const { container, dismissCount } = renderSteerBox(REJECTED_STEER);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
-    expect(container.textContent).toContain("run_not_paused");
+    expect(container.textContent).toContain("The background service did not apply this.");
   });
 });
 

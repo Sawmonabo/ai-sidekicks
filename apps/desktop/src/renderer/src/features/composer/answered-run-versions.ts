@@ -1,14 +1,11 @@
-// The comparand a steer is guarded with: `expectedRunVersion` is mandatory on `run.intervene`.
-// An applied native steer advances the run version without a `run.*` event, so the store's
-// projection falls one behind; the run also advances through the state stream with no steer.
-// Neither reading is always fresher, so the larger (both are monotonic per run) is used, and a
-// run with neither reading has no comparand rather than an invented zero.
-//
-// The run controls enforce the same rule inside their own dispatcher; constructing one here would
-// give the composer a second idempotency-key source and refusal vocabulary, so the composer and
-// the run controls each guard their own calls.
+// The comparand a guarded run call carries: `expectedRunVersion` is mandatory on `run.intervene`,
+// `run.pause` and `run.resume`. An applied native steer advances the run version without a
+// `run.*` event, so the store's projection falls one behind; the run also advances through the
+// state stream with no call. Neither reading is always fresher, so the larger (both are
+// monotonic per run) is used, and a run with neither reading has no comparand rather than an
+// invented zero. The send path and the run controls each hold one.
 
-/** The newest run version the daemon has answered for each run, used as the steer comparand. */
+/** The newest run version the daemon has answered for each run, used as the comparand. */
 export class AnsweredRunVersions {
   readonly #answeredByRunId = new Map<string, number>();
 
