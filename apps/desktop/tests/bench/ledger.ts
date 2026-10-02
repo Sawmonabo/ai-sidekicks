@@ -1,8 +1,8 @@
 // The bench-tier ledger: where the own-build measurements (bytes, heap, frame cost) are recorded.
 //
 // - It appends and never deletes: a ledger that rewrites history cannot record a refutation.
-// - Every row carries its provenance: the git commit (best effort; a detached or git-less
-//   checkout records `null` rather than failing the run), an ISO timestamp and the machine,
+// - Every row carries its provenance: the git commit (`null` where git is absent or this is not
+//   a repository, rather than failing the run), an ISO timestamp and the machine,
 //   because rows from different hardware differ by more than any regression this tier catches.
 // - Statistics come from the raw samples: `summarizeBenchmarkSamples` sorts what it is given, so
 //   p95 is the real 95th percentile of that run.
@@ -14,11 +14,13 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { medianOf, percentileByNearestRank } from "../helpers/sample-statistics.js";
+
 /**
  * The machine a row's numbers were taken on. Recorded per row because one ledger accumulates
  * rows from laptops and CI runners, and a timing is only comparable on the same hardware.
  */
-export interface BenchmarkRuntimeEnvironment {
+interface BenchmarkRuntimeEnvironment {
   readonly nodeVersion: string;
   readonly platform: string;
   /** `null` when the OS reports no CPU list (containers occasionally do not). */
@@ -51,7 +53,7 @@ export interface BenchmarkLedgerRowInput {
 }
 
 /** One appended ledger row. */
-export interface BenchmarkLedgerRow extends BenchmarkSampleStatistics {
+interface BenchmarkLedgerRow extends BenchmarkSampleStatistics {
   readonly benchmarkId: string;
   readonly label: string;
   readonly unit: string;
@@ -63,7 +65,7 @@ export interface BenchmarkLedgerRow extends BenchmarkSampleStatistics {
 }
 
 /** The on-disk ledger document. */
-export interface BenchmarkLedgerDocument {
+interface BenchmarkLedgerDocument {
   readonly schemaVersion: number;
   readonly rows: readonly BenchmarkLedgerRow[];
 }
@@ -75,43 +77,19 @@ const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 /** Default ledger path: beside the benchmarks that write it. */
 export const DEFAULT_BENCHMARK_LEDGER_PATH: string = path.join(THIS_DIRECTORY, "ledger.json");
 
-/**
- * Computes min / median / p95 / max over a sample series, throwing on an empty one. The
- * percentile is nearest-rank, the only definition that returns a value the run observed.
- */
+/** Computes min / median / p95 / max over a sample series, throwing on an empty one. */
 export function summarizeBenchmarkSamples(samples: readonly number[]): BenchmarkSampleStatistics {
-  if (samples.length === 0) {
-    throw new Error("summarizeBenchmarkSamples: refusing to summarize an empty sample series");
-  }
-  const sorted = [...samples].sort((left, right) => left - right);
-  const sampleCount = sorted.length;
-
-  const valueAtIndex = (index: number): number => {
-    const clamped = Math.min(Math.max(index, 0), sampleCount - 1);
-    const value = sorted[clamped];
-    if (value === undefined) {
-      throw new Error(`summarizeBenchmarkSamples: no sample at index ${clamped}`);
-    }
-    return value;
-  };
-
-  const medianIndex = Math.floor((sampleCount - 1) / 2);
-  const median =
-    sampleCount % 2 === 1
-      ? valueAtIndex(medianIndex)
-      : (valueAtIndex(medianIndex) + valueAtIndex(medianIndex + 1)) / 2;
-
   return {
-    sampleCount,
-    minimum: valueAtIndex(0),
-    median,
-    percentile95: valueAtIndex(Math.ceil(0.95 * sampleCount) - 1),
-    maximum: valueAtIndex(sampleCount - 1),
+    sampleCount: samples.length,
+    minimum: percentileByNearestRank(samples, 0),
+    median: medianOf(samples),
+    percentile95: percentileByNearestRank(samples, 0.95),
+    maximum: percentileByNearestRank(samples, 1),
   };
 }
 
 /** Reads the machine this process is running on. */
-export function readBenchmarkRuntimeEnvironment(): BenchmarkRuntimeEnvironment {
+function readBenchmarkRuntimeEnvironment(): BenchmarkRuntimeEnvironment {
   const cpus = os.cpus();
   const firstCpu = cpus[0];
   return {
@@ -124,20 +102,27 @@ export function readBenchmarkRuntimeEnvironment(): BenchmarkRuntimeEnvironment {
 }
 
 /**
- * Reads the current commit, tolerating every failure (no git, not a repository, a shallow clone
- * with no HEAD): a row without a commit is worth keeping, a benchmark failing over git is not.
+ * Reads the current commit, or `null` where git is not installed or refuses (not a repository,
+ * a shallow clone with no HEAD): a row without a commit is worth keeping, a benchmark failing
+ * over git is not. Any other failure is raised.
  */
-export function readGitCommitSha(workingDirectory: string = THIS_DIRECTORY): string | null {
+function readGitCommitSha(): string | null {
   try {
     const output = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: workingDirectory,
+      cwd: THIS_DIRECTORY,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });
     const trimmed = output.trim();
     return /^[0-9a-f]{40}$/.test(trimmed) ? trimmed : null;
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    const failure = error as NodeJS.ErrnoException & { readonly status?: number | null };
+    const gitIsMissing = failure.code === "ENOENT";
+    const gitRefused = typeof failure.status === "number";
+    if (gitIsMissing || gitRefused) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -149,41 +134,6 @@ export class BenchmarkLedger {
 
   constructor(ledgerFilePath: string = DEFAULT_BENCHMARK_LEDGER_PATH) {
     this.#ledgerFilePath = ledgerFilePath;
-  }
-
-  get ledgerFilePath(): string {
-    return this.#ledgerFilePath;
-  }
-
-  /** Every row ever appended, oldest first. An absent or unreadable file reads as empty. */
-  readAll(): readonly BenchmarkLedgerRow[] {
-    return this.#readDocument().rows;
-  }
-
-  /** Rows for one benchmark id, oldest first. */
-  readBenchmark(benchmarkId: string): readonly BenchmarkLedgerRow[] {
-    return this.readAll().filter((row) => row.benchmarkId === benchmarkId);
-  }
-
-  /** Appends one row, computing its statistics from the raw samples. Never deletes. */
-  append(input: BenchmarkLedgerRowInput): BenchmarkLedgerRow {
-    const statistics = summarizeBenchmarkSamples(input.samples);
-    const row: BenchmarkLedgerRow = {
-      benchmarkId: input.benchmarkId,
-      label: input.label,
-      unit: input.unit,
-      gitCommitSha: this.#resolveGitCommitSha(),
-      recordedAt: new Date().toISOString(),
-      runtimeEnvironment: readBenchmarkRuntimeEnvironment(),
-      context: input.context ?? {},
-      ...statistics,
-    };
-    const document = this.#readDocument();
-    this.#writeDocument({
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      rows: [...document.rows, row],
-    });
-    return row;
   }
 
   /** Appends several rows in one write, so a multi-arm benchmark lands atomically. */
@@ -212,8 +162,7 @@ export class BenchmarkLedger {
   #resolveGitCommitSha(): string | null {
     if (!this.#gitCommitShaResolved) {
       // Resolved from this module's directory, not the ledger file's: a row records the commit
-      // of the benchmarked code, and a run writing to an out-of-tree path would otherwise record
-      // `null`.
+      // of the benchmarked code.
       this.#gitCommitSha = readGitCommitSha();
       this.#gitCommitShaResolved = true;
     }
@@ -224,8 +173,13 @@ export class BenchmarkLedger {
     let fileText: string;
     try {
       fileText = readFileSync(this.#ledgerFilePath, "utf8");
-    } catch {
-      return { schemaVersion: LEDGER_SCHEMA_VERSION, rows: [] };
+    } catch (error: unknown) {
+      // Only a ledger that does not exist yet starts empty; any other read failure is raised,
+      // because the next write would replace the history it could not read.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { schemaVersion: LEDGER_SCHEMA_VERSION, rows: [] };
+      }
+      throw error;
     }
     let parsed: unknown;
     try {

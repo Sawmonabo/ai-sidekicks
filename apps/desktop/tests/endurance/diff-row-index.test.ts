@@ -1,6 +1,6 @@
 // Tier: endurance.
 //
-// `steady-state.test.ts` measures the console held open for a working day; this measures one
+// `steady-state.test.ts` measures the app held open for a working day; this measures one
 // view handed a body far larger than anything it is scrolled through, held open and worked. A
 // forty-file, five-thousand-line change set is the shape the diff feature is written against,
 // and every property here holds at ten rows and can quietly stop holding at five thousand.

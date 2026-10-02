@@ -1,5 +1,4 @@
-// The harness the mount module uses: what a mounted view is, and how a tier finds it. Split from
-// `repos.tsx`, which holds mounts and nothing else.
+// What a mounted view is, and how a tier finds it, for every feature mount module.
 
 import { within } from "@testing-library/react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

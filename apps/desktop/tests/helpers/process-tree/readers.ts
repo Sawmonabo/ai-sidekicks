@@ -17,7 +17,7 @@
 // The parser skips a row rather than inventing one: a line whose first two fields are not integers
 // is a header or warning, and a banner in a kill list is a pid this package never spawned.
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import process from "node:process";
 
 /**
@@ -62,40 +62,6 @@ export type ProcessStartStampReader = (
 export const HOST_QUERY_TIMEOUT_MS = 5_000;
 
 /**
- * What running one host query needs from the platform, narrowed to three fields.
- *
- * The options object carries the bound, so a recording runner lets a test read the `timeout`
- * that was actually passed.
- */
-export interface HostQueryOptions {
-  /** Both readings are text, and every parser here is written against text. */
-  readonly encoding: "utf8";
-  /** How long the platform gives the command before it kills it. */
-  readonly timeout: number;
-}
-
-/** The fields of a finished host query this module reads. */
-export interface HostQueryResult {
-  /** Set when the command could not be run at all, or when it spent its bound. */
-  readonly error?: Error | undefined;
-  /** Its exit code, or `null` when a signal ended it — a spent bound is both. */
-  readonly status: number | null;
-  /** Everything it wrote to standard output. */
-  readonly stdout: string;
-}
-
-/** How a bounded host query is actually run, as one injectable act. */
-export type HostQueryRunner = (
-  command: string,
-  args: readonly string[],
-  options: HostQueryOptions,
-) => HostQueryResult;
-
-/** The real runner, which every production reading takes. */
-const runHostCommand: HostQueryRunner = (command, args, options) =>
-  spawnSync(command, [...args], options);
-
-/**
  * Run one host command under the smaller of its own bound and what is left of the caller's, or
  * nothing at all when nothing is left.
  *
@@ -109,8 +75,7 @@ export function runBoundedHostCommand(
   command: string,
   args: readonly string[],
   remainingBudgetMilliseconds?: number,
-  runCommand: HostQueryRunner = runHostCommand,
-): HostQueryResult | undefined {
+): SpawnSyncReturns<string> | undefined {
   const timeout =
     remainingBudgetMilliseconds === undefined
       ? HOST_QUERY_TIMEOUT_MS
@@ -118,7 +83,7 @@ export function runBoundedHostCommand(
   if (timeout <= 0) {
     return undefined;
   }
-  return runCommand(command, args, { encoding: "utf8", timeout });
+  return spawnSync(command, [...args], { encoding: "utf8", timeout });
 }
 
 /**
@@ -133,9 +98,8 @@ export function runBoundedHostQuery(
   command: string,
   args: readonly string[],
   remainingBudgetMilliseconds?: number,
-  runCommand: HostQueryRunner = runHostCommand,
 ): string | undefined {
-  const reported = runBoundedHostCommand(command, args, remainingBudgetMilliseconds, runCommand);
+  const reported = runBoundedHostCommand(command, args, remainingBudgetMilliseconds);
   if (reported === undefined || reported.error !== undefined || reported.status !== 0) {
     return undefined;
   }
@@ -152,7 +116,7 @@ export function runBoundedHostQuery(
  * day is padded with, making a normalized stamp compare unequal to an unnormalized one. A line
  * whose first two fields are not integers is a header or warning and contributes nothing.
  */
-export function parseProcessTable(tableText: string): Map<number, ProcessTableRow> {
+function parseProcessTable(tableText: string): Map<number, ProcessTableRow> {
   const rowByProcessId = new Map<number, ProcessTableRow>();
   for (const line of tableText.split("\n")) {
     const fields = /^\s*(\S+)\s+(\S+)(?:\s+(\S.*?))?\s*$/.exec(line);

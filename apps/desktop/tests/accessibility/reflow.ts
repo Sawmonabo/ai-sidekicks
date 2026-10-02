@@ -8,7 +8,7 @@
 // iframe with its own CSS. Resizing the frame element changes the CSS pixel width the tests'
 // document lays out in, and `matchMedia` inside the frame answers against it.
 //
-// The narrowing throws when the frame is out of reach: a silent no-op would measure the console
+// The narrowing throws when the frame is out of reach: a silent no-op would measure the app
 // at 1440, where nothing overflows and every assertion is true for the wrong reason.
 
 /**

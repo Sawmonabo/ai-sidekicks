@@ -1,4 +1,4 @@
-// The console's one place that shadows `offsetHeight`; it decides only install and restore.
+// The app's one place that shadows `offsetHeight`; it decides only install and restore.
 //
 // The unit tier runs under happy-dom, which has no layout engine and reports every box as zero,
 // and `@tanstack/react-virtual` reads the scroller's viewport and each row's height through

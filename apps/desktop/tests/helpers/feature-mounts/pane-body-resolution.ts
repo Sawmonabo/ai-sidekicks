@@ -40,7 +40,7 @@ export async function resolvedPaneBody(
   await registry.preload(kind);
   const descriptor = registry.descriptorFor(kind);
   if (descriptor === undefined) {
-    throw new Error(`no console pane is registered for the \`${kind}\` kind`);
+    throw new Error(`no pane is registered for the \`${kind}\` kind`);
   }
   return descriptor.render;
 }

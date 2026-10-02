@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "./budget-registry.mjs";
-import { formatUnavailableBudgetReport } from "./budget-report.mjs";
+import { BudgetRegistry } from "./budget-registry.mts";
+import { formatUnavailableBudgetReport } from "./budget-report.mts";
 
 const registry = BudgetRegistry.load();
 

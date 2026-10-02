@@ -63,15 +63,13 @@ const DESCENDANT_LISTING_READER: ProcessTableReader = TERMINATION_CONSUMES_CAPTU
  * before a disposal runs, leaving a pid that names a stranger. The descendant capture cannot
  * happen at spawn, since Electron has no children yet, so it is refreshed on every verified
  * reading and by an owner that knows its child is up. Each member is captured with the stamp
- * the same listing reported, so the set stays addressable after the root is gone. Dependencies
- * are injected because a pid changing holder between two reads cannot be arranged against a
- * live process.
+ * the same listing reported, so the set stays addressable after the root is gone. The readers
+ * are parameters so `unverified` can build one that reads nothing.
  */
 export class SpawnedTreeIdentity {
   readonly #processId: number;
   readonly #readStamp: ProcessStartStampReader;
   readonly #readProcessTable: ProcessTableReader;
-  readonly #rootExists: (processId: number) => boolean;
   readonly #capturedStamp: string | undefined;
   #capturedDescendants: readonly CapturedTreeMember[] = [];
 
@@ -79,12 +77,10 @@ export class SpawnedTreeIdentity {
     processId: number,
     readStamp: ProcessStartStampReader = readProcessStartStamp,
     readTable: ProcessTableReader = DESCENDANT_LISTING_READER,
-    rootExists: (processId: number) => boolean = processExists,
   ) {
     this.#processId = processId;
     this.#readStamp = readStamp;
     this.#readProcessTable = readTable;
-    this.#rootExists = rootExists;
     this.#capturedStamp = readStamp(processId);
   }
 
@@ -97,7 +93,7 @@ export class SpawnedTreeIdentity {
    * a root is gone nothing may be addressed, because a parent table's rows under a dead pid
    * cannot be told from a stranger's; the arm reports what the table says still claims the
    * number and kills none of it. Callers are `terminateProcessTree`'s default (handed a pid by
-   * Playwright) and `spawned-tree-record.ts`, when the settle-time registrar refused.
+   * Playwright) and `spawned-tree-record.ts`, when the root capture never ran.
    */
   static unverified(processId: number): SpawnedTreeIdentity {
     return new SpawnedTreeIdentity(
@@ -121,7 +117,7 @@ export class SpawnedTreeIdentity {
    * counts as live because the root's stamp was just read off a running process.
    */
   readIdentity(remainingBudgetMilliseconds?: number): TreeRootIdentity {
-    if (this.#processId <= 0 || !this.#rootExists(this.#processId)) {
+    if (this.#processId <= 0 || !processExists(this.#processId)) {
       return "gone";
     }
     const currentStamp = this.#readStamp(this.#processId, remainingBudgetMilliseconds);

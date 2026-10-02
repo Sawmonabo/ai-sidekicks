@@ -9,16 +9,13 @@
 //
 //   • The list is drawn from the mounts reader, whose calls are an argument, so it is mounted
 //     over `sessionOperations()` (workspace list, each mount's read, execution roots, all
-//     scripted). Three mounts are stated on purpose: a git checkout, a plain directory, and a
-//     git checkout that is no longer the repository it was attached as. Two answer failing
-//     health verdicts, `unreachable` and `identity_mismatch`; they are separate rows because
-//     neither verdict is reachable from the other's mount (`identity_mismatch` needs a
-//     persisted identity anchor a plain directory lacks).
+//     scripted). It holds three mounts: a healthy one, one whose root is `unreachable`, and one
+//     whose root is no longer the repository it was attached as (`identity_mismatch`).
 //   • The diff pane takes its model as a prop and no wire produces one, so the pane layout's own
-//     body renders the `not-checked` absence, the emptiest frame, which would pin a baseline of a
-//     box. The pane is mounted with `extendedHeaderChangeSet()`, the composition `DiffPane.tsx`
-//     draws. The absence arm stays pinned by `DiffPane.test.tsx`, where a DOM assertion can say
-//     which absence it is.
+//     body renders the `not-checked` empty state, which would pin a picture of an empty box. The
+//     pane is mounted with `extendedHeaderChangeSet()`, the composition `DiffPane.tsx` draws. The
+//     empty-state arm stays pinned by `DiffPane.test.tsx`, where a DOM assertion can say which
+//     empty state it is.
 
 import { advanceScenarioUntil } from "../scenario-manual-clock.js";
 import { ManualClock } from "@renderer/lib/clock.js";

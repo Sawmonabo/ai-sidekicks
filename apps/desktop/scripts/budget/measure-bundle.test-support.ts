@@ -4,8 +4,8 @@
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { RENDERER_MANIFEST_RELATIVE_PATH } from "../../scripts/budget/measure-bundle.mjs";
-import type { TemporaryDirectoryTrail } from "./temporary-directory.js";
+import { RENDERER_MANIFEST_RELATIVE_PATH } from "./measure-bundle.mts";
+import type { TemporaryDirectoryTrail } from "../../tests/helpers/temporary-directory.js";
 
 /**
  * A renderer out-dir holding `manifest` and a copy of each emitted file, keyed by its path

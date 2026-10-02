@@ -11,7 +11,7 @@
 //     the pair that makes "released" a claim about something and not about a sampler that
 //     always reads the baseline;
 //   - a churn of open-and-close cycles leaves the page where it started (the renderer pool's
-//     context ledger empty, the retained bytes near baseline), because a pane is opened and
+//     held context count at zero, the retained bytes near baseline), because a pane is opened and
 //     closed dozens of times in a working day.
 //
 // This file is not the `terminal-instance-memory` budget's gate and makes no ceiling claim: that
@@ -32,7 +32,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "@renderer/features/terminal/terminal-caps.js";
 import { TerminalRendererPool } from "@renderer/features/terminal/emulator/renderer-pool.js";
 import { HeapSampler, retainedGrowthBytes } from "./heap-sampling.js";
@@ -61,8 +61,8 @@ const terminalBudget = registry.requireBudget("terminal-instance-memory");
 /** How many open-and-close cycles stand in for a working day's pane churn. */
 const CHURN_CYCLES = 12;
 
-/** Lines per cycle in the ledger case, where the question is the ledger not the fill. */
-const LEDGER_CASE_LINES = 500;
+/** Lines per cycle in the context-count case, where the question is the count, not the fill. */
+const CONTEXT_CASE_LINES = 500;
 
 /** This file's mounted adapters and their hosts, given back after every case. */
 const adapterWorkload = new TerminalAdapterWorkload();
@@ -157,16 +157,16 @@ describe("a terminal held open over a long stream", () => {
 
 describe("a working day of opening and closing the pane", () => {
   it(
-    "leaves the renderer ledger where it started",
+    "leaves the renderer pool holding no context",
     async () => {
       const pool = new TerminalRendererPool();
       for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
         const adapter = adapterWorkload.mount(`churn-terminal-${String(cycle)}`, pool);
-        await adapterWorkload.writeLines(adapter, LEDGER_CASE_LINES);
+        await adapterWorkload.writeLines(adapter, CONTEXT_CASE_LINES);
         adapter.dispose();
       }
       // Twelve cycles and nothing drawing at the end: no teardown left a hold behind. Whether
-      // the page may still take a context is the ledger's other reading, owned by
+      // the page may still take a context is the pool.s other reading, owned by
       // `renderer-pool.test.ts`; this environment has no WebGL2 to spend, so it could only be
       // asserted vacuously here.
       expect(pool.heldContextCount).toBe(0);

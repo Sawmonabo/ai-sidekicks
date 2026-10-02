@@ -1,10 +1,8 @@
-// The readiness a view owes any tier that reads it when a lazily-drawn graph is on it.
+// The readiness a view owes any tier that reads it when a lazily-drawn graph is on it. The
+// accessibility tier waits on it before an axe run; the pre-fit transform named here is a fact
+// about the graph library, so a tier carrying its own reading would silently stop waiting.
 //
-// Shared by the screenshot tier (before a capture) and the accessibility tier (before an axe run),
-// since the pre-fit transform named here is a fact about the graph library and a tier carrying its
-// own reading would silently stop waiting.
-//
-// The run's phase graph is a lazily-loaded chunk: it renders its absence primitive at once,
+// The run's phase graph is a lazily-loaded chunk: it renders a loading placeholder at once,
 // `import()`s the renderer, and mounts the canvas when it arrives. The renderer stamps no
 // pending-body marker, so a mount helper's own wait does not wait for the picture. An audit run at
 // that point checks a loading placeholder, so a regression in the canvas, its focusable nodes or
@@ -22,8 +20,8 @@
 // The transform alone is not the picture. The library writes a fitted transform at any container
 // size, including a root collapsed to zero height, so readiness is two readings: the fit has been
 // computed, and the picture is on screen (a painted root with height, holding at least one phase).
-// Refusing matters because a throw writes no reference and fails the audit, where a silent pass
-// mints both.
+// Refusing matters: a throw fails the audit and writes no capture, where a silent pass would write
+// a bad capture and pass the audit.
 
 import { waitFor } from "@testing-library/react";
 

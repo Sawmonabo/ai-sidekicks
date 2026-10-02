@@ -1,45 +1,12 @@
-// The two platform arms of a tree kill, each a decision over injected dependencies, because a
-// macOS runner never enters the `taskkill` arm and the POSIX arm would signal a real group.
-// `termination.ts` picks the arm; the readings come from `readers.ts`, `liveness.ts` and
-// `identity.ts`.
+// The two platform arms of a tree kill. `termination.ts` picks the arm and binds its readings.
 //
-// A tree is not its root. The root can exit with a descendant still running: the Electron shim
-// spawns the browser with its own stdout and can be reaped while the browser keeps the pipe.
-//
-// - POSIX: the handle that survives the root is the process group the detached spawn created, so
-//   survival is asked of `-pid`. Asked of the root, `EPERM` on the group then `ESRCH` on the
-//   reaped root reports a live tree as terminated.
-// - Windows: no group, and `taskkill /pid <root> /t` walks down from the root, so a root that
-//   names nothing gives it nothing to find; it exits non-zero, a root-only probe says "gone", and
-//   `ManagedElectronChild` latches on the reported kill. The rootless tree is addressed
-//   explicitly and the verdict covers every member the arm can name.
-//
-// The root pid is not the root either: the OS reissues pids, so `taskkill /pid <reissued> /t`
-// would walk a stranger's tree, exit zero, and latch the child as killed. Identity is therefore
-// read before anything is signaled:
-//
-// - `same`: the pid still names the captured instance; only then is the root walked.
-// - `gone`: the pid names nothing.
-// - `recycled`: the pid names a different process, so nothing is signaled through it. Only members
-//   captured while the root last read `same` may be addressed; with none, the verdict is a
-//   refusal, since absence of evidence must never read as a clean tree.
-//
-// The parent table is sound evidence in one direction. Windows does not reparent, so a live
-// descendant keeps recording the root pid after the root exits, and also when the pid's former
-// holder died long before this tree spawned; both rows look alike. No row under the root pid
-// proves nothing claims it, but a row does not prove it is ours.
-//
-// - `gone`: rows under the root pid are a survival reading, never a kill list. The addressed
-//   members are the captured ones this tree verified; an unverified row refuses the verdict.
-// - `same`: the walk stays a kill list, since `taskkill /t` reads the same table.
-// - `recycled`: the table is not consulted; rows under a reissued number are as likely the new
-//   holder's children, and a live stranger would hold the verdict at `false` forever.
-//
-// A table that was never read is not an empty one. PowerShell refusing to start, spending its
-// bound, or a disposal with no budget left produce no rows, and read as a table they would say
-// "nothing claims it". `readers.ts` answers an unreadable host with a sentinel and this arm fails
-// closed on it. The residual is a stale row whose process outlives the run: it holds the verdict
-// at `false` for the bounded attempts and ends as a reported `unterminable`.
+// A tree is not its root: the Electron shim can be reaped while the browser it spawned runs on.
+// POSIX asks survival of the process group (`-pid`). Windows has no group, so `taskkill /t` walks
+// down from the root, and a root pid the OS has reissued would walk a stranger's tree. Identity is
+// therefore read before anything is signaled: `same` walks the root; `gone` and `recycled` address
+// only members captured while the root read `same`, and with none the verdict is a refusal.
+// Windows does not reparent, so a row under the root pid does not prove the process is ours, and a
+// table that could not be read is a sentinel this arm fails closed on, never an empty table.
 
 import process from "node:process";
 
@@ -59,10 +26,7 @@ import { verifyCapturedMembers, type CapturedTreeMember } from "./start-stamps.j
  * the ordinary outcome when a process exited between a close timing out and the kill.
  * `treeStillRunning` is the tree's question and never the root's.
  */
-export function terminationSucceeded(
-  signalDelivered: boolean,
-  treeStillRunning: () => boolean,
-): boolean {
+function terminationSucceeded(signalDelivered: boolean, treeStillRunning: () => boolean): boolean {
   return signalDelivered || !treeStillRunning();
 }
 

@@ -12,7 +12,7 @@
 import axe, { type Result } from "axe-core";
 
 /**
- * WCAG 2.2 A + AA, the level every console view is held to.
+ * WCAG 2.2 A + AA, the level every app view is held to.
  *
  * Both levels of every version, because axe's tags select the criteria a version introduced,
  * not everything its conformance requires: `wcag22aa` alone would claim 2.2 at both levels and

@@ -14,6 +14,12 @@
 import { expect } from "vitest";
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
+import { scenarioDeliverySchedule } from "../helpers/scenario-delivery-schedule.js";
+import {
+  CLOSE_CONTROL_LABEL,
+  OPEN_CONTROL_LABEL,
+  PANE_HARNESS_LABEL,
+} from "@renderer/app/pane-harness/PaneHarnessFrame.js";
 import { advanceScenario, readAppliedEventCount } from "./endurance-workload.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
 
@@ -23,10 +29,8 @@ const MEASURED_PANE_KIND = "terminal";
 /** Where the harness opens, with the pane kind and the session it binds to. */
 const HARNESS_ROUTE = `#/pane-harness/${MEASURED_PANE_KIND}/${encodeURIComponent(TERMINAL_LEASE_SCENARIO.sessionId)}`;
 
-/** The harness region's accessible name, and the controls it offers. */
-const HARNESS_REGION_SELECTOR = '[aria-label="Pane harness"]';
-const OPEN_CONTROL_NAME = "Open a pane";
-const CLOSE_CONTROL_NAME = "Close the newest pane";
+/** The harness region, found by its accessible name. */
+const HARNESS_REGION_SELECTOR = `[aria-label="${PANE_HARNESS_LABEL}"]`;
 
 /** The emulator's mount box, on which it reports the renderer it settled on. */
 const TERMINAL_MOUNT_POINT_SELECTOR = ".meridian-terminal-mount-point";
@@ -44,10 +48,6 @@ const PANE_READINESS_TIMEOUT_MS = 60_000;
 /** How long the harness region itself may take to appear. Bounded the same way. */
 const ROUTE_TRANSITION_TIMEOUT_MS = 30_000;
 
-/** How many advances the terminal script is walked in, and how many drain it. */
-const SCENARIO_DELIVERY_STEP_COUNT = 20;
-const SCENARIO_DRAIN_STEP_COUNT = 5;
-
 /** What every mounted emulator reports about itself, read in one round trip. */
 interface MountedTerminalReadings {
   readonly mountPointCount: number;
@@ -55,8 +55,8 @@ interface MountedTerminalReadings {
   readonly canvasCount: number;
 }
 
-function readMountedTerminals(consoleApplication: AppUnderTest): Promise<MountedTerminalReadings> {
-  return consoleApplication.window.evaluate((mountPointSelector: string) => {
+function readMountedTerminals(appUnderTest: AppUnderTest): Promise<MountedTerminalReadings> {
+  return appUnderTest.window.evaluate((mountPointSelector: string) => {
     const mountPoints = [...document.querySelectorAll(mountPointSelector)];
     return {
       mountPointCount: mountPoints.length,
@@ -85,11 +85,11 @@ function readMountedTerminals(consoleApplication: AppUnderTest): Promise<Mounted
  * pane.
  */
 export async function openPaneAndAwaitWebglReadiness(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   expectedInstanceCount: number,
 ): Promise<void> {
-  await consoleApplication.window.getByRole("button", { name: OPEN_CONTROL_NAME }).click();
-  await consoleApplication.window.waitForFunction(
+  await appUnderTest.window.getByRole("button", { name: OPEN_CONTROL_LABEL }).click();
+  await appUnderTest.window.waitForFunction(
     ([mountPointSelector, wanted]: [string, number]) => {
       const mountPoints = [...document.querySelectorAll(mountPointSelector)];
       return (
@@ -100,10 +100,10 @@ export async function openPaneAndAwaitWebglReadiness(
       );
     },
     [TERMINAL_MOUNT_POINT_SELECTOR, expectedInstanceCount] as [string, number],
-    { timeout: consoleApplication.bodyAllowance.boundedMs(PANE_READINESS_TIMEOUT_MS) },
+    { timeout: appUnderTest.bodyAllowance.boundedMs(PANE_READINESS_TIMEOUT_MS) },
   );
 
-  const readings = await readMountedTerminals(consoleApplication);
+  const readings = await readMountedTerminals(appUnderTest);
   expect(readings.mountPointCount).toBe(expectedInstanceCount);
   expect(
     readings.rendererModes.every((mode) => mode === "webgl"),
@@ -113,7 +113,7 @@ export async function openPaneAndAwaitWebglReadiness(
       "a GPU-less host its own software GL stack (tests/helpers/launch-args.ts), so the question is " +
       "whether those switches reached Chromium and were honored — read the GPU process's own " +
       "`eglInitialize` lines with `--enable-logging=stderr`; it is the graphics stack that failed " +
-      "here and not the console.",
+      "here and not the app.",
   ).toBe(true);
   expect(
     readings.canvasCount,
@@ -124,16 +124,16 @@ export async function openPaneAndAwaitWebglReadiness(
 
 /** Close every open pane and wait for the harness to report none mounted. */
 export async function closeEveryPane(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   openInstanceCount: number,
 ): Promise<void> {
   for (let closed = 0; closed < openInstanceCount; closed += 1) {
-    await consoleApplication.window.getByRole("button", { name: CLOSE_CONTROL_NAME }).click();
+    await appUnderTest.window.getByRole("button", { name: CLOSE_CONTROL_LABEL }).click();
   }
-  await consoleApplication.window.waitForFunction(
+  await appUnderTest.window.waitForFunction(
     (mountPointSelector: string) => document.querySelectorAll(mountPointSelector).length === 0,
     TERMINAL_MOUNT_POINT_SELECTOR,
-    { timeout: consoleApplication.bodyAllowance.boundedMs(PANE_READINESS_TIMEOUT_MS) },
+    { timeout: appUnderTest.bodyAllowance.boundedMs(PANE_READINESS_TIMEOUT_MS) },
   );
 }
 
@@ -144,22 +144,21 @@ export async function closeEveryPane(
  * the pane folds its lease off this session's timeline, and that is part
  * of what the row bounds.
  */
-export async function openHarnessOnDeliveredSession(
-  consoleApplication: AppUnderTest,
-): Promise<void> {
-  await consoleApplication.window.evaluate((targetHash: string) => {
+export async function openHarnessOnDeliveredSession(appUnderTest: AppUnderTest): Promise<void> {
+  await appUnderTest.window.evaluate((targetHash: string) => {
     globalThis.location.hash = targetHash;
   }, HARNESS_ROUTE);
-  await consoleApplication.window.locator(HARNESS_REGION_SELECTOR).waitFor({
+  await appUnderTest.window.locator(HARNESS_REGION_SELECTOR).waitFor({
     state: "visible",
-    timeout: consoleApplication.bodyAllowance.boundedMs(ROUTE_TRANSITION_TIMEOUT_MS),
+    timeout: appUnderTest.bodyAllowance.boundedMs(ROUTE_TRANSITION_TIMEOUT_MS),
   });
 
-  const scriptSpanMs = TERMINAL_LEASE_SCENARIO.beats.at(-1)?.atMs ?? 0;
-  const stepMs = Math.max(1, Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT));
+  const { stepMilliseconds, stepCount } = scenarioDeliverySchedule(
+    TERMINAL_LEASE_SCENARIO.beats.at(-1)?.atMs ?? 0,
+  );
   let deliveredBeatCount: number | null = null;
-  for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
-    deliveredBeatCount = await advanceScenario(consoleApplication, stepMs);
+  for (let step = 0; step < stepCount; step += 1) {
+    deliveredBeatCount = await advanceScenario(appUnderTest, stepMilliseconds);
   }
   expect(
     deliveredBeatCount,
@@ -168,7 +167,7 @@ export async function openHarnessOnDeliveredSession(
   expect(Number(deliveredBeatCount)).toBe(TERMINAL_LEASE_SCENARIO.beats.length);
 
   const appliedEventCount = await readAppliedEventCount(
-    consoleApplication,
+    appUnderTest,
     TERMINAL_LEASE_SCENARIO.sessionId,
   );
   expect(

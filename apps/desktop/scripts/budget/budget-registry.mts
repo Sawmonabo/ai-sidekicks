@@ -1,4 +1,4 @@
-// Query layer over `tests/budget/budgets.json`, the one place every numeric budget the console is
+// Query layer over `tests/budget/budgets.json`, the one place every numeric budget the app is
 // gated on is written down. Validation is `budget-document.mts`, comparing a measurement is
 // `budget-evaluation.mts`, and formatting the un-measured rows is `budget-report.mts`.
 
@@ -57,16 +57,6 @@ export class BudgetRegistry {
     return budget;
   }
 
-  /** The console's own product budgets, a closed list. */
-  productBudgets(): readonly Budget[] {
-    return this.budgets.filter((budget) => budget.scope === "product");
-  }
-
-  /** The bounds the test scaffolding applies to itself. */
-  harnessBudgets(): readonly Budget[] {
-    return this.budgets.filter((budget) => budget.scope === "harness");
-  }
-
   /**
    * The canonical figure for `budgetId`, in its canonical unit, for a harness that needs the number
    * rather than a verdict.
@@ -77,10 +67,12 @@ export class BudgetRegistry {
     return this.requireBudget(budgetId).limit.canonicalValue;
   }
 
+  /** The rows a harness measures and gates. */
   enforcedBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.status === "enforced");
   }
 
+  /** The rows nothing measures yet, each carrying its reason. */
   unavailableBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.status === "n/a");
   }

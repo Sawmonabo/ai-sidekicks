@@ -43,7 +43,7 @@ import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
+import { paneBinding, resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";
 
@@ -77,15 +77,15 @@ function paneContext(
 ): PaneContext {
   return {
     ...address,
-    frameStore: new WindowStore(),
-    uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-    linkedSourcePaneId: undefined,
-    bridge,
-    // Opened with the fold a window composes; without projectors every event folds into no entity.
-    sessionStore: new SessionStore({
-      sessionId: PROBE_SESSION_ID,
-      projectors: COMPOSED_ENTITY_PROJECTORS,
+    ...paneBinding({
+      paneId: address.paneId,
+      bridge,
+      // Opened with the fold a window composes; without projectors every event folds into no
+      // entity.
+      sessionStore: new SessionStore({
+        sessionId: PROBE_SESSION_ID,
+        projectors: COMPOSED_ENTITY_PROJECTORS,
+      }),
     }),
   };
 }
@@ -95,8 +95,7 @@ function paneContext(
  *
  * It goes through the accessible name, not a class, because that is what assistive technology
  * navigates by. The chrome names a pane by its whole address trail, so the current crumb is
- * compared, not the whole name. The label is resolved from the container, so two panes sharing
- * an id throw instead of returning the first one twice.
+ * compared, not the whole name.
  */
 function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElement {
   for (const region of container.querySelectorAll("section[aria-labelledby]")) {
@@ -153,7 +152,7 @@ function screenContext(bridge: PlatformBridge): ScreenContext {
  * The workflows destination, mounted through the rail's own screen registry with a session in
  * scope.
  *
- * It renders under the bridge provider as the running console does: a screen body reaches the
+ * It renders under the bridge provider as the running app does: a screen body reaches the
  * bridge through the provider, so a bare mount would throw. The announcer wraps it because
  * `useAnnounce` throws outside its provider.
  */
@@ -212,7 +211,7 @@ export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
 /**
  * The builder pane on a definition, the one arm that renders a body.
  *
- * Addressed rather than empty: the unaddressed arm draws one absence block the frame tier
+ * Addressed rather than empty: the unaddressed arm draws one empty-state block the frame tier
  * already covers, while this one composes the node graph and draft regions. It needs no wait
  * because the pane puts no read in flight.
  */

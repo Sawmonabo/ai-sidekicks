@@ -5,10 +5,8 @@
 // it to the bench ledger, so the claim cannot go stale unnoticed.
 //
 // The assertion gates the ratio, not either absolute figure, because an absolute time depends on
-// the machine, the engine and the entity shape. A first run on an Apple-silicon laptop under
-// Node 24 measured ~4.6 ms/event flat and ~0.35 ms/event partitioned, a 13× ratio against the
-// claimed ~23×; the structural claim reproduces with a wide margin. The ledger keeps every run's
-// absolutes with the machine that produced them.
+// the machine, the engine and the entity shape. The ledger keeps every run's absolutes with the
+// machine that produced them.
 //
 // What it measures is the immutable apply. Both stores hold the same entities and replace one
 // by id per event, but a flat `Record<string, StoredEntity>` copies all 20,000 keys to produce a
@@ -16,18 +14,16 @@
 // only the touched kind's partition plus an outer record. Every count below is read off
 // `ENTITY_KINDS` (`lib/entity-kinds.ts`), so a new kind moves the arithmetic.
 //
-// A plain `test` with its own sampler is used rather than Vitest's `bench` (vitest 4.1.11):
-// `bench` runs only under `vitest bench`, a separate mode from every other tier's project, and
-// its tinybench 2.9.0 statistics publish p75, p99, p995 and p999 but no p95, which the ledger
-// row needs. Samples come from `performance.now()` and `summarizeBenchmarkSamples`; the arm runs
-// under `vitest run --project=bench`.
+// A plain `test` with its own sampler is used rather than Vitest's `bench`: `bench` runs only under
+// `vitest bench`, a separate mode from every other tier's project, and its statistics publish no
+// p95, which the ledger row needs.
 //
-// The partitioned arm drives the console's own `mergeUpsert`
+// The partitioned arm drives the app's own `mergeUpsert`
 // (`store/session/entities/entity-partitions.ts`) over `emptyPartitions()`, the merge every
 // projected upsert goes through, so an apply path refactored onto a flat map turns this
 // benchmark red. It is the merge and not `SessionStore.applyBatch`, whose validation, dedupe,
 // gap detection and projectors are not what the figure is about. The flat arm is a model: the
-// console ships no flat map, and the shape exists only as the alternative this benchmark prices.
+// app ships no flat map, and the shape exists only as the alternative this benchmark prices.
 // `ENTITY_KINDS` is imported rather than copied, because a second copy would under-count the
 // partitions.
 
@@ -79,7 +75,7 @@ interface BenchEntityStore {
 }
 
 /** The control: one flat `Record<string, StoredEntity>` with an immutable apply. */
-export class FlatEntityStore implements BenchEntityStore {
+class FlatEntityStore implements BenchEntityStore {
   #entities: Readonly<Record<string, StoredEntity>> = {};
 
   seed(entities: readonly StoredEntity[]): void {
@@ -100,12 +96,12 @@ export class FlatEntityStore implements BenchEntityStore {
 }
 
 /**
- * The console's own partitioned apply, held between calls. It imports `emptyPartitions` and
+ * The app's own partitioned apply, held between calls. It imports `emptyPartitions` and
  * `mergeUpsert` and adds only the value carried from one apply to the next, so the arm gates
  * the shipped path. The seed goes through the same merge, outside the timer, so the timed
  * applies run against a population the shipped path produced.
  */
-export class PartitionedEntityStore implements BenchEntityStore {
+class PartitionedEntityStore implements BenchEntityStore {
   #partitions: SessionPartitions = emptyPartitions();
 
   seed(entities: readonly StoredEntity[]): void {
@@ -147,25 +143,30 @@ class DeterministicSequence {
   }
 }
 
-/** Builds the entity population, spread evenly across every console entity kind. */
-export function buildStoredEntities(entityCount: number): readonly StoredEntity[] {
+/** Builds the entity population, spread evenly across every app entity kind. */
+function buildStoredEntities(entityCount: number): readonly StoredEntity[] {
   const entities: StoredEntity[] = [];
-  for (let ordinal = 0; ordinal < entityCount; ordinal += 1) {
-    const kind = ENTITY_KINDS[ordinal % ENTITY_KINDS.length] ?? "session";
-    entities.push({
-      kind,
-      id: `${kind}-${String(ordinal).padStart(6, "0")}`,
-      state: "active",
-      touchedAt: "2026-09-01T00:00:00.000Z",
-      attributedTo: `user-${String(ordinal % 12).padStart(2, "0")}`,
-      body: { sequence: ordinal },
-    });
+  while (entities.length < entityCount) {
+    for (const kind of ENTITY_KINDS) {
+      const ordinal = entities.length;
+      if (ordinal === entityCount) {
+        break;
+      }
+      entities.push({
+        kind,
+        id: `${kind}-${String(ordinal).padStart(6, "0")}`,
+        state: "active",
+        touchedAt: "2026-09-01T00:00:00.000Z",
+        attributedTo: `user-${String(ordinal % 12).padStart(2, "0")}`,
+        body: { sequence: ordinal },
+      });
+    }
   }
   return entities;
 }
 
 /** Builds the event stream: each event replaces one existing entity with an updated copy. */
-export function buildApplyEventStream(
+function buildApplyEventStream(
   entities: readonly StoredEntity[],
   eventCount: number,
 ): readonly StoredEntity[] {
@@ -189,7 +190,7 @@ export function buildApplyEventStream(
  * Times the per-event apply cost of one store, in milliseconds per event. Each sample seeds a
  * fresh store outside the timer, then times the events against a steady-state population.
  */
-export function measurePerEventApplyCost(
+function measurePerEventApplyCost(
   createStore: () => BenchEntityStore,
   entities: readonly StoredEntity[],
   events: readonly StoredEntity[],
@@ -225,7 +226,7 @@ const ledgerFilePath: string =
   process.env["SIDEKICKS_BENCH_LEDGER_PATH"] ?? DEFAULT_BENCHMARK_LEDGER_PATH;
 
 test(
-  "store fan-out: the console's partition merge applies an event more cheaply than a flat map at 20,000 entities",
+  "store fan-out: the app's partition merge applies an event more cheaply than a flat map at 20,000 entities",
   { timeout: 300_000 },
   () => {
     const entities = buildStoredEntities(BENCHMARK_ENTITY_COUNT);
@@ -265,7 +266,7 @@ test(
       },
       {
         benchmarkId: "store-fan-out.partitioned",
-        label: "Partitioned entity map — the console's own mergeUpsert at 20,000 entities",
+        label: "Partitioned entity map — the app's own mergeUpsert at 20,000 entities",
         unit: "ms/event",
         samples: partitioned.samples,
         context: {
@@ -292,7 +293,7 @@ test(
     expect(
       speedup,
       `Partitioning bought ${speedup.toFixed(1)}× against a floor of ${MINIMUM_PARTITIONING_SPEEDUP}×. ` +
-        "Either the console's own partition merge lost its partitioning, or the " +
+        "Either the app's own partition merge lost its partitioning, or the " +
         "store-adoption claim no longer holds and its cost model needs re-deriving.",
     ).toBeGreaterThanOrEqual(MINIMUM_PARTITIONING_SPEEDUP);
   },

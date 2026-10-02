@@ -30,7 +30,6 @@
     "test:bench": "vitest run --project=bench",
     "test:changed": "node --experimental-strip-types scripts/test-changed.ts",
     "budget:bundle": "node --experimental-strip-types scripts/budget/measure-bundle.mts",
-    "budget:heap": "node --experimental-strip-types scripts/budget/measure-heap.mts",
     "structure:dead-code": "knip --directory ../.. --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",
     "structure:layering": "depcruise src fixtures build scripts vitest --config .dependency-cruiser.mjs --output-type err",
     "structure": "pnpm run structure:dead-code && pnpm run structure:layering",

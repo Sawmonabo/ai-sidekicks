@@ -24,7 +24,7 @@ import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js"
 import { type EntityProjectorTable } from "@renderer/store/session/entities/entities.js";
 
 /**
- * The event-kind fold the console's own composition claims, frozen.
+ * The event-kind fold the app's own composition claims, frozen.
  *
  * Handed to every `SessionStore` and `SessionStoreRegistry` a feature mount opens, so a tier reads
  * the partitions a person's window would have.

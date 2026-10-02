@@ -1,7 +1,7 @@
 // The endurance tier's driving vocabulary, shared by the files in it.
 //
-// Two tests drive the same console the same way (one measures how the heap moves over
-// sustained use, the other what it is once the console has settled) and both need a route
+// Two tests drive the same app the same way (one measures how the heap moves over
+// sustained use, the other what it is once the app has settled) and both need a route
 // observed, the scenario advanced and the store read back. A copy in each file would be two
 // drivers that drift silently, since a route wait that stopped waiting still passes. The heap
 // itself is read through `heap-instrument.ts`, which measures rather than drives.
@@ -10,23 +10,26 @@
 // page before and after a route change, so a wait on it returns at once and the next navigation
 // can land before React mounted anything, giving a churn loop that reports clean heap growth
 // because it never performed the mount and unmount it claims to measure. Each transition waits
-// on something only its destination renders, and `steady-state.test.ts` asserts the two
-// locators below route-exclusive. Both are production markup.
+// on something only its destination renders; the route locators below are production markup.
 //
 // Each locator names a structure only its own route mounts: the settings frame's section rail,
-// and the transcript pane. An absence class would not do, because the transcript renders its
-// own `empty` when a session has no rows and the settings pages render `not-checked` absences.
+// and the transcript pane. An empty-state class would not do, because the transcript renders its
+// own `empty` when a session has no rows and the settings pages render `not-checked` empty
+// states.
 // When a screen changes shape, its locator stops matching and this tier fails on a wait timeout
 // naming the selector, which is right: a driver that cannot see the screen it drives should
 // stop, not keep measuring an unobserved loop.
 
 import { expect } from "vitest";
 
-import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import type { AppUnderTest, LaunchAppOptions } from "../helpers/electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 import { ENDURANCE_BODY_ALLOWANCE_MS } from "../helpers/launch-budgets.js";
 import { closePalette, openPalette } from "../helpers/palette-interaction.js";
+import {
+  scenarioDeliverySchedule,
+  type ScenarioDeliverySchedule,
+} from "../helpers/scenario-delivery-schedule.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
@@ -96,46 +99,46 @@ export const TRANSCRIPT_ROW_SELECTOR: string =
 /**
  * Assign the hash and wait for the screen only that route mounts. The wait carries
  * `IN_WINDOW_STEP_TIMEOUT_MS` (a route change is one store update and one React commit, so it
- * bounds a console that stopped navigating) and is also held to what is left of the body's
+ * bounds an app that stopped navigating) and is also held to what is left of the body's
  * allowance, so the enclosing race does not replace the selector's name with the generic
  * overrun.
  */
 async function openRoute(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   hash: string,
   screenSelector: string,
 ): Promise<void> {
-  await consoleApplication.window.evaluate((targetHash: string) => {
+  await appUnderTest.window.evaluate((targetHash: string) => {
     globalThis.location.hash = targetHash;
   }, hash);
-  await consoleApplication.window.locator(screenSelector).waitFor({
+  await appUnderTest.window.locator(screenSelector).waitFor({
     state: "visible",
-    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+    timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
   });
 }
 
 /** Open the settings route and wait for its screen. */
-export async function openSettingsRoute(consoleApplication: AppUnderTest): Promise<void> {
-  await openRoute(consoleApplication, SETTINGS_ROUTE, SETTINGS_SCREEN_SELECTOR);
+export async function openSettingsRoute(appUnderTest: AppUnderTest): Promise<void> {
+  await openRoute(appUnderTest, SETTINGS_ROUTE, SETTINGS_SCREEN_SELECTOR);
 }
 
 /** Open the concurrent-streaming session and wait for its screen. */
 export async function openConcurrentStreamingSessionRoute(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
 ): Promise<void> {
-  await openRoute(consoleApplication, CONCURRENT_STREAMING_SESSION_ROUTE, SESSION_SCREEN_SELECTOR);
+  await openRoute(appUnderTest, CONCURRENT_STREAMING_SESSION_ROUTE, SESSION_SCREEN_SELECTOR);
 }
 
 /**
  * Move the scenario on, and report how many beats it has delivered. `null` means the handle is
  * not on the page, which this tier treats as a failure and never a reason to skip: a run that
- * could not drive the workload measured an idle console.
+ * could not drive the workload measured an idle app.
  */
 export async function advanceScenario(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   milliseconds: number,
 ): Promise<number | null> {
-  return consoleApplication.window.evaluate(
+  return appUnderTest.window.evaluate(
     ([globalName, deltaMs]: [string, number]) => {
       const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
         globalName
@@ -150,11 +153,9 @@ export async function advanceScenario(
   );
 }
 
-/** Which scenario the launched console is actually playing, or `null`. */
-export async function readPlayingScenarioId(
-  consoleApplication: AppUnderTest,
-): Promise<string | null> {
-  return consoleApplication.window.evaluate((globalName: string) => {
+/** Which scenario the launched app is actually playing, or `null`. */
+export async function readPlayingScenarioId(appUnderTest: AppUnderTest): Promise<string | null> {
+  return appUnderTest.window.evaluate((globalName: string) => {
     const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
       globalName
     ];
@@ -168,10 +169,10 @@ export async function readPlayingScenarioId(
  * answers whether a stream reached this window's stores at all.
  */
 export async function readAppliedEventCount(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   sessionId: string,
 ): Promise<number | null> {
-  return consoleApplication.window.evaluate(
+  return appUnderTest.window.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {
       const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
         globalName
@@ -184,9 +185,9 @@ export async function readAppliedEventCount(
 
 /** Sessions this window holds a wire subscription for, or `null` with no handle. */
 export async function readBoundSessionIds(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
 ): Promise<readonly string[] | null> {
-  return consoleApplication.window.evaluate((globalName: string) => {
+  return appUnderTest.window.evaluate((globalName: string) => {
     const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
       globalName
     ];
@@ -208,7 +209,7 @@ export interface ChurnCycleReading {
 }
 
 /**
- * One cycle of the work a console does while a person watches it: navigation and palette use,
+ * One cycle of the work an app does while a person watches it: navigation and palette use,
  * not synthetic allocation, because leaks live in the machinery those exercise (subscriptions,
  * effects, portals, the listener table). The clock moves once per cycle so the scenario delivers
  * into that machinery while it is churned. Each route change is observed before the next is
@@ -216,75 +217,45 @@ export interface ChurnCycleReading {
  * can assert the workload progressed over a transcript.
  */
 export async function churnOnce(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   advanceMilliseconds: number,
 ): Promise<ChurnCycleReading> {
-  const consoleWindow = consoleApplication.window;
+  const appWindow = appUnderTest.window;
   // The shared palette helper waits for the input to hold focus. Typing into an unfocused
   // palette is silent: the keystrokes go to the document and the cycle reports a clean churn
   // over machinery it did not touch.
-  await openPalette(consoleApplication);
-  await consoleWindow.keyboard.type("Go to");
-  await closePalette(consoleApplication);
+  await openPalette(appUnderTest);
+  await appWindow.keyboard.type("Go to");
+  await closePalette(appUnderTest);
 
   // Route changes mount and unmount the screen subtree through the error boundary's keyed
   // remount, the path most likely to strand a listener. One route is the scenario's own session,
   // so the cycle also re-reads the store the beats land in.
-  await openSettingsRoute(consoleApplication);
-  await openConcurrentStreamingSessionRoute(consoleApplication);
+  await openSettingsRoute(appUnderTest);
+  await openConcurrentStreamingSessionRoute(appUnderTest);
 
-  const deliveredBeatCount = await advanceScenario(consoleApplication, advanceMilliseconds);
+  const deliveredBeatCount = await advanceScenario(appUnderTest, advanceMilliseconds);
   // Counted after the advance, so it reports the transcript the just-delivered beats landed in.
   // A count and not a wait: early cycles legitimately have no row, as the script is walked over
   // the whole run, and a wait would spend the body's allowance on an expected state.
-  const transcriptRowCount = await consoleWindow.locator(TRANSCRIPT_ROW_BOX_SELECTOR).count();
+  const transcriptRowCount = await appWindow.locator(TRANSCRIPT_ROW_BOX_SELECTOR).count();
   return { deliveredBeatCount, transcriptRowCount };
 }
 
-/**
- * How many advances the whole script is walked in, and how many drain it. Steps rather than one
- * jump because a delivered beat is applied through a coalescing window on the same frozen clock:
- * one advance past the end would leave the last beat queued. The drain advances carry that
- * window past its deadline, the quiet point with every beat in and nothing in flight.
- */
-const SCENARIO_DELIVERY_STEP_COUNT = 20;
-const SCENARIO_DRAIN_STEP_COUNT = 5;
-
-/** How the frozen clock is walked over the concurrent-streaming script, and how far. */
-export interface ScenarioDeliverySchedule {
-  readonly stepMilliseconds: number;
-  readonly stepCount: number;
-}
-
-/**
- * The walk that puts the whole concurrent-streaming script in and leaves nothing queued. It is
- * one derivation because this tier walks the script from the driver process and the two budget
- * readings walk it from inside the renderer; three copies would be three places to leave a beat
- * queued. The step is floored at one coalescing window so every step drains the batch before it;
- * today's script makes the floor inert, but a shorter one would otherwise strand beats quietly.
- */
+/** The walk that puts the whole concurrent-streaming script in and leaves nothing queued. */
 export function concurrentStreamingDeliverySchedule(): ScenarioDeliverySchedule {
-  const scriptSpanMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
-  return {
-    stepMilliseconds: Math.max(
-      APPLY_COALESCE_MS + 1,
-      Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT),
-    ),
-    stepCount: SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT,
-  };
+  return scenarioDeliverySchedule(CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0);
 }
 
 /**
  * Play the concurrent-streaming script to its end and let the stores settle on it. Returns the
  * beats delivered so a caller can assert the session has content.
  */
-export async function deliverWholeScenario(
-  consoleApplication: AppUnderTest,
-): Promise<number | null> {
+export async function deliverWholeScenario(appUnderTest: AppUnderTest): Promise<number | null> {
   const { stepMilliseconds, stepCount } = concurrentStreamingDeliverySchedule();
   let deliveredBeatCount: number | null = null;
   for (let step = 0; step < stepCount; step += 1) {
-    deliveredBeatCount = await advanceScenario(consoleApplication, stepMilliseconds);
+    deliveredBeatCount = await advanceScenario(appUnderTest, stepMilliseconds);
   }
   return deliveredBeatCount;
 }
@@ -295,10 +266,10 @@ export async function deliverWholeScenario(
  * session with content on screen when the heap is read.
  */
 export async function expectConcurrentStreamingSessionCarriesContent(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
 ): Promise<void> {
   const appliedEventCount = await readAppliedEventCount(
-    consoleApplication,
+    appUnderTest,
     CONCURRENT_STREAMING_SESSION_ID,
   );
   expect(
@@ -309,5 +280,5 @@ export async function expectConcurrentStreamingSessionCarriesContent(
     Number(appliedEventCount),
     "no event reached this window's session store, so the session on screen is empty",
   ).toBeGreaterThan(0);
-  expect(await readBoundSessionIds(consoleApplication)).toContain(CONCURRENT_STREAMING_SESSION_ID);
+  expect(await readBoundSessionIds(appUnderTest)).toContain(CONCURRENT_STREAMING_SESSION_ID);
 }

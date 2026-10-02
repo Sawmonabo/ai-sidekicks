@@ -19,8 +19,8 @@ export const BROWSER_MODE_SETUP_FILES: string[] = ["src/renderer/src/styles/glob
 const BASE_UI_PACKAGE = "@base-ui/react";
 
 /**
- * Every Base UI entry point the console imports, root included. Declared rather than derived
- * because the optimizer needs the set before any test file loads; a console module that imports a
+ * Every Base UI entry point the renderer imports, root included. Declared rather than derived
+ * because the optimizer needs the set before any test file loads; a renderer module that imports a
  * new subpath adds its line here.
  */
 const BASE_UI_ENTRY_POINTS: readonly string[] = [
@@ -62,10 +62,9 @@ export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
 export const BROWSER_MODE_DEDUPE: string[] = ["react", "react-dom"];
 
 /**
- * The window the console is measured in. Browser mode defaults to a 414×896 phone viewport, where
- * the 52 px rail leaves a 362 px surface, so geometry assertions would measure a layout no person
- * sees and "does not scroll horizontally" would pass because nothing has room to overflow.
- * 1440×900 is the smallest common laptop, the honest floor to hold the budgets at.
+ * The window the renderer is measured in: the smallest common laptop screen. Browser mode's default
+ * is a phone viewport, where geometry assertions would measure a layout no person sees and "does
+ * not scroll horizontally" would pass because nothing has room to overflow.
  */
 export const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
 

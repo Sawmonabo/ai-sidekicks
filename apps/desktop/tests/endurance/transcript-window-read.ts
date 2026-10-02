@@ -1,6 +1,6 @@
 // What the transcript window is showing, read from the renderer rather than counted off the
 // page. Separate from `endurance-workload.ts`, which owns the acts this tier performs on a
-// running console; this owns one question and the care it takes to ask it: which element is a
+// running app; this owns one question and the care it takes to ask it: which element is a
 // row, how long to wait for one, and what to do when the wait expires.
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
@@ -31,16 +31,16 @@ export const TRANSCRIPT_ROW_BOX_SELECTOR: string =
  * absorbed; anything else is a harness fault and is rethrown.
  */
 export async function readTranscriptWindow(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   sessionId: string,
 ): Promise<TranscriptWindowReading | null> {
-  const firstTranscriptRow = consoleApplication.window.locator(TRANSCRIPT_ROW_BOX_SELECTOR).first();
+  const firstTranscriptRow = appUnderTest.window.locator(TRANSCRIPT_ROW_BOX_SELECTOR).first();
   try {
     // The allowance is spelled inside the wait's own arguments; a hoisted local charges it
     // correctly but reads as a wait bounded by something else.
     await firstTranscriptRow.waitFor({
       state: "attached",
-      timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
     });
   } catch (waitFailure: unknown) {
     // `name` is playwright-core's own discriminator: at the pinned 1.63.0 its
@@ -50,7 +50,7 @@ export async function readTranscriptWindow(
     }
     process.stdout.write("[endurance] no transcript row attached within the allowance\n");
   }
-  return consoleApplication.window.evaluate(
+  return appUnderTest.window.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {
       const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
         globalName

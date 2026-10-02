@@ -23,7 +23,7 @@ import { runBoundedHostQuery } from "./readers.js";
  *
  * Only `running` should fail a leak assertion.
  */
-export type ProcessLiveness = "gone" | "zombie" | "running";
+type ProcessLiveness = "gone" | "zombie" | "running";
 
 /**
  * Whether a pid names a process at all, without signaling it.
@@ -67,9 +67,8 @@ export function processGroupExists(processId: number): boolean {
  *
  * `Z` is the zombie state on both POSIX platforms; Linux also reports `X` for a process being
  * torn down. Only the first letter is read, since `ps` appends modifiers (`Z+`, `Ss`, `R<`).
- * A pure function so both arms can be tested without manufacturing a real zombie.
  */
-export function isTerminatedProcessState(stateCode: string): boolean {
+function isTerminatedProcessState(stateCode: string): boolean {
   const stateLetter = stateCode.trim().charAt(0).toUpperCase();
   return stateLetter === "Z" || stateLetter === "X";
 }
@@ -81,7 +80,7 @@ export function isTerminatedProcessState(stateCode: string): boolean {
  * executable name in parentheses and may contain spaces and parentheses, so `(Web Content)` and
  * `(a) b)` parse wrongly under a naive split.
  */
-export function processStateFromProcStat(statText: string): string | undefined {
+function processStateFromProcStat(statText: string): string | undefined {
   const executableNameEnd = statText.lastIndexOf(")");
   if (executableNameEnd < 0) {
     return undefined;
@@ -94,17 +93,6 @@ export function processStateFromProcStat(statText: string): string | undefined {
 }
 
 /**
- * How the macOS arm asks this host, as one injectable reading.
- *
- * `runBoundedHostQuery`'s shape, so a caller chooses the question and never the bound.
- */
-type BoundedHostQuery = (
-  command: string,
-  args: readonly string[],
-  remainingBudgetMilliseconds?: number,
-) => string | undefined;
-
-/**
  * This platform's state code for `processId`, or `undefined` if it has none.
  *
  * `undefined` covers an unreadable entry, an unparseable one, a platform with no such state, and
@@ -113,16 +101,13 @@ type BoundedHostQuery = (
  *
  * The macOS arm runs `ps` through `runBoundedHostQuery`, because `spawnSync` blocks the thread
  * vitest's timeout runs on and a stalled `ps` would tear the worker down with its Electron
- * still alive. The Linux arm reads a file and needs no bound. `platform` and `runHostQuery` are
- * parameters so the arms the host does not run can still be tested.
+ * still alive. The Linux arm reads a file and needs no bound.
  */
-export function readProcessStateCode(
+function readProcessStateCode(
   processId: number,
   remainingBudgetMilliseconds?: number,
-  platform: NodeJS.Platform = process.platform,
-  runHostQuery: BoundedHostQuery = runBoundedHostQuery,
 ): string | undefined {
-  if (platform === "linux") {
+  if (process.platform === "linux") {
     try {
       return processStateFromProcStat(readFileSync(`/proc/${String(processId)}/stat`, "utf8"));
     } catch {
@@ -132,8 +117,8 @@ export function readProcessStateCode(
       return undefined;
     }
   }
-  if (platform === "darwin") {
-    return runHostQuery(
+  if (process.platform === "darwin") {
+    return runBoundedHostQuery(
       "ps",
       ["-o", "stat=", "-p", String(processId)],
       remainingBudgetMilliseconds,
@@ -143,34 +128,6 @@ export function readProcessStateCode(
   // ask and disappearance is the only termination evidence the platform gives.
   return undefined;
 }
-
-/**
- * The two questions a liveness reading asks, as one injectable pair.
- *
- * Injected because the case that matters, a process exiting between the two questions, cannot
- * be arranged against a real pid.
- */
-export interface ProcessLivenessProbes {
-  /** Whether the pid names a process at all — a zombie answers `true`. */
-  readonly exists: (processId: number) => boolean;
-  /**
-   * This platform's process-table state code, or `undefined` if it has none.
-   *
-   * The budget is what is left of a caller's deadline; a budget at or below zero returns
-   * `undefined` without running the command, which the reading below turns into "still there,
-   * nothing known against it".
-   */
-  readonly stateCode: (
-    processId: number,
-    remainingBudgetMilliseconds?: number,
-  ) => string | undefined;
-}
-
-/** The real pair, which every production caller takes. */
-const PLATFORM_LIVENESS_PROBES: ProcessLivenessProbes = {
-  exists: processExists,
-  stateCode: readProcessStateCode,
-};
 
 /**
  * What `processId` is doing right now.
@@ -183,19 +140,18 @@ const PLATFORM_LIVENESS_PROBES: ProcessLivenessProbes = {
  * the state probe runs nothing, the recheck costs a syscall, and a live pid reads `running`,
  * never a false clean tree.
  */
-export function readProcessLiveness(
+function readProcessLiveness(
   processId: number,
-  probes: ProcessLivenessProbes = PLATFORM_LIVENESS_PROBES,
   remainingBudgetMilliseconds?: number,
 ): ProcessLiveness {
-  if (!probes.exists(processId)) {
+  if (!processExists(processId)) {
     return "gone";
   }
-  const stateCode = probes.stateCode(processId, remainingBudgetMilliseconds);
+  const stateCode = readProcessStateCode(processId, remainingBudgetMilliseconds);
   if (stateCode !== undefined) {
     return isTerminatedProcessState(stateCode) ? "zombie" : "running";
   }
-  return probes.exists(processId) ? "running" : "gone";
+  return processExists(processId) ? "running" : "gone";
 }
 
 /**
@@ -210,8 +166,5 @@ export function processHasTerminated(
   processId: number,
   remainingBudgetMilliseconds?: number,
 ): boolean {
-  return (
-    readProcessLiveness(processId, PLATFORM_LIVENESS_PROBES, remainingBudgetMilliseconds) !==
-    "running"
-  );
+  return readProcessLiveness(processId, remainingBudgetMilliseconds) !== "running";
 }

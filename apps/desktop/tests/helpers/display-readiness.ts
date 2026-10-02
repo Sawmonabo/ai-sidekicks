@@ -32,9 +32,16 @@ export function needsXvfb(): boolean {
   return process.platform === "linux" && !resolvedDisplay();
 }
 
-/** Whether `xdpyinfo` is absent; probed once because the answer cannot change mid-run. */
-export const xdpyinfoMissing: boolean =
-  spawnSync("xdpyinfo", ["-version"], { stdio: "ignore" }).error !== undefined;
+let xdpyinfoProbe: boolean | undefined;
+
+/**
+ * Whether `xdpyinfo` is absent. Probed on first use, not at import, so a run that never checks a
+ * display spawns nothing; the answer is kept because it cannot change mid-run.
+ */
+export function isXdpyinfoMissing(): boolean {
+  xdpyinfoProbe ??= spawnSync("xdpyinfo", ["-version"], { stdio: "ignore" }).error !== undefined;
+  return xdpyinfoProbe;
+}
 
 /**
  * The unix socket path of a local `:N` display, or `null` for a remote or path-style `$DISPLAY`
@@ -52,7 +59,7 @@ export function localDisplaySocketPath(display: string): string | null {
 // never started. A display that cannot be probed either way reports ready, so the gate never
 // refuses a spawn it has no evidence against.
 function displayAnswers(display: string): boolean {
-  if (!xdpyinfoMissing) {
+  if (!isXdpyinfoMissing()) {
     const probe = spawnSync("xdpyinfo", ["-display", display], {
       stdio: "ignore",
       timeout: 5_000,
@@ -69,7 +76,7 @@ function displayAnswers(display: string): boolean {
  */
 export function awaitDisplayReady(display: string): string | null {
   const budgetMs = DISPLAY_READY_TIMEOUT_MS;
-  const probeDescription = xdpyinfoMissing
+  const probeDescription = isXdpyinfoMissing()
     ? `no unix socket at ${localDisplaySocketPath(display) ?? "<unprobeable display>"}`
     : `\`xdpyinfo -display ${display}\` kept failing`;
   const deadline = Date.now() + budgetMs;

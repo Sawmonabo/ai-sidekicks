@@ -7,11 +7,9 @@
 // "Is the renderer painting at all?" and "did its first frame arrive quickly?" are separate
 // questions: a throttled window delivers no frame ever, while a healthy window on a loaded 2-vCPU
 // runner can deliver its first one late. The harness arms this paint probe only after the renderer
-// signals readiness (the document `load` event, then the console's frame element); everything
+// signals readiness (the document `load` event, then the app's frame element); everything
 // before that is charged to the cold-start budget and this paint probe bounds the interval after
 // it.
-//
-// The frame source is a constructor argument, so the interval does not depend on Electron.
 
 import { FRAME_PAINT_PROBE_TIMEOUT_MS } from "./launch-budgets.js";
 
@@ -27,11 +25,7 @@ export interface RendererFrameSource {
   readonly awaitTwoFrames: () => Promise<number>;
 }
 
-/**
- * What every verdict carries, whichever way the race went. `budgetMs` is the bound the paint probe
- * applied: the budget is a constructor argument, so a caller interpolating the module constant
- * could name a bound that was never used. `CleanupOutcome.budgetMs` follows the same rule.
- */
+/** What every verdict carries, whichever way the race went. */
 interface FramePaintMeasurement {
   /** Wall milliseconds the paint probe waited, measured on the driver side. */
   readonly waitedMs: number;
@@ -56,18 +50,15 @@ export type FramePaintProbeOutcome = FramesPainted | FramesMissing;
 
 /**
  * Bounds the interval between a renderer signaling readiness and its second animation frame.
+ *
  * The worst local figure over twenty launches was 47 ms; the budget is derived from the cost of
  * failing early versus late, not from that figure.
- * A class because the frame source is a seam: the Playwright adapter is one implementation and
- * a stub another.
  */
 export class FramePaintProbe {
   readonly #frameSource: RendererFrameSource;
-  readonly #budgetMs: number;
 
-  constructor(frameSource: RendererFrameSource, budgetMs: number = FRAME_PAINT_PROBE_TIMEOUT_MS) {
+  constructor(frameSource: RendererFrameSource) {
     this.#frameSource = frameSource;
-    this.#budgetMs = budgetMs;
   }
 
   async probe(): Promise<FramePaintProbeOutcome> {
@@ -76,7 +67,7 @@ export class FramePaintProbe {
     const budgetExpired = new Promise<null>((resolveExpiry) => {
       timeoutHandle = setTimeout(() => {
         resolveExpiry(null);
-      }, this.#budgetMs);
+      }, FRAME_PAINT_PROBE_TIMEOUT_MS);
     });
     const framesDelivered = this.#frameSource.awaitTwoFrames();
     // Racing, not only bounding, keeps an abandoned probe handled: `Promise.race` calls `then` on
@@ -86,7 +77,7 @@ export class FramePaintProbe {
     try {
       const frameIntervalMs = await Promise.race([framesDelivered, budgetExpired]);
       const waitedMs = Date.now() - startedAt;
-      const budgetMs = this.#budgetMs;
+      const budgetMs = FRAME_PAINT_PROBE_TIMEOUT_MS;
       return frameIntervalMs === null
         ? { painting: false, waitedMs, budgetMs }
         : { painting: true, waitedMs, budgetMs, frameIntervalMs };

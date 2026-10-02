@@ -3,8 +3,8 @@
 // `frame-time-p95-four-lanes` bounds the renderer "while four agent lanes stream concurrently
 // into the transcript", so its gate must establish that its sampled window contained four
 // concurrent streaming lanes. A constant `4` in the harness would keep passing over a scenario
-// that had stopped streaming. The frame-time harness and the unit test that holds the script to
-// its claim share this one definition of "streaming".
+// that had stopped streaming, so the frame-time harness reads this one definition of
+// "streaming".
 //
 // A run is streaming at a point in the script when both hold:
 //   - its latest `run_lifecycle` transition put it in `running`, and

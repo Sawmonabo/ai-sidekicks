@@ -1,35 +1,14 @@
-// The release artifact's fuse wire, read out of the artifact rather than out of the
-// build script that claims to have flipped it.
+// Reads the release artifact's fuse wire out of the packaged binary, through `@electron/fuses`'
+// own `getCurrentFuseWire`, because only the binary proves a flip landed: a packaging config that
+// names the nine states proves only that someone wrote them down, and the flip, digest and sign
+// order is a pipeline where one step can silently no-op on one platform.
 //
-// Nine fuses have a state each must carry in a packaged build, and the check sits
-// beside the end-to-end tier as a SEPARATE one: the end-to-end tier drives the smoke build,
-// where `EnableNodeCliInspectArguments` is deliberately left on so a harness can
-// attach, so the artifact that tier launches is the one artifact whose fuse wire is
-// expected to differ from the release posture. Reading the release artifact is a
-// different question and needs a different subject.
+// The end-to-end tier cannot answer this: it drives the smoke build, which leaves
+// `EnableNodeCliInspectArguments` on so a harness can attach.
 //
-// WHY IT READS THE BINARY AND NOT THE CONFIGURATION. A fuse is a byte in a sentinel
-// region of the shipped Electron binary. A packaging config that names the right nine
-// states proves that someone wrote them down; only the binary proves they landed —
-// and the required ordering (flip → digest → sign) is exactly the kind of
-// pipeline where a step can be skipped, reordered, or silently no-op on one platform
-// while the config stays green. `@electron/fuses`' own `getCurrentFuseWire` is the
-// reader, so this file parses no sentinel itself.
-//
-// WHAT HAPPENS TODAY, STATED RATHER THAN SKIPPED QUIETLY. No packaging step exists in
-// this repository yet — `electron-builder` is pinned and unwired — so there is no
-// packaged artifact to read, and the fuse-wire case is skipped. The skip is narrow:
-// the case below it runs on every machine and asserts that the artifact is absent for
-// THAT reason and no other, so a `dist/` tree that exists in an unrecognized shape,
-// or a packaged root holding no binary, is a failure rather than another skip. A skip
-// nobody can distinguish from a pass is how a check like this rots.
-//
-// IN `build/` AND THEREFORE IN `main-unit`: it drives no window, needs no built
-// bundle, and reads only a packaged artifact or a synthetic root it writes itself, so
-// it belongs in the project a person runs before pushing rather than behind a launcher.
-// It reads no source, configuration, or documentation text: the posture it holds a
-// binary to is declared here against `@electron/fuses`' own enum, and the artifact is
-// read through that library's `getCurrentFuseWire`.
+// `electron-builder` is not a dependency of this package, so `dist/` holds no packaged root and the
+// fuse-wire case skips. The case before it fails on a `dist/` tree in a shape it does not
+// recognize or a packaged root with no binary, so the skip means only that no artifact exists.
 
 import {
   existsSync,
@@ -47,9 +26,7 @@ import { fileURLToPath } from "node:url";
 import { getCurrentFuseWire, FuseState, FuseV1Options } from "@electron/fuses";
 import { afterEach, describe, expect, it } from "vitest";
 
-// Derived here rather than taken from `smoke-probe-harness.ts`' export of the same value:
-// that module loads an `xdpyinfo` probe that spawns at import time, which is the
-// right cost for a launcher and the wrong one for a file that launches nothing.
+// Derived here so this file imports nothing from the launch helpers.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
 
@@ -75,7 +52,7 @@ const PACKAGED_ROOTS: readonly { readonly directory: string; readonly kind: stri
 ];
 
 /**
- * The nine fuses and the state a release build must carry, from the corpus.
+ * The nine fuses and the state a release build must carry.
  *
  * `WasmTrapHandlers` is the one entry whose required state is also Electron's default;
  * it is listed anyway, because a posture that omits the fuses it agrees with is a
@@ -95,8 +72,8 @@ const REQUIRED_RELEASE_FUSE_POSTURE: ReadonlyMap<FuseV1Options, FuseState> = new
 
 /** The one reason a missing artifact is admissible, stated once and asserted below. */
 const NO_PACKAGING_STEP_REASON =
-  "no packaging step has produced an unpacked application: `electron-builder` is " +
-  "pinned and not yet wired, so `dist/` holds no packaged root";
+  "no packaging step has produced an unpacked application: `electron-builder` is not a " +
+  "dependency of this package, so `dist/` holds no packaged root";
 
 /** What a discovery pass found, or the reason it found nothing. */
 type ArtifactDiscovery =
@@ -133,12 +110,11 @@ function resolveUnpackedBinary(rootPath: string): string | null {
 /**
  * The packaged Electron binary under `outputDirectory`, or why there is none.
  *
- * Deliberately three outcomes and not two: "no packaged root exists" is the state this
- * repository is in and is admissible, while "a packaged root exists and no binary was
- * found inside it" is a packaging step that produced something this check cannot read,
- * which is a failure and must not wear the same skip.
+ * Three outcomes, not two: "no packaged root exists" is admissible, while "a packaged root exists
+ * and holds no binary" is a packaging step that produced something this check cannot read, which
+ * is a failure and must not wear the same skip.
  */
-export function discoverPackagedElectronBinary(outputDirectory: string): ArtifactDiscovery {
+function discoverPackagedElectronBinary(outputDirectory: string): ArtifactDiscovery {
   if (!existsSync(outputDirectory)) {
     return { kind: "absent", reason: NO_PACKAGING_STEP_REASON };
   }
@@ -168,7 +144,7 @@ export function discoverPackagedElectronBinary(outputDirectory: string): Artifac
 }
 
 /** Every fuse whose state in `wire` is not the state the release posture requires. */
-export function findFusePostureViolations(
+function findFusePostureViolations(
   wire: Partial<Record<FuseV1Options, FuseState>>,
   requiredPosture: ReadonlyMap<FuseV1Options, FuseState>,
 ): readonly string[] {
@@ -211,15 +187,14 @@ describe("the release artifact carries the declared fuse wire", () => {
         findFusePostureViolations(wire, REQUIRED_RELEASE_FUSE_POSTURE),
         `${discovery.rootKind} at ${discovery.binaryPath}: the packaging pipeline flips ` +
           "the wire before the digest and the signature, so a violation here is a " +
-          "release that ships with hardening the corpus says it has",
+          "release that ships without the hardening baseline it declares",
       ).toStrictEqual([]);
     },
   );
 });
 
-// Negative controls. The check above skips on every machine today, so every helper it
-// would use is exercised here on synthetic input — including the two shapes that must
-// NOT be read as an absent artifact.
+// Negative controls: with no packaged artifact the check above skips, so every helper it uses is
+// driven here on synthetic input, including the two shapes that must not read as an absent one.
 describe("the artifact reader and the posture comparison can fail", () => {
   const REQUIRED_POSTURE_FIXTURE: ReadonlyMap<FuseV1Options, FuseState> = new Map([
     [FuseV1Options.RunAsNode, FuseState.DISABLE],

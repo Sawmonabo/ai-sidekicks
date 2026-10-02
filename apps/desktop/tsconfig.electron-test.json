@@ -31,12 +31,11 @@
     // DOM joins the Node lib rather than replacing it (see the header); kept in step with the
     // renderer project's lib set.
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    // These tiers name renderer constants, and the modules that declare them type-import their
-    // family barrels, which re-export `.tsx` components, so the renderer's React modules are in
-    // this program whether or not a test file mentions one. Without `jsx` they fail TS6142 at the
-    // barrel and the pin the whole posture rests on (import the string, never retype it) is
-    // unavailable. Same option the renderer project carries; nothing here emits, and no `.tsx` is
-    // authored under `tests/e2e/` or `tests/endurance/`.
+    // These tiers import renderer constants rather than retyping them, and the modules that
+    // declare them type-import barrels that re-export `.tsx` components, so the renderer's React
+    // modules are in this program. Without `jsx` they fail TS6142 at the barrel. Same option the
+    // renderer project carries; nothing here emits, and no `.tsx` is authored under `tests/e2e/`
+    // or `tests/endurance/`.
     "jsx": "react-jsx"
   },
   "include": [

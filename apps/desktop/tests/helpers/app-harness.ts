@@ -1,22 +1,17 @@
 // Shared mounting for the browser, screenshot and accessibility tiers, and what a mount leaves
-// behind. Not a test file: no `include` glob reaches it. One copy keeps the tiers mounting the
-// console the same way.
+// behind.
 //
-// Every mount settles first: `AppProviders` opens the durable persistence adapter and upgrades
-// the store from the in-memory one after mount, so asserting straight after `render` hits a
-// half-settled tree and leaves a state update outside `act`.
-//
-// The store is durable and shared: sidebar collapse, pane arrangement and color scheme live in
-// one IndexedDB database per origin, and unmounting closes a connection rather than removing a
-// record. A collapsed sidebar was once restored into the next case's mount, minting a screenshot
-// reference named for an expanded sidebar over a collapsed picture. The reset lives here so no
-// tier resets it differently.
+// Every mount settles first: `AppProviders` upgrades the store to the durable adapter after mount,
+// so asserting straight after `render` hits a half-settled tree. The durable store is one
+// IndexedDB database per origin that unmounting does not clear, so the reset between cases lives
+// here, where every tier shares it.
 
 import { cdp, server, userEvent } from "vitest/browser";
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
+import { settle } from "./settle.js";
 import { UI_STATE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
 import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
@@ -72,7 +67,7 @@ export async function emulateSystemScheme(scheme: ColorScheme): Promise<void> {
 }
 
 /**
- * What a mounted console hands back.
+ * What a mounted app hands back.
  *
  * Not Testing Library's `RenderResult`: that type is generic in its query set and container, and
  * passing an explicit `container` resolves the query parameter to its bare constraint, so naming
@@ -80,7 +75,7 @@ export async function emulateSystemScheme(scheme: ColorScheme): Promise<void> {
  * and nothing else.
  */
 interface AppMount {
-  /** The viewport-sized element the console was rendered into. */
+  /** The viewport-sized element the app was rendered into. */
   readonly container: HTMLElement;
 }
 
@@ -116,22 +111,6 @@ export async function renderSettled(element: ReactElement): Promise<AppMount> {
 }
 
 /**
- * Lets one turn of the console's own asynchronous work land, inside `act`.
- *
- * A macrotask rather than a microtask flush, since the mount path crosses both and a microtask
- * drain would return between two halves of one settlement. Inside `act` because each of those
- * settlements ends in a React state update, and one landing outside it settles after the awaited
- * turn, as a warning and a capture one commit behind the state it claims to pin.
- */
-async function settleOneTurn(): Promise<void> {
-  await act(async () => {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
-  });
-}
-
-/**
  * The scroll container the session screen mounts on every session route.
  *
  * The frame is permanent chrome on the page from the first commit, so waiting on it returns at
@@ -143,27 +122,19 @@ export const SESSION_ROUTE_BODY_SELECTOR: string =
   ".meridian-frame__screen .meridian-transcript-feed__body";
 
 /**
- * How long a session route gets to arrive before the window is called half-mounted.
- *
- * A deadline rather than a fixed count of settle turns, which is the wrong unit: a mount is
- * several chained promises (`AppProviders` opens a durable persistence adapter, the session
- * registry opens a store, the store initializes from the bridge's session read), so how many
- * turns it takes depends on the machine. Forty turns are about 190 ms, enough for a warm mount
- * and not for a cold one on the pinned `macos-15` runner. A third of the tier's own timeout,
- * read from the resolved configuration so the two cannot drift, and the failure names the view
- * that never mounted instead of timing out the whole test. Two thirds are left for the script
- * walk and the capture, and 5 s is some twenty-six times the warm mount measured.
+ * How long a session route gets to arrive before the window is called half-mounted. A deadline
+ * rather than a count of settle turns, since how many turns a mount's chained promises take
+ * depends on the machine. A third of the tier's own timeout, read from the resolved
+ * configuration so the two cannot drift; the other two thirds are the script walk and capture.
  */
-export const SESSION_ROUTE_MOUNT_DEADLINE_MS: number = Math.floor(server.config.testTimeout / 3);
+const SESSION_ROUTE_MOUNT_DEADLINE_MS: number = Math.floor(server.config.testTimeout / 3);
 
 /**
  * Waits for a session route to finish arriving, or throws saying it never did.
  *
  * `renderSettled` returns once the mount's own promises have flushed, and the window is not
  * finished then: the saved sidebar arrangement is restored through a store read that starts
- * after the column is on screen. Measured on the screenshot tier, a restored collapse landed two
- * turns after `renderSettled` returned, and the case in between read an expanded sidebar and
- * photographed a collapsed one. This body mounts by the same route and behind the session
+ * after the column is on screen. This body mounts by the same route and behind the session
  * store's own read, so a reading taken after it is of a window that has arrived.
  */
 export async function awaitSessionRouteMounted(container: HTMLElement): Promise<void> {
@@ -172,34 +143,33 @@ export async function awaitSessionRouteMounted(container: HTMLElement): Promise<
     if (Date.now() >= deadlineAtMs) {
       throw new Error(
         `the session route mounted no body in ${String(SESSION_ROUTE_MOUNT_DEADLINE_MS)} ms, so ` +
-          "this window never finished arriving and anything read off it now is half a console",
+          "this window never finished arriving and anything read off it now is half an app",
       );
     }
-    await settleOneTurn();
+    await settle();
   }
 }
 
 /**
- * Retires every console this page mounted and deletes the database they shared.
+ * Retires every app this page mounted and deletes the database they shared.
  *
- * Called from `beforeEach` rather than `afterEach`, which also covers the wider half of the
- * defect: a file inherits the origin and its database from whichever file ran before it in the
- * same browser session. The unmount is explicit because Testing Library registers its own
- * cleanup only where `afterEach` is a global; without it every console of the run stays
- * mounted, its store connection stays open, and the deletion below is blocked. `cleanup()` is
- * idempotent. The turn between the two is the close: `useUiStateStore`'s disposal fires
- * `store.close()` without awaiting it, and that close awaits its adapter before it reaches
- * `IDBDatabase.close()`, so deleting in the same turn would race the connection and surface as
- * `blocked`.
+ * Called from `beforeEach` rather than `afterEach`, because a file inherits the origin and its
+ * database from whichever file ran before it in the same browser session. The unmount is explicit
+ * because Testing Library registers its own cleanup only where `afterEach` is a global; without it
+ * every app of the run stays mounted, its store connection stays open, and the deletion below is
+ * blocked. `cleanup()` is idempotent. The turn between the two is the close: `useUiStateStore`'s
+ * disposal fires `store.close()` without awaiting it, and that close awaits its adapter before it
+ * reaches `IDBDatabase.close()`, so deleting in the same turn would race the connection and surface
+ * as `blocked`.
  */
 export async function resetDurableAppState(): Promise<void> {
   cleanup();
-  await settleOneTurn();
+  await settle();
   await deleteUiStateDatabase();
 }
 
 /**
- * Deletes the console's database, or throws saying which way it did not go.
+ * Deletes the app's database, or throws saying which way it did not go.
  *
  * Loud on `blocked`: that event does not refuse the request, it waits for a connection nothing
  * will close, so ignoring it hangs until the tier's timeout and resolving on it hands the next
@@ -231,9 +201,9 @@ async function deleteUiStateDatabase(): Promise<void> {
     deletion.onblocked = (): void => {
       reject(
         new Error(
-          `${UI_STATE_DATABASE_NAME} is still open, so its deletion is blocked: a console mounted ` +
+          `${UI_STATE_DATABASE_NAME} is still open, so its deletion is blocked: an app mounted ` +
             "earlier in this page never had its store closed, and the next mount would be restored " +
-            "into the arrangement that console left",
+            "into the arrangement that app left",
         ),
       );
     };

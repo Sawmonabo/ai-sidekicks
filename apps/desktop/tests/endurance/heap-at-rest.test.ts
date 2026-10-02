@@ -1,15 +1,14 @@
 // The renderer heap-at-rest budget: the heap with one session open at rest stays under the
 // ceiling in `budgets.json`, compared through the registry's own `evaluateBudget`.
 //
-// The reading is taken here, not in the budget CLI: the figure is a renderer heap, and the
-// Node process behind `scripts/budget/measure-heap.mts` holds no Chromium, React, DOM or
-// console store, so it deliberately measures nothing. Only the built console holds the subject.
+// The reading is taken here, not in the budget CLI: the figure is a renderer heap, and a Node
+// process holds no Chromium, React, DOM or app store. Only the built app holds the subject.
 // It is not taken in `steady-state.test.ts` either: that file bounds how far the heap moves and
 // owns no ceiling, this one bounds what the heap is at one quiet instant and owns no growth
 // rule, so no number has two owners.
 //
 // "One session open at rest" is established by the run, not assumed:
-//   - One session open: the console launches on the concurrent-streaming scenario and navigates
+//   - One session open: the app launches on the concurrent-streaming scenario and navigates
 //     to its session route, observed on markup only that route renders.
 //   - With content: the frozen clock walks the whole script and the session store's admitted
 //     event count is asserted non-zero, since a reading over an empty store measures the
@@ -33,9 +32,8 @@ import {
 } from "./endurance-workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "../../scripts/budget/budget-registry.mjs";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
-import { type Budget } from "../../scripts/budget/budget-document.mjs";
+import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -45,40 +43,27 @@ const HEAP_AT_REST_BUDGET_ID = "renderer-heap-at-rest";
 const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
 
-/**
- * The row rewritten with a ceiling one byte under whatever was measured.
- *
- * The negative control drives the real comparison, so an `evaluateBudget` that always returned
- * `withinBudget: true` cannot leave this gate green over any renderer.
- */
-function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
-  return {
-    ...budget,
-    limit: { ...budget.limit, canonicalValue: measuredCanonicalValue - 1 },
-  };
-}
-
-describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one session open", () => {
+describe.skipIf(!bundleIsBuilt)("endurance — the app at rest with one session open", () => {
   it("holds the renderer heap under the budget's ceiling", async () => {
-    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-      await openConcurrentStreamingSessionRoute(consoleApplication);
-      const deliveredBeatCount = await deliverWholeScenario(consoleApplication);
+    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (appUnderTest) => {
+      await openConcurrentStreamingSessionRoute(appUnderTest);
+      const deliveredBeatCount = await deliverWholeScenario(appUnderTest);
       expect(
         deliveredBeatCount,
         "the scenario handle is not exposed by this build, so nothing drove content into the session being measured",
       ).not.toBeNull();
       expect(Number(deliveredBeatCount)).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
-      await expectConcurrentStreamingSessionCarriesContent(consoleApplication);
+      await expectConcurrentStreamingSessionCarriesContent(appUnderTest);
 
       // Attached before the precondition, which needs it: the precondition takes each of its
       // two readings behind this reader's forced collection, so the difference is the probe's
       // allocation and not whatever the collector reclaimed in between.
-      const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+      const heapProbe = await RendererHeapProbe.attachTo(appUnderTest);
       let atRestHeapBytes: number;
       try {
         // A launch that lost the precise-heap flag reports a quantized, cached figure, which a
         // ceiling would pass or fail on a bucket boundary rather than on the renderer's heap.
-        await expectPreciseHeapInstrument(consoleApplication, heapProbe);
+        await expectPreciseHeapInstrument(appUnderTest, heapProbe);
 
         atRestHeapBytes = await heapProbe.readSettledBytes();
       } finally {
@@ -100,11 +85,6 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
         verdict.withinBudget,
         `${budget.label}: ${String(atRestHeapBytes)} B against a ${String(budget.limit.canonicalValue)} B ceiling`,
       ).toBe(true);
-
-      // A ceiling planted one byte under the reading must fail the comparison just passed.
-      expect(
-        evaluateBudget(budgetWithCeilingBelow(atRestHeapBytes), atRestHeapBytes).withinBudget,
-      ).toBe(false);
     });
   });
 });

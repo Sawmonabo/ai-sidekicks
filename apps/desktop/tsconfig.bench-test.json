@@ -5,11 +5,9 @@
   // markdown segmenter and parse, and `store-fan-out.test.ts` imports the store's entity kinds,
   // deliberately, since a benchmark that timed a local copy of the module would measure the copy.
   //
-  // Under `tsconfig.test.json` this tier compiles clean only while the renderer modules it reaches
-  // touch no browser global, a property of the module graph below them rather than of anything the
-  // tier wrote (the markdown cache's byte measurement, for one, reaches the persistence door and
-  // with it the IndexedDB adapter). Every sibling tier in this position already has its own config,
-  // and this is that move for the last one.
+  // Under `tsconfig.test.json` this tier would compile clean only while the renderer modules it
+  // reaches touch no browser global, a property of the module graph below them (the markdown
+  // cache's byte measurement reaches the persistence store and with it the IndexedDB adapter).
   //
   // Widening `tsconfig.test.json` instead would hand the DOM to `launch.smoke.test.ts` and every
   // `src/main/**` unit, where reaching for `document` is a defect the compiler should still catch.
@@ -23,7 +21,7 @@
     "declarationMap": false,
     "sourceMap": false,
     // DOM joins the Node lib rather than replacing it: the tier's own files are Node (they spawn,
-    // read files and write the ledger) and the renderer modules they import are renderer code. Kept
+    // read files and write the benchmark ledger) and the renderer modules they import are renderer code. Kept
     // in step with the renderer project's lib set.
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     // A renderer barrel re-exports `.tsx` components, so the renderer's React modules are in this

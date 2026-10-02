@@ -5,7 +5,7 @@
 // - `SESSION_EVENT_CATEGORY_BY_TYPE`, the census. A `kind` that is not a key is a type no daemon
 //   emits. This catches an invented name: `run.started` reads like a real event and is not one
 //   (`run.starting` is).
-// - `EventEnvelopeSchema`, the version-tolerant carrier the console's decode boundary parses each
+// - `EventEnvelopeSchema`, the version-tolerant carrier the app's decode boundary parses each
 //   delivery with (`services/daemon/session-event-payload.ts`). A beat that fails here would be
 //   counted as an unreadable delivery and dropped.
 // - `SessionEventSchema`, the strict layer. It registers a payload variant for some types, and
@@ -20,7 +20,7 @@
 // while a branch it did enter reports issues inside that branch. A failure whose every issue is
 // on the discriminator therefore means the strict layer registers nothing for this kind yet, and
 // the beat is held to the other legs. That escape is scoped: `run-and-queue-semantics.ts` covers
-// the `run.` root and the `queue_item.` root between three legs, each keyed off a table declared
+// the `run.` root and the `queue_item.` root between four legs, each keyed off a table declared
 // `satisfies Record<<census-derived union>, ...>`, so a run or queue kind cannot fall into the
 // escape by being forgotten; it would have to leave both its stream and the excluded-payload
 // table, and each is a compile error in its own module.
@@ -56,7 +56,7 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   const carried = EventEnvelopeSchema.safeParse(envelope);
   if (!carried.success) {
     return (
-      "the canonical envelope rejects this beat, so the console's decode boundary " +
+      "the canonical envelope rejects this beat, so the app's decode boundary " +
       `would count it unreadable and drop it: ${carried.error.issues.map(describeSchemaIssue).join("; ")}.`
     );
   }

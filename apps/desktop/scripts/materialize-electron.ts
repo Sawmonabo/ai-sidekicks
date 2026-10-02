@@ -44,9 +44,13 @@ function findElectronPackageRoot(): string | null {
   }
 }
 
+/** The read failures that mean a file is not there. */
+const MISSING_FILE_CODES: readonly unknown[] = ["ENOENT", "ENOTDIR"];
+
 /**
  * Upstream's `isInstalled()`: the recorded dist version matches the package version, `path.txt`
- * exists, and the executable it names is on disk. Any read failure means "not installed".
+ * exists, and the executable it names is on disk. A missing file means "not installed"; any other
+ * read failure is thrown, since a download would not repair it.
  */
 function isBinaryMaterialized(packageRoot: string): boolean {
   try {
@@ -62,8 +66,11 @@ function isBinaryMaterialized(packageRoot: string): boolean {
     }
     const executableRelativePath = readFileSync(path.join(packageRoot, "path.txt"), "utf8");
     return existsSync(path.join(packageRoot, "dist", executableRelativePath));
-  } catch {
-    return false;
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && MISSING_FILE_CODES.includes(error.code)) {
+      return false;
+    }
+    throw error;
   }
 }
 

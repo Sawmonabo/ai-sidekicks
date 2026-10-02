@@ -1,6 +1,6 @@
 // Tier: endurance.
 //
-// A pane closed while its read is on the wire pays for nothing after it closes, and a console
+// A pane closed while its read is on the wire pays for nothing after it closes, and an app
 // that opens and closes panes all day accumulates nothing. Both claims are about sustained
 // churn: one abandoned read costs too little for a unit case to tell, so this drives open,
 // read, close mid-read, several hundred times.
@@ -66,7 +66,6 @@ interface ChurnTally {
 
 /** A call held open, and the release that answers it. */
 interface HeldCall {
-  readonly answered: Promise<unknown>;
   readonly release: (body: unknown) => void;
 }
 
@@ -82,7 +81,7 @@ function openChurnSubject(
 ): {
   readonly model: PushDrivenRead<number>;
   readonly held: Promise<HeldCall>;
-  readonly releaseSubscription: () => void;
+  readonly expectNoSubscriptionHeld: () => void;
 } {
   let handOverCall: (call: HeldCall) => void = () => undefined;
   const held = new Promise<HeldCall>((resolve) => {
@@ -92,7 +91,6 @@ function openChurnSubject(
     async () =>
       await new Promise<unknown>((answer) => {
         handOverCall({
-          answered: Promise.resolve(),
           release: (body: unknown) => {
             answer(body);
           },
@@ -127,7 +125,7 @@ function openChurnSubject(
   return {
     model,
     held,
-    releaseSubscription: () => {
+    expectNoSubscriptionHeld: () => {
       expect(subscriptionsHeld).toBe(0);
     },
   };
@@ -159,7 +157,7 @@ async function runOneCycle(
   }
 
   await crossMacrotaskBoundary();
-  subject.releaseSubscription();
+  subject.expectNoSubscriptionHeld();
 }
 
 /** A tally that has counted nothing yet. */
@@ -168,7 +166,7 @@ function emptyTally(): ChurnTally {
 }
 
 describe("read abandonment under churn — a closed pane pays for nothing", () => {
-  it("projects nothing across hundreds of close-mid-read cycles", async () => {
+  it("projects nothing and leaves nothing armed across hundreds of close-mid-read cycles", async () => {
     const clock = new ManualClock(0);
     const tally = emptyTally();
 
@@ -184,18 +182,8 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
     // No model reached a rendering state, `failed` included: an abandoned read has no failure
     // to report and no view left to report it to.
     expect(tally.settlements).toBe(0);
-  });
-
-  it("leaves no timer armed and no subscription held", async () => {
-    const clock = new ManualClock(0);
-    const tally = emptyTally();
-
-    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-      await runOneCycle(clock, tally, true);
-    }
-
-    // `releaseSubscription` asserted the subscription count per cycle; this is the other
-    // accumulation, an armed re-read behind a model nothing holds.
+    // Each cycle checked that no subscription is held; no re-read is armed behind a model nothing
+    // holds either.
     expect(clock.pendingCount).toBe(0);
   });
 

@@ -1,10 +1,10 @@
 // The transcript under a log as long as it claims to survive. This file measures the
 // transcript's own fold, `deriveTranscriptWindow` (a session's event log into rows, run groups,
-// seams and a superseded index), over a generated session of ten thousand rows, and is the one
-// file in this tier that does not launch Electron.
+// seams and a superseded index), over a generated session of ten thousand rows, without launching
+// Electron.
 //
 // It cannot launch one: the endurance log is not a scenario in `fixtures/index.ts`, so no
-// launched console can be asked to play it. The generator is called directly with the row count.
+// launched app can be asked to play it. The generator is called directly with the row count.
 //
 // A Node heap reading is honest here though not in `heap-at-rest.test.ts`. That file's subject
 // is the renderer heap, which a Node process cannot reach. This file's subject is the fold's own
@@ -19,20 +19,18 @@
 //     than a wall-clock ceiling, so a slower machine does not break it.
 //   - Repeating it retains nothing. A fold that held its own output (a cache keyed by a value
 //     never equal twice, a listener, a closure over the previous window) grows without bound in
-//     a console left open for a day.
+//     an app left open for a day.
 //
-// The collection is forced, not waited for. Node exposes no `gc` by default and this tier cannot
-// pass itself a process flag, so the flag is set at runtime and the function pulled out of a
-// fresh context. A failure to resolve it throws instead of falling back to a softer reading: a
-// heap claim without a collection is about what V8 had not got round to yet.
+// The collection is forced through `heap-sampling.ts`, the tier's one sampler. A runtime that
+// gives no collector fails the case instead of falling back to a softer reading: a heap claim
+// without a collection is about what V8 had not got round to yet.
 
-import { setFlagsFromString } from "node:v8";
 import process from "node:process";
-import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { HeapSampler, retainedGrowthBytes } from "./heap-sampling.js";
 import { createTranscriptEnduranceFixture } from "./transcript-endurance.test-support.js";
 import { deriveTranscriptWindow } from "@renderer/features/transcript/window/transcript-window.js";
 
@@ -72,47 +70,12 @@ const REPEATED_FOLD_COUNT = 20;
  */
 const REPEATED_FOLD_RETENTION_CEILING_BYTES = 2 * 1024 * 1024;
 
-/** Readings per measurement. The best of them is taken; more only sharpens it. */
+/** Timing passes per measurement. The fastest is taken; more only sharpens it. */
 const MEASUREMENT_SAMPLE_COUNT = 5;
-
-/**
- * A real collection, forced.
- *
- * Resolved once at module scope. It throws rather than degrading, because every heap figure
- * below is meaningless without it.
- */
-const collectGarbage: () => void = resolveForcedCollection();
-
-function resolveForcedCollection(): () => void {
-  setFlagsFromString("--expose-gc");
-  const exposed: unknown = runInNewContext("gc");
-  if (typeof exposed !== "function") {
-    throw new Error(
-      "this runtime exposed no collector under --expose-gc, so no heap figure in this tier would describe what the transcript retains",
-    );
-  }
-  return exposed as () => void;
-}
 
 /** One generated session's log, as the events a store would have admitted. */
 function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
   return createTranscriptEnduranceFixture({ rowCount });
-}
-
-/**
- * The heap after collecting, as the smallest of several readings.
- *
- * The minimum rather than the last, because a collection is not a barrier: the smallest figure
- * over several passes is closest to what is reachable, the same estimator the renderer-side
- * reading uses.
- */
-function settledHeapBytes(): number {
-  let smallestReading = Number.POSITIVE_INFINITY;
-  for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
-    collectGarbage();
-    smallestReading = Math.min(smallestReading, process.memoryUsage().heapUsed);
-  }
-  return smallestReading;
 }
 
 /**
@@ -187,18 +150,23 @@ describe("endurance — the transcript's fold over a long session", () => {
     expect(costRatio).toBeLessThanOrEqual(SUPERLINEAR_COST_RATIO_CEILING);
   });
 
-  it("retains nothing of the folds it has already produced", () => {
+  it("retains nothing of the folds it has already produced", async () => {
+    const heapSampler = new HeapSampler();
+    if (!heapSampler.isCollectorAvailable) {
+      throw new Error(
+        "this runtime gives no collector, so no heap figure here would describe what the transcript retains",
+      );
+    }
     // One fold before the baseline, dropped, so the first fold's one-time costs (the
     // projection's module state, V8's compiled code) are not reported as retention.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     dropFoldOf(timeline);
-    const baselineHeapBytes = settledHeapBytes();
+    const baseline = await heapSampler.sample();
 
     for (let foldIndex = 0; foldIndex < REPEATED_FOLD_COUNT; foldIndex += 1) {
       dropFoldOf(timeline);
     }
-    const finalHeapBytes = settledHeapBytes();
-    const retainedBytes = finalHeapBytes - baselineHeapBytes;
+    const retainedBytes = retainedGrowthBytes(baseline, await heapSampler.sample());
 
     process.stdout.write(
       `[endurance] transcript fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +

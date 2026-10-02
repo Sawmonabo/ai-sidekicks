@@ -1,7 +1,6 @@
 // The renderer's test tiers as Vitest projects: renderer (unit), browser, accessibility, bundle,
-// e2e and endurance. The array also holds two projects that gate nothing and say so in their own
-// blocks: `screenshot`, a local capture aid that compares nothing, and `bench`, the
-// micro-benchmark ledger.
+// e2e and endurance, plus two kept off the aggregate `test` script: `screenshot`, a local capture
+// aid that compares nothing, and `bench`, which appends to the benchmark ledger.
 //
 // No tier is configured by a Playwright runner config, and none exists. `e2e` and `endurance` are
 // Vitest projects in a Node environment, because the test file drives the app, which runs in
@@ -11,7 +10,6 @@
 // They live beside `vitest.config.ts` because the tiers share the fixture define, the
 // source-condition resolution and the browser-mode options.
 
-import { configDefaults } from "vitest/config";
 import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
 import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../tests/helpers/launch-budgets.js";
@@ -131,10 +129,16 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
   },
   {
     // Tier: end-to-end. A real Electron process and window driven through Playwright's
-    // `_electron`. Node environment because the test file is the driver and the code under test
-    // runs in another process.
+    // `_electron`, the path a person installing the app runs, which no other tier renders. Node
+    // environment because the test file is the driver and the code under test runs in another
+    // process. Each file is named for the defect it reproduces, not the module it touches.
     //
-    // Requires `pnpm build:fixtures`; the tests skip with a message when the bundle is absent
+    // Playwright's auto-retrying `expect` is not used: its web-assertion timeouts come from a
+    // test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
+    // `expect.poll`), asserting is Vitest's, and every wait is handed
+    // `bodyAllowance.boundedMs(<its own bound>)` so the first wait that cannot fit names its step.
+    //
+    // Requires `pnpm build:fixtures`; the tests skip when the bundle is absent
     // (`fixtureBundleExists`) instead of failing inside Electron's startup.
     //
     // It imports renderer constants so a rename breaks it at compile time. Their build-time gate
@@ -171,7 +175,6 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       name: "endurance",
       environment: "node",
       include: ["tests/endurance/**/*.test.ts"],
-      exclude: [...configDefaults.exclude, ...RENDERER_TESTS_OUTSIDE_SOURCE],
       // Derived from this tier's own body allowance: hundreds of driven churn cycles with settling
       // heap samples either side are a different subject from an end-to-end body.
       testTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
@@ -180,15 +183,15 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Not one of the registered tiers: the micro-benchmark ledger, separate so a benchmark's timing
-    // noise can never fail a gate. The fixture flag is `false`, as for every non-fixture project:
-    // a benchmark measures the shipping path, and the flag decides whether imported renderer
-    // modules publish tripwires onto `globalThis`.
+    // Tier: bench. It gates on a speed-up ratio with a wide margin rather than a time, and stays
+    // off the aggregate `test` script because each run appends to `tests/bench/ledger.json`. The
+    // fixture flag is `false`: a benchmark measures the shipping path, and the flag decides whether
+    // imported renderer modules publish tripwires onto `globalThis`.
     define: { __FIXTURE_BUILD__: "false" },
     test: {
       name: "bench",
       environment: "node",
-      include: ["tests/bench/**/*.bench.ts", "tests/bench/**/*.test.ts"],
+      include: ["tests/bench/**/*.test.ts"],
     },
   },
 ];

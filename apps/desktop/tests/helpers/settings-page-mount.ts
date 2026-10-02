@@ -53,12 +53,12 @@ export function settingsPageContextWith(
 /**
  * A store every settings-page case can be handed, on the adapter that says so.
  *
- * The memory adapter and not a stub: it is the console's own fallback, reports `durable: false`
+ * The memory adapter and not a stub: it is the app's own fallback, reports `durable: false`
  * with a reason from the same table the durable path reads, and reproduces failures a real disk
- * would take a real disk to produce. A fresh store per call, because the health ledger's counts
+ * would take a real disk to produce. A fresh store per call, because the health counts
  * are cumulative and two cases sharing one would read each other's refusals.
  */
-export function testUiStateStore(
+function testUiStateStore(
   adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),
 ): UiStateStore {
   return new UiStateStore({ adapter });

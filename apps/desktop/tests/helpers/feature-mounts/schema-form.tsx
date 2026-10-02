@@ -15,7 +15,6 @@ import { waitFor } from "@testing-library/react";
 
 import { renderSettled } from "../app-harness.js";
 import { schemaFormChunk } from "@renderer/features/workflows/schema-form/schema-form-mounts.js";
-// Re-exported below so tiers take every schema form reading from this file.
 import { resolveSchemaFormChunks } from "@renderer/features/workflows/schema-form/hooks/useSchemaForm.test-support.js";
 
 /**
@@ -23,9 +22,7 @@ import { resolveSchemaFormChunks } from "@renderer/features/workflows/schema-for
  * compile lands within a turn or two. Throwing keeps a tier from reporting clean over a form
  * that never got its verdict.
  */
-export const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
-
-export { resolveSchemaFormChunks };
+const SCHEMA_FORM_VERDICT_DEADLINE_MS = 5_000;
 
 /**
  * The class the schema form puts on its own `<form>`.
@@ -42,7 +39,7 @@ export interface SchemaFormMounting {
 }
 
 /** Whether this region holds a schema answer form at all. */
-export function holdsSchemaForm(region: ParentNode): boolean {
+function holdsSchemaForm(region: ParentNode): boolean {
   return region.querySelector(SCHEMA_FORM_SELECTOR) !== null;
 }
 
@@ -51,7 +48,7 @@ export function holdsSchemaForm(region: ParentNode): boolean {
  *
  * Ask it second: with no form in the region it is false, so a renamed class would pass silently.
  */
-export function schemaFormIsAwaitingCompiler(region: ParentNode): boolean {
+function schemaFormIsAwaitingCompiler(region: ParentNode): boolean {
   return region.querySelector(`${SCHEMA_FORM_SELECTOR}[aria-busy]`) !== null;
 }
 

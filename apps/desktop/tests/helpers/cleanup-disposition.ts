@@ -6,11 +6,7 @@
 // Outcomes a later launch can feel raise; a tree that was SIGKILLed and is therefore gone is only
 // a breadcrumb. `cleanupFailure` draws that line once.
 
-import {
-  type CleanupOutcome,
-  type CleanupSettlement,
-  type ClosableApplication,
-} from "./cleanup-contract.js";
+import { type CleanupOutcome, type ClosableApplication } from "./cleanup-contract.js";
 import { type ProfileRemovalFailure } from "./launch-profile.js";
 
 /**
@@ -125,7 +121,7 @@ function closeClause(outcome: CleanupOutcome): string | undefined {
  * leave an Electron alive for the launches after it. Names the settlement and the process id, and
  * the profile directory when that is what went wrong.
  */
-export class CleanupFailedError extends Error {
+class CleanupFailedError extends Error {
   /**
    * The verdict this error was built from.
    *
@@ -150,14 +146,6 @@ export class CleanupFailedError extends Error {
     );
     this.name = "CleanupFailedError";
     this.outcome = outcome;
-  }
-
-  get settlement(): CleanupSettlement {
-    return this.outcome.settlement;
-  }
-
-  get processId(): number | undefined {
-    return this.outcome.processId;
   }
 }
 

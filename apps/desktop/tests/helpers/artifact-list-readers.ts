@@ -31,11 +31,14 @@ import { ArtifactListReader } from "@renderer/features/inspector/artifacts/artif
 /** The one session every case here reads, named once so a store and a row agree. */
 export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";
 
+/** The run every served manifest comes from, in the session above. */
+export const ARTIFACT_RUN_ID = "019b7b30-0280-7c11-8420-b1a5c0de2202";
+
+/** The producer every served manifest is drawn as coming from. */
+export const ARTIFACT_PRODUCER_ID = "019b7b30-0280-7c11-8420-b1a5c0de2203";
+
 /** A second artifact, so a case can press for bytes the pane is not already fetching. */
 export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299" as ArtifactId;
-
-// The ids below are spelled out because `isolatedDeclarations` cannot write the type of an
-// exported `as const` object whose property reads another binding.
 
 /**
  * One manifest row as the daemon serves it, with every member populated.
@@ -45,9 +48,9 @@ export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299" as Artif
  */
 export const SERVED_SUMMARY: ArtifactManifest = {
   id: "019b7b30-0280-7c11-8420-b1a5c0de2201" as ArtifactId,
-  sessionId: "019b7b30-0280-7c11-8420-b1a5c0de2200" as SessionId,
-  runId: "019b7b30-0280-7c11-8420-b1a5c0de2202" as RunId,
-  createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203" as UserId,
+  sessionId: SESSION_ID as SessionId,
+  runId: ARTIFACT_RUN_ID as RunId,
+  createdBy: ARTIFACT_PRODUCER_ID as UserId,
   artifactType: "diff",
   digest: "sha256:2b4c",
   size: 4096,

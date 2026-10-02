@@ -1,5 +1,5 @@
 // The endurance tier's heap instrument: how the heap is read, and the proof that the
-// instrument is precise. It sits beside `endurance-workload.ts`, which drives the console.
+// instrument is precise. It sits beside `endurance-workload.ts`, which drives the app.
 //
 // The reader's figure is safe in one direction only at precise precision, so the reader and the
 // assertion that establishes precision live together. The proof allocates four megabytes that
@@ -12,6 +12,7 @@ import { expect } from "vitest";
 import type { CDPSession } from "@playwright/test";
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
+import { medianOf } from "../helpers/sample-statistics.js";
 import { SETTLE_ROUNDS } from "./heap-sampling.js";
 import {
   captureHeapSnapshot,
@@ -24,8 +25,7 @@ import {
  *
  * One number for both: a flat one-byte string makes size and length the same figure, and it
  * depends on no elements kind that could transition. A numeric array is not used: growing it
- * swaps its backing store and both are counted until a collection runs (8,022,500 B on the
- * ubuntu runner, -38,965,632 B when a collection landed in the window). Exported so the control
+ * swaps its backing store and both are counted until a collection runs. Exported so the control
  * that plants a same-shaped allocation shares the size.
  */
 export const PRECISION_PROBE_NOMINAL_BYTES: number = 4_000_000;
@@ -42,11 +42,10 @@ export const PRECISION_PROBE_FILL_CHARACTER: string = "x";
 /**
  * How far either end of the window sits from the payload: 64 KiB.
  *
- * Above, V8's overhead measured 560 B per collected window (1,852 B in a session's first) on
- * macOS / Electron 44; the rest is room for another platform's header width or alignment. Below,
- * a collection netting bytes out inside the window can pull the difference under the payload
- * (widest excursion measured: 6,684 B). A second backing store overshoots by four megabytes and
- * an unflattened payload undershoots by nearly all of it, so the width stays far inside both.
+ * Above, room for V8's per-window overhead and another platform's header width or alignment.
+ * Below, room for a collection netting bytes out inside the window. A second backing store
+ * overshoots by four megabytes and an unflattened payload undershoots by nearly all of it, so the
+ * width stays far inside both.
  */
 const PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES = 65_536;
 
@@ -54,9 +53,8 @@ const PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES = 65_536;
  * The window the probe's growth must land in: the payload plus or minus the allowance.
  *
  * Symmetric because the quantity is a difference of two readings, which falls under the payload
- * when a collection nets bytes out (one uncollected window read 3,993,316 B). The default
- * instrument read 0 B in twelve windows with the flag dropped (macOS, Electron 44), so the floor of
- * 3,934,464 B rejects it. The ceiling turns "the reading moved" into "the reading measured this".
+ * when a collection nets bytes out. The default instrument reads no growth with the flag dropped,
+ * so the floor rejects it; the ceiling turns "the reading moved" into "the reading measured this".
  * It does not rule out a quantized instrument stepping inside the band on a large heap; the cache
  * serving one value to both reads is what fails the coarse launch.
  */
@@ -72,25 +70,8 @@ const PRECISION_PROBE_MAX_OBSERVED_BYTES =
  * Contamination runs both ways: a collection between the reads lowers the difference, anything
  * allocating into the window raises it, so a maximum is defenseless against the second. A
  * median discards one outlier at either end and three is the smallest count that survives one.
- * Fourteen uncollected windows on one launch read 4,000,560 B nine times, the rest scattered
- * from -40,452,864 B to 4,001,852 B. The probe's own windows read 4,001,852 B, 4,000,560 B,
- * 4,000,560 B on every launch: the first evaluate of a session keeps an extra 1,292 B.
  */
 const PRECISION_PROBE_WINDOW_COUNT = 3;
-
-/**
- * The median of a small set of heap readings, averaging the two middle values on an even count.
- *
- * Shared by the precision proof and `terminal-instance-series.ts`. `frame-time.test.ts` keeps
- * its own nearest-rank median, since folding it in would change the statistic it reports.
- */
-export function medianOfHeapReadings(readings: readonly number[]): number {
-  const ordered = [...readings].sort((left, right) => left - right);
-  const middle = Math.floor(ordered.length / 2);
-  const lower = ordered[ordered.length % 2 === 0 ? middle - 1 : middle] ?? 0;
-  const upper = ordered[middle] ?? 0;
-  return (lower + upper) / 2;
-}
 
 /**
  * Returns the sentence to raise when the probe windows are not a measurement of the probe's own
@@ -99,7 +80,7 @@ export function medianOfHeapReadings(readings: readonly number[]): number {
  * A string rather than a boolean, so a caller that asserts on it prints the refusal itself.
  */
 export function precisionProbeRefusalFor(observedBytesPerWindow: readonly number[]): string | null {
-  const observedBytes = medianOfHeapReadings(observedBytesPerWindow);
+  const observedBytes = medianOf(observedBytesPerWindow);
   const observedWindowsText = observedBytesPerWindow.map((bytes) => String(bytes)).join(", ");
   const preamble =
     `a ${String(PRECISION_PROBE_NOMINAL_BYTES)} B allocation moved the renderer's heap reading ` +
@@ -150,18 +131,18 @@ const HEAP_INSTRUMENT_UNAVAILABLE =
  * reading: it takes three windows, each a forced collection plus one evaluate.
  *
  * Each window is taken behind a forced collection, since an uncollected one reports what the
- * collector reclaimed inside it (-40,452,864 B once); the probe is an argument so the proof and
+ * collector reclaimed inside it; the probe is an argument so the proof and
  * the readings it guards use the same collector. It leaves one unreachable payload behind, so
  * the next reading must go through `RendererHeapProbe`, which collects before it reads.
  */
 export async function expectPreciseHeapInstrument(
-  consoleApplication: AppUnderTest,
+  appUnderTest: AppUnderTest,
   heapProbe: RendererHeapProbe,
 ): Promise<void> {
   const observedBytesPerWindow: number[] = [];
   for (let windowIndex = 0; windowIndex < PRECISION_PROBE_WINDOW_COUNT; windowIndex += 1) {
     await heapProbe.collectGarbage();
-    const probe = await consoleApplication.window.evaluate(
+    const probe = await appUnderTest.window.evaluate(
       ([characterCount, fillCharacter]: [number, string]) => {
         const readHeapBytes = (): number | null => {
           const memory = (
@@ -208,10 +189,10 @@ export async function expectPreciseHeapInstrument(
  * is why every launch carries `isPreciseHeapReadingRequired` and
  * {@link expectPreciseHeapInstrument} proves it arrived.
  */
-async function readSettledHeapBytes(consoleApplication: AppUnderTest): Promise<number> {
+async function readSettledHeapBytes(appUnderTest: AppUnderTest): Promise<number> {
   const samples: number[] = [];
   for (let sampleIndex = 0; sampleIndex < SETTLING_SAMPLE_COUNT; sampleIndex += 1) {
-    const sample = await consoleApplication.window.evaluate(async () => {
+    const sample = await appUnderTest.window.evaluate(async () => {
       // Two frames plus a macrotask: enough for the collector to run its
       // incremental steps between samples without pinning the main thread.
       await new Promise((resolve) => {
@@ -244,19 +225,17 @@ async function readSettledHeapBytes(consoleApplication: AppUnderTest): Promise<n
  * would change what every file sharing the launcher measures.
  */
 export class RendererHeapProbe {
-  readonly #consoleApplication: AppUnderTest;
+  readonly #appUnderTest: AppUnderTest;
   readonly #cdpSession: CDPSession;
 
-  private constructor(consoleApplication: AppUnderTest, cdpSession: CDPSession) {
-    this.#consoleApplication = consoleApplication;
+  private constructor(appUnderTest: AppUnderTest, cdpSession: CDPSession) {
+    this.#appUnderTest = appUnderTest;
     this.#cdpSession = cdpSession;
   }
 
-  public static async attachTo(consoleApplication: AppUnderTest): Promise<RendererHeapProbe> {
-    const cdpSession = await consoleApplication.application
-      .context()
-      .newCDPSession(consoleApplication.window);
-    return new RendererHeapProbe(consoleApplication, cdpSession);
+  public static async attachTo(appUnderTest: AppUnderTest): Promise<RendererHeapProbe> {
+    const cdpSession = await appUnderTest.application.context().newCDPSession(appUnderTest.window);
+    return new RendererHeapProbe(appUnderTest, cdpSession);
   }
 
   /**
@@ -269,7 +248,7 @@ export class RendererHeapProbe {
   public async collectGarbage(): Promise<void> {
     for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
       await this.#cdpSession.send("HeapProfiler.collectGarbage");
-      await this.#consoleApplication.window.evaluate(
+      await this.#appUnderTest.window.evaluate(
         async () =>
           new Promise((resolve) => {
             setTimeout(resolve, 0);
@@ -281,7 +260,7 @@ export class RendererHeapProbe {
   /** Collect, let finalization run, and read the settled heap. */
   public async readSettledBytes(): Promise<number> {
     await this.collectGarbage();
-    return readSettledHeapBytes(this.#consoleApplication);
+    return readSettledHeapBytes(this.#appUnderTest);
   }
 
   /**

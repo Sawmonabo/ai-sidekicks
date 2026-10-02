@@ -17,12 +17,12 @@ import { BODY_ALLOWANCE_MS } from "./launch-budgets.js";
 import { LaunchDeadline } from "./launch-deadline.js";
 
 /** How an overrun names the phase that ran out. */
-const TEST_BODY_PHASE = "the launched console's test body";
+const TEST_BODY_PHASE = "the launched app's test body";
 
 /**
- * The bound one in-window step gets before the console is called stopped. A view mounting, an
+ * The bound one in-window step gets before the app is called stopped. A view mounting, an
  * overlay opening or a durable write landing is sub-second work on any runner, so this catches a
- * stopped console, not a slow one. It is one figure for the class, shared by both launching
+ * stopped app, not a slow one. It is one figure for the class, shared by both launching
  * tiers, and a bound a wait declares rather than a ceiling a reading is compared to, so it is
  * not a `budgets.json` row.
  */
@@ -36,14 +36,9 @@ export class BodyAllowance {
   readonly #deadline: LaunchDeadline;
   readonly #allowanceMs: number;
 
-  constructor(allowanceMs: number = BODY_ALLOWANCE_MS, now: () => number = Date.now) {
+  constructor(allowanceMs: number = BODY_ALLOWANCE_MS) {
     this.#allowanceMs = allowanceMs;
-    this.#deadline = new LaunchDeadline(allowanceMs, now);
-  }
-
-  /** The whole allowance in milliseconds, the figure an overrun is worded against. */
-  get allowanceMs(): number {
-    return this.#allowanceMs;
+    this.#deadline = new LaunchDeadline(allowanceMs);
   }
 
   /**

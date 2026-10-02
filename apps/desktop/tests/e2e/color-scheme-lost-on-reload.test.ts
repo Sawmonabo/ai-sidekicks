@@ -1,24 +1,7 @@
-// Tier: end-to-end. Spec files are named for the incident they reproduce, not the module they
-// touch. Every other tier renders the console into something that is not the application
-// (happy-dom, or a Chromium page), so none catches a defect that exists only in the shipped
-// app; this tier runs the path a person installing it would run.
-//
-// Playwright's own auto-retrying `expect` is not used: with two `expect`s, which timeout
-// applies to a line is answered from the import list, and its web-assertion timeouts come from
-// a test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
-// `expect.poll`) and asserting is Vitest's.
-//
-// The incident: the color scheme a person chose was back to the default after a restart. The
-// applied attribute is written synchronously and the durable record is not, so every layer
-// above reports success while the bytes are in flight; only a reload separates a preference
-// that was written from one merely readable in the window that wrote it.
-//
-// Every wait is charged to the body's allowance. `withLaunchedApp` reserves one for what runs
-// between a settled launch and its cleanup, and a wait that ignored it would let the outer race
-// replace the poll's own message with the generic body-overrun sentence. Each bounded wait is
-// handed `bodyAllowance.boundedMs(<its own bound>)`, so the first wait that cannot fit names
-// its step.
-//
+// The color scheme a person chose must survive a restart. The applied attribute is written
+// synchronously and the durable record is not, so every layer above reports success while the
+// bytes are in flight; only a reload separates a preference that was written from one merely
+// readable in the window that wrote it.
 
 import { describe, expect, it } from "vitest";
 
@@ -42,29 +25,31 @@ const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", () => {
   it("persists an explicit color scheme across a reload", async () => {
-    await withLaunchedApp({}, async (consoleApplication) => {
-      const consoleWindow = consoleApplication.window;
+    await withLaunchedApp({}, async (appUnderTest) => {
+      const appWindow = appUnderTest.window;
       const readScheme = async (): Promise<string | null> =>
-        await consoleWindow.evaluate(
+        await appWindow.evaluate(
           (schemeAttribute) => document.documentElement.getAttribute(schemeAttribute),
           SCHEME_ATTRIBUTE,
         );
 
-      // What is actually on disk, read through a second connection rather than the console's
+      // What is actually on disk, read through a second connection rather than the app's
       // own store. The names come from the modules that own them, so a rename breaks this at
       // compile time; the record shape is the adapter's `StoredRecord`, and only `value` is read.
       const readPersistedScheme = async (): Promise<string | null> =>
-        await consoleWindow.evaluate(
+        await appWindow.evaluate(
           async ([databaseName, storeName, partition, key]) =>
-            await new Promise<string | null>((resolve) => {
+            await new Promise<string | null>((resolve, reject) => {
+              // A failed open or read rejects: read as `null` it would report the scheme as never
+              // written and hide the real failure.
               const openRequest = indexedDB.open(databaseName);
               openRequest.onerror = (): void => {
-                resolve(null);
+                reject(openRequest.error ?? new Error(`could not open ${databaseName}`));
               };
               openRequest.onsuccess = (): void => {
                 const database = openRequest.result;
                 if (!database.objectStoreNames.contains(storeName)) {
-                  // The console degraded to memory and this connection just created an empty
+                  // The app degraded to memory and this connection just created an empty
                   // database, so nothing is stored.
                   database.close();
                   resolve(null);
@@ -76,7 +61,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
                   .get([partition, key]);
                 readRequest.onerror = (): void => {
                   database.close();
-                  resolve(null);
+                  reject(readRequest.error ?? new Error(`could not read ${storeName}`));
                 };
                 readRequest.onsuccess = (): void => {
                   const record = readRequest.result as { readonly value?: unknown } | undefined;
@@ -101,12 +86,12 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
       // Driven through the palette to prove the whole path a person takes (command, store,
       // chokepoint, IndexedDB), which a direct store call would not. The `Color scheme` row
       // moves to the next scheme in its cycle, and the one after "system" is dark.
-      await openPalette(consoleApplication);
-      await consoleWindow.keyboard.type("Color scheme");
-      await consoleWindow.keyboard.press("Enter");
+      await openPalette(appUnderTest);
+      await appWindow.keyboard.type("Color scheme");
+      await appWindow.keyboard.press("Enter");
       await expect
         .poll(readScheme, {
-          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
           message: "the scheme did not change",
         })
         .toBe("dark");
@@ -115,7 +100,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
       // navigation and a lost preference would look like a broken feature.
       await expect
         .poll(readPersistedScheme, {
-          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
           message: "the scheme was never written",
         })
         .toBe("dark");
@@ -125,18 +110,18 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
       // this run's own write.
       //
       // The reload boots the renderer a second time, which `launch-readiness` bounds, so
-      // the navigation and the frame element share one clock at that figure, as `launchConsole`
+      // the navigation and the frame element share one clock at that figure, as `launchApp`
       // divides its own ladder. Both legs are also held to what is left of the body's allowance.
       const reloadDeadline = new LaunchDeadline(READINESS_BUDGET_MS);
-      await consoleWindow.reload({
-        timeout: consoleApplication.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
+      await appWindow.reload({
+        timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
       });
-      await consoleWindow.waitForSelector(".meridian-frame", {
-        timeout: consoleApplication.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
+      await appWindow.waitForSelector(".meridian-frame", {
+        timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
       });
       await expect
         .poll(readScheme, {
-          timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
           message: "the scheme did not survive a reload",
         })
         .toBe("dark");

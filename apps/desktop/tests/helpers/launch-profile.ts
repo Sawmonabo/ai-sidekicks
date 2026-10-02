@@ -2,8 +2,7 @@
 //
 // Electron's default profile carries a machine-wide `SingletonLock`, so every launch gets its own
 // `--user-data-dir` under the system temp directory (`electron-harness.ts` says why). Creation and
-// removal live together so no call site can forget to remove. It is a seam so a removal that
-// fails, which a real directory on a POSIX runner cannot produce, is one object literal.
+// removal live together so no call site can forget to remove.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +17,7 @@ import { join } from "node:path";
  */
 const PROFILE_REMOVAL_RETRIES = 3;
 
-/** The prefix every launch profile's directory name carries. */
+/** The prefix a launch profile's directory name carries unless its caller names another. */
 const PROFILE_DIRECTORY_PREFIX = "ai-sidekicks-launch-profile-";
 
 /** One launch's private profile directory, reduced to what cleanup needs of it. */
@@ -40,9 +39,11 @@ export interface ProfileRemovalFailure {
   readonly failure: unknown;
 }
 
-/** Mint a profile directory for one launch. */
-export function createLaunchProfile(): LaunchProfile {
-  const directory = mkdtempSync(join(tmpdir(), PROFILE_DIRECTORY_PREFIX));
+/** Mint a profile directory for one launch, its name starting with `directoryPrefix`. */
+export function createLaunchProfile(
+  directoryPrefix: string = PROFILE_DIRECTORY_PREFIX,
+): LaunchProfile {
+  const directory = mkdtempSync(join(tmpdir(), directoryPrefix));
   return {
     directory,
     remove: (): void => {

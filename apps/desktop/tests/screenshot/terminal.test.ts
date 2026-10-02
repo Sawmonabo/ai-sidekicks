@@ -1,36 +1,9 @@
 // The screenshot tier: the terminal pane over the terminal-lease scenario, which ends with the
-// shell held, per scheme. `settled-capture.ts` owns the mechanism: every capture is written into
-// the gitignored `__screenshots__/` and compared against nothing, so this file gates on whether
-// the pane can be captured at all.
+// shell held, in both schemes. `settled-capture.ts` owns the mechanism.
 
-import { afterEach, beforeEach, describe, it } from "vitest";
-
-import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountTerminalPane } from "../helpers/feature-mounts/terminal.js";
-import { captureSettled } from "./settled-capture.js";
+import { definePinnedViewCaptures } from "./pinned-view-captures.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
-
-beforeEach(() => {
-  document.location.hash = "";
-  installMeridianTokens(document);
-});
-
-afterEach(async () => {
-  // Leave the emulation off, so a later file is not captured under this one's scheme.
-  await emulateSystemScheme("light");
-});
-
-describe("screenshot — the terminal pane", () => {
-  for (const scheme of COLOR_SCHEMES) {
-    it(`renders terminal-pane-held-lease in the ${scheme} scheme`, async () => {
-      // Through the system preference, not a stamped attribute: the token sheet's dark layer is a
-      // `prefers-color-scheme` block, which a default install resolves.
-      await emulateSystemScheme(scheme);
-      const mounted = await mountTerminalPane();
-
-      await captureSettled(mounted.element, `terminal-pane-held-lease-${scheme}`);
-    });
-  }
-});
+definePinnedViewCaptures("the terminal pane", [
+  { captureName: "terminal-pane-held-lease", mount: mountTerminalPane },
+]);

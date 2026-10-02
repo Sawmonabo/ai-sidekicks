@@ -1,9 +1,8 @@
-// The size observer the console arms, under test control.
+// The size observer the app arms, under test control.
 //
-// `lib/element-resize.ts` is the console's one `ResizeObserver` construction site, and several
-// suites drive it (the seam's own, the preview geometry suites, the terminal emulator's re-fit),
-// so one fake lives here: per-suite fakes drift, and the one that drifts passes for the wrong
-// reason. It is under `tests/helpers/` so no feature imports another feature's test support.
+// `lib/element-resize.ts` is the app's one `ResizeObserver` construction site, and more than one
+// suite drives it, so one fake lives here: per-suite fakes drift, and the one that drifts passes
+// for the wrong reason.
 //
 // Delivery is targeted, not just broadcast: a caller observing N elements arms N observers, so
 // "an ancestor resized" and "everything resized" are different facts.
@@ -14,12 +13,6 @@ import { vi } from "vitest";
 export interface FakeResizeObserverControl {
   /** Deliver a size change to every observer watching `target`. */
   deliverFor(target: Element): void;
-  /** Deliver a size change to every live observer, in construction order. */
-  deliverAll(): void;
-  /** How many `observe` calls the fake has taken. */
-  observedCount(): number;
-  /** How many observers have been disconnected. */
-  disconnectCount(): number;
   /** Observers constructed and not yet disconnected. Zero is "nothing is armed". */
   liveObserverCount(): number;
 }
@@ -34,7 +27,6 @@ export interface FakeResizeObserverControl {
  */
 export function installFakeResizeObserver(): FakeResizeObserverControl {
   const records: FakeObserverRecord[] = [];
-  let observedCount = 0;
 
   class FakeResizeObserver {
     readonly #record: FakeObserverRecord;
@@ -51,7 +43,6 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
     }
 
     public observe(target: Element): void {
-      observedCount += 1;
       this.#record.targets.add(target);
     }
 
@@ -75,15 +66,6 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
         }
       }
     },
-    deliverAll: () => {
-      for (const record of records) {
-        if (!record.disconnected) {
-          record.deliver();
-        }
-      }
-    },
-    observedCount: () => observedCount,
-    disconnectCount: () => records.filter((record) => record.disconnected).length,
     liveObserverCount: () => records.filter((record) => !record.disconnected).length,
   };
 }

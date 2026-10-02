@@ -1,28 +1,10 @@
-// One clock for a whole `launchConsole()`, so the launch cannot outlive its tier.
+// One clock for a whole `launchApp()`, so the launch cannot outlive its tier.
 //
-// A launch is a ladder of waits (process start, first window, document `load`, the console's frame
-// element, visibility) followed by the frame paint probe. Independent per-phase allowances add up:
-// four at 30 000 ms plus a 15 000 ms paint probe entitles a launch to 135 000 ms inside a 60 000 ms
-// tier. When vitest's timeout fires first the test is killed mid-phase, the paint probe never
-// renders its verdict, `close()` never runs, and a live Electron and a temporary profile are left
-// behind. The reader sees "test timed out" naming neither the slow phase nor the healthy window.
-//
-// So `launchConsole()` mints one `LaunchDeadline` before its first phase and divides it into three
-// slices: the readiness ladder, the frame paint probe, and cleanup. Every readiness wait draws what
-// is left after the two later slices are held back, so the ladder costs `READINESS_BUDGET_MS` in
-// aggregate however its phases divide it. The later two are reserved, not drawn from: a paint probe
-// handed readiness's leftover would report "not painting" for a window that needed another second,
-// and a cleanup handed the paint probe's leftover would have no time to close anything.
-//
-// Cleanup is a slice, not a margin. `bounded-cleanup.ts` races `application.close()` against it
-// and SIGKILLs the process tree when the close loses, so the profile is still removed and the
-// original failure still reaches the reader. The slice is two phases wide, because that SIGKILL
-// is the second (`CLEANUP_PHASES`).
-//
-// The caller's test body is a slice too: it runs between the settled launch and the cleanup, and
-// `launch-body.ts` bounds it. The tier timeout is derived from the sum, not written down:
-// `tierTimeoutFor()` sums the launch budget, the tier's body allowance and the settlement
-// residual, and `vitest/tier-projects.ts` calls it.
+// Per-phase allowances would add up past the tier timeout, and a test vitest kills mid-phase never
+// runs `close()`, leaving a live Electron and its profile behind. So one `LaunchDeadline` is split
+// into three slices: the readiness ladder, the frame paint probe, and cleanup (two phases wide,
+// because the SIGKILL in `bounded-cleanup.ts` is the second). Readiness waits draw what is left
+// after the later two are held back. `tierTimeoutFor()` derives the tier timeout from the sum.
 
 import {
   CLEANUP_BUDGET_MS,
@@ -49,10 +31,10 @@ export const CLEANUP_PHASES = 2;
  * a close it abandoned still owes, which is what `BoundedCleanup` can cost end to end. Every
  * reserve below draws from this, not from `CLEANUP_BUDGET_MS`.
  */
-export const CLEANUP_SLICE_MS: number = CLEANUP_BUDGET_MS * CLEANUP_PHASES;
+const CLEANUP_SLICE_MS: number = CLEANUP_BUDGET_MS * CLEANUP_PHASES;
 
 /**
- * The most a single `launchConsole()` can cost before it has thrown: the readiness ladder plus the
+ * The most a single `launchApp()` can cost before it has thrown: the readiness ladder plus the
  * two reserved slices. A launch reaching it has already produced its own diagnostic (the readiness
  * failure, the paint probe's verdict, or the cleanup outcome), which makes the figure safe to
  * compare against a tier timeout.
@@ -81,8 +63,8 @@ export const MINIMUM_SETTLEMENT_RESIDUAL_MS = 2_000;
 /**
  * The `testTimeout` a launching tier must carry, given the body allowance it applies: the launch
  * budget, then the body, then the residual. `vitest/tier-projects.ts` calls it instead of writing
- * a number. It is derived in this direction because a tier timeout chosen first and sliced
- * afterwards is how the body came to have no allowance.
+ * a number. It is derived in this direction so the body's allowance is set, never whatever a
+ * timeout chosen first happens to leave.
  */
 export function tierTimeoutFor(bodyAllowanceMs: number): number {
   return LAUNCH_BUDGET_MS + bodyAllowanceMs + MINIMUM_SETTLEMENT_RESIDUAL_MS;
@@ -95,7 +77,7 @@ export function tierTimeoutFor(bodyAllowanceMs: number): number {
  * the deadline that raised it, so a nested deadline inside the work is not mistaken for the outer
  * one and its more specific phase is not reworded away.
  */
-export class DeadlineExpiredError extends Error {
+class DeadlineExpiredError extends Error {
   /** The deadline whose budget expired. Compared by identity, never by name. */
   readonly deadline: LaunchDeadline;
   /** The phase that was being bounded, as the deadline was told to call it. */
@@ -116,16 +98,13 @@ export class DeadlineExpiredError extends Error {
  * A shared clock for one launch: mint it, then draw from it.
  *
  * A class because two of its members are policy, not arithmetic (the floor under `remainingMs`,
- * and what `settleWithin` does to an operation with no timeout of its own), and `now` is a seam a
- * test supplies.
+ * and what `settleWithin` does to an operation with no timeout of its own).
  */
 export class LaunchDeadline {
   readonly #expiresAt: number;
-  readonly #now: () => number;
 
-  constructor(budgetMs: number, now: () => number = Date.now) {
-    this.#now = now;
-    this.#expiresAt = now() + budgetMs;
+  constructor(budgetMs: number) {
+    this.#expiresAt = Date.now() + budgetMs;
   }
 
   /**
@@ -139,7 +118,7 @@ export class LaunchDeadline {
    * budget is spent.
    */
   expired(reservedMs = 0): boolean {
-    return this.#now() >= this.#expiresAt - reservedMs;
+    return Date.now() >= this.#expiresAt - reservedMs;
   }
 
   /**
@@ -171,7 +150,7 @@ export class LaunchDeadline {
    * asks whether the budget is spent.
    */
   remainingMs(reservedMs = 0): number {
-    return Math.max(1, this.#expiresAt - this.#now() - reservedMs);
+    return Math.max(1, this.#expiresAt - Date.now() - reservedMs);
   }
 
   /**
@@ -221,11 +200,12 @@ export function readinessFailure(deadline: LaunchDeadline, error: unknown): unkn
     return error;
   }
   return new Error(
-    `the console did not become ready within the ${String(READINESS_BUDGET_MS)} ms readiness budget, ` +
-      "which every phase before the frame paint probe SHARES — process launch, first window, the " +
-      "document's `load`, the console's frame element, the visibility read — rather than each " +
-      "receiving its own; the paint probe's interval is reserved beyond this budget, so a launch that " +
-      "overruns reports here rather than as the enclosing tier's timeout (tests/helpers/launch-deadline.ts)",
+    `the app did not become ready within the ${String(READINESS_BUDGET_MS)} ms readiness ` +
+      "budget, which every phase before the frame paint probe SHARES — process launch, first " +
+      "window, the document's `load`, the app's frame element, the visibility read — rather " +
+      "than each receiving its own; the paint probe's interval is reserved beyond this budget, " +
+      "so a launch that overruns reports here rather than as the enclosing tier's timeout " +
+      "(tests/helpers/launch-deadline.ts)",
     { cause: error },
   );
 }

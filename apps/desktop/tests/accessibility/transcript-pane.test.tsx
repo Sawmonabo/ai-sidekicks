@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme, renderSettled } from "../helpers/app-harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "../helpers/app-frame-fixtures.js";
 import type { Scenario } from "../../fixtures/scenario.js";
 import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
@@ -37,6 +37,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
 import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
+import { EMPTY_TRANSCRIPT_WORDS } from "@renderer/features/transcript/viewport/empty-transcript-words.js";
 
 /**
  * The cursor a scenario's log is applied on top of. Zero rather than `-1`, because
@@ -98,7 +99,7 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
 
 beforeEach(() => {
   installMeridianTokens(document);
-  // The row renderer, registered the way the console registers it; the pane cannot render
+  // The row renderer, registered the way the app registers it; the pane cannot render
   // rows without one.
   registerTranscriptRows();
 });
@@ -134,7 +135,7 @@ describe("accessibility — the transcript", () => {
 
       // The same control from the other side: the pane must actually have reached the empty
       // state, which a scenario that grew a beat would silently stop doing.
-      expect(container.textContent).toContain("Nothing has happened in this session yet.");
+      expect(container.textContent).toContain(EMPTY_TRANSCRIPT_WORDS.title);
       expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);

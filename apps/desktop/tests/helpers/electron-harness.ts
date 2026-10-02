@@ -1,7 +1,7 @@
 // The one Electron launcher, shared by the end-to-end and endurance tiers.
 //
 // Both tiers need a real main process, a real renderer and the fixture bridge serving the
-// console, built the same way so the endurance tier measures the application the end-to-end tier
+// app, built the same way so the endurance tier measures the application the end-to-end tier
 // proved.
 //
 // Playwright's `_electron` runs under Vitest rather than `@playwright/test`: `_electron` is the
@@ -23,15 +23,11 @@ import process from "node:process";
 
 import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
+import { onTestFinished } from "vitest";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { disposeWhenTestFinishes, type SettleTimeRegistrar } from "./electron-child.js";
 import { BoundedCleanup } from "./bounded-cleanup.js";
-import {
-  type CleanupOutcome,
-  type ClosableApplication,
-  ELECTRON_PROCESS_TERMINATOR,
-} from "./cleanup-contract.js";
+import { type CleanupOutcome, type ClosableApplication } from "./cleanup-contract.js";
 import {
   cleanupFailure,
   closeAfterBody,
@@ -67,7 +63,7 @@ interface LaunchedApp {
   readonly close: () => Promise<void>;
 }
 
-/** A launched console plus the body's remaining allowance. */
+/** A launched app plus the body's remaining allowance. */
 export interface AppUnderTest extends LaunchedApp {
   /**
    * What is left of the body's own allowance; hand it to a poll's `timeout`.
@@ -79,7 +75,7 @@ export interface AppUnderTest extends LaunchedApp {
   readonly bodyAllowance: BodyAllowance;
 }
 
-/** What a tier states about the console it launches. */
+/** What a tier states about the app it launches. */
 export interface LaunchAppOptions {
   /**
    * Extra environment for the Electron process, merged over `process.env`.
@@ -89,9 +85,9 @@ export interface LaunchAppOptions {
    */
   readonly env?: Readonly<Record<string, string>>;
   /**
-   * Which scripted scenario the launched console plays, passed as `--fixture`.
+   * Which scripted scenario the launched app plays, passed as `--fixture`.
    *
-   * Absent, the console launches normally. A tier reads the id off the scenario module it drives,
+   * Absent, the app launches normally. A tier reads the id off the scenario module it drives,
    * so a renamed scenario is a compile error; an unknown id fails the launch because the main
    * process refuses it and exits before any window opens.
    */
@@ -117,13 +113,13 @@ export interface LaunchAppOptions {
 }
 
 /**
- * Launches the built console and waits for its first window.
+ * Launches the built app and waits for its first window.
  *
  * Throws rather than returning a partial handle. Every wait draws its timeout from one deadline
  * minted here, so the whole call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run
  * (`launch-deadline.ts`).
  */
-async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
+async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   // Minted before the first phase, including the profile directory, so everything waited on is
   // inside the budget. It carries the whole allowance (readiness, the paint probe, cleanup); each
   // readiness wait reserves the two later slices off it. Cleanup takes its slice as a ceiling, so
@@ -170,7 +166,6 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
         }
       },
     },
-    ELECTRON_PROCESS_TERMINATOR,
     profile,
   );
   let closed = false;
@@ -219,32 +214,25 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
  * Binds `application`'s close to the end of the current test, and closes now when that
  * registration refuses.
  *
- * Normally this is only `disposeWhenTestFinishes`, so the close runs on whatever outcome the test
- * reaches, vitest's timeout kill included. `onTestFinished` throws outside a running test (for
- * example `withLaunchedApp` from a `beforeAll`) when Electron is already up with a private profile
- * on disk; the refusal is caught and the same idempotent close is awaited immediately, so exactly
- * one remover is reached from both paths. If that close fails too, `closeAfterBody`'s rule
- * applies: the refusal explains the run and the cleanup verdict rides on it as a clause.
+ * `onTestFinished` runs the close on whatever outcome the test reaches, vitest's timeout kill
+ * included. It throws outside a running test (for example `withLaunchedApp` from a `beforeAll`)
+ * when Electron is already up with a private profile on disk; the refusal is caught and the same
+ * idempotent close is awaited immediately, so exactly one remover is reached from both paths. If
+ * that close fails too, `closeAfterBody`'s rule applies: the refusal explains the run and the
+ * cleanup verdict rides on it as a clause.
  *
  * The registered close fails the test instead of being swallowed. On a vitest timeout it is the
  * only close there is, and the `closed` guard means no caller can ask again; its bounded retries
  * are spent by the time it raises, so the failure means an Electron nothing could kill is still
  * running and holding its profile for every later launch.
- *
- * Takes the close alone so the refusal is reachable without an Electron.
  */
-export async function registerSettleTimeClose(
+async function registerSettleTimeClose(
   application: Pick<ClosableApplication, "close">,
-  register?: SettleTimeRegistrar,
 ): Promise<void> {
   try {
-    disposeWhenTestFinishes(
-      async () => {
-        await application.close();
-      },
-      register,
-      "fails-the-test",
-    );
+    onTestFinished(async () => {
+      await application.close();
+    });
   } catch (registrationRefusal: unknown) {
     await closeAfterBody(application, (): Promise<never> => {
       throw registrationRefusal;
@@ -253,26 +241,25 @@ export async function registerSettleTimeClose(
 }
 
 /**
- * Launches the console, runs `body` against it, and closes it afterwards.
+ * Launches the app, runs `body` against it, and closes it afterwards.
  *
- * The one way in (`launchConsole` is not exported), so no tier can reach the launched application
+ * The one way in (`launchApp` is not exported), so no tier can reach the launched application
  * without `closeAfterBody`'s rule that the body's failure survives a failing close.
  */
 export async function withLaunchedApp<TResult>(
   options: LaunchAppOptions,
-  body: (consoleApplication: AppUnderTest) => Promise<TResult>,
+  body: (appUnderTest: AppUnderTest) => Promise<TResult>,
 ): Promise<TResult> {
-  const launched = await launchConsole(options);
+  const launched = await launchApp(options);
   // The body's own settlement closes this launch and reports the cleanup verdict. Vitest's
   // per-test timeout skips it, so this settle-time registration covers that path. `close` is
-  // idempotent, so on an ordinary outcome this is a no-op, and `disposeWhenTestFinishes` swallows
-  // the rejection since the test's own failure explains the run.
+  // idempotent, so on an ordinary outcome the registered close is a no-op.
   //
   // Awaited because the registration can refuse; `registerSettleTimeClose` owns both halves.
   await registerSettleTimeClose(launched);
   // Minted here, not inside the launch: the allowance bounds what runs after the launch settled,
   // so a slow but valid launch spends none of it.
   const bodyAllowance = new BodyAllowance(options.bodyAllowanceMs);
-  const consoleApplication: AppUnderTest = { ...launched, bodyAllowance };
-  return await withBoundedBody(launched, bodyAllowance, async () => await body(consoleApplication));
+  const appUnderTest: AppUnderTest = { ...launched, bodyAllowance };
+  return await withBoundedBody(launched, bodyAllowance, async () => await body(appUnderTest));
 }

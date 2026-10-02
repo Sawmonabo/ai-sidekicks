@@ -10,7 +10,7 @@ export function requireCapturedElement(container: HTMLElement, selector: string)
   const element = container.querySelector(selector);
   if (element === null) {
     throw new Error(
-      `the console rendered no ${selector} element, so there is nothing for this tier to capture`,
+      `the app rendered no ${selector} element, so there is nothing for this tier to capture`,
     );
   }
   return element;

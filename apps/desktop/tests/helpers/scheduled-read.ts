@@ -1,15 +1,13 @@
-// Advances the frozen clock a console reading schedules against.
+// Advances the frozen clock an app reading schedules against.
 //
 // Every read goes through a `RefreshScheduler` armed on the clock the bridge resolution carries,
 // the fixture's frozen one wherever a scenario plays. Moving it means reaching the right clock,
 // advancing far enough that the absolute deadline fires and not only the debounce, and letting
 // the call's promise chain settle inside `act` so React commits what the answer changed.
 
-import { act } from "@testing-library/react";
-
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
+import { settle } from "./settle.js";
 import type { Clock } from "@renderer/lib/clock.js";
 
 /**
@@ -33,8 +31,8 @@ export function frozenClockOf(clock: Clock): ManualClock {
  * from postponing the read forever.
  */
 export async function settleScheduledRead(clock: Clock): Promise<void> {
-  await act(async () => {
-    frozenClockOf(clock).advance(REFRESH_MAX_WAIT_MS);
-    await crossMacrotaskBoundary();
+  const frozenClock = frozenClockOf(clock);
+  await settle(() => {
+    frozenClock.advance(REFRESH_MAX_WAIT_MS);
   });
 }
