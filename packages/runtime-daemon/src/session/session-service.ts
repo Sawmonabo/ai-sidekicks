@@ -38,9 +38,8 @@ interface SessionEventRow {
  *   leaves `forTestsOnly()` as the only way to get one.
  * - Runtime: the guard compares against the module-private singleton by identity, so a forged
  *   object cast to the type still fails.
- * - Package boundary: the token is not exported from the `session` barrel or the package root,
- *   and the package `exports` map only exposes `"."`, so code outside the package cannot import
- *   it.
+ * - Package boundary: the token is not exported from the package root, and the package
+ *   `exports` map only exposes `"."`, so code outside the package cannot import it.
  *
  * In-package code can still call `forTestsOnly()` behind an environment check. An ESLint rule
  * in `eslint.config.mjs` denies `forTestsOnly` access in `packages/runtime-daemon/src` outside

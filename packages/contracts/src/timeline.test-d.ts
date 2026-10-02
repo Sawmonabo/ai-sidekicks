@@ -11,14 +11,13 @@
 
 import type { EventCursor } from "./session.js";
 import type { RunRolledBackEvent } from "./run-control.js";
+import type { ChildRunCompleteness, ChildRunSummary } from "./timeline/child-run-summary.js";
 import type {
-  ChildRunCompleteness,
   ChildRunExpandResponse,
-  ChildRunSummary,
   ReasoningSurfaceReadResponse,
   TimelineReadResponse,
-  TimelineRow,
-} from "./timeline/index.js";
+} from "./timeline/operations.js";
+import type { TimelineRow } from "./timeline/row.js";
 
 /** Fails to compile (TS2344) at the instantiation when `T` is not `never`. */
 type AssertNever<T extends never> = T;

@@ -185,7 +185,7 @@ Plan-024 authors the destination's library, editor and `Browse plugins` view as 
 - The daemon's one local schema and its test (EXTEND) — the `agent_definitions` table.
 - `packages/runtime-daemon/src/provider/drivers/` (EXTEND) — each driver's fixed built-in tool table, and the spawn-time carriers for the allowlist, the turn cap, the hooks and the memory, at the driver sites.
 - `apps/cli/src/commands/agent-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-005-12.
-- `packages/client-sdk/src/` (EXTEND) — `agent-client.ts` (NEW), the typed client for the `agent.*` definition pairs, plus one barrel export line in the Plan-001-owned `index.ts`.
+- `packages/client-sdk/src/` (EXTEND) — `agent-client.ts` (NEW), the typed client for the `agent.*` definition pairs, plus one named export line in the package's Plan-001-owned entry point `index.ts`.
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `agent.*` definition handler files (T2.2).
 - `apps/desktop/src/renderer/src/store/` and `apps/desktop/src/renderer/src/services/daemon/` (EXTEND) — the definition list is app-wide state: the daemon client (`services/daemon/`) reads `agent.definitionList` into the app-wide store (`store/`) and keeps it current from `agent.definitionSubscribe`, and the agents feature, the session composer's `/` list and the workflow node's chooser each read it there, so none of them imports another (T5.1).
 - `apps/desktop/src/renderer/src/features/agents/` (EXTEND) — the agents feature, the destination's own, handed to Plan-020's mount under CP-024-2:
@@ -307,7 +307,7 @@ Plan-024 implementation lands as a sequence of small PRs. Each PR exercises one 
   - **Tests:** one regression assertion per command that a thrown error routes to stderr with stdout byte-empty under the mapped exit code; a list rendering golden.
 
 - **T2.4 — Client SDK surface.**
-  - **Files:** `packages/client-sdk/src/agent-client.ts` (NEW), `packages/client-sdk/src/index.ts` (EXTEND — barrel export only).
+  - **Files:** `packages/client-sdk/src/agent-client.ts` (NEW), `packages/client-sdk/src/index.ts` (EXTEND — the client's named exports only).
   - **Provides:** typed client methods for the `agent.*` definition pairs and the list stream, consumed by the CLI commands here in Phase 2 and by the desktop's agents feature in Phase 5. **Authored in this phase and not with the desktop surface:** its first consumer is T2.3, and Phase 5 sits behind Phases 3 and 4, so an SDK homed there would leave the Phase-2 CLI importing a client that does not yet exist or permanently bypassing the typed surface it is required to consume.
   - **Consumes:** T2.2; Plan-001 client SDK transport (shipped).
   - **Spec coverage:** Spec-026 §Interfaces And Contracts.
