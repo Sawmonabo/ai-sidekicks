@@ -68,8 +68,7 @@ describe("v4.public sign / verify", () => {
   });
 
   it("signing with `undefined` footer matches signing with empty Uint8Array footer", () => {
-    // The `_` prefix matches `varsIgnorePattern` in `eslint.config.mjs`.
-    const { publicKey: _publicKey, secretKey } = generateV4PublicKeyPair();
+    const { secretKey } = generateV4PublicKeyPair();
     const payload = encoder.encode("payload");
 
     const tokenUndef = signV4Public(payload, secretKey, undefined);

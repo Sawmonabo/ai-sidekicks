@@ -19,9 +19,10 @@ export const V4_LOCAL_AUTHENTICATION_INFO: Uint8Array = new TextEncoder().encode
 );
 
 /**
- * v4.local encrypt with a caller-supplied nonce, so the RFC vectors can reproduce byte-exact
- * tokens. Not re-exported from the package index: production callers use `encryptV4Local`, which
- * supplies a fresh random nonce. Throws `InvalidKeyError` unless key and nonce are 32 bytes.
+ * v4.local encrypt with a caller-supplied nonce, so the upstream test vectors can reproduce
+ * byte-exact tokens. Not re-exported from the package index: production callers use
+ * `encryptV4Local`, which supplies a fresh random nonce. Throws `InvalidKeyError` unless key and
+ * nonce are 32 bytes.
  *
  * The step order follows the PASETO v4 spec; the MAC covers the nonce, ciphertext, footer and
  * implicit assertion through PAE, never the plaintext.
