@@ -2220,8 +2220,8 @@ export type {
   WslServiceRecord,
 } from "./service-place.js";
 export {
-  ExecutionPostureModeSchema,
   ModerationReviewFlaggedPayloadSchema,
+  PermissionLevelSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
@@ -2257,9 +2257,9 @@ export {
   SideQuestionIdSchema,
 } from "./session-controls.js";
 export type {
-  ExecutionPostureMode,
   ModerationReviewFlaggedPayload,
   ModerationReviewSignal,
+  PermissionLevel,
   ProviderWarningSource,
   RunSafetyBufferingUpdatedPayload,
   RunStepLimitReachedPayload,
