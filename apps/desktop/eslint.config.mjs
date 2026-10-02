@@ -34,7 +34,7 @@ import {
 } from "./eslint.restricted-syntax.mjs";
 import { defineConfig } from "eslint/config";
 import perfectionist from "eslint-plugin-perfectionist";
-import root, { ENUM_DECLARATION } from "../../eslint.config.mjs";
+import root, { ENUM_DECLARATION, requireJsxInTsx } from "../../eslint.config.mjs";
 
 /**
  * The bare specifiers renderer source may not import. Hoisted so the wire-parsing block can extend
@@ -474,7 +474,7 @@ const CLASS_SECTION_GROUPS = [
   "unknown",
 ];
 
-export default defineConfig(
+const desktopConfig = defineConfig(
   root,
   // `src/shared/**` is imported by both processes, so all of it is bundled into the renderer. The
   // renderer ban below is scoped to `src/renderer/src/**`, so without this block a `node:fs` import
@@ -873,8 +873,9 @@ export default defineConfig(
   // `newlinesBetween` (`"ignore"`), `partitionByComment` and `partitionByNewLine` (both `false`),
   // none of which is set here.
   //
-  // `eslint-plugin-perfectionist` is the one library the structure-enforcement axis admits;
-  // `@typescript-eslint/member-ordering` is not used, and no other perfectionist rule is enabled.
+  // The structure-enforcement axis admits two libraries: `eslint-plugin-perfectionist`, with no
+  // rule beyond these two enabled, and `eslint-plugin-check-file`, which the root config applies
+  // to file and folder names. `@typescript-eslint/member-ordering` is not used.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
     plugins: { perfectionist },
@@ -884,3 +885,5 @@ export default defineConfig(
     },
   },
 );
+
+export default requireJsxInTsx(desktopConfig);

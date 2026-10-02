@@ -43,7 +43,7 @@ import {
 } from "../workspace-service.js";
 import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
 
-import { captureRejection } from "./workspace-test-support.js";
+import { captureRejection } from "./workspace.test-support.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures

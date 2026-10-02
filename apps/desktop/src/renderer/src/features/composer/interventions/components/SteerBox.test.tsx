@@ -17,7 +17,7 @@ import {
   submit,
   type ScriptedAnswer,
   typeInto,
-} from "./steer-box.test-support.js";
+} from "./SteerBox.test-support.js";
 import { RUN_ID, SECOND_RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 

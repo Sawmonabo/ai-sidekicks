@@ -8,7 +8,7 @@ import { type DiffModel } from "../diff-model.js";
 
 /**
  * A repository-wide patch: five thousand files, one changed line each. A windowing claim can
- * only be made against a change set this size, so it is built once for both suites.
+ * only be made against a change set this size, so it is built once for the whole suite.
  */
 export const REPOSITORY_WIDE_DIFF: DiffModel = buildDiffFixture({
   fileCount: 5_000,

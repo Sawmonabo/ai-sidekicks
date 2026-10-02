@@ -28,7 +28,7 @@ import {
 } from "../repo-root-resolver.js";
 import type { DirectoryReadabilityProbe } from "../trust-envelope.js";
 
-import { buildFixtureEnvironment, runFixtureGit } from "./workspace-test-support.js";
+import { buildFixtureEnvironment, runFixtureGit } from "./workspace.test-support.js";
 
 // Mode bits, `/bin/sh` scripts and raw git stdout need POSIX; win32 shapes are driven from POSIX by
 // injecting `path.win32`.

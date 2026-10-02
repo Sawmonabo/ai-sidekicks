@@ -17,7 +17,7 @@ import { __resetSessionAppendLocksForTest } from "../../events/session-append-lo
 import { openDatabase } from "../../session/migration-runner.js";
 import type { DaemonDomainError } from "../../ipc/domain-error.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
-import { captureRejection } from "../../workspace/__tests__/workspace-test-support.js";
+import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import type { EmitWorktreeEventInput } from "../worktree-event-emitter.js";
 import {

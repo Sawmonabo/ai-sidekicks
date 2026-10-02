@@ -9,7 +9,7 @@ import {
   RUN_ID,
   contextWindowEvent,
   mountToolbar,
-} from "./composer-toolbar.test-support.js";
+} from "./ComposerToolbar.test-support.js";
 
 describe("ComposerToolbar — the context meter", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {

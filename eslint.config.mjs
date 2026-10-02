@@ -43,7 +43,42 @@ const RENDERER_FILES = ["**/src/renderer/src/**/*.{ts,tsx}"];
 
 const NAMING_RULES_SOURCE = "the file and folder names in .claude/rules/coding-standards.md";
 
-export default defineConfig(
+/** A `.tsx` file with no JSX in it, which is named `.ts` instead. */
+const TSX_WITHOUT_JSX = {
+  selector: "Program:not(:has(JSXElement, JSXFragment))",
+  message: `A file with no JSX is .ts, not .tsx; see ${NAMING_RULES_SOURCE}`,
+};
+
+/** Names the `.tsx` copies `requireJsxInTsx` adds, so a second pass replaces them. */
+const TSX_COPY_NAME_SUFFIX = " (.tsx holds JSX)";
+
+/**
+ * Follows each config object that sets `no-restricted-syntax` with a copy for its `.tsx` files that
+ * adds the no-JSX selector. The selector cannot join the shared lists, because every `.ts` file
+ * would match it, and flat config keeps only the last matching object's options, so each object
+ * needs its own copy. Apply it to a whole config; copies from an earlier pass are rebuilt.
+ */
+export function requireJsxInTsx(configs) {
+  return configs
+    .filter((config) => !config.name?.endsWith(TSX_COPY_NAME_SUFFIX))
+    .flatMap((config) => {
+      const restrictedSyntax = config.rules?.["no-restricted-syntax"];
+      if (!Array.isArray(restrictedSyntax)) {
+        return [config];
+      }
+      const tsxCopy = {
+        name: `${config.name ?? "no-restricted-syntax"}${TSX_COPY_NAME_SUFFIX}`,
+        files: (config.files ?? ["**/*"]).map((pattern) => [pattern, "**/*.tsx"]),
+        rules: { "no-restricted-syntax": [...restrictedSyntax, TSX_WITHOUT_JSX] },
+      };
+      if (config.ignores) {
+        tsxCopy.ignores = config.ignores;
+      }
+      return [config, tsxCopy];
+    });
+}
+
+const repositoryConfig = defineConfig(
   {
     ignores: [
       "**/dist/**",
@@ -517,3 +552,5 @@ export default defineConfig(
     },
   },
 );
+
+export default requireJsxInTsx(repositoryConfig);
