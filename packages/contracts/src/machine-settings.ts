@@ -302,6 +302,11 @@ export interface MachineSettings {
   keepCrashReports: boolean;
   /** `Editor that opens files`; `null` is `System default`. */
   editorId: string | null;
+  /**
+   * Claude Code's `Advisor` for sessions started later: one of the advisor models Claude Code
+   * offers, or `null` for `Off`.
+   */
+  advisorModel: string | null;
   /** `Default checkout for a new project session`. */
   defaultCheckout: ExecutionMode;
   /** `Start a new session on the last model and effort used`. */
@@ -332,6 +337,7 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   updatesAutomatic: true,
   keepCrashReports: true,
   editorId: null,
+  advisorModel: null,
   defaultCheckout: "provisioned-worktree",
   newSessionCarriesLastModel: true,
   keepAwakeWhileAgentWorks: false,
@@ -378,6 +384,10 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   editorId: wireFreeFormString(
     MACHINE_SETTINGS_NAME_MAX_LEN,
     "MachineSettings.editorId",
+  ).nullable(),
+  advisorModel: wireFreeFormString(
+    MACHINE_SETTINGS_NAME_MAX_LEN,
+    "MachineSettings.advisorModel",
   ).nullable(),
   defaultCheckout: DefaultCheckoutSchema,
   newSessionCarriesLastModel: z.boolean(),
@@ -444,25 +454,8 @@ export type MachineSettingsChange = {
 /** Parses a {@link MachineSettingsChange}: one member, never none and never two. */
 export const MachineSettingsChangeSchema: z.ZodType<MachineSettingsChange, MachineSettingsChange> =
   z
-    .object({
-      updatesAutomatic: MACHINE_SETTINGS_MEMBER_SCHEMAS.updatesAutomatic.optional(),
-      keepCrashReports: MACHINE_SETTINGS_MEMBER_SCHEMAS.keepCrashReports.optional(),
-      editorId: MACHINE_SETTINGS_MEMBER_SCHEMAS.editorId.optional(),
-      defaultCheckout: MACHINE_SETTINGS_MEMBER_SCHEMAS.defaultCheckout.optional(),
-      newSessionCarriesLastModel:
-        MACHINE_SETTINGS_MEMBER_SCHEMAS.newSessionCarriesLastModel.optional(),
-      keepAwakeWhileAgentWorks: MACHINE_SETTINGS_MEMBER_SCHEMAS.keepAwakeWhileAgentWorks.optional(),
-      keepAwakeForOtherDevices: MACHINE_SETTINGS_MEMBER_SCHEMAS.keepAwakeForOtherDevices.optional(),
-      notifications: MACHINE_SETTINGS_MEMBER_SCHEMAS.notifications.optional(),
-      rememberSiteData: MACHINE_SETTINGS_MEMBER_SCHEMAS.rememberSiteData.optional(),
-      browserToolsForAgents: MACHINE_SETTINGS_MEMBER_SCHEMAS.browserToolsForAgents.optional(),
-      screenReaderMode: MACHINE_SETTINGS_MEMBER_SCHEMAS.screenReaderMode.optional(),
-      environmentRows: MACHINE_SETTINGS_MEMBER_SCHEMAS.environmentRows.optional(),
-      backup: MACHINE_SETTINGS_MEMBER_SCHEMAS.backup.optional(),
-      branchNamePattern: MACHINE_SETTINGS_MEMBER_SCHEMAS.branchNamePattern.optional(),
-      cloneFolder: MACHINE_SETTINGS_MEMBER_SCHEMAS.cloneFolder.optional(),
-      voice: MACHINE_SETTINGS_MEMBER_SCHEMAS.voice.optional(),
-    })
+    .object(MACHINE_SETTINGS_MEMBER_SCHEMAS)
+    .partial()
     .strict()
     .refine((change) => Object.values(change).filter((value) => value !== undefined).length === 1, {
       message: "A settings change carries exactly one member.",
