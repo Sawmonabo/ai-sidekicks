@@ -8,12 +8,13 @@ import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
  * One binding's configuration, exactly as the daemon serves it back.
  *
  * This is the redacted view and nothing else: the wire carries `envVarNames`, `headerNames`
- * and `urlQueryParamNames`, so a value is not withheld here, it never arrived. The URL is
- * query-redacted at the daemon and rendered verbatim, since a second redaction rule here
- * would drift from the first. Names render as names, not as a table with a blank value column,
- * which would read as an empty value. Arguments are rendered, not counted, because
- * `--read-only` and `--allow-write` are the same command with opposite grants. The groups are
- * helpers rather than second components: one component per file.
+ * and `urlQueryParamNames`, so a value is not withheld here, it never arrived. The URL arrives
+ * with its query and any user name or password stripped at the daemon and is rendered
+ * verbatim, since a second redaction rule here would drift from the first. Names render as
+ * names, not as a table with a blank value column, which would read as an empty value.
+ * Arguments are rendered, not counted, because `--read-only` and `--allow-write` are the same
+ * command with opposite grants. The groups are helpers rather than second components: one
+ * component per file.
  */
 export function ConfigReadBack(props: {
   readonly config: McpServerInventoryEntry["config"];

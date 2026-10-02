@@ -54,10 +54,9 @@ const EXTERNAL: NavigationVerdict = { kind: "external" };
 
 /**
  * Classifies one navigation target against the origins a window may navigate within.
- * Fail-closed: an unparseable target, a credentialed authority, or a scheme that is neither an
- * in-window origin nor a web address is `refused`. Web addresses are `http:` or `https:` only,
- * never with a username or password. A refusal reason names the class, never the target, so a
- * log line cannot carry an attacker's string.
+ * Fail-closed: an unparseable target, or a scheme that is neither an in-window origin nor a web
+ * address, is `refused`. Web addresses are `http:` or `https:` only. A refusal reason names the
+ * class, never the target, so a log line cannot carry an attacker's string.
  */
 export function classifyNavigation(
   targetUrl: string,
@@ -70,12 +69,6 @@ export function classifyNavigation(
     return { kind: "refused", reason: "unparseable navigation target" };
   }
 
-  const fault = webAddressFault(parsedUrl);
-  // Credentials in the authority are a phishing shape (`https://app@evil.test`).
-  if (fault === "credentials") {
-    return { kind: "refused", reason: "navigation target carries credentials" };
-  }
-
   const host = parsedUrl.host.toLowerCase();
   const protocol = parsedUrl.protocol.toLowerCase();
 
@@ -85,7 +78,7 @@ export function classifyNavigation(
     }
   }
 
-  if (fault === null) {
+  if (webAddressFault(parsedUrl) === null) {
     return EXTERNAL;
   }
 

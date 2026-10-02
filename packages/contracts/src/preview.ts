@@ -70,8 +70,8 @@ export const PREVIEW_ADDRESS_REFUSED_CODE = "preview.address_refused" as const;
 /** The type of {@link PREVIEW_ADDRESS_REFUSED_CODE}. */
 export type PreviewAddressRefusedCode = typeof PREVIEW_ADDRESS_REFUSED_CODE;
 /**
- * Why an address was refused: it carries a username or a password, its scheme is
- * one the pane cannot open, or the text is not an address at all.
+ * Why an address was refused: its scheme is one the pane cannot open, or the text is not an
+ * address at all.
  */
 export type PreviewAddressRefusedReason = WebAddressFault | "not_an_address";
 /** Every {@link PreviewAddressRefusedReason}. */
