@@ -1,4 +1,4 @@
-// Tests for the `AIS_PTY_BACKEND` grammar of `selectPtyHost`. The env reader, warn sink and both
+// Tests for the `SIDEKICKS_PTY_BACKEND` grammar of `selectPtyHost`. The env reader, warn sink and both
 // factories are injected, so no real env, console, `node-pty` or sidecar binary is touched and
 // the suite runs on every platform.
 
@@ -65,7 +65,7 @@ function buildDeps(
   return { ctx, deps };
 }
 
-describe("selectPtyHost — AIS_PTY_BACKEND unset", () => {
+describe("selectPtyHost — SIDEKICKS_PTY_BACKEND unset", () => {
   it("returns NodePtyHost on every platform without warning", () => {
     // Windows gets no platform-specific default either.
     for (const platform of ["linux", "darwin", "win32"] as const) {
@@ -81,7 +81,7 @@ describe("selectPtyHost — AIS_PTY_BACKEND unset", () => {
   });
 });
 
-describe("selectPtyHost — AIS_PTY_BACKEND=node-pty", () => {
+describe("selectPtyHost — SIDEKICKS_PTY_BACKEND=node-pty", () => {
   it("selects NodePtyHost on every platform without warning", () => {
     for (const platform of ["linux", "win32"] as const) {
       const { ctx, deps } = buildDeps({ platform, envValue: "node-pty" });
@@ -95,7 +95,7 @@ describe("selectPtyHost — AIS_PTY_BACKEND=node-pty", () => {
   });
 });
 
-describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar", () => {
+describe("selectPtyHost — SIDEKICKS_PTY_BACKEND=rust-sidecar", () => {
   it("returns the RustSidecarPtyHost on every platform without warning", () => {
     // The platform governs only the default, so a platform gate on this arm would fail here.
     for (const platform of ["linux", "darwin", "win32"] as const) {
@@ -140,7 +140,7 @@ describe("selectPtyHost — AIS_PTY_BACKEND=rust-sidecar", () => {
   });
 });
 
-describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with warn", () => {
+describe("selectPtyHost — unrecognized SIDEKICKS_PTY_BACKEND values fall back with warn", () => {
   const UNRECOGNIZED_CASES: ReadonlyArray<{ value: string; reason: string }> = [
     { value: "Rust-Sidecar", reason: "mixed case — is case-sensitive lowercase" },
     { value: "", reason: "empty string is unrecognized" },
@@ -158,7 +158,7 @@ describe("selectPtyHost — unrecognized AIS_PTY_BACKEND values fall back with w
       // The warning text is for the person and must stay exactly this format.
       expect(ctx.warn).toHaveBeenCalledTimes(1);
       expect(ctx.warn).toHaveBeenCalledWith(
-        `AIS_PTY_BACKEND='${value}' unrecognized; falling back to platform default`,
+        `SIDEKICKS_PTY_BACKEND='${value}' unrecognized; falling back to platform default`,
       );
     });
   }

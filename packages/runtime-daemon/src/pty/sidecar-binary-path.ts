@@ -71,7 +71,7 @@ function workspaceTargetPath(profile: "release" | "debug", binaryName: string): 
 }
 
 /**
- * Finds the sidecar binary: `AIS_PTY_SIDECAR_BIN` (an absolute path), the published platform
+ * Finds the sidecar binary: `SIDEKICKS_PTY_SIDECAR_BIN` (an absolute path), the published platform
  * package, then the workspace release and debug builds. Throws `PtyBackendUnavailableError`
  * listing each step's outcome when all miss; `details.cause` is the step 2 error.
  */
@@ -85,18 +85,18 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
 
   const attempts: ResolutionAttempt[] = [];
 
-  const fromEnv: string | undefined = env["AIS_PTY_SIDECAR_BIN"];
+  const fromEnv: string | undefined = env["SIDEKICKS_PTY_SIDECAR_BIN"];
   if (fromEnv === undefined || fromEnv.length === 0) {
     attempts.push({
       step: 1,
-      description: "env-var AIS_PTY_SIDECAR_BIN",
+      description: "env-var SIDEKICKS_PTY_SIDECAR_BIN",
       outcome: "unset",
     });
   } else if (!pathIsAbsolute(fromEnv)) {
     // A relative path would depend on `process.cwd()`.
     attempts.push({
       step: 1,
-      description: "env-var AIS_PTY_SIDECAR_BIN",
+      description: "env-var SIDEKICKS_PTY_SIDECAR_BIN",
       outcome: `rejected (relative path; absolute required): ${JSON.stringify(fromEnv)}`,
     });
   } else if (!existsSync(fromEnv)) {
@@ -104,7 +104,7 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     // host for good.
     attempts.push({
       step: 1,
-      description: "env-var AIS_PTY_SIDECAR_BIN",
+      description: "env-var SIDEKICKS_PTY_SIDECAR_BIN",
       outcome: `rejected (path does not exist): ${JSON.stringify(fromEnv)}`,
     });
   } else {
@@ -159,7 +159,7 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     details,
     `RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps ` +
       `. Attempts:\n${enumerated}\n` +
-      `Set AIS_PTY_SIDECAR_BIN=<absolute path> to override, or install the ` +
+      `Set SIDEKICKS_PTY_SIDECAR_BIN=<absolute path> to override, or install the ` +
       `published @ai-sidekicks/pty-sidecar package, or run \`cargo build --release\` ` +
       `inside packages/sidecar-rust-pty/.`,
   );

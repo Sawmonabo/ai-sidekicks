@@ -1828,12 +1828,12 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     return { opts, requireMock, existsMock };
   }
 
-  it("step 1 hits when AIS_PTY_SIDECAR_BIN is set to an absolute path that exists (steps 2/3/4 NOT consulted)", () => {
+  it("step 1 hits when SIDEKICKS_PTY_SIDECAR_BIN is set to an absolute path that exists (steps 2/3/4 NOT consulted)", () => {
     // The step-1 hit also probes existsSync so a stale env path cannot pass. Steps 2-4 must not
     // be consulted (requireMock is never called).
     const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/abs/path/to/sidecar");
     const { opts, requireMock } = makeOpts({
-      env: { AIS_PTY_SIDECAR_BIN: "/abs/path/to/sidecar" },
+      env: { SIDEKICKS_PTY_SIDECAR_BIN: "/abs/path/to/sidecar" },
       existsSync: existsMock,
     });
 
@@ -1853,7 +1853,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     const step2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
     const existsMock = vi.fn<(p: string) => boolean>(() => false);
     const { opts } = makeOpts({
-      env: { AIS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
+      env: { SIDEKICKS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
       nodeRequire: { resolve: step2Mock },
       existsSync: existsMock,
     });
@@ -1873,7 +1873,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     // The relative path exists, so only the absolute-path check can reject it.
     const existsMock = vi.fn<(p: string) => boolean>((p) => p === "./relative/sidecar");
     const { opts } = makeOpts({
-      env: { AIS_PTY_SIDECAR_BIN: "./relative/sidecar" },
+      env: { SIDEKICKS_PTY_SIDECAR_BIN: "./relative/sidecar" },
       nodeRequire: { resolve: step2Mock },
       existsSync: existsMock,
     });
@@ -1968,7 +1968,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     expect(thrown.details.attemptedBackend).toBe("rust-sidecar");
 
     // The message enumerates every step's failure, not just "binary not found".
-    expect(thrown.message).toMatch(/step 1 \(env-var AIS_PTY_SIDECAR_BIN\): unset/);
+    expect(thrown.message).toMatch(/step 1 \(env-var SIDEKICKS_PTY_SIDECAR_BIN\): unset/);
     expect(thrown.message).toMatch(/step 2 \(require\.resolve.*\): threw:/);
     expect(thrown.message).toMatch(
       /step 3 \(packages\/sidecar-rust-pty\/target\/release\/sidecar\): not found at \/fake\/release\/sidecar/,
@@ -2074,11 +2074,11 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
       { attemptedBackend: "rust-sidecar", cause: innerCause },
       "RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps " +
         ". Attempts:\n" +
-        "  step 1 (env-var AIS_PTY_SIDECAR_BIN): unset\n" +
+        "  step 1 (env-var SIDEKICKS_PTY_SIDECAR_BIN): unset\n" +
         "  step 2 (require.resolve(...)): threw: Cannot find module\n" +
         "  step 3 (...): not found at /workspace/.../release/sidecar\n" +
         "  step 4 (...): not found at /workspace/.../debug/sidecar\n" +
-        "Set AIS_PTY_SIDECAR_BIN=...",
+        "Set SIDEKICKS_PTY_SIDECAR_BIN=...",
     );
 
     const host = new RustSidecarPtyHost({
@@ -2111,7 +2111,7 @@ describe("RustSidecarPtyHost — ensureChild preserves resolver-thrown PtyBacken
     // also assert the message and cause survive.
     if (thrown instanceof PtyBackendUnavailableError) {
       expect(thrown.message).toContain("not found on any of the four resolution steps");
-      expect(thrown.message).toContain("step 1 (env-var AIS_PTY_SIDECAR_BIN): unset");
+      expect(thrown.message).toContain("step 1 (env-var SIDEKICKS_PTY_SIDECAR_BIN): unset");
       expect(thrown.details.cause).toBe(innerCause);
     }
   });

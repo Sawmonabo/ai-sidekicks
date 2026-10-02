@@ -91,7 +91,7 @@ describe.runIf(process.platform === "win32")(
         ctxRunner.skip(
           "Rust sidecar binary not resolvable (run `cargo build --release` in " +
             "packages/sidecar-rust-pty/ before invoking this test, or set " +
-            "AIS_PTY_SIDECAR_BIN=<absolute path>).",
+            "SIDEKICKS_PTY_SIDECAR_BIN=<absolute path>).",
         );
         return;
       }
