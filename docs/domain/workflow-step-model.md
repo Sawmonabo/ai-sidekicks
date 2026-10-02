@@ -101,7 +101,7 @@ Error handling lives on the node that failed, inside the document body stored on
 - `retry { maxTries, waitMs }`: a failing node is tried again up to `maxTries` times, `waitMs` apart, each attempt its own step record. The engine clamps both values and never trusts them from the document. When the last attempt fails, `onError` takes effect.
 - Per-item errors ride the item itself, so one item can fail while the rest of a batch succeeds.
 - A `flow.stop-error` node makes a deliberate failure a visible element of the graph.
-- `Timeout`: the agent run, the shell command and the kinds that wait on a person carry one, empty by default, meaning none; a Code step's is 5 s by default. The run cap is `Stop a run after` on Settings › Runtime, off by default.
+- `Timeout`: the agent run, the shell command, the Code step and the kinds that wait on a person carry one, empty by default, meaning none. The run cap is `Stop a run after` on Settings › Runtime, off by default.
 - A failure lands on the node and in the session event log. The error trigger, which starts another workflow when a run fails, is a convenience on top of that record, never the only place a failure shows.
 
 ## Invariants
