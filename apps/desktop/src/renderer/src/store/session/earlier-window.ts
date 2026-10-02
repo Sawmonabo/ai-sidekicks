@@ -41,7 +41,7 @@ export interface EarlierWindowDependencies {
   readonly sessionId: string;
   readonly hueAllocator: AgentHueAllocator;
   /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
-  readonly outstandingAsks: WaitingOnPersonRegister;
+  readonly waitingOnPersonRegister: WaitingOnPersonRegister;
   readonly timelineCap: number | undefined;
 }
 
@@ -100,19 +100,19 @@ export interface EarlierWindowFold {
  * is refused as on the forward path, since a misrouted page would put another session's rows
  * under this session's ids.
  *
- * It sets nothing and advances the collaborators it is handed: the hue wheel takes every
- * recovered author, and the outstanding-ask register takes every recovered row, which is the
+ * It sets nothing and advances the dependencies it is handed: the hue wheel takes every
+ * recovered author, and the waiting-on-person register takes every recovered row, which is the
  * value of a backward page to it and is order-insensitive by construction.
  */
 export function foldEarlierWindowPage(
   current: SessionStoreState,
   events: readonly ProjectedSessionEvent[],
-  collaborators: EarlierWindowDependencies,
+  dependencies: EarlierWindowDependencies,
 ): EarlierWindowFold {
   const admissible = orderBatchBySequence(
     events.filter(
       (event) =>
-        event.sessionId === collaborators.sessionId && isReconcilableSequence(event.sequence),
+        event.sessionId === dependencies.sessionId && isReconcilableSequence(event.sequence),
     ),
   );
   const merge = mergeEarlierWindow(current.timeline, admissible);
@@ -121,15 +121,15 @@ export function foldEarlierWindowPage(
   }
   for (const event of admissible) {
     if (event.actorId !== undefined) {
-      collaborators.hueAllocator.admit(event.actorId);
+      dependencies.hueAllocator.admit(event.actorId);
     }
   }
-  collaborators.outstandingAsks.admit(admissible);
+  dependencies.waitingOnPersonRegister.admit(admissible);
   return {
     merge,
     nextState: {
       ...current,
-      timeline: capTimeline(merge.timeline, collaborators.timelineCap, EARLIER_PAGE_RETAINED_END),
+      timeline: capTimeline(merge.timeline, dependencies.timelineCap, EARLIER_PAGE_RETAINED_END),
       revision: current.revision + 1,
     },
   };

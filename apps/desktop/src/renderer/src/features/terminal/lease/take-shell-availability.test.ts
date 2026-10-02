@@ -1,4 +1,4 @@
-// When the lease line withholds the take control. A control drawn before the console knows
+// When the lease line draws no take control. A control drawn before the console knows
 // which device is asking would produce a take it cannot recognize as its own.
 
 import { describe, expect, it } from "vitest";
@@ -10,11 +10,11 @@ import { THIS_DEVICE_ID } from "./lease-model.test-support.js";
 
 const IDENTITY_READ: TerminalDeviceIdentity = { status: "read", userId: THIS_DEVICE_ID };
 
-function resolve(holding: TerminalLeaseHolder, deviceIdentity: TerminalDeviceIdentity) {
-  return resolveTakeShellAvailability({ holding, deviceIdentity });
+function resolve(holder: TerminalLeaseHolder, deviceIdentity: TerminalDeviceIdentity) {
+  return resolveTakeShellAvailability({ holder, deviceIdentity });
 }
 
-describe("the take control is withheld", () => {
+describe("the take control is absent", () => {
   it("offers nothing while the identity read is still out", () => {
     expect(resolve("unheld", { status: "not-loaded" })).toStrictEqual({ control: "none" });
   });

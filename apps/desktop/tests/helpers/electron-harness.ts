@@ -125,7 +125,7 @@ export interface LaunchAppOptions {
  */
 async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
   // Minted before the first phase, including the profile directory, so everything waited on is
-  // inside the budget. It carries the whole allowance (readiness, the witness, cleanup); each
+  // inside the budget. It carries the whole allowance (readiness, the paint probe, cleanup); each
   // readiness wait reserves the two later slices off it. Cleanup takes its slice as a ceiling, so
   // it is not handed this clock (`bounded-cleanup.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);

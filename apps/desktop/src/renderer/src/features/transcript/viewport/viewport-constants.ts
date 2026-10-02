@@ -1,6 +1,6 @@
 // The transcript frame's named figures that are not ceilings. The ceilings (window cap, reveal
 // budget, walk caps, parked-lease cap) live in `../frame/frame-caps.ts`, and
-// `../rows/markdown/parse/segmentation-bounds.ts` is the transcript's only other file of this
+// `../rows/markdown/parse/segmentation-measures.ts` is the transcript's only other file of this
 // kind. Every value here is spent in `reveal/`, `viewport/` or `scroll/`.
 
 /**

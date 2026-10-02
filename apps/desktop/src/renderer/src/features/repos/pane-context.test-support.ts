@@ -4,7 +4,7 @@ import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
- * A pane context at one address, with whichever collaborators the case reaches. The address
+ * A pane context at one address, with whichever dependencies the case reaches. The address
  * half is `PaneAddress`'s own union, so a pane handed a subject it is never opened over fails to
  * compile. The binding half is cast: no co-located case observes the persistence stack.
  */

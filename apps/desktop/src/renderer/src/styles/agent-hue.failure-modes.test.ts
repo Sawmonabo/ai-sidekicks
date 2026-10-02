@@ -20,14 +20,14 @@ describe("the agent hue wheel runs out of steps", () => {
     expect(allocator.admittedCount).toBe(agentIds.length);
     const firstTwelve = assignments.slice(0, HUE_WHEEL_STEPS);
     expect(new Set(firstTwelve.map((one) => one.step)).size).toBe(HUE_WHEEL_STEPS);
-    expect(firstTwelve.some((one) => one.sharesStepWithEarlierUser)).toBe(false);
+    expect(firstTwelve.some((one) => one.sharesStepWithEarlierAgent)).toBe(false);
     // Past twelve, no step holds two more occupants than another.
     const occupants = new Array<number>(HUE_WHEEL_STEPS).fill(0);
     for (const one of assignments) {
       occupants[one.step] = (occupants[one.step] ?? 0) + 1;
     }
     expect(Math.max(...occupants) - Math.min(...occupants)).toBeLessThanOrEqual(1);
-    expect(assignments.slice(HUE_WHEEL_STEPS).every((one) => one.sharesStepWithEarlierUser)).toBe(
+    expect(assignments.slice(HUE_WHEEL_STEPS).every((one) => one.sharesStepWithEarlierAgent)).toBe(
       true,
     );
   });

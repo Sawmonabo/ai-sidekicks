@@ -8,8 +8,8 @@ import { commandRegistry } from "@renderer/registries/commands/window-command-re
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { SESSION_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
 import { ComposerSendRouter } from "../../draft-line/send-router.js";
-import { createClientCommandExecutor } from "../client-command-executor.js";
-import { recognizeClientCommand } from "../client-command-recognizer.js";
+import { createConsoleCommandExecutor } from "../console-command-executor.js";
+import { recognizeConsoleCommand } from "../console-command-recognizer.js";
 import { readComposerCommands } from "../composer-commands.js";
 import {
   LINE_READING_COMMAND_IDS,
@@ -38,8 +38,8 @@ function registerRoot(commandId: string): void {
 function routerOverRegistry(): ComposerSendRouter {
   return new ComposerSendRouter({
     calls: sendCallsAnswering(async () => undefined),
-    recognizeClientCommand: (commandName) =>
-      recognizeClientCommand(commandName, {
+    recognizeConsoleCommand: (commandName) =>
+      recognizeConsoleCommand(commandName, {
         registeredCommandIds: readComposerCommands(DEFAULT_ROUTE).registeredCommandIds,
       }).status === "recognized",
   });
@@ -78,11 +78,11 @@ describe("the documented line, end to end through the recognizer and the router"
     const resolution = routerOverRegistry().resolve("/workflow start nightly", SESSION_TARGET);
 
     expect(resolution).toStrictEqual({
-      outcome: "client-command",
+      outcome: "console-command",
       commandName: WORKFLOW_COMMAND_ROOT,
     });
-    if (resolution.outcome !== "client-command") {
-      throw new Error("the documented line must be intercepted as a client command");
+    if (resolution.outcome !== "console-command") {
+      throw new Error("the documented line must be intercepted as a console command");
     }
     const handlers: ComposerCommandLineHandlers = new Map([
       [
@@ -97,7 +97,7 @@ describe("the documented line, end to end through the recognizer and the router"
           }),
       ],
     ]);
-    const executor = createClientCommandExecutor({
+    const executor = createConsoleCommandExecutor({
       readCommands: () => readComposerCommands(DEFAULT_ROUTE),
       readCommandLineHandlers: () => handlers,
       lineReadingCommandIds: LINE_READING_COMMAND_IDS,

@@ -1,4 +1,4 @@
-// The two platform arms of a tree kill, each a decision over injected collaborators, because a
+// The two platform arms of a tree kill, each a decision over injected dependencies, because a
 // macOS runner never enters the `taskkill` arm and the POSIX arm would signal a real group.
 // `termination.ts` picks the arm; the readings come from `readers.ts`, `liveness.ts` and
 // `identity.ts`.

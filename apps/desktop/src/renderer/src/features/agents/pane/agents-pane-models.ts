@@ -1,7 +1,7 @@
-// Who owns the Agents pane's reads, and for how long; `../agent-reads.ts` owns which method
-// answers each read and what makes it ask again. A console shows one session, so the models hold
-// one roster (built with them) and at most one linkage read (built on the first lease, disposed
-// with the last). Acquiring a linkage read does not start it: render may be abandoned or
+// Who owns the Agents pane's reads, and for how long; `../agent-reads.ts` owns which method answers
+// each read and what makes it ask again. A console shows one session, so the models hold one agent
+// list (built with them) and at most one child-run links read (built on the first lease, disposed
+// with the last). Acquiring a child-run links read does not start it: render may be abandoned or
 // replayed, so the pane starts it from a mount effect, where a cleanup exists. `start()` is
 // idempotent. The clock comes from the bridge, so the fixture's frozen clock drives every debounce.
 
@@ -28,7 +28,7 @@ export interface ChildRunLinksLease {
 }
 
 /**
- * One session's Agents pane reads. A class because it owns the linkage cache's lifetime and
+ * One session's Agents pane reads. A class because it owns the child-run links cache's lifetime and
  * teardown.
  */
 export class AgentsPaneModels {
@@ -37,12 +37,12 @@ export class AgentsPaneModels {
    * `sessionId`, because child links and refused creates arrive as session events.
    */
   public readonly subject: SessionSubject;
-  public readonly roster: AgentListRead;
+  public readonly agentList: AgentListRead;
 
   readonly #clock: Clock;
   readonly #calls: AgentsPaneCalls;
-  #linkage: ChildRunLinksRead | undefined;
-  #outstandingLinkageLeaseCount = 0;
+  #childRunLinks: ChildRunLinksRead | undefined;
+  #outstandingChildRunLinksLeaseCount = 0;
   #disposed = false;
 
   public constructor(
@@ -55,8 +55,8 @@ export class AgentsPaneModels {
     this.#calls = calls;
     // The window's clock, so these reads do not run on wall time while scenarios use frozen time.
     this.#clock = clock;
-    this.roster = createAgentList(sessionStore, this.#clock, calls.listAgents);
-    this.roster.start();
+    this.agentList = createAgentList(sessionStore, this.#clock, calls.listAgents);
+    this.agentList.start();
   }
 
   /** The session these reads answer for, read off the subject so there is one copy of it. */
@@ -64,27 +64,27 @@ export class AgentsPaneModels {
     return this.subject.sessionStore.sessionId;
   }
 
-  /** Whether a linkage read is held. */
-  public get holdsLinkage(): boolean {
-    return this.#linkage !== undefined;
+  /** Whether a child-run links read is held. */
+  public get holdsChildRunLinks(): boolean {
+    return this.#childRunLinks !== undefined;
   }
 
-  /** Linkage leases handed out and not given back. */
-  public get outstandingLinkageLeaseCount(): number {
-    return this.#outstandingLinkageLeaseCount;
+  /** Child-run links leases handed out and not given back. */
+  public get outstandingChildRunLinksLeaseCount(): number {
+    return this.#outstandingChildRunLinksLeaseCount;
   }
 
   /**
    * Take a lease on the session's child-link read, building it on the first ask. The read is
    * not started here; the taker starts it from a mount effect.
    */
-  public acquireLinkage(): ChildRunLinksLease {
-    const linkage =
-      this.#linkage ??
+  public acquireChildRunLinks(): ChildRunLinksLease {
+    const childRunLinks =
+      this.#childRunLinks ??
       createChildRunLinks(this.subject.sessionStore, this.#clock, this.#calls.readChildRunLinks);
-    this.#linkage = linkage;
-    this.#outstandingLinkageLeaseCount += 1;
-    return this.#leaseOn(linkage);
+    this.#childRunLinks = childRunLinks;
+    this.#outstandingChildRunLinksLeaseCount += 1;
+    return this.#leaseOn(childRunLinks);
   }
 
   /** Release every read. Terminal. */
@@ -93,33 +93,33 @@ export class AgentsPaneModels {
       return;
     }
     this.#disposed = true;
-    this.roster.dispose();
-    this.#releaseLinkage();
+    this.agentList.dispose();
+    this.#releaseChildRunLinks();
   }
 
   /** One lease over the held read, counted down once however often it is released. */
-  #leaseOn(linkage: ChildRunLinksRead): ChildRunLinksLease {
+  #leaseOn(childRunLinks: ChildRunLinksRead): ChildRunLinksLease {
     let isReleased = false;
     return {
-      read: linkage,
+      read: childRunLinks,
       release: () => {
         if (isReleased) {
           return;
         }
         isReleased = true;
-        this.#outstandingLinkageLeaseCount -= 1;
-        if (this.#outstandingLinkageLeaseCount <= 0) {
-          this.#releaseLinkage();
+        this.#outstandingChildRunLinksLeaseCount -= 1;
+        if (this.#outstandingChildRunLinksLeaseCount <= 0) {
+          this.#releaseChildRunLinks();
         }
       },
     };
   }
 
-  /** Dispose whatever linkage read is held, at most once. Safe with none. */
-  #releaseLinkage(): void {
-    const held = this.#linkage;
-    this.#linkage = undefined;
-    this.#outstandingLinkageLeaseCount = 0;
+  /** Dispose whatever child-run links read is held, at most once. Safe with none. */
+  #releaseChildRunLinks(): void {
+    const held = this.#childRunLinks;
+    this.#childRunLinks = undefined;
+    this.#outstandingChildRunLinksLeaseCount = 0;
     held?.dispose();
   }
 }

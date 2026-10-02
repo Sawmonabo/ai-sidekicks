@@ -9,13 +9,13 @@ import { leaseState, renderLease } from "./LeaseLine.test-support.js";
 import { OTHER_DEVICE_ID } from "../lease-model.test-support.js";
 
 describe("the take control is gated on knowing which device this is", () => {
-  /** The take control, or `null` — the shape the withheld cases need. */
+  /** The take control, or `null` — the shape the absent-control cases need. */
   function offeredTakeControl(container: HTMLElement): Element | null {
     return container.querySelector(".meridian-lease-line__take");
   }
 
   const HELD_BY_SOMEBODY = leaseState({
-    holding: "held-by-another-device",
+    holder: "held-by-another-device",
     holderDeviceId: OTHER_DEVICE_ID,
   });
 
@@ -25,7 +25,7 @@ describe("the take control is gated on knowing which device this is", () => {
   });
 
   it("negative control: a read identity does get the control", () => {
-    // Without this the withheld case would pass against a line that had simply stopped
+    // Without this the absent-control case would pass against a line that had simply stopped
     // rendering the take control at all.
     const { container } = renderLease(HELD_BY_SOMEBODY);
     expect(offeredTakeControl(container)?.textContent).toBe("Take the shell");

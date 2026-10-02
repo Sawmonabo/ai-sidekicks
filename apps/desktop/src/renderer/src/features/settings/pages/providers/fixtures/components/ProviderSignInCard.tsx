@@ -4,7 +4,7 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
-import type { SignInFlowState } from "../sign-in-flow.js";
+import type { ProviderSignInFlowState } from "../provider-sign-in-flow.js";
 
 /**
  * The card a brokered sign-in is watched from: where to finish it, the code to type, and when
@@ -16,8 +16,8 @@ import type { SignInFlowState } from "../sign-in-flow.js";
  * is a registry question. The verification URI is rendered and never followed, since a URL a
  * page navigates to on its own is a flow the person did not choose to start.
  */
-export function SignInCard(props: {
-  readonly flow: SignInFlowState;
+export function ProviderSignInCard(props: {
+  readonly flow: ProviderSignInFlowState;
   readonly onCancel: () => void;
 }): ReactNode {
   const { flow, onCancel } = props;

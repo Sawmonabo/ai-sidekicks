@@ -1,4 +1,4 @@
-// The holding line in the one state the design draws with no way to take the shell: a running
+// The holder line in the one state the design draws with no way to take the shell: a running
 // command holds it, and no device can take it from the command.
 
 import { describe, expect, it } from "vitest";
@@ -6,11 +6,11 @@ import { describe, expect, it } from "vitest";
 import { leaseState, renderLease } from "./LeaseLine.test-support.js";
 import { COMMAND_ID, RUN_ID, THIS_DEVICE_ID } from "../lease-model.test-support.js";
 
-describe("the holding line — a running command holds the shell", () => {
+describe("the holder line — a running command holds the shell", () => {
   it("says the command holds it, offers no take, and never tells this device it may type", () => {
     const { container } = renderLease(
       leaseState({
-        holding: "held-by-run",
+        holder: "held-by-run",
         holderDeviceId: THIS_DEVICE_ID,
         holderRunId: RUN_ID,
         holderCommandId: COMMAND_ID,

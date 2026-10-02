@@ -34,7 +34,6 @@ export const SCENARIO: Scenario = {
   label: "Session screen",
   purpose: "Drives the session screen's composition.",
   sessionId: SESSION_ID,
-  userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [],
   replies: [],

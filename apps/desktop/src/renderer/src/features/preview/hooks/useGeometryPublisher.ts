@@ -16,9 +16,9 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import type { PaneSubject } from "../types.js";
 
 /**
- * One publisher over the given page host, for the pane it is for. The clock is the window's,
- * so a frozen scenario freezes the publisher's frame; the airspace comes off the document,
- * which an overlay and this pane share within one window. Arms nothing.
+ * One publisher over the given page host, for the pane it is for. The clock is the window's, so the
+ * scenario at a fixed frame holds the publisher's frame; the airspace comes off the document, which
+ * an overlay and this pane share within one window. Arms nothing.
  */
 function createGeometryBinding(
   subject: PaneSubject,

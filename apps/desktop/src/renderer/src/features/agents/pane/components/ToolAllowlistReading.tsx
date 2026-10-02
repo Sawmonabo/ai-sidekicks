@@ -7,7 +7,8 @@ const WEIGHT_CLASS_NAMES: Readonly<Record<ToolAllowlistWeight, string>> = {
 };
 
 /**
- * One tool-grant reading, at the weight its position carries. Shared by the grant line and the
+ * One tool-allowlist reading, at the weight its position carries. Shared by the allowlist line
+ * and the
  * echo's Tools row so an absence never reads like a restriction somebody chose.
  */
 export function ToolAllowlistReading(props: {

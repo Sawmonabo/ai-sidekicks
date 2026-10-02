@@ -216,7 +216,7 @@ export function useOpenSessionProjection(
 
 /**
  * What one open session's store can say, as list rows. The users attach only to the store's
- * own session, since its roster would misattribute people to a session it merely heard about.
+ * own session, since its user list would misattribute people to a session it merely heard about.
  */
 function projectOneStore(store: SessionStore): readonly SessionListRow[] {
   const { partitions } = store.snapshot();

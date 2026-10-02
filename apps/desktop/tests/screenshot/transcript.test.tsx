@@ -121,7 +121,7 @@ describe("screenshot — the app under the concurrent-streaming scenario", () =>
 });
 
 describe("screenshot — the transcript's empty state", () => {
-  it("renders a session that has a roster and no log", async () => {
+  it("renders a session that has agents and no log", async () => {
     // One scheme, as `app-frame.test.tsx` does for the palette: both are pinned by the pair
     // above, and this capture is for the copy and shape of the absence, which the scheme does
     // not decide.

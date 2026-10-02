@@ -35,7 +35,7 @@ const PRECISE_MEMORY_INFO_FLAG = "--enable-precise-memory-info";
  *
  * It moves no heap figure, since `usedJSHeapSize` counts the V8 heap, not a rasterizer's store.
  * It can move wall-time bounds: a CPU rasterizer starts the GPU process and paints on a different
- * schedule, so a red `console-launch-*` or `console-endurance-body` check on Linux is a candidate
+ * schedule, so a red `launch-*` or `endurance-body` check on Linux is a candidate
  * to weigh. The frame-paint probe fails only on a frame that never arrives, so a slower paint
  * passes it silently; the frame interval `launch-readiness.ts` prints on every launch is the
  * evidence to read.

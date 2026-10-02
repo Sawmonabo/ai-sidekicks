@@ -83,7 +83,6 @@ export function bridgeFor(options: { readonly scriptsCreate: boolean }): Platfor
     label: "New session control",
     purpose: "Drives the composed-draft control's create call.",
     sessionId: "session-draft",
-    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
     replies: options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : [],

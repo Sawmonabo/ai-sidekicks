@@ -63,7 +63,7 @@ const DESCENDANT_LISTING_READER: ProcessTableReader = TERMINATION_CONSUMES_CAPTU
  * before a disposal runs, leaving a pid that names a stranger. The descendant capture cannot
  * happen at spawn, since Electron has no children yet, so it is refreshed on every verified
  * reading and by an owner that knows its child is up. Each member is captured with the stamp
- * the same listing reported, so the set stays addressable after the root is gone. Collaborators
+ * the same listing reported, so the set stays addressable after the root is gone. Dependencies
  * are injected because a pid changing holder between two reads cannot be arranged against a
  * live process.
  */

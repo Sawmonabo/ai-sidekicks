@@ -1,14 +1,14 @@
-// An agent's tool grant: an unreported configuration, the driver's default set and an empty
+// An agent's tool allowlist: an unreported configuration, the driver's default set and an empty
 // allowlist are three positions, never folded into one.
 
 import { describe, expect, it } from "vitest";
 
-import { agentEntry, resolvedConfiguration } from "@test/helpers/agent-roster.js";
+import { agentEntry, resolvedConfiguration } from "@test/helpers/agent-list.js";
 import { agentToolAllowlistPosition } from "./tool-allowlist.js";
 
 const IDENTITY_ONLY = agentEntry();
 
-describe("agent tool grant — the absences stay apart", () => {
+describe("agent tool allowlist — the missing readings stay apart", () => {
   it("reads an agent with no resolved configuration as unanswered", () => {
     expect(agentToolAllowlistPosition(IDENTITY_ONLY)).toStrictEqual({ kind: "not-reported" });
   });

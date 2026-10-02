@@ -1,4 +1,4 @@
-// The palette entry's own act: putting the directive on the line without eating it. The palette
+// The palette entry's own act: putting the command word on the line without eating it. The palette
 // has no line and so no name, so it prefills `/workflow start ` and asks for the caret; the
 // command-line handler runs once the line is complete. `DraftStore.write` replaces the whole text
 // with no history, so the write happens only into a blank line and otherwise waits for an explicit
@@ -33,7 +33,7 @@ export interface WorkflowStartPrefillPrompt {
   readonly keepLine: () => void;
 }
 
-/** Decide what typing the directive onto this line would cost. Pure, so it is testable alone. */
+/** Decide what typing the command word onto this line would cost. Pure, so it is testable alone. */
 export function decideWorkflowStartPrefill(currentText: string): WorkflowStartPrefillDecision {
   return currentText.trim().length === 0
     ? { status: "prefill" }

@@ -1,6 +1,6 @@
 // The epoch rule: which rows are seams, and what one row's seam says. The closed vocabulary
 // it classifies into (kinds, wire types, labels, glyphs, the one caution) is in
-// `system-message-kinds.ts`. Superseded turns are ranked separately in `superseded-bands.ts`.
+// `system-message-kinds.ts`. Superseded turns are ranked separately in `superseded-turns.ts`.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 

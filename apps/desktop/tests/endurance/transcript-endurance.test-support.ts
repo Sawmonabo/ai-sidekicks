@@ -1,8 +1,8 @@
-// The endurance scenario: a session as long as the transcript claims to survive.
+// Endurance test support: a session log as long as the transcript claims to survive.
 //
 // Not a picker scenario and not in `fixtures/index.ts`: a ten-thousand-row session in the
-// manifest would be paid for by every suite that iterates the shipped set. It is a generator the
-// endurance and bench tiers call with the row count they measure, so the count is a required
+// manifest would be paid for by every suite that iterates the shipped set. It is a generator
+// `transcript-endurance.test.ts` calls with the row count it measures, so the count is a required
 // argument: a fixture that hard-coded ten thousand would have callers measuring one number and
 // reporting another.
 //
@@ -30,7 +30,7 @@ import {
   toolActivityEntry,
   type ScriptEntry,
 } from "../../fixtures/data/script-entries.js";
-import type { Scenario } from "../../fixtures/scenario.js";
+import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The UUID v7 time prefix every generated identifier shares. */
 const ENDURANCE_ID_PREFIX = "019b7892-1c00";
@@ -38,7 +38,7 @@ const ENDURANCE_ID_PREFIX = "019b7892-1c00";
 const SESSION_ID = `${ENDURANCE_ID_PREFIX}-75e5-8510-ada11a5a47a5`;
 
 /**
- * The stem this scenario's row ids are minted from, its own namespace rather than its
+ * The stem this log's row ids are minted from, its own namespace rather than its
  * session's. `composeScriptBeats` completes it with the beat's position.
  */
 const EVENT_ID_STEM = `${ENDURANCE_ID_PREFIX}-7ea1-8110-e5e0d115`;
@@ -53,7 +53,7 @@ const startedAtMs = Date.UTC(2026, 0, 1, 8, 0);
 
 const STARTED_AT_ISO = new Date(startedAtMs).toISOString();
 
-/** Scenario time between two consecutive beats. Even spacing, so the stream is steady. */
+/** Time between two consecutive events. Even spacing, so the stream is steady. */
 const ENDURANCE_BEAT_INTERVAL_MS = 20;
 
 /** The cast. Three lanes' worth of agents, cycled across every generated run. */
@@ -98,7 +98,7 @@ const ENDURANCE_BODY_CYCLE_LENGTH = 8;
 
 /** What the generator needs to know. */
 interface TranscriptEnduranceFixtureOptions {
-  /** Exactly how many beats the generated scenario plays. */
+  /** Exactly how many events the generated log holds. */
   readonly rowCount: number;
   /** How many run groups those beats are spread across. Defaults to 24. */
   readonly runCount?: number;
@@ -108,7 +108,7 @@ interface TranscriptEnduranceFixtureOptions {
 const DEFAULT_ENDURANCE_RUN_COUNT = 24;
 
 /**
- * A generated session of exactly `rowCount` beats, spread over `runCount` run groups.
+ * A generated session log of exactly `rowCount` events, spread over `runCount` run groups.
  *
  * The count is exact because an endurance reading names the row count it was taken at. Throws a
  * `RangeError` for a non-integer row or run count, or a row count too small to give every run
@@ -116,16 +116,16 @@ const DEFAULT_ENDURANCE_RUN_COUNT = 24;
  */
 export function createTranscriptEnduranceFixture(
   options: TranscriptEnduranceFixtureOptions,
-): Scenario {
+): readonly ProjectedSessionEvent[] {
   const runCount = options.runCount ?? DEFAULT_ENDURANCE_RUN_COUNT;
   if (!Number.isInteger(runCount) || runCount < 1) {
     throw new RangeError(
-      `a transcript endurance scenario needs a whole, positive run count; received ${String(runCount)}.`,
+      `a transcript endurance log needs a whole, positive run count; received ${String(runCount)}.`,
     );
   }
   if (!Number.isInteger(options.rowCount)) {
     throw new RangeError(
-      `a transcript endurance scenario needs a whole row count; received ${String(options.rowCount)}.`,
+      `a transcript endurance log needs a whole row count; received ${String(options.rowCount)}.`,
     );
   }
   const { bodyPerRun, lastRunExtraBody } = planRunBodies(options.rowCount, runCount);
@@ -208,38 +208,12 @@ export function createTranscriptEnduranceFixture(
     );
   }
 
-  return {
-    id: "transcript-endurance",
-    label: "Endurance",
-    purpose: `A generated session of ${String(options.rowCount)} rows across ${String(runCount)} run groups, for the tiers that measure the transcript at scale.`,
+  return composeScriptBeats({
     sessionId: SESSION_ID,
-    userIdsInJoinOrder: [USER_YOU, ...ENDURANCE_AGENTS.map((agent) => agent.agentId)],
-    callerUserId: USER_YOU,
-    startedAtIso: STARTED_AT_ISO,
-    beats: composeScriptBeats({
-      sessionId: SESSION_ID,
-      eventIdStem: EVENT_ID_STEM,
-      startedAtMs,
-      entries,
-    }),
-    replies: [
-      {
-        call: "session.read",
-        result: {
-          session: {
-            id: SESSION_ID,
-            state: "active",
-            createdAt: STARTED_AT_ISO,
-            updatedAt: new Date(
-              startedAtMs + entries.length * ENDURANCE_BEAT_INTERVAL_MS,
-            ).toISOString(),
-            draft: "",
-          },
-          timelineCursors: { latest: `transcript-endurance-cursor-${String(entries.length)}` },
-        },
-      },
-    ],
-  };
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs,
+    entries,
+  }).map((beat) => beat.event);
 }
 
 /** A generated run's identifier, a function of its index and nothing else. */
@@ -323,7 +297,7 @@ function planRunBodies(
   const minimumRowCount = rowCount - bodyBudget + runCount;
   if (bodyBudget < runCount) {
     throw new RangeError(
-      `a transcript endurance scenario of ${String(runCount)} runs needs at least ` +
+      `a transcript endurance log of ${String(runCount)} runs needs at least ` +
         `${String(minimumRowCount)} rows — ${String(OPENING_BEAT_COUNT)} to open the session, ` +
         `${String(RUN_LIFECYCLE_BEAT_COUNT)} per run for its lifecycle, and one body row each. ` +
         `Received ${String(rowCount)}.`,

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { TokenRegistrationOutcome } from "../sign-in-flow.js";
+import type { TokenRegistrationOutcome } from "../provider-sign-in-flow.js";
 
 /** What the registration did, and the form's own words where it refused the fields. */
 export function RegistrationOutcomeLine(props: {

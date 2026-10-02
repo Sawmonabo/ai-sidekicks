@@ -9,7 +9,7 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
-import { createClientCommandExecutor } from "../client-command-executor.js";
+import { createConsoleCommandExecutor } from "../console-command-executor.js";
 import { noComposerCommandLineHandlers } from "../composer-command-line-handlers.js";
 import { type ComposerCommands } from "../composer-commands.js";
 import {
@@ -85,7 +85,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
 
   const executor = useMemo(
     () =>
-      createClientCommandExecutor({
+      createConsoleCommandExecutor({
         readCommands,
         readCommandLineHandlers: noComposerCommandLineHandlers,
         lineReadingCommandIds: PICKED_ENTRY_READS_NO_LINE,

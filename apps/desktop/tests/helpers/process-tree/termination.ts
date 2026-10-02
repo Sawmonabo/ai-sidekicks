@@ -3,7 +3,7 @@
 // The smoke probe and the tier launcher each grew their own copy of these platform facts and
 // diverged: only one read `taskkill`'s exit status, so the other reported a kill it had not
 // performed. This module is the public entry and the dispatch between the arms in
-// `platform-termination.ts`, binding their collaborators to one shared deadline.
+// `platform-termination.ts`, binding their dependencies to one shared deadline.
 //
 // - POSIX: `electron-child.ts` and `playwright-core` spawn with `detached: process.platform !==
 //   "win32"`, so Electron leads its own process group and `-pid` reaches the browser, zygote and
@@ -70,7 +70,7 @@ const PLATFORM_EXTERNAL_HOST_COMMANDS: ExternalHostCommands = {
 };
 
 /**
- * The Windows arm's collaborators, every one charged to one deadline.
+ * The Windows arm's dependencies, every one charged to one deadline.
  *
  * The closures hold the budget and ask it afresh at each call, so the figures decline across a
  * sequence and sum to the deadline. Capturing a number instead let `taskkill` and the fallback

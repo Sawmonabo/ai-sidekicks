@@ -48,7 +48,7 @@ export function SendButton(props: SendButtonProps): React.JSX.Element {
     calls: props.calls,
     target: address.target,
     draftStore: props.draftStore,
-    recognizeClientCommand: commandZone.recognizeClientCommand,
+    recognizeConsoleCommand: commandZone.recognizeConsoleCommand,
     commandExecutor: commandZone.commandExecutor,
     recognizeProviderCommand: commandZone.recognizeProviderCommand,
   });

@@ -10,7 +10,7 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcrip
 
 /**
  * Subscribe to one session's log and project it with every run group's member rows unfolded, so
- * facet counts and narrowing see the rows a closed run group's fold would hide. Subscribes to
+ * Find counts the rows a closed run group's fold would hide. Subscribes to
  * `timeline` only, which the store replaces just when it admits an event.
  */
 export function useTranscriptProjection(sessionStore: SessionStore): TranscriptWindowModel {

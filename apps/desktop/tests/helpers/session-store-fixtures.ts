@@ -1,4 +1,4 @@
-// The collaborators every session-store-registry suite constructs a registry with: the reader,
+// The dependencies every session-store-registry suite constructs a registry with: the reader,
 // the projector, the event and snapshot builders, the microtask settle, and an initialized store.
 //
 // Shared because suites in several features build their initialized store through it. It is the

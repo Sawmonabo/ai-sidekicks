@@ -22,7 +22,7 @@ export const DIFF_PANE_WORKSPACE_ENTITY = {
 } as const;
 
 /**
- * A pane context whose collaborators are never reached: these cases render from the address
+ * A pane context whose dependencies are never reached: these cases render from the address
  * alone. The entity is the arm's own, so a subject a diff never opens over fails to compile.
  */
 export function diffPaneContextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {

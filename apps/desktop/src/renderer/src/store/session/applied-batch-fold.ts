@@ -2,8 +2,8 @@
 // chokepoint (who may write, the re-entrancy latch, the tripwire, the queue); this is a function
 // over a state and a list of rows.
 //
-// It mutates the collaborators it is handed (the reconciler's cursor, the pre-initialization
-// buffer, the hue wheel and the outstanding-ask register), because they are the store's and all
+// It mutates the dependencies it is handed (the reconciler's cursor, the pre-initialization
+// buffer, the hue wheel and the waiting-on-person register), because they are the store's and all
 // advance on exactly the rows a batch admits. It never sets the store's own zustand cell: the
 // state is answered, so the one writer stays one.
 
@@ -30,7 +30,7 @@ export interface AppliedBatchDependencies {
   readonly preInitializationBuffer: PreInitializationBuffer;
   readonly hueAllocator: AgentHueAllocator;
   /** The ledger of what is still waiting on a person. Advanced by every admitted row. */
-  readonly outstandingAsks: WaitingOnPersonRegister;
+  readonly waitingOnPersonRegister: WaitingOnPersonRegister;
   readonly timelineCap: number | undefined;
   readonly retainedEnd: TimelineRetainedEnd;
 }
@@ -52,7 +52,7 @@ export interface AppliedBatch {
 export function foldAppliedBatch(
   current: SessionStoreState,
   events: readonly ProjectedSessionEvent[],
-  collaborators: AppliedBatchDependencies,
+  dependencies: AppliedBatchDependencies,
 ): AppliedBatch {
   let admitted = 0;
   let duplicates = 0;
@@ -67,7 +67,7 @@ export function foldAppliedBatch(
   let appended: ProjectedSessionEvent[] | undefined;
 
   for (const event of orderBatchBySequence(events)) {
-    if (event.sessionId !== collaborators.sessionId) {
+    if (event.sessionId !== dependencies.sessionId) {
       refusedForeignSession += 1;
       continue;
     }
@@ -78,13 +78,13 @@ export function foldAppliedBatch(
     }
     if (!current.initialized) {
       buffered += 1;
-      if (collaborators.preInitializationBuffer.push(event)) {
+      if (dependencies.preInitializationBuffer.push(event)) {
         droppedBeforeInitialization += 1;
       }
       continue;
     }
 
-    const admission = collaborators.reconciler.reconcile(event.sequence);
+    const admission = dependencies.reconciler.reconcile(event.sequence);
     if (admission.outcome === "duplicate") {
       duplicates += 1;
       continue;
@@ -97,7 +97,7 @@ export function foldAppliedBatch(
       gapDetected = true;
     }
 
-    const projected = collaborators.projectionRunner.run(partitions, event);
+    const projected = dependencies.projectionRunner.run(partitions, event);
     if (projected === undefined) {
       projectionFailures += 1;
     } else {
@@ -105,11 +105,11 @@ export function foldAppliedBatch(
     }
 
     if (event.actorId !== undefined) {
-      collaborators.hueAllocator.admit(event.actorId);
+      dependencies.hueAllocator.admit(event.actorId);
     }
     // The register advances on the admitted row, not the timeline it joins: what is outstanding
     // outlives the window, and the cap or the next read can drop this row.
-    collaborators.outstandingAsks.admit([event]);
+    dependencies.waitingOnPersonRegister.admit([event]);
     appended ??= [...current.timeline];
     appended.push(event);
     admitted += 1;
@@ -117,7 +117,7 @@ export function foldAppliedBatch(
 
   // The dedupe set answers only for sequences the cursor cannot, so a long session holds a
   // batch's worth of numbers rather than its whole history.
-  collaborators.reconciler.releaseSequencesAtOrBelowCursor();
+  dependencies.reconciler.releaseSequencesAtOrBelowCursor();
 
   const outcome: ApplyOutcome = {
     admitted,
@@ -146,8 +146,8 @@ export function foldAppliedBatch(
       timeline:
         appended === undefined
           ? current.timeline
-          : capTimeline(appended, collaborators.timelineCap, collaborators.retainedEnd),
-      cursor: collaborators.reconciler.cursor,
+          : capTimeline(appended, dependencies.timelineCap, dependencies.retainedEnd),
+      cursor: dependencies.reconciler.cursor,
       // A drop at the cap is incomplete like a skipped sequence, so it takes the same cause. Its
       // sequences are not recorded here; the drain re-derives them as an ordinary range.
       degradedCause: worstDegradedCause(
@@ -156,7 +156,7 @@ export function foldAppliedBatch(
         gapDetected || droppedBeforeInitialization > 0 ? "sequence-gap" : undefined,
         projectionFailures > 0 ? "projection-failed" : undefined,
       ),
-      gaps: collaborators.reconciler.gaps(),
+      gaps: dependencies.reconciler.gaps(),
       revision: current.revision + 1,
     },
   };

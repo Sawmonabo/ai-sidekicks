@@ -479,8 +479,8 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     contentLength: 296,
   }),
 
-  // The thread between two runs: the linkage members ride the birth beat (`run.queued`) only,
-  // and the shared builder enforces that.
+  // The thread between two runs: the child-run link members ride the birth beat (`run.queued`)
+  // only, and the shared builder enforces that.
   lane.transition(RUN_ARCHITECT_HELPER, {
     atMs: 2_400,
     runVersion: 1,
@@ -512,11 +512,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   purpose:
     "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
-  // The person first, then the agents in the order they joined.
-  userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER, AGENT_SCOUT],
-  // Which of the five this window is; the head of the join order is whoever opened the
-  // session, which need not be this window.
-  callerUserId: USER_YOU,
+  thisDeviceId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({
     sessionId: SESSION_ID,

@@ -19,7 +19,7 @@ export interface SessionDiagnostics {
    * session closes, so the count freezes rather than vanishing.
    */
   appliedEventCountFor: (sessionId: string) => number;
-  /** Sessions the binder currently holds a wire subscription for. */
+  /** Sessions the subscriber currently holds a wire subscription for. */
   boundSessionIds: () => readonly string[];
   /**
    * What one session's transcript viewport is showing, or `null` where none is mounted. A row

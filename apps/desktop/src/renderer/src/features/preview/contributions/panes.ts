@@ -19,7 +19,7 @@ export {
 
 /**
  * Registers the preview pane's kind. Takes the registry rather than a module-scope singleton so
- * a test, or an auxiliary window with a different subset, composes into its own.
+ * a test composes into its own.
  */
 export function registerPreviewPanes(registry: PaneRegistry): void {
   registry.register({

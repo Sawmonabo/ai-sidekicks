@@ -8,7 +8,7 @@
 /** The prefix that opens the command list and claims a line for a command. */
 export const SLASH_COMMAND_TRIGGER = "/";
 
-/** Splits a directive line on its first run of whitespace, to read the name. */
+/** Splits a draft on its first run of whitespace, to read the command word. */
 const FIRST_WHITESPACE = /\s/u;
 
 /**

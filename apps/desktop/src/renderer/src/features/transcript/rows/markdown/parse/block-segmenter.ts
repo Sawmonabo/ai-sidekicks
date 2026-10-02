@@ -3,7 +3,7 @@
 // costs 94.3 ms at 64 KB and grows linearly, while a 256 B-2 KB tail slice costs 0.30-1.31 ms.
 // The segmenter takes a snapshot, not a delta, so a card can re-render from a store read.
 
-import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-bounds.js";
+import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-measures.js";
 
 /** The split, as a card renders it. */
 export interface MarkdownSegmentation {

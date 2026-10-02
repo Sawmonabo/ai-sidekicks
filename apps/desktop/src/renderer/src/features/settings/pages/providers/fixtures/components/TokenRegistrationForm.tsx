@@ -8,7 +8,7 @@ import {
   submitTokenRegistration,
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
-} from "../sign-in-flow.js";
+} from "../provider-sign-in-flow.js";
 
 /**
  * Register an account, optionally under a vendor-minted non-interactive token.

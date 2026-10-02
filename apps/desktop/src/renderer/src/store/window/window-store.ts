@@ -2,7 +2,7 @@
 //
 // Separate from `SessionStore`: session state is per session and arrives from the bridge, while
 // frame state is per window and arrives from the person. Merging them would re-render the rail on
-// a session switch and let an auxiliary window inherit a route it lacks. Nothing here copies what
+// a session switch. Nothing here copies what
 // the session store owns: `activeSessionId` is a route projection, and `lastOpenedSessionId` is
 // navigation memory (where this window has been), not a record of which sessions are open.
 
@@ -57,7 +57,7 @@ export interface WindowStoreState {
   /**
    * What the main process reported about itself, folded with this window's recovery state. It is
    * window state because the supervisor, handshake, transport and keystore are facts about a
-   * process, and an auxiliary window has its own bridge. It lives in `store/` because the
+   * process. It lives in `store/` because the
    * settings pages read it and a feature may not import `layout/`.
    */
   readonly mainProcessState: MainProcessState;
@@ -230,8 +230,7 @@ export class WindowStore {
  * assumed because a window opened without focus (behind another, minimized, or while the person
  * is in another application) never receives the `blur` that would correct a `true` seed. Both
  * readings must hold: `hasFocus()` says this document holds the keyboard and `visibilityState`
- * says it is on screen, and neither implies the other. Per window, since each auxiliary window
- * has its own document and store.
+ * says it is on screen, and neither implies the other.
  */
 function documentReportsWindowFocus(): boolean {
   return document.hasFocus() && document.visibilityState === "visible";

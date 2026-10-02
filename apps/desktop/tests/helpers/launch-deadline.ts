@@ -1,19 +1,18 @@
 // One clock for a whole `launchConsole()`, so the launch cannot outlive its tier.
 //
-// A launch is a ladder of waits (process start, first window, document `load`, the console's
-// frame element, visibility) followed by the frame witness. Independent per-phase allowances add
-// up: four at 30 000 ms plus a 15 000 ms witness entitles a launch to 135 000 ms inside a
-// 60 000 ms tier. When vitest's timeout fires first the test is killed mid-phase, the witness
-// never renders its verdict, `close()` never runs, and a live Electron and a temporary profile
-// are left behind. The reader sees "test timed out" naming neither the slow phase nor the
-// healthy window.
+// A launch is a ladder of waits (process start, first window, document `load`, the console's frame
+// element, visibility) followed by the frame paint probe. Independent per-phase allowances add up:
+// four at 30 000 ms plus a 15 000 ms paint probe entitles a launch to 135 000 ms inside a 60 000 ms
+// tier. When vitest's timeout fires first the test is killed mid-phase, the paint probe never
+// renders its verdict, `close()` never runs, and a live Electron and a temporary profile are left
+// behind. The reader sees "test timed out" naming neither the slow phase nor the healthy window.
 //
 // So `launchConsole()` mints one `LaunchDeadline` before its first phase and divides it into three
-// slices: the readiness ladder, the frame witness, and cleanup. Every readiness wait draws what is
-// left after the two later slices are held back, so the ladder costs `READINESS_BUDGET_MS` in
-// aggregate however its phases divide it. The later two are reserved, not drawn from: a witness
-// handed readiness's leftover would report "not painting" for a window that needed another
-// second, and a cleanup handed the witness's leftover would have no time to close anything.
+// slices: the readiness ladder, the frame paint probe, and cleanup. Every readiness wait draws what
+// is left after the two later slices are held back, so the ladder costs `READINESS_BUDGET_MS` in
+// aggregate however its phases divide it. The later two are reserved, not drawn from: a paint probe
+// handed readiness's leftover would report "not painting" for a window that needed another second,
+// and a cleanup handed the paint probe's leftover would have no time to close anything.
 //
 // Cleanup is a slice, not a margin. `bounded-cleanup.ts` races `application.close()` against it
 // and SIGKILLs the process tree when the close loses, so the profile is still removed and the
@@ -53,10 +52,10 @@ export const CLEANUP_PHASES = 2;
 export const CLEANUP_SLICE_MS: number = CLEANUP_BUDGET_MS * CLEANUP_PHASES;
 
 /**
- * The most a single `launchConsole()` can cost before it has thrown: the readiness ladder plus
- * the two reserved slices. A launch reaching it has already produced its own diagnostic (the
- * readiness failure, the witness's verdict, or the cleanup outcome), which makes the figure safe
- * to compare against a tier timeout.
+ * The most a single `launchConsole()` can cost before it has thrown: the readiness ladder plus the
+ * two reserved slices. A launch reaching it has already produced its own diagnostic (the readiness
+ * failure, the paint probe's verdict, or the cleanup outcome), which makes the figure safe to
+ * compare against a tier timeout.
  */
 export const LAUNCH_BUDGET_MS: number =
   READINESS_BUDGET_MS + FRAME_PAINT_PROBE_TIMEOUT_MS + CLEANUP_SLICE_MS;
@@ -133,9 +132,9 @@ export class LaunchDeadline {
    * Whether the budget is spent once `reservedMs` is held back.
    *
    * It takes the same reserve as `remainingMs` because a readiness phase draws
-   * `remainingMs(POST_READINESS_RESERVE_MS)` and so runs out a whole witness-and-cleanup reserve
-   * before the launch deadline expires; the unreserved question would then say the budget is
-   * fine and `readinessFailure` would return the raw phase timeout instead of the sentence
+   * `remainingMs(POST_READINESS_RESERVE_MS)` and so runs out a whole paint-probe-and-cleanup
+   * reserve before the launch deadline expires; the unreserved question would then say the budget
+   * is fine and `readinessFailure` would return the raw phase timeout instead of the sentence
    * explaining what the phases share. Unlike `remainingMs`, which is floored at 1, it can say a
    * budget is spent.
    */
@@ -166,7 +165,7 @@ export class LaunchDeadline {
    * Milliseconds left once `reservedMs` is held back, floored at 1.
    *
    * The reserve makes three slices out of one clock: a readiness phase asks for what is left
-   * after the witness and cleanup, so it can never spend their intervals. The floor exists
+   * after the paint probe and cleanup, so it can never spend their intervals. The floor exists
    * because every consumer passes this to Playwright as a `timeout`, and `timeout: 0` means no
    * timeout, which would turn an overrun into an unbounded wait. `expired()` is how a caller
    * asks whether the budget is spent.
@@ -179,7 +178,7 @@ export class LaunchDeadline {
    * Bound an operation that cannot bound itself.
    *
    * `page.evaluate` takes no `timeout` option, so a renderer with a wedged main thread leaves it
-   * pending forever, right before the witness that would diagnose it. This rejects on expiry
+   * pending forever, right before the paint probe that would diagnose it. This rejects on expiry
    * rather than returning a verdict: a phase that did not settle is a launch failure, while a
    * renderer that did not paint is a finding `FramePaintProbe` words itself.
    */
@@ -217,15 +216,15 @@ export function readinessFailure(deadline: LaunchDeadline, error: unknown): unkn
   // `raisedExpiry`). The clock reading stays for the phases Playwright bounds with a `timeout`
   // this deadline handed it: those reject with Playwright's own error, which carries no mark of
   // this deadline. It is asked with the reserve because the ladder runs out when its own
-  // allowance is gone, a whole witness-and-cleanup reserve before the launch deadline expires.
+  // allowance is gone, a whole paint-probe-and-cleanup reserve before the launch deadline expires.
   if (!deadline.raisedExpiry(error) && !deadline.expired(POST_READINESS_RESERVE_MS)) {
     return error;
   }
   return new Error(
     `the console did not become ready within the ${String(READINESS_BUDGET_MS)} ms readiness budget, ` +
-      "which every phase before the frame witness SHARES — process launch, first window, the " +
+      "which every phase before the frame paint probe SHARES — process launch, first window, the " +
       "document's `load`, the console's frame element, the visibility read — rather than each " +
-      "receiving its own; the witness's interval is reserved beyond this budget, so a launch that " +
+      "receiving its own; the paint probe's interval is reserved beyond this budget, so a launch that " +
       "overruns reports here rather than as the enclosing tier's timeout (tests/helpers/launch-deadline.ts)",
     { cause: error },
   );

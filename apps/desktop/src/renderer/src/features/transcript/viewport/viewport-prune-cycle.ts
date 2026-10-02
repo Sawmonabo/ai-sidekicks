@@ -20,7 +20,7 @@ import {
   type PruneOutcome,
 } from "./window-cap.js";
 
-/** Collaborators of a `ViewportPruneCycle`. */
+/** Dependencies of a `ViewportPruneCycle`. */
 export interface ViewportPruneCycleOptions {
   readonly window: TranscriptWindow;
   readonly measurements: RowMeasurementTable;

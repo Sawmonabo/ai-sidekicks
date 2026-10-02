@@ -49,14 +49,6 @@ export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 
 /**
- * The row id the projection carries for one sequence of a log this file seeds; the projection
- * copies `ProjectedSessionEvent.id` verbatim.
- */
-export function projectedRowId(sequence: number): string {
-  return transcriptFixtureEventId(sequence);
-}
-
-/**
  * A live run whose rows are tool rows, the only cards that carry a disclosure, so a case can
  * press a reader's expansion and watch the lease round trip out of the row and back.
  */

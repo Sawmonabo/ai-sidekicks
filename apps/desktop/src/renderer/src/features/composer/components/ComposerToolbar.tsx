@@ -1,5 +1,5 @@
-// The composer's trailing rail: the context meter, folded from the session timeline for the
-// addressed run so two agents running at once each report their own run's fullness. A composer
+// The composer's trailing toolbar cluster: the context ring, folded from the session timeline for
+// the addressed run so two agents running at once each report their own run's fullness. A composer
 // addressed to the session and not to a run asks the fold for nothing.
 
 import { useMemo } from "react";
@@ -35,7 +35,7 @@ export function ComposerToolbar(props: ComposerProps): React.JSX.Element {
 
   return (
     <div className="meridian-composer__rail">
-      <div className="meridian-composer__accessories">
+      <div className="meridian-composer__toolbar-cluster">
         <div className="meridian-composer__meters">
           <ContextRing reading={contextReading} />
         </div>

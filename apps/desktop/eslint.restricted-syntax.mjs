@@ -60,7 +60,7 @@ export const TIME_READING_SELECTORS = [
     // Keying on the member read catches the value wherever it is taken.
     //
     // The destructuring arm is written against the pattern because that shape has no member read:
-    // it names `Date` as an initialiser and takes whatever it likes off it. It therefore refuses
+    // it names `Date` as an initializer and takes whatever it likes off it. It therefore refuses
     // `const { now } = Date` too, deliberately: `lib/clock.ts` is the renderer's one time source
     // and reaches `Date.now` through the object.
     selector: `:matches(MemberExpression[object.name="Date"][property.name="parse"], MemberExpression[object.name="Date"][property.value="parse"], MemberExpression[object.property.name="Date"][property.name="parse"], MemberExpression[object.property.name="Date"][property.value="parse"], VariableDeclarator[init.name="Date"] > ObjectPattern)`,

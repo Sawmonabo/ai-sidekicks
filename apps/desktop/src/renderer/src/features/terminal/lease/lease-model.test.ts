@@ -26,21 +26,21 @@ describe("the lease fold — what the wire said, and only that", () => {
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.holding).toBe("held-by-this-device");
+    expect(state.holder).toBe("held-by-this-device");
     expect(state.holderDeviceId).toBe(THIS_DEVICE_ID);
   });
 
   it("tells this device's hold apart from another device's", () => {
     const events = [transitionEvent(1, "taken", OTHER_DEVICE_ID)];
     expect(
-      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID }).holding,
+      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID }).holder,
     ).toBe("held-by-another-device");
     expect(
-      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: OTHER_DEVICE_ID }).holding,
+      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: OTHER_DEVICE_ID }).holder,
     ).toBe("held-by-this-device");
     // No device read at all fails closed: nobody is told they may type on an unknown identity.
     expect(
-      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: undefined }).holding,
+      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: undefined }).holder,
     ).toBe("held-by-another-device");
   });
 
@@ -56,7 +56,7 @@ describe("the lease fold — what the wire said, and only that", () => {
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.holding).toBe("held-by-run");
+    expect(state.holder).toBe("held-by-run");
     expect(state.holderRunId).toBe(RUN_ID);
     expect(state.holderCommandId).toBe(COMMAND_ID);
   });
@@ -68,12 +68,12 @@ describe("the lease fold — what the wire said, and only that", () => {
       transitionEvent(3, "seized", OTHER_DEVICE_ID, null, { terminalId: OTHER_SHELL_ID }),
     ];
     expect(
-      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID }).holding,
+      projectTerminalLease(events, { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID }).holder,
     ).toBe("held-by-this-device");
     // Negative control: the other shell reads its own moves, the unreadable one included.
     expect(
       projectTerminalLease(events, { terminalId: OTHER_SHELL_ID, thisDeviceId: THIS_DEVICE_ID })
-        .holding,
+        .holder,
     ).toBe("unrecognized-transition");
   });
 
@@ -93,7 +93,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     );
     // A `session.created` read as a lease event would be an unreadable transition after the
     // take, and the fold would then report no holder at all.
-    expect(state.holding).toBe("held-by-another-device");
+    expect(state.holder).toBe("held-by-another-device");
   });
 });
 
@@ -111,8 +111,8 @@ describe("an unread transition — ignorance about a write lease is not the old 
     });
     // The one reading that would keep stdin open for somebody who no longer holds the shell;
     // `SessionTerminalPane` opens the write gate on exactly this value.
-    expect(state.holding).not.toBe("held-by-this-device");
-    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holder).not.toBe("held-by-this-device");
+    expect(state.holder).toBe("unrecognized-transition");
     expect(state.holderDeviceId).toBeNull();
   });
 
@@ -126,7 +126,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holder).toBe("unrecognized-transition");
   });
 
   it("stays unread when the readable transition came FIRST", () => {
@@ -140,7 +140,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
       ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
-    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holder).toBe("unrecognized-transition");
     expect(state.unreadTransition?.reason).toBe("seized");
   });
 });
@@ -154,7 +154,7 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
     // The one reading that opens stdin for somebody the daemon just took the shell from.
-    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holder).toBe("unrecognized-transition");
     expect(state.holderDeviceId).toBeNull();
   });
 });

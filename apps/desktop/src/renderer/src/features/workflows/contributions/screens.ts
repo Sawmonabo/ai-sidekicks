@@ -19,7 +19,7 @@ const WORKFLOW_SCREENS: readonly ScreenRegistration[] = [
 
 /**
  * Claim this feature's screens against a registry rather than the module-scope singleton, so a
- * test or an auxiliary window can compose its own set.
+ * test can compose its own set.
  */
 export function registerWorkflowScreens(registry: ScreenRegistry): void {
   for (const descriptor of WORKFLOW_SCREENS) {

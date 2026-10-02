@@ -59,13 +59,13 @@ export function useSessionStoreRegistry(
     if (plumbing.registry.isDisposed) {
       return;
     }
-    plumbing.binder.attach();
+    plumbing.subscriber.attach();
   }, [plumbing]);
   // The subscription diagnostics go to the composition that built this window's bridge, which
   // puts them on the page for a test driver; a window on the preload has no composition.
   const composition = useBridgeComposition();
   useEffect(
-    () => composition?.installSessionDiagnostics(plumbing.binder.diagnostics),
+    () => composition?.installSessionDiagnostics(plumbing.subscriber.diagnostics),
     [composition, plumbing],
   );
   return plumbing.registry;
@@ -74,11 +74,11 @@ export function useSessionStoreRegistry(
 /** This window's session plumbing: the stores, and the one thing that feeds them. */
 interface WindowSessionPlumbing {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventSubscriber;
+  readonly subscriber: SessionEventSubscriber;
 }
 
 /**
- * The registry and its binder, for one window.
+ * The registry and its subscriber, for one window.
  *
  * The clock comes from the bridge: the registry's default is the wall clock, so under the
  * fixture coalescing windows and refresh deadlines would run on `setTimeout` while the
@@ -100,7 +100,7 @@ function createWindowSessionPlumbing(
     // an open store would fold two events of one kind two ways.
     projectors: projectorRegistry.snapshot(),
   });
-  return { registry, binder: new SessionEventSubscriber({ registry, bridge }) };
+  return { registry, subscriber: new SessionEventSubscriber({ registry, bridge }) };
 }
 
 /**
@@ -110,7 +110,7 @@ function createWindowSessionPlumbing(
  * registry first would call back into a subscriber that is already tearing down.
  */
 function disposeWindowSessionPlumbing(plumbing: WindowSessionPlumbing): void {
-  plumbing.binder.dispose();
+  plumbing.subscriber.dispose();
   plumbing.registry.disposeAll();
 }
 

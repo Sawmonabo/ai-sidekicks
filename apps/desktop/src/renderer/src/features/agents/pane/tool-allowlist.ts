@@ -1,10 +1,10 @@
 // What one agent may reach, as the console reads it; it says nothing about whether a call would
 // be allowed. The list is applied at spawn from the resolved configuration, so this reads the
-// roster's configuration and never the definition registry: a later edit reaches no running
+// agent list's configuration and never the definition registry: a later edit reaches no running
 // agent. There are four positions: the registry's three (null is the provider's default set,
 // empty is no tools, populated is exactly those) plus an agent not started from a saved
 // definition, which carries no configuration and so says nothing about tools. The card resolves
-// the position once and the grant line and the echo's Tools row both read it. No verdict is
+// the position once and the allowlist line and the echo's Tools row both read it. No verdict is
 // composed: a node-wide switch can withhold the page tool set regardless of the allowlist, so
 // the words state each position and leave the daemon to adjudicate.
 
@@ -39,24 +39,24 @@ export interface AgentToolAllowlistWording {
 }
 
 /** The three positions that name no tool, which are the three the table below words. */
-type NamelessToolGrantKind = Exclude<
+type NamelessToolAllowlistKind = Exclude<
   AgentToolAllowlistPosition,
   { readonly kind: "named" }
 >["kind"];
 
 /**
- * The words for every position that names no tool. Total over {@link NamelessToolGrantKind}, so
+ * The words for every position that names no tool. Total over {@link NamelessToolAllowlistKind}, so
  * a new nameless position fails to compile. The populated arm is composed by
  * {@link namedToolAllowlistSentence} because its sentence carries a figure and a cap.
  */
 export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
-  Record<NamelessToolGrantKind, AgentToolAllowlistWording>
+  Record<NamelessToolAllowlistKind, AgentToolAllowlistWording>
 > = {
   // Muted, because nobody asked: this is "no question was put", never "no tools".
   "not-reported": {
     reading: "Not reported",
     lineSentence:
-      "This agent was not started from a saved definition, so the roster does not say what it may reach.",
+      "This agent was not started from a saved definition, so the agent list does not say what it may reach.",
     weight: "absent",
   },
   // Muted: nobody restricted this agent, and the provider's own set is what it spawned with.
@@ -90,7 +90,7 @@ export function namedToolAllowlistSentence(toolNames: readonly string[]): string
 }
 
 /**
- * Read one agent's grant off its resolved configuration. Absent `resolvedConfiguration` is an
+ * Read one agent's allowlist off its resolved configuration. Absent `resolvedConfiguration` is an
  * agent not started from a saved definition; `toolAllowlist` null inside a present configuration
  * is the registry's "provider's default set".
  */

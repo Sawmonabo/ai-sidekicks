@@ -45,10 +45,10 @@ describe("the bridge's channels", () => {
   it("refuses a frame on an outside origin, and one with no document, on every channel", () => {
     for (const channel of Object.values(BRIDGE_CHANNELS)) {
       expect(() => invokeFrom("https://example.com/", channel)).toThrow(
-        `${channel} answers only a console document.`,
+        `${channel} answers only the app's own renderer documents.`,
       );
       expect(() => invokeFrom(undefined, channel)).toThrow(
-        `${channel} answers only a console document.`,
+        `${channel} answers only the app's own renderer documents.`,
       );
     }
   });

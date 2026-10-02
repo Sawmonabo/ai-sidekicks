@@ -2,20 +2,19 @@
 // owns how the app is mounted and this module owns what of the agents feature is mounted into it,
 // like the modules in `tests/helpers/feature-mounts/`.
 //
-// The pane is mounted over an unscripted fixture bridge with the roster handed in as a plain
-// call; the roster rows come from the module the feature keeps them in, so a capture cannot drift
-// from the feature's own suites. The session store opens with the window's own fold
-// ({@link COMPOSED_ENTITY_PROJECTORS}), so a partition a column reads is the one a window would
-// project. `renderSettled` flushes promises and moves no clock, so the mount also drains the
-// scheduled reads and then waits for the roster cards: a capture of a skeleton is green in every
-// tier.
+// The pane is mounted over an unscripted fixture bridge with the agent list handed in as a plain
+// call; the agent-list rows come from the module the feature keeps them in, so a capture cannot
+// drift from the feature's own suites. The session store opens with the window's own fold ({@link
+// COMPOSED_ENTITY_PROJECTORS}), so a partition a column reads is the one a window would project.
+// `renderSettled` flushes promises and moves no clock, so the mount also drains the scheduled reads
+// and then waits for the agent cards: a capture of a skeleton is green in every tier.
 
 import { waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import { renderSettled } from "../helpers/app-harness.js";
 
-import { AGENT_ON_CLAUDE, AGENT_ON_CODEX } from "@test/helpers/agent-roster.js";
+import { AGENT_ON_CLAUDE, AGENT_ON_CODEX } from "@test/helpers/agent-list.js";
 import { agentsPaneBody } from "@renderer/features/agents/pane/agents-pane-body.js";
 import { settleReads } from "@renderer/features/agents/pane/agents-pane.test-support.js";
 import type { AgentsPaneCalls } from "@renderer/features/agents/agent-reads.js";
@@ -31,10 +30,10 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
 
-/** The session the store is open on, so the roster read is asked rather than skipped. */
+/** The session the store is open on, so the agent-list read is asked rather than skipped. */
 const SESSION_ID = "session-agents";
 
-/** The roster this pane shows: two agents on two providers, and no child runs. */
+/** The agent list this pane shows: two agents on two providers, and no child runs. */
 const AGENTS_PANE_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.resolve({ agents: [AGENT_ON_CLAUDE, AGENT_ON_CODEX] }),
   readChildRunLinks: () =>
@@ -95,7 +94,7 @@ function agentsSessionStore(): SessionStore {
   return store;
 }
 
-/** The pane mounted over the fixture roster, addressed at the agent on `claude`. */
+/** The pane mounted over the fixture agent list, addressed at the agent on `claude`. */
 async function renderAgentsPane(): Promise<{
   readonly container: HTMLElement;
   readonly bridge: PlatformBridge;
@@ -109,18 +108,18 @@ async function renderAgentsPane(): Promise<{
     </FixtureBridgeProvider>,
   );
   await settleReads(fixture.scenarioEngine);
-  // Not inside `act`: the roster read resolves in a promise React does not know about, and an
+  // Not inside `act`: the agent-list read resolves in a promise React does not know about, and an
   // `act` scope holds the commit back until it exits, so a wait inside one would wait for a
   // render its own scope prevents.
   await waitFor(() => {
     if (container.querySelector(".meridian-agent-card") === null) {
-      throw new Error("the roster read has not landed yet");
+      throw new Error("the agent-list read has not landed yet");
     }
   });
   return { container, bridge };
 }
 
-/** The whole agents pane, chrome and column, over the fixture roster. */
+/** The whole agents pane, chrome and column, over the fixture agent list. */
 export async function mountAgentsPane(): Promise<HTMLElement> {
   const { container } = await renderAgentsPane();
   return requireRendered(container, ".meridian-pane");

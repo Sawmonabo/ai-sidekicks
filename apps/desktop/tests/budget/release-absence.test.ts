@@ -56,11 +56,11 @@ import {
 } from "./built-renderer-tree.js";
 
 /**
- * A string every console build contains, fixture or release: the string sweep's positive
+ * A string every renderer build contains, fixture or release: the string sweep's positive
  * control, so a misdirected read (an empty directory, a renamed path) cannot report every name
  * absent by reading nothing.
  */
-const CONSOLE_PRESENCE_MARKER = "meridian-frame";
+const RENDERER_PRESENCE_MARKER = "meridian-frame";
 
 /**
  * The perf-meter kinds a release renderer must not carry, named rather than derived. Not every
@@ -111,10 +111,10 @@ describe("release build — the fixture code is absent, not merely unreachable",
   it("positive control: the string sweep is reading a real console build", () => {
     // An absence claim is only as good as the evidence that the search happened. This runs
     // first so a misdirected read is reported as "read nothing", not "shipped nothing".
-    const carriers = carriersOf(CONSOLE_PRESENCE_MARKER, builtFiles);
+    const carriers = carriersOf(RENDERER_PRESENCE_MARKER, builtFiles);
     expect(
       carriers.length,
-      `no built file mentions "${CONSOLE_PRESENCE_MARKER}", so the absence claims below would be vacuous`,
+      `no built file mentions "${RENDERER_PRESENCE_MARKER}", so the absence claims below would be vacuous`,
     ).toBeGreaterThan(0);
   });
 

@@ -37,7 +37,7 @@ export type DaemonMethodBindings = {
 };
 
 /** The namespaces the console calls into, merged so one lookup finds any of their methods. */
-const CONSOLE_NAMESPACE_DESCRIPTORS = {
+const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...DRIVER_METHOD_DESCRIPTORS,
   ...TIMELINE_METHOD_DESCRIPTORS,
   ...SESSION_METHOD_DESCRIPTORS,
@@ -53,7 +53,7 @@ const CONSOLE_NAMESPACE_DESCRIPTORS = {
  */
 export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = Object.freeze(
   Object.fromEntries(
-    REGISTERED_DAEMON_METHODS.map((method) => [method, CONSOLE_NAMESPACE_DESCRIPTORS[method]]),
+    REGISTERED_DAEMON_METHODS.map((method) => [method, DAEMON_NAMESPACE_DESCRIPTORS[method]]),
   ) as DaemonMethodBindings,
 );
 

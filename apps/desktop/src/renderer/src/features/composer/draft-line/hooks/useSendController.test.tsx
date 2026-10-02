@@ -44,7 +44,7 @@ function ControllerProbe(props: {
     calls: UNREACHABLE_CALLS,
     target: SESSION_TARGET,
     draftStore: props.draftStore,
-    recognizeClientCommand: (commandName) =>
+    recognizeConsoleCommand: (commandName) =>
       commandName === "clear" || commandName === WORKFLOW_COMMAND_ROOT,
     commandExecutor: props.commandExecutor,
   });

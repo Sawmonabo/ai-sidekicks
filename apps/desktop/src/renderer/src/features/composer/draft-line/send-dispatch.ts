@@ -23,8 +23,8 @@ export interface ComposerSendCalls {
 }
 
 /**
- * Dispatch one new turn. The queued item is not kept: the shelf reads the queue from its own
- * subscription, so the answer is only the confirmation.
+ * Dispatch one new turn. The queued item is not kept: the transcript's queued rows read the
+ * queue from their own subscription, so the answer is only the confirmation.
  */
 export async function dispatchQueuedTurn(
   calls: ComposerSendCalls,

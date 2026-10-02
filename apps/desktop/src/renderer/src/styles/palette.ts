@@ -1,4 +1,4 @@
-// The Meridian palette: the single source of truth for every console color. The user hue wheel,
+// The Meridian palette: the single source of truth for every console color. The agent hue wheel,
 // the two attention hues with their WCAG 2.2 AA floors, and the colors type and figures are
 // painted in are realized here and nowhere else. `generate-css.ts` builds the stylesheet from
 // this module, so there is no second copy to drift.
@@ -29,7 +29,7 @@ import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
 /**
  * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the shortest
- * window the console ships is 720 px tall (the Agents pane auxiliary geometry), 45 rem at the
+ * window the console ships is 720 px tall, 45 rem at the
  * 16 px root, and an enumeration taking more than a third of it leaves nothing else on screen.
  * Six rows is 13.875 rem and clears that third; seven is 16.1875 rem and does not.
  */
@@ -183,7 +183,7 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
 export const HUE_WHEEL_STEPS = 12;
 
 /**
- * Fixed lightness for every user hue, one value for both schemes because identity color does not
+ * Fixed lightness for every agent hue, one value for both schemes because identity color does not
  * change with the theme. Holding the whole wheel to 3:1 leaves one narrow feasible band at this
  * chroma, roughly 0.545 to 0.600: the light scheme's worst step (5, against `surface-sunken`)
  * falls through 3:1 just above L 0.600, and the dark scheme's worst (step 11, against
@@ -193,7 +193,7 @@ export const HUE_WHEEL_STEPS = 12;
 export const HUE_WHEEL_LIGHTNESS = 0.57;
 
 /**
- * Requested chroma for every user hue. Green and cyan cannot hold it in sRGB at this lightness,
+ * Requested chroma for every agent hue. Green and cyan cannot hold it in sRGB at this lightness,
  * so those steps are chroma-fitted down; lightness stays even, which carries the "one set"
  * reading.
  */
@@ -232,7 +232,7 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
- * The attribution edge's width, in px: wide enough to carry a hue at a glance, narrow enough
+ * The leading edge's width, in px: wide enough to carry a hue at a glance, narrow enough
  * that a screen of rows reads as a log rather than a striped table.
  */
 export const LEADING_EDGE_WIDTH_PX = 2;

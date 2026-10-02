@@ -19,7 +19,7 @@ export interface TranscriptFeedRowProps extends TranscriptRowProps {
 /**
  * Draw one row through the row renderer. It adds no box of its own: the row box, error boundary
  * and ARIA position are the viewport's. Every prop is identity-stable when nothing moved: `row`
- * is held by the window's retention table and `actorHue` is the store's own assignment object.
+ * is held by the window's retention table and `agentHue` is the store's own assignment object.
  *
  * An arrow with a declared return type rather than a function expression inside `memo(...)`,
  * so this module resolves as the one component it declares.
@@ -28,7 +28,7 @@ export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProp
   (props: TranscriptFeedRowProps): React.ReactNode =>
     props.renderTranscriptRow({
       row: props.row,
-      actorHue: props.actorHue,
+      agentHue: props.agentHue,
       isSuperseded: props.isSuperseded,
       density: props.density,
     }),

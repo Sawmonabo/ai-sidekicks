@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { createClientCommandExecutor } from "./client-command-executor.js";
+import { createConsoleCommandExecutor } from "./console-command-executor.js";
 import {
   LINE_READING_COMMAND_IDS,
   type ComposerCommandLineHandlers,
@@ -36,7 +36,7 @@ function registerCommand(command: {
 function executorOverConsoleRegistry(
   handlers: ComposerCommandLineHandlers = noComposerCommandLineHandlers(),
 ) {
-  return createClientCommandExecutor({
+  return createConsoleCommandExecutor({
     readCommands: () => readComposerCommands(DEFAULT_ROUTE),
     readCommandLineHandlers: () => handlers,
     lineReadingCommandIds: LINE_READING_COMMAND_IDS,
@@ -54,7 +54,7 @@ afterEach(() => {
   }
 });
 
-describe("createClientCommandExecutor", () => {
+describe("createConsoleCommandExecutor", () => {
   it("refuses a command that rejects rather than reporting it applied", async () => {
     registerCommand({
       id: FAILING_COMMAND_ID,
@@ -94,8 +94,8 @@ describe("a command that reads arguments off its own line", () => {
   });
 });
 
-describe("a directive handler that fails", () => {
-  // The executor never throws to report a failure, and a directive handler is reached through
+describe("a command handler that fails", () => {
+  // The executor never throws to report a failure, and a command handler is reached through
   // it; the send controller awaits under a `finally` with no `catch`, so an escaping rejection
   // would leave the line unexplained.
   it("settles a handler that returns a rejected promise as a refusal", async () => {

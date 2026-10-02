@@ -67,7 +67,7 @@ export interface WaitingOnPersonSeed {
 }
 
 /**
- * One session's outstanding-ask ledger, advanced by rows admitted in any order.
+ * One session's waiting-on-person register, advanced by rows admitted in any order.
  */
 export class WaitingOnPersonRegister {
   readonly #requestsByKey = new Map<string, WaitingRequestRecord>();

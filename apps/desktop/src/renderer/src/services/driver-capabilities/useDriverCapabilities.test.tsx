@@ -1,6 +1,6 @@
 // No capability answer stands for the window's life. Two features gate controls on
 // `driver.listCapabilities`, and a latched read would let one transient refusal hide Steer, Rewind
-// and the compaction control. Calls are counted on a bridge that records them, on a frozen clock
+// and the compaction popover. Calls are counted on a bridge that records them, on a frozen clock
 // advanced explicitly.
 
 import { describe, expect, it } from "vitest";

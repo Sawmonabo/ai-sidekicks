@@ -5,9 +5,9 @@
 //
 //   - The implementer's run runs, blocks on an approval, unblocks, is rewound past a boundary,
 //     re-executes and finishes, so its run group is terminal and folds to a one-line
-//     past-tense receipt with a superseded band inside it.
+//     past-tense receipt with superseded turns inside it.
 //   - The reviewer's run runs, fails a tool call and is paused, so its run group carries the
-//     pause seam and stays parked at the frozen tick.
+//     pause system message and stays parked at the pinned frame.
 //   - The architect's run is still live at the last beat, mid-turn, so the frame always has
 //     something streaming.
 //
@@ -115,7 +115,7 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
 // rather than drawing beside one.
 
 // The rewind anchor the implementer's run landed at. The boundary beat declares it and the
-// superseded band is every row of that run and epoch past it, so both read one value.
+// superseded turns are every row of that run and epoch past it, so both read one value.
 const IMPLEMENTER_REWIND_TARGET_POSITION = 4;
 
 // The tool call the reviewer's subagent opens under, read by the invocation, its settlement and
@@ -332,7 +332,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     kind: "run.rolled_back",
     // `RunRolledBackEvent`'s members (`packages/contracts/src/run-control.ts`): the
     // post-rollback progression value and the turn boundary the run landed at, which the
-    // superseded band above it is measured against.
+    // superseded turns above it are measured against.
     actorId: USER_YOU,
     payload: {
       sessionId: SESSION_ID,
@@ -432,11 +432,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   purpose:
     "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
-  // The person first, then the agents in the order they joined.
-  userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
-  // Which of the roster this window is; the head of the join order is whoever opened the
-  // session, which need not be this window.
-  callerUserId: USER_YOU,
+  thisDeviceId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({
     sessionId: SESSION_ID,

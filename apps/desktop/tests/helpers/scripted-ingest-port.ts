@@ -1,8 +1,8 @@
-// The collaborator every ingest case drives the client against, and the sources it is driven with.
+// The dependency every ingest case drives the client against, and the sources it is driven with.
 //
 // A shared module because four case files ask different questions of one script (open path, chunk
 // loop, retry, abandonment), and four copies would drift when a request member moved. The port
-// records rather than asserts, and can be held: only a collaborator across the seam can witness
+// records rather than asserts, and can be held: only a dependency across the seam can see
 // that a retry re-sent one sequence number with identical bytes, and only one that can be stopped
 // mid-call can put an abandonment inside an await. The recorded shapes are derived from
 // `AttachmentIngestPort`, so a request that drops or invents a member fails to compile here.

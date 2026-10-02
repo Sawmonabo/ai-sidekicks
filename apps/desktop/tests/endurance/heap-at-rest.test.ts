@@ -90,7 +90,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
 
       // Printed before the assertion so a shrinking margin is visible before a run crosses.
       process.stdout.write(
-        `[console-endurance] heap at rest ${String(Math.round(atRestHeapBytes / 1024))} kB ` +
+        `[endurance] heap at rest ${String(Math.round(atRestHeapBytes / 1024))} kB ` +
           `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
           `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) with ` +
           `${String(deliveredBeatCount)} beats delivered into one open session\n`,

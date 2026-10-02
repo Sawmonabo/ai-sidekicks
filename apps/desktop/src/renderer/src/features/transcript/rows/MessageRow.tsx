@@ -65,7 +65,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   return (
     <TranscriptRowGroup groupLabel="a message row">
       <TranscriptRowLayout
-        agentHueStep={props.actorHue?.step ?? -1}
+        agentHueStep={props.agentHue?.step ?? -1}
         occurredAtIso={props.row.timestamp}
         authorLabel={props.row.actor ?? rowKind.label}
         kindLabel={props.row.type}

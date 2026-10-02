@@ -6,7 +6,7 @@
 // not pre-empted here. The two calls are arguments; a call that rejects rejects the whole line.
 
 import type { CommandOutcome, ComposerCommandLine } from "../../types.js";
-import { clientCommandRefusal } from "../client-command-recognizer.js";
+import { consoleCommandRefusal } from "../console-command-recognizer.js";
 import {
   readWorkflowDefinitions,
   type ReadWorkflowDefinitionPage,
@@ -68,7 +68,7 @@ export async function startWorkflowFromLine(
   if (sessionId === undefined) {
     return {
       status: "refused",
-      refusal: clientCommandRefusal(
+      refusal: consoleCommandRefusal(
         "command-unavailable-here",
         `${WORKFLOW_START_COMMAND_PREFILL.trimEnd()} starts a workflow in a session, and this composer is not addressed within one.`,
       ),
@@ -94,5 +94,5 @@ export async function startWorkflowFromLine(
 
 /** A local refusal about what was typed. Nothing was asked on any of these paths. */
 function refusedArgument(detail: string): CommandOutcome {
-  return { status: "refused", refusal: clientCommandRefusal("command-argument-invalid", detail) };
+  return { status: "refused", refusal: consoleCommandRefusal("command-argument-invalid", detail) };
 }

@@ -1,6 +1,6 @@
 // The command list: a discovery autocomplete of what the bound provider offers and what this
 // console can do. A provider row inserts nothing and starts no turn; a console row's button
-// and the Enter and Space keys run the same client-command executor. The empty claim is
+// and the Enter and Space keys run the same console-command executor. The empty claim is
 // withheld while the provider read is in flight, refused, or truncated, and only the addressed
 // run's binding group renders. It speaks through its own status region, not the announcer.
 
@@ -44,7 +44,7 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
     target,
     isOpen,
   });
-  // Contributes the palette entry that types the directive onto the line.
+  // Contributes the palette entry that types the command word onto the line.
   useWorkflowStartPrefill({ draftStore, draftKey });
 
   const readCommands = useCallback(() => readComposerCommands(route), [route]);

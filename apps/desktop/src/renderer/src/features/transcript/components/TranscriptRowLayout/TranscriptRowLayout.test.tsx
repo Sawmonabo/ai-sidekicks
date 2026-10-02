@@ -21,7 +21,7 @@ function renderRow(element: React.JSX.Element): HTMLElement {
 function edgeOf(row: HTMLElement): HTMLElement {
   const edge = row.querySelector(".meridian-transcript-row-layout__edge");
   if (!(edge instanceof HTMLElement)) {
-    throw new Error("TranscriptRowLayout rendered no attribution edge");
+    throw new Error("TranscriptRowLayout rendered no leading edge");
   }
   return edge;
 }

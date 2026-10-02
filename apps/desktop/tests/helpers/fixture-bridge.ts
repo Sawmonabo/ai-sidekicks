@@ -87,7 +87,7 @@ export interface SessionStreamReceipt {
 }
 
 /**
- * Subscribe to the whole-session stream through the bridge, as the session binder does.
+ * Subscribe to the whole-session stream through the bridge, as the session subscriber does.
  *
  * Frames are kept as delivered so a case can assert the framing; events are read off them on
  * demand so a case about which beats arrived asserts over the log, not over its batching.
@@ -224,7 +224,6 @@ export function unscriptedScenario(id: string): Scenario {
     label: "Nothing scripted",
     purpose: "Drives a view against a bridge that scripts no reply and plays no beat.",
     sessionId: `session-${id}`,
-    userIdsInJoinOrder: [],
     beats: [],
     replies: [],
     startedAtIso: "2026-01-01T10:05:00.000Z",

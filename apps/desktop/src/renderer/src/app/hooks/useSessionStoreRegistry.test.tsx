@@ -18,7 +18,7 @@ import {
   type Observation,
 } from "./session-store-hooks.test-support.js";
 
-/** A session id the daemon admits, so the binder opens a stream for it. */
+/** A session id the daemon admits, so the subscriber opens a stream for it. */
 const BOUND_SESSION_ID = "019b7a44-4400-75e5-8510-ada11a5a66a5";
 
 /** One run beat, payload-shaped as the run-lifecycle taxonomy spells it. */
@@ -112,8 +112,8 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
   });
 });
 
-describe("useSessionStoreRegistry — the window's registry and the binder that feeds it", () => {
-  it("mints a binder beside the registry and binds the open session", () => {
+describe("useSessionStoreRegistry — the window's registry and the subscriber that feeds it", () => {
+  it("mints a subscriber beside the registry and binds the open session", () => {
     const { diagnosticsHolder, wrapper } = compositionHarness();
     render(<SessionProbe sessionId={BOUND_SESSION_ID} onObserve={() => undefined} />, {
       wrapper,

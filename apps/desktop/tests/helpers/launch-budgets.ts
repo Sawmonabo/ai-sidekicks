@@ -13,9 +13,7 @@ const BUDGETS = BudgetRegistry.load();
  * It bounds a cold Electron start on a shared CI runner, a different quantity from the console's
  * budgets: a tight bound would turn runner contention into a red tier. Its four phases share it.
  */
-export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue(
-  "console-launch-readiness",
-);
+export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue("launch-readiness");
 
 /**
  * How long a ready renderer has to deliver two consecutive animation frames.
@@ -31,10 +29,10 @@ export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue(
  * anyway. So it is the largest value keeping two orderings: at most half of
  * `READINESS_BUDGET_MS`, so a window problem fails naming the window, and reserved inside
  * `LAUNCH_BUDGET_MS`, which `launch-deadline.ts` holds against each launching tier's
- * `testTimeout`, so a reader sees this witness's sentence rather than vitest's.
+ * `testTimeout`, so a reader sees this paint probe's sentence rather than vitest's.
  */
 export const FRAME_PAINT_PROBE_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
-  "console-launch-frame-paint-probe",
+  "launch-frame-paint-probe",
 );
 
 /**
@@ -45,7 +43,7 @@ export const FRAME_PAINT_PROBE_TIMEOUT_MS: number = BUDGETS.requireCanonicalValu
  * failed-launch and success paths. Crossing it costs a kill and a breadcrumb, never a red check:
  * `terminated` records and passes, while `unterminable` and `closed-after-rejection` fail.
  */
-export const CLEANUP_BUDGET_MS: number = BUDGETS.requireCanonicalValue("console-launch-cleanup");
+export const CLEANUP_BUDGET_MS: number = BUDGETS.requireCanonicalValue("launch-cleanup");
 
 /**
  * How long a test body gets between a settled launch and its cleanup.
@@ -55,7 +53,7 @@ export const CLEANUP_BUDGET_MS: number = BUDGETS.requireCanonicalValue("console-
  * the default for a tier that states none, and the shorter of the two, so a new tier whose body
  * needs longer fails inside a bound that names itself, not under vitest's generic kill.
  */
-export const BODY_ALLOWANCE_MS: number = BUDGETS.requireCanonicalValue("console-launch-body");
+export const BODY_ALLOWANCE_MS: number = BUDGETS.requireCanonicalValue("launch-body");
 
 /**
  * The body allowance for the endurance tier's sustained workload. A second row because an
@@ -63,5 +61,4 @@ export const BODY_ALLOWANCE_MS: number = BUDGETS.requireCanonicalValue("console-
  * interaction; one figure sized for the first would make runner contention look like a hang in
  * the second.
  */
-export const ENDURANCE_BODY_ALLOWANCE_MS: number =
-  BUDGETS.requireCanonicalValue("console-endurance-body");
+export const ENDURANCE_BODY_ALLOWANCE_MS: number = BUDGETS.requireCanonicalValue("endurance-body");

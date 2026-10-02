@@ -113,7 +113,7 @@ describe("readSessionStreamFrame — the registered envelope", () => {
 
   it("decodes a system-emitted envelope with no actor at all", () => {
     // `actor: null` is the wire's system arm. It must reach the console as an absence, not as the
-    // string "null" or an empty id, because the store hands every actor to the user hue allocator.
+    // string "null" or an empty id, because the store hands every actor to the agent hue allocator.
     const decoded = readOneEvent(registeredEnvelope({ actor: null }));
 
     expect(decoded?.actorId).toBeUndefined();

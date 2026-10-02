@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
-  return { row, actorHue: undefined, isSuperseded: false, density: "collapsed" };
+  return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };
 }
 
 /**

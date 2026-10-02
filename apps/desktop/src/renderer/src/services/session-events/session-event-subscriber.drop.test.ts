@@ -19,7 +19,7 @@ import { SESSION_ID } from "./session-event-subscriber.test-support.js";
 /** A subscriber whose session stream the case feeds, and the reads its registry performed. */
 interface DropHarness {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventSubscriber;
+  readonly subscriber: SessionEventSubscriber;
   readonly engine: ScenarioEngine;
   /** Hands the bound session's subscription one delivered frame. */
   readonly deliver: (frame: unknown) => void;
@@ -52,8 +52,8 @@ async function createBoundHarness(): Promise<DropHarness> {
     clock: engine.clock,
     refreshDebounceMs: 0,
   });
-  const binder = new SessionEventSubscriber({ registry, bridge });
-  binder.attach();
+  const subscriber = new SessionEventSubscriber({ registry, bridge });
+  subscriber.attach();
   registry.open(SESSION_ID);
   engine.advance(0);
   await settleMicrotasks();
@@ -63,7 +63,7 @@ async function createBoundHarness(): Promise<DropHarness> {
   if (handler === undefined) {
     throw new Error("the subscriber opened no stream for the session");
   }
-  return { registry, binder, engine, deliver: handler, reasonsSeen };
+  return { registry, subscriber, engine, deliver: handler, reasonsSeen };
 }
 
 // Tripwires throw in development; under test they are recorded, since nothing here expects one.
@@ -76,7 +76,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
   it("marks the session short and asks for its re-read on the caught-up frame", async () => {
     // The frame with no changes: a session that went quiet right after a drop. With nothing to
     // apply the store has no gap of its own to find, so the mark is the only notice.
-    const { registry, binder, engine, deliver, reasonsSeen } = await createBoundHarness();
+    const { registry, subscriber, engine, deliver, reasonsSeen } = await createBoundHarness();
 
     deliver({ changes: [], dropped: true, cursor: "cursor-after-the-drop" });
 
@@ -84,8 +84,8 @@ describe("SessionEventSubscriber — the drop mark", () => {
     engine.advance(0);
     await settleMicrotasks();
     expect(reasonsSeen).toEqual(["gap-repull"]);
-    expect(binder.unreadableDeliveryCount).toBe(0);
+    expect(subscriber.unreadableDeliveryCount).toBe(0);
 
-    binder.dispose();
+    subscriber.dispose();
   });
 });

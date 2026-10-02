@@ -1,6 +1,6 @@
 // What React reported while a case ran, read rather than logged.
 //
-// The `console-unit` project declares no `setupFiles` and fails on no warning, so React's
+// The `renderer` project declares no `setupFiles` and fails on no warning, so React's
 // duplicate-key report is logged and never read unless a case captures it. The capture lives here
 // so every suite shares one spy. The restore is unconditional and the spy lives inside a scope,
 // because a spy left installed by a failing case would silence every later file in the worker.

@@ -29,11 +29,12 @@ export interface StatusPresentation {
 export const CHANGE_REQUEST_STATE_PRESENTATION: Readonly<
   Record<ChangeRequestState, StatusPresentation>
 > = {
-  open: { tone: "neutral", meaning: "The proposal is open on the host." },
-  merged: { tone: "neutral", meaning: "The proposal has been merged." },
+  open: { tone: "neutral", meaning: "The pull request is open on the host." },
+  merged: { tone: "neutral", meaning: "The pull request has been merged." },
   closed: {
     tone: "attention",
-    meaning: "The proposal was closed without merging. Nothing from it reached the base branch.",
+    meaning:
+      "The pull request was closed without merging. Nothing from it reached the base branch.",
   },
 };
 

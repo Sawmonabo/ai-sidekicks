@@ -2,8 +2,8 @@
 // feature registers it (`contributions/transcript-rows.ts`, under `TRANSCRIPT_ROW_OWNER`) and
 // the pane reads it back through `findTranscriptRowRenderer`. One renderer, owner-scoped: the
 // same owner may re-register (a hot reload), a different owner is refused by name.
-// The props carry decisions the list makes, not facts a row holds: `actorHue` comes from
-// `AgentHueAllocator` over the join log, `isSuperseded` ranks against rollback boundaries
+// The props carry decisions the list makes, not facts a row holds: `agentHue` comes from
+// `AgentHueAllocator` over the session log, `isSuperseded` ranks against rollback boundaries
 // around the row, and `density` is the list's collapse state.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
@@ -26,11 +26,11 @@ export interface TranscriptRowProps {
   readonly row: TimelineRow;
   /**
    * The author's place on the twelve-step wheel, or `undefined` for a row with no attributable
-   * user. The whole assignment, not a color string: past twelve users the wheel wraps and the
-   * ring treatment tells two people on one step apart. `undefined`, not step zero, which
+   * agent. The whole assignment, not a color string: past twelve agents the wheel wraps and two
+   * agents share a step. `undefined`, not step zero, which
    * belongs to somebody.
    */
-  readonly actorHue: AgentHueAssignment | undefined;
+  readonly agentHue: AgentHueAssignment | undefined;
   /** Whether a rollback boundary later in the list supersedes this row. */
   readonly isSuperseded: boolean;
   readonly density: TranscriptRowDensity;

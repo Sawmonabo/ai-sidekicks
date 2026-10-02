@@ -48,7 +48,7 @@ export async function readTranscriptWindow(
     if (!(waitFailure instanceof Error) || waitFailure.name !== "TimeoutError") {
       throw waitFailure;
     }
-    process.stdout.write("[console-endurance] no transcript row attached within the allowance\n");
+    process.stdout.write("[endurance] no transcript row attached within the allowance\n");
   }
   return consoleApplication.window.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {

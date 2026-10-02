@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { composeSendAttachmentReference } from "./send-attachment-reference.js";
-import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
+import { derivedValues, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
 
 describe("the send attachment reference", () => {
   it("counts every entry that has minted nothing rather than shortening the list silently", () => {
@@ -17,7 +17,7 @@ describe("the send attachment reference", () => {
       settledEntry("abandoned", { localId: "local-3" }),
       settledEntry("complete", {
         localId: "local-4",
-        derived: derivedTruth({ artifactId: "artifact-only" }),
+        derived: derivedValues({ artifactId: "artifact-only" }),
       }),
     ]);
     expect(reference).toStrictEqual({

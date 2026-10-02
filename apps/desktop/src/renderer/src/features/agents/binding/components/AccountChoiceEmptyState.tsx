@@ -13,7 +13,7 @@ export interface AccountChoiceEmptyStateProps {
   readonly onReopen: () => void;
 }
 
-/** The absence state for the account picker: one message per reason there is no list. */
+/** The empty state for the account picker: one message per reason there is no list. */
 export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): React.JSX.Element {
   const { reading, onReopen } = props;
   if (reading.kind === "driver-unchosen") {

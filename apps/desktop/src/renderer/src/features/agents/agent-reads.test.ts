@@ -14,8 +14,8 @@ import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { REJECTING_AGENTS_PANE_CALLS } from "./agent-reads.test-support.js";
 
-/** A started linkage read over a store this case owns, on frozen time. */
-function startedLinkage(
+/** A started child-run links read over a store this case owns, on frozen time. */
+function startedChildRunLinks(
   sessionStore: SessionStore,
   clock: ManualClock,
 ): ReturnType<typeof createChildRunLinks> {
@@ -42,7 +42,7 @@ describe("the Agents pane's models — what re-reads the session's child links",
   it("re-reads once when a run is queued, and once when a create is refused", async () => {
     const sessionStore = initializedStore("session-signal");
     const clock = new ManualClock();
-    const read = startedLinkage(sessionStore, clock);
+    const read = startedChildRunLinks(sessionStore, clock);
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 
@@ -55,10 +55,10 @@ describe("the Agents pane's models — what re-reads the session's child links",
     expect(read.readCount).toBe(afterFirstRead + 2);
   });
 
-  it("re-reads nothing for a kind the linkage does not watch", async () => {
+  it("re-reads nothing for a kind the child-run links read does not watch", async () => {
     const sessionStore = initializedStore("session-unwatched");
     const clock = new ManualClock();
-    const read = startedLinkage(sessionStore, clock);
+    const read = startedChildRunLinks(sessionStore, clock);
     await settleReads(clock);
     const afterFirstRead = read.readCount;
 

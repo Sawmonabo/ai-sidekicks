@@ -80,7 +80,7 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
 
 /**
  * The identity every case renders under unless it is about the other arms: read, as this
- * device. Any other default would make every case about the withheld state.
+ * device. Any other default would make every case about the absent control.
  */
 const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   status: "read",
@@ -105,7 +105,7 @@ export function renderLease(
       controls={
         <LeaseTakeControl
           takeShell={takeShell}
-          holding={state.holding}
+          holder={state.holder}
           deviceIdentity={deviceIdentity}
         />
       }

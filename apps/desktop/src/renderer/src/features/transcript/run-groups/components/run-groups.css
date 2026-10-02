@@ -7,7 +7,7 @@
 
 /*
  * One finished run, on one line, with the disclosure that opens it. The 2 px inline-start edge
- * is the attribution edge a transcript row wears, set from the actor hue wheel by the
+ * is the leading edge a transcript row wears, set from the agent hue wheel by the
  * component; the neutral border is the fallback for an unattributed run group.
  */
 

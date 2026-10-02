@@ -18,11 +18,11 @@ export interface LeaseLineProps {
 }
 
 /**
- * What the chip says for each holding; `null` draws no chip. `unrecognized-transition` is the
+ * What the chip says for each holder; `null` draws no chip. `unrecognized-transition` is the
  * one attention tone: a person is needed, because the console cannot tell where the shell is
  * held, unlike the neutral "not checked" where it simply has not asked.
  */
-const HOLDING_CHIPS: Readonly<
+const HOLDER_CHIPS: Readonly<
   Record<TerminalLeaseHolder, { label: string; tone: ChipTone } | null>
 > = {
   "not-checked": { label: "Not checked", tone: "neutral" },
@@ -36,14 +36,14 @@ const HOLDING_CHIPS: Readonly<
 /** The lease line: the holder chip and statement, the control region, and the unread notice. */
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
   const { state } = props;
-  const chip = HOLDING_CHIPS[state.holding];
+  const chip = HOLDER_CHIPS[state.holder];
 
   return (
     <div className="meridian-lease-line" role="group" aria-label="Terminal lease">
       <div className="meridian-lease-line__head">
         <span className="meridian-lease-line__holder">
           {chip === null ? null : <Chip tone={chip.tone} label={chip.label} />}
-          <LeaseHolderSentence holding={state.holding} />
+          <LeaseHolderSentence holder={state.holder} />
         </span>
         <div className="meridian-lease-line__controls">{props.controls}</div>
       </div>

@@ -41,10 +41,10 @@ class ScriptedStreamOutage {
   }
 }
 
-/** A binder over a transport whose first opens throw, and the reads it asks for. */
+/** A subscriber over a transport whose first opens throw, and the reads it asks for. */
 interface OutageHarness {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventSubscriber;
+  readonly subscriber: SessionEventSubscriber;
   readonly engine: ScenarioEngine;
   readonly bridge: PlatformBridge;
   /** Every reason the registry's read was actually performed for, in order. */
@@ -75,7 +75,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
   });
   return {
     registry,
-    binder: new SessionEventSubscriber({ registry, bridge }),
+    subscriber: new SessionEventSubscriber({ registry, bridge }),
     engine,
     bridge,
     reasonsSeen,
@@ -90,37 +90,37 @@ beforeEach(() => {
 
 describe("SessionEventSubscriber — the opens that failed, and what one returning edge is worth", () => {
   it("retries the retained session on the transport's returning edge, read included", async () => {
-    const { registry, binder, engine, bridge, reasonsSeen } = createOutageHarness(1);
-    binder.attach();
+    const { registry, subscriber, engine, bridge, reasonsSeen } = createOutageHarness(1);
+    subscriber.attach();
     registry.open(SESSION_ID);
-    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.unboundSessionIds).toEqual([SESSION_ID]);
 
     // The wire comes back, driven straight into the signal so this case states what a returning
     // edge is worth without depending on who observed it; the case below drives that path.
     bridge.transportReconnect.observe("reachable");
 
-    expect(binder.retriedBindCount).toBe(1);
-    expect(binder.boundSessionIds).toEqual([SESSION_ID]);
-    expect(binder.unboundSessionIds).toEqual([]);
+    expect(subscriber.retriedBindCount).toBe(1);
+    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.unboundSessionIds).toEqual([]);
 
     engine.advance(1);
     await Promise.resolve();
     expect(reasonsSeen).toEqual(["subscribe"]);
 
     engine.advance(PAST_EVERY_BEAT_MS);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBeGreaterThan(0);
+    expect(subscriber.appliedEventCountFor(SESSION_ID)).toBeGreaterThan(0);
 
-    binder.dispose();
+    subscriber.dispose();
   });
 
   it("re-binds the only retained session when an unrelated stream open observes the wire", async () => {
     // The cycle this closes: the retry wanted a returning edge and the edge wanted a successful
     // bind. Nothing here opens a second session or reopens this one; the recovery is a node-scoped
     // tail belonging to no session, which a window with nothing bindable still observes.
-    const { registry, binder, engine, bridge, reasonsSeen } = createOutageHarness(1);
-    binder.attach();
+    const { registry, subscriber, engine, bridge, reasonsSeen } = createOutageHarness(1);
+    subscriber.attach();
     registry.open(SESSION_ID);
-    expect(binder.unboundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.unboundSessionIds).toEqual([SESSION_ID]);
     expect(bridge.transportReconnect.reachability).toBe("unreachable");
 
     const releaseNodeTail = subscribeNodeDaemon(
@@ -130,15 +130,15 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
       () => undefined,
     );
 
-    expect(binder.retriedBindCount).toBe(1);
-    expect(binder.boundSessionIds).toEqual([SESSION_ID]);
-    expect(binder.unboundSessionIds).toEqual([]);
+    expect(subscriber.retriedBindCount).toBe(1);
+    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.unboundSessionIds).toEqual([]);
     // The retry owes a read, so the recovered session is re-pulled, not merely re-subscribed.
     engine.advance(1);
     await Promise.resolve();
     expect(reasonsSeen).toEqual(["subscribe"]);
 
     releaseNodeTail();
-    binder.dispose();
+    subscriber.dispose();
   });
 });

@@ -64,7 +64,7 @@ export const DIAGNOSTIC_FORWARD_PROBE = "diagnostic-band-forward";
 /** What a truncated detail ends with, so a reader can tell truncation from brevity. */
 const TRUNCATION_SUFFIX = "…";
 
-/** The console's diagnostic capture; a class so a test or an auxiliary window gets its own. */
+/** The console's diagnostic capture; a class so a test gets its own. */
 export class DiagnosticCapture {
   readonly #pending: DiagnosticRecord[] = [];
   readonly #blindProbes = new Map<string, UnreadableProbe>();
@@ -250,7 +250,7 @@ function boundedDetail(detail: string): string {
 }
 
 /**
- * The console's capture, one per renderer process because an auxiliary window has its own.
+ * The console's capture, one per renderer process.
  *
  * Producers are the tripwire route (`tripwire-diagnostic-route.ts`) and warnings a person can
  * do nothing about on screen. Until a forwarder is installed it marks its forward seam blind and

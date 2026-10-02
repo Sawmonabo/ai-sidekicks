@@ -1,4 +1,4 @@
-// The contract of a bounded cleanup: the collaborators it is handed, the clock it charges its
+// The contract of a bounded cleanup: the dependencies it is handed, the clock it charges its
 // phases against, and the verdict it returns. The race that produces the verdict is
 // `bounded-cleanup.ts`.
 //

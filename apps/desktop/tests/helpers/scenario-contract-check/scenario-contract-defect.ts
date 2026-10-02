@@ -1,4 +1,4 @@
-// What a wire-truth defect is, and the issue formatter its reasons are built from.
+// What a scenario contract defect is, and the issue formatter its reasons are built from.
 //
 // A leaf: the aggregate entry answers in this shape and three axis modules construct one, so
 // declaring it in any of them would make the others import a sibling for a type, and declaring it

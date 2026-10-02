@@ -83,7 +83,7 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
   },
   "workspace.not_found": {
     nextMove:
-      "This workspace is gone. The section re-reads its roster; a row that survives the re-read is a disagreement between the list and the background service.",
+      "This workspace is gone. The section re-reads its workspace list; a row that survives the re-read is a disagreement between the list and the background service.",
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.preparation_failed": {

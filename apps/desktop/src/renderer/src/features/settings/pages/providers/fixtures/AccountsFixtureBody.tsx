@@ -4,9 +4,9 @@
 // authors no rule: no eligibility, no health verdict, no remedy.
 //
 // The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a time,
-// so every start control is disabled, with its reason, while one runs. `sign-in-flow-tracker.ts`
-// owns that rule, and the registry's completion report releases a flow the node ended on its
-// own, correlated by attempt id.
+// so every start control is disabled, with its reason, while one runs.
+// `provider-sign-in-flow-tracker.ts` owns that rule, and the registry's completion report
+// releases a flow the node ended on its own, correlated by attempt id.
 
 import "./accounts-fixture-body.css";
 
@@ -21,18 +21,18 @@ import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./components/QuotaTable.js";
 import { ReadinessRow } from "./components/ReadinessRow.js";
 import {
-  cancelSignIn,
+  cancelProviderSignIn,
   startProviderSignIn,
   type ProviderAccountLoginCall,
   type ProviderAccountLoginCancelCall,
   type ProviderAccountRegisterCall,
-} from "./sign-in-flow.js";
-import { SignInCard } from "./components/SignInCard.js";
+} from "./provider-sign-in-flow.js";
+import { ProviderSignInCard } from "./components/ProviderSignInCard.js";
 import {
-  SignInFlowTracker,
-  describeRunningSignIn,
-  findRunningSignInAccountId,
-} from "./sign-in-flow-tracker.js";
+  ProviderSignInFlowTracker,
+  describeRunningProviderSignIn,
+  findRunningProviderSignInAccountId,
+} from "./provider-sign-in-flow-tracker.js";
 import { TokenRegistrationForm } from "./components/TokenRegistrationForm.js";
 
 /** The daemon verbs the fixture body drives. Held stable by the caller. */
@@ -70,11 +70,13 @@ export function AccountsFixtureBody(props: {
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
   // Built in a memo and disposed in an effect, so a discarded memo costs an object and not a
   // call in flight.
-  const signInFlowTracker = useMemo(
+  const providerSignInFlowTracker = useMemo(
     () =>
-      new SignInFlowTracker({
-        startSignIn: async (accountId) => await startProviderSignIn(operations.login, accountId),
-        cancelSignIn: async (attempt) => await cancelSignIn(operations.cancelLogin, attempt),
+      new ProviderSignInFlowTracker({
+        startProviderSignIn: async (accountId) =>
+          await startProviderSignIn(operations.login, accountId),
+        cancelProviderSignIn: async (attempt) =>
+          await cancelProviderSignIn(operations.cancelLogin, attempt),
         // A flow ending says nothing about the account, so the registry is read again.
         onFlowSettled: requestRegistryRead,
       }),
@@ -82,23 +84,23 @@ export function AccountsFixtureBody(props: {
   );
   useEffect(
     () => () => {
-      signInFlowTracker.dispose();
+      providerSignInFlowTracker.dispose();
     },
-    [signInFlowTracker],
+    [providerSignInFlowTracker],
   );
   const signIn = useSyncExternalStore(
-    (onStoreChange: () => void) => signInFlowTracker.subscribe(onStoreChange),
-    () => signInFlowTracker.snapshot(),
-    () => signInFlowTracker.snapshot(),
+    (onStoreChange: () => void) => providerSignInFlowTracker.subscribe(onStoreChange),
+    () => providerSignInFlowTracker.snapshot(),
+    () => providerSignInFlowTracker.snapshot(),
   );
   // The registry's completion report ends a flow the node finished on its own; keyed on the
   // attempt id so a re-render over the same completion re-runs nothing.
   const completedAttemptId = registry.newestLoginCompletion?.attemptId;
   useEffect(() => {
     if (completedAttemptId !== undefined) {
-      signInFlowTracker.noteLoginCompleted(completedAttemptId);
+      providerSignInFlowTracker.noteLoginCompleted(completedAttemptId);
     }
-  }, [completedAttemptId, signInFlowTracker]);
+  }, [completedAttemptId, providerSignInFlowTracker]);
 
   if (registry.phase === "reading") {
     return (
@@ -112,7 +114,7 @@ export function AccountsFixtureBody(props: {
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
     registry.accounts[0];
-  const holdingAccountId = findRunningSignInAccountId(signIn);
+  const holdingAccountId = findRunningProviderSignInAccountId(signIn);
   const holdingAccountLabel =
     holdingAccountId === undefined
       ? undefined
@@ -131,7 +133,7 @@ export function AccountsFixtureBody(props: {
               startBlockedReason={
                 holdingAccountId === undefined
                   ? undefined
-                  : describeRunningSignIn({
+                  : describeRunningProviderSignIn({
                       isTheSameAccount: holdingAccountId === readiness.resolvedAccountId,
                       holdingAccountLabel,
                     })
@@ -142,15 +144,15 @@ export function AccountsFixtureBody(props: {
                   : signIn.refusalByAccountId.get(readiness.resolvedAccountId)
               }
               onStartSignIn={(accountId) => {
-                signInFlowTracker.start(accountId);
+                providerSignInFlowTracker.start(accountId);
               }}
             />
           ))}
         </ul>
-        <SignInCard
+        <ProviderSignInCard
           flow={signIn.flow}
           onCancel={() => {
-            signInFlowTracker.cancel();
+            providerSignInFlowTracker.cancel();
           }}
         />
       </section>

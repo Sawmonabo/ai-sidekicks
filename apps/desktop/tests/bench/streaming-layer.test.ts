@@ -141,7 +141,7 @@ function measurePerDeltaCost(replay: () => number): {
   return { samples, statistics: summarizeBenchmarkSamples(samples) };
 }
 
-const ledgerFilePath = process.env["CONSOLE_BENCH_LEDGER_PATH"] ?? DEFAULT_BENCHMARK_LEDGER_PATH;
+const ledgerFilePath = process.env["SIDEKICKS_BENCH_LEDGER_PATH"] ?? DEFAULT_BENCHMARK_LEDGER_PATH;
 
 test(
   "streaming layer: the incremental block layer parses a delta more cheaply than re-parsing the message",

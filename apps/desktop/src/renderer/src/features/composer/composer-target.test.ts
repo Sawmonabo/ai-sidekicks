@@ -1,4 +1,4 @@
-// The composer's address: resolved from wire truth, and never a guess.
+// The composer's address: resolved from what the wire says, and never a guess.
 
 import { describe, expect, it } from "vitest";
 

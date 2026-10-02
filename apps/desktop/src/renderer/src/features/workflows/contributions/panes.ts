@@ -34,7 +34,7 @@ const WORKFLOW_PANES: readonly PaneRegistration[] = [
 
 /**
  * Claim this feature's pane kinds against a registry rather than the module-scope singleton, so
- * a test or an auxiliary window can compose its own set.
+ * a test can compose its own set.
  */
 export function registerWorkflowPanes(registry: PaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {

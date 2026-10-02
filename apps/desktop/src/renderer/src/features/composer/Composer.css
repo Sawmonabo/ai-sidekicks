@@ -1,4 +1,4 @@
-/* The composer: the message box and its accessories in one column. */
+/* The composer: the message box and its toolbar cluster in one column. */
 
 .meridian-composer {
   display: flex;
@@ -21,7 +21,7 @@
   border-radius: var(--meridian-radius-md);
 }
 
-.meridian-composer__accessories {
+.meridian-composer__toolbar-cluster {
   display: flex;
   flex-wrap: wrap;
   gap: var(--meridian-space-3);

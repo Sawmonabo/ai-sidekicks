@@ -124,7 +124,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
       // in memory. IndexedDB is per-origin and this launch has its own profile, so the read is
       // this run's own write.
       //
-      // The reload boots the renderer a second time, which `console-launch-readiness` bounds, so
+      // The reload boots the renderer a second time, which `launch-readiness` bounds, so
       // the navigation and the frame element share one clock at that figure, as `launchConsole`
       // divides its own ladder. Both legs are also held to what is left of the body's allowance.
       const reloadDeadline = new LaunchDeadline(READINESS_BUDGET_MS);

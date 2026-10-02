@@ -35,7 +35,7 @@ export function settledEntry(
 }
 
 /** A settled artifact, as the daemon reported it at completion. */
-export function derivedTruth(
+export function derivedValues(
   overrides: Partial<Omit<SessionAttachmentSummary, "artifactId">> & {
     readonly artifactId?: string;
   } = {},

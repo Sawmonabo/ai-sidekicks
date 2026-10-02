@@ -59,8 +59,8 @@ export class ReadScope {
   }
 
   /**
-   * Open a round, ending whatever round this scope had open. Superseding is the open itself, so
-   * the line never has two live rounds.
+   * Open a refresh, ending whatever refresh this scope had open. Superseding is the open itself,
+   * so the line never has two refreshes in flight.
    *
    * An abandoned scope answers a round that is already over rather than refusing, so callers
    * need no "may I read" branch; the read never leaves the console because `callDaemon` checks

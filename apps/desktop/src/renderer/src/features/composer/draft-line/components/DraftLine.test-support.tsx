@@ -56,7 +56,7 @@ export function mountDraftLine(options: {
   );
   const line = result.container.querySelector("textarea");
   if (!(line instanceof HTMLTextAreaElement)) {
-    throw new Error("the send bar rendered no directive line");
+    throw new Error("the send bar rendered no draft line");
   }
   return { result, line, frameStore };
 }
@@ -204,7 +204,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
     line: (): HTMLTextAreaElement => {
       const line = result.container.querySelector("textarea");
       if (!(line instanceof HTMLTextAreaElement)) {
-        throw new Error("the send bar rendered no directive line");
+        throw new Error("the send bar rendered no draft line");
       }
       return line;
     },

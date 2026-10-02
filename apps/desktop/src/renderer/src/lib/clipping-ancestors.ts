@@ -4,7 +4,7 @@
 //
 // The `overflow-x` and `overflow-y` longhands decide; the `overflow` shorthand is a fallback
 // used only when neither axis is readable. A conformant engine serializes the shorthand from
-// the axes, but `happy-dom` (the `console-unit` tier's document) reports the empty string
+// the axes, but `happy-dom` (the `renderer` tier's document) reports the empty string
 // for both axes of an element styled with the shorthand alone.
 
 /**

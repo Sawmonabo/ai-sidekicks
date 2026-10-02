@@ -1,4 +1,4 @@
-// The seam between recognizing a client command and running one.
+// The port between recognizing a console command and running one.
 //
 // The router intercepts a leading slash whose name a recognizer knows, carrying the name and
 // no request. The outcome is a value, not a void, so a controller never clears the line for
@@ -19,7 +19,7 @@ export interface ComposerCommandLine {
 }
 
 /**
- * What running one client command settled as. There is no "not found" arm: whether a name is
+ * What running one console command settled as. There is no "not found" arm: whether a name is
  * registered is answered by the recognizer before this seam, and an executor that could
  * disagree would be a second registry. `not-run` leaves the line as typed and draws nothing.
  */
@@ -28,5 +28,5 @@ export type CommandOutcome =
   | { readonly status: "not-run" }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
-/** Run one recognized client command. Returns a settlement; never throws to report one. */
+/** Run one recognized console command. Returns a settlement; never throws to report one. */
 export type CommandExecutor = (line: ComposerCommandLine) => Promise<CommandOutcome>;

@@ -1,4 +1,4 @@
-// Every value and collaborator the repos views are drawn against.
+// Every value and dependency the repos views are drawn against.
 //
 // Split from `repos.tsx`: that module owns how each view is reached (what it is mounted into and
 // what settled means), this one owns what it is drawn against: the bridge and store the views are

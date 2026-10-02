@@ -70,7 +70,7 @@ describe("one act per run and action is in flight, and a second press is told so
     // would be refused as a duplicate.
     const failing = rejectingCancelCalls();
     const controls = observeControls(failing.calls, RUN_A);
-    // The dispatcher does not catch the rejection, so the runner reports it; the witness
+    // The dispatcher does not catch the rejection, so the runner reports it; the case
     // reads that report instead of letting it fail the run.
     const escaped = await unhandledRejectionsDuring(async () => {
       await act(async () => {

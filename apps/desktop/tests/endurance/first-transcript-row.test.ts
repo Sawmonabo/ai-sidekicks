@@ -296,7 +296,7 @@ function requireReading(outcome: FirstTranscriptRowOutcome): FirstTranscriptRowR
 function reportReading(label: string, reading: FirstTranscriptRowReading): void {
   const verdict = evaluateBudget(budget, elapsedFromWindowShow(reading));
   process.stdout.write(
-    `[console-endurance] ${label}: first transcript row ${elapsedFromWindowShow(reading).toFixed(1)} ms ` +
+    `[endurance] ${label}: first transcript row ${elapsedFromWindowShow(reading).toFixed(1)} ms ` +
       `after window show, of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
       `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
       `${(reading.measurementStartedAtMs - reading.windowShownAtMs).toFixed(1)} ms of it is the ` +

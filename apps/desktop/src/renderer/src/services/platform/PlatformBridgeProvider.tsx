@@ -44,8 +44,8 @@ export interface PlatformBridgeProviderProps {
  */
 export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
   const { children, bridge, clock, composition, clockToRebind } = props;
-  const [resolved, setResolved] = useState<ResolvedConsoleBridge>(
-    () => new ResolvedConsoleBridge(bridge, clock, composition),
+  const [resolved, setResolved] = useState<ResolvedPlatformBridge>(
+    () => new ResolvedPlatformBridge(bridge, clock, composition),
   );
 
   // Hands the window's one clock to the identity armed before this tree existed. It runs in the
@@ -64,7 +64,7 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
   // React may discard a render pass, and a handle installed then would point at an unread engine.
   useEffect(() => {
     if (resolved.isSupersededBy(bridge, clock, composition)) {
-      setResolved(new ResolvedConsoleBridge(bridge, clock, composition));
+      setResolved(new ResolvedPlatformBridge(bridge, clock, composition));
       return undefined;
     }
     return resolved.install();
@@ -82,7 +82,7 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
  * because whether it is still right for the props, and what teardown means, both depend on
  * whether the bridge was built here or handed in; a caller's bridge outlives this provider.
  */
-class ResolvedConsoleBridge {
+class ResolvedPlatformBridge {
   readonly #suppliedBridge: PlatformBridge | undefined;
   readonly #suppliedClock: Clock | undefined;
   readonly #composition: BridgeComposition | undefined;

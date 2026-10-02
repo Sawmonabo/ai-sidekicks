@@ -32,7 +32,6 @@ import type { Scenario } from "../scenario.js";
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a33-3300-75e5-8510-ada11a5a55a5");
 const USER_YOU: UserId = UserIdSchema.parse("019b7a33-3300-79a4-8110-cca0117a0510");
 const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a33-3300-7a6e-8110-d1a4c1150501");
-const AGENT_REVIEWER: AgentId = AgentIdSchema.parse("019b7a33-3300-7a6e-8120-d1a4c1150502");
 const RUN_ID: RunId = RunIdSchema.parse("019b7a33-3300-740e-8110-d1a4c1150511");
 
 const APPROVAL_RESOLVED = "019b7a33-3300-7f01-8110-d1a4c1150521";
@@ -54,9 +53,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
     "already approved, so a view that lists the waiting ones can be held to leaving the " +
     "approved one out.",
   sessionId: SESSION_ID,
-  userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
-  // The person the pending cards are addressed to, stated so no view guesses it from join order.
-  callerUserId: USER_YOU,
+  thisDeviceId: USER_YOU,
   startedAtIso: "2026-01-01T13:30:00.000Z",
   beats: [
     {

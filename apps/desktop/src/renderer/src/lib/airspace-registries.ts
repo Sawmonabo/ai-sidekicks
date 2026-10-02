@@ -1,5 +1,5 @@
-// One airspace registry per renderer document: an auxiliary window has its own overlays and
-// native views, so two windows must not yield to each other's dialogs.
+// One airspace registry per renderer document: a document's overlays and native views yield only
+// to its own dialogs.
 //
 // Keyed on the document rather than a platform bridge: the overlay components that must reach
 // the same registry sit below `services/` in the import layering and cannot name a bridge.

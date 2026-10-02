@@ -1,4 +1,4 @@
-/* The composer's accessory rail: quiet chrome around one strip of figures. The meter is a hairline
+/* The composer's toolbar cluster: quiet chrome around one strip of figures. The ring is a hairline
    and is never colored by how full it is. */
 
 .meridian-composer__rail {
@@ -7,7 +7,7 @@
   gap: var(--meridian-space-2);
 }
 
-/* --- Context meter ------------------------------------------------------- */
+/* --- Context ring -------------------------------------------------------- */
 
 .meridian-context-ring {
   display: flex;

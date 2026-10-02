@@ -5,7 +5,7 @@
 // browser paints.
 //
 // Component code writes `var(--meridian-text-muted)` and lets the cascade resolve the scheme. The
-// records exist so a test can measure what the cascade resolves to, and so the actor-hue
+// records exist so a test can measure what the cascade resolves to, and so the agent-hue
 // allocator can hand out a wheel step by number.
 
 import {
@@ -124,8 +124,8 @@ export function formatHueWheelTokenName(step: number): string {
 }
 
 /**
- * The twelve user hues, resolved and scheme-independent. Index is the wheel step;
- * `AgentHueAllocator` alone decides which step a user gets.
+ * The twelve agent hues, resolved and scheme-independent. Index is the wheel step;
+ * `AgentHueAllocator` alone decides which step an agent gets.
  */
 export const HUE_WHEEL: readonly OklchColor[] = Array.from(
   { length: HUE_WHEEL_STEPS },
@@ -141,7 +141,7 @@ export const HUE_WHEEL: readonly OklchColor[] = Array.from(
 export function readHueWheelColor(step: number): OklchColor {
   const color = HUE_WHEEL[step];
   if (color === undefined) {
-    throw new RangeError(`user hue step ${step} is outside the ${HUE_WHEEL_STEPS}-step wheel`);
+    throw new RangeError(`agent hue step ${step} is outside the ${HUE_WHEEL_STEPS}-step wheel`);
   }
   return color;
 }

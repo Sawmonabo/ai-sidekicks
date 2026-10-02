@@ -1,8 +1,8 @@
-// The seam, drawn: one line across the transcript, every part wire-sourced.
-// The feed dispatches a seam row here before the row renderer, which draws row bodies; a seam
-// has only a glyph, a label and a few wire members. Parts are rendered as themselves (label
-// from the binding table, wire type in mono, continuity and losses verbatim), so an
-// unrecognized value is still reported rather than mapped onto a fallback phrase.
+// The system message, drawn: one line across the transcript, every part wire-sourced. The feed
+// dispatches a system message here before the row renderer, which draws row bodies; a system
+// message has only a glyph, a label and a few wire members. Parts are rendered as themselves (label
+// from the binding table, wire type in mono, continuity and losses verbatim), so an unrecognized
+// value is still reported rather than mapped onto a fallback phrase.
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { TranscriptRowLayout } from "../../components/TranscriptRowLayout/TranscriptRowLayout.js";
@@ -17,7 +17,7 @@ import "./system-messages.css";
 export interface SystemMessageProps {
   readonly seam: SystemMessageReading;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */
-  readonly actorHue?: AgentHueAssignment | undefined;
+  readonly agentHue?: AgentHueAssignment | undefined;
   /** Whether a rollback later in the log put this seam behind it. */
   readonly isSuperseded?: boolean | undefined;
 }
@@ -28,7 +28,7 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
   const binding = SYSTEM_MESSAGE_BINDINGS[seam.kind];
   return (
     <TranscriptRowLayout
-      agentHueStep={props.actorHue?.step ?? -1}
+      agentHueStep={props.agentHue?.step ?? -1}
       occurredAtIso={seam.timestamp}
       authorLabel={seam.actorId ?? "Session"}
       kindLabel={seam.wireType}
