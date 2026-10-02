@@ -1,7 +1,7 @@
-// A pane context builder for the suites in several features that mount a pane. No pane mounted
-// through it reads `uiStateStore`, so the default is a never-settling adapter: a pane that grows
-// a UI-state read hangs and is found, where a settling stub would pass with an empty store. A suite
-// that needs an answering store passes one.
+// The one pane context builder, for every suite and tier that mounts a pane. A pane that reads
+// no UI state gets a never-settling adapter by default: one that grows a UI-state read hangs and
+// is found, where a settling stub would pass with an empty store. A mount whose pane hands the
+// store on passes an answering one.
 //
 // The address is the parameter and is passed through as written, so the address union's shapes
 // (session-scoped kinds carry no `entity`, entity-keyed kinds require one) are enforced at the call

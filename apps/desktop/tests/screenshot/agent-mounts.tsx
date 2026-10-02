@@ -23,7 +23,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../helpers/feature-mounts/projector-composition.js";
-import { paneBinding } from "../helpers/feature-mounts/pane-body-resolution.js";
+import { paneContext } from "../helpers/pane-context.js";
 import { requireCapturedElement } from "./captured-element.js";
 
 /** The session the store is open on, so the agent-list read is asked rather than skipped. */
@@ -61,11 +61,10 @@ function agentsSessionStore(): SessionStore {
 export async function mountAgentsPane(): Promise<{ readonly element: Element }> {
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("agents-screenshot") });
   const { bridge } = fixture;
-  const context: PaneContext = {
-    kind: "agents",
-    entity: { kind: "agent", id: AGENT_ON_CLAUDE.agentId },
-    ...paneBinding({ paneId: "pane-agents", bridge, sessionStore: agentsSessionStore() }),
-  };
+  const context: PaneContext = paneContext(
+    { kind: "agents", entity: { kind: "agent", id: AGENT_ON_CLAUDE.agentId } },
+    { paneId: "pane-agents", bridge, sessionStore: agentsSessionStore() },
+  );
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={fixture}>
       <AgentsPaneBody context={context} />

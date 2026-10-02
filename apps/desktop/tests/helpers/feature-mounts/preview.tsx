@@ -10,7 +10,8 @@ import { unscriptedScenario } from "../fixture-bridge.js";
 import { FixtureBridgeProvider } from "../app-frame-fixtures.js";
 import { renderSettled } from "../app-harness.js";
 import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
-import { paneBinding, resolvedPaneBody } from "./pane-body-resolution.js";
+import { paneContext } from "../pane-context.js";
+import { resolvedPaneBody } from "./pane-body-resolution.js";
 
 /** The preview pane, mounted and settled. */
 export async function mountPreviewPane(): Promise<MountedView> {
@@ -23,8 +24,10 @@ export async function mountPreviewPane(): Promise<MountedView> {
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={fixture}>
       <PreviewPaneBody
-        kind="browser"
-        {...paneBinding({ paneId: "pane-preview", bridge, sessionStore: undefined })}
+        {...paneContext(
+          { kind: "browser" },
+          { paneId: "pane-preview", bridge, sessionStore: undefined },
+        )}
       />
     </FixtureBridgeProvider>,
   );

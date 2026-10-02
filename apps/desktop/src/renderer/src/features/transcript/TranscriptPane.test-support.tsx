@@ -3,6 +3,7 @@
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { paneContext } from "@test/helpers/pane-context.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../fixtures/scenarios/empty-session.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -16,25 +17,22 @@ import {
 const TRANSCRIPT_PANE_SESSION_ID = "session-transcript";
 
 /**
- * The pane context with the window store real and the other members cast. The pane
- * subscribes to the window store for its breadcrumb address; the stores it never reads
- * are cast because one of them opens a database.
+ * The transcript pane's context over the shared builder. The window store opens on the session's
+ * route, because the pane subscribes to it for its breadcrumb address.
  */
-export function paneContext(
-  overrides: Partial<TranscriptPaneContext> = {},
-  sessionId: string | null = TRANSCRIPT_PANE_SESSION_ID,
+export function transcriptPaneContext(
+  sessionStore: SessionStore,
+  sessionId: string = TRANSCRIPT_PANE_SESSION_ID,
 ): TranscriptPaneContext {
-  // `null` rather than `undefined` for the session-less arm: an explicit `undefined`
-  // re-applies the parameter default. `entity` is omitted rather than `undefined` because
-  // an absent key is how the address union says the pane is scoped to the session.
-  return {
-    kind: "transcript",
-    paneId: "transcript-pane",
-    frameStore: new WindowStore({
-      initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "session", sessionId },
-    }),
-    ...overrides,
-  } as unknown as TranscriptPaneContext;
+  return paneContext(
+    { kind: "transcript" },
+    {
+      paneId: "transcript-pane",
+      bridge: createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO }).bridge,
+      sessionStore,
+      frameStore: new WindowStore({ initialRoute: { kind: "session", sessionId } }),
+    },
+  );
 }
 
 /**
