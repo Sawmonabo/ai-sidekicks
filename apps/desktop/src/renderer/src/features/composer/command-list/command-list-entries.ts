@@ -85,10 +85,10 @@ export function selectAddressedBindingGroup(
 
 /** Compose the two sources into one list, console acts first. */
 export function composeCommandList(input: {
-  readonly offeredCommands: readonly CommandDefinition[];
+  readonly runnableCommands: readonly CommandDefinition[];
   readonly providerGroups: readonly ProviderCommandBindingGroup[];
 }): readonly CommandListEntry[] {
-  const consoleEntries: CommandListEntry[] = input.offeredCommands.map((command) => ({
+  const consoleEntries: CommandListEntry[] = input.runnableCommands.map((command) => ({
     source: "console",
     key: `console:${command.id}`,
     name: command.id,

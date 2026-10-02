@@ -29,7 +29,7 @@ export function createConsoleCommandExecutor(options: {
     const commands = options.readCommands();
     const commandId = line.commandName;
     if (!recognizeConsoleCommand(commandId, { runnableCommandIds: commands.runnableCommandIds })) {
-      // The registry changed since the router claimed the name, or a picked entry is closed.
+      // The registry changed since the router claimed the name or the list was drawn.
       return { status: "send-as-typed" };
     }
     // Preferred over the argument-free `invoke`, and only after the recognizer claimed the
