@@ -806,26 +806,6 @@ describe("outbound frame tripwire", () => {
     expect(tripwire.pendingFrameCountForScope("session-1")).toBe(1);
   });
 
-  it("keeps a frame whose binding cannot be proven retired", () => {
-    // A predicate that throws has not answered; reclaiming anyway would be the eviction the
-    // refusal replaces.
-    const tripwire = new OutboundFrameTripwire({
-      isScopeRetired: () => {
-        throw new Error("the driver could not answer");
-      },
-    });
-    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
-      registerFrame(tripwire, `turn-${String(index)}`, frameFor("human_text"));
-    }
-
-    expect(() => {
-      registerFrame(tripwire, "turn-overflow", frameFor("human_text"));
-    }).toThrow(OutboundFrameCapacityRefusedError);
-    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(
-      OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
-    );
-  });
-
   it("backstops the total across every binding", () => {
     const tripwire = new OutboundFrameTripwire();
     const scopeCount =

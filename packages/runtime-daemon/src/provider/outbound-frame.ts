@@ -685,10 +685,7 @@ export class OutboundFrameTripwire {
     );
   }
 
-  /**
-   * Reclaims registrations of bindings the driver reports retired, asking once per binding. A
-   * predicate that throws counts as not retired: an unanswered question proves nothing.
-   */
+  /** Reclaims registrations of bindings the driver reports retired, asking once per binding. */
   #reclaimRetiredScopes(): void {
     const isScopeRetired = this.#isScopeRetired;
     if (isScopeRetired === undefined) {
@@ -698,11 +695,7 @@ export class OutboundFrameTripwire {
     for (const [correlationId, pending] of this.#pendingByCorrelationId) {
       let retired = retiredByScopeKey.get(pending.scopeKey);
       if (retired === undefined) {
-        try {
-          retired = isScopeRetired(pending.scopeKey);
-        } catch {
-          retired = false;
-        }
+        retired = isScopeRetired(pending.scopeKey);
         retiredByScopeKey.set(pending.scopeKey, retired);
       }
       if (retired) {
