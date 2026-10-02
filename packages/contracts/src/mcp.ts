@@ -4,7 +4,7 @@
 //
 // No read-back shape carries a configuration value. Credential-bearing input values are
 // write-only, and the redacted view carries names (`envVarNames`, `headerNames`,
-// `urlQueryParamNames`) where the wire carries values, so a surface rendering every read-back
+// `urlQueryParamNames`) where the wire carries values, so a client rendering every read-back
 // still cannot render an environment-variable value, a header value or a token.
 //
 // Every governance mutation carries a `clientIdempotencyKey` that the caller mints: a retry of
@@ -18,6 +18,7 @@ import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
+  MCP_SERVER_STATUS_SEVERITY_ORDER,
   type McpServerStatus,
 } from "./provider-driver.js";
 import {
@@ -26,26 +27,13 @@ import {
   wireFreeFormString,
   type SessionId,
 } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** A server's name as a binding and an event carry it. */
 export const McpServerNameSchema: z.ZodString = wireFreeFormString(
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   "McpServerBindingRef.serverName",
 );
-
-/**
- * The five server statuses, most severe first, which is the daemon's aggregation order:
- * `failed > needs-auth > unknown > starting > connected`. Lost observability reports `unknown`
- * and outranks a known-healthy state. A client renders the aggregate on the entry and never
- * applies the order itself; it is exported so a listing of the vocabulary uses it.
- */
-export const MCP_SERVER_STATUS_SEVERITY_ORDER: readonly McpServerStatus[] = Object.freeze([
-  "failed",
-  "needs-auth",
-  "unknown",
-  "starting",
-  "connected",
-] as const);
 
 const MCP_APPLICATION_GRADE_VALUES = [
   "live_reconcile",
@@ -90,12 +78,9 @@ export const McpConfigScopeSchema: z.ZodType<McpConfigScope, McpConfigScope> =
   z.enum(MCP_CONFIG_SCOPE_VALUES);
 
 /**
- * The scope-qualified identity of one server binding: provider, scope, scope
- * reference and server name.
- *
- * A union on `scope`, not optional members: `user` carries no `scopeRef`, and `project` and
- * `local` require one, the project's root folder. A flat record would let a caller compose an
- * identity the daemon rejects and would collapse same-named servers in two scopes into one row.
+ * The scope-qualified identity of one server binding. A union on `scope`, so `user` carries no
+ * `scopeRef` and `project` and `local` require one (the project's root folder), and same-named
+ * servers in two scopes stay two rows.
  */
 export type McpServerBindingRef =
   | { provider: ProviderName; scope: "user"; serverName: string }
@@ -160,12 +145,9 @@ export const McpSetEnabledRequestSchema: z.ZodType<McpSetEnabledRequest, McpSetE
   bindingAddressed({ clientIdempotencyKey: z.uuid(), enabled: z.boolean() });
 
 /**
- * The redacted read-back of a binding's declaration, by transport.
- *
- * The env map, the header map and the URL's query string reach this shape as their
- * KEYS only, because their values are credential-equivalent and the daemon does not
- * serve them. The URL is query-redacted at the daemon (scheme, host and path) and is
- * carried verbatim from there, never trimmed again by a client.
+ * The redacted read-back of a binding's declaration, by transport. The env map, header map and
+ * URL query arrive as keys only, since their values are credentials; the URL is query-redacted at
+ * the daemon and a client shows it verbatim.
  */
 export type McpServerConfigView =
   | {
@@ -194,11 +176,8 @@ export type McpServerConfigView =
     };
 
 /**
- * One live session's observation of one binding.
- *
- * The grain is kept rather than folded: one configuration can back several
- * concurrent sessions, and two sessions' connections to one binding can honestly
- * disagree. One scalar would report a partial outage as either fine or broken.
+ * One live session's observation of one binding, kept per session because two sessions'
+ * connections to one binding can disagree, and one verdict would hide a partial outage.
  */
 export interface McpServerLegStatus {
   sessionId: SessionId;
@@ -214,13 +193,9 @@ const MCP_SERVER_FAILED_REASON_VALUES = ["commandNotRunnable"] as const;
 export type McpServerFailedReason = (typeof MCP_SERVER_FAILED_REASON_VALUES)[number];
 
 /**
- * One tool's override, by facet.
- *
- * Every facet is optional and at least one is present. An absent facet means
- * "inherit", and a client renders it as an absence rather than as a default it
- * picked: an absent `idempotencyClass` falls back to the manual-reconcile floor at
- * the daemon, and a client naming that floor would be re-deriving a class crash
- * recovery depends on.
+ * One tool's override, by facet; at least one facet is present. An absent facet inherits, and a
+ * client shows it as absent, never as a default it picked (the daemon's fallback for an absent
+ * `idempotencyClass` is the manual-reconcile floor that crash recovery depends on).
  */
 export interface McpToolOverride {
   toolName: string;
@@ -249,11 +224,9 @@ interface McpServerInventoryFacts {
 }
 
 /**
- * One inventory row: the binding and what is known about it.
- *
- * A pair on `bindingStoreUnavailable`. When the binding store is unreachable the members that depend on
- * it are absent, not `false`, `unknown` or an empty list, so no made-up verdict exists. A client
- * renders the absence.
+ * One inventory row: the binding and what is known about it. While `bindingStoreUnavailable`, the
+ * members that need the binding store are absent, not `false`, `unknown` or an empty list, so no
+ * made-up verdict exists; a client renders the absence.
  */
 export type McpServerInventoryEntry = McpServerBindingRef &
   McpServerInventoryFacts &
@@ -270,11 +243,8 @@ export type McpServerInventoryEntry = McpServerBindingRef &
   );
 
 /**
- * One live session's outcome after a mutation that touched it.
- *
- * A partial outcome is typed rather than masked: a mutation that committed durably
- * and failed on one session answers served and reports the failing session, so a
- * client renders per-session outcomes instead of one verdict.
+ * One live session's outcome after a mutation that touched it. A mutation that committed and
+ * failed on one session still answers served and reports that session here.
  */
 export interface McpLiveApplicationResult {
   sessionId: SessionId;
@@ -285,11 +255,8 @@ export interface McpLiveApplicationResult {
 }
 
 /**
- * What a governance mutation answers with: the row as it now stands, where the change
- * took effect, and what happened on each live session.
- *
- * `liveResults` is absent where the mutation touched no live session, which is a
- * different fact from an empty list and is carried as one.
+ * What a governance mutation answers with: the row as it now stands, where the change took effect,
+ * and each live session's outcome. `liveResults` is absent, not empty, where none was touched.
  */
 export interface McpMutationResult {
   server: McpServerInventoryEntry;
@@ -332,17 +299,18 @@ export const MCP_REQUEST_TEXT_MAX_LEN = 8192;
 const mcpRequestText = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
 
+// An `http:` or `https:` address; `http:` is legal because a server may listen on loopback.
+const mcpHttpAddressSchema = z.url({ protocol: /^https?$/u });
+
 /** An `http:` or `https:` address, taken as typed, a user name or password in it included. */
-const mcpServerAddressSchema = z.url({ protocol: /^https?$/ }).max(MCP_REQUEST_TEXT_MAX_LEN);
+const mcpServerAddressSchema = mcpHttpAddressSchema.max(MCP_REQUEST_TEXT_MAX_LEN);
 
 const mcpTimeoutSecondsSchema = z.number().positive();
 
 /**
- * A server's declaration as the person submits it, by transport.
- *
- * Environment and header VALUES are write-only: the daemon hands them to the
- * provider's own write path and never serves them back. Members the person did
- * not set are left as the provider's declaration has them.
+ * A server's declaration as the person submits it, by transport. Environment and header values are
+ * write-only, handed to the provider's write path and never served back; unset members keep the
+ * provider's values.
  */
 export type McpServerConfigInput =
   | {
@@ -370,7 +338,8 @@ export type McpServerConfigInput =
       toolTimeoutSec?: number | undefined;
     };
 
-const configCommonShape = {
+// The settings every transport carries, the same on a submitted declaration and its read-back.
+const serverSettingsShape = {
   enabled: z.boolean().optional(),
   required: z.boolean().optional(),
   startupTimeoutSec: mcpTimeoutSecondsSchema.optional(),
@@ -388,7 +357,7 @@ const McpServerConfigInputSchema: z.ZodType<McpServerConfigInput, McpServerConfi
         command: mcpRequestText("McpServerConfigInput.command"),
         args: z.array(z.string().max(MCP_REQUEST_TEXT_MAX_LEN)).optional(),
         env: mcpTextMap("McpServerConfigInput.env").optional(),
-        ...configCommonShape,
+        ...serverSettingsShape,
       })
       .strict(),
     z
@@ -400,7 +369,7 @@ const McpServerConfigInputSchema: z.ZodType<McpServerConfigInput, McpServerConfi
         envHttpHeaders: mcpTextMap("McpServerConfigInput.envHttpHeaders").optional(),
         oauthScopes: z.array(mcpRequestText("McpServerConfigInput.oauthScopes")).optional(),
         oauthResource: mcpRequestText("McpServerConfigInput.oauthResource").optional(),
-        ...configCommonShape,
+        ...serverSettingsShape,
       })
       .strict(),
   ]);
@@ -549,20 +518,9 @@ export const McpRegistrySearchRequestSchema: z.ZodType<
 // ---- Replies ----
 
 /** Parses one of the five server statuses. */
-export const McpServerStatusSchema: z.ZodType<McpServerStatus> = z.enum([
-  "failed",
-  "needs-auth",
-  "unknown",
-  "starting",
-  "connected",
-]);
-
-const viewCommonShape = {
-  enabled: z.boolean().optional(),
-  required: z.boolean().optional(),
-  startupTimeoutSec: mcpTimeoutSecondsSchema.optional(),
-  toolTimeoutSec: mcpTimeoutSecondsSchema.optional(),
-};
+export const McpServerStatusSchema: z.ZodType<McpServerStatus> = z.enum(
+  MCP_SERVER_STATUS_SEVERITY_ORDER,
+);
 
 const McpServerConfigViewSchema: z.ZodType<McpServerConfigView> = z.discriminatedUnion(
   "transport",
@@ -573,7 +531,7 @@ const McpServerConfigViewSchema: z.ZodType<McpServerConfigView> = z.discriminate
         command: z.string(),
         args: z.array(z.string()).optional(),
         envVarNames: z.array(z.string()).optional(),
-        ...viewCommonShape,
+        ...serverSettingsShape,
       })
       .strict(),
     z
@@ -586,7 +544,7 @@ const McpServerConfigViewSchema: z.ZodType<McpServerConfigView> = z.discriminate
         envHttpHeaders: z.record(z.string(), z.string()).optional(),
         oauthScopes: z.array(z.string()).optional(),
         oauthResource: z.string().optional(),
-        ...viewCommonShape,
+        ...serverSettingsShape,
       })
       .strict(),
   ],
@@ -597,7 +555,7 @@ const McpServerLegStatusSchema: z.ZodType<McpServerLegStatus> = z
     sessionId: SessionIdSchema,
     bindingId: z.string().min(1),
     status: McpServerStatusSchema,
-    observedAt: z.iso.datetime({ offset: true }).optional(),
+    observedAt: isoDateTimeSchema.optional(),
   })
   .strict();
 
@@ -605,7 +563,7 @@ const inventoryFactsShape = {
   config: McpServerConfigViewSchema,
   status: McpServerStatusSchema,
   legs: z.array(McpServerLegStatusSchema).optional(),
-  observedAt: z.iso.datetime({ offset: true }).optional(),
+  observedAt: isoDateTimeSchema.optional(),
   requiredServer: z.boolean().optional(),
   failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
 };
@@ -711,14 +669,7 @@ export interface McpOauthLoginResponse {
 }
 /** Parses an {@link McpOauthLoginResponse}. */
 export const McpOauthLoginResponseSchema: z.ZodType<McpOauthLoginResponse> = z
-  .object({ authorizationUrl: z.url().optional() })
-  .strict();
-
-/** What signing out answers with; each binding's new status arrives on the stream. */
-export type McpOauthLogoutResponse = Record<string, never>;
-/** Parses an {@link McpOauthLogoutResponse}: an empty object. */
-export const McpOauthLogoutResponseSchema: z.ZodType<McpOauthLogoutResponse> = z
-  .object({})
+  .object({ authorizationUrl: mcpHttpAddressSchema.optional() })
   .strict();
 
 /** What reconnecting answers with: each leg's status after the attempt. */
@@ -791,7 +742,7 @@ export const McpRegistrySearchResponseSchema: z.ZodType<McpRegistrySearchRespons
               })
               .strict(),
           ),
-          remotes: z.array(z.object({ type: z.string(), url: z.url() }).strict()),
+          remotes: z.array(z.object({ type: z.string(), url: mcpHttpAddressSchema }).strict()),
           environmentVariables: z.array(
             z
               .object({

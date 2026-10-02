@@ -37,6 +37,7 @@ import {
   type WorkflowNodeId,
   type WorkflowStepError,
 } from "./workflow-definition.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // Ids
 
@@ -49,7 +50,7 @@ export const WorkflowRunIdSchema: z.ZodType<WorkflowRunId, WorkflowRunId> =
 // Closed vocabularies
 
 /**
- * A run's status, the only ones a surface shows. `waiting` covers a run held by a
+ * A run's status; no screen shows any other. `waiting` covers a run held by a
  * person, a chain's question or a spent provider account; it is never swept to
  * `crashed` when the daemon starts and never pruned, so a waiting run survives a restart.
  */
@@ -176,7 +177,9 @@ export const WorkflowPayloadRefSchema: z.ZodType<WorkflowPayloadRef> = z.discrim
         (payload) => jsonUtf8ByteLength(payload.items) <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
         {
           path: ["items"],
-          message: "An inline payload is at most 64 KiB; a larger one is an artifact.",
+          message:
+            `An inline payload is at most ${WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP} bytes; ` +
+            "a larger one is an artifact.",
         },
       ),
     z
@@ -249,23 +252,23 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     workflowRunId: WorkflowRunIdSchema,
     nodeId: WorkflowNodeIdSchema,
     attempt: z.number().int().positive(),
-    executionIndex: z.number().int().nonnegative(),
+    executionIndex: countSchema,
     source: z.array(
       z
         .object({
           nodeId: WorkflowNodeIdSchema,
-          outputIndex: z.number().int().nonnegative(),
-          executionIndex: z.number().int().nonnegative(),
+          outputIndex: countSchema,
+          executionIndex: countSchema,
         })
         .strict()
         .nullable(),
     ),
     status: WorkflowStepStatusSchema,
     waitCause: WorkflowWaitCauseSchema.optional(),
-    resumeAt: z.iso.datetime({ offset: true }).optional(),
-    waitDeadlineAt: z.iso.datetime({ offset: true }).optional(),
-    startedAt: z.iso.datetime({ offset: true }),
-    finishedAt: z.iso.datetime({ offset: true }).optional(),
+    resumeAt: isoDateTimeSchema.optional(),
+    waitDeadlineAt: isoDateTimeSchema.optional(),
+    startedAt: isoDateTimeSchema,
+    finishedAt: isoDateTimeSchema.optional(),
     inputRef: WorkflowPayloadRefSchema,
     outputRef: WorkflowPayloadRefSchema,
     logRef: WorkflowPayloadRefSchema,
@@ -289,12 +292,11 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
 // Cancel reasons
 
 /**
- * The most bytes a cancellation reason may take, counted on its UTF-8 encoding rather
- * than its length, so the same sentence is not refused sooner in one script than in another.
+ * The most bytes a cancellation reason may take, counted as UTF-8 bytes of its JSON encoding
+ * (quotes and escapes included) rather than its length, so the same sentence is not refused sooner
+ * in one script than in another.
  */
 export const WORKFLOW_CANCEL_REASON_BYTE_CAP: number = 8 * 1024;
-
-const utf8Encoder = new TextEncoder();
 
 /**
  * A cancellation's reason as the person typed it, within the byte cap. It is recorded
@@ -304,38 +306,19 @@ const utf8Encoder = new TextEncoder();
 export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
   .string()
   .min(1)
-  .refine((reason) => utf8Encoder.encode(reason).byteLength <= WORKFLOW_CANCEL_REASON_BYTE_CAP, {
-    message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes of UTF-8.`,
+  .refine((reason) => jsonUtf8ByteLength(reason) <= WORKFLOW_CANCEL_REASON_BYTE_CAP, {
+    message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes as JSON.`,
   });
 
 // Refusals every run method shares
 
 /** A workflow definition or run that does not exist. */
-export type WorkflowNotFoundCode = "workflow.not_found";
-/** The code of a missing workflow definition or run. */
-export const WORKFLOW_NOT_FOUND_CODE: WorkflowNotFoundCode = "workflow.not_found";
+export const WORKFLOW_NOT_FOUND_CODE = "workflow.not_found" as const;
 
 // Step failures: each rides the failed step's error and its failed event
 
-/** A value `Keep for later runs` would keep over 64 KiB. */
-export type WorkflowKeptValueTooLargeCode = "workflow.kept_value_too_large";
-/** The code of a kept value over its bound. */
-export const WORKFLOW_KEPT_VALUE_TOO_LARGE_CODE: WorkflowKeptValueTooLargeCode =
-  "workflow.kept_value_too_large";
-/** The kept-value refusal's details: the value's name and its size in bytes. */
-export interface WorkflowKeptValueTooLargeDetails {
-  name: string;
-  sizeBytes: number;
-}
-/** Wire schema for {@link WorkflowKeptValueTooLargeDetails}. */
-export const WorkflowKeptValueTooLargeDetailsSchema: z.ZodType<WorkflowKeptValueTooLargeDetails> = z
-  .object({ name: z.string().min(1), sizeBytes: z.number().int().positive() })
-  .strict();
-
 /** A step cut by a time limit: its own `Timeout`, or the run's cap. */
-export type WorkflowStepTimedOutCode = "workflow.step_timed_out";
-/** The code of a step cut by a time limit. */
-export const WORKFLOW_STEP_TIMED_OUT_CODE: WorkflowStepTimedOutCode = "workflow.step_timed_out";
+export const WORKFLOW_STEP_TIMED_OUT_CODE = "workflow.step_timed_out" as const;
 /** Which limit cut the step. */
 export const WORKFLOW_STEP_TIMED_OUT_CAUSES = ["step_timeout", "run_cap"] as const;
 /** One of {@link WORKFLOW_STEP_TIMED_OUT_CAUSES}. */
@@ -357,10 +340,7 @@ export const WorkflowStepTimedOutDetailsSchema: z.ZodType<WorkflowStepTimedOutDe
  * A full-tier Code step or a sandboxed shell step whose provider sandbox did not start.
  * The step never runs unprotected instead.
  */
-export type WorkflowSandboxUnavailableCode = "workflow.sandbox_unavailable";
-/** The code of a sandbox that did not start. */
-export const WORKFLOW_SANDBOX_UNAVAILABLE_CODE: WorkflowSandboxUnavailableCode =
-  "workflow.sandbox_unavailable";
+export const WORKFLOW_SANDBOX_UNAVAILABLE_CODE = "workflow.sandbox_unavailable" as const;
 /** The sandbox failure's details: whose sandbox, and its wrapper's own error. */
 export interface WorkflowSandboxUnavailableDetails {
   provider: ProviderName;
@@ -371,10 +351,7 @@ export const WorkflowSandboxUnavailableDetailsSchema: z.ZodType<WorkflowSandboxU
   z.object({ provider: ProviderNameSchema, detail: z.string().min(1) }).strict();
 
 /** A full-tier Code step whose package install did not finish. */
-export type WorkflowCodeInstallFailedCode = "workflow.code_install_failed";
-/** The code of a Code step's failed install. */
-export const WORKFLOW_CODE_INSTALL_FAILED_CODE: WorkflowCodeInstallFailedCode =
-  "workflow.code_install_failed";
+export const WORKFLOW_CODE_INSTALL_FAILED_CODE = "workflow.code_install_failed" as const;
 /**
  * Why the install failed: too little disk to hold it, or any other install error,
  * a stale lock included.
@@ -392,8 +369,5 @@ export const WorkflowCodeInstallFailedDetailsSchema: z.ZodType<WorkflowCodeInsta
   .object({ reason: z.enum(WORKFLOW_CODE_INSTALL_FAILED_REASONS), detail: z.string().min(1) })
   .strict();
 
-/** A Code step over its memory or time budget. */
-export type WorkflowCodeOverBudgetCode = "workflow.code_over_budget";
-/** The code of a Code step over its budget. */
-export const WORKFLOW_CODE_OVER_BUDGET_CODE: WorkflowCodeOverBudgetCode =
-  "workflow.code_over_budget";
+/** A Code step over its memory budget; a deadline cut is `workflow.step_timed_out` instead. */
+export const WORKFLOW_CODE_OVER_BUDGET_CODE = "workflow.code_over_budget" as const;

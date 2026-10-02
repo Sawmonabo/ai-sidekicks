@@ -17,9 +17,10 @@ import {
   type ProviderName,
 } from "./provider-account.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** A cost in whole micro-dollars, the one money unit on the wire. */
-export const UsdMicrosSchema: z.ZodType<number, number> = z.number().int().nonnegative();
+export const UsdMicrosSchema: z.ZodType<number, number> = countSchema;
 
 /** A `Tokens per run` limit: input and output tokens together, for one run; at least one. */
 export const TokensPerRunSchema: z.ZodType<number, number> = z.number().int().positive();
@@ -51,7 +52,7 @@ export const AgentSpendSchema: z.ZodType<AgentSpend> = z
 
 /**
  * The session's two limits, its committed spend and each agent's share of it. A limit of `null`
- * is `Unlimited`. The committed figure is the one session cost every surface shows, never a sum a
+ * is `Unlimited`. The committed figure is the one session cost every screen shows, never a sum a
  * client takes over the rows it holds.
  */
 export interface OrchestrationBudgetState {
@@ -109,7 +110,7 @@ export const SessionCostReceiptAccountRowSchema: z.ZodType<SessionCostReceiptAcc
   .object({
     providerAccountId: ProviderAccountIdSchema,
     billingMode: BillingModeSchema,
-    tokens: z.number().int().nonnegative(),
+    tokens: countSchema,
     usdMicros: UsdMicrosSchema,
   })
   .strict();
@@ -135,10 +136,7 @@ export const SessionCostReceiptProviderSchema: z.ZodType<SessionCostReceiptProvi
   .object({
     driverName: ProviderNameSchema,
     accounts: z.array(SessionCostReceiptAccountRowSchema),
-    voice: z
-      .object({ seconds: z.number().int().nonnegative(), usdMicros: UsdMicrosSchema })
-      .strict()
-      .optional(),
+    voice: z.object({ seconds: countSchema, usdMicros: UsdMicrosSchema }).strict().optional(),
     subtotalUsdMicros: UsdMicrosSchema,
   })
   .strict();

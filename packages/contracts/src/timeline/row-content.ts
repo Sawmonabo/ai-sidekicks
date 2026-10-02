@@ -1,6 +1,6 @@
 // The reads that fetch what a transcript row did not carry: a row's large body or full output
 // (`timeline.bodyRead`), and every file patch a tool call left out (`timeline.patchRead`). A
-// surface asks only when its control is pressed or its diff is drawn. Both answer with the
+// client asks only when the row's control is pressed or its diff is drawn. Both answer with the
 // stored text, or `absent` when the row carries none.
 import { z } from "zod";
 
@@ -20,6 +20,7 @@ import {
 } from "../session.js";
 
 import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
+import { countSchema } from "../internal/wire-scalars.js";
 
 /** Refuse stored text over the page budget, so an oversized reply is a failed read. */
 const requireMemberToRideOneFrame = (
@@ -42,9 +43,8 @@ const requireMemberToRideOneFrame = (
 // timeline.bodyRead
 
 /**
- * The one row whose large body or full output a surface opens when its control
- * is pressed. `rowId` is the row's `id`, which is the id of the event the row
- * renders.
+ * The one row whose large body or full output a client opens when its control is pressed.
+ * `rowId` is the row's `id`, the id of the event the row renders.
  */
 export interface TimelineBodyReadRequest {
   sessionId: SessionId;
@@ -76,7 +76,7 @@ export const TimelineBodyReadResponseSchema: z.ZodType<TimelineBodyReadResponse>
       .object({
         status: z.literal("available"),
         body: z.string().max(CONTENT_PAYLOAD_PLAINTEXT_MAX),
-        contentLength: z.number().int().nonnegative().optional(),
+        contentLength: countSchema.optional(),
         contentTruncated: z.literal(true).optional(),
       })
       .strict()

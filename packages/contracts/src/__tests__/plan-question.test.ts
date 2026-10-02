@@ -29,7 +29,7 @@ describe("PlanResolveRequestSchema", () => {
       PlanResolveRequestSchema.safeParse({
         planId: PLAN_ID,
         verdict: "fresh",
-        fresh: { driverName: "codex" },
+        fresh: { driverName: "codex", level: "ask" },
       }).success,
     ).toBe(true);
   });
@@ -42,7 +42,7 @@ describe("PlanResolveRequestSchema", () => {
       PlanResolveRequestSchema.safeParse({
         planId: PLAN_ID,
         verdict: "build",
-        fresh: { driverName: "codex" },
+        fresh: { driverName: "codex", level: "ask" },
       }).success,
     ).toBe(false);
   });
@@ -62,7 +62,7 @@ describe("PlanResolveResponseSchema", () => {
     );
   });
 
-  it("refuses a handed-off plan with no fresh session, and a fresh session on an accepted plan", () => {
+  it("ties a fresh session to a handed-off plan and to no accepted plan", () => {
     expect(
       PlanResolveResponseSchema.safeParse({ planId: PLAN_ID, state: "handed_off" }).success,
     ).toBe(false);

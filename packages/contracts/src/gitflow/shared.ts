@@ -16,9 +16,6 @@ export const GitRefNameSchema: z.ZodType<string, string> =
 /** An address on the hosting service, opened in the system browser. */
 export const HostingAddressSchema: z.ZodType<string, string> = z.url({ protocol: /^https?$/u });
 
-/** A time with its offset, as RFC 3339 writes it. */
-export const timestampSchema: z.ZodType<string, string> = z.iso.datetime({ offset: true });
-
 /** A change request's number on its host: `#482` on GitHub, `!482` on GitLab. */
 export const ChangeRequestNumberSchema: z.ZodType<number, number> = z.number().int().positive();
 

@@ -8,9 +8,12 @@ import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow-definition.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * Every attention trigger: pending approval or user input, run completion, run failure,
@@ -48,6 +51,14 @@ export type AttentionBannerState = (typeof ATTENTION_BANNER_STATE_VALUES)[number
 export const ATTENTION_BANNER_STATES: readonly AttentionBannerState[] =
   ATTENTION_BANNER_STATE_VALUES;
 
+const ATTENTION_WEB_ADDRESS_STATE_VALUES = ["pending", "delivered", "undelivered"] as const;
+
+/** Where an entry's message to the person's web address stands. */
+export type AttentionWebAddressState = (typeof ATTENTION_WEB_ADDRESS_STATE_VALUES)[number];
+/** Every {@link AttentionWebAddressState}. */
+export const ATTENTION_WEB_ADDRESS_STATES: readonly AttentionWebAddressState[] =
+  ATTENTION_WEB_ADDRESS_STATE_VALUES;
+
 /**
  * The longest id an attention entry carries: its own, its moment's, its run's and its
  * source event's. The daemon mints each of them.
@@ -57,21 +68,13 @@ export const ATTENTION_ID_MAX_LEN = 256;
 const attentionIdSchema = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(ATTENTION_ID_MAX_LEN, fieldLabel);
 
-/**
- * One attention item, run-scoped or the session-scoped aggregate. Scope is read off
- * `runId`: present means run-scoped, absent means the session aggregate.
- *
- * `momentId` is the stable id of the session or run and the state it is in, so a later
- * state (`Finished` after `Waiting on you`) replaces the operating-system banner in place.
- * A Notify step's moment comes from the run, the node and which execution of the node it
- * was. `stateWord` is what the line reads after `displayName` (`Waiting on you`, `Finished`,
- * `Failed`, or a Notify step's own notice text). `summary` is never a banner's body: a
- * banner says the name and the state, not what was said. `stepId` names the Notify node
- * on a `workflow_notify` item and is absent on every other; `seen` is the one seen-or-unseen
- * fact the daemon keeps, which the session's row reads too.
- */
+/** One attention item: run-scoped when it carries `runId`, else the session-scoped aggregate. */
 export interface AttentionItem {
   readonly id: string;
+  /**
+   * The session or run and the state it is in, so a later state replaces the operating-system
+   * banner in place; a Notify step's moment also names its node and execution.
+   */
   readonly momentId: string;
   readonly sessionId: string;
   /** Present on a run-scoped item; absent on the session-scoped aggregate. */
@@ -79,9 +82,11 @@ export interface AttentionItem {
   readonly trigger: AttentionTrigger;
   readonly severity: AttentionSeverity;
   readonly displayName: string;
+  /** What follows `displayName`: `Waiting on you`, `Finished`, `Failed`, or a notice. */
   readonly stateWord: string;
+  /** The Notify node, on a `workflow_notify` item only. */
   readonly stepId?: WorkflowNodeId | undefined;
-  /** One line a surface renders. Prose, not an identifier. */
+  /** One line of prose the list draws; never a banner's body, which says only name and state. */
   readonly summary: string;
   /** The canonical event that triggered this item. */
   readonly sourceEventId: string;
@@ -89,6 +94,13 @@ export interface AttentionItem {
   /** Set once the state that produced the item resolves; absent means outstanding. */
   readonly resolvedAt?: string | undefined;
   readonly bannerState: AttentionBannerState;
+  /**
+   * Where the entry's message to the web address stands, and how many sends it took; both
+   * present exactly when the entry is sent to a web address.
+   */
+  readonly webAddressState?: AttentionWebAddressState | undefined;
+  readonly webAddressAttemptCount?: number | undefined;
+  /** The one seen-or-unseen fact the daemon keeps, which the session's row reads too. */
   readonly seen: boolean;
 }
 
@@ -112,12 +124,21 @@ export const AttentionItemSchema: z.ZodType<AttentionItem> = z
     stepId: WorkflowNodeIdSchema.optional(),
     summary: z.string(),
     sourceEventId: attentionIdSchema("AttentionItem.sourceEventId"),
-    createdAt: z.iso.datetime({ offset: true }),
-    resolvedAt: z.iso.datetime({ offset: true }).optional(),
+    createdAt: isoDateTimeSchema,
+    resolvedAt: isoDateTimeSchema.optional(),
     bannerState: z.enum(ATTENTION_BANNER_STATE_VALUES),
+    webAddressState: z.enum(ATTENTION_WEB_ADDRESS_STATE_VALUES).optional(),
+    webAddressAttemptCount: countSchema.optional(),
     seen: z.boolean(),
   })
   .strict()
+  .refine(
+    (item) => (item.webAddressState === undefined) === (item.webAddressAttemptCount === undefined),
+    {
+      message: "webAddressState and webAddressAttemptCount are present together",
+      path: ["webAddressAttemptCount"],
+    },
+  )
   .refine((item) => (item.trigger === "workflow_notify") === (item.stepId !== undefined), {
     message: "stepId is present exactly on a workflow_notify item",
     path: ["stepId"],
@@ -178,12 +199,6 @@ export const AttentionSeenUpdateRequestSchema: z.ZodType<
 
 // Delivery beyond this machine: the web address and the email digest
 
-/** A request or a reply that carries nothing. */
-export type AttentionEmptyMessage = Record<string, never>;
-/** Parses an {@link AttentionEmptyMessage}: an empty object. */
-export const AttentionEmptyMessageSchema: z.ZodType<AttentionEmptyMessage, AttentionEmptyMessage> =
-  z.object({}).strict();
-
 const ATTENTION_DELIVERY_CHANNEL_VALUES = ["webAddress", "emailDigest"] as const;
 
 /** The two ways a moment leaves the machine. */
@@ -217,10 +232,10 @@ export interface AttentionDeliveryOutcome {
 }
 const AttentionDeliveryOutcomeSchema: z.ZodType<AttentionDeliveryOutcome> = z
   .object({
-    at: z.iso.datetime({ offset: true }),
+    at: isoDateTimeSchema,
     result: z.enum(ATTENTION_DELIVERY_RESULT_VALUES),
     httpStatus: z.number().int().min(100).max(599).optional(),
-    undelivered: z.number().int().nonnegative(),
+    undelivered: countSchema,
   })
   .strict();
 
@@ -394,23 +409,23 @@ export interface AttentionMethodDescriptors {
    */
   readonly "attention.projectionRead": SubscriptionMethodDescriptor<
     "attention.projectionRead",
-    AttentionEmptyMessage,
+    EmptyPayload,
     SubscribeAckResponse,
     AttentionProjection
   >;
   readonly "attention.bannerSettle": MethodDescriptor<
     "attention.bannerSettle",
     AttentionBannerSettleRequest,
-    AttentionEmptyMessage
+    EmptyPayload
   >;
   readonly "attention.seenUpdate": MethodDescriptor<
     "attention.seenUpdate",
     AttentionSeenUpdateRequest,
-    AttentionEmptyMessage
+    EmptyPayload
   >;
   readonly "attention.deliveryRead": MethodDescriptor<
     "attention.deliveryRead",
-    AttentionEmptyMessage,
+    EmptyPayload,
     AttentionDeliveryReadResponse
   >;
   readonly "attention.deliveryTest": MethodDescriptor<
@@ -421,12 +436,12 @@ export interface AttentionMethodDescriptors {
   readonly "attention.mailPasswordSave": MethodDescriptor<
     "attention.mailPasswordSave",
     AttentionMailPasswordSaveRequest,
-    AttentionEmptyMessage
+    EmptyPayload
   >;
   readonly "attention.mailPasswordRemove": MethodDescriptor<
     "attention.mailPasswordRemove",
-    AttentionEmptyMessage,
-    AttentionEmptyMessage
+    EmptyPayload,
+    EmptyPayload
   >;
   readonly "attention.webAddressSave": MethodDescriptor<
     "attention.webAddressSave",
@@ -435,13 +450,13 @@ export interface AttentionMethodDescriptors {
   >;
   readonly "attention.webAddressSecretRotate": MethodDescriptor<
     "attention.webAddressSecretRotate",
-    AttentionEmptyMessage,
+    EmptyPayload,
     AttentionWebAddressSecretRotateResponse
   >;
   readonly "attention.webAddressRemove": MethodDescriptor<
     "attention.webAddressRemove",
-    AttentionEmptyMessage,
-    AttentionEmptyMessage
+    EmptyPayload,
+    EmptyPayload
   >;
 }
 
@@ -451,7 +466,7 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     method: "attention.projectionRead",
     procedureType: "subscription",
     mutating: false,
-    requestSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: SubscribeAckResponseSchema,
     emissionSchema: AttentionProjectionSchema,
   },
@@ -460,20 +475,20 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     procedureType: "mutation",
     mutating: true,
     requestSchema: AttentionBannerSettleRequestSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.seenUpdate": {
     method: "attention.seenUpdate",
     procedureType: "mutation",
     mutating: true,
     requestSchema: AttentionSeenUpdateRequestSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.deliveryRead": {
     method: "attention.deliveryRead",
     procedureType: "query",
     mutating: false,
-    requestSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: AttentionDeliveryReadResponseSchema,
   },
   "attention.deliveryTest": {
@@ -488,14 +503,14 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     procedureType: "mutation",
     mutating: true,
     requestSchema: AttentionMailPasswordSaveRequestSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.mailPasswordRemove": {
     method: "attention.mailPasswordRemove",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: AttentionEmptyMessageSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "attention.webAddressSave": {
     method: "attention.webAddressSave",
@@ -508,14 +523,14 @@ export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMe
     method: "attention.webAddressSecretRotate",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: AttentionWebAddressSecretRotateResponseSchema,
   },
   "attention.webAddressRemove": {
     method: "attention.webAddressRemove",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: AttentionEmptyMessageSchema,
-    responseSchema: AttentionEmptyMessageSchema,
+    requestSchema: EmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

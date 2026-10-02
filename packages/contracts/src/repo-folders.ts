@@ -3,9 +3,6 @@
 // attach, read and detach (`repo.attach`, `repo.mountRead`, `repo.detach`), and the refusal for a
 // folder the service cannot reach.
 //
-// Requests are double-T `z.ZodType<T, T>` so the substrate can parse inbound params against them;
-// responses are single-T, since a response is not an input surface.
-//
 // This module imports nothing from `./event.js` and nothing whose imports reach it, which would
 // close an eager module cycle.
 import { z } from "zod";
@@ -31,6 +28,7 @@ import {
   FILE_PATH_MAX_LEN,
 } from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * Where a folder the service can reach came from, carrying the ids its removal act takes:
@@ -86,7 +84,7 @@ export const RepoMountListEntrySchema: z.ZodType<RepoMountListEntry> = z
   .object({
     path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountListEntry.path"),
     origin: RepoMountOriginSchema,
-    usingSessionCount: z.number().int().nonnegative(),
+    usingSessionCount: countSchema,
     onOtherSideDisk: z.boolean(),
   })
   .strict();
@@ -199,11 +197,9 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
 
 /**
  * The `repo.attach` input, one of two arms:
- * - `{localPath}`: a path on the machine the service runs on, from a client on that machine. On the
- *   desktop the renderer never holds it: the folder chooser hands it a picked-file token, and the
- *   main process puts the path in the token's place before the call reaches the service.
- * - `{folderToken}`: from another device, a token `repo.folderList` minted for a folder it listed.
- *   The service turns it back into that folder, so no path string comes from another device.
+ * - `{localPath}`: a path on the machine the service runs on, from a client on that machine.
+ * - `{folderToken}`: from another device, a token `repo.folderList` minted for a folder it listed,
+ *   so no path string comes from another device.
  */
 export type RepoAttachRequest = { localPath: string } | { folderToken: FolderToken };
 /** Wire schema for {@link RepoAttachRequest}: exactly one of the two arms. */
@@ -257,17 +253,13 @@ export interface RepoMountUser {
 }
 
 /**
- * One mount as `repo.mountRead` reports it: its own facts, a freshly probed health verdict, where
- * it came from and what uses it.
- *
- * `localPath` is the path as entered and `canonicalRoot` the resolved root; they differ when the
- * folder was attached from inside the repository or through a link. `displayName` is the name of
- * the project the folder belongs to, as Settings › Projects shows it, and is absent on a chat's
- * own workspace, which belongs to no project. `usedBy` names the sessions using the folder.
+ * One mount as `repo.mountRead` reports it, with a freshly probed health verdict. `displayName`
+ * is its project's name, absent on a chat's own workspace, which belongs to no project.
  */
 export interface RepoMountReadResponse {
   id: RepoMountId;
   nodeId: NodeId;
+  /** The path as entered; it differs from `canonicalRoot` when entered inside or via a link. */
   localPath: string;
   canonicalRoot: string;
   vcsType: VcsType;
@@ -288,7 +280,7 @@ export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
     vcsType: VcsTypeSchema,
     state: RepoMountStateSchema,
     health: RepoMountHealthSchema,
-    attachedAt: z.iso.datetime({ offset: true }),
+    attachedAt: isoDateTimeSchema,
     origin: RepoMountOriginSchema,
     displayName: wireFreeFormString(
       PROJECT_NAME_MAX_LEN,
@@ -337,6 +329,6 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
  * The refusal `repo.attach` answers when the service cannot reach the folder picked, such as a
  * folder in another WSL distribution than the one the service runs in.
  */
-export type RepoFolderUnreachableCode = "repo.folder_unreachable";
-/** The code of {@link RepoFolderUnreachableCode}. */
-export const REPO_FOLDER_UNREACHABLE_CODE: RepoFolderUnreachableCode = "repo.folder_unreachable";
+export const REPO_FOLDER_UNREACHABLE_CODE = "repo.folder_unreachable" as const;
+/** The type of {@link REPO_FOLDER_UNREACHABLE_CODE}. */
+export type RepoFolderUnreachableCode = typeof REPO_FOLDER_UNREACHABLE_CODE;

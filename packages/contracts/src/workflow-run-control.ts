@@ -287,66 +287,42 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 // Refusals
 
 /** A start the policy check denied, or whose principal could not be resolved. */
-export type WorkflowStartDeniedCode = "workflow.start_denied";
-/** The code of a denied or unresolvable start. */
-export const WORKFLOW_START_DENIED_CODE: WorkflowStartDeniedCode = "workflow.start_denied";
+export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
 
 /** A cancel or a resume the policy check did not admit for its caller. */
-export type WorkflowControlDeniedCode = "workflow.control_denied";
-/** The code of a cancel or resume refused by authorization. */
-export const WORKFLOW_CONTROL_DENIED_CODE: WorkflowControlDeniedCode = "workflow.control_denied";
+export const WORKFLOW_CONTROL_DENIED_CODE = "workflow.control_denied" as const;
 
 /**
- * A cancel on a run that already ended `succeeded`, `failed` or `crashed`: there is
- * nothing left to cancel. A run already `canceled` is not refused; the cancel replays.
+ * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on
+ * Resume has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
  */
-export type WorkflowRunNotCancelableCode = "workflow.run_not_cancelable";
-/** The code of a cancel on a run that already ended. */
-export const WORKFLOW_RUN_NOT_CANCELABLE_CODE: WorkflowRunNotCancelableCode =
-  "workflow.run_not_cancelable";
+export const WORKFLOW_RUN_NOT_CANCELABLE_CODE = "workflow.run_not_cancelable" as const;
 
 /** A resume on a run that is not waiting: there is no wait to lift. */
-export type WorkflowResumeNotParkedCode = "workflow.resume_not_parked";
-/** The code of a resume on a run that is not waiting. */
-export const WORKFLOW_RESUME_NOT_PARKED_CODE: WorkflowResumeNotParkedCode =
-  "workflow.resume_not_parked";
+export const WORKFLOW_RESUME_NOT_PARKED_CODE = "workflow.resume_not_parked" as const;
 
 /** A version re-pin on a run that is not waiting; a going run is never re-pinned. */
-export type WorkflowRepairNotParkedCode = "workflow.repair_not_parked";
-/** The code of a re-pin on a run that is not waiting. */
-export const WORKFLOW_REPAIR_NOT_PARKED_CODE: WorkflowRepairNotParkedCode =
-  "workflow.repair_not_parked";
+export const WORKFLOW_REPAIR_NOT_PARKED_CODE = "workflow.repair_not_parked" as const;
 
 /** A version re-pin while one of the run's steps is still in flight. */
-export type WorkflowRepairAttemptInFlightCode = "workflow.repair_attempt_in_flight";
-/** The code of a re-pin while a step is in flight. */
-export const WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE: WorkflowRepairAttemptInFlightCode =
-  "workflow.repair_attempt_in_flight";
+export const WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = "workflow.repair_attempt_in_flight" as const;
 
 /**
  * A version re-pin whose target cannot account for the steps the run already finished:
  * it drops a node whose output the run holds, or leaves a finished node unreachable.
  */
-export type WorkflowRepairVersionUnaccountableCode = "workflow.repair_version_unaccountable";
-/** The code of a re-pin whose target cannot account for the finished steps. */
-export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE: WorkflowRepairVersionUnaccountableCode =
-  "workflow.repair_version_unaccountable";
+export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
+  "workflow.repair_version_unaccountable" as const;
 
 /**
  * A run or step move its state does not allow: retrying from a step that did not fail,
  * posting the results of an unfinished run, or opening a fix session on a step that did
  * not fail.
  */
-export type WorkflowInvalidTransitionCode = "workflow.invalid_transition";
-/** The code of a run or step move its state does not allow. */
-export const WORKFLOW_INVALID_TRANSITION_CODE: WorkflowInvalidTransitionCode =
-  "workflow.invalid_transition";
+export const WORKFLOW_INVALID_TRANSITION_CODE = "workflow.invalid_transition" as const;
 
 /** A retry the daemon cannot make now; the reason says why. */
-export type WorkflowRetryUnavailableCode = "workflow.retry_unavailable";
-/** The code of a retry the daemon cannot make now. */
-export const WORKFLOW_RETRY_UNAVAILABLE_CODE: WorkflowRetryUnavailableCode =
-  "workflow.retry_unavailable";
+export const WORKFLOW_RETRY_UNAVAILABLE_CODE = "workflow.retry_unavailable" as const;
 /**
  * Why a retry cannot be made: the source run's step data is past its time bound, or
  * the source run is still going.

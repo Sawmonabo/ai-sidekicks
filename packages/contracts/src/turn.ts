@@ -9,6 +9,7 @@ import type { SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** The run whose current turn a `turn.*` subscription follows. */
 export interface TurnSubscribeRequest {
@@ -36,7 +37,7 @@ export const TurnUsageUpdateSchema: z.ZodType<TurnUsageUpdate> = z
   .object({
     runId: RunIdSchema,
     turnId: z.string().min(1),
-    tokensReceived: z.number().int().nonnegative(),
+    tokensReceived: countSchema,
   })
   .strict();
 

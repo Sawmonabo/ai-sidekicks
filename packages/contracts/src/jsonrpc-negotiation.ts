@@ -1,7 +1,5 @@
-// The `daemon.hello` wire envelopes, `DaemonHello` and `DaemonHelloAck`. The daemon's handshake
-// state and mutating-call gate live in `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`;
-// the schemas are here because the daemon package does not depend on zod. A `protocolVersion` is
-// an ISO 8601 `YYYY-MM-DD` date, so lexical order is chronological and no semver parser is needed.
+// The `daemon.hello` handshake, `DaemonHello` and `DaemonHelloAck`, shared by the daemon and its
+// clients. A `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order is chronological.
 
 import { z } from "zod";
 
@@ -32,10 +30,8 @@ export const ProtocolVersionSchema: z.ZodString = z.string().regex(PROTOCOL_VERS
 const NegotiationFreeFormString = z.string().min(1).max(NEGOTIATION_FIELD_MAX_LEN);
 
 /**
- * The `daemon.hello` request: the first call on a connection. `protocolVersion` is the client's
- * preferred version and `supportedProtocols` its full set; when the set is absent the daemon
- * treats `[protocolVersion]` as the set. The daemon does not read `clientId` or `capabilities`.
- * Unknown fields are refused.
+ * The `daemon.hello` request, the first call on a connection: the client's preferred
+ * `protocolVersion` and its full `supportedProtocols` set, which defaults to `[protocolVersion]`.
  */
 export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
   .object({
@@ -51,7 +47,7 @@ export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
   .strict() as unknown as z.ZodType<DaemonHello>;
 
 /**
- * The `DaemonHello` request payload. Declared explicitly, with the schema cast to it, because zod's
+ * The `DaemonHello` request payload. Declared by hand, with the schema cast to it, because zod's
  * inferred type does not match this `readonly` shape under `exactOptionalPropertyTypes`.
  */
 export interface DaemonHello {
@@ -81,11 +77,9 @@ export type NegotiationIncompatibleReason =
   | typeof NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED;
 
 /**
- * The `daemon.hello` result. `compatible` gates mutating calls: when false only read-only calls
- * are allowed. `protocolVersion` is the negotiated version when compatible, otherwise the
- * daemon's newest, so the client can decide whether to retry. `reason` and
- * `daemonSupportedProtocols` appear only on an incompatible first handshake. The daemon does not
- * populate `serverCapabilities`.
+ * The `daemon.hello` result. When `compatible` is false only read-only calls are allowed, and
+ * `protocolVersion` is the daemon's newest rather than the negotiated one; `reason` and
+ * `daemonSupportedProtocols` appear only on an incompatible first handshake.
  */
 export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
   .object({

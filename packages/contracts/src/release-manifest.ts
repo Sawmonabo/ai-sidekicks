@@ -10,6 +10,7 @@
 // The member names are the published file's own, in snake case, because the
 // file is read by tools outside this package as well.
 import { z } from "zod";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest release version string accepted, e.g. `0.1.0`. */
 export const RELEASE_VERSION_MAX_LEN = 64;
@@ -57,7 +58,7 @@ export interface ReleaseManifest {
 export const ReleaseManifestSchema: z.ZodType<ReleaseManifest> = z
   .object({
     version: z.number().int().positive(),
-    released_at: z.iso.datetime({ offset: true }),
+    released_at: isoDateTimeSchema,
     artifacts: z.record(
       z.string().min(1).max(RELEASE_MANIFEST_FIELD_MAX_LEN),
       ReleaseManifestArtifactSchema,

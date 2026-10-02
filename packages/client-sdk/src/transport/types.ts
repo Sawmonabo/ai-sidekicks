@@ -53,12 +53,13 @@ export interface ClientTransport {
 }
 
 /**
- * The handle `JsonRpcClient.subscribe<T>` returns synchronously. Each validated
- * `$/subscription/notify` value lands in one internal queue that `next()` and `for await` both
- * drain; `cancel()` sends `$/subscription/cancel` and awaits the ack.
+ * The handle `JsonRpcClient.subscribe` returns synchronously. Each validated
+ * `$/subscription/notify` value lands in one bounded internal queue that `next()` and `for await`
+ * both drain; `cancel()` sends `$/subscription/cancel` and awaits the ack.
  *
  * The stream completes with `undefined` (after the queue drains) on a server cancel or a client
- * `cancel()`, and `next()` rejects with the transport's close reason when the transport drops.
+ * `cancel()`. `next()` rejects with the transport's close reason when the transport drops, and
+ * with `JsonRpcSubscriptionOverflowError` when the consumer let the queue fill.
  */
 export interface LocalSubscriptionConsumer<T> {
   /**
@@ -77,9 +78,10 @@ export interface LocalSubscriptionConsumer<T> {
   next(): Promise<T | undefined>;
 
   /**
-   * Cancel on the daemon and await its ack. Afterward `next()` drains any queued values and then
-   * returns `undefined`, and late notify frames for this subscription are dropped. Idempotent: a
-   * repeat call sends no second wire request.
+   * Cancel on the daemon and await its ack, waiting first for the subscribe reply if it has not
+   * arrived. Never rejects: afterward `next()` drains any queued values and then returns
+   * `undefined`, or throws the cancel's failure. Frames that arrive after the call are dropped.
+   * Idempotent: a repeat call sends no second wire request.
    */
   cancel(): Promise<void>;
 

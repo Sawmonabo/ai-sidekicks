@@ -1,13 +1,5 @@
-// Contract tests for `run-control.ts`: the guards that keep a run's control stream honest.
-//
-// Every intervention arm, and the pause and resume requests, must refuse a missing
-// `expectedRunVersion`, so the stale-replay guard cannot be bypassed by omitting it. A steer's
-// attachments must be artifact ids, never a path, kept in declared order. A state change carries
-// every member of both recovery vocabularies and nothing else, and a paused run whose step is
-// still finishing reads `pausing`. The `run.subscribeState` arms carry no wire tag, so each schema
-// must refuse the others' payloads. The cross-field rules (a message delivered first, a refusal
-// cause, the execution posture's mode and network arms) are checked beside a payload each one
-// admits.
+// The guards that keep a run's control stream honest: a stale or forged control is refused at
+// the wire, before the daemon acts on it.
 import { describe, expect, it } from "vitest";
 
 import type { InterventionType } from "../provider-driver.js";

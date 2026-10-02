@@ -1,6 +1,7 @@
 // JSON-RPC 2.0 envelope types shared by the daemon and its clients. No Node imports, so any
-// runtime can use them; framing and transport live in
-// `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`.
+// runtime can use them; the daemon's gateway owns framing and transport.
+
+import { DAEMON_HELLO_METHOD } from "./jsonrpc-negotiation.js";
 
 /** The `jsonrpc` member every envelope carries. */
 export const JSONRPC_VERSION = "2.0" as const;
@@ -8,21 +9,16 @@ export const JSONRPC_VERSION = "2.0" as const;
 export type JsonRpcVersion = typeof JSONRPC_VERSION;
 
 /**
- * The largest body of one framed JSON-RPC message, in bytes (4 MiB): the largest request the
- * connection carries, a message at Codex's own length limit, plus its envelope. The bound is on the
- * body the `Content-Length` header declares, and an oversized body closes the connection. It is the
- * transport's limit only: no screen shows it, and a paged reply sizes itself against its own page
- * budget. The gateway enforces it; it is declared here so the framer and its tests share one
- * value. Changing it changes the wire contract.
+ * The largest body of one framed JSON-RPC message, in bytes, as its `Content-Length` declares: a
+ * message at Codex's own length limit plus its envelope. An oversized body closes the connection.
+ * It bounds the transport only; a paged reply sizes itself against its own page budget.
  */
 export const MAX_MESSAGE_BYTES: number = 4 * 1024 * 1024;
 
 /**
  * The UTF-8 byte length of `value` serialized as JSON, the quantity {@link MAX_MESSAGE_BYTES}
- * bounds, or `Number.POSITIVE_INFINITY` when it cannot be serialized. A producer measures with this
- * because an oversized reply closes the connection instead of failing one request. It does not
- * throw, because callers are zod refinements, and infinity fails any finite budget. It counts by
- * hand because this package has no `Buffer`.
+ * bounds, or `Number.POSITIVE_INFINITY` when it cannot be serialized. It never throws, because its
+ * callers are zod refinements; it counts by hand because this package has no `Buffer`.
  */
 export function jsonUtf8ByteLength(value: unknown): number {
   let serialized: string;
@@ -49,10 +45,9 @@ export function jsonUtf8ByteLength(value: unknown): number {
 }
 
 /**
- * The largest JSON-RPC `id`, in bytes once JSON-encoded. The `id` is echoed in the reply, so an
- * unbounded id could push the reply past {@link MAX_MESSAGE_BYTES} and close the connection instead
- * of answering. The gateway refuses an over-bound id before dispatch. The SDK mints integer ids and a UUID id encodes to 38 bytes. Changing it changes the
- * wire contract.
+ * The largest JSON-RPC `id`, in bytes once JSON-encoded (a UUID id is 38). The reply echoes the
+ * `id`, so the gateway refuses a longer one before dispatch rather than let the reply pass
+ * {@link MAX_MESSAGE_BYTES}.
  */
 export const JSON_RPC_ID_MAX_BYTES = 256;
 
@@ -65,11 +60,11 @@ export function isJsonRpcIdWithinBound(candidate: unknown): boolean {
 }
 
 /**
- * Methods the gateway does not require an envelope-level `protocolVersion` on. `daemon.hello` is
- * the only one: it carries its versions in `params`, since none is negotiated before it.
+ * Methods the gateway does not require an envelope-level `protocolVersion` on: only `daemon.hello`,
+ * which carries its versions in `params` because none is negotiated before it.
  */
 export const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: ReadonlySet<string> = new Set([
-  "daemon.hello",
+  DAEMON_HELLO_METHOD,
 ]);
 
 /**

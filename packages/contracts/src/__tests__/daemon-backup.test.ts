@@ -1,5 +1,5 @@
-// A restore reads each backup's manifest straight from the folder, so the manifest must never
-// carry the master key itself, only the id of the key it was sealed with.
+// A restore reads each backup's manifest straight from the folder, and a backup holds no key, so
+// the manifest refuses one.
 import { describe, expect, it } from "vitest";
 
 import { BackupManifestSchema } from "../daemon-backup.js";
@@ -11,7 +11,6 @@ const manifest = {
   serviceVersion: "0.1.0",
   totalBytes: 1_400_000_000,
   computerName: "Mac mini",
-  masterKeyId: "0123456789abcdef0123456789abcdef",
 };
 
 describe("BackupManifestSchema", () => {
@@ -22,7 +21,7 @@ describe("BackupManifestSchema", () => {
     ).toBe(true);
   });
 
-  it("refuses the master key itself", () => {
+  it("refuses a key", () => {
     expect(BackupManifestSchema.safeParse({ ...manifest, masterKey: "a".repeat(32) }).success).toBe(
       false,
     );

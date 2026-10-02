@@ -11,32 +11,9 @@ import {
   ProviderReadinessSchema,
   normalizeObservedProviderAuthMode,
 } from "../provider-account.js";
+import { ACCOUNT_ID, TIMESTAMP, validProviderAccount } from "./provider-account.test-support.js";
 
-const ACCOUNT_ID = "acct_01J8XYZ";
 const OTHER_ACCOUNT_ID = "acct_01J8ABC";
-const TIMESTAMP = "2026-08-31T00:00:00.000Z";
-
-function validAccount(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    accountId: ACCOUNT_ID,
-    provider: "claude",
-    displayLabel: "Personal",
-    credentialGeneration: 1,
-    billingMode: "subscription",
-    isDefault: true,
-    healthState: "authenticated",
-    healthObservedAt: TIMESTAMP,
-    observedAuthMode: "oauth_subscription",
-    loggedInAt: TIMESTAMP,
-    lastRefreshObservedAt: null,
-    expectedReloginAtEstimate: null,
-    probeEnabled: true,
-    windowStartEnabled: true,
-    wakeForWindowStartEnabled: false,
-    memoryImport: null,
-    ...overrides,
-  };
-}
 
 function validUsageWindow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -52,7 +29,7 @@ function validUsageWindow(overrides: Record<string, unknown> = {}): Record<strin
 }
 
 describe("normalizeObservedProviderAuthMode (the observation boundary)", () => {
-  it("maps a reported mode onto the union, an unrecognized one onto `unknown`, and none onto null", () => {
+  it("maps a reported mode onto the union, an unknown one to `unknown`, none to null", () => {
     // A vendor adding a mode must lower an observation's precision, not fail it.
     expect(normalizeObservedProviderAuthMode("device_grant")).toBe("unknown");
     expect(normalizeObservedProviderAuthMode("OAUTH_SUBSCRIPTION")).toBe("unknown");
@@ -74,15 +51,16 @@ describe("normalizeObservedProviderAuthMode (the observation boundary)", () => {
 
 describe("ProviderAccount record", () => {
   it("accepts the full record and the subset-reported identity trio", () => {
-    expect(ProviderAccountSchema.safeParse(validAccount()).success).toBe(true);
+    expect(ProviderAccountSchema.safeParse(validProviderAccount()).success).toBe(true);
     // Each provider-reported member is optional on its own; an absent one stays absent.
     expect(
-      ProviderAccountSchema.safeParse(validAccount({ observedAccountEmail: "a@example.test" }))
-        .success,
+      ProviderAccountSchema.safeParse(
+        validProviderAccount({ observedAccountEmail: "a@example.test" }),
+      ).success,
     ).toBe(true);
     expect(
       ProviderAccountSchema.safeParse(
-        validAccount({ observedAccountOrgId: "org_1", observedAccountOrgName: "Acme" }),
+        validProviderAccount({ observedAccountOrgId: "org_1", observedAccountOrgName: "Acme" }),
       ).success,
     ).toBe(true);
   });
@@ -93,7 +71,7 @@ describe("ProviderAccount record", () => {
     // the daemon never measured.
     for (const observedOnlyState of ["authenticated", "reauth_required", "home_missing"] as const) {
       const parsed = ProviderAccountSchema.safeParse(
-        validAccount({ healthState: observedOnlyState, healthObservedAt: null }),
+        validProviderAccount({ healthState: observedOnlyState, healthObservedAt: null }),
       );
       expect(parsed.success, `\`${observedOnlyState}\` was admitted with a null observation`).toBe(
         false,
@@ -107,13 +85,13 @@ describe("ProviderAccount record", () => {
     // The rule is about the state, not about null: `indeterminate` keeps both readings.
     expect(
       ProviderAccountSchema.safeParse(
-        validAccount({ healthState: "indeterminate", healthObservedAt: null }),
+        validProviderAccount({ healthState: "indeterminate", healthObservedAt: null }),
       ).success,
     ).toBe(true);
     for (const observedOnlyState of ["authenticated", "reauth_required", "home_missing"] as const) {
       expect(
         ProviderAccountSchema.safeParse(
-          validAccount({ healthState: observedOnlyState, healthObservedAt: TIMESTAMP }),
+          validProviderAccount({ healthState: observedOnlyState, healthObservedAt: TIMESTAMP }),
         ).success,
       ).toBe(true);
     }
@@ -124,7 +102,7 @@ describe("ProviderAccount record", () => {
     // wire member that carries a credential home is the readiness remedy's sign-in arm.
     expect(
       ProviderAccountSchema.safeParse(
-        validAccount({ credentialHomePath: "/var/lib/sidekicks/homes/acct" }),
+        validProviderAccount({ credentialHomePath: "/var/lib/sidekicks/homes/acct" }),
       ).success,
     ).toBe(false);
   });

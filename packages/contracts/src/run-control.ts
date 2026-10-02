@@ -3,17 +3,12 @@
 // serves the queue (`run-queue.ts`), a child's own controls (`run-children.ts`) and the provider's
 // choices a run waits on (`run-provider-choice.ts`).
 //
-// Imports go downward only. The modules imported here build their Zod schemas at module scope, so
-// a back-import would throw `ReferenceError` at import time instead of failing to compile. That
-// is also why the message bounds (`DRIVER_WIRE_STEER_*`) live in `./provider-driver.js`, whose
-// `SteerPayload` applies them and cannot import from here.
-//
-// Request schemas use the double-T `z.ZodType<T, T>` form and response and event schemas the
-// single-T form: only request schemas reach tRPC's Standard Schema V1 input inference.
+// Imports go downward only: the modules imported here build their Zod schemas at module scope, so
+// a back-import would throw at import time instead of failing to compile.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { countSchema } from "./internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,
@@ -99,9 +94,6 @@ export type InterventionId = string & { readonly __brand: "InterventionId" };
 export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
-// Both closed sets are typed double-T: a set that composes into a request schema loses Standard
-// Schema V1 input inference once its input degrades to `unknown` (see `./internal/branded.ts`).
-
 /** Where an intervention stands, from request to outcome. */
 export type InterventionState =
   | "requested"
@@ -134,9 +126,8 @@ export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureC
   "projection failure",
 ]);
 
-// The execution posture's `writableRoots` entries. Not `wireFreeFormString`, which refuses
-// whitespace-only values although a directory named with a single space is legal on POSIX; NUL is
-// refused because no filesystem admits it in a path.
+// A `writableRoots` entry. Not `wireFreeFormString`: a directory named with a single space is
+// legal, while NUL is in no filesystem's paths.
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
@@ -152,11 +143,9 @@ const filesystemPathSchema: z.ZodString = z
 
 /**
  * A caller's request to steer, interrupt, cancel or retry a run, one arm per intervention type.
- * An interrupt's `pending` sends the waiting messages at once as the next turn (`nextTurn`) or
- * drops them back into the draft (`returnToDraft`); `deliverFirst` names the message `Send now`
- * delivers ahead of the rest. `faster_model_retry` stops a turn Codex holds for a safety check
- * and resends the same message on `model`, which then stays the session's model; a retry aimed at
- * a turn that is no longer the latest, or whose reply has started, is refused as `rejected`.
+ * An interrupt's `pending` sends the waiting messages as the next turn or returns them to the
+ * draft, and `deliverFirst` names the message `Send now` puts ahead of the rest.
+ * `faster_model_retry` resends a turn Codex holds for a safety check on `model`.
  */
 export type InterventionRequestPayload =
   | {
@@ -298,69 +287,59 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
   })
   .strict();
 
-// `allowedDomains` is `[string, ...string[]]`, so the parser builds a non-empty tuple: Zod v4's
-// `.nonempty()` checks the length but leaves the inferred type `string[]`, which the annotation
-// refuses.
+// A tuple, not `.nonempty()`, which leaves the inferred type `string[]`.
 const allowedDomainsSchema: z.ZodType<[string, ...string[]], [string, ...string[]]> = z.tuple(
   [wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains")],
   wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains"),
 );
 
-// The annotation fails the build if `ExecutionPosture` narrows; a widening still compiles because
-// `ZodType` is covariant in its output.
+// The parts the four posture arms share: two network forms, each with either mode.
+const executionPostureSharedShape = {
+  writableRoots: z.array(filesystemPathSchema),
+  profileName: wireFreeFormString(
+    DRIVER_WIRE_HANDLE_MAX_LEN,
+    "ExecutionPosture.profileName",
+  ).optional(),
+};
+const sandboxedPostureModeShape = {
+  mode: z.enum(["workspace-sandboxed", "readonly-sandboxed"]),
+  credentialPolicyRef: wireFreeFormString(
+    DRIVER_WIRE_HANDLE_MAX_LEN,
+    "ExecutionPosture.credentialPolicyRef",
+  ),
+};
+const allowedDomainsNetworkShape = {
+  networkAccess: z.literal("allowed-domains"),
+  allowedDomains: allowedDomainsSchema,
+};
+
 const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
   z
     .object({
       networkAccess: z.enum(["none", "full"]),
-      writableRoots: z.array(filesystemPathSchema),
-      profileName: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "ExecutionPosture.profileName",
-      ).optional(),
+      ...executionPostureSharedShape,
       mode: z.literal("trusted"),
     })
     .strict(),
   z
     .object({
       networkAccess: z.enum(["none", "full"]),
-      writableRoots: z.array(filesystemPathSchema),
-      profileName: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "ExecutionPosture.profileName",
-      ).optional(),
-      mode: z.enum(["workspace-sandboxed", "readonly-sandboxed"]),
-      credentialPolicyRef: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "ExecutionPosture.credentialPolicyRef",
-      ),
+      ...executionPostureSharedShape,
+      ...sandboxedPostureModeShape,
     })
     .strict(),
   z
     .object({
-      networkAccess: z.literal("allowed-domains"),
-      allowedDomains: allowedDomainsSchema,
-      writableRoots: z.array(filesystemPathSchema),
-      profileName: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "ExecutionPosture.profileName",
-      ).optional(),
+      ...allowedDomainsNetworkShape,
+      ...executionPostureSharedShape,
       mode: z.literal("trusted"),
     })
     .strict(),
   z
     .object({
-      networkAccess: z.literal("allowed-domains"),
-      allowedDomains: allowedDomainsSchema,
-      writableRoots: z.array(filesystemPathSchema),
-      profileName: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "ExecutionPosture.profileName",
-      ).optional(),
-      mode: z.enum(["workspace-sandboxed", "readonly-sandboxed"]),
-      credentialPolicyRef: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "ExecutionPosture.credentialPolicyRef",
-      ),
+      ...allowedDomainsNetworkShape,
+      ...executionPostureSharedShape,
+      ...sandboxedPostureModeShape,
     })
     .strict(),
 ]);
@@ -444,7 +423,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     trigger: z
       .enum(["step_limit", "spend_limit", "token_limit", "workflow_phase_canceled"])
       .optional(),
-    timestamp: z.iso.datetime({ offset: true }),
+    timestamp: isoDateTimeSchema,
   })
   .strict()
   .refine((event) => event.failureCause === undefined || event.newState === "failed", {
@@ -539,11 +518,9 @@ export const RunControlAckSchema: z.ZodType<RunControlAck> = z
   .strict();
 
 /**
- * The person's answer to the recovery question a restart leaves: the daemon compares each resumed
- * conversation with its own record, adds a read-only provider surplus with no question, and
- * halts on any other mismatch. Where the provider is ahead, `keep_provider` keeps what it did and
- * `undo_to_agreed` cuts back to the last point both records agree on. Where the service is ahead,
- * `continue_provider` continues from the provider's record and `hand_over` continues in a new
+ * The person's answer when a resumed conversation and the service's record disagree. Provider
+ * ahead: `keep_provider` keeps what it did, `undo_to_agreed` cuts back to where both agree.
+ * Service ahead: `continue_provider` goes on from the provider's record, `hand_over` starts a new
  * conversation with the hand-over brief.
  */
 export type RunRecoveryChoice =
@@ -593,34 +570,13 @@ export const RunStateSubscribeRequestSchema: z.ZodType<
   RunStateSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
-/** A run's version, session and state as the daemon's guards read them; there is no runs table. */
-export interface RunReadSnapshot {
-  version: number;
-  sessionId: SessionId;
-  state: RunState;
-}
-/** Parses a {@link RunReadSnapshot}. */
-export const RunReadSnapshotSchema: z.ZodType<RunReadSnapshot> = z
-  .object({
-    version: countSchema,
-    sessionId: SessionIdSchema,
-    state: RunStateSchema,
-  })
-  .strict();
-
 /**
- * Reads a run's snapshot synchronously. It throws for an unknown run rather than returning null,
- * so a guard fails closed instead of comparing `undefined` against a comparand.
+ * The code of a move the run's current state does not allow, such as a second or late answer to a
+ * choice the run already settled.
  */
-export type RunReadAccessor = (runId: RunId) => RunReadSnapshot;
-
-/**
- * A move the run's current state does not allow, such as a second or late answer to a choice the
- * run already settled.
- */
-export type RunInvalidTransitionCode = "run.invalid_transition";
-/** The code of a move the run's current state does not allow. */
-export const RUN_INVALID_TRANSITION_CODE: RunInvalidTransitionCode = "run.invalid_transition";
+export const RUN_INVALID_TRANSITION_CODE = "run.invalid_transition" as const;
+/** The type of {@link RUN_INVALID_TRANSITION_CODE}. */
+export type RunInvalidTransitionCode = typeof RUN_INVALID_TRANSITION_CODE;
 
 /** The run-control methods, keyed by method name. */
 export interface RunControlMethodDescriptors {

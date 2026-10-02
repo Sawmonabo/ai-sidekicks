@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   ProviderAccountCredentialSealRefusedDetailsSchema,
+  ProviderAccountLoginResponseSchema,
   ProviderAccountRegisterRequestSchema,
 } from "../provider-account-sign-in.js";
 
 const ACCOUNT_ID = "acct_01J8XYZ";
-/** The one credential value this plane accepts. */
+/** The one credential value account sign-in accepts. */
 const TOKEN_FIXTURE = "sk-example-token";
 
 describe("the register request's re-supply selector", () => {
@@ -89,5 +90,17 @@ describe("the keychain refusal", () => {
     expect(
       ProviderAccountCredentialSealRefusedDetailsSchema.safeParse({ cause: "missing" }).success,
     ).toBe(false);
+  });
+});
+
+describe("the sign-in page address the person opens", () => {
+  it("accepts an https address and refuses any other scheme", () => {
+    const reply = (verificationUri: string) => ({ attemptId: "attempt-1", verificationUri });
+    const parse = (address: string) =>
+      ProviderAccountLoginResponseSchema.safeParse(reply(address)).success;
+    expect(parse("https://provider.example.test/device")).toBe(true);
+    expect(parse("javascript:alert(1)")).toBe(false);
+    expect(parse("file:///etc/passwd")).toBe(false);
+    expect(parse("http://provider.example.test/device")).toBe(false);
   });
 });

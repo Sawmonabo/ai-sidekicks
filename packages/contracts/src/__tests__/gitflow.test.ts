@@ -1,9 +1,10 @@
 // The git-flow contract as the daemon and the desktop both parse it: a diff file carries its old
 // path exactly when it was renamed, and a hosting address the desktop opens is only a web
 // address.
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 
 import { GITFLOW_METHOD_DESCRIPTORS } from "../gitflow/methods.js";
+import { accepts, refuses } from "./safe-parse.test-support.js";
 
 const AGENT_ID = "6ba7b811-9dad-41d1-80b4-00c04fd430c8";
 const COMMIT_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
@@ -11,8 +12,6 @@ const BLOB_ID = "0123456789abcdef0123456789abcdef01234567";
 const AT = "2026-09-29T12:00:00.000Z";
 
 const methods = GITFLOW_METHOD_DESCRIPTORS;
-const accepts = (schema: { safeParse(value: unknown): { success: boolean } }, value: unknown) =>
-  schema.safeParse(value).success;
 
 describe("gitflow.diffRead", () => {
   const diff = methods["gitflow.diffRead"];
@@ -30,7 +29,6 @@ describe("gitflow.diffRead", () => {
   const result = (files: unknown[]) => ({
     head: "sidekicks/4f2a/rotate-keys",
     base: "main",
-    partial: false,
     files,
     commits: [
       {
@@ -44,11 +42,11 @@ describe("gitflow.diffRead", () => {
   });
 
   it("carries the old path exactly when a file was renamed", () => {
-    expect(accepts(diff.responseSchema, result([file]))).toBe(true);
+    accepts(diff.responseSchema, result([file]));
     const renamed = { ...file, kind: "renamed", oldPath: "src/key.ts" };
-    expect(accepts(diff.responseSchema, result([renamed]))).toBe(true);
-    expect(accepts(diff.responseSchema, result([{ ...renamed, oldPath: undefined }]))).toBe(false);
-    expect(accepts(diff.responseSchema, result([{ ...file, oldPath: "src/key.ts" }]))).toBe(false);
+    accepts(diff.responseSchema, result([renamed]));
+    refuses(diff.responseSchema, result([{ ...renamed, oldPath: undefined }]));
+    refuses(diff.responseSchema, result([{ ...file, oldPath: "src/key.ts" }]));
   });
 });
 
@@ -89,26 +87,18 @@ describe("gitflow.changeRequestSubscribe", () => {
   };
 
   it("carries a hosting address only as a web address", () => {
-    expect(
-      accepts(subscribe.emissionSchema, { depth: "summary", requests: [summary], readAt: AT }),
-    ).toBe(true);
-    expect(
-      accepts(subscribe.emissionSchema, {
-        depth: "full",
-        requests: [detail],
-        readAt: AT,
-        lastReadFailedAt: AT,
-      }),
-    ).toBe(true);
-    expect(
-      accepts(subscribe.emissionSchema, { depth: "full", requests: [summary], readAt: AT }),
-    ).toBe(false);
-    expect(
-      accepts(subscribe.emissionSchema, {
-        depth: "summary",
-        requests: [{ ...summary, url: "javascript:alert(1)" }],
-        readAt: AT,
-      }),
-    ).toBe(false);
+    accepts(subscribe.emissionSchema, { depth: "summary", requests: [summary], readAt: AT });
+    accepts(subscribe.emissionSchema, {
+      depth: "full",
+      requests: [detail],
+      readAt: AT,
+      lastReadFailedAt: AT,
+    });
+    refuses(subscribe.emissionSchema, { depth: "full", requests: [summary], readAt: AT });
+    refuses(subscribe.emissionSchema, {
+      depth: "summary",
+      requests: [{ ...summary, url: "javascript:alert(1)" }],
+      readAt: AT,
+    });
   });
 });

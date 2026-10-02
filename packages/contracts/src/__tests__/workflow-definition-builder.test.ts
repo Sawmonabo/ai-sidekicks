@@ -9,7 +9,7 @@ import {
   WorkflowExpressionPreviewRequestSchema,
 } from "../workflow-definition-builder.js";
 
-const DRAFT_DOCUMENT = { schemaVersion: "2", name: "Nightly suite", nodes: [], edges: [] };
+const DRAFT_DOCUMENT = { schemaVersion: "2", name: "Test workflow", nodes: [], edges: [] };
 
 describe("workflow.draftUpdate", () => {
   it("bases a draft on a version only of a named definition", () => {

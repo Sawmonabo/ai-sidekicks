@@ -4,13 +4,24 @@
 // running; only stop and restart end work.
 import { z } from "zod";
 
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /**
  * How long a stop or restart waits for the other connected clients to leave
  * when the request names no deadline.
  */
 export const DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS = 5_000;
+
+// The one member a stop and a restart share.
+function drainDeadlineShape(): { idleDrainDeadlineMs: z.ZodOptional<z.ZodNumber> } {
+  return { idleDrainDeadlineMs: countSchema.optional() };
+}
 
 /**
  * A stop or restart: how long to wait for the other connected clients to
@@ -22,16 +33,14 @@ export interface DaemonStopRequest {
 }
 /** Parses a {@link DaemonStopRequest}. */
 export const DaemonStopRequestSchema: z.ZodType<DaemonStopRequest, DaemonStopRequest> = z
-  .object({ idleDrainDeadlineMs: z.number().int().nonnegative().optional() })
+  .object(drainDeadlineShape())
   .strict();
 
-/** A restart takes the same deadline as {@link DaemonStopRequest}. */
-export interface DaemonRestartRequest {
-  idleDrainDeadlineMs?: number | undefined;
-}
+/** A restart takes the same deadline as a stop. */
+export type DaemonRestartRequest = DaemonStopRequest;
 /** Parses a {@link DaemonRestartRequest}. */
 export const DaemonRestartRequestSchema: z.ZodType<DaemonRestartRequest, DaemonRestartRequest> = z
-  .object({ idleDrainDeadlineMs: z.number().int().nonnegative().optional() })
+  .object(drainDeadlineShape())
   .strict();
 
 /** The service took the stop or restart. */
@@ -72,32 +81,24 @@ export const DaemonPingRequestSchema: z.ZodType<DaemonPingRequest, DaemonPingReq
   .object({})
   .strict();
 
-/** The ping's reply, carrying nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonPingResponse {}
-/** Parses a {@link DaemonPingResponse}. */
-export const DaemonPingResponseSchema: z.ZodType<DaemonPingResponse> = z.object({}).strict();
-
 /** The lifecycle verbs' descriptors. */
 export interface DaemonLifecycleMethodDescriptors {
   readonly "daemon.stop": MethodDescriptor<
     "daemon.stop",
     DaemonStopRequest,
     DaemonLifecycleAccepted
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.restart": MethodDescriptor<
     "daemon.restart",
     DaemonRestartRequest,
     DaemonLifecycleAccepted
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.flush": MethodDescriptor<
     "daemon.flush",
     DaemonFlushRequest,
     DaemonFlushResponse
-  > & { readonly procedureType: "mutation" };
-  readonly "daemon.ping": MethodDescriptor<"daemon.ping", DaemonPingRequest, DaemonPingResponse> & {
-    readonly procedureType: "query";
-  };
+  >;
+  readonly "daemon.ping": MethodDescriptor<"daemon.ping", DaemonPingRequest, EmptyPayload>;
 }
 
 /** The lifecycle methods' names, procedure types and shapes. */
@@ -129,6 +130,6 @@ export const DAEMON_LIFECYCLE_METHOD_DESCRIPTORS: DaemonLifecycleMethodDescripto
       procedureType: "query",
       mutating: false,
       requestSchema: DaemonPingRequestSchema,
-      responseSchema: DaemonPingResponseSchema,
+      responseSchema: EmptyPayloadSchema,
     },
   });

@@ -1,9 +1,6 @@
-// How a change to an agent's provider binding settles for every client, not only the asker.
-// Every change to a running agent's model, effort, speed, provider or account is a switch,
-// acknowledged with a disposition (usually `pending`, waiting for the boundary it applies at)
-// and later settled by one of two events, applied or failed. They are two events because the
-// agent card and the switch row wait on the applied one, and the system message naming what was
-// tried and why waits on the failed one.
+// How a change to an agent's provider binding settles for every client, not only the asker. Every
+// change to a running agent's model, effort, speed, provider or account is a switch, acknowledged
+// with a disposition (usually `pending`) and later settled by one of two events, applied or failed.
 //
 // This module imports nothing from the session event union: the union imports the payloads here.
 import { z } from "zod";
@@ -48,31 +45,18 @@ const bindingTokenSchema = (label: string): z.ZodString =>
 // Closed vocabularies
 
 /**
- * Which route carried the conversation across the switch. Two different acts, not degrees of
- * one:
- *
- * - `in_place`: the same provider carried the conversation on, as every same-provider change
- *   does: a per-turn setting, a run-bound setting, or an account moved at the next request.
- *   Nothing was rebuilt.
- * - `brief`: a switch across providers; the new binding started from a hand-over brief, with
- *   the old transcript written beside it as a file the provider reads on demand.
- *
- * `in_place` is an applied switch; `brief` is a degraded one and is never presented as an
- * ordinary success.
+ * How the conversation crossed the switch: `in_place`, the same provider carried it on (an applied
+ * switch); or `brief`, a switch across providers that started from a hand-over brief with the old
+ * transcript beside it as a file (a degraded switch, never presented as an ordinary success).
  */
 export const AGENT_BINDING_CONTINUITIES = ["in_place", "brief"] as const;
 /** One of {@link AGENT_BINDING_CONTINUITIES}. */
 export type AgentBindingContinuity = (typeof AGENT_BINDING_CONTINUITIES)[number];
 
 /**
- * Why an accepted switch could not be applied. A switch refused before it was
- * accepted, for an unknown axis or an invalid value, is an error on the request and
- * never reaches this vocabulary.
- *
- * - `output_speed_unavailable`: the target driver stopped declaring the speed axis,
- *   or its declared vocabulary no longer carries the pended value.
- * - `account_unavailable`: the account the switch lands on cannot carry the run;
- *   the failure names why in its account state.
+ * Why an accepted switch could not be applied: `output_speed_unavailable`, the target driver no
+ * longer declares the pended speed; or `account_unavailable`, the account it lands on cannot carry
+ * the run. A switch refused before it was accepted is an error on the request instead.
  */
 export const AGENT_BINDING_CHANGE_FAILURE_REASONS = [
   "driver_unavailable",
@@ -121,11 +105,9 @@ export type AgentBindingSwitchStatus = (typeof AGENT_BINDING_SWITCH_STATUSES)[nu
 // The switch's intent and its settlement
 
 /**
- * The binding members a switch moves and the value each moves to; an omitted key is
- * a member this switch does not move. `agent.configUpdate` never sets the account,
- * which moves on the provider surface, and the account move sets only the account.
- * Nothing clears a member back to a driver default, so there is no third state to
- * encode.
+ * The binding members a switch moves and the value each moves to; an omitted key is a member this
+ * switch does not move. `agent.configUpdate` never sets the account, and an account move sets only
+ * the account.
  */
 export interface AgentBindingSwitchTarget {
   driverName?: ProviderName | undefined;
@@ -146,22 +128,18 @@ export const AgentBindingSwitchTargetSchema: z.ZodType<AgentBindingSwitchTarget>
   .strict();
 
 /**
- * A switch the daemon accepted and has not applied: at most one per agent, a later
- * switch replacing it rather than queuing. The same record is the acknowledgment,
- * the agent row's durable slot and `agent.list`'s `pendingSwitch`, so `switching to
- * …` survives a reload and reaches another device.
- *
- * `interruptRequested` says whether reaching the boundary needs an interrupt the
- * daemon dispatches; it is never re-derived from `appliesAt`, since a deferred switch
- * and an interrupted one can both apply at a turn boundary. `replacedSwitchId` names
- * the earlier pending switch this one displaced, and is the only record of it.
+ * A switch the daemon accepted and has not applied: at most one per agent, a later one replacing
+ * it. The same record is the acknowledgment, the agent row's stored switch and `agent.list`'s
+ * `pendingSwitch`, so `switching to …` survives a reload and reaches another device.
  */
 export interface AgentBindingSwitchPending {
   status: "pending";
   switchId: string;
   appliesAt: AgentBindingSwitchBoundary;
+  /** Whether the daemon interrupts to reach the boundary; never re-derived from `appliesAt`. */
   interruptRequested: boolean;
   pendingAxes: AgentBindingSwitchTarget;
+  /** The earlier pending switch this one displaced, and the only record of it. */
   replacedSwitchId?: string | undefined;
 }
 const pendingSwitchObject = z
@@ -179,16 +157,13 @@ export const AgentBindingSwitchPendingSchema: z.ZodType<AgentBindingSwitchPendin
   pendingSwitchObject;
 
 /**
- * A switch that applied: how the conversation arrived and what it lost.
- *
- * `declaredLosses` is required, and an empty list is a claim that nothing was
- * dropped. It is empty on `in_place`; on `brief` it names at least the summarized history
- * and the provider's private reasoning. It speaks about the conversation only: whether a requested setting took
- * effect on the new binding is read back on the agent, never reported as a loss.
+ * A switch that applied: how the conversation arrived and what it lost. `declaredLosses` is empty
+ * on `in_place` and, on `brief`, names at least the summarized history and the private reasoning.
  */
 export interface AgentBindingSwitchOutcome {
   switchId: string;
   continuity: AgentBindingContinuity;
+  /** An empty list claims nothing of the conversation was dropped. */
   declaredLosses: DeclaredLossKind[];
 }
 
@@ -302,20 +277,14 @@ export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDi
 // The two settlement events
 
 /**
- * The payload of {@link AGENT_PROVIDER_BINDING_CHANGED_EVENT}: a switch that applied.
- * A change of model, effort or speed alone settles `in_place` and draws no
- * transcript row; a provider or account switch draws the switch row from `from`,
- * `to`, the landed account, the continuity and the losses.
- *
- * - `actor` is the person who admitted the switch, recorded when it was accepted, so
- *   a switch that settles after a restart still names who asked for it.
- * - `landedProviderAccountId` is the account the run actually landed on, kept apart
- *   from `to.providerAccountId` so an agent that follows the current account is
- *   never silently pinned to the account it happened to land on.
+ * The payload of {@link AGENT_PROVIDER_BINDING_CHANGED_EVENT}: a switch that applied. Only a
+ * provider or account switch draws a transcript row. `landedProviderAccountId` is kept apart from
+ * `to.providerAccountId`, so an agent that follows the current account is never pinned to it.
  */
 export interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   sessionId: SessionId;
   agentId: AgentId;
+  /** Who asked, recorded at acceptance so a settlement after a restart names them. */
   actor: UserId;
   from: AgentProviderBinding;
   to: AgentProviderBinding;
@@ -338,11 +307,9 @@ export const AgentProviderBindingChangedPayloadSchema: z.ZodType<AgentProviderBi
     .superRefine(refineDeclaredLosses);
 
 /**
- * The payload of {@link AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT}: an accepted switch
- * that could not be applied. The agent stays on `from`, and the session gains one
- * system message naming what was `attempted` and why. Emitted on both arms: the
- * pending slot is cleared by a settlement event, never by a reply, so exactly one of
- * the two events ends every switch that is not replaced.
+ * The payload of {@link AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT}: an accepted switch that could
+ * not be applied. The agent stays on `from`; exactly one of the two settlement events ends every
+ * switch that is not replaced.
  */
 export interface AgentProviderBindingChangeFailedPayload {
   sessionId: SessionId;

@@ -29,8 +29,9 @@ import {
   type WorkflowPayloadRef,
   type WorkflowRunId,
 } from "./workflow-run.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
-const executionIndexSchema = z.number().int().nonnegative();
+const executionIndexSchema = countSchema;
 
 /** The three members that address one step: the run, the node and which execution of it. */
 export interface WorkflowStepKey {
@@ -126,7 +127,7 @@ export const WorkflowStepOutputSchema: z.ZodType<WorkflowStepOutput> = z.discrim
       .object({
         valueKind: z.literal("inline"),
         summary: z.string(),
-        producedAt: z.iso.datetime({ offset: true }),
+        producedAt: isoDateTimeSchema,
       })
       .strict(),
     z
@@ -134,7 +135,7 @@ export const WorkflowStepOutputSchema: z.ZodType<WorkflowStepOutput> = z.discrim
         valueKind: z.literal("artifact_ref"),
         artifactId: ArtifactIdSchema,
         summary: z.string(),
-        producedAt: z.iso.datetime({ offset: true }),
+        producedAt: isoDateTimeSchema,
       })
       .strict(),
   ],
@@ -210,7 +211,7 @@ export interface WorkflowGateResolveResponse {
 export const WorkflowGateResolveResponseSchema: z.ZodType<WorkflowGateResolveResponse> = z
   .object({
     gateResolutionId: z.string().min(1),
-    decidedAt: z.iso.datetime({ offset: true }),
+    decidedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -243,12 +244,12 @@ export const WorkflowHumanFormReadResponseSchema: z.ZodType<WorkflowHumanFormRea
   .object({
     prompt: z.string().min(1),
     fields: z.array(WorkflowParamSpecSchema),
-    formRevision: z.number().int().nonnegative(),
+    formRevision: countSchema,
     draft: z
       .object({
         formState: z.record(z.string(), z.unknown()),
         revision: z.number().int().positive(),
-        savedAt: z.iso.datetime({ offset: true }),
+        savedAt: isoDateTimeSchema,
       })
       .strict()
       .optional(),
@@ -285,7 +286,7 @@ export const WorkflowHumanFormDraftSaveResponseSchema: z.ZodType<WorkflowHumanFo
   z
     .object({
       revision: z.number().int().positive(),
-      savedAt: z.iso.datetime({ offset: true }),
+      savedAt: isoDateTimeSchema,
     })
     .strict();
 
@@ -307,7 +308,7 @@ export const WorkflowHumanFormSubmitRequestSchema: z.ZodType<
   .object({
     ...workflowStepKeyFields,
     fields: z.record(z.string(), z.unknown()),
-    expectedRevision: z.number().int().nonnegative(),
+    expectedRevision: countSchema,
   })
   .strict();
 
@@ -317,7 +318,7 @@ export interface WorkflowHumanFormSubmitResponse {
 }
 /** Wire schema for {@link WorkflowHumanFormSubmitResponse}. */
 export const WorkflowHumanFormSubmitResponseSchema: z.ZodType<WorkflowHumanFormSubmitResponse> = z
-  .object({ submittedAt: z.iso.datetime({ offset: true }) })
+  .object({ submittedAt: isoDateTimeSchema })
   .strict();
 
 // workflow.fixSessionCreate
@@ -343,15 +344,10 @@ export const WorkflowFixSessionCreateResponseSchema: z.ZodType<WorkflowFixSessio
  * waiting, an answer after the step's `Timeout` passed included, even before its timer
  * has run.
  */
-export type WorkflowStepNotWaitingCode = "workflow.step_not_waiting";
-/** The code of an answer or a form read on a step that is no longer waiting. */
-export const WORKFLOW_STEP_NOT_WAITING_CODE: WorkflowStepNotWaitingCode =
-  "workflow.step_not_waiting";
+export const WORKFLOW_STEP_NOT_WAITING_CODE = "workflow.step_not_waiting" as const;
 
 /** A form draft save or a form submit carrying a revision that is no longer current. */
-export type WorkflowRevisionStaleCode = "workflow.revision_stale";
-/** The code of a stale form revision. */
-export const WORKFLOW_REVISION_STALE_CODE: WorkflowRevisionStaleCode = "workflow.revision_stale";
+export const WORKFLOW_REVISION_STALE_CODE = "workflow.revision_stale" as const;
 
 // Step events
 
@@ -409,7 +405,7 @@ export const WorkflowStepFailedPayloadSchema: z.ZodType<WorkflowStepFailedPayloa
   .object({
     ...workflowStepEventFields,
     error: WorkflowStepErrorSchema,
-    failedItemIndex: z.number().int().nonnegative().optional(),
+    failedItemIndex: countSchema.optional(),
   })
   .strict();
 

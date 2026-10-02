@@ -24,6 +24,8 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
 import {
   ExecutionModeSchema,
   RepoMountIdSchema,
@@ -56,9 +58,10 @@ import {
   type SessionSubscribeResponse,
 } from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
- * What a session is doing, as the daemon derives it: exactly one of five, and no surface
+ * What a session is doing, as the daemon derives it: exactly one of five, and no client
  * invents a sixth. `waiting` is waiting on the person; `failed` is a session that died, kept
  * apart from one that finished (`done`).
  */
@@ -156,11 +159,11 @@ const sessionListEntryCommonFields = {
   ).optional(),
   state: SessionStateSchema,
   activity: SessionActivitySchema,
-  activityRenewedAt: z.iso.datetime({ offset: true }),
-  pinnedAt: z.iso.datetime({ offset: true }).optional(),
+  activityRenewedAt: isoDateTimeSchema,
+  pinnedAt: isoDateTimeSchema.optional(),
   muted: z.boolean(),
   exchange: SessionExchangeSchema.optional(),
-  lastActivityAt: z.iso.datetime({ offset: true }),
+  lastActivityAt: isoDateTimeSchema,
 };
 /** Parses a {@link SessionListEntry}. */
 export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminatedUnion("shape", [
@@ -176,7 +179,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
     .object({
       ...sessionListEntryCommonFields,
       shape: z.literal("chat"),
-      documentCount: z.number().int().nonnegative(),
+      documentCount: countSchema,
     })
     .strict(),
 ]);
@@ -383,6 +386,75 @@ export const SessionSetWorkingFolderResponseSchema: z.ZodType<SessionSetWorkingF
   })
   .strict();
 
+/**
+ * The terminal pane's held read. The daemon answers once its sessions list or any session's
+ * agent list moves past `afterRevision`, or after 10 s with nothing changed.
+ */
+export interface SessionOverviewReadRequest {
+  afterRevision: number;
+}
+/** Parses a {@link SessionOverviewReadRequest}. */
+export const SessionOverviewReadRequestSchema: z.ZodType<
+  SessionOverviewReadRequest,
+  SessionOverviewReadRequest
+> = z.object({ afterRevision: countSchema }).strict();
+
+/** One agent under a session in the terminal pane. */
+export interface SessionOverviewAgent {
+  name: string;
+  provider: ProviderName;
+  state: SessionActivity;
+}
+
+/** One session in the terminal pane; `title` is absent while the session is untitled. */
+export interface SessionOverviewSession {
+  id: SessionId;
+  title?: string | undefined;
+  provider: ProviderName;
+  state: SessionActivity;
+  agents: SessionOverviewAgent[];
+}
+
+/**
+ * What the terminal pane draws: every session with its agents and Remote Control's state, read
+ * from the projections behind `session.list` and `agent.list`. The next read sends `revision`
+ * back as `afterRevision`.
+ */
+export interface SessionOverviewReadResponse {
+  revision: number;
+  sessions: SessionOverviewSession[];
+  remoteControl: { state: "on" | "off" };
+}
+/** Parses a {@link SessionOverviewReadResponse}. */
+export const SessionOverviewReadResponseSchema: z.ZodType<SessionOverviewReadResponse> = z
+  .object({
+    revision: countSchema,
+    sessions: z.array(
+      z
+        .object({
+          id: SessionIdSchema,
+          title: wireFreeFormString(
+            SESSION_NAME_MAX_LEN,
+            "SessionOverviewSession.title",
+          ).optional(),
+          provider: ProviderNameSchema,
+          state: SessionActivitySchema,
+          agents: z.array(
+            z
+              .object({
+                name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "SessionOverviewAgent.name"),
+                provider: ProviderNameSchema,
+                state: SessionActivitySchema,
+              })
+              .strict(),
+          ),
+        })
+        .strict(),
+    ),
+    remoteControl: z.object({ state: z.enum(["on", "off"]) }).strict(),
+  })
+  .strict();
+
 /** The session directory's methods, keyed by method name. */
 export interface SessionDirectoryMethodDescriptors {
   readonly "session.create": MethodDescriptor<
@@ -416,6 +488,11 @@ export interface SessionDirectoryMethodDescriptors {
     "session.setWorkingFolder",
     SessionSetWorkingFolderRequest,
     SessionSetWorkingFolderResponse
+  >;
+  readonly "session.overviewRead": MethodDescriptor<
+    "session.overviewRead",
+    SessionOverviewReadRequest,
+    SessionOverviewReadResponse
   >;
 }
 
@@ -465,5 +542,12 @@ export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescrip
       mutating: true,
       requestSchema: SessionSetWorkingFolderRequestSchema,
       responseSchema: SessionSetWorkingFolderResponseSchema,
+    },
+    "session.overviewRead": {
+      method: "session.overviewRead",
+      procedureType: "query",
+      mutating: false,
+      requestSchema: SessionOverviewReadRequestSchema,
+      responseSchema: SessionOverviewReadResponseSchema,
     },
   });

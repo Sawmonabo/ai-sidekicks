@@ -44,20 +44,16 @@ const QuestionOptionSchema: z.ZodType<QuestionOption> = z
   })
   .strict();
 
-/**
- * One question of the record, one page of the card.
- *
- * `header` is the short chip beside the eyebrow: the agent's own header, a tool
- * server's name, or a workflow's name. `heading` is the summary line, present only
- * where the agent sent one. `severalAnswers` is the provider's own reading of
- * whether several picks go back together. A `secret` question draws a masked field
- * and no option rows, so it carries no options.
- */
+/** One question of the record, one page of the card. */
 export interface QuestionPrompt {
+  /** The agent's own short header, a tool server's name, or a workflow's name. */
   header?: string | undefined;
   text: string;
+  /** The summary line, where the agent sent one. */
   heading?: string | undefined;
+  /** Empty on a `secret` question, which takes a masked answer. */
   options: QuestionOption[];
+  /** The provider's own reading of whether several picks go back together. */
   severalAnswers: boolean;
   secret: boolean;
 }
@@ -82,18 +78,9 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
   });
 
 /**
- * The stored `question.asked` payload: the half the personal-data split leaves in
- * the event. Several questions page one at a time, and `pageCount` is how many
- * there are. The questions themselves are text an agent, a tool server or a
- * workflow wrote, and it can echo the person's words, so the emitter moves them
- * whole into the row's personal-data partition as {@link QuestionAskedPersonalData};
- * none of them is a member here.
- *
- * Exactly one of `runId` and `waitId` names what is waiting. An agent's or a tool
- * server's question names the agent's run. A workflow step waiting for a chat
- * reply names its wait: the durable id that ties the wait to its workflow run, its
- * step and its session, so the run's page is a second door onto the same question
- * and the first answer through either door settles the wait.
+ * The stored `question.asked` payload, without the question text, which is personal data and
+ * travels as {@link QuestionAskedPersonalData}. Exactly one of `runId` (an agent's or a tool
+ * server's question) and `waitId` (a workflow step's) names what is waiting.
  */
 export type QuestionAskedPayload = {
   questionId: QuestionId;

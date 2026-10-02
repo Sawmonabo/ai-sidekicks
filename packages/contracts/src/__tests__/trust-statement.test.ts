@@ -4,11 +4,9 @@
 import { describe, expect, it } from "vitest";
 
 import { IdentityPublicKeySchema } from "../trust-statement.js";
+import { base64Bytes, P256_KEY } from "./trust-statement.test-support.js";
 
-const bytes = (length: number): string => Buffer.alloc(length, 7).toString("base64");
-
-const ED25519_KEY = { algorithm: "ed25519", publicKey: bytes(32) } as const;
-const P256_KEY = { algorithm: "p256", publicKey: bytes(65) } as const;
+const ED25519_KEY = { algorithm: "ed25519", publicKey: base64Bytes(32) } as const;
 
 describe("identity keys", () => {
   it("accepts each algorithm at its own key length", () => {
@@ -18,7 +16,8 @@ describe("identity keys", () => {
 
   it("refuses a key whose length is not its algorithm's", () => {
     expect(
-      IdentityPublicKeySchema.safeParse({ algorithm: "ed25519", publicKey: bytes(65) }).success,
+      IdentityPublicKeySchema.safeParse({ algorithm: "ed25519", publicKey: base64Bytes(65) })
+        .success,
     ).toBe(false);
   });
 });

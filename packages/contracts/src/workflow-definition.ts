@@ -22,6 +22,7 @@ import { z } from "zod";
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "./mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** A workflow definition's id. The daemon mints it; a client passes it through unparsed. */
 export type WorkflowDefinitionId = string & { readonly __brand: "WorkflowDefinitionId" };
@@ -61,7 +62,7 @@ export const WorkflowNodeIdSchema: z.ZodType<WorkflowNodeId, WorkflowNodeId> = z
   .brand<"WorkflowNodeId">() as unknown as z.ZodType<WorkflowNodeId, WorkflowNodeId>;
 
 /**
- * A node kind's key, the family then the kind: `files.read`, `agent.run`. It is data,
+ * A node kind's key, the category then the kind: `files.read`, `agent.run`. It is data,
  * not a closed union: the catalog is what `workflow.kindList` answers.
  */
 export type WorkflowNodeKindId = string;
@@ -167,7 +168,7 @@ export const WorkflowNodeSchema: z.ZodType<WorkflowNode, WorkflowNode> = z
     retry: z
       .object({
         maxTries: z.number().int().positive(),
-        waitMs: z.number().int().nonnegative(),
+        waitMs: countSchema,
       })
       .strict()
       .optional()
@@ -268,7 +269,7 @@ const WorkflowBinaryRefSchema: z.ZodType<WorkflowBinaryRef, WorkflowBinaryRef> =
     artifactId: ArtifactIdSchema,
     mimeType: z.string().min(1),
     fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
   })
   .strict();
 
@@ -279,8 +280,8 @@ export interface WorkflowPairedItem {
 }
 const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem> = z
   .object({
-    item: z.number().int().nonnegative(),
-    input: z.number().int().nonnegative().optional(),
+    item: countSchema,
+    input: countSchema.optional(),
   })
   .strict();
 
@@ -430,8 +431,6 @@ export const WorkflowToolBindingSchema: z.ZodType<WorkflowToolBinding, WorkflowT
 
 /** A document the daemon's check at save refused; it carries every finding at once. */
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
-/** The type of {@link WORKFLOW_DEFINITION_REFUSED_CODE}. */
-export type WorkflowDefinitionRefusedCode = typeof WORKFLOW_DEFINITION_REFUSED_CODE;
 
 /**
  * The rules a refused document can break. Each finding names one, with the nodes it

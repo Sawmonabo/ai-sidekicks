@@ -1,15 +1,10 @@
-// The daemon-assigned id of the one machine a daemon runs on, in a leaf module with no local
-// imports. Schema modules read `NodeIdSchema` in eager module-scope initializers, and an import
-// cycle among those throws `ReferenceError: Cannot access '<binding>' before initialization`
-// at import time; a leaf module can never join a cycle, so consumers import it directly.
+// The daemon-assigned id of the one machine a daemon runs on. A leaf module with no local imports:
+// schema modules read `NodeIdSchema` in eager module-scope initializers, and an import cycle among
+// those throws at import time.
 import { z } from "zod";
 
-// `node_id` is `TEXT NOT NULL` in every table that stores it, so a NodeId is a daemon-minted
-// opaque string, not a UUID. It follows the non-UUID branded-scalar pattern of
-// `EventCursorSchema` in `session.ts`: `z.string().min(1).max(cap)` with an inline `.brand()`
-// cast. The cap guards against pathological lengths in wire input. The `ZodType<NodeId,
-// NodeId>` annotation makes the input type resolve to `NodeId` where the schema is composed
-// into request schemas, instead of `unknown`.
+// A NodeId is a daemon-minted opaque string, not a UUID. The `ZodType<NodeId, NodeId>` annotation
+// keeps the input type `NodeId`, not `unknown`, where the schema is composed into a request.
 
 /** The longest NodeId, in characters. */
 export const NODE_ID_MAX_LEN = 256;

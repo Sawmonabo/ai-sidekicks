@@ -6,7 +6,7 @@
 import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "./agent-definition.js";
-import { countSchema } from "./internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import {
   SessionIdSchema,
@@ -70,19 +70,13 @@ import {
   type WorkflowWebhookTokenRotateResponse,
 } from "./workflow-definition-builder.js";
 
-const isoInstant = z.iso.datetime({ offset: true });
-
 // Refusals
 
 /** An update whose expected version is no longer the latest; nothing is written. */
 export const WORKFLOW_VERSION_STALE_CODE = "workflow.version_stale" as const;
-/** The type of {@link WORKFLOW_VERSION_STALE_CODE}. */
-export type WorkflowVersionStaleCode = typeof WORKFLOW_VERSION_STALE_CODE;
 
 /** An imported file whose schema version this daemon does not know. */
 export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unknown" as const;
-/** The type of {@link WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE}. */
-export type WorkflowImportSchemaUnknownCode = typeof WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE;
 
 // workflow.definitionCreate
 
@@ -138,7 +132,7 @@ export const WorkflowDefinitionCreateResponseSchema: z.ZodType<WorkflowDefinitio
     versionNumber: z.number().int().positive(),
     contentHash: WorkflowContentHashSchema,
     workflowVersionId: WorkflowVersionIdSchema,
-    createdAt: isoInstant,
+    createdAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -202,11 +196,11 @@ export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionR
     workflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
     document: WorkflowDocumentSchema,
-    createdAt: isoInstant,
-    webhookTokenCreatedAt: isoInstant.optional(),
-    webhookTokenLastUsedAt: isoInstant.optional(),
+    createdAt: isoDateTimeSchema,
+    webhookTokenCreatedAt: isoDateTimeSchema.optional(),
+    webhookTokenLastUsedAt: isoDateTimeSchema.optional(),
     webhookLastFire: z
-      .object({ at: isoInstant, outcome: z.enum(WORKFLOW_WEBHOOK_FIRE_OUTCOMES) })
+      .object({ at: isoDateTimeSchema, outcome: z.enum(WORKFLOW_WEBHOOK_FIRE_OUTCOMES) })
       .strict()
       .optional(),
   })
@@ -287,7 +281,7 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
       .object({
         expression: z.string().min(1),
         timeZone: z.string().min(1),
-        nextFireAt: isoInstant.optional(),
+        nextFireAt: isoDateTimeSchema.optional(),
       })
       .strict()
       .optional(),
@@ -295,9 +289,9 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
     // reverts visibly when the daemon refuses rather than holding an optimistic value.
     enabled: z.boolean(),
     tags: z.array(z.string().min(1)),
-    runCount: z.number().int().nonnegative(),
-    createdAt: isoInstant,
-    updatedAt: isoInstant,
+    runCount: countSchema,
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -352,7 +346,7 @@ export const WorkflowVersionReadResponseSchema: z.ZodType<WorkflowVersionReadRes
     workflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
     document: WorkflowDocumentSchema,
-    createdAt: isoInstant,
+    createdAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -420,7 +414,7 @@ export const WorkflowVersionChainEntrySchema: z.ZodType<WorkflowVersionChainEntr
     workflowVersionId: WorkflowVersionIdSchema,
     versionNumber: z.number().int().positive(),
     contentHash: WorkflowContentHashSchema,
-    createdAt: isoInstant,
+    createdAt: isoDateTimeSchema,
     savedBy: WorkflowVersionSavedBySchema,
     changesFromPrevious: WorkflowVersionChangeCountsSchema.optional(),
   })
@@ -488,7 +482,7 @@ export const WorkflowDefinitionUpdateResponseSchema: z.ZodType<WorkflowDefinitio
     workflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
     branchedFromContentHash: WorkflowContentHashSchema.optional(),
-    createdAt: isoInstant,
+    createdAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -527,8 +521,8 @@ const filePathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "filePath");
 /**
  * The `workflow.definitionExport` input. The daemon writes one version's canonical file,
  * its body and, unless `includeLayout` is false, its layout, with each Code node's
- * package lock. `filePath` is the path main's relay put in place of the token the
- * platform's save chooser returned.
+ * package lock. `filePath` is the path main forwards in place of the token the platform's
+ * save chooser returned.
  */
 export interface WorkflowDefinitionExportRequest {
   definitionId: WorkflowDefinitionId;
@@ -568,7 +562,7 @@ export const WorkflowDefinitionExportResponseSchema: z.ZodType<WorkflowDefinitio
  * The `workflow.definitionImport` input. The daemon reads the file the person picked and
  * creates the definition through the create path with its whole check, all or nothing;
  * the file carries no scope, so the caller names where it lands. `filePath` is the path
- * main's relay put in place of the token the platform's open chooser returned.
+ * main forwards in place of the token the platform's open chooser returned.
  */
 export interface WorkflowDefinitionImportRequest {
   sessionId: SessionId;

@@ -14,6 +14,7 @@ import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-de
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest command id the daemon accepts. */
 export const COMMAND_ID_MAX_LEN = 256;
@@ -47,7 +48,7 @@ const RunningCommandSchema: z.ZodType<RunningCommand> = z
     commandId: CommandIdSchema,
     runId: RunIdSchema,
     name: z.string().min(1),
-    startedAt: z.iso.datetime({ offset: true }),
+    startedAt: isoDateTimeSchema,
     waitingInForeground: z.boolean(),
     waitingForInput: z.boolean(),
   })
@@ -202,7 +203,7 @@ export const CommandEndedPayloadSchema: z.ZodType<CommandEndedPayload> = z
     commandId: CommandIdSchema,
     ending: z.enum(["finished", "failed", "ended_by_person"]),
     exitCode: z.number().int().optional(),
-    durationMs: z.number().int().nonnegative(),
+    durationMs: countSchema,
   })
   .strict();
 

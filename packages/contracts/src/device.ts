@@ -13,6 +13,8 @@ import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import {
   NotificationKindSwitchesSchema,
@@ -47,6 +49,7 @@ import {
   type TrustStatement,
   type TrustStatementKind,
 } from "./trust-statement.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest app or service version string. */
 export const APP_VERSION_MAX_LEN = 64;
@@ -57,7 +60,6 @@ export const PUSH_ADDRESS_MAX_LEN = 2048;
 
 const NameSchema = wireFreeFormString(MACHINE_OR_DEVICE_NAME_MAX_LEN, "name");
 const PlatformSchema = wireFreeFormString(PLATFORM_DESCRIPTION_MAX_LEN, "platform");
-const IsoTimeSchema = z.iso.datetime({ offset: true });
 
 // device.list: the machines, devices and passkeys, live
 
@@ -80,7 +82,7 @@ export const MachineEntrySchema: z.ZodType<MachineEntry> = z
     platform: PlatformSchema,
     serviceVersion: wireFreeFormString(APP_VERSION_MAX_LEN, "serviceVersion"),
     reachable: z.boolean(),
-    lastSeenAt: IsoTimeSchema.nullable(),
+    lastSeenAt: isoDateTimeSchema.nullable(),
   })
   .strict();
 
@@ -112,10 +114,10 @@ export const DeviceEntrySchema: z.ZodType<DeviceEntry> = z
     platform: PlatformSchema,
     appVersion: wireFreeFormString(APP_VERSION_MAX_LEN, "appVersion"),
     connected: z.boolean(),
-    lastSeenAt: IsoTimeSchema.nullable(),
-    linkedAt: IsoTimeSchema,
+    lastSeenAt: isoDateTimeSchema.nullable(),
+    linkedAt: isoDateTimeSchema,
     linkedBy: TrustSignerSchema,
-    revokedAt: IsoTimeSchema.nullable(),
+    revokedAt: isoDateTimeSchema.nullable(),
     revokePendingOnNodeIds: z.array(NodeIdSchema),
     seenInTwoPlaces: z.boolean(),
   })
@@ -135,7 +137,7 @@ export const PasskeyEntrySchema: z.ZodType<PasskeyEntry> = z
   .object({
     passkeyId: PasskeyIdSchema,
     platform: PlatformSchema,
-    addedAt: IsoTimeSchema,
+    addedAt: isoDateTimeSchema,
     addedBy: TrustSignerSchema,
   })
   .strict();
@@ -202,7 +204,7 @@ export interface DeviceLinkStartResponse {
 export const DeviceLinkStartResponseSchema: z.ZodType<DeviceLinkStartResponse> = z
   .object({
     pairingId: wireFreeFormString(PAIRING_ID_MAX_LEN, "pairingId"),
-    expiresAt: IsoTimeSchema,
+    expiresAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -286,11 +288,6 @@ export const DeviceLinkCancelRequestSchema: z.ZodType<
   DeviceLinkCancelRequest,
   DeviceLinkCancelRequest
 > = z.object({ pairingId: wireFreeFormString(PAIRING_ID_MAX_LEN, "pairingId") }).strict();
-
-/** The empty reply of a request whose whole effect is what it changed. */
-export type EmptyAcknowledgement = Record<string, never>;
-/** Parses a {@link EmptyAcknowledgement}. */
-export const EmptyAcknowledgementSchema: z.ZodType<EmptyAcknowledgement> = z.object({}).strict();
 
 // Rename, revoke, forget
 
@@ -391,7 +388,7 @@ export const DeviceTrustedListResponseSchema: z.ZodType<DeviceTrustedListRespons
           identityKey: IdentityPublicKeySchema,
           channelKey: ChannelPublicKeySchema,
           trustedBy: TrustStatementHashSchema,
-          revokedAt: IsoTimeSchema.nullable(),
+          revokedAt: isoDateTimeSchema.nullable(),
         })
         .strict(),
     ),
@@ -501,27 +498,15 @@ export interface DeviceProcedureDescriptors {
     DeviceLinkRedeemRequest,
     DeviceLinkRedeemResponse
   >;
-  readonly "device.link": MethodDescriptor<"device.link", DeviceLinkRequest, EmptyAcknowledgement>;
+  readonly "device.link": MethodDescriptor<"device.link", DeviceLinkRequest, EmptyPayload>;
   readonly "device.linkCancel": MethodDescriptor<
     "device.linkCancel",
     DeviceLinkCancelRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
-  readonly "device.rename": MethodDescriptor<
-    "device.rename",
-    DeviceRenameRequest,
-    EmptyAcknowledgement
-  >;
-  readonly "device.revoke": MethodDescriptor<
-    "device.revoke",
-    DeviceRevokeRequest,
-    EmptyAcknowledgement
-  >;
-  readonly "device.forget": MethodDescriptor<
-    "device.forget",
-    DeviceForgetRequest,
-    EmptyAcknowledgement
-  >;
+  readonly "device.rename": MethodDescriptor<"device.rename", DeviceRenameRequest, EmptyPayload>;
+  readonly "device.revoke": MethodDescriptor<"device.revoke", DeviceRevokeRequest, EmptyPayload>;
+  readonly "device.forget": MethodDescriptor<"device.forget", DeviceForgetRequest, EmptyPayload>;
   readonly "device.statementList": MethodDescriptor<
     "device.statementList",
     DeviceStatementListRequest,
@@ -530,7 +515,7 @@ export interface DeviceProcedureDescriptors {
   readonly "device.pushAddressSet": MethodDescriptor<
     "device.pushAddressSet",
     DevicePushAddressSetRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
 }
 
@@ -563,35 +548,35 @@ export const DEVICE_PROCEDURE_DESCRIPTORS: DeviceProcedureDescriptors = defineMe
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceLinkRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "device.linkCancel": {
     method: "device.linkCancel",
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceLinkCancelRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "device.rename": {
     method: "device.rename",
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceRenameRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "device.revoke": {
     method: "device.revoke",
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceRevokeRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "device.forget": {
     method: "device.forget",
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceForgetRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "device.statementList": {
     method: "device.statementList",
@@ -605,7 +590,7 @@ export const DEVICE_PROCEDURE_DESCRIPTORS: DeviceProcedureDescriptors = defineMe
     procedureType: "mutation",
     mutating: true,
     requestSchema: DevicePushAddressSetRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });
 
@@ -616,7 +601,7 @@ export interface DeviceMethodDescriptors {
   readonly "device.statementApply": MethodDescriptor<
     "device.statementApply",
     DeviceStatementApplyRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
   readonly "device.trustedList": MethodDescriptor<
     "device.trustedList",
@@ -626,7 +611,7 @@ export interface DeviceMethodDescriptors {
   readonly "device.notificationSettingsSet": MethodDescriptor<
     "device.notificationSettingsSet",
     DeviceNotificationSettingsSetRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
 }
 
@@ -637,7 +622,7 @@ export const DEVICE_METHOD_DESCRIPTORS: DeviceMethodDescriptors = defineMethodDe
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceStatementApplyRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "device.trustedList": {
     method: "device.trustedList",
@@ -651,7 +636,7 @@ export const DEVICE_METHOD_DESCRIPTORS: DeviceMethodDescriptors = defineMethodDe
     procedureType: "mutation",
     mutating: true,
     requestSchema: DeviceNotificationSettingsSetRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });
 

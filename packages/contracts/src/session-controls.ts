@@ -11,16 +11,18 @@
 // back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 
-import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-import { composedTextSchema } from "./internal/wire-scalars.js";
+import { AgentIdSchema, type AgentId } from "./agent-definition.js";
+import { brandedUuidIdSchema } from "./internal/branded.js";
+import { composedTextSchema, countSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import { MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerNameSchema } from "./mcp.js";
+import { McpServerNameSchema } from "./mcp.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+  MCP_SERVER_STATUS_SEVERITY_ORDER,
   RunIdSchema,
   type McpServerStatus,
   type RunId,
@@ -42,9 +44,6 @@ import {
   UsdMicrosSchema,
   type OrchestrationBudgetState,
 } from "./session-cost.js";
-
-// The unbranded UUID text form, since the `agentId` brand belongs to the live agent contract.
-const agentIdSchema = uuidTextFormSchema;
 
 /** The one input every session read takes: the session. */
 export interface SessionAddressedRequest {
@@ -73,9 +72,6 @@ const EXECUTION_POSTURE_MODE_VALUES = ["readonly", "ask", "reviewed", "sandboxed
  * itself. Plan is not a level: it is the session's mode.
  */
 export type ExecutionPostureMode = (typeof EXECUTION_POSTURE_MODE_VALUES)[number];
-/** Every {@link ExecutionPostureMode}, most careful first. */
-export const EXECUTION_POSTURE_MODES: readonly ExecutionPostureMode[] =
-  EXECUTION_POSTURE_MODE_VALUES;
 /** Parses an {@link ExecutionPostureMode}. */
 export const ExecutionPostureModeSchema: z.ZodType<ExecutionPostureMode, ExecutionPostureMode> =
   z.enum(EXECUTION_POSTURE_MODE_VALUES);
@@ -104,8 +100,6 @@ const SESSION_MODE_VALUES = ["build", "plan"] as const;
 
 /** Whether the session's next turns plan or build: the composer's mode control. */
 export type SessionMode = (typeof SESSION_MODE_VALUES)[number];
-/** Every {@link SessionMode}. */
-export const SESSION_MODES: readonly SessionMode[] = SESSION_MODE_VALUES;
 /** Parses a {@link SessionMode}. */
 export const SessionModeSchema: z.ZodType<SessionMode, SessionMode> = z.enum(SESSION_MODE_VALUES);
 
@@ -265,7 +259,7 @@ export const SessionMcpResourceListResponseSchema: z.ZodType<SessionMcpResourceL
           title: composedTextSchema.optional(),
           description: composedTextSchema.optional(),
           mimeType: composedTextSchema.optional(),
-          size: z.number().int().nonnegative().optional(),
+          size: countSchema.optional(),
         })
         .strict(),
     ),
@@ -361,8 +355,6 @@ const SESSION_REVIEW_TARGET_VALUES = ["workingTree", "staged", "branch"] as cons
 
 /** What a review covers: the working tree, the staged set, or the branch against its base. */
 export type SessionReviewTarget = (typeof SESSION_REVIEW_TARGET_VALUES)[number];
-/** Every {@link SessionReviewTarget}. */
-export const SESSION_REVIEW_TARGETS: readonly SessionReviewTarget[] = SESSION_REVIEW_TARGET_VALUES;
 /** Parses a {@link SessionReviewTarget}. */
 export const SessionReviewTargetSchema: z.ZodType<SessionReviewTarget, SessionReviewTarget> =
   z.enum(SESSION_REVIEW_TARGET_VALUES);
@@ -435,8 +427,8 @@ export const SessionTokensPerRunUpdateRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema, tokensPerRun: TokensPerRunSchema.nullable() }).strict();
 
 /**
- * The `run.step_limit_reached` payload: a turn reached the step bound and ended there, the run
- * going on. `count` is the bound reached, drawn beside `Continue`.
+ * The `run.step_limit_reached` payload: a turn reached the step bound and ended there, and the run
+ * then ends as interrupted. `count` is the bound reached, drawn beside `Continue`.
  */
 export type RunStepLimitReachedPayload = {
   sessionId: SessionId;
@@ -557,8 +549,7 @@ export const SessionTerminalProviderSessionListResponseSchema: z.ZodType<Session
  * - `review_started` and `review_finished`: the two ends of a review.
  * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its cap on unmet
  *   checks, or a goal check ran past its limit; the goal stays active.
- * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own words. It
- *   draws no flow row: the working line counts the session's warnings and lists them.
+ * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own words.
  */
 export type SessionNoticePayload =
   | {
@@ -578,8 +569,8 @@ export type SessionNoticePayload =
   | { sessionId: SessionId; kind: "conversation_reloaded" }
   | { sessionId: SessionId; kind: "review_started"; target: SessionReviewTarget }
   | { sessionId: SessionId; kind: "review_finished" }
-  | { sessionId: SessionId; kind: "goal_not_met"; agentId: string }
-  | { sessionId: SessionId; kind: "goal_check_unfinished"; agentId: string }
+  | { sessionId: SessionId; kind: "goal_not_met"; agentId: AgentId }
+  | { sessionId: SessionId; kind: "goal_check_unfinished"; agentId: AgentId }
   | {
       sessionId: SessionId;
       kind: "provider_warning";
@@ -590,7 +581,7 @@ export type SessionNoticePayload =
 
 const PROVIDER_WARNING_SOURCE_VALUES = ["warning", "deprecation"] as const;
 
-/** Which Codex notice a provider warning came from: `warning` or `deprecationNotice`. */
+/** Which Codex notice a provider warning came from: its warning or its deprecation notice. */
 export type ProviderWarningSource = (typeof PROVIDER_WARNING_SOURCE_VALUES)[number];
 
 /** Every `session.notice` kind. */
@@ -633,14 +624,14 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z.dis
       .object({
         sessionId: SessionIdSchema,
         kind: z.literal("goal_not_met"),
-        agentId: agentIdSchema,
+        agentId: AgentIdSchema,
       })
       .strict(),
     z
       .object({
         sessionId: SessionIdSchema,
         kind: z.literal("goal_check_unfinished"),
-        agentId: agentIdSchema,
+        agentId: AgentIdSchema,
       })
       .strict(),
     z
@@ -671,7 +662,7 @@ export type ModerationReviewSignal = (typeof MODERATION_REVIEW_SIGNAL_VALUES)[nu
 export type ModerationReviewFlaggedPayload = {
   sessionId: SessionId;
   runId: RunId;
-  agentId: string;
+  agentId: AgentId;
   eventId: string;
   signal: ModerationReviewSignal;
   text: string;
@@ -681,7 +672,7 @@ export const ModerationReviewFlaggedPayloadSchema: z.ZodType<ModerationReviewFla
   .object({
     sessionId: SessionIdSchema,
     runId: RunIdSchema,
-    agentId: agentIdSchema,
+    agentId: AgentIdSchema,
     eventId: composedTextSchema,
     signal: z.enum(MODERATION_REVIEW_SIGNAL_VALUES),
     text: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "ModerationReviewFlaggedPayload.text"),

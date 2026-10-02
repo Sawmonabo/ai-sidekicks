@@ -21,6 +21,7 @@ import {
 } from "./provider-account.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace. */
 const pluginTokenSchema = (label: string): z.ZodString =>
@@ -69,10 +70,10 @@ export interface PluginCarriedCounts {
 /** Parses {@link PluginCarriedCounts}. */
 export const PluginCarriedCountsSchema: z.ZodType<PluginCarriedCounts> = z
   .object({
-    agents: z.number().int().nonnegative(),
-    skills: z.number().int().nonnegative(),
-    mcpServers: z.number().int().nonnegative(),
-    hooks: z.number().int().nonnegative(),
+    agents: countSchema,
+    skills: countSchema,
+    mcpServers: countSchema,
+    hooks: countSchema,
   })
   .strict();
 

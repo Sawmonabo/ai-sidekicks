@@ -5,12 +5,13 @@
 // carry the statement a trusted key signed.
 import { z } from "zod";
 
+import { APP_VERSION_MAX_LEN } from "./device.js";
 import {
-  APP_VERSION_MAX_LEN,
-  EmptyAcknowledgementSchema,
-  type EmptyAcknowledgement,
-} from "./device.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { wireFreeFormString } from "./session.js";
 import {
@@ -105,31 +106,31 @@ export const RuntimeNodeCertificateChallengeSetRequestSchema: z.ZodType<
   })
   .strict();
 
-/** The runtime-node procedures the control plane serves. */
+/** The runtime-node procedures the control plane serves, keyed by method name. */
 export interface RuntimeNodeProcedureDescriptors {
   readonly "runtimenode.register": MethodDescriptor<
     "runtimenode.register",
     RuntimeNodeRegisterRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
   readonly "runtimenode.rename": MethodDescriptor<
     "runtimenode.rename",
     RuntimeNodeRenameRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
   readonly "runtimenode.remove": MethodDescriptor<
     "runtimenode.remove",
     RuntimeNodeRemoveRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
   readonly "runtimenode.certificateChallengeSet": MethodDescriptor<
     "runtimenode.certificateChallengeSet",
     RuntimeNodeCertificateChallengeSetRequest,
-    EmptyAcknowledgement
+    EmptyPayload
   >;
 }
 
-/** The runtime-node procedures the control plane serves. */
+/** The runtime-node procedures the control plane serves, each with its schemas. */
 export const RUNTIMENODE_PROCEDURE_DESCRIPTORS: RuntimeNodeProcedureDescriptors =
   defineMethodDescriptors({
     "runtimenode.register": {
@@ -137,27 +138,27 @@ export const RUNTIMENODE_PROCEDURE_DESCRIPTORS: RuntimeNodeProcedureDescriptors 
       procedureType: "mutation",
       mutating: true,
       requestSchema: RuntimeNodeRegisterRequestSchema,
-      responseSchema: EmptyAcknowledgementSchema,
+      responseSchema: EmptyPayloadSchema,
     },
     "runtimenode.rename": {
       method: "runtimenode.rename",
       procedureType: "mutation",
       mutating: true,
       requestSchema: RuntimeNodeRenameRequestSchema,
-      responseSchema: EmptyAcknowledgementSchema,
+      responseSchema: EmptyPayloadSchema,
     },
     "runtimenode.remove": {
       method: "runtimenode.remove",
       procedureType: "mutation",
       mutating: true,
       requestSchema: RuntimeNodeRemoveRequestSchema,
-      responseSchema: EmptyAcknowledgementSchema,
+      responseSchema: EmptyPayloadSchema,
     },
     "runtimenode.certificateChallengeSet": {
       method: "runtimenode.certificateChallengeSet",
       procedureType: "mutation",
       mutating: true,
       requestSchema: RuntimeNodeCertificateChallengeSetRequestSchema,
-      responseSchema: EmptyAcknowledgementSchema,
+      responseSchema: EmptyPayloadSchema,
     },
   });

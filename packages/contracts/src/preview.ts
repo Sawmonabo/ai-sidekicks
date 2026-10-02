@@ -15,9 +15,9 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { PreviewPortSchema } from "./preview-port.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 import { WEB_ADDRESS_FAULTS, type WebAddressFault } from "./web-address.js";
+import { countSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** The longest page id the daemon mints. */
 export const PREVIEW_PAGE_ID_MAX_LEN = 256;
@@ -66,9 +66,9 @@ export const PreviewZoomFactorSchema: z.ZodType<number, number> = z
  * An address Preview will not open, refused with its cause and the page left
  * where it was. Nothing is ever searched on the web.
  */
-export type PreviewAddressRefusedCode = "preview.address_refused";
-/** The value of {@link PreviewAddressRefusedCode}. */
-export const PREVIEW_ADDRESS_REFUSED_CODE: PreviewAddressRefusedCode = "preview.address_refused";
+export const PREVIEW_ADDRESS_REFUSED_CODE = "preview.address_refused" as const;
+/** The type of {@link PREVIEW_ADDRESS_REFUSED_CODE}. */
+export type PreviewAddressRefusedCode = typeof PREVIEW_ADDRESS_REFUSED_CODE;
 /**
  * Why an address was refused: it carries a username or a password, its scheme is
  * one the pane cannot open, or the text is not an address at all.
@@ -83,15 +83,12 @@ export interface PreviewAddressRefusedDetails {
 }
 /** Parses {@link PreviewAddressRefusedDetails}. */
 export const PreviewAddressRefusedDetailsSchema: z.ZodType<PreviewAddressRefusedDetails> = z
-  .object({ reason: z.enum(PREVIEW_ADDRESS_REFUSED_REASONS as [PreviewAddressRefusedReason]) })
+  .object({ reason: z.enum(PREVIEW_ADDRESS_REFUSED_REASONS) })
   .strict();
 
 /**
- * A page's own icon, as the image's bytes rather than its address. The console
- * draws only images it holds (its content policy admits `data:` and nothing
- * remote), another device cannot reach an icon a loopback page serves, and a
- * released page keeps its icon in the strip while nothing is loaded. The encoded
- * icon is held to one message frame, the most any single member can carry.
+ * A page's own icon, as the image's bytes rather than its address: the app draws only images it
+ * holds, and another device cannot reach an icon a loopback page serves. Held to one message frame.
  */
 export interface PreviewFavicon {
   mediaType: string;
@@ -106,7 +103,7 @@ const PreviewFaviconSchema: z.ZodType<PreviewFavicon, PreviewFavicon> = z
 
 /**
  * Where a page's load stands: loading, with the fraction the engine reports or
- * `null` when it reports none (the surface then draws an indeterminate mark); loaded;
+ * `null` when it reports none (the pane then draws an indeterminate mark); loaded;
  * or failed, which the pane reads as `<host> did not answer.` with a try-again.
  */
 export type PreviewPageLoadState =
@@ -122,31 +119,26 @@ const PreviewPageLoadStateSchema: z.ZodType<PreviewPageLoadState, PreviewPageLoa
     z.object({ kind: z.literal("failed") }).strict(),
   ]);
 
-/**
- * One open page in a session's Preview pane.
- *
- * `title` is the page's own title and may be empty; a surface that labels the page
- * shows `host` in its place, so the host is carried rather than re-parsed from the
- * address at every call site. `favicon` is `null` where the page has none.
- *
- * `backDepth` and `forwardDepth` are how far the page's history reaches either way:
- * the back and forward controls act when theirs is above zero.
- *
- * `zoomFactor` is the page's own, applied on the machine that runs it. `released` is
- * a page whose view was destroyed to free memory, or one brought back after a restart:
- * its address, order and zoom are kept, main destroys its view, and it reloads when
- * shown.
- */
+/** One open page in a session's Preview pane. */
 export interface PreviewPage {
   pageId: PreviewPageId;
   address: string;
+  /** Shown in place of an empty `title`, so it is carried rather than re-parsed. */
   host: string;
+  /** The page's own title; may be empty. */
   title: string;
   favicon: PreviewFavicon | null;
   loadState: PreviewPageLoadState;
+  /** How far the page's history reaches back; going back is possible above zero. */
   backDepth: number;
+  /** How far the page's history reaches forward; going forward is possible above zero. */
   forwardDepth: number;
+  /** The page's own zoom, applied on the machine that runs it. */
   zoomFactor: number;
+  /**
+   * The page's view was destroyed to free memory or by a restart; its address, order and zoom
+   * are kept, and it reloads when shown.
+   */
   released: boolean;
 }
 /** Parses a {@link PreviewPage}. */
@@ -158,8 +150,8 @@ export const PreviewPageSchema: z.ZodType<PreviewPage> = z
     title: z.string(),
     favicon: PreviewFaviconSchema.nullable(),
     loadState: PreviewPageLoadStateSchema,
-    backDepth: z.number().int().nonnegative(),
-    forwardDepth: z.number().int().nonnegative(),
+    backDepth: countSchema,
+    forwardDepth: countSchema,
     zoomFactor: PreviewZoomFactorSchema,
     released: z.boolean(),
   })
@@ -209,7 +201,7 @@ export type PreviewPageTarget =
 export const PreviewPageTargetSchema: z.ZodType<PreviewPageTarget, PreviewPageTarget> =
   z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("address"), address: PreviewAddressSchema }).strict(),
-    z.object({ kind: z.literal("devServer"), port: PreviewPortSchema }).strict(),
+    z.object({ kind: z.literal("devServer"), port: portSchema }).strict(),
   ]);
 
 /** Open one page in a session. A retried open makes a second page. */
@@ -223,17 +215,14 @@ export const PreviewPageOpenRequestSchema: z.ZodType<
   PreviewPageOpenRequest
 > = z.object({ sessionId: SessionIdSchema, target: PreviewPageTargetSchema }).strict();
 
-/**
- * The page opened, and the address it loads.
- *
- * `movedFrom` is the dev server's own port where the page loads on another one
- * because that number was taken on the side the page runs, so the address line can
- * read `127.0.0.1:5174 (5173 was in use)`. It is required and `null` where the port
- * did not move.
- */
+/** The page opened, and the address it loads. */
 export interface PreviewPageOpenResponse {
   pageId: PreviewPageId;
   address: string;
+  /**
+   * The dev server's own port where the page loads on another one because that port was taken
+   * on the side the page runs; `null` where the port did not move.
+   */
   movedFrom: number | null;
 }
 /** Parses a {@link PreviewPageOpenResponse}. */
@@ -241,7 +230,7 @@ export const PreviewPageOpenResponseSchema: z.ZodType<PreviewPageOpenResponse> =
   .object({
     pageId: PreviewPageIdSchema,
     address: PreviewAddressSchema,
-    movedFrom: PreviewPortSchema.nullable(),
+    movedFrom: portSchema.nullable(),
   })
   .strict();
 
@@ -276,8 +265,7 @@ export const PreviewPageActivateResponseSchema: z.ZodType<PreviewPageActivateRes
 /**
  * Move one page within its session's order.
  *
- * `toIndex` is a position in the list without that page in it. The surface that drags a tab
- * counts drop slots among the tabs as drawn and translates once, where it sends the request.
+ * `toIndex` is a position in the list without that page in it.
  */
 export interface PreviewPageReorderRequest {
   sessionId: SessionId;
@@ -292,7 +280,7 @@ export const PreviewPageReorderRequestSchema: z.ZodType<
   .object({
     sessionId: SessionIdSchema,
     pageId: PreviewPageIdSchema,
-    toIndex: z.number().int().nonnegative(),
+    toIndex: countSchema,
   })
   .strict();
 
@@ -363,9 +351,9 @@ export const PreviewNavigateResponseSchema: z.ZodType<PreviewNavigateResponse> =
   .object({
     pageId: PreviewPageIdSchema,
     address: PreviewAddressSchema,
-    movedFrom: PreviewPortSchema.nullable(),
-    backDepth: z.number().int().nonnegative(),
-    forwardDepth: z.number().int().nonnegative(),
+    movedFrom: portSchema.nullable(),
+    backDepth: countSchema,
+    forwardDepth: countSchema,
   })
   .strict();
 
@@ -408,11 +396,8 @@ export const PreviewDevServerListRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
 /**
- * One dev server the daemon found listening in the session's project.
- *
- * `name` and `framework` are `null` where the daemon could not tell, so the row
- * reads the port alone. `startedHere` is true where this session started the
- * server, by its agent or in its own shell.
+ * One dev server the daemon found listening in the session's project. `name` and `framework`
+ * are `null` where the daemon could not tell; `startedHere` means this session started it.
  */
 export interface PreviewDevServer {
   port: number;
@@ -423,7 +408,7 @@ export interface PreviewDevServer {
 /** Parses a {@link PreviewDevServer}. */
 export const PreviewDevServerSchema: z.ZodType<PreviewDevServer> = z
   .object({
-    port: PreviewPortSchema,
+    port: portSchema,
     name: z.string().min(1).nullable(),
     framework: z.string().min(1).nullable(),
     startedHere: z.boolean(),
@@ -473,7 +458,7 @@ const PreviewMarkElementSchema: z.ZodType<PreviewMarkElement, PreviewMarkElement
   .object({
     ref: z.string().min(1),
     box: PreviewRectSchema,
-    snapshotGeneration: z.number().int().nonnegative(),
+    snapshotGeneration: countSchema,
   })
   .strict();
 
@@ -481,11 +466,8 @@ const PreviewMarkElementSchema: z.ZodType<PreviewMarkElement, PreviewMarkElement
 export const PREVIEW_MARK_NOTE_MAX_LEN = 4096;
 
 /**
- * One mark on the frozen picture. A comment is a numbered pin at a point, a box a
- * numbered rectangle, and a stroke a freehand line in the color it was drawn with.
- * Strokes are never numbered, which is why removing a comment renumbers the
- * comments and boxes and leaves strokes alone. `note` is `null` where the person
- * wrote none; `element` is `null` where the mark hit no element.
+ * One mark on the frozen picture: a numbered comment pin, a numbered box, or an unnumbered
+ * freehand stroke. `note` is `null` where the person wrote none, `element` where it hit none.
  */
 export type PreviewMark =
   | {
@@ -785,13 +767,9 @@ export const PREVIEW_METHOD_DESCRIPTORS: PreviewMethodDescriptors = defineMethod
 });
 
 /**
- * One keystroke main claimed from a page and handed back to the console to replay.
- *
- * It carries the `KeyboardEvent` members a chord is matched on and nothing that
- * names an action: the console publishes which chords exist, never what they do,
- * and replays the keystroke through its own bindings. `isComposing` is carried
- * because a keystroke inside an input-method composition is never claimed, and only
- * the event itself knows that it was one.
+ * One keystroke main claimed from a page and handed back to the app to replay through its own
+ * bindings. It carries the `KeyboardEvent` members a chord is matched on and nothing that names
+ * an action; `isComposing` because a keystroke inside an input-method composition is never claimed.
  */
 export interface BrowserPageChord {
   key: string;

@@ -4,7 +4,7 @@
 // answer with. The method table that lists these methods is in `workflow-definition-methods.ts`.
 import { z } from "zod";
 
-import { countSchema } from "./internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 import {
   WorkflowDefinitionIdSchema,
@@ -19,27 +19,16 @@ import {
   type WorkflowPinnedItem,
 } from "./workflow-definition.js";
 
-const isoInstant = z.iso.datetime({ offset: true });
-
 // Refusals
 
 /** A workflow turned on with a trigger that cannot be armed; nothing turns on. */
 export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as const;
-/** The type of {@link WORKFLOW_TRIGGER_UNARMABLE_CODE}. */
-export type WorkflowTriggerUnarmableCode = typeof WORKFLOW_TRIGGER_UNARMABLE_CODE;
-
-/** An expression whose evaluation ran past its time budget. */
-export const WORKFLOW_EXPRESSION_OVER_BUDGET_CODE = "workflow.expression_over_budget" as const;
-/** The type of {@link WORKFLOW_EXPRESSION_OVER_BUDGET_CODE}. */
-export type WorkflowExpressionOverBudgetCode = typeof WORKFLOW_EXPRESSION_OVER_BUDGET_CODE;
 
 /**
  * A webhook call whose bearer token does not match the workflow's, or that came while
  * the workflow has no token. It is recorded as the workflow's last fire.
  */
 export const WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE = "workflow.webhook_token_mismatch" as const;
-/** The type of {@link WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE}. */
-export type WorkflowWebhookTokenMismatchCode = typeof WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE;
 
 // Settings kept beside a version: enabled, layout, pinned data
 
@@ -94,7 +83,7 @@ export interface WorkflowDefinitionSettingResponse {
 }
 /** Wire schema for {@link WorkflowDefinitionSettingResponse}. */
 export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefinitionSettingResponse> =
-  z.object({ definitionId: WorkflowDefinitionIdSchema, updatedAt: isoInstant }).strict();
+  z.object({ definitionId: WorkflowDefinitionIdSchema, updatedAt: isoDateTimeSchema }).strict();
 
 /**
  * The `workflow.permissionLevelUpdate` input: the level every run of the workflow uses, a live
@@ -208,7 +197,7 @@ export interface WorkflowDraftUpdateResponse {
 }
 /** Wire schema for {@link WorkflowDraftUpdateResponse}. */
 export const WorkflowDraftUpdateResponseSchema: z.ZodType<WorkflowDraftUpdateResponse> = z
-  .object({ workflowDraftId: WorkflowDraftIdSchema, updatedAt: isoInstant })
+  .object({ workflowDraftId: WorkflowDraftIdSchema, updatedAt: isoDateTimeSchema })
   .strict();
 
 /** The `workflow.draftRead` input: the draft the builder's address names. */
@@ -243,7 +232,7 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
         definitionId: WorkflowDefinitionIdSchema.optional(),
         basedOnVersionNumber: z.number().int().positive().optional(),
         document: WorkflowDraftDocumentSchema,
-        updatedAt: isoInstant,
+        updatedAt: isoDateTimeSchema,
       })
       .strict()
       .nullable(),
@@ -256,7 +245,6 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
  * The `workflow.expressionPreview` input: one expression of one node, of a saved
  * workflow or of the builder's draft, evaluated in the daemon against an item of the
  * last run. It never resolves a secret: a sensitive field previews the secret's name.
- * An evaluation past its budget is refused with {@link WORKFLOW_EXPRESSION_OVER_BUDGET_CODE}.
  */
 export interface WorkflowExpressionPreviewRequest {
   definitionId?: WorkflowDefinitionId | undefined;
@@ -275,7 +263,7 @@ export const WorkflowExpressionPreviewRequestSchema: z.ZodType<
     workflowDraftId: WorkflowDraftIdSchema.optional(),
     nodeId: WorkflowNodeIdSchema,
     expression: z.string().min(1),
-    itemIndex: z.number().int().nonnegative().optional(),
+    itemIndex: countSchema.optional(),
   })
   .strict()
   .refine(
@@ -329,7 +317,7 @@ export const WorkflowWebhookTokenRotateResponseSchema: z.ZodType<WorkflowWebhook
     .object({
       definitionId: WorkflowDefinitionIdSchema,
       token: z.string().min(1),
-      createdAt: isoInstant,
+      createdAt: isoDateTimeSchema,
     })
     .strict();
 
@@ -355,7 +343,7 @@ export interface WorkflowWebhookListenerReadResponse {
 export const WorkflowWebhookListenerReadResponseSchema: z.ZodType<WorkflowWebhookListenerReadResponse> =
   z
     .object({
-      port: z.number().int().min(1).max(65_535),
+      port: portSchema,
       state: z.enum(WORKFLOW_WEBHOOK_LISTENER_STATES),
     })
     .strict();

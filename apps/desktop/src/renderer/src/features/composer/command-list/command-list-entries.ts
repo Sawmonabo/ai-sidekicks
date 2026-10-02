@@ -27,7 +27,7 @@ export interface ProviderCommandEntry {
   readonly key: string;
   readonly name: string;
   readonly description: string | undefined;
-  readonly kind: "command" | "skill";
+  readonly kind: ProviderCommandBindingGroup["entries"][number]["kind"];
   readonly scope: string | undefined;
   readonly enabled: boolean | undefined;
   /** The binding this entry was read under, carried with the entry rather than beside it. */

@@ -3,9 +3,7 @@
 import { z } from "zod";
 
 import { wireFreeFormString } from "./session.js";
-
-// Error codes are exported as `const` literals so consumers compare against the typed value
-// rather than a bare string.
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** Type of {@link RESOURCE_LIMIT_EXCEEDED_CODE}. */
 export type ResourceLimitExceededCode = "resource.limit_exceeded";
@@ -23,9 +21,8 @@ export const PTY_BACKEND_UNAVAILABLE_CODE: PtyBackendUnavailableCode = "PtyBacke
 /** Type of {@link EVENT_CURSOR_UNRESOLVABLE_CODE}. */
 export type EventCursorUnresolvableCode = "event.cursor_unresolvable";
 /**
- * Error code for an `EventCursor` that cannot be resolved to a log position. It has one home
- * here because the daemon raises it and the desktop classifies on it; it carries no schema,
- * only this literal.
+ * Error code for an `EventCursor` that cannot be resolved to a log position; the daemon raises it
+ * and the desktop classifies on it.
  */
 export const EVENT_CURSOR_UNRESOLVABLE_CODE: EventCursorUnresolvableCode =
   "event.cursor_unresolvable";
@@ -52,8 +49,8 @@ export const ResourceLimitExceededDetailsSchema: z.ZodType<ResourceLimitExceeded
   .object({
     resource: wireFreeFormString(RESOURCE_LABEL_MAX_LEN, "details.resource"),
     // `current >= limit` is a daemon-side invariant, not a wire rule, so it is not refined here.
-    limit: z.number().int().nonnegative(),
-    current: z.number().int().nonnegative(),
+    limit: countSchema,
+    current: countSchema,
   })
   .strict();
 
@@ -74,11 +71,8 @@ export const ResourceLimitExceededErrorSchema: z.ZodType<ResourceLimitExceededEr
   .strict();
 
 /**
- * The details of {@link PtyBackendUnavailable}. `attemptedBackend` is a closed set so
- * consumers can switch exhaustively; adding a backend changes this contract and the daemon's
- * selector together. `cause` is `unknown` because producers differ (an errno object, a
- * missing-binary path, a JSON-RPC error envelope): render it opaquely and never branch on its
- * shape.
+ * The details of {@link PtyBackendUnavailable}. `attemptedBackend` is closed so a consumer can
+ * switch exhaustively; `cause` differs by producer, so render it opaquely and never branch on it.
  */
 export interface PtyBackendUnavailableDetails {
   attemptedBackend: "rust-sidecar" | "node-pty";

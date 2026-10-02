@@ -1,8 +1,8 @@
-// Worktree event payloads beyond the family payload: worktree created and retired, a session swept
-// back to the repository root, and a session's branch changed. `event.ts` registers them.
+// Worktree event payloads beyond the shared lifecycle payload: worktree created and retired, a
+// session swept back to the repository root, and a session's branch changed.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js` and nothing whose
-// import closure reaches it (see the header of `repo.ts`).
+// This module imports nothing from `./event.js` and nothing whose import closure reaches it, for
+// the module-cycle reason in the header of `repo.ts`.
 import { z } from "zod";
 
 import {
@@ -22,7 +22,7 @@ import {
 } from "./worktree.js";
 
 /**
- * `worktree.created`'s payload: the family payload, and on a put-back the kept
+ * `worktree.created`'s payload: the shared lifecycle payload, and on a put-back the kept
  * copy the tree came from, so no event type of its own is needed.
  */
 export type WorktreeCreatedPayload = WorktreeLifecyclePayload & {
@@ -36,7 +36,7 @@ export const WorktreeCreatedPayloadSchema: z.ZodType<WorktreeCreatedPayload> =
   >(WorktreeStateSchema, { restoredFrom: RemovedWorktreeIdSchema.optional() });
 
 /**
- * `worktree.retired`'s payload: the family payload, and the kept copy when the
+ * `worktree.retired`'s payload: the shared lifecycle payload, and the kept copy when the
  * removal was a discard that kept one.
  */
 export type WorktreeRetiredPayload = WorktreeLifecyclePayload & {
@@ -73,7 +73,7 @@ export const SessionSweptToRepoRootPayloadSchema: z.ZodType<SessionSweptToRepoRo
 
 /**
  * `session.branch_changed`'s payload: the branch a session's folder is on
- * changed outside the console, and the daemon wrote it back to the session's
+ * changed outside the app, and the daemon wrote it back to the session's
  * record. One is appended to each session standing in that folder. `worktreeId`
  * is null for the repository's own checkout; a branch is null while HEAD is
  * detached.

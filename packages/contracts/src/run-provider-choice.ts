@@ -84,14 +84,14 @@ export const RunRefusalChoiceRequestedPayloadSchema: z.ZodType<RunRefusalChoiceR
 
 /**
  * The payload of `run.refusal_choice_resolved`: the answer that settled the choice, and the
- * device that sent a person's answer. `cancelled` is the answer the daemon sends for an interrupt
- * or a message sent while the choice waits, and the one Claude Code records when it settles the
- * choice itself.
+ * device that sent a person's answer. `canceled` is the answer the daemon sends for an interrupt
+ * or a message sent while the choice waits; the driver maps Claude Code's own `cancelled` answer,
+ * recorded when it settles the choice itself, to `canceled` at the boundary.
  */
 export interface RunRefusalChoiceResolvedPayload {
   sessionId: SessionId;
   runId: RunId;
-  choice: RunRefusalChoice | "cancelled";
+  choice: RunRefusalChoice | "canceled";
   deviceId?: DeviceId | undefined;
 }
 /** Parses a {@link RunRefusalChoiceResolvedPayload}. */
@@ -99,7 +99,7 @@ export const RunRefusalChoiceResolvedPayloadSchema: z.ZodType<RunRefusalChoiceRe
   .object({
     sessionId: SessionIdSchema,
     runId: RunIdSchema,
-    choice: z.union([RunRefusalChoiceSchema, z.literal("cancelled")]),
+    choice: z.union([RunRefusalChoiceSchema, z.literal("canceled")]),
     deviceId: DeviceIdSchema.optional(),
   })
   .strict();

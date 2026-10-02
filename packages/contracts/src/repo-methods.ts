@@ -1,13 +1,13 @@
-// The `repo.*` method table: every method's name, procedure type, mutating flag and schemas, and
-// the empty reply the mutations share. It imports every `repo.*` contract file and none imports it,
-// so it sees the whole namespace without a cycle. It imports nothing from `./event.js` and nothing
-// whose imports reach it, which would close an eager module cycle.
-import { z } from "zod";
-
+// The `repo.*` method table: every method's name, procedure type, mutating flag and schemas. It
+// imports every `repo.*` contract file and none imports it, so it sees the whole namespace without
+// a cycle. It imports nothing from `./event.js` and nothing whose imports reach it, which would
+// close an eager module cycle.
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import {
   ProjectBranchPatternUpdateRequestSchema,
@@ -141,15 +141,6 @@ import {
 } from "./worktree-setup.js";
 
 /**
- * An empty reply: the mutation was accepted and what it changes arrives on the stream that reports
- * it. Shared by every `repo.*` mutation whose effect is read elsewhere.
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface RepoEmptyResponse {}
-/** Wire schema for {@link RepoEmptyResponse}. */
-export const RepoEmptyResponseSchema: z.ZodType<RepoEmptyResponse> = z.object({}).strict();
-
-/**
  * The `repo.*` descriptors, keyed by method name. A descriptor registers nothing: a method reaches
  * the wire only when the daemon service that answers it registers a handler against it.
  */
@@ -232,12 +223,12 @@ export interface RepoMethodDescriptors {
   readonly "repo.cloneAnswer": MethodDescriptor<
     "repo.cloneAnswer",
     RepoCloneAnswerRequest,
-    RepoEmptyResponse
+    EmptyPayload
   >;
   readonly "repo.cloneCancel": MethodDescriptor<
     "repo.cloneCancel",
     RepoCloneProjectRequest,
-    RepoEmptyResponse
+    EmptyPayload
   >;
   readonly "repo.cloneFolderRead": MethodDescriptor<
     "repo.cloneFolderRead",
@@ -247,7 +238,7 @@ export interface RepoMethodDescriptors {
   readonly "repo.largeFilesPull": MethodDescriptor<
     "repo.largeFilesPull",
     RepoCloneProjectRequest,
-    RepoEmptyResponse
+    EmptyPayload
   >;
   readonly "repo.branchList": MethodDescriptor<
     "repo.branchList",
@@ -299,7 +290,7 @@ export interface RepoMethodDescriptors {
   readonly "repo.worktreeSetupRetry": MethodDescriptor<
     "repo.worktreeSetupRetry",
     WorktreeSetupRequest,
-    RepoEmptyResponse
+    EmptyPayload
   >;
   readonly "repo.removedWorktreeList": MethodDescriptor<
     "repo.removedWorktreeList",
@@ -314,7 +305,7 @@ export interface RepoMethodDescriptors {
   readonly "repo.removedWorktreeDelete": MethodDescriptor<
     "repo.removedWorktreeDelete",
     RemovedWorktreeRequest,
-    RepoEmptyResponse
+    EmptyPayload
   >;
 }
 
@@ -446,14 +437,14 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     procedureType: "mutation",
     mutating: true,
     requestSchema: RepoCloneAnswerRequestSchema,
-    responseSchema: RepoEmptyResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "repo.cloneCancel": {
     method: "repo.cloneCancel",
     procedureType: "mutation",
     mutating: true,
     requestSchema: RepoCloneProjectRequestSchema,
-    responseSchema: RepoEmptyResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "repo.cloneFolderRead": {
     method: "repo.cloneFolderRead",
@@ -467,7 +458,7 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     procedureType: "mutation",
     mutating: true,
     requestSchema: RepoCloneProjectRequestSchema,
-    responseSchema: RepoEmptyResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "repo.branchList": {
     method: "repo.branchList",
@@ -539,7 +530,7 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     procedureType: "mutation",
     mutating: true,
     requestSchema: WorktreeSetupRequestSchema,
-    responseSchema: RepoEmptyResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "repo.removedWorktreeList": {
     method: "repo.removedWorktreeList",
@@ -560,6 +551,6 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     procedureType: "mutation",
     mutating: true,
     requestSchema: RemovedWorktreeRequestSchema,
-    responseSchema: RepoEmptyResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

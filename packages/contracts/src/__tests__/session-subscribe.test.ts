@@ -5,37 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { SessionEventSchema } from "../event.js";
 import { SessionStreamFrameSchema } from "../session.js";
-
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
+import { buildSessionCreatedEvent } from "./session-event.test-support.js";
 
 describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", () => {
   const FrameSchema = SessionStreamFrameSchema(SessionEventSchema);
-  const event = {
-    id: "evt-0001",
-    sessionId: SESSION_ID,
-    sequence: 0,
-    occurredAt: "2026-01-22T19:14:35.000Z",
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: null,
-    version: "1.0",
-    payload: {
-      sessionId: SESSION_ID,
-      shape: "chat",
-      mainAgent: {
-        agentId: "44444444-4444-4444-8444-444444444444",
-        name: "Implementer",
-        binding: {
-          driverName: "claude",
-          modelId: "claude-sonnet-5",
-          providerAccountId: null,
-          effort: null,
-        },
-        ancestry: [],
-        createdAt: "2026-01-22T19:14:35.000Z",
-      },
-    },
-  };
+  const event = buildSessionCreatedEvent();
   const change = (cursor: string): { cursor: string; event: typeof event } => ({ cursor, event });
 
   it("accepts a batch carrying the drop mark", () => {

@@ -5,9 +5,9 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 const DaysSchema = z.number().int().positive();
-const TimestampSchema = z.iso.datetime({ offset: true });
 
 /** The two bounds, each in whole days. */
 export interface DaemonRetentionBounds {
@@ -54,8 +54,8 @@ export const DaemonRetentionReadResponseSchema: z.ZodType<DaemonRetentionReadRes
   RetentionBoundsObjectSchema.extend({
     purge: z
       .object({
-        archivedSessionCount: z.number().int().nonnegative(),
-        cutoffAt: TimestampSchema,
+        archivedSessionCount: countSchema,
+        cutoffAt: isoDateTimeSchema,
       })
       .strict(),
   }).strict();
@@ -87,7 +87,7 @@ export interface DaemonRetentionPurgeRequest {
 export const DaemonRetentionPurgeRequestSchema: z.ZodType<
   DaemonRetentionPurgeRequest,
   DaemonRetentionPurgeRequest
-> = z.object({ cutoffAt: TimestampSchema }).strict();
+> = z.object({ cutoffAt: isoDateTimeSchema }).strict();
 
 /** How many sessions the purge removed. */
 export interface DaemonRetentionPurgeResponse {
@@ -95,7 +95,7 @@ export interface DaemonRetentionPurgeResponse {
 }
 /** Parses a {@link DaemonRetentionPurgeResponse}. */
 export const DaemonRetentionPurgeResponseSchema: z.ZodType<DaemonRetentionPurgeResponse> = z
-  .object({ deletedSessionCount: z.number().int().nonnegative() })
+  .object({ deletedSessionCount: countSchema })
   .strict();
 
 /** The retention verbs' descriptors. */
@@ -104,17 +104,17 @@ export interface DaemonRetentionMethodDescriptors {
     "daemon.retentionRead",
     DaemonRetentionReadRequest,
     DaemonRetentionReadResponse
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.retentionUpdate": MethodDescriptor<
     "daemon.retentionUpdate",
     DaemonRetentionUpdateRequest,
     DaemonRetentionBounds
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "daemon.retentionPurge": MethodDescriptor<
     "daemon.retentionPurge",
     DaemonRetentionPurgeRequest,
     DaemonRetentionPurgeResponse
-  > & { readonly procedureType: "mutation" };
+  >;
 }
 
 /** The retention methods' names, procedure types and shapes. */

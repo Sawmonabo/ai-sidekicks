@@ -34,7 +34,7 @@ describe("session.restore", () => {
     skipped: [{ path: "vendor/link", reason: "symbolic_link" }],
   };
 
-  it("accepts an undo whose files went back, with their own figures, and whose conversation did not", () => {
+  it("accepts an undo whose files went back, with their figures, but not the conversation", () => {
     const result = {
       outcome: "restore-finished",
       requested: "conversation-and-files",
@@ -56,5 +56,20 @@ describe("session.restore", () => {
       failures: { files: { reason: "A file is locked." } },
     };
     expect(SessionRestoreResultSchema.safeParse(figuresWithoutFiles).success).toBe(false);
+  });
+
+  it("refuses a result that leaves an asked-for part unrestored with no reason", () => {
+    const nothingBack = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "nothing",
+      failures: { files: { reason: "A file is locked." } },
+    };
+    expect(SessionRestoreResultSchema.safeParse(nothingBack).success).toBe(false);
+    const withBothReasons = {
+      ...nothingBack,
+      failures: { ...nothingBack.failures, conversation: { reason: "The provider refused." } },
+    };
+    expect(SessionRestoreResultSchema.safeParse(withBothReasons).success).toBe(true);
   });
 });

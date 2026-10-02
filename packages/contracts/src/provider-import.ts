@@ -10,8 +10,12 @@ import { z } from "zod";
 
 import { countSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import type {
+  EmptyPayload,
+  MethodDescriptor,
+  SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
+import { defineMethodDescriptors, EmptyPayloadSchema } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
@@ -46,7 +50,7 @@ export const ProviderImportProviderRequestSchema: z.ZodType<
 > = z.object({ provider: ProviderNameSchema }).strict();
 
 /**
- * How many projects this console does not have the import would attach. A count above zero is
+ * How many projects the app does not have the import would attach. A count above zero is
  * confirmed before the import runs, because attaching a project trusts its folder for both
  * providers.
  */
@@ -183,14 +187,6 @@ export const ProviderImportStopRequestSchema: z.ZodType<
   ProviderImportStopRequest
 > = z.object({ importId: ProviderImportIdSchema }).strict();
 
-/** `session.importStop` answers nothing more: the outcome arrives on the stream. */
-export type ProviderImportStopResponse = Record<string, never>;
-
-/** Parses a {@link ProviderImportStopResponse}. */
-export const ProviderImportStopResponseSchema: z.ZodType<ProviderImportStopResponse> = z
-  .object({})
-  .strict();
-
 /** The typed descriptor for each import method. */
 export interface SessionImportMethodDescriptors {
   readonly "session.importPreview": MethodDescriptor<
@@ -212,7 +208,7 @@ export interface SessionImportMethodDescriptors {
   readonly "session.importStop": MethodDescriptor<
     "session.importStop",
     ProviderImportStopRequest,
-    ProviderImportStopResponse
+    EmptyPayload
   >;
 }
 
@@ -246,6 +242,6 @@ export const SESSION_IMPORT_METHOD_DESCRIPTORS: SessionImportMethodDescriptors =
       procedureType: "mutation",
       mutating: true,
       requestSchema: ProviderImportStopRequestSchema,
-      responseSchema: ProviderImportStopResponseSchema,
+      responseSchema: EmptyPayloadSchema,
     },
   });

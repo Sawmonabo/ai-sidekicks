@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   McpGetResponseSchema,
+  McpOauthLoginResponseSchema,
   McpSetEnabledRequestSchema,
   McpSetToolOverrideRequestSchema,
   McpUpsertServerRequestSchema,
@@ -125,5 +126,15 @@ describe("the inventory entry", () => {
     expect(
       McpGetResponseSchema.safeParse({ server: { ...failed, status: "connected" } }).success,
     ).toBe(false);
+  });
+});
+
+describe("mcp.oauthLogin", () => {
+  it("refuses a sign-in page address that is not http or https", () => {
+    const parse = (authorizationUrl: string) =>
+      McpOauthLoginResponseSchema.safeParse({ authorizationUrl }).success;
+    expect(parse("https://auth.example.test/authorize")).toBe(true);
+    expect(parse("javascript:alert(1)")).toBe(false);
+    expect(parse("file:///etc/passwd")).toBe(false);
   });
 });

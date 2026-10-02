@@ -28,6 +28,7 @@ import {
 } from "../session.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
  * Cap on `TimelineRowBase.summary`, the row's one-line summary. Larger than an identifier
@@ -100,12 +101,10 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
 ] as const);
 
 /**
- * Every event type whose payload always names a run: the type-side check of the `general`
- * arm's refusal. The `run_lifecycle`, `assistant_output`, `tool_activity` and
- * `interactive_request` members come from their category arrays in `../event.js`, so a type
- * added there enters the set on its own. A type check is needed beside the payload check
- * because a projected `payload` is a summary record: a `tool.result` row may carry no `runId`
- * key, and its type is then the only evidence it belongs to a run.
+ * Every event type whose payload always names a run, built from the run-scoped category arrays in
+ * `../event-registry.js` so a type added there joins on its own. The `general` arm refuses these
+ * by type because a projected payload is a summary that may omit `runId`, as a `tool.result`
+ * row's can.
  */
 export const TIMELINE_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
   ...RUN_LIFECYCLE_EVENT_TYPES,
@@ -132,7 +131,7 @@ export interface SupersededMarker {
  * create a second source of attribution.
  */
 export const SupersededMarkerSchema: z.ZodType<SupersededMarker> = z
-  .object({ targetPosition: z.number().int().nonnegative() })
+  .object({ targetPosition: countSchema })
   .strict();
 
 /**
@@ -147,7 +146,7 @@ export interface TimelineOmittedPatch {
 const TimelineOmittedPatchSchema: z.ZodType<TimelineOmittedPatch> = z
   .object({
     path: wireFreeFormString(FILE_PATH_MAX_LEN, "TimelineOmittedPatch.path"),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
   })
   .strict();
 
@@ -179,12 +178,12 @@ export interface TimelineRowBase {
 const buildTimelineRowCommonShape = () => ({
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineRow.id"),
   sessionId: SessionIdSchema,
-  sequence: z.number().int().nonnegative().max(EVENT_ENVELOPE_SEQUENCE_MAX),
+  sequence: countSchema.max(EVENT_ENVELOPE_SEQUENCE_MAX),
   category: EventCategorySchema,
   type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineRow.type"),
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineRow.actor").optional(),
   summary: wireFreeFormString(TIMELINE_ROW_SUMMARY_MAX_LEN, "TimelineRow.summary"),
-  timestamp: z.iso.datetime({ offset: true }),
+  timestamp: isoDateTimeSchema,
   childRunSummary: ChildRunSummarySchema.optional(),
   omittedPatches: z.array(TimelineOmittedPatchSchema).min(1).optional(),
 });
@@ -217,14 +216,9 @@ export interface RunScopedTimelineEntry extends TimelineRowBase {
 }
 
 /**
- * `kind: "rollback_boundary"`, the `run.rolled_back` row. Its `payload` is the typed
- * {@link RunRolledBackEvent}, so `payload.targetPosition` is read without a cast. `type` and
- * `category` are pinned to the one registration. The schema requires the outer `runId`,
- * `sessionId` and `position` to equal the payload's `runId`, `sessionId` and `targetPosition`;
- * the row ranks at the rewind floor, so a later, lower rollback can supersede it too.
- *
- * It uses `Omit` rather than intersecting with `TimelineRowBase`: intersecting an open-record
- * `payload` with the typed one leaves a member no typed value satisfies.
+ * `kind: "rollback_boundary"`, the `run.rolled_back` row, whose typed payload must agree with the
+ * row's `runId`, `sessionId` and `position`. It omits the base's open `payload` rather than
+ * intersecting it, since that intersection leaves a member no typed value satisfies.
  */
 export interface TimelineRollbackBoundary extends Omit<
   TimelineRowBase,
@@ -290,12 +284,9 @@ const requireMarkerToOutrankRow = (
 };
 
 /**
- * The `general` arm refuses every row that should have been stamped `kind: "run"`, on three
- * checks. A run-attributed row misfiled as `general` has no outer attribution, so run filters
- * and rollback projection never reach it and a superseded turn shows as current. The checks:
- * the `run_lifecycle` category (decisive even for a type this build has not seen); the
- * event type against {@link TIMELINE_RUN_SCOPED_EVENT_TYPES}; and a payload naming a run under
- * {@link TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS}, which decides types whose run is optional.
+ * Refuses on the `general` arm a row that belongs to a run, by its category, its type or a
+ * payload naming a run: misfiled, it escapes run filters and rollback, so a superseded turn
+ * shows as current.
  */
 const refuseRunScopedRowOnGeneralArm = (
   row: { category: EventCategory; type: string; payload: Record<string, unknown> },
@@ -421,8 +412,8 @@ const runScopedTimelineArmSchema = z
     ...buildTimelineRowCommonShape(),
     kind: z.literal("run"),
     runId: RunIdSchema,
-    position: z.number().int().nonnegative(),
-    epoch: z.number().int().nonnegative(),
+    position: countSchema,
+    epoch: countSchema,
     superseded: SupersededMarkerSchema.optional(),
     payload: projectedPayloadSchema,
   })
@@ -441,30 +432,24 @@ const timelineRollbackBoundaryArmSchema = z
     kind: z.literal("rollback_boundary"),
     category: z.literal(TIMELINE_RUN_LIFECYCLE_CATEGORY),
     runId: RunIdSchema,
-    position: z.number().int().nonnegative(),
-    epoch: z.number().int().nonnegative(),
+    position: countSchema,
+    epoch: countSchema,
     superseded: SupersededMarkerSchema.optional(),
     type: z.literal(TIMELINE_ROLLBACK_BOUNDARY_TYPE),
     payload: RunRolledBackEventSchema,
   })
   .strict()
-  // The three-way agreement. `.superRefine()` returns the same ZodObject, so this stays a valid
-  // `z.discriminatedUnion` option.
-  //
-  // Zod 4.6.5 skips a schema's checks once the shape parse has failed (probed), so the payload
-  // guard is unreachable today. It stays because if that ordering changed, an unguarded
-  // `payload.runId` would throw a TypeError out of `.parse()` instead of returning a failure.
+  // The row and its payload agree on run, session and position. `.superRefine()` keeps this a
+  // ZodObject, so it stays a valid `z.discriminatedUnion` option.
   .superRefine((boundaryRow, issueContext) => {
-    const rolledBackEvent: RunRolledBackEvent | undefined | null = boundaryRow.payload;
-    if (rolledBackEvent === undefined || rolledBackEvent === null) {
-      return;
-    }
+    const rolledBackEvent = boundaryRow.payload;
     if (boundaryRow.runId !== rolledBackEvent.runId) {
       issueContext.addIssue({
         code: "custom",
         path: ["runId"],
         message:
-          "rollback_boundary row attribution disagrees with its payload: runId must equal payload.runId — a boundary whose outer run differs from the rewound run would mark the wrong run's rows.",
+          "rollback_boundary row attribution disagrees with its payload: runId must equal " +
+          "payload.runId, or the boundary would mark the wrong run's rows.",
       });
     }
     if (boundaryRow.sessionId !== rolledBackEvent.sessionId) {
@@ -472,7 +457,8 @@ const timelineRollbackBoundaryArmSchema = z
         code: "custom",
         path: ["sessionId"],
         message:
-          "rollback_boundary row attribution disagrees with its payload: sessionId must equal payload.sessionId.",
+          "rollback_boundary row attribution disagrees with its payload: sessionId must equal " +
+          "payload.sessionId.",
       });
     }
     // A later, lower rollback can supersede the boundary row itself, so its marker follows the
@@ -483,7 +469,8 @@ const timelineRollbackBoundaryArmSchema = z
         code: "custom",
         path: ["position"],
         message:
-          "rollback_boundary row attribution disagrees with its payload: position must equal payload.targetPosition — the boundary row ranks at the confirmed rewind floor.",
+          "rollback_boundary row attribution disagrees with its payload: position must equal " +
+          "payload.targetPosition, the confirmed rewind floor.",
       });
     }
   });
@@ -503,10 +490,3 @@ export const TimelineRowSchema: z.ZodType<TimelineRow> = z.discriminatedUnion("k
   runScopedTimelineArmSchema,
   timelineGeneralArmSchema,
 ]);
-
-/** The `kind` values in the union's arm order, for exhaustiveness checks on `row.kind`. */
-export const TIMELINE_ROW_KINDS: readonly TimelineRow["kind"][] = Object.freeze([
-  "rollback_boundary",
-  "run",
-  "general",
-] as const);

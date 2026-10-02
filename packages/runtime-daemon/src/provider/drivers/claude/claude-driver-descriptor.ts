@@ -70,6 +70,13 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
       "subtype is absent from the control-request census, and the file-side `rewind_files` " +
       "sibling restores files, a different capability, so the channel cannot decide this flag.",
   },
+  session_fork: {
+    detectionSource: "static",
+    failingConjuncts: ["decisive-at-consumption-granularity"],
+    rationale:
+      "Delivered by the launch-time `--resume-session-at` with `--fork-session`, which the " +
+      "control-request channel cannot interrogate.",
+  },
   session_goals: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],

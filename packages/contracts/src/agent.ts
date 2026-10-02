@@ -63,6 +63,7 @@ import {
   type ProviderOutputSpeedState,
 } from "./provider-driver-transcript.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // The session's agent tree
 
@@ -110,29 +111,19 @@ export const AgentListRequestSchema: z.ZodType<AgentListRequest, AgentListReques
   .object({ sessionId: SessionIdSchema })
   .strict();
 
-/**
- * One agent in the session.
- *
- * - `binding` is the effective binding it runs under now, never the pending one;
- *   every member a switch can move is read back here once it applies.
- * - `observedOutputSpeed` is what the provider declared, beside the requested
- *   `binding.outputSpeed`, read from the agent's most recently established live
- *   binding. Absent means nothing has been read yet or the driver declares no
- *   speed, never that the mode is off.
- * - `pendingSwitch` is present exactly while a switch waits, so a client that did
- *   not ask for it learns of it, including after a daemon restart.
- * - `resolvedConfiguration` is present exactly when the agent was started from a
- *   saved definition, and its `resolvedFromDefinitionId` is the one home of that
- *   fact; the screen takes the agent's name, icon and color from it.
- * - `ancestry` runs from the lead down to this agent's parent; empty for the lead.
- */
+/** One agent in the session. */
 export interface AgentListEntry {
   agentId: AgentId;
   name: string;
+  /** The binding it runs under now, never the pending one. */
   binding: AgentProviderBinding;
+  /** The speed the provider declared on the live binding; absent when unread or undeclared. */
   observedOutputSpeed?: ProviderOutputSpeedState | undefined;
+  /** Present exactly while a switch waits, so every client learns of it, after a restart too. */
   pendingSwitch?: AgentBindingSwitchPending | undefined;
+  /** Present exactly when the agent started from a saved definition, which names it on screen. */
   resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+  /** From the lead down to this agent's parent; empty for the lead. */
   ancestry: AgentTreeMember[];
   createdAt: string;
 }
@@ -146,7 +137,7 @@ export const AgentListEntrySchema: z.ZodType<AgentListEntry> = z
     pendingSwitch: AgentBindingSwitchPendingSchema.optional(),
     resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
     ancestry: z.array(AgentTreeMemberSchema),
-    createdAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -170,19 +161,9 @@ const switchMemberSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
 /**
- * Move a running agent's model, effort, speed or provider. An omitted member is
- * unchanged, never reset, and at least one moves: every accepted update is a switch
- * of the binding, settled by the binding events. A change of model, effort or speed
- * alone settles in place; a provider switch applies at the end of the run in flight.
- *
- * The account is not a member: it moves on the provider surface for every session
- * that follows it, and a request naming one is refused, since a per-session account
- * beside the provider's current account would let the two disagree.
- *
- * `interruptAndSwitch` interrupts the run first and holds the request open until the
- * switch settles; a refused interrupt refuses the switch rather than leaving the
- * agent half moved. It says when a switch lands, not what it lands on, so it is not
- * one of the binding's members.
+ * Move a running agent's model, effort, speed or provider: an omitted member is unchanged and at
+ * least one moves, settled by the binding events. A provider switch applies at the end of the run
+ * in flight. The account is not a member: it follows the provider's current account.
  */
 export interface AgentConfigUpdateRequest {
   agentId: AgentId;
@@ -190,6 +171,7 @@ export interface AgentConfigUpdateRequest {
   modelId?: string | undefined;
   effort?: string | undefined;
   outputSpeed?: string | undefined;
+  /** Interrupt the run first and hold the request open until the switch settles. */
   interruptAndSwitch?: boolean | undefined;
 }
 /** Parses an {@link AgentConfigUpdateRequest}; it moves at least one member. */
@@ -230,7 +212,7 @@ export interface AgentConfigUpdateResponse {
 export const AgentConfigUpdateResponseSchema: z.ZodType<AgentConfigUpdateResponse> = z
   .object({
     agentId: AgentIdSchema,
-    updatedAt: z.iso.datetime({ offset: true }),
+    updatedAt: isoDateTimeSchema,
     switch: AgentBindingSwitchDispositionSchema,
   })
   .strict();

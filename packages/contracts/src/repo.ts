@@ -4,14 +4,15 @@
 // are in `repo-folders.ts`. The other `repo.*` contract files import these definitions and never
 // redefine them; this module imports none of them.
 //
-// This module imports nothing from `./event.js`, and nothing that reaches it through any chain of
-// imports. `event.ts` imports `RepoWorkspaceLifecyclePayloadSchema` from here, and a cycle among
-// eager module-scope Zod initializers throws `ReferenceError` at import time from every entry
-// point, which `tsc` does not flag. Check the import chain of any new cross-module symbol.
+// This module imports nothing that reaches `./event.js`: `event.ts` imports the lifecycle payload
+// schema from here, and a cycle among module-scope Zod initializers throws at import time, which
+// `tsc` does not flag.
 import { z } from "zod";
 
+import { EVENT_FIELD_MAX_LEN } from "./event-core.js";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of one repo mount. */
 export type RepoMountId = string & { readonly __brand: "RepoMountId" };
@@ -72,13 +73,9 @@ export type VcsType = "git";
 export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git"]);
 
 /**
- * A mount's health, derived on every read and never persisted. Each health-reporting read probes
- * the filesystem first, so there is no "unchecked" state. `unreachable` (not `stale`, which names a
- * workspace state) means the root cannot be probed and takes precedence over the other verdicts.
- * `identity_mismatch` means the root is reachable but its git common directory no longer equals the
- * identity recorded at attach (a mount with no recorded identity never projects it); re-attach,
- * which mints a new mount row, is the recovery. `checkedAt` is required so a reader can tell a
- * fresh probe from a cached one.
+ * A mount's health, probed on every read and never stored. `unreachable` means the root cannot be
+ * probed and outranks the rest; `identity_mismatch` means the root's git common directory is not
+ * the one recorded at attach, and re-attaching is the recovery.
  */
 export interface RepoMountHealth {
   status: "healthy" | "unreachable" | "identity_mismatch";
@@ -88,28 +85,18 @@ export interface RepoMountHealth {
 export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
   .object({
     status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
-    checkedAt: z.iso.datetime({ offset: true }),
+    checkedAt: isoDateTimeSchema,
   })
   .strict();
 
-// One payload shape serves the nine lifecycle event types: the four that register into
-// `SessionEventSchema` (`workspace.preparing`, `workspace.ready`, `workspace.stale`,
-// `workspace.archived`) and the five `worktree.*` types.
-// The subject is identified by which optional id the payload carries (`repoMountId`, `workspaceId`
-// or `worktreeId`), and the schema requires no particular one, because the detach cascade's
-// `workspace.archived` legitimately names both the mount and the workspace. Each emitter must
-// populate the right ids.
-
-// Must equal the envelope's `EVENT_FIELD_MAX_LEN`, since `actor` is the same wire field. It is
-// restated because importing it from `./event.js` would close the module cycle in the header.
-const REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN = 256;
+// One payload shape serves the `workspace.*` and `worktree.*` lifecycle events. The subject is
+// whichever optional id the payload carries, and none is required, because a detach's
+// `workspace.archived` names both the mount and the workspace.
 
 /**
- * The payload of every lifecycle event, parameterized by the state vocabulary its emitting module
- * owns; every field but `state` is the same across the family. It is a type alias, not an
- * interface, so it has the implicit index signature `EventEnvelope.payload`
- * (`Record<string, unknown>`) needs. Optional fields are `key?: T | undefined` to match Zod's
- * inferred output under `exactOptionalPropertyTypes`; on the wire an absent key is absent.
+ * The payload of every lifecycle event, over the state vocabulary of the module that emits it;
+ * every field but `state` is shared. A type alias, so it has the index signature an event payload
+ * needs.
  */
 export type RepoWorkspaceLifecyclePayloadOf<TState extends string> = {
   sessionId: SessionId;
@@ -124,12 +111,9 @@ export type RepoWorkspaceLifecyclePayloadOf<TState extends string> = {
 export type RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<WorkspaceState>;
 
 /**
- * Builds the family payload schema over one emitter's state vocabulary; `worktree.ts` uses it for
- * the `worktree.*` events. The state is a parameter, not a union arm here, for three reasons:
- * adding the worktree states would make `repo.ts` import `worktree.ts`, which imports this file
- * (an eager cycle); one shared union would let a `workspace.archived` payload claim `merged`; and
- * every new emitter would have to edit this file. The result is the erased `z.ZodType`, which is
- * enough to parse and register; an emitter that needs different fields has a different family.
+ * Builds the lifecycle payload schema over one emitter's state vocabulary; `worktree.ts` uses it
+ * for the `worktree.*` events. The state is a parameter so a `workspace.*` payload can never claim
+ * a worktree state.
  */
 export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
   stateSchema: z.ZodType<TState>,
@@ -138,10 +122,8 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
 }
 
 /**
- * The family payload with members of one event type's own added: `worktree.retired` names a kept
- * copy, and `worktree.created` names the copy a put-back came from. Family fields and the strict
- * posture are built exactly as {@link buildRepoWorkspaceLifecyclePayloadSchema} builds them.
- * `TExtension` names the added members and `extensionShape` holds one schema per member.
+ * The lifecycle payload with members of one event type's own added: `worktree.retired` names a
+ * kept copy, and `worktree.created` names the copy a put-back came from.
  */
 export function buildRepoWorkspaceLifecyclePayloadSchemaWith<
   TState extends string,
@@ -160,32 +142,21 @@ function buildRepoWorkspaceLifecyclePayloadObject<TState extends string>(
 ) {
   return z
     .object({
-      // Required: every lifecycle event is appended to one session's log. It repeats the envelope's
-      // `sessionId` so projectors can read the payload alone.
+      // Repeats the envelope's `sessionId` so a projector can read the payload alone.
       sessionId: SessionIdSchema,
       repoMountId: RepoMountIdSchema.optional(),
       workspaceId: WorkspaceIdSchema.optional(),
-      // Same UUID predicate as the branded ids, so the runtime accept set matches; only the brand
-      // is absent, and a consumer narrows at its own parse site.
       worktreeId: uuidTextFormSchema.optional(),
-      // The subject's state after the transition: the one field that varies across the family.
+      // The subject's state after the transition.
       state: stateSchema,
-      // Repeats the envelope's free-form actor (`user_id | agent_id | null`). `.nullable()` comes
-      // after the string checks so they run only on strings; a system event uses `null` or omits
-      // the key.
-      actor: wireFreeFormString(
-        REPO_WORKSPACE_LIFECYCLE_ACTOR_MAX_LEN,
-        "RepoWorkspaceLifecyclePayload.actor",
-      )
+      // Repeats the envelope's actor; a system event sends `null` or leaves it out.
+      actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "RepoWorkspaceLifecyclePayload.actor")
         .nullable()
         .optional(),
     })
     .strict();
 }
 
-/**
- * Parses a {@link RepoWorkspaceLifecyclePayload}. It is strict, so an unknown key is drift surfaced
- * at parse time, and it composes the workspace state schema so a change there propagates here.
- */
+/** Parses a {@link RepoWorkspaceLifecyclePayload}; an unknown key is refused. */
 export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyclePayload> =
   buildRepoWorkspaceLifecyclePayloadSchema(WorkspaceStateSchema);

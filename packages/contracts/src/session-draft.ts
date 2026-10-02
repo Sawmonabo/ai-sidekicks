@@ -6,21 +6,13 @@
 // written to window storage. A staged file is copied to the daemon when it is staged and kept
 // outside the checkout, so it survives a move of the working folder and never shows in a diff;
 // from then on it is addressed by its artifact id and its original path is never read again.
-//
-// Every picture from outside the daemon is rewritten once when it is staged, and the rewritten
-// copy is the only one kept, shown and sent. A picture that cannot be read safely is refused
-// before anything else reads it.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { McpServerNameSchema } from "./mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-
-// The daemon enforces the staging limits; a client reads them to explain a limit before the
-// refusal rather than after it. Each is the shipped default, and the person may change the first
-// two, so a surface that shows one says it is the default until the daemon reports the value in
-// force.
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
  * The largest file one staged attachment may be, in bytes, by default. Equal to the largest
@@ -28,38 +20,6 @@ import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js
  * it between one megabyte and one gigabyte.
  */
 export const SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT: number = 100 * 1024 * 1024;
-
-/** Media types admitted because the bytes are well-formed UTF-8, with no signature to check. */
-export const SESSION_ATTACHMENT_TEXT_MEDIA_TYPES: readonly string[] = [
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/json",
-  "application/yaml",
-  "text/xml",
-  "text/x-diff",
-];
-
-/** Media types admitted only when the bytes start with that type's own signature. */
-export const SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES: readonly string[] = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "application/pdf",
-  "application/zip",
-  "application/gzip",
-];
-
-/**
- * The media types staging admits by default. A list the person sets replaces this one whole.
- * `image/svg+xml` is left out on purpose: it is a picture that is also a document that can run
- * script.
- */
-export const SESSION_ATTACHMENT_DEFAULT_MEDIA_TYPES: readonly string[] = [
-  ...SESSION_ATTACHMENT_TEXT_MEDIA_TYPES,
-  ...SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES,
-];
 
 /**
  * Why a file on a sent message can no longer be read where it sits. The message still goes, and
@@ -99,7 +59,7 @@ export interface SessionDraftUpdateResponse {
 }
 /** Parses a {@link SessionDraftUpdateResponse}. */
 export const SessionDraftUpdateResponseSchema: z.ZodType<SessionDraftUpdateResponse> = z
-  .object({ sessionId: SessionIdSchema, updatedAt: z.iso.datetime({ offset: true }) })
+  .object({ sessionId: SessionIdSchema, updatedAt: isoDateTimeSchema })
   .strict();
 
 /**
@@ -119,7 +79,7 @@ export const SessionAttachmentSummarySchema: z.ZodType<SessionAttachmentSummary>
     artifactId: ArtifactIdSchema,
     fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
     mimeType: z.string().min(1),
-    sizeBytes: z.number().int().nonnegative(),
+    sizeBytes: countSchema,
   })
   .strict();
 
@@ -221,8 +181,8 @@ export type ArtifactPictureRefusedCode = typeof ARTIFACT_PICTURE_REFUSED_CODE;
 /**
  * Why a picture was refused:
  *
- * - `pixel_limit`: its header claims more than 268,402,689 pixels across every frame,
- *   so nothing of it is decoded.
+ * - `pixel_limit`: its header claims more than {@link ARTIFACT_PICTURE_PIXEL_LIMIT} pixels
+ *   across every frame, so nothing of it is decoded.
  * - `damaged`: it does not decode cleanly.
  */
 export const ARTIFACT_PICTURE_REFUSED_REASONS = ["pixel_limit", "damaged"] as const;
@@ -335,8 +295,8 @@ export const SessionAttachmentCoverRequestSchema: z.ZodType<
       .array(
         z
           .object({
-            x: z.number().int().nonnegative(),
-            y: z.number().int().nonnegative(),
+            x: countSchema,
+            y: countSchema,
             width: z.number().int().positive(),
             height: z.number().int().positive(),
           })
@@ -361,7 +321,7 @@ export interface SessionDraftMethodDescriptors {
     "session.draftUpdate",
     SessionDraftUpdateRequest,
     SessionDraftUpdateResponse
-  > & { readonly procedureType: "mutation" };
+  >;
   readonly "session.attachmentAdd": MethodDescriptor<
     "session.attachmentAdd",
     SessionAttachmentAddRequest,

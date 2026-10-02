@@ -1,5 +1,5 @@
-// The `provider.*` wire surface: each provider's own settings on this machine, apart from its
-// accounts (the `providerAccount.*` surface).
+// The `provider.*` methods: each provider's own settings on this machine, apart from its
+// accounts (the `providerAccount.*` methods).
 //
 // Every figure a knob is bounded by comes from the provider, never from here: the compaction stops
 // from the provider's own models, the output styles from the installed build's own listing. The
@@ -10,8 +10,12 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
-import { defineMethodDescriptors } from "./method-descriptor.js";
+import type {
+  EmptyPayload,
+  MethodDescriptor,
+  SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
+import { defineMethodDescriptors, EmptyPayloadSchema } from "./method-descriptor.js";
 import {
   ProviderAccountIdSchema,
   ProviderNameSchema,
@@ -43,13 +47,15 @@ export const PROVIDER_INSTALL_COMMAND_MAX_LEN = 1024;
 /**
  * What the provider check found where the command resolves.
  *
- * `installed` names the version the command reports. `tooOld` is installed below the version
- * this build supports and names the version needed. `notInstalled` found nothing runnable.
- * `indeterminate` is a check that could not settle and is never folded into another arm.
+ * `rawVersion` is the version as the command printed it, always present; `parsedVersion` is
+ * present only when it parses, and a provider whose version does not parse still runs.
+ * `tooOld` is a parsed version below the one this build supports and names the version needed.
+ * `notInstalled` found nothing runnable. `indeterminate` is a check that could not settle and is
+ * never folded into another arm.
  */
 export type ProviderInstallation =
-  | { state: "installed"; version: string }
-  | { state: "tooOld"; version: string; neededVersion: string }
+  | { state: "installed"; rawVersion: string; parsedVersion?: string | undefined }
+  | { state: "tooOld"; rawVersion: string; parsedVersion: string; neededVersion: string }
   | { state: "notInstalled" }
   | { state: "indeterminate" };
 
@@ -59,11 +65,18 @@ const providerVersionSchema = wireFreeFormString(PROVIDER_VERSION_MAX_LEN, "prov
 export const ProviderInstallationSchema: z.ZodType<ProviderInstallation> = z.discriminatedUnion(
   "state",
   [
-    z.object({ state: z.literal("installed"), version: providerVersionSchema }).strict(),
+    z
+      .object({
+        state: z.literal("installed"),
+        rawVersion: providerVersionSchema,
+        parsedVersion: providerVersionSchema.optional(),
+      })
+      .strict(),
     z
       .object({
         state: z.literal("tooOld"),
-        version: providerVersionSchema,
+        rawVersion: providerVersionSchema,
+        parsedVersion: providerVersionSchema,
         neededVersion: providerVersionSchema,
       })
       .strict(),
@@ -236,12 +249,6 @@ export interface ProviderRequest {
 export const ProviderRequestSchema: z.ZodType<ProviderRequest, ProviderRequest> = z
   .object({ provider: ProviderNameSchema })
   .strict();
-
-/** An acknowledgement that carries nothing: the outcome arrives elsewhere. */
-export type ProviderAckResponse = Record<string, never>;
-
-/** Parses a {@link ProviderAckResponse}. */
-export const ProviderAckResponseSchema: z.ZodType<ProviderAckResponse> = z.object({}).strict();
 
 /** `provider.list` takes nothing: it reads every provider on this machine. */
 export type ProviderListRequest = Record<string, never>;
@@ -501,9 +508,9 @@ export const ProviderStandingRuleRevokeResponseSchema: z.ZodType<ProviderStandin
     .strict();
 
 // The install runs the provider's own installer where the service runs, as the person, with empty
-// input and a 15-minute limit; `provider.installStop` stops it and everything it started. The
-// install is keyed by provider so a page opened while one runs finds it, and the stream's first
-// message is that provider's last outcome.
+// input and no time limit of the app's own; `provider.installStop` stops it and everything it
+// started. The install is keyed by provider so a page opened while one runs finds it, and the
+// stream's first message is that provider's last outcome.
 
 /** Where one provider's install has got to. */
 export type ProviderInstallProgress =
@@ -533,11 +540,6 @@ export const ProviderInstallProgressSchema: z.ZodType<ProviderInstallProgress> =
 export const PROVIDER_NOT_INSTALLED_CODE = "provider.not_installed" as const;
 /** Type of {@link PROVIDER_NOT_INSTALLED_CODE}. */
 export type ProviderNotInstalledCode = typeof PROVIDER_NOT_INSTALLED_CODE;
-
-/** The provider is the last one available for new sessions, and one has to stay available. */
-export const PROVIDER_LAST_AVAILABLE_CODE = "provider.last_available" as const;
-/** Type of {@link PROVIDER_LAST_AVAILABLE_CODE}. */
-export type ProviderLastAvailableCode = typeof PROVIDER_LAST_AVAILABLE_CODE;
 
 /** Nothing runnable sits at the command path the person typed. */
 export const PROVIDER_COMMAND_NOT_RUNNABLE_CODE = "provider.command_not_runnable" as const;
@@ -581,11 +583,7 @@ export interface ProviderMethodDescriptors {
     ProviderStandingRuleRevokeRequest,
     ProviderStandingRuleRevokeResponse
   >;
-  readonly "provider.install": MethodDescriptor<
-    "provider.install",
-    ProviderRequest,
-    ProviderAckResponse
-  >;
+  readonly "provider.install": MethodDescriptor<"provider.install", ProviderRequest, EmptyPayload>;
   readonly "provider.installSubscribe": SubscriptionMethodDescriptor<
     "provider.installSubscribe",
     ProviderRequest,
@@ -595,7 +593,7 @@ export interface ProviderMethodDescriptors {
   readonly "provider.installStop": MethodDescriptor<
     "provider.installStop",
     ProviderRequest,
-    ProviderAckResponse
+    EmptyPayload
   >;
 }
 
@@ -655,7 +653,7 @@ export const PROVIDER_METHOD_DESCRIPTORS: ProviderMethodDescriptors = defineMeth
     procedureType: "mutation",
     mutating: true,
     requestSchema: ProviderRequestSchema,
-    responseSchema: ProviderAckResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "provider.installSubscribe": {
     method: "provider.installSubscribe",
@@ -670,6 +668,6 @@ export const PROVIDER_METHOD_DESCRIPTORS: ProviderMethodDescriptors = defineMeth
     procedureType: "mutation",
     mutating: true,
     requestSchema: ProviderRequestSchema,
-    responseSchema: ProviderAckResponseSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

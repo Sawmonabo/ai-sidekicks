@@ -3,7 +3,7 @@
 // at a time on this computer, held by the daemon and off after it restarts, and there is one
 // recording and one call at a time, so the verbs on the one in progress name no session.
 // Dictation audio is 16 kHz 16-bit mono PCM in 100 ms frames; the window is a call's WebRTC peer
-// and hands its offer here. No provider credential crosses this surface in either direction.
+// and hands its offer here. No provider credential crosses these methods in either direction.
 import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
@@ -12,20 +12,14 @@ import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
 } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 
 /** The bytes in one 100 ms frame of 16 kHz 16-bit mono audio. */
 export const VOICE_DICTATION_FRAME_MAX_BYTES: number = (16_000 * 2) / 10;
-
-/** A request or result with no members. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface VoiceEmptyPayload {}
-/** Parses a {@link VoiceEmptyPayload}; any member is refused. */
-export const VoiceEmptyPayloadSchema: z.ZodType<VoiceEmptyPayload, VoiceEmptyPayload> = z
-  .object({})
-  .strict();
 
 // Refusals
 
@@ -34,8 +28,6 @@ export const VoiceEmptyPayloadSchema: z.ZodType<VoiceEmptyPayload, VoiceEmptyPay
  * account that is neither a Claude sign-in nor a pasted Claude token.
  */
 export const VOICE_UNAVAILABLE_CODE = "voice.unavailable" as const;
-/** The type of {@link VOICE_UNAVAILABLE_CODE}. */
-export type VoiceUnavailableCode = typeof VOICE_UNAVAILABLE_CODE;
 
 const VOICE_UNAVAILABLE_REASON_VALUES = ["provider_sign_in_required"] as const;
 /** Why {@link VOICE_UNAVAILABLE_CODE} refused. */
@@ -59,8 +51,6 @@ export const VoiceUnavailableDetailsSchema: z.ZodType<VoiceUnavailableDetails> =
 
 /** Codex could not start the call. */
 export const VOICE_CALL_START_FAILED_CODE = "voice.call_start_failed" as const;
-/** The type of {@link VOICE_CALL_START_FAILED_CODE}. */
-export type VoiceCallStartFailedCode = typeof VOICE_CALL_START_FAILED_CODE;
 
 // Which session voice is on in
 
@@ -280,28 +270,28 @@ export interface VoiceMethodDescriptors {
   readonly "voice.stateUpdate": MethodDescriptor<"voice.stateUpdate", VoiceState, VoiceState>;
   readonly "voice.stateSubscribe": SubscriptionMethodDescriptor<
     "voice.stateSubscribe",
-    VoiceEmptyPayload,
+    EmptyPayload,
     SubscribeAckResponse,
     VoiceState
   >;
   readonly "voice.dictationStart": MethodDescriptor<
     "voice.dictationStart",
     VoiceDictationStartRequest,
-    VoiceEmptyPayload
+    EmptyPayload
   >;
   readonly "voice.dictationWrite": MethodDescriptor<
     "voice.dictationWrite",
     VoiceDictationWriteRequest,
-    VoiceEmptyPayload
+    EmptyPayload
   >;
   readonly "voice.dictationStop": MethodDescriptor<
     "voice.dictationStop",
     VoiceDictationStopRequest,
-    VoiceEmptyPayload
+    EmptyPayload
   >;
   readonly "voice.dictationSubscribe": SubscriptionMethodDescriptor<
     "voice.dictationSubscribe",
-    VoiceEmptyPayload,
+    EmptyPayload,
     SubscribeAckResponse,
     VoiceDictationFrame
   >;
@@ -310,22 +300,14 @@ export interface VoiceMethodDescriptors {
     VoiceCallStartRequest,
     VoiceCallStartResponse
   >;
-  readonly "voice.callStop": MethodDescriptor<
-    "voice.callStop",
-    VoiceEmptyPayload,
-    VoiceEmptyPayload
-  >;
+  readonly "voice.callStop": MethodDescriptor<"voice.callStop", EmptyPayload, EmptyPayload>;
   readonly "voice.callSubscribe": SubscriptionMethodDescriptor<
     "voice.callSubscribe",
-    VoiceEmptyPayload,
+    EmptyPayload,
     SubscribeAckResponse,
     VoiceCallFrame
   >;
-  readonly "voice.voiceList": MethodDescriptor<
-    "voice.voiceList",
-    VoiceEmptyPayload,
-    VoiceListResponse
-  >;
+  readonly "voice.voiceList": MethodDescriptor<"voice.voiceList", EmptyPayload, VoiceListResponse>;
 }
 
 /** The `voice.*` method table. */
@@ -341,7 +323,7 @@ export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = defineMethodDesc
     method: "voice.stateSubscribe",
     procedureType: "subscription",
     mutating: false,
-    requestSchema: VoiceEmptyPayloadSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: SubscribeAckResponseSchema,
     emissionSchema: VoiceStateSchema,
   },
@@ -350,27 +332,27 @@ export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = defineMethodDesc
     procedureType: "mutation",
     mutating: true,
     requestSchema: VoiceDictationStartRequestSchema,
-    responseSchema: VoiceEmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "voice.dictationWrite": {
     method: "voice.dictationWrite",
     procedureType: "mutation",
     mutating: true,
     requestSchema: VoiceDictationWriteRequestSchema,
-    responseSchema: VoiceEmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "voice.dictationStop": {
     method: "voice.dictationStop",
     procedureType: "mutation",
     mutating: true,
     requestSchema: VoiceDictationStopRequestSchema,
-    responseSchema: VoiceEmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "voice.dictationSubscribe": {
     method: "voice.dictationSubscribe",
     procedureType: "subscription",
     mutating: false,
-    requestSchema: VoiceEmptyPayloadSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: SubscribeAckResponseSchema,
     emissionSchema: VoiceDictationFrameSchema,
   },
@@ -385,14 +367,14 @@ export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = defineMethodDesc
     method: "voice.callStop",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: VoiceEmptyPayloadSchema,
-    responseSchema: VoiceEmptyPayloadSchema,
+    requestSchema: EmptyPayloadSchema,
+    responseSchema: EmptyPayloadSchema,
   },
   "voice.callSubscribe": {
     method: "voice.callSubscribe",
     procedureType: "subscription",
     mutating: false,
-    requestSchema: VoiceEmptyPayloadSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: SubscribeAckResponseSchema,
     emissionSchema: VoiceCallFrameSchema,
   },
@@ -400,7 +382,7 @@ export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = defineMethodDesc
     method: "voice.voiceList",
     procedureType: "query",
     mutating: false,
-    requestSchema: VoiceEmptyPayloadSchema,
+    requestSchema: EmptyPayloadSchema,
     responseSchema: VoiceListResponseSchema,
   },
 });

@@ -4,13 +4,14 @@ import { z } from "zod";
 
 import { ArtifactIdSchema, RunIdSchema, type ArtifactId, type RunId } from "../provider-driver.js";
 import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "../session.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
- * The family an artifact belongs to: a file, a diff, a summary, a log, a design,
- * or the output of one workflow phase.
+ * The kind of an artifact: a file, a diff, a summary, a log, a design, or the output of one
+ * workflow phase.
  */
 export type ArtifactType = "file" | "diff" | "summary" | "log" | "design" | "workflow_output";
-/** Parses an {@link ArtifactType}; any other family is refused. */
+/** Parses an {@link ArtifactType}; any other kind is refused. */
 export const ArtifactTypeSchema: z.ZodType<ArtifactType, ArtifactType> = z.enum([
   "file",
   "diff",
@@ -33,14 +34,9 @@ export const ArtifactStateSchema: z.ZodType<ArtifactState, ArtifactState> = z.en
 ]);
 
 /**
- * One artifact as the daemon records it: a content-addressed envelope in the OCI
- * style. `id` names the manifest and `digest` names the content, so two manifests
- * can share one payload.
- *
- * `annotations` and `metadata` are two maps on purpose. `annotations` is the OCI
- * string-to-string map, and a file's declared name reaches the manifest through it.
- * `metadata` is the daemon's own freeform provenance, and the media type is recorded
- * there, which is why the manifest has no content-type member.
+ * One artifact as the daemon records it: an OCI-style envelope whose `id` names the manifest and
+ * `digest` the content, so two manifests can share one payload. A file's declared name rides in the
+ * OCI `annotations` map; the media type rides in the daemon's own `metadata`.
  */
 export interface ArtifactManifest {
   id: ArtifactId;
@@ -70,11 +66,11 @@ export const ArtifactManifestSchema: z.ZodType<ArtifactManifest> = z
     createdBy: UserIdSchema.optional(),
     artifactType: ArtifactTypeSchema,
     digest: z.string(),
-    size: z.number().int().nonnegative(),
+    size: countSchema,
     annotations: z.record(z.string(), z.string()),
     subject: ArtifactIdSchema.optional(),
     state: ArtifactStateSchema,
     metadata: z.record(z.string(), z.unknown()),
-    createdAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
   })
   .strict();

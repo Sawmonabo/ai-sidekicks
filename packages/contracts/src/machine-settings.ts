@@ -1,18 +1,13 @@
-// The machine's settings file and the three service verbs that read, write and
-// stream it.
+// The machine's settings file and the three service verbs that read, write and stream it.
 //
-// The file is `<home>/.ai-sidekicks/machine-settings.json`. The background
-// service is its only writer: the main process and every other device hand a
-// change to `daemon.machineSettingsUpdate`, and every console window reads it
-// through `daemon.machineSettingsRead` and `daemon.machineSettingsSubscribe`.
-// The main process alone may read the file directly, and only before the
-// service first answers, for the two values it needs at start. One schema
-// describes the file for both readers, so a missing key reads as its default
-// wherever it is read.
+// The file is `<home>/.ai-sidekicks/machine-settings.json`. The background service is its only
+// writer: every client hands a change to `daemon.machineSettingsUpdate` and reads it through
+// `daemon.machineSettingsRead` and `daemon.machineSettingsSubscribe`. The main process alone may
+// read the file directly, and only before the service first answers. One schema describes the file
+// for every reader, so a missing key reads as its default wherever it is read.
 //
-// The environment-name rule lives here too, because both the main process and
-// the service check a name against it before a row is saved, and the service
-// builds each process's environment from the same list of names it sets itself.
+// The environment-name rule lives here too: the service checks a row's name against it before
+// saving, and the drivers read the names they set on the processes they start from it.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -23,6 +18,7 @@ import {
 } from "./method-descriptor.js";
 import { ExecutionModeSchema, type ExecutionMode } from "./repo.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** Where the file sits, relative to the person's home folder. */
 export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
@@ -75,6 +71,9 @@ export const CLAUDE_UPDATE_SWITCH_NAMES: readonly string[] = Object.freeze([
 /** Carries the Codex binary path into the Codex launch prelude, which never interpolates it. */
 export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_BIN";
 
+/** Set to `1` on a Terminal pane's shell alone while `Simplify for a screen reader` is on. */
+const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME = "CLAUDE_AX_SCREEN_READER";
+
 /**
  * The names the app sets itself on the processes it starts. A row with one of
  * these names would be overwritten without a word, so it is refused at save.
@@ -82,7 +81,7 @@ export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_B
 export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...CLAUDE_UPDATE_SWITCH_NAMES,
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-  "CLAUDE_AX_SCREEN_READER",
+  CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
 ]);
 
 /** Why a row's name is refused at save. */
@@ -203,7 +202,7 @@ const EmailDigestSettingsSchema: z.ZodType<EmailDigestSettings, EmailDigestSetti
       MAIL_SERVER_MAX_LEN,
       "EmailDigestSettings.mailServer",
     ).nullable(),
-    port: z.number().int().min(1).max(65_535).nullable(),
+    port: portSchema.nullable(),
     userName: wireFreeFormString(EMAIL_ADDRESS_MAX_LEN, "EmailDigestSettings.userName").nullable(),
     after: z.enum(EMAIL_DIGEST_PERIODS),
   })
@@ -243,7 +242,10 @@ export type VoiceMode = "hold" | "tap";
 /** Every {@link VoiceMode}. */
 export const VOICE_MODES: readonly VoiceMode[] = Object.freeze(["hold", "tap"]);
 
-/** Voice's two settings. `callVoice`, the voice a spoken call answers in, unset reads as the call's own default voice. */
+/**
+ * Voice's two settings. `callVoice`, the voice a spoken call answers in, reads as the call's own
+ * default voice when unset.
+ */
 export interface VoiceSettings {
   mode: VoiceMode;
   callVoice: string | null;
@@ -302,6 +304,11 @@ export interface MachineSettings {
   keepCrashReports: boolean;
   /** `Editor that opens files`; `null` is `System default`. */
   editorId: string | null;
+  /**
+   * Claude Code's `Advisor` for sessions started later: one of the advisor models Claude Code
+   * offers, or `null` for `Off`.
+   */
+  advisorModel: string | null;
   /** `Default checkout for a new project session`. */
   defaultCheckout: ExecutionMode;
   /** `Start a new session on the last model and effort used`. */
@@ -332,6 +339,7 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   updatesAutomatic: true,
   keepCrashReports: true,
   editorId: null,
+  advisorModel: null,
   defaultCheckout: "provisioned-worktree",
   newSessionCarriesLastModel: true,
   keepAwakeWhileAgentWorks: false,
@@ -363,9 +371,8 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   voice: { mode: "hold", callVoice: null },
 });
 
-// `ExecutionModeSchema` is single-T, so an object composing it infers an
-// `unknown` input slot for that member; the bridge restores the double-T
-// annotation the change request carries.
+// `ExecutionModeSchema` is single-T, so an object composing it infers `unknown` as that member's
+// input type; the cast restores the double-T annotation the change request carries.
 const DefaultCheckoutSchema = ExecutionModeSchema as unknown as z.ZodType<
   ExecutionMode,
   ExecutionMode
@@ -378,6 +385,10 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   editorId: wireFreeFormString(
     MACHINE_SETTINGS_NAME_MAX_LEN,
     "MachineSettings.editorId",
+  ).nullable(),
+  advisorModel: wireFreeFormString(
+    MACHINE_SETTINGS_NAME_MAX_LEN,
+    "MachineSettings.advisorModel",
   ).nullable(),
   defaultCheckout: DefaultCheckoutSchema,
   newSessionCarriesLastModel: z.boolean(),
@@ -444,25 +455,8 @@ export type MachineSettingsChange = {
 /** Parses a {@link MachineSettingsChange}: one member, never none and never two. */
 export const MachineSettingsChangeSchema: z.ZodType<MachineSettingsChange, MachineSettingsChange> =
   z
-    .object({
-      updatesAutomatic: MACHINE_SETTINGS_MEMBER_SCHEMAS.updatesAutomatic.optional(),
-      keepCrashReports: MACHINE_SETTINGS_MEMBER_SCHEMAS.keepCrashReports.optional(),
-      editorId: MACHINE_SETTINGS_MEMBER_SCHEMAS.editorId.optional(),
-      defaultCheckout: MACHINE_SETTINGS_MEMBER_SCHEMAS.defaultCheckout.optional(),
-      newSessionCarriesLastModel:
-        MACHINE_SETTINGS_MEMBER_SCHEMAS.newSessionCarriesLastModel.optional(),
-      keepAwakeWhileAgentWorks: MACHINE_SETTINGS_MEMBER_SCHEMAS.keepAwakeWhileAgentWorks.optional(),
-      keepAwakeForOtherDevices: MACHINE_SETTINGS_MEMBER_SCHEMAS.keepAwakeForOtherDevices.optional(),
-      notifications: MACHINE_SETTINGS_MEMBER_SCHEMAS.notifications.optional(),
-      rememberSiteData: MACHINE_SETTINGS_MEMBER_SCHEMAS.rememberSiteData.optional(),
-      browserToolsForAgents: MACHINE_SETTINGS_MEMBER_SCHEMAS.browserToolsForAgents.optional(),
-      screenReaderMode: MACHINE_SETTINGS_MEMBER_SCHEMAS.screenReaderMode.optional(),
-      environmentRows: MACHINE_SETTINGS_MEMBER_SCHEMAS.environmentRows.optional(),
-      backup: MACHINE_SETTINGS_MEMBER_SCHEMAS.backup.optional(),
-      branchNamePattern: MACHINE_SETTINGS_MEMBER_SCHEMAS.branchNamePattern.optional(),
-      cloneFolder: MACHINE_SETTINGS_MEMBER_SCHEMAS.cloneFolder.optional(),
-      voice: MACHINE_SETTINGS_MEMBER_SCHEMAS.voice.optional(),
-    })
+    .object(MACHINE_SETTINGS_MEMBER_SCHEMAS)
+    .partial()
     .strict()
     .refine((change) => Object.values(change).filter((value) => value !== undefined).length === 1, {
       message: "A settings change carries exactly one member.",
@@ -500,7 +494,7 @@ export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
     settings: MachineSettingsSchema,
     repair: z
       .object({
-        repairedAt: z.iso.datetime({ offset: true }),
+        repairedAt: isoDateTimeSchema,
         cause: z.enum(SETTINGS_FILE_REPAIR_CAUSES),
       })
       .strict()
@@ -551,12 +545,12 @@ export interface MachineSettingsMethodDescriptors {
     "daemon.machineSettingsRead",
     MachineSettingsReadRequest,
     MachineSettingsReading
-  > & { readonly procedureType: "query" };
+  >;
   readonly "daemon.machineSettingsUpdate": MethodDescriptor<
     "daemon.machineSettingsUpdate",
     MachineSettingsUpdateRequest,
     MachineSettingsUpdateResponse
-  > & { readonly procedureType: "mutation" };
+  >;
   /** The first emission is the file as it stands; each written change follows. */
   readonly "daemon.machineSettingsSubscribe": SubscriptionMethodDescriptor<
     "daemon.machineSettingsSubscribe",

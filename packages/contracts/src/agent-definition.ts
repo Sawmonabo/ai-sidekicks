@@ -28,6 +28,7 @@ import {
 import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest reason text a refusal or a load failure carries. */
 export const AGENT_REASON_MAX_LEN = 1024;
@@ -55,18 +56,16 @@ const providerTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
 /**
- * Which provider runs an agent, on which model, paying from which account, at which
- * effort and speed. One shape for a saved definition's bindings and a running
- * agent's binding.
+ * Which provider runs an agent, on which model, paying from which account, at which effort and
+ * speed: one shape for a saved definition's bindings and a running agent's binding.
  *
- * - `providerAccountId` null follows the provider's current account, resolved when
- *   the run starts and followed when that mark moves. Not a foreign key: a
- *   definition may name an account later removed, which surfaces as a resolution
- *   refusal rather than a rewrite of the definition.
- * - `effort` null takes the driver's default, and is validated when a run resolves,
- *   never at save, because the vocabulary belongs to the model the run binds.
- * - `outputSpeed` is set on a running agent's binding by `agent.configUpdate`; a
- *   saved definition's bindings leave it absent, because the editor authors no speed.
+ * - `providerAccountId` null follows the provider's current account, resolved at run start and
+ *   followed when it moves. Not a foreign key: an account later removed yields a resolution
+ *   refusal, not a rewritten definition.
+ * - `effort` null takes the driver's default; it is checked when a run resolves, never at save,
+ *   because the vocabulary belongs to the model the run binds.
+ * - `outputSpeed` is set on a running agent by `agent.configUpdate`; a saved definition leaves it
+ *   absent, because the editor authors no speed.
  */
 export interface AgentProviderBinding {
   driverName: ProviderName;
@@ -108,11 +107,20 @@ export interface AgentDefinitionBindingsDraft {
  * to exactly one binding.
  */
 function refineOneBindingPerDriver(
-  bindings: { default: AgentProviderBinding; overrides?: AgentProviderBinding[] | undefined },
+  bindings: {
+    default: { driverName?: ProviderName | undefined };
+    overrides?: Array<{ driverName?: ProviderName | undefined }> | undefined;
+  },
   context: z.RefinementCtx,
 ): void {
-  const seenDrivers = new Set<ProviderName>([bindings.default.driverName]);
+  const seenDrivers = new Set<ProviderName>();
+  if (bindings.default.driverName !== undefined) {
+    seenDrivers.add(bindings.default.driverName);
+  }
   for (const [index, override] of (bindings.overrides ?? []).entries()) {
+    if (override.driverName === undefined) {
+      continue;
+    }
     if (seenDrivers.has(override.driverName)) {
       context.addIssue({
         code: "custom",
@@ -138,6 +146,50 @@ export const AgentDefinitionBindingsDraftSchema: z.ZodType<
   .object({
     default: AgentProviderBindingSchema,
     overrides: z.array(AgentProviderBindingSchema).optional(),
+  })
+  .strict()
+  .superRefine(refineOneBindingPerDriver);
+
+/**
+ * A binding as the list serves it: `driverName` where the file names a provider this app runs,
+ * or `unsupportedProviderName`, the name the file gave, where it names one the app does not.
+ * Exactly one of the two is present.
+ */
+export interface AgentListedProviderBinding extends Omit<AgentProviderBinding, "driverName"> {
+  driverName?: ProviderName | undefined;
+  unsupportedProviderName?: string | undefined;
+}
+/** Parses an {@link AgentListedProviderBinding}. */
+export const AgentListedProviderBindingSchema: z.ZodType<AgentListedProviderBinding> = z
+  .object({
+    driverName: ProviderNameSchema.optional(),
+    unsupportedProviderName: providerTokenSchema(
+      "AgentListedProviderBinding.unsupportedProviderName",
+    ).optional(),
+    modelId: providerTokenSchema("AgentListedProviderBinding.modelId"),
+    providerAccountId: ProviderAccountIdSchema.nullable(),
+    effort: providerTokenSchema("AgentListedProviderBinding.effort").nullable(),
+    outputSpeed: providerTokenSchema("AgentListedProviderBinding.outputSpeed").optional(),
+  })
+  .strict()
+  .refine(
+    (binding) =>
+      (binding.driverName === undefined) !== (binding.unsupportedProviderName === undefined),
+    {
+      message: "A listed binding names a provider the app runs or the one it does not, not both.",
+      path: ["driverName"],
+    },
+  );
+
+/** A definition's bindings as the list serves them. */
+export interface AgentListedBindings {
+  default: AgentListedProviderBinding;
+  overrides: AgentListedProviderBinding[];
+}
+const AgentListedBindingsSchema: z.ZodType<AgentListedBindings> = z
+  .object({
+    default: AgentListedProviderBindingSchema,
+    overrides: z.array(AgentListedProviderBindingSchema),
   })
   .strict()
   .superRefine(refineOneBindingPerDriver);
@@ -188,31 +240,31 @@ const toolNameSchema: z.ZodString = wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN,
 /** The number of turns an agent may take before it is stopped. */
 const turnCapSchema = z.number().int().positive();
 
-/**
- * One saved definition.
- *
- * - `toolAllowlist` has three states: null is the driver's defaults, `[]` is no
- *   tools at all, and a list is exactly those. Collapsing the first two would make
- *   "I did not choose" read as "I chose nothing".
- * - `turnCap` null is no cap. One number on both providers: where a provider has no
- *   limit of its own the daemon counts the agent's rounds and, at the cap, denies
- *   every further tool call with words telling the agent to report what it did.
- * - `hooks` null is none; `memoryScope` null is no memory.
- */
+/** One saved definition. */
 export interface AgentDefinition {
   definitionId: AgentDefinitionId;
   name: string;
   description: string;
-  /** A glyph key from the console's icon set; null is the generic agent mark. */
+  /** A glyph key from the app's icon set; null is the generic agent mark. */
   icon: string | null;
-  /** One step of the console's twelve-step hue wheel; null is no chosen hue. */
+  /** One step of the app's twelve-step hue wheel; null is no chosen hue. */
   accentHue: string | null;
   bindings: AgentDefinitionBindings;
   instructions: string;
   goal: string | null;
+  /**
+   * Null is the driver's defaults, `[]` is no tools at all, and a list is exactly those, so "I did
+   * not choose" never reads as "I chose nothing".
+   */
   toolAllowlist: string[] | null;
+  /**
+   * Null is no cap. Where a provider has no limit of its own, the daemon counts the agent's rounds
+   * and at the cap denies every further tool call, telling the agent to report what it did.
+   */
   turnCap: number | null;
+  /** Null is none. */
   hooks: AgentHooks | null;
+  /** Null is no memory. */
   memoryScope: AgentMemoryScope | null;
   createdAt: string;
   updatedAt: string;
@@ -231,8 +283,8 @@ const agentDefinitionFields = {
   turnCap: turnCapSchema.nullable(),
   hooks: AgentHooksSchema.nullable(),
   memoryScope: AgentMemoryScopeSchema.nullable(),
-  createdAt: z.iso.datetime({ offset: true }),
-  updatedAt: z.iso.datetime({ offset: true }),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 };
 
 /** Parses an {@link AgentDefinition}. */
@@ -257,27 +309,31 @@ export const AGENT_DEFINITION_SCOPES = ["global", "project"] as const;
 export type AgentDefinitionScope = (typeof AGENT_DEFINITION_SCOPES)[number];
 
 /**
- * One definition as the list serves it: the record, where it lives, and two
- * provider facts. Each is its own member and none excludes another: an orphaned
- * record can also carry a load error.
- *
- * - `pluginName` is present exactly on a plugin's agent, which is read-only.
- * - `projectId` is present exactly when `scope` is `project`.
- * - `sourcePath` is the file the record lives in, or for an orphaned record the last
- *   path its file was known at. Display data only, never a capability.
- * - `orphaned`: a provider's file was renamed or deleted outside the app, and the
- *   record keeps its extras until it is reattached or discarded.
- * - `disabledInProvider`: the provider's own configuration switches the agent off.
- * - `loadError`: its file failed the daemon's own parse, with the reason.
+ * One definition as the list serves it: the record, where it lives, and its provider facts, none
+ * excluding another (an orphaned record can also carry a load error).
  */
-export interface AgentDefinitionListEntry extends AgentDefinition {
+export interface AgentDefinitionListEntry extends Omit<AgentDefinition, "bindings"> {
+  /** Listed bindings, so a file naming a provider the app does not run is listed too. */
+  bindings: AgentListedBindings;
   origin: AgentDefinitionOrigin;
+  /** Present exactly on a plugin's agent, which is read-only. */
   pluginName?: string | undefined;
   scope: AgentDefinitionScope;
+  /** Present exactly when `scope` is `project`. */
   projectId?: string | undefined;
+  /**
+   * The record's file, or for an orphaned record the last path its file was known at. Display
+   * data only, never a capability.
+   */
   sourcePath: string;
+  /**
+   * A provider's file was renamed or deleted outside the app; the record keeps its extras until
+   * it is reattached or discarded.
+   */
   orphaned: boolean;
+  /** The provider's own configuration switches the agent off. */
   disabledInProvider: boolean;
+  /** Why the file failed the daemon's own parse. */
   loadError: string | null;
 }
 
@@ -319,6 +375,7 @@ export function refinePluginOrigin(
 export const AgentDefinitionListEntrySchema: z.ZodType<AgentDefinitionListEntry> = z
   .object({
     ...agentDefinitionFields,
+    bindings: AgentListedBindingsSchema,
     origin: z.enum(AGENT_DEFINITION_ORIGINS),
     pluginName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "pluginName").optional(),
     scope: z.enum(AGENT_DEFINITION_SCOPES),
@@ -385,8 +442,8 @@ export interface AgentDefinitionListResponse {
 export const AgentDefinitionListResponseSchema: z.ZodType<AgentDefinitionListResponse> = z
   .object({
     definitions: z.array(AgentDefinitionListEntrySchema),
-    workflowUsage: z.record(AgentDefinitionIdSchema, z.number().int().nonnegative()).optional(),
-    lastUsedAt: z.record(AgentDefinitionIdSchema, z.iso.datetime({ offset: true })).optional(),
+    workflowUsage: z.record(AgentDefinitionIdSchema, countSchema).optional(),
+    lastUsedAt: z.record(AgentDefinitionIdSchema, isoDateTimeSchema).optional(),
   })
   .strict();
 
@@ -640,6 +697,7 @@ export const AGENT_RESOLUTION_REFUSED_REASONS = [
   "effort_unsupported",
   "account_unavailable",
   "allowlist_unrealizable",
+  "provider_unsupported",
 ] as const;
 /** One of {@link AGENT_RESOLUTION_REFUSED_REASONS}. */
 export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REASONS)[number];
@@ -654,6 +712,8 @@ export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REAS
  * - `account_unavailable`: the pinned account this machine no longer holds.
  * - `allowlist_unrealizable`: the allowlisted tools that have left the catalog, and
  *   the tools the driver has.
+ * - `provider_unsupported`: the provider name the definition's file carries, which
+ *   this app does not run, until the person picks an installed provider.
  */
 export type AgentResolutionRefusedDetails =
   | {
@@ -678,6 +738,11 @@ export type AgentResolutionRefusedDetails =
       reason: "allowlist_unrealizable";
       toolNames: string[];
       supportedToolNames: string[];
+    }
+  | {
+      definitionId: AgentDefinitionId;
+      reason: "provider_unsupported";
+      unsupportedProviderName: string;
     };
 /** Parses {@link AgentResolutionRefusedDetails}. */
 export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefusedDetails> =
@@ -713,4 +778,34 @@ export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefus
         supportedToolNames: z.array(toolNameSchema),
       })
       .strict(),
+    z
+      .object({
+        definitionId: AgentDefinitionIdSchema,
+        reason: z.literal("provider_unsupported"),
+        unsupportedProviderName: providerTokenSchema("unsupportedProviderName"),
+      })
+      .strict(),
   ]);
+
+/** A definition update the daemon refused. */
+export type AgentUpdateRefusedCode = "agent.update_refused";
+/** The code of a definition update the daemon refused. */
+export const AGENT_UPDATE_REFUSED_CODE: AgentUpdateRefusedCode = "agent.update_refused";
+
+/**
+ * Why an update was refused: `plugin_read_only`, the definition is a plugin's agent,
+ * which is read-only; `not_orphaned`, a reattach named a record that is not orphaned.
+ */
+export const AGENT_UPDATE_REFUSED_REASONS = ["plugin_read_only", "not_orphaned"] as const;
+/** One of {@link AGENT_UPDATE_REFUSED_REASONS}. */
+export type AgentUpdateRefusedReason = (typeof AGENT_UPDATE_REFUSED_REASONS)[number];
+
+/** The update refusal's details: the definition and why. */
+export interface AgentUpdateRefusedDetails {
+  definitionId: AgentDefinitionId;
+  reason: AgentUpdateRefusedReason;
+}
+/** Parses {@link AgentUpdateRefusedDetails}. */
+export const AgentUpdateRefusedDetailsSchema: z.ZodType<AgentUpdateRefusedDetails> = z
+  .object({ definitionId: AgentDefinitionIdSchema, reason: z.enum(AGENT_UPDATE_REFUSED_REASONS) })
+  .strict();

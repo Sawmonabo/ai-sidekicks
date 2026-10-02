@@ -1,8 +1,8 @@
 // The leaf of the session-event contracts: the envelope-version brand and the shared per-field
 // length cap. `event-envelope.ts` re-exports all of it.
 //
-// This module must never import an `event*.js` module, directly or through what it imports. Every schema
-// here is an eager module-scope initializer, and a cycle among those throws at import time.
+// This module must never import an `event*.js` module, directly or through what it imports:
+// every schema here is an eager module-scope initializer, and a cycle among those throws at import.
 import { z } from "zod";
 
 /**
@@ -23,10 +23,8 @@ export type EventEnvelopeVersion = string & {
   readonly __brand: "EventEnvelopeVersion";
 };
 /**
- * Parses an {@link EventEnvelopeVersion}, checking length and format only. An out-of-range
- * version is refused at the protocol handshake with `version.floor_exceeded` or
- * `version.ceiling_exceeded`, never here. Its ordering, `compareEventEnvelopeVersion`, lives in
- * `event-envelope.ts`: it is a pure function, so it closes no cycle.
+ * Parses an {@link EventEnvelopeVersion}, checking length and format only; an out-of-range version
+ * is refused at the protocol handshake, never here.
  */
 export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .string()
@@ -39,8 +37,7 @@ export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .brand<"EventEnvelopeVersion">() as unknown as z.ZodType<EventEnvelopeVersion>;
 
 /**
- * The cap on the envelope's free-form strings (id, actor, correlation and causation ids): a
- * UUID is 36 characters, and 256 leaves headroom for composite ids without inviting abuse.
- * Raising it changes the contract.
+ * The cap on the envelope's free-form strings (id, actor, correlation and causation ids), with
+ * room for composite ids beyond a 36-character UUID.
  */
 export const EVENT_FIELD_MAX_LEN = 256;

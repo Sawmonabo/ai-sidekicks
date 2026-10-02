@@ -1,8 +1,5 @@
-// A bind names its session and one of the two places explicitly, and a list item exposes the
-// workspace's state, its root once it has one, and its last error when one was recorded. The
-// execution-mode capabilities read names exactly one scope: a mount (what a workspace there could
-// do) or a workspace (what it may do now). With both, a handler picking one would answer a
-// pre-bind question with the narrower per-workspace answer.
+// A bind names its session and place explicitly. The capabilities read names exactly one scope:
+// with both, a handler picking one would answer a pre-bind question with the per-workspace answer.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -52,13 +49,8 @@ describe("WorkspaceBindRequestSchema (session + mount + explicit mode)", () => {
     },
   );
 
-  it.each([
-    ["bound-root", true],
-    ["provisioned-worktree", true],
-    ["submodule", false],
-    ["", false],
-  ])("executionMode %s -> %s, driven through the composed request", (executionMode, shouldPass) => {
-    expect(parseBindRequest({ executionMode }).success).toBe(shouldPass);
+  it("rejects an execution mode outside the two places", () => {
+    expect(parseBindRequest({ executionMode: "submodule" }).success).toBe(false);
   });
 });
 

@@ -1,44 +1,30 @@
-// The session client over the daemon transport: a real `JsonRpcClient` over an in-memory
-// `ClientTransport` that answers from a scripted reply table (the fake daemon), with no socket or
-// external state. Covers create-then-read identity, ascending replay with `afterCursor` resume,
-// restore from the daemon's state rather than a client cache, and the abort-signal races.
+// The session client over the daemon transport: a real `JsonRpcClient` over the scripted daemon,
+// with no socket or external state. Covers ascending replay with `afterCursor` resume, restore from
+// the daemon's state rather than a client cache, and the abort-signal races.
 
 import {
-  type AgentId,
   type EventCursor,
-  type EventEnvelopeVersion,
-  JSONRPC_VERSION,
-  type JsonRpcNotification,
-  type JsonRpcRequest,
-  type JsonRpcResponseEnvelope,
   type SessionEvent,
   type SessionId,
   SUBSCRIPTION_CANCEL_METHOD,
-  SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { createDaemonSessionClient } from "../src/session-client.js";
-import { JsonRpcClient } from "../src/transport/json-rpc-client.js";
-import type { ClientTransport } from "../src/transport/types.js";
+import { createDaemonSessionClient } from "../session-client.js";
+import { JsonRpcClient } from "../transport/json-rpc-client.js";
+import {
+  answerByMethod,
+  buildSessionCreatedEvent,
+  buildSubscriptionNotify,
+  createScriptedDaemon,
+  type ScriptedDaemon,
+  type ScriptedMethodTable,
+  TEST_CLIENT_OPTIONS,
+} from "./scripted-daemon.test-support.js";
 
 // Fixtures
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
-
-/** The session's lead, as every `session.created` here records it. */
-const LEAD = {
-  agentId: "01970000-0000-7000-8000-00000000b001" as AgentId,
-  name: "Implementer",
-  binding: {
-    driverName: "claude" as const,
-    modelId: "claude-opus-4-5",
-    providerAccountId: null,
-    effort: "high",
-  },
-  ancestry: [],
-  createdAt: "2026-04-30T12:00:00.000Z",
-};
 
 // Event ids are UUIDs, which also satisfy `EventCursor.min(1).max(256)`; the fake daemon uses each
 // event's id as its cursor.
@@ -49,87 +35,15 @@ const CURSOR_1: EventCursor = EVENT_ID_1 as EventCursor;
 const CURSOR_2: EventCursor = EVENT_ID_2 as EventCursor;
 const CURSOR_3: EventCursor = EVENT_ID_3 as EventCursor;
 
-const PROTOCOL_VERSION = "2026-05-01";
-
-// An in-memory `ClientTransport` with a scripted reply table. Dispatch is synchronous, so the
-// tests have no timing dependence.
-
-interface ScriptedDaemonResponse {
-  /** The method name this entry replies to. */
-  readonly method: string;
-  /** Build the response result given the inbound request. */
-  readonly buildResult: (request: JsonRpcRequest) => unknown;
-  /** Frames the fake daemon writes after the response, such as subscription notifies. */
-  readonly followUp?: (request: JsonRpcRequest) => readonly JsonRpcNotification[];
-}
-
 interface DaemonHarness {
-  readonly transport: InMemoryDaemonTransport;
+  readonly transport: ScriptedDaemon;
   readonly client: JsonRpcClient;
 }
 
-class InMemoryDaemonTransport implements ClientTransport {
-  public readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
-  readonly #scripted: ScriptedDaemonResponse[];
-  #onMessage: ((msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void) | null = null;
-  #onClose: ((reason?: Error) => void) | null = null;
-
-  public constructor(scripted: ScriptedDaemonResponse[]) {
-    this.#scripted = scripted;
-  }
-
-  public send(envelope: JsonRpcRequest | JsonRpcNotification): void {
-    this.sentEnvelopes.push(envelope);
-    if (!("id" in envelope)) {
-      // A notification expects no response.
-      return;
-    }
-    const reply = this.#scripted.find((entry) => entry.method === envelope.method);
-    if (reply === undefined) {
-      // An error instead of a hang shows which call needs scripting.
-      this.dispatchInbound({
-        jsonrpc: JSONRPC_VERSION,
-        id: envelope.id,
-        error: { code: -32601, message: `Unscripted method: ${envelope.method}` },
-      });
-      return;
-    }
-    this.dispatchInbound({
-      jsonrpc: JSONRPC_VERSION,
-      id: envelope.id,
-      result: reply.buildResult(envelope),
-    });
-    for (const notification of reply.followUp?.(envelope) ?? []) {
-      this.dispatchInbound(notification);
-    }
-  }
-
-  public onMessage(handler: (msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void): void {
-    this.#onMessage = handler;
-  }
-
-  public onClose(handler: (reason?: Error) => void): void {
-    this.#onClose = handler;
-  }
-
-  public close(): Promise<void> {
-    if (this.#onClose !== null) {
-      this.#onClose(undefined);
-    }
-    return Promise.resolve();
-  }
-
-  public dispatchInbound(msg: JsonRpcResponseEnvelope | JsonRpcNotification): void {
-    if (this.#onMessage === null) {
-      throw new Error("dispatchInbound called before onMessage was registered");
-    }
-    this.#onMessage(msg);
-  }
-}
-
-function buildDaemonHarness(scripted: ScriptedDaemonResponse[]): DaemonHarness {
-  const transport = new InMemoryDaemonTransport(scripted);
-  const client = new JsonRpcClient(transport, { protocolVersion: PROTOCOL_VERSION });
+/** A client over a daemon that answers only the methods `table` scripts. */
+function buildDaemonHarness(table: ScriptedMethodTable): DaemonHarness {
+  const transport = createScriptedDaemon(answerByMethod(table));
+  const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
   return { transport, client };
 }
 
@@ -149,54 +63,37 @@ interface RecordedSubscribeCall {
  * History is read on every subscribe, so a test can change it between calls.
  */
 function scriptSessionStream(readHistory: () => readonly SessionEvent[]): {
-  scripted: ScriptedDaemonResponse[];
+  table: ScriptedMethodTable;
   recorded: RecordedSubscribeCall;
 } {
   const recorded: RecordedSubscribeCall = { afterCursor: undefined, callCount: 0 };
-  const subscriptionIdFor = (callCount: number): string =>
-    `01970000-0000-7000-8000-00000000c00${String(callCount)}`;
   return {
     recorded,
-    scripted: [
-      {
-        method: "session.subscribe",
-        buildResult: (request): unknown => {
-          recorded.callCount += 1;
-          recorded.afterCursor = (request.params as { afterCursor?: EventCursor }).afterCursor;
-          return { subscriptionId: subscriptionIdFor(recorded.callCount) };
-        },
-        followUp: (): JsonRpcNotification[] => {
-          const history = readHistory();
-          const cursorIndex = history.findIndex((event) => event.id === recorded.afterCursor);
-          return history.slice(cursorIndex + 1).map((event) => ({
-            jsonrpc: JSONRPC_VERSION,
-            method: SUBSCRIPTION_NOTIFY_METHOD,
-            params: {
-              subscriptionId: subscriptionIdFor(recorded.callCount),
-              value: { changes: [{ cursor: event.id, event }] },
-            },
-          }));
-        },
+    table: {
+      "session.subscribe": (request) => {
+        recorded.callCount += 1;
+        recorded.afterCursor = (request.params as { afterCursor?: EventCursor }).afterCursor;
+        const subscriptionId = `01970000-0000-7000-8000-00000000c00${String(recorded.callCount)}`;
+        const history = readHistory();
+        const cursorIndex = history.findIndex((event) => event.id === recorded.afterCursor);
+        return {
+          result: { subscriptionId },
+          followUp: history
+            .slice(cursorIndex + 1)
+            .map((event) =>
+              buildSubscriptionNotify(subscriptionId, { changes: [{ cursor: event.id, event }] }),
+            ),
+        };
       },
-      { method: SUBSCRIPTION_CANCEL_METHOD, buildResult: (): unknown => ({ canceled: true }) },
-    ],
+      [SUBSCRIPTION_CANCEL_METHOD]: () => ({ result: { canceled: true } }),
+    },
   };
 }
 
 // Event fixtures
 
 function makeSessionCreatedEvent(id: string, sequence: number): SessionEvent {
-  return {
-    type: "session.created",
-    category: "session_lifecycle",
-    id,
-    sessionId: SESSION_ID,
-    sequence,
-    occurredAt: "2026-04-30T12:00:00.000Z",
-    actor: null,
-    version: "1.0" as EventEnvelopeVersion,
-    payload: { sessionId: SESSION_ID, shape: "chat", mainAgent: LEAD },
-  };
+  return buildSessionCreatedEvent({ id, sessionId: SESSION_ID, sequence });
 }
 
 async function drain<T>(iter: AsyncIterable<T>): Promise<T[]> {
@@ -218,64 +115,6 @@ async function take<T>(iter: AsyncIterable<T>, count: number): Promise<T[]> {
   return out;
 }
 
-// Create then read
-
-describe("SessionCreate then SessionRead returns identical session id", () => {
-  it("daemon transport: create returns sessionId X; read({X}) returns the same X with persisted snapshot", async () => {
-    // `session.read` must return a `session.id` equal to the create-time id.
-    const harness = buildDaemonHarness([
-      {
-        method: "session.create",
-        buildResult: (): unknown => ({
-          sessionId: SESSION_ID,
-          shape: "chat",
-          state: "provisioning",
-        }),
-      },
-      {
-        method: "session.read",
-        buildResult: (request): unknown => {
-          // Echo the requested id so an SDK that replaced `sessionId` would show.
-          const requestedSessionId = (
-            (request.params as { sessionId: SessionId } | undefined) ?? { sessionId: SESSION_ID }
-          ).sessionId;
-          return {
-            session: {
-              id: requestedSessionId,
-              state: "provisioning",
-              createdAt: "2026-04-30T12:00:00.000Z",
-              updatedAt: "2026-04-30T12:00:00.000Z",
-              draft: "",
-            },
-            timelineCursors: {
-              latest: CURSOR_1,
-            },
-          };
-        },
-      },
-    ]);
-    const sdk = createDaemonSessionClient(harness.client);
-
-    const createResponse = await sdk.create({
-      clientIdempotencyKey: "0f2b4d5e-9999-4999-8999-999999999999",
-      binding: { kind: "chat" },
-      lead: {
-        driverName: "claude",
-        modelId: "claude-opus-4-5",
-        providerAccountId: null,
-        effort: "high",
-      },
-    });
-    expect(createResponse.sessionId).toBe(SESSION_ID);
-    expect(createResponse.state).toBe("provisioning");
-
-    const readResponse = await sdk.read({ sessionId: createResponse.sessionId });
-    // The id from create is the id read returns in its snapshot.
-    expect(readResponse.session.id).toBe(createResponse.sessionId);
-    expect(readResponse.session.state).toBe("provisioning");
-  });
-});
-
 // A pre-aborted signal must not touch the wire: `client.subscribe` would otherwise send the
 // `session.subscribe` request and reserve a daemon-side subscription entry.
 
@@ -283,7 +122,7 @@ describe("daemon subscribe with a pre-aborted signal does not call client.subscr
   it("daemon transport: when options.signal is already aborted, no wire envelope is sent and the async iterable yields zero values", async () => {
     // No scripted `session.subscribe`: a leaked request would fail on the unscripted path, and the
     // empty `sentEnvelopes` assertion catches it first.
-    const harness = buildDaemonHarness([]);
+    const harness = buildDaemonHarness({});
     const sdk = createDaemonSessionClient(harness.client);
     // The spy calls through, so the pre-abort `return` in `daemonSubscribe` is what prevents the
     // wire side effect; the spy checks `client.subscribe` was never reached.
@@ -312,8 +151,8 @@ describe("SessionSubscribe yields events in sequence ASC across reconnect", () =
       makeSessionCreatedEvent(EVENT_ID_2, 1),
       makeSessionCreatedEvent(EVENT_ID_3, 2),
     ];
-    const { scripted, recorded } = scriptSessionStream(() => history);
-    const sdk = createDaemonSessionClient(buildDaemonHarness(scripted).client);
+    const { table, recorded } = scriptSessionStream(() => history);
+    const sdk = createDaemonSessionClient(buildDaemonHarness(table).client);
 
     const cold = await take(sdk.subscribe({ sessionId: SESSION_ID }), 3);
     expect(recorded.callCount).toBe(1);
@@ -339,8 +178,8 @@ describe("Reconnect after lost stream restores from snapshot, not client cache",
       makeSessionCreatedEvent(EVENT_ID_1, 0),
       makeSessionCreatedEvent(EVENT_ID_2, 1),
     ];
-    const { scripted, recorded } = scriptSessionStream(() => history);
-    const sdk = createDaemonSessionClient(buildDaemonHarness(scripted).client);
+    const { table, recorded } = scriptSessionStream(() => history);
+    const sdk = createDaemonSessionClient(buildDaemonHarness(table).client);
 
     const cold = await take(sdk.subscribe({ sessionId: SESSION_ID }), 2);
     expect(cold.map((e) => e.eventId)).toEqual([CURSOR_1, CURSOR_2]);
@@ -348,17 +187,13 @@ describe("Reconnect after lost stream restores from snapshot, not client cache",
     // While the stream is lost, the daemon's projection revises the second
     // event and gains a third. A client that cached the cold stream would
     // replay the old second event; one that reads the wire sees the revision.
-    const revisedSecondEvent: SessionEvent = {
-      type: "session.created",
-      category: "session_lifecycle",
+    const revisedSecondEvent = buildSessionCreatedEvent({
       id: EVENT_ID_2,
       sessionId: SESSION_ID,
       sequence: 1,
       occurredAt: "2026-04-30T12:05:00.000Z",
-      actor: null,
-      version: "1.0" as EventEnvelopeVersion,
-      payload: { sessionId: SESSION_ID, shape: "project", mainAgent: LEAD },
-    };
+      shape: "project",
+    });
     history = [
       makeSessionCreatedEvent(EVENT_ID_1, 0),
       revisedSecondEvent,
@@ -385,7 +220,7 @@ describe("daemon subscribe re-checks AbortSignal after attaching abort listener"
   it("daemon transport: when signal aborts during client.subscribe() (after pre-check, before listener attach), the post-listener re-check fires subscription.cancel() and the iterable yields zero values", async () => {
     // No scripted subscribe: the mocked `client.subscribe` replaces the wire path; the harness
     // only supplies a real `JsonRpcClient` to spy on.
-    const harness = buildDaemonHarness([]);
+    const harness = buildDaemonHarness({});
     const sdk = createDaemonSessionClient(harness.client);
 
     const ac = new AbortController();

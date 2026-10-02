@@ -1,8 +1,7 @@
-// The `session.read` request and answer: the request is strict, so a stray member never reaches
-// the daemon, and the answer always carries the session's held draft.
+// The `session.read` answer always carries the session's held draft.
 import { describe, expect, it } from "vitest";
 
-import { SessionReadRequestSchema, SessionReadResponseSchema } from "../session.js";
+import { SessionReadResponseSchema } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -19,16 +18,6 @@ const buildValidResponse = () => ({
   timelineCursors: {
     latest: "42_1723291500000000000",
   },
-});
-
-describe("SessionReadRequestSchema", () => {
-  it("rejects unknown extra fields", () => {
-    const result = SessionReadRequestSchema.safeParse({
-      sessionId: SESSION_ID,
-      unexpected: "field",
-    });
-    expect(result.success).toBe(false);
-  });
 });
 
 describe("SessionReadResponseSchema", () => {

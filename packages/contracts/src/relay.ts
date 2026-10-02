@@ -10,13 +10,17 @@
 // person pastes.
 import { z } from "zod";
 
-import { EmptyAcknowledgementSchema, type EmptyAcknowledgement } from "./device.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 
 /** The refusal of a connection to a pinned relay whose key no longer matches the pin. */
-export type RelaySpkiMismatchCode = "relay.spki_mismatch";
-/** The refusal of a connection to a pinned relay whose key no longer matches the pin. */
-export const RELAY_SPKI_MISMATCH_CODE: RelaySpkiMismatchCode = "relay.spki_mismatch";
+export const RELAY_SPKI_MISMATCH_CODE = "relay.spki_mismatch" as const;
+/** The type of {@link RELAY_SPKI_MISMATCH_CODE}. */
+export type RelaySpkiMismatchCode = typeof RELAY_SPKI_MISMATCH_CODE;
 
 const SpkiPrefixSchema = z
   .string()
@@ -57,18 +61,18 @@ export const RelayRepinRequestSchema: z.ZodType<RelayRepinRequest, RelayRepinReq
   })
   .strict();
 
-/** The relay method the service answers. */
+/** The relay method the service answers, keyed by method name. */
 export interface RelayMethodDescriptors {
-  readonly "relay.repin": MethodDescriptor<"relay.repin", RelayRepinRequest, EmptyAcknowledgement>;
+  readonly "relay.repin": MethodDescriptor<"relay.repin", RelayRepinRequest, EmptyPayload>;
 }
 
-/** The relay method the service answers. */
+/** The relay method the service answers, with its schemas. */
 export const RELAY_METHOD_DESCRIPTORS: RelayMethodDescriptors = defineMethodDescriptors({
   "relay.repin": {
     method: "relay.repin",
     procedureType: "mutation",
     mutating: true,
     requestSchema: RelayRepinRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

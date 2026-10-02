@@ -7,10 +7,15 @@
 // control plane stores nothing about a notice.
 import { z } from "zod";
 
-import { EmptyAcknowledgementSchema, type EmptyAcknowledgement } from "./device.js";
 import { decodedByteLength } from "./internal/base64.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+} from "./method-descriptor.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The most sealed bytes one push carries: every platform's 4 KB payload limit. */
 export const PUSH_SEALED_NOTICE_MAX_BYTES = 4096;
@@ -51,22 +56,22 @@ export const PushSendRequestSchema: z.ZodType<PushSendRequest, PushSendRequest> 
       .string()
       .regex(/^[A-Za-z0-9_-]{1,32}$/u, "a collapse id is 1 to 32 base64url characters"),
     urgency: z.enum(PUSH_URGENCIES),
-    expiresAt: z.iso.datetime({ offset: true }),
+    expiresAt: isoDateTimeSchema,
   })
   .strict();
 
-/** The push procedure the control plane serves. */
+/** The push procedure the control plane serves, keyed by method name. */
 export interface PushProcedureDescriptors {
-  readonly "push.send": MethodDescriptor<"push.send", PushSendRequest, EmptyAcknowledgement>;
+  readonly "push.send": MethodDescriptor<"push.send", PushSendRequest, EmptyPayload>;
 }
 
-/** The push procedure the control plane serves. */
+/** The push procedure the control plane serves, with its schemas. */
 export const PUSH_PROCEDURE_DESCRIPTORS: PushProcedureDescriptors = defineMethodDescriptors({
   "push.send": {
     method: "push.send",
     procedureType: "mutation",
     mutating: true,
     requestSchema: PushSendRequestSchema,
-    responseSchema: EmptyAcknowledgementSchema,
+    responseSchema: EmptyPayloadSchema,
   },
 });

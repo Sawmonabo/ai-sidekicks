@@ -1,6 +1,5 @@
 // An artifact read replies with a handle to fetch the payload with, or the payload with the
-// encoding it is written in; these cases hold its version and window rules, the ingest chunk to
-// the frame ceiling it rides under, and the decoder to reading a payload by its encoding alone.
+// encoding it is written in, and nothing a reader could not act on.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -38,6 +37,17 @@ describe("ArtifactReadResponseSchema", () => {
     expect(ArtifactReadResponseSchema.safeParse(deferred).success).toBe(true);
     expect(ArtifactReadResponseSchema.safeParse(inline).success).toBe(true);
     expect(ArtifactReadResponseSchema.safeParse(inlineWithHandle).success).toBe(true);
+  });
+
+  // Each of these leaves a reader with no way to reach or decode the payload.
+  it.each([
+    ["neither a handle nor a payload", {}],
+    ["a payload with no encoding", { payload: "aGVsbG8=" }],
+    ["an encoding with no payload", { payloadHandle: PAYLOAD_HANDLE, payloadEncoding: "utf8" }],
+    ["an encoding other than utf8 or base64", { payload: "aGVsbG8=", payloadEncoding: "hex" }],
+  ])("refuses a reply with %s", (_label, payloadMembers) => {
+    const reply = { manifest: MANIFEST, ...VERSION, ...payloadMembers };
+    expect(ArtifactReadResponseSchema.safeParse(reply).success).toBe(false);
   });
 
   it("refuses a version in view past how many versions exist", () => {

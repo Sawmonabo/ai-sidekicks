@@ -1,6 +1,5 @@
-// The `artifact.*` descriptor table: each method's name, procedure type, whether it changes
-// state, and the schemas the registry validates its request and its result against. The list
-// is read again on `artifact.published` rather than on a timer. A descriptor registers nothing.
+// The `artifact.*` descriptor table. A client reads the list again on `artifact.published`, never
+// on a timer.
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 
 import {

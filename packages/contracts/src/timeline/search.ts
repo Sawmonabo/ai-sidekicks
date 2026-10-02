@@ -9,11 +9,14 @@ import {
   SessionIdSchema,
   wireFreeFormString,
   type EventCursor,
+  SearchMatchRangeSchema,
+  type SearchMatchRange,
   type SessionId,
 } from "../session.js";
 
 import { TIMELINE_READ_LIMIT_MAX, requirePageToRideOneFrame } from "./operations.js";
 import { TIMELINE_ROW_SUMMARY_MAX_LEN } from "./row.js";
+import { countSchema } from "../internal/wire-scalars.js";
 
 /**
  * The longest query, and the longest snippet a hit carries: each is one line of
@@ -43,19 +46,13 @@ export const TimelineSearchRequestSchema: z.ZodType<TimelineSearchRequest, Timel
     })
     .strict();
 
-/** Where one match sits inside a hit's snippet, in UTF-16 code units. */
-export interface TimelineSearchMatchRange {
-  offset: number;
-  length: number;
-}
-
 /** One row holding a match: where it is in the session, and the line the match sits in. */
 export interface TimelineSearchHit {
   rowId: string;
   /** The row's position, which a `timeline.read` around it loads from. */
   cursor: EventCursor;
   snippet: string;
-  matchRanges: TimelineSearchMatchRange[];
+  matchRanges: SearchMatchRange[];
 }
 
 /**
@@ -71,26 +68,20 @@ const TimelineSearchHitSchema: z.ZodType<TimelineSearchHit> = z
     rowId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TimelineSearchHit.rowId"),
     cursor: EventCursorSchema,
     snippet: z.string().min(1).max(TIMELINE_SEARCH_TEXT_MAX_LEN),
-    matchRanges: z
-      .array(
-        z
-          .object({ offset: z.number().int().nonnegative(), length: z.number().int().positive() })
-          .strict(),
-      )
-      .min(1),
+    matchRanges: z.array(SearchMatchRangeSchema).min(1),
   })
   .strict()
   .superRefine((hit, issueContext) => {
     let previousEnd = 0;
     hit.matchRanges.forEach((range, index) => {
-      if (range.offset < previousEnd || range.offset + range.length > hit.snippet.length) {
+      if (range.start < previousEnd || range.end > hit.snippet.length) {
         issueContext.addIssue({
           code: "custom",
           path: ["matchRanges", index],
           message: "match ranges run in order, never overlap, and sit inside the snippet",
         });
       }
-      previousEnd = range.offset + range.length;
+      previousEnd = range.end;
     });
   });
 
@@ -101,7 +92,7 @@ export const TimelineSearchResponseSchema: z.ZodType<TimelineSearchResponse> = z
   .discriminatedUnion("hasMore", [
     z
       .object({
-        matchCount: z.number().int().nonnegative(),
+        matchCount: countSchema,
         hits: hitsSchema.min(1),
         hasMore: z.literal(true),
         nextCursor: EventCursorSchema,
@@ -109,7 +100,7 @@ export const TimelineSearchResponseSchema: z.ZodType<TimelineSearchResponse> = z
       .strict(),
     z
       .object({
-        matchCount: z.number().int().nonnegative(),
+        matchCount: countSchema,
         hits: hitsSchema,
         hasMore: z.literal(false),
       })

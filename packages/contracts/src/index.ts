@@ -21,6 +21,8 @@ export {
   AGENT_REASON_MAX_LEN,
   AGENT_RESOLUTION_REFUSED_CODE,
   AGENT_RESOLUTION_REFUSED_REASONS,
+  AGENT_UPDATE_REFUSED_CODE,
+  AGENT_UPDATE_REFUSED_REASONS,
   AgentDefinitionBindingsDraftSchema,
   AgentDefinitionBindingsSchema,
   AgentDefinitionCreateRequestSchema,
@@ -41,10 +43,12 @@ export {
   AgentExportWriteFailedDetailsSchema,
   AgentHooksSchema,
   AgentIdSchema,
+  AgentListedProviderBindingSchema,
   AgentMemoryScopeSchema,
   AgentProviderBindingSchema,
   AgentResolutionRefusedDetailsSchema,
   AgentResolvedConfigurationSchema,
+  AgentUpdateRefusedDetailsSchema,
   refinePluginOrigin,
   refineProjectScope,
 } from "./agent-definition.js";
@@ -72,12 +76,17 @@ export type {
   AgentExportWriteFailedDetails,
   AgentHooks,
   AgentId,
+  AgentListedBindings,
+  AgentListedProviderBinding,
   AgentMemoryScope,
   AgentProviderBinding,
   AgentResolutionRefusedCode,
   AgentResolutionRefusedDetails,
   AgentResolutionRefusedReason,
   AgentResolvedConfiguration,
+  AgentUpdateRefusedCode,
+  AgentUpdateRefusedDetails,
+  AgentUpdateRefusedReason,
 } from "./agent-definition.js";
 export {
   AGENT_BINDING_CHANGE_FAILURE_REASONS,
@@ -251,13 +260,13 @@ export {
   ATTENTION_METHOD_DESCRIPTORS,
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
+  ATTENTION_WEB_ADDRESS_STATES,
   AttentionBannerSettleRequestSchema,
   AttentionDeliveryNotConfiguredDetailsSchema,
   AttentionDeliveryReadResponseSchema,
   AttentionDeliveryStoreUnavailableDetailsSchema,
   AttentionDeliveryTestRequestSchema,
   AttentionDeliveryTestResponseSchema,
-  AttentionEmptyMessageSchema,
   AttentionItemSchema,
   AttentionMailPasswordSaveRequestSchema,
   AttentionProjectionSchema,
@@ -281,7 +290,6 @@ export type {
   AttentionDeliveryStoreUnavailableDetails,
   AttentionDeliveryTestRequest,
   AttentionDeliveryTestResponse,
-  AttentionEmptyMessage,
   AttentionItem,
   AttentionMailPasswordSaveRequest,
   AttentionMethodDescriptors,
@@ -289,6 +297,7 @@ export type {
   AttentionSeenUpdateRequest,
   AttentionSeverity,
   AttentionTrigger,
+  AttentionWebAddressState,
   AttentionWebAddressSaveRequest,
   AttentionWebAddressSaveResponse,
   AttentionWebAddressSecretRotateResponse,
@@ -429,7 +438,6 @@ export {
   BackupIdSchema,
   BackupManifestSchema,
   BackupReadResponseSchema,
-  BackupRestoreAccessSchema,
   BackupRestoredPayloadSchema,
   DAEMON_BACKUP_METHOD_DESCRIPTORS,
 } from "./daemon-backup.js";
@@ -441,7 +449,6 @@ export type {
   BackupListEntry,
   BackupManifest,
   BackupReadResponse,
-  BackupRestoreAccess,
   BackupRestoredPayload,
   DaemonBackupMethodDescriptors,
 } from "./daemon-backup.js";
@@ -473,35 +480,20 @@ export type {
   WorkflowChainAskAfterRuns,
 } from "./daemon-config.js";
 export {
-  BackupKeySyncStateSchema,
-  BackupKeySyncUpdateRequestSchema,
   DAEMON_DATA_METHOD_DESCRIPTORS,
-  DAEMON_PASSPHRASE_MAX_LEN,
-  DaemonEmptyPayloadSchema,
-  DaemonUnlockRequestSchema,
   DataExportJobIdSchema,
   DataExportProgressSchema,
   DataExportRequestSchema,
   DataExportResponseSchema,
   DataExportSubscribeRequestSchema,
-  KeyRotateRequestSchema,
-  MasterKeyIdSchema,
-  RecoveryPassphraseSetRequestSchema,
 } from "./daemon-data.js";
 export type {
-  BackupKeySyncState,
-  BackupKeySyncUpdateRequest,
   DaemonDataMethodDescriptors,
-  DaemonEmptyPayload,
-  DaemonUnlockRequest,
   DataExportJobId,
   DataExportProgress,
   DataExportRequest,
   DataExportResponse,
   DataExportSubscribeRequest,
-  KeyRotateRequest,
-  MasterKeyId,
-  RecoveryPassphraseSetRequest,
 } from "./daemon-data.js";
 export {
   DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS,
@@ -510,7 +502,6 @@ export {
   DaemonFlushResponseSchema,
   DaemonLifecycleAcceptedSchema,
   DaemonPingRequestSchema,
-  DaemonPingResponseSchema,
   DaemonRestartRequestSchema,
   DaemonStopRequestSchema,
 } from "./daemon-lifecycle.js";
@@ -520,7 +511,6 @@ export type {
   DaemonLifecycleAccepted,
   DaemonLifecycleMethodDescriptors,
   DaemonPingRequest,
-  DaemonPingResponse,
   DaemonRestartRequest,
   DaemonStopRequest,
 } from "./daemon-lifecycle.js";
@@ -603,7 +593,6 @@ export {
   DeviceStatementListResponseSchema,
   DeviceTrustedListRequestSchema,
   DeviceTrustedListResponseSchema,
-  EmptyAcknowledgementSchema,
   MachineEntrySchema,
   PAIRING_ID_MAX_LEN,
   PUSH_ADDRESS_MAX_LEN,
@@ -637,7 +626,6 @@ export type {
   DeviceStatementListResponse,
   DeviceTrustedListRequest,
   DeviceTrustedListResponse,
-  EmptyAcknowledgement,
   MachineEntry,
   PasskeyEntry,
   PushPlatform,
@@ -672,26 +660,10 @@ export type {
   ResourceLimitExceededError,
 } from "./error.js";
 export {
-  AssistantMessageEventSchema,
-  AssistantThinkingUpdateEventSchema,
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-  EventCompactedEventSchema,
   EventCompactedPayloadSchema,
-  SessionCreatedEventSchema,
-  ToolErrorEventSchema,
-  ToolInvokedEventSchema,
-  ToolResultEventSchema,
-  WorkspaceArchivedEventSchema,
-  WorkspacePreparingEventSchema,
-  WorkspaceReadyEventSchema,
-  WorkspaceStaleEventSchema,
-  WorktreeCreatedEventSchema,
-  WorktreeDirtyEventSchema,
-  WorktreeMergedEventSchema,
-  WorktreeReadyEventSchema,
-  WorktreeRetiredEventSchema,
   assistantMessagePayloadSchema,
   assistantThinkingUpdatePayloadSchema,
   buildMachineContentDescriptorShape,
@@ -1154,7 +1126,6 @@ export {
   MCP_APPROVAL_MODES,
   MCP_CONFIG_SCOPES,
   MCP_REQUEST_TEXT_MAX_LEN,
-  MCP_SERVER_STATUS_SEVERITY_ORDER,
   McpApplicationGradeSchema,
   McpApprovalModeSchema,
   McpClearToolOverrideRequestSchema,
@@ -1166,7 +1137,6 @@ export {
   McpMutationResultSchema,
   McpOauthLoginResponseSchema,
   McpOauthLogoutRequestSchema,
-  McpOauthLogoutResponseSchema,
   McpReconnectRequestSchema,
   McpReconnectResponseSchema,
   McpRegistrySearchRequestSchema,
@@ -1197,7 +1167,6 @@ export type {
   McpMutationResult,
   McpOauthLoginResponse,
   McpOauthLogoutRequest,
-  McpOauthLogoutResponse,
   McpReconnectRequest,
   McpReconnectResponse,
   McpRegistryEnvironmentVariable,
@@ -1222,9 +1191,10 @@ export type {
   McpToolOverrideMutationResult,
   McpUpsertServerRequest,
 } from "./mcp.js";
-export { defineMethodDescriptors } from "./method-descriptor.js";
+export { defineMethodDescriptors, EmptyPayloadSchema } from "./method-descriptor.js";
 export type {
   AnyMethodDescriptor,
+  EmptyPayload,
   MethodDescriptor,
   MethodDescriptorTable,
   MethodEmissionOf,
@@ -1388,7 +1358,6 @@ export {
   PREVIEW_PORT_NOT_SHARED_CODE,
   PreviewPortRefusalDetailsSchema,
   PreviewPortRequestSchema,
-  PreviewPortSchema,
   PreviewPortShareAddResponseSchema,
   PreviewPortShareListFrameSchema,
   PreviewPortShareListRequestSchema,
@@ -1520,7 +1489,6 @@ export {
   PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   PROVIDER_ACCOUNT_USAGE_MODEL_MAX_LEN,
-  PROVIDER_ACCOUNT_WIRE_SHAPES,
   PROVIDER_WAKE_HELPER_REASON_MAX_LEN,
   ProviderAccountInUseDetailsSchema,
   ProviderAccountMemoryImportRequestSchema,
@@ -1555,8 +1523,6 @@ export type {
   ProviderAccountUsageReadResponse,
   ProviderAccountUsageRow,
   ProviderAccountUsageScope,
-  ProviderAccountWireDirection,
-  ProviderAccountWireShape,
   ProviderWakeHelperState,
 } from "./provider-account-methods.js";
 export {
@@ -1674,6 +1640,7 @@ export {
   DriverInterventionResultSchema,
   IdempotencyClassSchema,
   InterventionTypeSchema,
+  MCP_SERVER_STATUS_SEVERITY_ORDER,
   ProviderToolMetadataSchema,
   RunIdSchema,
 } from "./provider-driver.js";
@@ -1727,7 +1694,6 @@ export {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
-  DriverAckResultSchema,
   DriverCapabilitiesSchema,
   DriverCapabilityReportSchema,
   DriverModeReportSchema,
@@ -1747,7 +1713,6 @@ export {
 } from "./provider-driver-wire.js";
 export type {
   CompactContextRequest,
-  DriverAckResult,
   DriverCapabilityReport,
   DriverMethodDescriptors,
   DriverModeReport,
@@ -1772,7 +1737,6 @@ export {
   ProviderImportProviderRequestSchema,
   ProviderImportStartResponseSchema,
   ProviderImportStopRequestSchema,
-  ProviderImportStopResponseSchema,
   SESSION_IMPORT_METHOD_DESCRIPTORS,
 } from "./provider-import.js";
 export type {
@@ -1784,14 +1748,24 @@ export type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
   ProviderImportStopRequest,
-  ProviderImportStopResponse,
   SessionImportMethodDescriptors,
 } from "./provider-import.js";
+export {
+  ListSessionsArgumentsSchema,
+  SendToSessionArgumentsSchema,
+  TaskOutputArgumentsSchema,
+  TaskStopArgumentsSchema,
+} from "./provider-tools.js";
+export type {
+  ListSessionsArguments,
+  SendToSessionArguments,
+  TaskOutputArguments,
+  TaskStopArguments,
+} from "./provider-tools.js";
 export {
   PROVIDER_COMMAND_NOT_RUNNABLE_CODE,
   PROVIDER_INSTALL_COMMAND_MAX_LEN,
   PROVIDER_INSTALL_FAILURE_REASON_MAX_LEN,
-  PROVIDER_LAST_AVAILABLE_CODE,
   PROVIDER_METHOD_DESCRIPTORS,
   PROVIDER_NOT_INSTALLED_CODE,
   PROVIDER_OUTPUT_STYLES_MAX,
@@ -1801,7 +1775,6 @@ export {
   PROVIDER_RULE_TEXT_MAX_LEN,
   PROVIDER_STANDING_RULE_ID_MAX_LEN,
   PROVIDER_VERSION_MAX_LEN,
-  ProviderAckResponseSchema,
   ProviderAutoCompactBoundSchema,
   ProviderInstallProgressSchema,
   ProviderInstallationSchema,
@@ -1824,12 +1797,10 @@ export {
 export type {
   ClaudeProviderSettings,
   CodexProviderSettings,
-  ProviderAckResponse,
   ProviderAutoCompactBound,
   ProviderCommandNotRunnableCode,
   ProviderInstallProgress,
   ProviderInstallation,
-  ProviderLastAvailableCode,
   ProviderListRequest,
   ProviderListResponse,
   ProviderMethodDescriptors,
@@ -1963,6 +1934,7 @@ export type {
   RemovedWorktreeListRequest,
   RemovedWorktreeListResponse,
   RemovedWorktreeRequest,
+  WorktreeRestoreRefusal,
   WorktreeRestoreResponse,
 } from "./removed-worktree.js";
 export {
@@ -2056,8 +2028,8 @@ export type {
   WorkingTreeSubscribeRequest,
   WorkingTreeSubscribeResponse,
 } from "./repo-git-reads.js";
-export { REPO_METHOD_DESCRIPTORS, RepoEmptyResponseSchema } from "./repo-methods.js";
-export type { RepoEmptyResponse, RepoMethodDescriptors } from "./repo-methods.js";
+export { REPO_METHOD_DESCRIPTORS } from "./repo-methods.js";
+export type { RepoMethodDescriptors } from "./repo-methods.js";
 export {
   ExecutionModeSchema,
   RepoMountHealthSchema,
@@ -2140,7 +2112,6 @@ export {
   RunControlAckSchema,
   RunFailureCategorySchema,
   RunPauseRequestSchema,
-  RunReadSnapshotSchema,
   RunRecoveryResolveRequestSchema,
   RunRecoveryResolvedPayloadSchema,
   RunResumeRequestSchema,
@@ -2159,8 +2130,6 @@ export type {
   RunFailureCategory,
   RunInvalidTransitionCode,
   RunPauseRequest,
-  RunReadAccessor,
-  RunReadSnapshot,
   RunRecoveryChoice,
   RunRecoveryResolveRequest,
   RunRecoveryResolvedPayload,
@@ -2206,7 +2175,6 @@ export {
   RunQueueSubscribeRequestSchema,
 } from "./run-queue.js";
 export type {
-  QueueChangeRefusedCode,
   QueueChangeRefusedDetails,
   QueueChangeRefusedReason,
   QueueItemCancelRequest,
@@ -2252,15 +2220,12 @@ export type {
   WslServiceRecord,
 } from "./service-place.js";
 export {
-  EXECUTION_POSTURE_MODES,
   ExecutionPostureModeSchema,
   ModerationReviewFlaggedPayloadSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
   SESSION_CONTROL_METHOD_DESCRIPTORS,
-  SESSION_MODES,
-  SESSION_REVIEW_TARGETS,
   SessionAcknowledgementSchema,
   SessionAddressedRequestSchema,
   SessionAutoCompactUpdateRequestSchema,
@@ -2382,6 +2347,8 @@ export {
   SessionListChangeSchema,
   SessionListEntrySchema,
   SessionListRequestSchema,
+  SessionOverviewReadRequestSchema,
+  SessionOverviewReadResponseSchema,
   SessionSetWorkingFolderRequestSchema,
   SessionSetWorkingFolderResponseSchema,
   sessionActivityAsOf,
@@ -2400,6 +2367,10 @@ export type {
   SessionListEntry,
   SessionListEntryPlace,
   SessionListRequest,
+  SessionOverviewAgent,
+  SessionOverviewReadRequest,
+  SessionOverviewReadResponse,
+  SessionOverviewSession,
   SessionSetWorkingFolderRequest,
   SessionSetWorkingFolderResponse,
 } from "./session-directory.js";
@@ -2408,11 +2379,8 @@ export {
   ARTIFACT_PICTURE_REFUSED_CODE,
   ARTIFACT_PICTURE_REFUSED_REASONS,
   SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT,
-  SESSION_ATTACHMENT_DEFAULT_MEDIA_TYPES,
   SESSION_ATTACHMENT_REFUSED_CODE,
   SESSION_ATTACHMENT_REFUSED_REASONS,
-  SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES,
-  SESSION_ATTACHMENT_TEXT_MEDIA_TYPES,
   SESSION_ATTACHMENT_UNRESOLVED_CAUSES,
   SESSION_DRAFT_METHOD_DESCRIPTORS,
   SessionAttachmentAddRequestSchema,
@@ -2450,7 +2418,6 @@ export type {
 } from "./session-draft.js";
 export {
   SESSION_GOAL_METHOD_DESCRIPTORS,
-  SESSION_GOAL_STATUSES,
   SessionGoalClearRequestSchema,
   SessionGoalClearedPayloadSchema,
   SessionGoalSchema,
@@ -2565,6 +2532,7 @@ export {
 } from "./session.js";
 export type {
   EventCursor,
+  SearchMatchRange,
   SessionFileSearchRequest,
   SessionFileSearchResponse,
   SessionId,
@@ -2579,7 +2547,6 @@ export type {
   SessionRenamedPayload,
   SessionSearchGroup,
   SessionSearchHit,
-  SessionSearchMatchRange,
   SessionSearchRequest,
   SessionSearchResponse,
   SessionShape,
@@ -2668,11 +2635,7 @@ export type {
 } from "./skill.js";
 // The timeline contracts, in their one-way import order (child-run-summary, row, operations,
 // row-content and search, methods), which keeps the eager Zod initializers acyclic.
-export {
-  CHILD_RUN_INCOMPLETE_CAUSES,
-  ChildRunCompletenessSchema,
-  ChildRunSummarySchema,
-} from "./timeline/child-run-summary.js";
+export { ChildRunCompletenessSchema, ChildRunSummarySchema } from "./timeline/child-run-summary.js";
 export type {
   ChildRunCompleteness,
   ChildRunIncompleteCause,
@@ -2681,7 +2644,6 @@ export type {
 export {
   SupersededMarkerSchema,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
-  TIMELINE_ROW_KINDS,
   TIMELINE_ROW_SUMMARY_MAX_LEN,
   TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
@@ -2700,7 +2662,6 @@ export type {
 export {
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
-  REASONING_AVAILABILITY_STATES,
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningEntrySchema,
@@ -2743,7 +2704,6 @@ export {
 } from "./timeline/search.js";
 export type {
   TimelineSearchHit,
-  TimelineSearchMatchRange,
   TimelineSearchRequest,
   TimelineSearchResponse,
 } from "./timeline/search.js";
@@ -2751,15 +2711,12 @@ export {
   TIMELINE_BODY_READ_METHOD,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
-  TIMELINE_METHOD_NAMES,
   TIMELINE_PATCH_READ_METHOD,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SEARCH_METHOD,
 } from "./timeline/methods.js";
 export type {
-  TimelineMethodBinding,
-  TimelineMethodContract,
   TimelineMethodDescriptorRegistry,
   TimelineMethodName,
   TimelineMethodRequest,
@@ -2836,7 +2793,6 @@ export {
   VoiceDictationStartRequestSchema,
   VoiceDictationStopRequestSchema,
   VoiceDictationWriteRequestSchema,
-  VoiceEmptyPayloadSchema,
   VoiceListResponseSchema,
   VoiceStateSchema,
   VoiceUnavailableDetailsSchema,
@@ -2844,7 +2800,6 @@ export {
 export type {
   VoiceCallEndCause,
   VoiceCallFrame,
-  VoiceCallStartFailedCode,
   VoiceCallStartRequest,
   VoiceCallStartResponse,
   VoiceDictationFailure,
@@ -2853,18 +2808,15 @@ export type {
   VoiceDictationStartRequest,
   VoiceDictationStopRequest,
   VoiceDictationWriteRequest,
-  VoiceEmptyPayload,
   VoiceListResponse,
   VoiceMethodDescriptors,
   VoiceState,
-  VoiceUnavailableCode,
   VoiceUnavailableDetails,
   VoiceUnavailableReason,
 } from "./voice.js";
 export { WEB_ADDRESS_FAULTS, WEB_ADDRESS_SCHEMES, webAddressFault } from "./web-address.js";
 export type { WebAddressFault } from "./web-address.js";
 export {
-  WORKFLOW_EXPRESSION_OVER_BUDGET_CODE,
   WORKFLOW_TRIGGER_UNARMABLE_CODE,
   WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE,
   WorkflowDefinitionSettingResponseSchema,
@@ -2897,7 +2849,6 @@ export type {
   WorkflowDraftUpdateResponse,
   WorkflowEnabledSetRequest,
   WorkflowEnabledSetResponse,
-  WorkflowExpressionOverBudgetCode,
   WorkflowExpressionPreviewRequest,
   WorkflowExpressionPreviewResponse,
   WorkflowLayoutSetRequest,
@@ -2905,10 +2856,8 @@ export type {
   WorkflowPermissionLevelUpdateResponse,
   WorkflowPinDataSetRequest,
   WorkflowPinDataSetResponse,
-  WorkflowTriggerUnarmableCode,
   WorkflowWebhookListenerReadRequest,
   WorkflowWebhookListenerReadResponse,
-  WorkflowWebhookTokenMismatchCode,
   WorkflowWebhookTokenRotateRequest,
   WorkflowWebhookTokenRotateResponse,
 } from "./workflow-definition-builder.js";
@@ -2954,7 +2903,6 @@ export type {
   WorkflowDefinitionSummary,
   WorkflowDefinitionUpdateRequest,
   WorkflowDefinitionUpdateResponse,
-  WorkflowImportSchemaUnknownCode,
   WorkflowVersionChainEntry,
   WorkflowVersionChainReadRequest,
   WorkflowVersionChainReadResponse,
@@ -2964,7 +2912,6 @@ export type {
   WorkflowVersionReadRequest,
   WorkflowVersionReadResponse,
   WorkflowVersionSavedBy,
-  WorkflowVersionStaleCode,
   WorkflowWebhookFireOutcome,
 } from "./workflow-definition-methods.js";
 export {
@@ -2996,7 +2943,6 @@ export type {
   WorkflowDefinitionFinding,
   WorkflowDefinitionFindingRule,
   WorkflowDefinitionId,
-  WorkflowDefinitionRefusedCode,
   WorkflowDefinitionRefusedDetails,
   WorkflowDefinitionScope,
   WorkflowDocument,
@@ -3063,33 +3009,24 @@ export {
 } from "./workflow-run-control.js";
 export type {
   WorkflowCanceledPayload,
-  WorkflowControlDeniedCode,
-  WorkflowInvalidTransitionCode,
   WorkflowNodeExecuteRequest,
   WorkflowNodeExecuteResponse,
-  WorkflowRepairAttemptInFlightCode,
-  WorkflowRepairNotParkedCode,
-  WorkflowRepairVersionUnaccountableCode,
   WorkflowResultsPostRequest,
   WorkflowResultsPostResponse,
   WorkflowResultsPostedPayload,
-  WorkflowResumeNotParkedCode,
   WorkflowResumedPayload,
-  WorkflowRetryUnavailableCode,
   WorkflowRetryUnavailableDetails,
   WorkflowRetryUnavailableReason,
   WorkflowRunCancelRequest,
   WorkflowRunCancelResponse,
   WorkflowRunControlMethodDescriptors,
   WorkflowRunEventPayload,
-  WorkflowRunNotCancelableCode,
   WorkflowRunResumeRequest,
   WorkflowRunResumeResponse,
   WorkflowRunRetryRequest,
   WorkflowRunRetryResponse,
   WorkflowRunStartRequest,
   WorkflowRunStartResponse,
-  WorkflowStartDeniedCode,
   WorkflowStartedPayload,
 } from "./workflow-run-control.js";
 export {
@@ -3130,7 +3067,6 @@ export type {
   WorkflowRunKeepSet,
   WorkflowRunListRequest,
   WorkflowRunListResponse,
-  WorkflowRunNotDeletableCode,
   WorkflowRunReadRequest,
   WorkflowRunReadResponse,
   WorkflowRunRecordMethodDescriptors,
@@ -3179,13 +3115,11 @@ export type {
   WorkflowHumanFormReadResponse,
   WorkflowHumanFormSubmitRequest,
   WorkflowHumanFormSubmitResponse,
-  WorkflowRevisionStaleCode,
   WorkflowStepEventPayload,
   WorkflowStepFailedPayload,
   WorkflowStepFinishedPayload,
   WorkflowStepKey,
   WorkflowStepMethodDescriptors,
-  WorkflowStepNotWaitingCode,
   WorkflowStepOutput,
   WorkflowStepOutputListRequest,
   WorkflowStepOutputListResponse,
@@ -3201,7 +3135,6 @@ export {
   WORKFLOW_CODE_INSTALL_FAILED_CODE,
   WORKFLOW_CODE_INSTALL_FAILED_REASONS,
   WORKFLOW_CODE_OVER_BUDGET_CODE,
-  WORKFLOW_KEPT_VALUE_TOO_LARGE_CODE,
   WORKFLOW_NOT_FOUND_CODE,
   WORKFLOW_RUN_MODES,
   WORKFLOW_RUN_STATUSES,
@@ -3214,7 +3147,6 @@ export {
   WorkflowCancelReasonSchema,
   WorkflowCodeInstallFailedDetailsSchema,
   WorkflowCostSchema,
-  WorkflowKeptValueTooLargeDetailsSchema,
   WorkflowPayloadRefSchema,
   WorkflowRunIdSchema,
   WorkflowRunModeSchema,
@@ -3227,31 +3159,23 @@ export {
   WorkflowWaitCauseSchema,
 } from "./workflow-run.js";
 export type {
-  WorkflowCodeInstallFailedCode,
   WorkflowCodeInstallFailedDetails,
   WorkflowCodeInstallFailedReason,
-  WorkflowCodeOverBudgetCode,
   WorkflowCost,
-  WorkflowKeptValueTooLargeCode,
-  WorkflowKeptValueTooLargeDetails,
-  WorkflowNotFoundCode,
   WorkflowPayloadRef,
   WorkflowRunId,
   WorkflowRunMode,
   WorkflowRunStatus,
-  WorkflowSandboxUnavailableCode,
   WorkflowSandboxUnavailableDetails,
   WorkflowStartedBy,
   WorkflowStep,
   WorkflowStepSource,
   WorkflowStepStatus,
   WorkflowStepTimedOutCause,
-  WorkflowStepTimedOutCode,
   WorkflowStepTimedOutDetails,
   WorkflowWaitCause,
 } from "./workflow-run.js";
 export {
-  WORKFLOW_REDACTED_WIRE_MEMBERS,
   WORKFLOW_SECRET_METHOD_DESCRIPTORS,
   WORKFLOW_SECRET_NAME_INVALID_CODE,
   WORKFLOW_SECRET_NAME_INVALID_REASONS,
@@ -3270,7 +3194,6 @@ export {
   WorkflowSecretReplaceRequestSchema,
   WorkflowSecretStoreUnavailableDetailsSchema,
   WorkflowSecretSummarySchema,
-  composeWorkflowSecretReference,
   isWorkflowSecretName,
   parseWorkflowSecretReference,
 } from "./workflow-secret.js";
@@ -3282,22 +3205,19 @@ export type {
   WorkflowSecretListRequest,
   WorkflowSecretListResponse,
   WorkflowSecretMethodDescriptors,
-  WorkflowSecretNameInvalidCode,
   WorkflowSecretNameInvalidDetails,
   WorkflowSecretNameInvalidReason,
-  WorkflowSecretNotFoundCode,
   WorkflowSecretNotFoundDetails,
   WorkflowSecretPlace,
   WorkflowSecretReference,
   WorkflowSecretReplaceRequest,
   WorkflowSecretScope,
   WorkflowSecretStoreUnavailableCause,
-  WorkflowSecretStoreUnavailableCode,
   WorkflowSecretStoreUnavailableDetails,
   WorkflowSecretSummary,
 } from "./workflow-secret.js";
 export {
-  EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN,
+  AUTHORED_REASON_MAX_LEN,
   WORKSPACE_LAST_ERROR_MAX_LEN,
   WorkspaceBindRequestSchema,
   WorkspaceBindResponseSchema,
@@ -3349,7 +3269,6 @@ export {
   RemovedWorktreeIdSchema,
   WORKTREE_RETIRE_CONFLICT_CODE,
   WORKTREE_RETIRE_CONFLICT_REASONS,
-  WORKTREE_REUSE_REASON_MAX_LEN,
   WorktreeIdSchema,
   WorktreeLifecyclePayloadSchema,
   WorktreeRemovalRisksSchema,

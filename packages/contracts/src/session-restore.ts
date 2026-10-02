@@ -18,6 +18,7 @@ import {
   type EventCursor,
   type SessionId,
 } from "./session.js";
+import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest snapshot id the daemon accepts. */
 export const SNAPSHOT_ID_MAX_LEN = 256;
@@ -60,7 +61,7 @@ export const SessionSnapshotListResponseSchema: z.ZodType<SessionSnapshotListRes
         .object({
           snapshotId: SnapshotIdSchema,
           name: z.string().min(1),
-          createdAt: z.iso.datetime({ offset: true }),
+          createdAt: isoDateTimeSchema,
         })
         .strict(),
     ),
@@ -88,6 +89,13 @@ const SessionRestoreScopeSchema: z.ZodType<SessionRestoreScope, SessionRestoreSc
   "conversation",
   "files",
 ]);
+
+const partsOf = (scope: SessionRestoreScope | "nothing"): SessionRestorePart[] =>
+  scope === "nothing"
+    ? []
+    : scope === "conversation-and-files"
+      ? ["conversation", "files"]
+      : [scope];
 
 /**
  * Why a file is skipped rather than put back:
@@ -168,11 +176,11 @@ export interface SessionRestorePreviewResponse {
 /** Parses a {@link SessionRestorePreviewResponse}. */
 export const SessionRestorePreviewResponseSchema: z.ZodType<SessionRestorePreviewResponse> = z
   .object({
-    fileCount: z.number().int().nonnegative(),
-    lineCount: z.number().int().nonnegative(),
+    fileCount: countSchema,
+    lineCount: countSchema,
     skipped: z.array(SessionRestoreSkippedFileSchema),
-    affectedChildCount: z.number().int().nonnegative(),
-    runningCommands: z.number().int().nonnegative(),
+    affectedChildCount: countSchema,
+    runningCommands: countSchema,
     ignoredFolders: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
     commandsRanAfterPoint: z.boolean(),
     alsoChangedBy: z.array(
@@ -233,11 +241,8 @@ export const SessionRestoreRequestSchema: z.ZodType<SessionRestoreRequest, Sessi
       },
     );
 
-// One undo has one result: what was asked, what went back, the files it actually put back, and
-// the daemon's reason for each asked-for part that did not. An undo can land in part: the
-// conversation cut can apply while the files cannot go back, or the reverse; `restored:
-// "nothing"` means both are as they were. When an edit and resend's undo applied and its send did
-// not, the result says so with the send's reason.
+// An undo can land in part: the conversation cut can apply while the files cannot go back, or the
+// reverse; `restored: "nothing"` means both are as they were.
 
 /** Why one asked-for part did not go back, in the daemon's words. */
 export interface SessionRestoreFailure {
@@ -259,8 +264,8 @@ export interface SessionRestoreFileOutcome {
 }
 
 /**
- * A finished undo: what was asked, what went back, and why each other asked-for part did not.
- * `files` is present exactly when the files went back.
+ * A finished undo: what was asked, what went back, and the daemon's reason for every asked-for
+ * part that did not. `files` is present exactly when the files went back.
  */
 export interface SessionRestoreFinished {
   outcome: "restore-finished";
@@ -290,8 +295,8 @@ export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.dis
         restored: z.enum(["conversation-and-files", "conversation", "files", "nothing"]),
         files: z
           .object({
-            restoredFileCount: z.number().int().nonnegative(),
-            restoredLineCount: z.number().int().nonnegative(),
+            restoredFileCount: countSchema,
+            restoredLineCount: countSchema,
             skipped: z.array(SessionRestoreSkippedFileSchema),
           })
           .strict()
@@ -307,11 +312,21 @@ export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.dis
       .strict()
       .refine(
         (finished) =>
-          (finished.files !== undefined) ===
-          (finished.restored === "files" || finished.restored === "conversation-and-files"),
+          (finished.files !== undefined) === partsOf(finished.restored).includes("files"),
         {
           path: ["files"],
           message: "The files outcome is present exactly when the files went back.",
+        },
+      )
+      .refine(
+        (finished) =>
+          partsOf(finished.requested).every(
+            (part) =>
+              partsOf(finished.restored).includes(part) || finished.failures?.[part] !== undefined,
+          ),
+        {
+          path: ["failures"],
+          message: "Every asked-for part that did not go back carries the daemon's reason.",
         },
       ),
     z.object({ outcome: z.literal("resend-unapplied"), reason: z.string().min(1) }).strict(),

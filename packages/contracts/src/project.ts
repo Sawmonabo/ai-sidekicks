@@ -26,6 +26,7 @@ import {
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "./session.js";
+import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of a project: the record beside a mount that the person names. */
 export type ProjectId = string & { readonly __brand: "ProjectId" };
@@ -57,8 +58,8 @@ export const ProjectStateSchema: z.ZodType<ProjectState> = z.enum([
 /**
  * What runs after a worktree is made in the project: files copied into the new
  * tree, then commands run in order, each given up on after the time limit. The
- * steps run with the repository's own git hooks off and never raise an
- * approval, so only the person writes them.
+ * steps run with the repository's own git config, its hooks included, and never
+ * raise an approval, so only the person writes them.
  */
 export interface ProjectSetup {
   filesToCopy: string[];
@@ -74,30 +75,23 @@ export const ProjectSetupSchema: z.ZodType<ProjectSetup, ProjectSetup> = z
   })
   .strict();
 
-/**
- * One project as the Projects page and the session list's project headers draw
- * it.
- *
- * `repoMountId` is null while the project is still cloning, since the mount is
- * made when the clone attaches. `runningSessionId` names a session with an agent
- * running anywhere in the project, which is what grays `Delete`; the screen reads
- * that session's title from the session list. `environmentRows` are the
- * project's own rows, each winning over the `Every project` row of the same name.
- * `branchPattern` is null while the project follows the machine's pattern.
- * `onOtherSideDisk` marks a folder on the other side's disk of a Windows computer with WSL,
- * which the service reads more slowly.
- */
+/** One project as the Projects page and the session list's project headers draw it. */
 export interface ProjectListEntry {
   projectId: ProjectId;
+  /** `null` while the project is still cloning; the mount is made when the clone attaches. */
   repoMountId: RepoMountId | null;
   name: string;
   folderPath: string;
   state: ProjectState;
   sessionCount: number;
+  /** A session with an agent running anywhere in the project, or `null`. */
   runningSessionId: SessionId | null;
   setup: ProjectSetup;
+  /** The project's own rows, each winning over the `Every project` row of the same name. */
   environmentRows: EnvironmentRow[];
+  /** `null` while the project follows the machine's pattern. */
   branchPattern: string | null;
+  /** A folder on the other side's disk of a Windows computer with WSL, read more slowly. */
   onOtherSideDisk: boolean;
 }
 /** Wire schema for {@link ProjectListEntry}. */
@@ -108,7 +102,7 @@ export const ProjectListEntrySchema: z.ZodType<ProjectListEntry> = z
     name: wireFreeFormString(PROJECT_NAME_MAX_LEN, "ProjectListEntry.name"),
     folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "ProjectListEntry.folderPath"),
     state: ProjectStateSchema,
-    sessionCount: z.number().int().nonnegative(),
+    sessionCount: countSchema,
     runningSessionId: SessionIdSchema.nullable(),
     setup: ProjectSetupSchema,
     environmentRows: z.array(EnvironmentRowSchema),

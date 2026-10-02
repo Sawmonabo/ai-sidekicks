@@ -1,8 +1,6 @@
 // The strict session event parser: one arm per registered payload variant, discriminated on `type`.
-//
-// The set of event types (`SessionEventType`) is closed, but a payload variant is registered for
-// only some of them: membership in the set is type registration, not payload support. Adding a
-// variant later is additive.
+// Every type in the closed `SessionEventType` set is registered, but only some have a payload
+// variant.
 
 import { z } from "zod";
 // None of the payload files imported below imports this file, directly or through another module:
@@ -112,9 +110,7 @@ import {
 } from "./worktree-events.js";
 import { WorktreeLifecyclePayloadSchema } from "./worktree.js";
 
-// Internal record behind the exported map. The `satisfies Record<SessionEventType,
-// EventCategory>` check makes a missing, unregistered or duplicate key a compile error, so the
-// registry cannot drift from `SessionEventType`.
+// The `satisfies` check makes a missing, unregistered or duplicate type a compile error.
 const SESSION_EVENT_CATEGORY_RECORD = {
   // run_lifecycle
   "run.queued": "run_lifecycle",
@@ -230,7 +226,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.failed": "recovery_events",
   // security_events
   "security.update.available": "security_events",
-  "daemon.master_key_source": "security_events",
   "relay.pin_refused": "security_events",
   // event_maintenance
   "event.compacted": "event_maintenance",
@@ -279,10 +274,8 @@ const SESSION_EVENT_CATEGORY_RECORD = {
 } satisfies Record<SessionEventType, EventCategory>;
 
 /**
- * Each registered wire type's category, for checking category/type consistency without
- * re-parsing. A `ReadonlyMap`, not an object, so an untrusted `.get(evt.type)` cannot walk the
- * prototype chain (`__proto__` and `constructor` would resolve to truthy non-categories). Readers
- * consult it before parsing through `SessionEventSchema`, so that immunity matters.
+ * Each registered wire type's category. A `ReadonlyMap`, not an object, so an untrusted
+ * `.get(type)` read before parsing cannot walk the prototype chain to `__proto__` or `constructor`.
  */
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
   // Sound by the `satisfies` check above: the record's keys are exactly the `SessionEventType`
@@ -290,11 +283,9 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
   Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,
 );
 
-// Each arm is built once by `buildSessionEventVariantSchema` and registered in the union
-// directly. The builder is not exported, so its inferred return type keeps the literal `type` that
-// the discriminated union dispatches on, and it takes the category from the registry's entry for
-// the type, so an arm filed under another category is a compile error. These variants export
-// their event type and no standalone schema; `SessionEventSchema` is where they parse.
+// Builds one union arm. It is not exported, so its inferred return type keeps the literal `type`
+// the discriminated union dispatches on; the category comes from the record above, so an arm filed
+// under another category is a compile error.
 
 const buildSessionEventVariantSchema = <
   TType extends SessionEventType,
@@ -313,9 +304,8 @@ const buildSessionEventVariantSchema = <
     })
     .strict();
 
-// `withEpochStamp` takes a strict ZodObject, but the imported schema is annotated
-// `z.ZodType<T>`, which erases that surface. It is a strict object at runtime, so the surface is
-// re-widened for the call and the result annotated with the composed payload.
+// `withEpochStamp` takes a strict ZodObject, but the `z.ZodType<T>` annotation erases its object
+// methods; it is a strict object at runtime, so the cast restores them for the call.
 const commandEndedVariantPayloadSchema = withEpochStamp(
   CommandEndedPayloadSchema as unknown as z.ZodObject<Record<never, never>, z.core.$strict>,
 ) as unknown as z.ZodType<CommandEndedEvent["payload"]>;
@@ -521,9 +511,8 @@ const approvalApprovedVariantSchema = buildSessionEventVariantSchema(
   "approval_flow",
   ApprovalResolvedPayloadSchema,
 );
-// The owner's schema is annotated `z.ZodType<T>`, which erases the object surface `.extend()`
-// needs. It is a strict object at runtime, so the surface is re-widened for the call and the
-// result annotated with the composed payload.
+// The `z.ZodType<T>` annotation erases the `.extend()` the payload needs; it is a strict object at
+// runtime, so the cast restores it for the call.
 const approvalReviewerDeniedVariantPayloadSchema = (
   ApprovalReviewerDeniedPayloadSchema as unknown as z.ZodObject<
     Record<never, never>,
@@ -663,151 +652,79 @@ const backupRestoredVariantSchema = buildSessionEventVariantSchema(
   BackupRestoredPayloadSchema,
 );
 
-// `z.discriminatedUnion` needs literal-typed ZodObject variants, which gives O(1) parse dispatch
-// and narrowed types where an event is used. The variant schemas are rebuilt here instead of
-// reusing the exported `*EventSchema` values, because `z.ZodType<T>` erases the literal `type`
-// the union discriminates on; this keeps the public API `isolatedDeclarations`-friendly. Payload
-// schemas are shared, so payload shapes cannot drift between the two surfaces.
-
 /**
  * Strict parser for {@link SessionEvent}: an unknown type or a category that does not match its
  * type fails to parse.
  */
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("session.created"),
-      category: z.literal("session_lifecycle"),
-      payload: SessionCreatedPayloadSchema,
-    })
-    .strict(),
-  // The four workspace arms share repo.ts's payload schema; none takes the epoch stamp.
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.preparing"),
-      category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.ready"),
-      category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.stale"),
-      category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.archived"),
-      category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
-    })
-    .strict(),
-  // The five worktree arms use the payload schemas of their `*EventSchema` exports; none takes
-  // the epoch stamp. There is no `worktree.failed` arm.
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.created"),
-      category: z.literal("session_lifecycle"),
-      payload: WorktreeCreatedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.ready"),
-      category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.dirty"),
-      category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.merged"),
-      category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.retired"),
-      category: z.literal("session_lifecycle"),
-      payload: WorktreeRetiredPayloadSchema,
-    })
-    .strict(),
-  // The `event.compacted` arm shares the payload schema from `event-declared-variants.ts`, which
-  // authors it because the daemon emits the row itself; it takes no epoch stamp.
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("event.compacted"),
-      category: z.literal("event_maintenance"),
-      payload: EventCompactedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("assistant.message"),
-      category: z.literal("assistant_output"),
-      payload: assistantMessagePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("assistant.thinking_update"),
-      category: z.literal("assistant_output"),
-      payload: assistantThinkingUpdatePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("tool.invoked"),
-      category: z.literal("tool_activity"),
-      payload: toolInvokedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("tool.result"),
-      category: z.literal("tool_activity"),
-      payload: toolResultPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("tool.error"),
-      category: z.literal("tool_activity"),
-      payload: toolErrorPayloadSchema,
-    })
-    .strict(),
-  // The arms built once by `buildSessionEventVariantSchema` above.
+  buildSessionEventVariantSchema(
+    "session.created",
+    "session_lifecycle",
+    SessionCreatedPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.preparing",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.ready",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.stale",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.archived",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.created",
+    "session_lifecycle",
+    WorktreeCreatedPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.ready",
+    "session_lifecycle",
+    WorktreeLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.dirty",
+    "session_lifecycle",
+    WorktreeLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.merged",
+    "session_lifecycle",
+    WorktreeLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.retired",
+    "session_lifecycle",
+    WorktreeRetiredPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "event.compacted",
+    "event_maintenance",
+    EventCompactedPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "assistant.message",
+    "assistant_output",
+    assistantMessagePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "assistant.thinking_update",
+    "assistant_output",
+    assistantThinkingUpdatePayloadSchema,
+  ),
+  buildSessionEventVariantSchema("tool.invoked", "tool_activity", toolInvokedPayloadSchema),
+  buildSessionEventVariantSchema("tool.result", "tool_activity", toolResultPayloadSchema),
+  buildSessionEventVariantSchema("tool.error", "tool_activity", toolErrorPayloadSchema),
   approvalRejectedVariantSchema,
   approvalCanceledVariantSchema,
   approvalRememberedVariantSchema,

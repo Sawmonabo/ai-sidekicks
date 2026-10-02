@@ -1,16 +1,9 @@
-// A held review note: a note the person leaves on a line of Review's diff, held by
-// the daemon and scoped to the session, so a half-written review reaches the person's
-// other devices and is never written to window storage.
+// A held review note: a note the person leaves on a line of Review's diff, held by the daemon and
+// scoped to the session, so a half-written review reaches the person's other devices.
 //
-// A note is held until it leaves in one of three ways: composed into the draft as a
-// steer, posted as part of one review to the hosting service, or discarded. Once
-// posted it is a hosting thread, no longer a held note, so it leaves this store. The
-// daemon checks each held note against the diff it points into and marks a note whose
-// line no longer exists as stranded; a stranded note can still be read, edited and
-// deleted, and is left out of a posted review.
-//
-// Request schemas are double-T (`z.ZodType<T, T>`) and result schemas single-T,
-// matching `session.ts`.
+// A note is held until it is composed into the draft as a steer, posted with a review to the
+// hosting service, or discarded. A note whose line no longer exists in the diff is stranded: it can
+// still be read, edited and deleted, and is left out of a posted review.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -21,6 +14,7 @@ import {
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
+import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The id of one held note, minted by the client, so adding the same note twice makes one note. */
 export type ReviewNoteId = string & { readonly __brand: "ReviewNoteId" };
@@ -28,8 +22,10 @@ export type ReviewNoteId = string & { readonly __brand: "ReviewNoteId" };
 export const ReviewNoteIdSchema: z.ZodType<ReviewNoteId, ReviewNoteId> =
   brandedUuidIdSchema<ReviewNoteId>("ReviewNoteId");
 
+const REVIEW_NOTE_SCOPES = ["changes", "branch", "change_request"] as const;
+
 /** The scopes a note can be left in: the uncommitted changes, the branch, or a pull request. */
-export type ReviewNoteScope = "changes" | "branch" | "change_request";
+export type ReviewNoteScope = (typeof REVIEW_NOTE_SCOPES)[number];
 
 /**
  * The comparison a note was left in, so pressing the note takes the reader back to
@@ -51,7 +47,7 @@ export type ReviewNoteComparison =
       requestNumber?: number | undefined;
     };
 const reviewNoteComparisonShape = {
-  scope: z.enum(["changes", "branch", "change_request"]),
+  scope: z.enum(REVIEW_NOTE_SCOPES),
   base: z.string().min(1),
   requestNumber: z.number().int().positive().optional(),
 };
@@ -60,8 +56,10 @@ const ReviewNoteComparisonSchema: z.ZodType<ReviewNoteComparison, ReviewNoteComp
   z.object({ ...reviewNoteComparisonShape, workingTreeBlobId: z.string().min(1) }).strict(),
 ]);
 
+const REVIEW_NOTE_SIDES = ["added", "removed"] as const;
+
 /** Which side of the diff the note's line is on. */
-export type ReviewNoteSide = "added" | "removed";
+export type ReviewNoteSide = (typeof REVIEW_NOTE_SIDES)[number];
 
 /**
  * Where a note sits: the file (and the file's earlier path when it was renamed), the
@@ -79,7 +77,7 @@ const reviewNoteLocationShape = {
   comparison: ReviewNoteComparisonSchema,
   path: z.string().min(1).max(FILE_PATH_MAX_LEN),
   oldPath: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
-  side: z.enum(["added", "removed"]),
+  side: z.enum(REVIEW_NOTE_SIDES),
   line: z.number().int().positive(),
   startLine: z.number().int().positive().optional(),
 };
@@ -107,8 +105,8 @@ const ReviewNoteSchema: z.ZodType<ReviewNote> = z
     quote: z.string(),
     body: z.string().min(1),
     stranded: z.boolean(),
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
   })
   .strict()
   .refine(startsAtOrBeforeItsLine, startLineMessage);
