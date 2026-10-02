@@ -1,7 +1,6 @@
 // Zero-turn capability detection: the detection-mechanism table, the negative control that
-// validates the probe channel, the classification of Claude's and Codex's recorded probe replies,
-// per-capability withdrawal, and the re-probe's change detection. Probes are asserted at a
-// recording transport double, since a probe that billed emits no event.
+// validates the probe channel, per-capability withdrawal, and the re-probe's change detection.
+// Probes are asserted at a recording transport double, since a probe that billed emits no event.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,16 +15,17 @@ import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
   RecordingCapabilityProbeTransport,
-  claudeContextualRefusalReply,
+  type DefaultProbeReply,
+} from "../__fixtures__/capability-probe-doubles.js";
+import {
+  claudeDefaultProbeReply,
   claudeSuccessReply,
-  claudeUnsupportedSubtypeReply,
-  codexCapabilityGatedReply,
-  codexInvalidParamsReply,
-  codexMissingFieldReply,
+} from "../drivers/claude/__fixtures__/capability-probe-replies.js";
+import {
+  codexDefaultProbeReply,
   codexResultReply,
   codexUnknownMethodReply,
-  codexUnknownVariantReply,
-} from "../__fixtures__/capability-probe-doubles.js";
+} from "../drivers/codex/__fixtures__/capability-probe-replies.js";
 import {
   CapabilityProbeNegativeControlError,
   CapabilityProbeProhibitedNameError,
@@ -34,13 +34,12 @@ import {
   readCapabilityDetection,
   type CapabilityDetectionMechanism,
   type DriverCapabilityDetectionTable,
-  type ProbeAnswer,
 } from "../capability-probe.js";
 import {
   DriverCapabilitiesWriter,
   type DeclareDriverCapabilitiesResult,
 } from "../driver-capabilities-writer.js";
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "../drivers/claude/capabilities.js";
 import {
   CODEX_CAPABILITY_FLAGS,
@@ -57,13 +56,21 @@ const DRIVERS: readonly ProviderName[] = ["claude", "codex"];
 const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
   PROVIDER_DRIVER_DESCRIPTORS.codex.capabilityDetectionTable;
 
-// The Claude classifier reads no probe name: its refusal is name-level already.
-function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
-  return PROVIDER_DRIVER_DESCRIPTORS.claude.classifyCapabilityProbeReply(payload, "");
-}
+/** Each driver's measured probe replies: its default answer per name and its success arm. */
+const PROBE_REPLIES: Readonly<
+  Record<ProviderName, { readonly defaultReply: DefaultProbeReply; readonly success: unknown }>
+> = {
+  claude: { defaultReply: claudeDefaultProbeReply, success: claudeSuccessReply() },
+  codex: { defaultReply: codexDefaultProbeReply, success: codexResultReply() },
+};
 
-function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnswer {
-  return PROVIDER_DRIVER_DESCRIPTORS.codex.classifyCapabilityProbeReply(payload, probeName);
+function probeTransportFor(
+  driverName: ProviderName,
+  replies: Readonly<Record<string, unknown>> = {},
+): RecordingCapabilityProbeTransport {
+  return new RecordingCapabilityProbeTransport(PROBE_REPLIES[driverName].defaultReply, {
+    replies,
+  });
 }
 
 const CLAUDE_VERSION_READING: SpawnedProviderVersionReading = {
@@ -136,15 +143,11 @@ function firstProbeNameFor(
   return firstName;
 }
 
-function silentDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
-}
-
 describe("zero billed turns, asserted at the provider transport", () => {
   it.each(PROBING_DRIVERS)(
     "issues no turn-bearing request for '%s' — structurally and in fact",
     async (driverName) => {
-      const transport = new RecordingCapabilityProbeTransport(driverName);
+      const transport = probeTransportFor(driverName);
       await readCapabilityDetection({
         driverName,
         boundExecutablePath: boundPathFor(driverName),
@@ -178,7 +181,7 @@ describe("zero billed turns, asserted at the provider transport", () => {
   );
 
   it.each(DRIVERS)("never issues a prohibited name for '%s'", async (driverName) => {
-    const transport = new RecordingCapabilityProbeTransport(driverName);
+    const transport = probeTransportFor(driverName);
     await readCapabilityDetection({
       driverName,
       boundExecutablePath: boundPathFor(driverName),
@@ -201,7 +204,7 @@ describe("zero billed turns, asserted at the provider transport", () => {
   });
 
   it("an ATTACH that probes issues no turn-start and no user message (Codex)", async () => {
-    const transport = new RecordingCapabilityProbeTransport("codex");
+    const transport = probeTransportFor("codex");
     const sink = {
       declare: () =>
         Promise.resolve({ snapshotChange: "created" as const, cliVersionRefreshed: true }),
@@ -209,7 +212,7 @@ describe("zero billed turns, asserted at the provider transport", () => {
     await refreshCodexCapabilities(sink, {
       reading: CODEX_VERSION_READING,
       probe: transport.exchange,
-      diagnostics: silentDiagnostics(),
+      diagnostics: makeSilentDriverDiagnostics(),
     });
     expect(transport.requests.length).toBeGreaterThan(0);
     expect(transport.issuedProbeNames).not.toContain("turn/start");
@@ -220,8 +223,8 @@ describe("zero billed turns, asserted at the provider transport", () => {
 describe("the capability-probe negative control", () => {
   it.each(PROBING_DRIVERS)("fails the whole read when it SUCCEEDS on '%s'", async (driverName) => {
     const control = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityProbeNegativeControl;
-    const transport = new RecordingCapabilityProbeTransport(driverName, {
-      replies: { [control]: driverName === "claude" ? claudeSuccessReply() : codexResultReply() },
+    const transport = probeTransportFor(driverName, {
+      [control]: PROBE_REPLIES[driverName].success,
     });
     await expect(
       readCapabilityDetection({
@@ -236,9 +239,7 @@ describe("the capability-probe negative control", () => {
 
   it("fails the read when the control's answer is unclassifiable (Codex)", async () => {
     const control = PROVIDER_DRIVER_DESCRIPTORS.codex.capabilityProbeNegativeControl;
-    const transport = new RecordingCapabilityProbeTransport("codex", {
-      replies: { [control]: "not a json-rpc frame" },
-    });
+    const transport = probeTransportFor("codex", { [control]: "not a json-rpc frame" });
     await expect(
       readCapabilityDetection({
         driverName: "codex",
@@ -249,84 +250,11 @@ describe("the capability-probe negative control", () => {
   });
 });
 
-describe("capability-probe reply classification", () => {
-  it("classifies the Claude control-response arms", () => {
-    expect(classifyClaudeProbeReply(claudeSuccessReply())).toBe("accepted");
-    // A registered subtype refusing for context accepts the name (`get_usage is not supported in
-    // this context`); reading it as absence would withdraw a live capability.
-    expect(classifyClaudeProbeReply(claudeContextualRefusalReply("get_usage"))).toBe("accepted");
-    expect(classifyClaudeProbeReply(claudeUnsupportedSubtypeReply("zzq"))).toBe("unknown-name");
-    // Unwrapped inner response — the seam may return either shape.
-    expect(classifyClaudeProbeReply({ subtype: "success" })).toBe("accepted");
-    expect(classifyClaudeProbeReply({ subtype: "error", error: 42 })).toBe("unrecognized");
-    expect(classifyClaudeProbeReply(null)).toBe("unrecognized");
-    expect(classifyClaudeProbeReply([])).toBe("unrecognized");
-    expect(classifyClaudeProbeReply({ subtype: "mystery" })).toBe("unrecognized");
-  });
-
-  it("classifies the Codex JSON-RPC arms", () => {
-    expect(classifyCodexProbeReply(codexResultReply(), "turn/steer")).toBe("accepted");
-    // `-32602` is one reply a deliberately payload-free probe can draw from an
-    // `-32602` is what an accepted method answers a payload-free probe: the schema refused the
-    // empty request, which keeps the probe non-mutating. Reading it as absence would withdraw
-    // every probed flag.
-    expect(classifyCodexProbeReply(codexInvalidParamsReply(), "turn/steer")).toBe("accepted");
-    expect(classifyCodexProbeReply(codexUnknownMethodReply("zzq/x"), "zzq/x")).toBe("unknown-name");
-    expect(
-      classifyCodexProbeReply({ error: { code: -32601, message: "Method not found" } }, "zzq/x"),
-    ).toBe("unknown-name");
-    expect(classifyCodexProbeReply({ error: { code: "-32600" } }, "zzq/x")).toBe("unrecognized");
-    expect(classifyCodexProbeReply({}, "zzq/x")).toBe("unrecognized");
-    expect(classifyCodexProbeReply(undefined, "zzq/x")).toBe("unrecognized");
-  });
-
-  it("reads the MESSAGE and not only the code on the Codex `-32600` arm", () => {
-    // The measured build answers `-32600` both for an unaccepted name and for an accepted name
-    // whose payload does not deserialize, so a code-only classifier would withdraw every probed
-    // flag. These are the three measured shapes, verbatim.
-    expect(classifyCodexProbeReply(codexMissingFieldReply(), "turn/steer")).toBe("accepted");
-    expect(
-      classifyCodexProbeReply(
-        codexCapabilityGatedReply("server/diagnostics"),
-        "server/diagnostics",
-      ),
-    ).toBe("accepted");
-    expect(classifyCodexProbeReply(codexUnknownMethodReply("turn/steer"), "turn/steer")).toBe(
-      "unknown-name",
-    );
-  });
-
-  it("resolves every ambiguous Codex `-32600` toward ACCEPTED", () => {
-    // Resolution is withdraw-only: a wrong `accepted` keeps the declared matrix, a wrong
-    // `unknown-name` silently disables a live capability. First, an enumeration about a variant
-    // nested inside an accepted request…
-    expect(
-      classifyCodexProbeReply(
-        codexUnknownVariantReply("on-failure", ["untrusted", "on-request", "granular", "never"]),
-        "turn/steer",
-      ),
-    ).toBe("accepted");
-    // …an enumeration that contains the probed name, so the refusal was about something else…
-    expect(
-      classifyCodexProbeReply(
-        codexUnknownVariantReply("turn/steer", ["turn/steer", "thread/start"]),
-        "turn/steer",
-      ),
-    ).toBe("accepted");
-    // …and a `-32600` whose message is not a string at all.
-    expect(classifyCodexProbeReply({ error: { code: -32600, message: 7 } }, "turn/steer")).toBe(
-      "accepted",
-    );
-  });
-});
-
 describe("capability withdrawal is per capability", () => {
   it("withdraws fail-closed on an answer it cannot classify, with a diagnostic", async () => {
     const flag = withdrawalCanaryFor("codex");
     const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, flag);
-    const transport = new RecordingCapabilityProbeTransport("codex", {
-      replies: { [probeName]: { unexpected: true } },
-    });
+    const transport = probeTransportFor("codex", { [probeName]: { unexpected: true } });
     const reading = await readCapabilityDetection({
       driverName: "codex",
       boundExecutablePath: boundPathFor("codex"),
@@ -347,10 +275,8 @@ describe("detectionSource on the capability report", () => {
     expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
     const detection = await readCodexCapabilityDetection(
       CODEX_VERSION_READING,
-      new RecordingCapabilityProbeTransport("codex", {
-        replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
-      }).exchange,
-      new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } }),
+      probeTransportFor("codex", { [refusedName]: codexUnknownMethodReply(refusedName) }).exchange,
+      makeSilentDriverDiagnostics(),
     );
 
     const result = getCodexCapabilities(CODEX_VERSION_READING, detection);
@@ -374,8 +300,8 @@ describe("a flag whose consumers call several wire names", () => {
   it.each(GOAL_NAMES)("withdraws the flag when '%s' alone is refused", async (refusedName) => {
     // Refusing either name withdraws, so a build that accepts goals it cannot clear is not
     // reported as capable.
-    const transport = new RecordingCapabilityProbeTransport("codex", {
-      replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
+    const transport = probeTransportFor("codex", {
+      [refusedName]: codexUnknownMethodReply(refusedName),
     });
     const reading = await readCapabilityDetection({
       driverName: "codex",
@@ -418,7 +344,7 @@ describe("a re-probe's change detection", () => {
     return refreshCodexCapabilities(writer, {
       reading: CODEX_VERSION_READING,
       probe: transport.exchange,
-      diagnostics: silentDiagnostics(),
+      diagnostics: makeSilentDriverDiagnostics(),
     });
   }
 
@@ -428,13 +354,13 @@ describe("a re-probe's change detection", () => {
     const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, probedFlag);
     expect(CODEX_CAPABILITY_FLAGS[probedFlag]).toBe(true);
 
-    const first = await reprobe(writer, new RecordingCapabilityProbeTransport("codex"));
+    const first = await reprobe(writer, probeTransportFor("codex"));
     expect(first.snapshotChange).toBe("created");
 
     // The re-probe finds the method gone (a mid-lifetime provider replacement); the writer's own
     // change detection produces exactly one update.
-    const withdrawing = new RecordingCapabilityProbeTransport("codex", {
-      replies: { [probeName]: codexUnknownMethodReply(probeName) },
+    const withdrawing = probeTransportFor("codex", {
+      [probeName]: codexUnknownMethodReply(probeName),
     });
     const second = await reprobe(writer, withdrawing);
     expect(second.snapshotChange).toBe("changed");

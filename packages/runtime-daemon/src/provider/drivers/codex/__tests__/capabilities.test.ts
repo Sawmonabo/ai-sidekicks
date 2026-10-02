@@ -8,17 +8,20 @@ import {
   RecordingDeclarationSink,
   fullyProbedDetectionReading,
 } from "../../../__fixtures__/capability-probe-doubles.js";
+import { codexDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
 import type { CapabilityDetectionReading } from "../../../capability-probe.js";
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import {
   CODEX_DRIVER_NAME,
-  CodexModelCatalogUnreadableError,
   getCodexCapabilities,
   normalizeCodexModelCatalog,
   refreshCodexCapabilities,
 } from "../capabilities.js";
-import type { DriverCliVersionReport } from "../../../provider-driver.js";
+import {
+  type DriverCliVersionReport,
+  ModelCatalogUnreadableError,
+} from "../../../provider-driver.js";
 
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
   raw: "0.149.1",
@@ -52,13 +55,9 @@ const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading(
   "codex",
   CLI_VERSION_READING.resolvedExecutablePath,
 );
-const CODEX_PROBE = new RecordingCapabilityProbeTransport("codex");
+const CODEX_PROBE = new RecordingCapabilityProbeTransport(codexDefaultProbeReply);
 
 /** The diagnostic band, muted: this suite asserts declarations, not records. */
-function silentDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
-}
-
 describe("Codex composition is bound to the spawned build", () => {
   it("refuses a reading taken from ANOTHER driver's build", async () => {
     // A wiring fault, not provider misbehavior: composing Codex flags against a Claude build's
@@ -79,7 +78,7 @@ describe("Codex composition is bound to the spawned build", () => {
       refreshCodexCapabilities(sink, {
         reading: foreign,
         probe: CODEX_PROBE.exchange,
-        diagnostics: silentDiagnostics(),
+        diagnostics: makeSilentDriverDiagnostics(),
       }),
     ).rejects.toThrow(/driver 'claude'/);
     expect(sink.calls).toHaveLength(0);
@@ -209,6 +208,6 @@ describe("Codex model catalog", () => {
         data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol" }],
         nextCursor: "cursor-2",
       }),
-    ).toThrow(CodexModelCatalogUnreadableError);
+    ).toThrow(ModelCatalogUnreadableError);
   });
 });

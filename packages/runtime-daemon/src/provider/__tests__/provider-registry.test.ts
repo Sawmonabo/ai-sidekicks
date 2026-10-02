@@ -2,7 +2,6 @@
 // codes, a failed registration leaves no entry, and the latest registration's snapshot wins.
 
 import {
-  DRIVER_CAPABILITY_FLAGS,
   type ApplyInterventionParams,
   type DriverCapabilities,
   type DriverCapabilityFlag,
@@ -16,6 +15,8 @@ import {
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
+import { CLI_VERSION_REPORT, makeFlags } from "../__fixtures__/capability-results.js";
+import { captureThrow } from "../__fixtures__/capture-throw.js";
 import {
   DriverCapabilityUnsupportedError,
   DriverUnavailableError,
@@ -28,7 +29,6 @@ import type {
   CreateSessionParams,
   DriverGoalResult,
   DriverAuthProbeResult,
-  DriverCliVersionReport,
   DriverResumeResult,
   ForkConversationResult,
   GetCapabilitiesResult,
@@ -43,30 +43,6 @@ import type {
 } from "../provider-driver.js";
 
 const DRIVER_ID: ProviderName = "claude";
-
-/**
- * Builds a complete flag record from a partial override, defaulting every flag to false. The base
- * is derived from `DRIVER_CAPABILITY_FLAGS` so widening the flag union leaves no stale copy here.
- */
-function makeFlags(
-  overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
-): Record<DriverCapabilityFlag, boolean> {
-  const base = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
-    DriverCapabilityFlag,
-    boolean
-  >;
-  return { ...base, ...overrides };
-}
-
-/**
- * A well-formed `cliVersion` reading, required on `GetCapabilitiesResult`. The registry caches
- * only `result.capabilities`, so no assertion reads it; it keeps the fakes contract-valid without
- * a cast.
- */
-const CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "mock-provider-cli 2.1.234 (build 7)",
-  semver: "2.1.234",
-};
 
 /**
  * A minimal fake `ProviderDriver`. Only `getCapabilities` works, reporting a caller-chosen flags
@@ -175,36 +151,24 @@ describe("ProviderRegistry — checkCapability gate", () => {
     // `steer: false` is the explicit declared-but-unsupported case.
     await registry.register(DRIVER_ID, new FakeProviderDriver(makeFlags({ steer: false })));
 
-    expect(() => registry.checkCapability(DRIVER_ID, "steer")).toThrow(
-      DriverCapabilityUnsupportedError,
+    const refusal = captureThrow(() => registry.checkCapability(DRIVER_ID, "steer"));
+    expect(refusal).toBeInstanceOf(DriverCapabilityUnsupportedError);
+    expect((refusal as DriverCapabilityUnsupportedError).code).toBe(
+      "driver.capability_unsupported",
     );
-    try {
-      registry.checkCapability(DRIVER_ID, "steer");
-      expect.unreachable("checkCapability should have thrown for a declared-false flag");
-    } catch (error) {
-      expect(error).toBeInstanceOf(DriverCapabilityUnsupportedError);
-      expect((error as DriverCapabilityUnsupportedError).code).toBe(
-        "driver.capability_unsupported",
-      );
-      expect((error as DriverCapabilityUnsupportedError).fields).toEqual({
-        driverId: DRIVER_ID,
-        flag: "steer",
-      });
-    }
+    expect((refusal as DriverCapabilityUnsupportedError).fields).toEqual({
+      driverId: DRIVER_ID,
+      flag: "steer",
+    });
   });
 
   it("rejects a check against an unregistered driver with driver.unavailable", () => {
     const registry = new ProviderRegistry();
 
-    expect(() => registry.checkCapability("codex", "steer")).toThrow(DriverUnavailableError);
-    try {
-      registry.checkCapability("codex", "steer");
-      expect.unreachable("checkCapability should have thrown for an unregistered driver");
-    } catch (error) {
-      expect(error).toBeInstanceOf(DriverUnavailableError);
-      expect((error as DriverUnavailableError).code).toBe("driver.unavailable");
-      expect((error as DriverUnavailableError).fields).toEqual({ driverId: "codex" });
-    }
+    const refusal = captureThrow(() => registry.checkCapability("codex", "steer"));
+    expect(refusal).toBeInstanceOf(DriverUnavailableError);
+    expect((refusal as DriverUnavailableError).code).toBe("driver.unavailable");
+    expect((refusal as DriverUnavailableError).fields).toEqual({ driverId: "codex" });
   });
 });
 
@@ -243,7 +207,7 @@ describe("ProviderRegistry — last-call-wins registration race (latest-initiate
   it("the LATER-initiated register wins even when its getCapabilities() resolves LAST", async () => {
     const registry = new ProviderRegistry();
     // A is initiated first (steer supported), B second (tool_calls supported).
-    const driverA = new DeferredProviderDriver(makeFlags({ steer: true }));
+    const driverA = new DeferredProviderDriver(makeFlags({ steer: true, tool_calls: false }));
     const driverB = new DeferredProviderDriver(makeFlags({ tool_calls: true }));
 
     const registerA = registry.register(DRIVER_ID, driverA);
@@ -267,7 +231,7 @@ describe("ProviderRegistry — re-register", () => {
   it("re-registering an id overwrites the cached capability snapshot", async () => {
     const registry = new ProviderRegistry();
     // First registration: steer supported, tool_calls not.
-    const driver = new FakeProviderDriver(makeFlags({ steer: true }));
+    const driver = new FakeProviderDriver(makeFlags({ steer: true, tool_calls: false }));
     await registry.register(DRIVER_ID, driver);
     expect(() => registry.checkCapability(DRIVER_ID, "steer")).not.toThrow();
     expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).toThrow(

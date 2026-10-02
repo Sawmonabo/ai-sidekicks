@@ -12,6 +12,12 @@ import {
   DriverDiagnosticsEmitter,
   type DriverDiagnosticRecord,
 } from "../../../driver-diagnostics.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import {
+  makeManualScheduler,
+  type ManualScheduler,
+} from "../../../__fixtures__/manual-scheduler.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
@@ -24,7 +30,6 @@ import {
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
   type CodexCredentialEnvPolicyResolver,
-  type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
   type CodexModelCatalogExchange,
@@ -327,81 +332,6 @@ export class FakeCodexAppServer implements PtyHost {
   }
 }
 
-interface ScheduledTimeout {
-  callback: () => void;
-  delayMs: number;
-  canceled: boolean;
-}
-
-export function makeManualScheduler(): {
-  schedule: CodexScheduleTimeout;
-  fireAll: () => void;
-  fireDelay: (delayMs: number) => number;
-  pendingDelays: () => readonly number[];
-  firedDelays: () => readonly number[];
-  pendingCount: () => number;
-} {
-  const scheduled: ScheduledTimeout[] = [];
-  const fired: number[] = [];
-  const schedule: CodexScheduleTimeout = (callback, delayMs) => {
-    const entry: ScheduledTimeout = { callback, delayMs, canceled: false };
-    scheduled.push(entry);
-    return () => {
-      entry.canceled = true;
-    };
-  };
-  return {
-    schedule,
-    fireAll: () => {
-      for (const entry of scheduled) {
-        if (!entry.canceled) {
-          entry.canceled = true;
-          fired.push(entry.delayMs);
-          entry.callback();
-        }
-      }
-    },
-    /**
-     * Fires only the timers armed at one delay and returns how many ran. `fireAll` cannot serve
-     * an expiry assertion on a single deadline: a live session also holds the transport's request
-     * deadline, so firing everything would reject the in-flight request and settle on a transport
-     * failure. The compaction bound differs from every other deadline this driver arms, so the
-     * delay selects it unambiguously.
-     */
-    fireDelay: (delayMs: number) => {
-      let firedHere = 0;
-      for (const entry of scheduled) {
-        if (!entry.canceled && entry.delayMs === delayMs) {
-          entry.canceled = true;
-          fired.push(entry.delayMs);
-          entry.callback();
-          firedHere += 1;
-        }
-      }
-      return firedHere;
-    },
-    pendingDelays: () => scheduled.filter((entry) => !entry.canceled).map((entry) => entry.delayMs),
-    /**
-     * The delays that actually ran, as opposed to canceled. `pendingCount` cannot tell them apart
-     * (a settled wait and an expired one both cancel their timer), so a "settled without any
-     * timer firing" assertion needs this record.
-     */
-    firedDelays: () => fired,
-    pendingCount: () => scheduled.filter((entry) => !entry.canceled).length,
-  };
-}
-
-/**
- * Drains the microtask queue by yielding to the macrotask queue once. Counting
- * `await Promise.resolve()` hops instead would pin a test to the driver's exact continuation
- * sequencing and turn a real assertion into a hang when that changes.
- */
-export async function drainMicrotasks(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
-}
-
 export function makeCapabilities(steer: boolean): DriverCapabilities {
   const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
     DriverCapabilityFlag,
@@ -461,7 +391,7 @@ export interface Harness {
   diagnostics: CodexTransportDiagnostic[];
   driverDiagnostics: DriverDiagnosticsEmitter;
   textNeutralizationFailures: RecordedTextNeutralizationFailure[];
-  scheduler: ReturnType<typeof makeManualScheduler>;
+  scheduler: ManualScheduler;
 }
 
 /**
@@ -473,17 +403,6 @@ interface RecordedTextNeutralizationFailure {
   readonly sessionId: SessionId;
   readonly runId: RunId;
   readonly providerFailureDetail: string;
-}
-
-/**
- * The default log sink writes to the console, which would fill test output with policy
- * diagnostics; the emitter still retains the records the assertions read.
- */
-export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({
-    logSink: { record: () => undefined },
-    counterSink: { increment: () => undefined },
-  });
 }
 
 export function createHarness(
@@ -562,7 +481,7 @@ export interface ManagerHarness {
   notifications: Array<{ method: string; params: unknown }>;
   meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
   subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }>;
-  scheduler: ReturnType<typeof makeManualScheduler>;
+  scheduler: ManualScheduler;
 }
 
 export interface ManagerHarnessOptions {

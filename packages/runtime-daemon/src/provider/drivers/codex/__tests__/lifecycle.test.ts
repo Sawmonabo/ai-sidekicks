@@ -50,12 +50,15 @@ import {
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
   type CodexTransportSelection,
-  CODEX_INTERVENTION_FALLBACK_ACTION,
 } from "../index.js";
 import { assertRealizedTurnPostureMembers } from "../session-config.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "../server-requests.js";
-import { CODEX_COMPACTION_WAIT_MS } from "../provider-commands.js";
-import { type DriverResumeResult, type CallbackToolInvocation } from "../../../provider-driver.js";
+import { COMPACTION_WAIT_MS } from "../../../compaction-wait.js";
+import {
+  type DriverResumeResult,
+  type CallbackToolInvocation,
+  STEER_FALLBACK_ACTION,
+} from "../../../provider-driver.js";
 import {
   EXECUTABLE_PATH,
   FakeCodexAppServer,
@@ -77,10 +80,7 @@ import {
   createHarness,
   createManagerHarness,
   createdSession,
-  drainMicrotasks,
   makeCapabilities,
-  makeManualScheduler,
-  makeSilentDriverDiagnostics,
   modelOutputItemFrame,
   resolveNoDeniedCredentialNames,
   routedAskHarness,
@@ -88,6 +88,9 @@ import {
   turnCompletedFrame,
   zeroTurnCompletedFrame,
 } from "./codex-test-doubles.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 
 // --------------------------------------------------------------------------
 // Spawn and handshake
@@ -1595,7 +1598,7 @@ describe("CodexLifecycleManager steer wire shape", () => {
     // throwing would report a live provider as unreachable.
     await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
       status: "degraded",
-      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+      fallbackAction: STEER_FALLBACK_ACTION,
     });
   });
 });
@@ -4135,7 +4138,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(observed).toBe("still-waiting");
     // Non-vacuous: a wait is armed at the driver's declared bound, so the operation is open because
     // it waits, not because the request hung.
-    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.pendingDelays()).toContain(COMPACTION_WAIT_MS);
 
     emitCompactionBoundary(harness);
     await expect(compaction).resolves.toMatchObject({ status: "applied" });
@@ -4153,7 +4156,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     // Fire only the compaction bound, not `fireAll`: a live session also holds the transport's 60s
     // request deadline, and firing it would reject the in-flight request and settle
     // `provider_error` for the wrong reason.
-    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(1);
+    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(1);
 
     await expect(compaction).resolves.toStrictEqual({
       status: "failed",
@@ -4162,7 +4165,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
     expect(terminals).toHaveLength(1);
     expect(terminals[0]?.details["terminal"]).toBe("wait_expired");
-    expect(terminals[0]?.details["declaredBoundMs"]).toBe(CODEX_COMPACTION_WAIT_MS);
+    expect(terminals[0]?.details["declaredBoundMs"]).toBe(COMPACTION_WAIT_MS);
 
     // A boundary frame arriving after the wait expired settles nobody and still travels its
     // ordinary route into the normalize band; a tap written as a diversion would swallow it.
@@ -4193,13 +4196,13 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(terminals[0]?.details["terminal"]).toBe("provider_error");
 
     // The armed wait is withdrawn, not left to time out. A thrown request means the transport
-    // failed, and `CODEX_COMPACTION_WAIT_MS` is longer than the transport deadline that produces
+    // failed, and `COMPACTION_WAIT_MS` is longer than the transport deadline that produces
     // such a throw, so a leftover registration would outlive its caller.
-    expect(harness.scheduler.pendingDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.pendingDelays()).not.toContain(COMPACTION_WAIT_MS);
 
     // Nothing is left for the bound to fire, so a later elapse cannot revive a settled operation or
     // emit a second terminal.
-    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(0);
+    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(0);
     await drainMicrotasks();
     expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(
       1,
@@ -4234,11 +4237,11 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     // The child's boundary frame routed `carve-out-usage`, a different arm from the two the tap is
     // called from, so it reached neither the user's wait nor the parent's timeline.
     expect(harness.notifications).toStrictEqual([]);
-    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.pendingDelays()).toContain(COMPACTION_WAIT_MS);
 
     // The wait still runs out its own declared bound, so the child settled nothing; a tap comparing
     // nothing, or a routing regression, would already have resolved `applied`.
-    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(1);
+    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(1);
     await expect(compaction).resolves.toStrictEqual({
       status: "failed",
       reason: "wait_expired",
@@ -4262,7 +4265,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     });
     // Immediacy: the second terminal is pushed from the disposal path, not polled, so a binding
     // lost at t=0 settles at t=0. A poller could only settle when a timer ran.
-    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+    expect(harness.scheduler.firedDelays()).not.toContain(COMPACTION_WAIT_MS);
     const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
     expect(terminals).toHaveLength(1);
     expect(terminals[0]?.details["terminal"]).toBe("binding_lost");

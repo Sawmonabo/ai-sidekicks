@@ -5,7 +5,7 @@
 import type { ProviderName } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import {
   CAPABILITY_REFRESH_READ_TIMEOUT_MS,
@@ -71,10 +71,7 @@ function buildRefresher(drivers: readonly FakeDriverEntry[]): {
   readonly diagnostics: CapabilityRefreshDiagnostic[];
 } {
   const diagnostics: CapabilityRefreshDiagnostic[] = [];
-  const emitter = new DriverDiagnosticsEmitter({
-    logSink: { record: () => undefined },
-    counterSink: { increment: () => undefined },
-  });
+  const emitter = makeSilentDriverDiagnostics();
   const refresher = new CapabilityRefresher({
     drivers: drivers.map((driver) => driver.entry),
     diagnostics: emitter,

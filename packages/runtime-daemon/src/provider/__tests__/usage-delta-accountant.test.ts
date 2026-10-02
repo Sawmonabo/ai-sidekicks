@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import {
   deriveWindowTelemetry,
   resolveCostUpdateProvenance,
@@ -11,7 +11,7 @@ import {
 } from "../usage-delta-accountant.js";
 
 function makeAccountant() {
-  const diagnostics = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+  const diagnostics = makeSilentDriverDiagnostics();
   const accountant = new UsageDeltaAccountant({ provider: "codex", diagnostics });
   return { accountant, diagnostics };
 }
@@ -255,7 +255,7 @@ describe("UsageDeltaAccountant", () => {
 
 describe("resolveCostUpdateProvenance", () => {
   function makeDiagnostics() {
-    return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+    return makeSilentDriverDiagnostics();
   }
   const ladderDefaults = {
     provider: "codex" as const,

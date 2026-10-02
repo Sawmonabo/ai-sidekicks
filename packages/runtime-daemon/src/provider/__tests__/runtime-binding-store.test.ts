@@ -13,6 +13,7 @@ import {
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { captureThrow } from "../__fixtures__/capture-throw.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
@@ -319,17 +320,14 @@ describe("RuntimeBindingStore — contract_version is canonical semver and lengt
   for (const version of rejectedVersions) {
     it(`rejects non-canonical / loose / malformed ${JSON.stringify(version)}`, () => {
       const store = makeStore();
-      let thrown: unknown;
-      try {
+      const thrown = captureThrow(() => {
         store.create({
           runId: RUN_ID,
           driverName: DRIVER_NAME,
           contractVersion: version,
           spawnConfig: {},
         });
-      } catch (error) {
-        thrown = error;
-      }
+      });
       expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
       const validationError = thrown as ProviderOutputValidationError;
       expect(validationError.fields?.["field"]).toBe("contract_version");
@@ -354,8 +352,7 @@ describe("RuntimeBindingStore — resume_handle", () => {
 
   it("rejects a whitespace-only resume_handle (the /\\S/ hardening beyond the DB CHECK)", () => {
     const store = makeStore();
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
@@ -363,9 +360,7 @@ describe("RuntimeBindingStore — resume_handle", () => {
         spawnConfig: {},
         resumeHandle: "   ",
       });
-    } catch (error) {
-      thrown = error;
-    }
+    });
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("resume_handle");
   });
@@ -473,12 +468,9 @@ describe("RuntimeBindingStore — update revalidation", () => {
     });
     corruptSpawnConfigOutOfBand(created.id, "{not json at all");
 
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
     // provider input.
@@ -578,12 +570,9 @@ describe("RuntimeBindingStore — spawn_config", () => {
       const store = makeStore();
       const rawId = insertRawBinding({ id: "corrupt-row-1", spawnConfig: raw });
 
-      let thrown: unknown;
-      try {
+      const thrown = captureThrow(() => {
         store.findById(rawId);
-      } catch (error) {
-        thrown = error;
-      }
+      });
 
       expect(thrown).toBeInstanceOf(Error);
       // A plain internal-invariant Error, not the provider-output type: this is daemon-written
@@ -603,12 +592,9 @@ describe("RuntimeBindingStore — driver_name", () => {
     const store = makeStore();
     const rawId = insertRawBinding({ id: "corrupt-driver-1", driverName: "gemini" });
 
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       store.findById(rawId);
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
@@ -849,12 +835,9 @@ describe("composeResumeSessionParams", () => {
       spawnConfig: FULL_SPAWN_CONFIG,
     });
 
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS);
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     expect(thrown).toBeInstanceOf(RuntimeBindingNotResumableError);
     expect((thrown as RuntimeBindingNotResumableError).runId).toBe(RUN_ID);

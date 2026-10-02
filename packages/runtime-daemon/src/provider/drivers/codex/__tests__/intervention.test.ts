@@ -1,11 +1,12 @@
 // Codex intervention dispatcher: each intervention type maps onto a native provider operation, or
-// degrades with no provider operation when its capability is not declared, or when a steer is
-// acknowledged on a different turn.
+// degrades with no provider operation when its capability is not declared, when a steer is
+// acknowledged on a different turn, or when its text was ruled swallowed.
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
   DRIVER_CAPABILITY_FLAGS,
+  DriverInterventionResultSchema,
   type ApplyInterventionParams,
   type DriverCapabilities,
   type DriverCapabilityFlag,
@@ -15,11 +16,12 @@ import {
 
 import {
   CodexInterventionDispatcher,
-  CODEX_INTERVENTION_FALLBACK_ACTION,
   type CodexInterventionRuntime,
   type CodexSteerAcknowledgement,
   type CodexSteerRunRequest,
 } from "../intervention.js";
+import { TEXT_NEUTRALIZATION_REFUSAL_CODE } from "../../../outbound-frame.js";
+import { STEER_FALLBACK_ACTION } from "../../../provider-driver.js";
 
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
 
@@ -82,13 +84,18 @@ function createHarness(
   };
 }
 
-function steerParams(): ApplyInterventionParams {
+function steerParams(
+  payload: Extract<ApplyInterventionParams, { type: "steer" }>["payload"] = {
+    content: "focus on the failing test",
+    expectedTurnId: "turn-01",
+  },
+): ApplyInterventionParams {
   return {
     type: "steer",
     targetRunId: RUN_ID,
     expectedRunVersion: 4,
     clientIdempotencyKey: "idem-1",
-    payload: { content: "focus on the failing test", expectedTurnId: "turn-01" },
+    payload,
   };
 }
 
@@ -164,7 +171,7 @@ describe("CodexInterventionDispatcher degraded fallback", () => {
 
     expect(result).toEqual({
       status: "degraded",
-      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+      fallbackAction: STEER_FALLBACK_ACTION,
     });
     // Degrading after steering would apply the intervention the layer above compensates for.
     expect(harness.steerRun).not.toHaveBeenCalled();
@@ -211,7 +218,51 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
     // message as delivered to a turn that never saw it.
     expect(result).toEqual({
       status: "degraded",
-      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+      fallbackAction: STEER_FALLBACK_ACTION,
     });
+  });
+});
+
+describe("CodexInterventionDispatcher steer under a text-neutralization refusal", () => {
+  function harnessRuling(refused: boolean): {
+    readonly harness: Harness;
+    readonly decisionReads: string[];
+  } {
+    const decisionReads: string[] = [];
+    const harness = createHarness(
+      {},
+      {
+        textNeutralizationDecisionForTurn: (turnId: string): { readonly refused: boolean } => {
+          decisionReads.push(turnId);
+          return { refused };
+        },
+      },
+    );
+    return { harness, decisionReads };
+  }
+
+  it("settles degraded with the refusal code and no fallbackAction", async () => {
+    const { harness } = harnessRuling(true);
+
+    const result = await harness.dispatcher.applyIntervention(
+      steerParams({ content: "/status please", expectedTurnId: "turn-01" }),
+    );
+
+    // Parsed through the real envelope schema so its `.strict()` guarantee is exercised.
+    const parsed = DriverInterventionResultSchema.parse(result);
+    expect(parsed.status).toBe("degraded");
+    expect(parsed.refusalCode).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+    // No `fallbackAction`: `queue_and_interrupt` would re-queue the same text into the same
+    // swallow.
+    expect("fallbackAction" in parsed).toBe(false);
+    expect(Object.keys(parsed).sort()).toStrictEqual(["refusalCode", "status"]);
+  });
+
+  it("asks about the turn that actually went on the wire", async () => {
+    const { harness, decisionReads } = harnessRuling(false);
+
+    await harness.dispatcher.applyIntervention(steerParams({ content: "keep going" }));
+
+    expect(decisionReads).toStrictEqual([LIVE_TURN_ID]);
   });
 });

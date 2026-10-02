@@ -5,68 +5,23 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  type DriverCapabilityFlag,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+import { captureThrow } from "../__fixtures__/capture-throw.js";
+import type { ProviderName } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
-  DriverCapabilitiesWriter,
-  type DriverCapabilityHydrationResult,
-} from "../driver-capabilities-writer.js";
+  CLI_VERSION_REPORT,
+  CONTRACT_VERSION,
+  expectHydrationHit,
+  makeFlags,
+  makeResult,
+} from "../__fixtures__/capability-results.js";
+import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../provider-registry.js";
-import type {
-  DriverCliVersionReport,
-  GetCapabilitiesResult,
-  ProviderDriver,
-} from "../provider-driver.js";
+import type { GetCapabilitiesResult, ProviderDriver } from "../provider-driver.js";
 
 const DRIVER_NAME: ProviderName = "claude";
-// One shared version makes the binding and the capability cache agree by construction.
-const CONTRACT_VERSION: string = "1.2.3";
-
-// Every flag defaults false, then `resume` and `tool_calls` are true, then the overrides apply.
-function makeFlags(
-  overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
-): Record<DriverCapabilityFlag, boolean> {
-  const base = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
-    DriverCapabilityFlag,
-    boolean
-  >;
-  return { ...base, resume: true, tool_calls: true, ...overrides };
-}
-
-// The writer persists the reading, so a cold-start re-seed carries it out of the cache instead of
-// re-attaching it from the live driver.
-const CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "mock-provider-cli 2.1.234 (build 7)",
-  semver: "2.1.234",
-};
-
-// Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
-// round-trip is an identity check.
-function makeResult(overrides: Partial<GetCapabilitiesResult> = {}): GetCapabilitiesResult {
-  return {
-    capabilities: {
-      flags: makeFlags(),
-      contractVersion: CONTRACT_VERSION,
-    },
-    tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
-    cliVersion: CLI_VERSION_REPORT,
-    ...overrides,
-  };
-}
-
-// Throws on a miss, naming its reason, so a hit that became a miss cannot pass silently.
-function expectHydrationHit(hydrated: DriverCapabilityHydrationResult): GetCapabilitiesResult {
-  if (!hydrated.hit) {
-    throw new Error(`expected a hydration HIT; got a miss with reason "${hydrated.reason}"`);
-  }
-  return hydrated.result;
-}
 
 // The registry caches `getCapabilities()` once per registration, so each registration gets its own
 // driver. Every other method rejects, so a stray call fails the test.
@@ -152,8 +107,11 @@ describe("capability gating across the registry, the durable cache and a restart
     const { writer, registry } = makeStack();
 
     // steer:false, resume:true, tool_calls:true, and a non-empty tools array.
+    // Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
+    // round-trip is an identity check.
     const advertised: GetCapabilitiesResult = makeResult({
       capabilities: { flags: makeFlags({ steer: false }), contractVersion: CONTRACT_VERSION },
+      tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
     });
     const driver = makeMockDriver(advertised);
 
@@ -162,17 +120,11 @@ describe("capability gating across the registry, the durable cache and a restart
     // A declared-true flag returns void.
     expect(registry.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
     // A declared-false flag throws.
-    expect(() => registry.checkCapability(DRIVER_NAME, "steer")).toThrow(
-      DriverCapabilityUnsupportedError,
+    const refusal = captureThrow(() => registry.checkCapability(DRIVER_NAME, "steer"));
+    expect(refusal).toBeInstanceOf(DriverCapabilityUnsupportedError);
+    expect((refusal as DriverCapabilityUnsupportedError).code).toBe(
+      "driver.capability_unsupported",
     );
-    try {
-      registry.checkCapability(DRIVER_NAME, "steer");
-      expect.unreachable("checkCapability(steer) must throw");
-    } catch (error) {
-      expect((error as DriverCapabilityUnsupportedError).code).toBe(
-        "driver.capability_unsupported",
-      );
-    }
 
     // Persist the snapshot to the durable cache.
     expect(
@@ -200,15 +152,11 @@ describe("capability gating across the registry, the durable cache and a restart
     // mask a cache that dropped it.
     await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
     expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
-    try {
-      registryB.checkCapability(DRIVER_NAME, "steer");
-      expect.unreachable("registry-B checkCapability(steer) must throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(DriverCapabilityUnsupportedError);
-      expect((error as DriverCapabilityUnsupportedError).code).toBe(
-        "driver.capability_unsupported",
-      );
-    }
+    const refusalB = captureThrow(() => registryB.checkCapability(DRIVER_NAME, "steer"));
+    expect(refusalB).toBeInstanceOf(DriverCapabilityUnsupportedError);
+    expect((refusalB as DriverCapabilityUnsupportedError).code).toBe(
+      "driver.capability_unsupported",
+    );
   });
 
   it("steer false→true reports changed and the refreshed registry passes steer", async () => {

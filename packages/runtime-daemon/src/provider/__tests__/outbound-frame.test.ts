@@ -1,31 +1,12 @@
 // A provider CLI swallows a command-shaped message and answers with a zero-turn success, so the
 // bytes on the wire are neutralized and a turn settling with no evidence of a model fails loudly.
-// The Claude vectors are recorded frames; the Codex bodies are shaped after recorded frames.
+// The turn that settles with no evidence is the recorded Claude zero-turn reply.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type { DriverCapabilities, RunId } from "@ai-sidekicks/contracts";
-import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
-
+import { captureThrow } from "../__fixtures__/capture-throw.js";
 import { classifyClaudeTurnEvidence } from "../drivers/claude/turn-evidence.js";
-import {
-  CLAUDE_API_ERRORED_TURN_RESULT_FRAME,
-  CLAUDE_ORDINARY_TURN_RESULT_FRAME,
-  CLAUDE_ZERO_TURN_RESULT_FRAME,
-} from "../drivers/claude/__fixtures__/turn-evidence-transcripts.js";
-import {
-  codexCommandDispatchResponse,
-  codexQuotaExhaustedTurn,
-  codexTurnWithModelOutput,
-} from "../drivers/codex/__fixtures__/turn-evidence-transcripts.js";
-import {
-  classifyCodexTurnEvidence,
-  classifyCodexTurnEvidenceObservation,
-} from "../drivers/codex/turn-evidence.js";
-import {
-  CodexInterventionDispatcher,
-  type CodexInterventionRuntime,
-} from "../drivers/codex/intervention.js";
+import { CLAUDE_ZERO_TURN_RESULT_FRAME } from "../drivers/claude/__fixtures__/turn-evidence-transcripts.js";
 import {
   composeTextNeutralizationRunFailure,
   isCommandShapedText,
@@ -159,130 +140,6 @@ describe("outbound text frame writer", () => {
       // A rejected value is never echoed into a persisted string the person sees.
       expect(frame.detailOrigin).toBe("unknown");
     }
-  });
-});
-
-describe("Claude turn-evidence classifier", () => {
-  it("finds no evidence in the recorded zero-turn synthetic reply", () => {
-    const classification = classifyClaudeTurnEvidence(CLAUDE_ZERO_TURN_RESULT_FRAME);
-
-    expect(classification.recognized).toBe(true);
-    expect(classification.observations).toStrictEqual([]);
-  });
-
-  it("finds evidence in the recorded ordinary turn", () => {
-    const classification = classifyClaudeTurnEvidence(CLAUDE_ORDINARY_TURN_RESULT_FRAME);
-
-    expect(classification.recognized).toBe(true);
-    expect(classification.observations).toContain("turn_accounting");
-    expect(classification.observations).toContain("model_output");
-  });
-
-  it("finds evidence in a genuine turn that ended in a provider-side refusal", () => {
-    // The key negative control: this frame renders synthetic and reports `is_error: true` yet is
-    // a real, billed turn, so a classifier keyed on either field would fail it.
-    expect(classifyClaudeTurnEvidence(CLAUDE_API_ERRORED_TURN_RESULT_FRAME).observations).toContain(
-      "turn_accounting",
-    );
-  });
-
-  it("reads a declared failure subtype as a loud, non-silent outcome", () => {
-    const classification = classifyClaudeTurnEvidence({
-      type: "result",
-      subtype: "error_during_execution",
-      num_turns: 0,
-      duration_api_ms: 0,
-      total_cost_usd: 0,
-      modelUsage: {},
-    });
-
-    expect(classification.observations).toStrictEqual(["declared_turn_failure"]);
-  });
-
-  it("refuses to recognize a shape it was not given", () => {
-    for (const envelope of [
-      undefined,
-      null,
-      "result",
-      42,
-      [],
-      {},
-      { type: "assistant" },
-      { type: "result" },
-      { type: "result", subtype: "not_a_censused_subtype" },
-    ]) {
-      expect(classifyClaudeTurnEvidence(envelope)).toStrictEqual(UNRECOGNIZED_TURN_EVIDENCE);
-    }
-  });
-});
-
-describe("Codex turn-evidence classifier", () => {
-  it("finds model output in a turn that produced an agent message", () => {
-    const classification = classifyCodexTurnEvidence(codexTurnWithModelOutput("turn-1"));
-
-    expect(classification.recognized).toBe(true);
-    expect(classification.observations).toStrictEqual(["model_output"]);
-  });
-
-  it("finds no evidence in a synthesized command-dispatch response", () => {
-    const classification = classifyCodexTurnEvidence(codexCommandDispatchResponse("turn-1"));
-
-    expect(classification.recognized).toBe(true);
-    expect(classification.observations).toStrictEqual([]);
-  });
-
-  it("passes a typed declared failure so an unrelated outage is not misreported", () => {
-    // The measured quota-exhausted turn has no model output but is not a neutralization failure;
-    // reporting it as one would put the wrong cause in a shared field the person sees.
-    expect(classifyCodexTurnEvidence(codexQuotaExhaustedTurn("turn-1")).observations).toStrictEqual(
-      ["declared_turn_failure"],
-    );
-  });
-
-  it("reads an interrupted turn as a declared non-completion", () => {
-    expect(
-      classifyCodexTurnEvidence({
-        turn: { id: "turn-1", items: [], itemsView: "loaded", status: "interrupted", error: null },
-      }).observations,
-    ).toStrictEqual(["declared_turn_failure"]);
-  });
-
-  it("refuses to recognize a shape it was not given", () => {
-    for (const envelope of [
-      undefined,
-      null,
-      [],
-      {},
-      { turn: null },
-      { turn: {} },
-      { turn: { status: "notAStatus" } },
-    ]) {
-      expect(classifyCodexTurnEvidence(envelope)).toStrictEqual(UNRECOGNIZED_TURN_EVIDENCE);
-    }
-  });
-
-  it("accrues in-flight model output from item notifications", () => {
-    // `turn/completed` can carry `itemsView: "notLoaded"` beside an empty item list (measured at
-    // the pinned build): items not loaded, not output absent.
-    expect(
-      classifyCodexTurnEvidenceObservation("item/completed", {
-        turnId: "turn-1",
-        item: { type: "agentMessage", id: "item-2" },
-      }),
-    ).toStrictEqual({ turnId: "turn-1", observation: "model_output" });
-  });
-
-  it("reads no in-flight evidence off a user echo or an unrelated method", () => {
-    expect(
-      classifyCodexTurnEvidenceObservation("item/completed", {
-        turnId: "turn-1",
-        item: { type: "userMessage", id: "item-1" },
-      }),
-    ).toBeNull();
-    expect(classifyCodexTurnEvidenceObservation("turn/started", { turnId: "turn-1" })).toBeNull();
-    expect(
-      classifyCodexTurnEvidenceObservation("item/completed", { item: { type: "agentMessage" } }),
-    ).toBeNull();
   });
 });
 
@@ -940,13 +797,9 @@ describe("runtime binding quarantine", () => {
     quarantine.disposeRun("run-1", "session-1");
 
     expect(quarantine.isRunDisposed("run-1")).toBe(true);
-    expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
-    try {
-      quarantine.assertRunAttachable("run-1");
-      throw new Error("expected a refusal");
-    } catch (error) {
-      expect((error as TextNeutralizationRefusedError).code).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
-    }
+    const refusal = captureThrow(() => quarantine.assertRunAttachable("run-1"));
+    expect(refusal).toBeInstanceOf(TextNeutralizationRefusedError);
+    expect((refusal as TextNeutralizationRefusedError).code).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
   });
 
   it("refuses the session a trip condemned, not only the run that was on it", () => {
@@ -1027,73 +880,5 @@ describe("runtime binding quarantine", () => {
     }
 
     expect(quarantine.isSessionDisposed("session-1")).toBe(true);
-  });
-});
-
-describe("Codex steer intervention under a text-neutralization refusal", () => {
-  const CODEX_RUN_ID = "run-1" as RunId;
-
-  function buildDispatcher(refused: boolean): {
-    readonly dispatcher: CodexInterventionDispatcher;
-    readonly steerRun: ReturnType<typeof vi.fn>;
-    readonly decisionReads: string[];
-  } {
-    const decisionReads: string[] = [];
-    const steerRun = vi.fn(async (request: { expectedTurnId?: string | undefined }) => {
-      const targetedTurnId = request.expectedTurnId ?? "turn-live";
-      return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
-    });
-    const runtime = {
-      steerRun,
-      interruptRun: vi.fn(async () => {}),
-      textNeutralizationDecisionForTurn: (turnId: string): { readonly refused: boolean } => {
-        decisionReads.push(turnId);
-        return { refused };
-      },
-    } as unknown as CodexInterventionRuntime;
-    const capabilities = {
-      driverName: "codex",
-      driverVersion: "0.150.1",
-      flags: { steer: true },
-    } as unknown as DriverCapabilities;
-    return {
-      dispatcher: new CodexInterventionDispatcher({
-        runtime,
-        readCapabilities: () => capabilities,
-      }),
-      steerRun,
-      decisionReads,
-    };
-  }
-
-  const steerParams = {
-    type: "steer" as const,
-    targetRunId: CODEX_RUN_ID,
-    expectedRunVersion: 3,
-    clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000001",
-    payload: { content: "/status please", expectedTurnId: "turn-01" },
-  };
-
-  it("settles degraded with the refusal code and no fallbackAction", async () => {
-    const { dispatcher } = buildDispatcher(true);
-
-    const result = await dispatcher.applyIntervention(steerParams);
-
-    // Parsed through the real envelope schema so its `.strict()` guarantee is exercised.
-    const parsed = DriverInterventionResultSchema.parse(result);
-    expect(parsed.status).toBe("degraded");
-    expect(parsed.refusalCode).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
-    // No `fallbackAction`: `queue_and_interrupt` would re-queue the same text into the same
-    // swallow.
-    expect("fallbackAction" in parsed).toBe(false);
-    expect(Object.keys(parsed).sort()).toStrictEqual(["refusalCode", "status"]);
-  });
-
-  it("asks about the turn that actually went on the wire", async () => {
-    const { dispatcher, decisionReads } = buildDispatcher(false);
-
-    await dispatcher.applyIntervention({ ...steerParams, payload: { content: "keep going" } });
-
-    expect(decisionReads).toStrictEqual(["turn-live"]);
   });
 });

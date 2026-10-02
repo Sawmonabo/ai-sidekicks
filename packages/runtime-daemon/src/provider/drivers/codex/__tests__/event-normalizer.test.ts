@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import {
   classifyCodexFrameFamilyForRouting,
   resolveCodexFrameEmissionRoute,
@@ -14,7 +14,7 @@ import { classifyCodexUsageLimitSignal } from "../usage-limit-signal.js";
 
 describe("resolveCodexFrameEmissionRoute", () => {
   function makeDiagnostics() {
-    return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+    return makeSilentDriverDiagnostics();
   }
 
   it("routes an unmapped method to the diagnostic default branch, emitted, never thrown, never enveloped", () => {

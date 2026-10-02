@@ -8,13 +8,15 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../__fixtures__/capability-probe-doubles.js";
+import { codexDefaultProbeReply } from "../drivers/codex/__fixtures__/capability-probe-replies.js";
 import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import {
   withSpawnedVersionCarriers,
   type CreateRuntimeBindingInput,
@@ -183,15 +185,12 @@ describe("provider executable resolution", () => {
   });
 
   it("refuses an unresolvable command as driver.unavailable", async () => {
-    let thrown: unknown;
-    try {
+    const thrown = await captureRejection(async () => {
       await resolveProviderExecutable("codex", "codex", {
         readEnvironment: () => ({ PATH: "/nowhere/at/all" }),
         isExecutableFile: () => Promise.resolve(false),
       });
-    } catch (error) {
-      thrown = error;
-    }
+    });
     expect(thrown).toBeInstanceOf(ProviderExecutableUnresolvableError);
     const refusal = thrown as ProviderExecutableUnresolvableError;
     expect(refusal.code).toBe("driver.unavailable");
@@ -328,7 +327,9 @@ describe("the floor gate at the spawn", () => {
   async function attachCodex(
     sink: RecordingDeclarationSink,
     handshake: RecordingHandshake,
-    probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport("codex"),
+    probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport(
+      codexDefaultProbeReply,
+    ),
   ): Promise<DeclareDriverCapabilitiesResult> {
     const reading = await readSpawnedProviderVersion({
       driverName: CODEX_DRIVER_NAME,
@@ -340,7 +341,7 @@ describe("the floor gate at the spawn", () => {
     return refreshCodexCapabilities(sink, {
       reading,
       probe: probe.exchange,
-      diagnostics: new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } }),
+      diagnostics: makeSilentDriverDiagnostics(),
     });
   }
 
@@ -351,14 +352,11 @@ describe("the floor gate at the spawn", () => {
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("0.140.0") },
     });
     const sink = new RecordingDeclarationSink();
-    const probe = new RecordingCapabilityProbeTransport("codex");
+    const probe = new RecordingCapabilityProbeTransport(codexDefaultProbeReply);
 
-    let thrown: unknown;
-    try {
+    const thrown = await captureRejection(async () => {
       await attachCodex(sink, handshake, probe);
-    } catch (error) {
-      thrown = error;
-    }
+    });
 
     expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
     expect((thrown as DriverCliVersionBelowFloorError).fields).toStrictEqual({

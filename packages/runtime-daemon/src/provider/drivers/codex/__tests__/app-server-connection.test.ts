@@ -24,9 +24,9 @@ import {
   TURN_ID,
   createHarness,
   createdSession,
-  drainMicrotasks,
-  makeManualScheduler,
 } from "./codex-test-doubles.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
 import type { DriverTransportConfig } from "../transport-selection.js";
 
 describe("DriverTransportConfig — the websocket arm is authenticated", () => {
@@ -305,16 +305,9 @@ describe("CodexAppServerConnection event-callback containment", () => {
     );
 
     // The exit callback belongs to the host, so a fault in it escapes into the host's emit loop
-    // rather than reaching a caller. Captured so an implementation that lets it escape fails on
-    // the next line instead of hanging to the 5000ms timeout.
-    let escaped: unknown;
-    try {
-      server.emitExit(7);
-    } catch (error) {
-      escaped = error;
-    }
-
-    expect(escaped).toBeUndefined();
+    // rather than reaching a caller. Asserted here so an implementation that lets it escape fails
+    // at once instead of hanging to the 5000ms timeout.
+    expect(() => server.emitExit(7)).not.toThrow();
     expect(await settled).toBeInstanceOf(CodexTransportError);
     // Not swallowed: a failed disposer may have left a listener registered on a dead session,
     // and the diagnostic sink is the only surface that can say so.
@@ -359,18 +352,13 @@ describe("CodexAppServerConnection event-callback containment", () => {
     // The response sits behind the notification in one chunk, so a consumer that unwinds the
     // drain takes the caller down with it.
     const responseFrame = JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { ok: true } });
-    let escaped: unknown;
-    try {
+    expect(() =>
       server.emitRaw(
         new TextEncoder().encode(
           `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n${responseFrame}\r\n`,
         ),
-      );
-    } catch (error) {
-      escaped = error;
-    }
-
-    expect(escaped).toBeUndefined();
+      ),
+    ).not.toThrow();
     expect(await settled).toEqual({ ok: true });
     // Dropped, not fatal, and recorded.
     expect(diagnostics).toEqual([

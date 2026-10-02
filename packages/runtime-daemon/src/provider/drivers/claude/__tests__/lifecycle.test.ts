@@ -23,7 +23,6 @@ import {
 } from "../session-errors.js";
 import {
   ClaudeControlRequestRefusedError,
-  CLAUDE_COMPACTION_WAIT_MS,
   type ClaudeHandshakeDeclaration,
   type ClaudeRunDispatch,
 } from "../session-transport.js";
@@ -40,7 +39,7 @@ import {
   composeClaudeSandboxSettings,
 } from "../spawn-settings.js";
 import { type ClaudeSessionLifecycleDependencies } from "../session-state.js";
-import type { CompactionWaitScheduler } from "../../../compaction-wait.js";
+import { COMPACTION_WAIT_MS, type CompactionWaitScheduler } from "../../../compaction-wait.js";
 import {
   buildCreateSessionParams,
   FakeClaudeProviderProcess,
@@ -48,13 +47,14 @@ import {
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
   FakeClaudeSessionTransport,
-  makeSilentDriverDiagnostics,
   TEST_BINDING_ID,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
   TEST_MODEL,
 } from "./claude-test-doubles.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import {
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
   CLAUDE_ZERO_TURN_RESULT_FRAME,
@@ -3157,16 +3157,6 @@ function armRunDispatch(harness: LifecycleHarness, runId: RunId): void {
   });
 }
 
-/**
- * Drains the microtask queue by yielding to the macrotask queue once. A counted
- * `await Promise.resolve()` would pin the tests to an exact number of microtask hops.
- */
-async function drainMicrotasks(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
-}
-
 describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", () => {
   it("refuses `command_absent` and SENDS NOTHING when the provider does not enumerate the command", async () => {
     // The dispatched frame is tripwire-exempt, so discovering the command's absence after
@@ -3304,7 +3294,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     // Tripwire-exempt, which is why the presence check before dispatch matters.
     expect(channel?.sentTextFrames[0]?.tripwireExempt).toBe(true);
     // The wait is armed at the declared bound.
-    expect(scheduler.armedDelays()).toStrictEqual([CLAUDE_COMPACTION_WAIT_MS]);
+    expect(scheduler.armedDelays()).toStrictEqual([COMPACTION_WAIT_MS]);
     // Still unsettled: the provider accepted the frame and said nothing.
     expect(settled).toBeUndefined();
 

@@ -14,8 +14,8 @@ import {
   THREAD_ID,
   TURN_ID,
   createManagerHarness,
-  drainMicrotasks,
 } from "./codex-test-doubles.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 
 describe("readCodexAskOptionSet (the input-ask choice set)", () => {
   it("reads `item/tool/requestUserInput` options with value === label", () => {

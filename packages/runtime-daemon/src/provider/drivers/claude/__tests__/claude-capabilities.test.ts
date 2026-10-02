@@ -8,16 +8,20 @@ import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../../../__fixtures__/capability-probe-doubles.js";
+import { claudeDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import {
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
-  ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
   resolveClaudeModelCatalog,
 } from "../capabilities.js";
-import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../../provider-driver.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  ModelCatalogUnreadableError,
+} from "../../../provider-driver.js";
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
@@ -35,7 +39,9 @@ function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionRe
 
 function makeReporter(
   readCliVersion: () => Promise<DriverCliVersionReport> = () => Promise.resolve({ ...CLI_VERSION }),
-  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport("claude"),
+  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport(
+    claudeDefaultProbeReply,
+  ),
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
@@ -94,7 +100,7 @@ describe("Claude composition is bound to the spawned build", () => {
     };
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(foreign),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
       diagnostics: makeSilentDriverDiagnostics(),
     });
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
@@ -275,7 +281,7 @@ describe("Claude model catalog", () => {
   ])("refuses %s", (_label, payload, message) => {
     // Strict: skipping a bad row would answer a short catalog that looks like a provider dropping
     // a model.
-    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ClaudeModelCatalogUnreadableError);
+    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ModelCatalogUnreadableError);
     expect(() => normalizeClaudeModelCatalog(payload)).toThrow(message);
   });
 
@@ -297,7 +303,7 @@ describe("Claude model catalog", () => {
       }),
     ).rejects.toBe(transportFailure);
     await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
-      ClaudeModelCatalogUnreadableError,
+      ModelCatalogUnreadableError,
     );
   });
 });

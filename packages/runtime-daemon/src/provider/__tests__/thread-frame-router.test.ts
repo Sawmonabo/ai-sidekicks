@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import {
   ThreadFrameRouter,
   type RoutableProviderFrame,
@@ -18,7 +18,7 @@ const routerConfigDefaults: ThreadFrameRouterConfig = {
 };
 
 function makeRouter(configOverrides?: Partial<ThreadFrameRouterConfig>) {
-  const diagnostics = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+  const diagnostics = makeSilentDriverDiagnostics();
   const router = new ThreadFrameRouter({
     provider: "codex",
     diagnostics,

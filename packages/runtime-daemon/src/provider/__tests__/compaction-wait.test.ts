@@ -4,45 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  PendingCompactionRegistry,
-  type CompactionWaitScheduler,
-  type CompactionWaitSettlement,
-} from "../compaction-wait.js";
-
-/**
- * A scheduler whose timers fire only when a test says so; `fireAll` stands in for the declared
- * bound elapsing. Cancellation is recorded, since a canceled timer is the observable difference
- * between a wait that settled on evidence and one left armed to fire later.
- */
-function makeManualScheduler(): {
-  readonly schedule: CompactionWaitScheduler;
-  readonly fireAll: () => void;
-  readonly canceledCount: () => number;
-  readonly lastDelayMs: () => number | null;
-} {
-  const armed: { callback: () => void; canceled: boolean }[] = [];
-  let lastDelayMs: number | null = null;
-  return {
-    schedule: (callback, delayMs) => {
-      lastDelayMs = delayMs;
-      const entry = { callback, canceled: false };
-      armed.push(entry);
-      return () => {
-        entry.canceled = true;
-      };
-    },
-    fireAll: () => {
-      for (const entry of armed) {
-        if (!entry.canceled) {
-          entry.callback();
-        }
-      }
-    },
-    canceledCount: () => armed.filter((entry) => entry.canceled).length,
-    lastDelayMs: () => lastDelayMs,
-  };
-}
+import { makeManualScheduler } from "../__fixtures__/manual-scheduler.js";
+import { PendingCompactionRegistry, type CompactionWaitSettlement } from "../compaction-wait.js";
 
 const BINDING_KEY = "session-under-compaction";
 const DECLARED_BOUND_MS = 90_000;
@@ -56,7 +19,7 @@ describe("PendingCompactionRegistry — the observed terminal", () => {
     registry.observeBoundary(BINDING_KEY, 42);
 
     await expect(wait.settled).resolves.toEqual({ terminal: "observed", boundaryPosition: 42 });
-    expect(scheduler.lastDelayMs()).toBe(DECLARED_BOUND_MS);
+    expect(scheduler.scheduledDelays()).toStrictEqual([DECLARED_BOUND_MS]);
   });
 });
 

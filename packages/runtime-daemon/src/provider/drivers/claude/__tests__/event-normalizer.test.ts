@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { captureThrow } from "../../../__fixtures__/capture-throw.js";
 import {
   CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM,
   CLAUDE_RESULT_SUBTYPES,
@@ -20,7 +21,7 @@ import {
   type ClaudeNormalizedCategoryEmission,
 } from "../event-normalizer.js";
 import { classifyClaudeUsageLimitSignal } from "../usage-limit-signal.js";
-import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 
 /** Narrow to the emitting arm, failing the test rather than silently skipping. */
 function expectNormalized(
@@ -120,12 +121,9 @@ describe("pinned stream surface", () => {
 
 describe("unknown frame handling", () => {
   it("refuses an unmapped kind with a typed error rather than dropping it or fabricating a category", () => {
-    let thrown: unknown;
-    try {
+    const thrown = captureThrow(() => {
       normalizeClaudeWireFrame("system/zzq_nonexistent_subtype");
-    } catch (error) {
-      thrown = error;
-    }
+    });
     expect(thrown).toBeInstanceOf(UnknownClaudeWireFrameError);
     const typed = thrown as UnknownClaudeWireFrameError;
     expect(typed.name).toBe("UnknownClaudeWireFrameError");

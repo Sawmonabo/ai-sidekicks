@@ -4,7 +4,6 @@
 
 import type { ApplyInterventionParams, RunId, SessionId } from "@ai-sidekicks/contracts";
 
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import type { OutboundTextFrame } from "../../../outbound-frame.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
 import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
@@ -373,14 +372,6 @@ export function buildCancelParams(): ApplyInterventionParams {
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
     payload: { reason: "user canceled the run" },
   };
-}
-
-/** A diagnostics emitter with no console output; it still retains its records for assertions. */
-export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({
-    logSink: { record: () => undefined },
-    counterSink: { increment: () => undefined },
-  });
 }
 
 /**

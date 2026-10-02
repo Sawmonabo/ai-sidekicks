@@ -10,12 +10,12 @@ import {
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
   FakeClaudeSessionTransport,
-  makeSilentDriverDiagnostics,
   TEST_BINDING_ID,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
 } from "./claude-test-doubles.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 
 interface DriverHarness {
   readonly driver: ClaudeDriver;

@@ -10,6 +10,7 @@ import {
   NormalizedEventReorderBuffer,
   type DriverDiagnosticRecord,
 } from "../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 
 function makeRecord(overrides?: Partial<DriverDiagnosticRecord>): DriverDiagnosticRecord {
   return {
@@ -57,7 +58,7 @@ describe("DriverDiagnosticsEmitter", () => {
 
 describe("NormalizedEventReorderBuffer", () => {
   function makeBuffer(options?: { maxBufferedEvents?: number; pairingTimeoutMs?: number }) {
-    const emitter = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+    const emitter = makeSilentDriverDiagnostics();
     const buffer = new NormalizedEventReorderBuffer<string>({
       provider: "codex",
       diagnostics: emitter,
