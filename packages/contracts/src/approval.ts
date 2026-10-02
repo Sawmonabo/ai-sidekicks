@@ -126,16 +126,11 @@ export type RememberedRuleSense = "allow" | "block";
 export const RememberedRuleSenseSchema: z.ZodType<RememberedRuleSense, RememberedRuleSense> =
   z.enum(["allow", "block"]);
 
-const INVALIDATION_TRIGGER_VALUES = [
-  "explicit",
-  "session_end",
-  "project_detached",
-  "server_removed",
-] as const;
+const INVALIDATION_TRIGGER_VALUES = ["explicit", "session_end", "server_removed"] as const;
 
 /**
- * Why a rule ended: the person revoked it, its session ended, its project was
- * detached, or its tool server was removed. No rule outlives what scoped it.
+ * Why a rule ended: the person revoked it, its session ended, or its tool server
+ * was removed. A project's rules live in the project's own folder and stay with it.
  */
 export type InvalidationTrigger = (typeof INVALIDATION_TRIGGER_VALUES)[number];
 /** Every {@link InvalidationTrigger}. */
