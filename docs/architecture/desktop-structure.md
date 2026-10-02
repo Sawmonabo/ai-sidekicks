@@ -108,9 +108,9 @@ A hook lives in a `useThing.ts` file under its owner's `hooks/`. A file that mix
 
 ## Main, Preload and Shared
 
-- **`src/main/`** holds `index.ts`, `menu.ts` and `fixture-launch.ts` at its root, and groups the rest into `windows/` (the one window factory and main's registry of windows, every window alike, with the navigation policy and the load-failure handling), `services/` and `probes/`. A further folder is added only when its first file lands.
+- **`src/main/`** holds `index.ts`, `menu.ts` and `fixture-launch.ts` at its root, and groups the rest into `windows/` (the one window factory and main's registry of windows, every window alike, with the navigation policy and the load-failure handling), `bridge/` (main's handler for each preload bridge method), `services/` and `probes/`. A further folder is added only when its first file lands.
 - **`src/preload/`** holds `index.ts`, which is the expose call alone, and `api.ts`, which builds the bridge object. It has no `types.ts`: the type of what it exposes is `PreloadApi` in `src/shared/`.
-- **`src/shared/`** holds the desktop-only contracts between main, preload and the renderer: `preload-api.ts` (`PreloadApi` and `createStubBridge`) and `shutdown-budget.ts` (the value both processes read), as flat files. A subfolder such as `ipc/`, `types/` or `constants/` is made when a second file of its kind lands, never ahead of it, and none is forbidden: the narrowest owner decides. A type that belongs to one module stays beside it.
+- **`src/shared/`** holds the desktop-only contracts between main, preload and the renderer as flat files, `preload-api.ts` (`PreloadApi` and `createStubBridge`) among them. A subfolder such as `ipc/`, `types/` or `constants/` is made when a second file of its kind lands, never ahead of it, and none is forbidden: the narrowest owner decides. A type that belongs to one module stays beside it.
 - **Contracts live by boundary.** `packages/contracts` holds what crosses a boundary between independently built surfaces, or is a wire enum or schema; two consumers alone never justify it. `src/shared/` holds desktop-only contracts; a front-end type lives in the renderer.
 - **The process boundary.** The renderer requests, main owns the native windows, and the daemon owns the work. The renderer reaches the `window.*` and `preview.*` contracts only through its `services/` clients and holds no Electron, Node or filesystem authority. The front end has one bridge, `PlatformBridge` (`services/platform/platform-bridge.ts`), which every host implements; the renderer receives it through `PlatformBridgeProvider` (`usePlatformBridge`), and the desktop's implementation, `services/platform/live-bridge.ts`, is the only reader of `window.desktopBridge`.
 
@@ -161,7 +161,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 ## Tests
 
 - **A test sits beside its subject** as `*.test.ts` or `*.test.tsx`. Nothing is `.spec.ts`: Playwright runs inside Vitest as the Electron driver. The desktop has no `__tests__/` folders; the packages keep theirs.
-- **`tests/`** holds only tests that span modules or the application: `helpers/`, `browser/`, `e2e/`, `endurance/`, `screenshot/`, `accessibility/`, `budget/`, `bench/`, and `scenarios/` (tests that play a scenario through app code, a store or a feature, and never hold scenario data or a catalog entry of their own). A test that reads only one scenario's data sits beside that scenario in `fixtures/scenarios/`.
+- **`tests/`** holds only tests that span modules or the application: `helpers/`, `browser/`, `e2e/`, `endurance/`, `screenshot/`, `accessibility/`, `budget/` and `bench/`. A test that reads only one scenario's data sits beside that scenario in `fixtures/scenarios/`.
 - **Test support.** A `*.test-support.ts` helper serves one subject's tests and sits beside that subject. A helper several modules use lives in `tests/helpers/`, named for what it provides (`electron-driver.ts`, `render-app.tsx`) without the suffix. No suffix is added or removed mechanically.
 
 ## Imports
