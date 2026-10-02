@@ -7,7 +7,7 @@
 // session's scheduler for a re-pull when a hole opened, so a quiet session still repairs itself.
 //
 // The resume rule lands here too. `timeline-resume.ts` decides; this entry submits the position
-// as the third argument of `SessionSnapshotReader` on the read that already happens, since a
+// as the third argument of `SessionBaseStateReader` on the read that already happens, since a
 // separate resume read would be a second writer of the base state racing the scheduler.
 //
 // A refused position degrades honestly. When the daemon answers `event.cursor_unresolvable` the
@@ -41,8 +41,8 @@ const UNRESOLVABLE_RESUME_DETAIL =
 /**
  * The read a refresh performs.
  *
- * Returns the snapshot to establish, or `undefined` for "nothing was read", deliberately not an
- * empty snapshot, which would tell the store the session is empty and clear its degraded flag
+ * Returns the base state to establish, or `undefined` for "nothing was read", deliberately not an
+ * empty base state, which would tell the store the session is empty and clear its degraded flag
  * on a read that never happened.
  *
  * `resumeFromCursor` is where the reader is asked to start: the position the previous read
@@ -51,7 +51,7 @@ const UNRESOLVABLE_RESUME_DETAIL =
  * and type-check; `sessionReadThroughDaemon` does, because the `session.read` request names only
  * the session.
  */
-export type SessionSnapshotReader = (
+export type SessionBaseStateReader = (
   sessionId: string,
   reasons: readonly RefreshReason[],
   resumeFromCursor: string | undefined,
@@ -64,7 +64,7 @@ export type SessionSnapshotReader = (
  */
 export interface OpenSessionEntryOptions {
   /** The read every session's refresh scheduler performs; required, or a refresh reads nothing. */
-  readonly read: SessionSnapshotReader;
+  readonly read: SessionBaseStateReader;
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
   readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
@@ -179,14 +179,14 @@ export class OpenSessionEntry {
    * store degraded, right for a failed read and wrong for a refused position.
    */
   async #performRead(
-    read: SessionSnapshotReader,
+    read: SessionBaseStateReader,
     sessionId: string,
     reasons: readonly RefreshReason[],
   ): Promise<void> {
     const submitted = this.#resumeFromCursor;
-    let snapshot: SessionBaseState | undefined;
+    let baseState: SessionBaseState | undefined;
     try {
-      snapshot = await read(sessionId, reasons, submitted);
+      baseState = await read(sessionId, reasons, submitted);
     } catch (rejection: unknown) {
       if (submitted === undefined || !isUnresolvableCursorRejection(rejection)) {
         throw rejection;
@@ -202,26 +202,26 @@ export class OpenSessionEntry {
         kind: "resume-cursor-unresolvable",
         detail: `session ${sessionId}: ${UNRESOLVABLE_RESUME_DETAIL}`,
       });
-      snapshot = await read(sessionId, reasons, undefined);
-      if (snapshot === undefined) {
+      baseState = await read(sessionId, reasons, undefined);
+      if (baseState === undefined) {
         return;
       }
       // What the recovering read acknowledged is carried forward as the next position.
-      this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
+      this.#rememberNextResumePosition(resolveTimelineResume(baseState.timelineCursors));
       // The recovering read submitted nothing, so its window opens at the log's beginning.
-      this.store.initialize(snapshot);
+      this.store.initialize(baseState);
       return;
     }
-    if (snapshot === undefined) {
+    if (baseState === undefined) {
       return;
     }
-    this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
+    this.#rememberNextResumePosition(resolveTimelineResume(baseState.timelineCursors));
     // `initialize` is what clears the sticky degraded flag, so a completed re-pull lands here.
-    // The submitted position travels with the snapshot because only this object knows it: the
+    // The submitted position travels with the base state because only this object knows it: the
     // stream replays from it, so it is where this window begins, and the reply names no oldest
     // row. Omitted rather than passed as `undefined` where none was submitted.
     this.store.initialize(
-      submitted === undefined ? snapshot : { ...snapshot, readFromCursor: submitted },
+      submitted === undefined ? baseState : { ...baseState, readFromCursor: submitted },
     );
   }
 

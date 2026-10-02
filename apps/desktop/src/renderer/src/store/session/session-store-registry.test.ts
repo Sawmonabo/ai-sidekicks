@@ -11,7 +11,7 @@ import { isRefusal } from "@renderer/lib/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import {
-  emptySnapshot,
+  emptyBaseState,
   runEventAt,
   projectors,
   readsNothing,
@@ -85,7 +85,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialize(emptySnapshot(0));
+    store.initialize(emptyBaseState(0));
     const revisionBefore = store.snapshot().revision;
 
     registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(2, "run-2")]);
@@ -119,7 +119,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
       applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
-    store.initialize(emptySnapshot(0));
+    store.initialize(emptyBaseState(0));
     const revisionBefore = store.snapshot().revision;
 
     registry.enqueue("session-1", [runEventAt(1, "run-1")]);
@@ -215,11 +215,11 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
       read: (_sessionId, reasons) => {
         readCalls.push([...reasons]);
         // Answers at the store's own cursor, since the repair carries the skipped sequences.
-        return Promise.resolve(emptySnapshot(5));
+        return Promise.resolve(emptyBaseState(5));
       },
     });
     const store = registry.open("session-1");
-    store.initialize(emptySnapshot(0));
+    store.initialize(emptyBaseState(0));
 
     registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(5, "run-5")]);
     clock.runFrame();

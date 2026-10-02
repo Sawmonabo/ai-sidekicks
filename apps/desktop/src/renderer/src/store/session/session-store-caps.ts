@@ -16,7 +16,7 @@ export const PRE_INITIALIZATION_BUFFER_CAP = 512;
  * A hole is a range, so width costs nothing; the bound is about repairability. Past it the
  * arithmetic describes a different stream: admitting the event would move the cursor to a
  * position an authoritative read may never answer at, and every later repair would be refused
- * as a rewind. So the event is refused and a snapshot read is the repair. It bounds accumulated
+ * as a rewind. So the event is refused and a base-state read is the repair. It bounds accumulated
  * loss, which also bounds the range list.
  */
 export const MAX_REPAIRABLE_SEQUENCE_GAP = 1024;

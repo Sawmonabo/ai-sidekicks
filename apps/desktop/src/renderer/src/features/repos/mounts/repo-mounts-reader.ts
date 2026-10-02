@@ -4,7 +4,9 @@
 // interval. The order is forced by the wire: there is no mount list call, so mounts are learned
 // from the listed workspaces, then read once per distinct mount (the only read carrying
 // `health`), then worktree status once per mount. A rejected call ends the pass: its cause goes
-// to the window's diagnostic capture and the reading returns to where it stood before the pass.
+// to the window's diagnostic capture, the reading returns to where it stood before the pass, and
+// the session's failed dependent reads hold this reader until a pass succeeds, so the line under
+// the session header says the window could not catch up.
 // The state is not in the session store because a mount read is a probe, not an event
 // projection.
 
@@ -162,9 +164,13 @@ export class RepoMountsReader implements ReadTriggerTarget {
     await this.#selections.request(workspaceId, executionMode);
   }
 
-  /** Terminal. No later event can re-arm a read behind a section that unmounted. */
+  /**
+   * Terminal. No later event can re-arm a read behind a section that unmounted, and the window
+   * no longer depends on this read, so a failure it recorded is forgotten.
+   */
   public dispose(): void {
     this.#disposed = true;
+    this.#sessionStore.failedDependentReads.forget(this);
     this.#scheduler.dispose();
     this.#triggers.dispose();
     this.#selections.dispose();
@@ -195,8 +201,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
 
   /**
    * One pass, which never rejects: a refused call puts the reading back to the status it had
-   * before the pass, so the section never says it is reading after the pass has ended, and
-   * records the cause in the window's diagnostic capture.
+   * before the pass, so the section never says it is reading after the pass has ended, records
+   * the cause in the window's diagnostic capture, and marks this read failed on the session.
    */
   async #performRead(round: ReadRound): Promise<void> {
     const statusBeforePass = this.#reading.status;
@@ -215,6 +221,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
         kind: "repo-mounts-read-refused",
         detail: `session ${this.#sessionId}: ${refusal.code}: ${refusal.detail}`,
       });
+      this.#sessionStore.failedDependentReads.markFailed(this);
       this.#publish({ ...this.#reading, status: statusBeforePass });
     }
   }
@@ -267,6 +274,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
       }
     }
 
+    // Only this read's own success clears its failure.
+    this.#sessionStore.failedDependentReads.forget(this);
     this.#publish({
       status: "read",
       mounts,

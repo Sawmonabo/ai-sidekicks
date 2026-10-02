@@ -2,12 +2,12 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { useOpenSessionStore } from "./useOpenSessionStore.js";
-import { type SessionSnapshotReader } from "../open-session-entry.js";
+import { type SessionBaseStateReader } from "../open-session-entry.js";
 import { SessionStoreRegistry } from "../session-store-registry.js";
 import type { SessionStore } from "../session-store.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 
-const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
+const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 
 describe("useOpenSessionStore — components resolve a store, never construct one", () => {
   it("follows the registry as a session opens and closes", () => {

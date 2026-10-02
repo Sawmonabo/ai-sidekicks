@@ -91,7 +91,7 @@ export interface SessionBaseState {
  * can leave the cursor standing still. Behind the cursor is never admitted, so a racing re-read
  * cannot undo newer events.
  */
-export function admitsSnapshotAt(cursor: number, current: SessionStoreState): boolean {
+export function admitsBaseStateAt(cursor: number, current: SessionStoreState): boolean {
   if (cursor > current.cursor) {
     return true;
   }
@@ -139,13 +139,13 @@ export function uninitializedState(input: {
  */
 export function establishedState(input: {
   readonly sessionId: string;
-  readonly snapshot: SessionBaseState;
+  readonly baseState: SessionBaseState;
   readonly orderedTimeline: readonly ProjectedSessionEvent[];
   readonly timelineCap: number | undefined;
   readonly revision: number;
 }): SessionStoreState {
   let partitions: SessionPartitions = emptyPartitions();
-  for (const entity of input.snapshot.entities) {
+  for (const entity of input.baseState.entities) {
     partitions = mergeUpsert(partitions, entity);
   }
   return {
@@ -153,8 +153,8 @@ export function establishedState(input: {
     initialized: true,
     partitions,
     timeline: capTimeline(input.orderedTimeline, input.timelineCap, "newest"),
-    cursor: input.snapshot.cursor,
-    windowHeadCursor: input.snapshot.readFromCursor,
+    cursor: input.baseState.cursor,
+    windowHeadCursor: input.baseState.readFromCursor,
     degradedCause: undefined,
     lastReadFailed: false,
     gaps: [],

@@ -8,12 +8,12 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import type { ProjectedSessionEvent, EntityProjectorTable } from "../entities/entities.js";
 import { useSessionEntity } from "./useOpenSessionStore.js";
-import { type SessionSnapshotReader } from "../open-session-entry.js";
+import { type SessionBaseStateReader } from "../open-session-entry.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { SessionStoreRegistry } from "../session-store-registry.js";
 import type { SessionStore } from "../session-store.js";
 
-const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
+const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 
 function runIdOf(event: ProjectedSessionEvent): string {
   const raw = event.payload?.["runId"];

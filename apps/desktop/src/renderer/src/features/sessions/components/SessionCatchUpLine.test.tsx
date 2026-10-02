@@ -1,11 +1,15 @@
 // The catching-up line: when it shows, what a press on `Try again` asks for, and where the
 // cause goes. Every case drives a real store on a manual clock handed to the window, so a case
-// moves time instead of waiting on it.
+// moves time instead of waiting on it. The mounts case drives the real repo mounts reader, the
+// one read the session screen depends on beside its own.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
+import { RepoMountsReader } from "@renderer/features/repos/mounts/repo-mounts-reader.js";
+import { scriptedRepoOperations } from "@renderer/features/repos/repo-operations.test-support.js";
 import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
@@ -83,6 +87,57 @@ describe("SessionCatchUpLine", () => {
 
     expect(afterTheRepairFailed).toBe("Couldn't catch up · Try again");
     expect(container.textContent).toBe("");
+  });
+
+  it("says it couldn't catch up while the mounts read fails, past a good session read", async () => {
+    const clock = new ManualClock(0);
+    const entry = new OpenSessionEntry("session-mounts-failed", {
+      read: () => Promise.resolve({ cursor: 0, entities: [] }),
+      clock,
+      applyCoalesceMs: 0,
+      refreshDebounceMs: 20,
+    });
+    // Every repository call rejects until scripted, so each mounts pass fails.
+    const mountsReader = new RepoMountsReader({
+      operations: scriptedRepoOperations(),
+      sessionStore: entry.store,
+      clock,
+    });
+    const container = renderLine(entry.store, clock, () => {
+      entry.refreshScheduler.request("user-request");
+    });
+    async function landReads(): Promise<void> {
+      await act(async () => {
+        clock.advance(REFRESH_DEBOUNCE_MS);
+        for (let turn = 0; turn < 10; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+    }
+
+    entry.refreshScheduler.request("subscribe");
+    mountsReader.start();
+    await landReads();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterTheMountsReadFailed = container.textContent;
+    entry.refreshScheduler.request("user-request");
+    await landReads();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterAGoodSessionRead = container.textContent;
+    const tryAgain = container.querySelector("button");
+    if (tryAgain === null) {
+      throw new Error("the failed line drew no Try again");
+    }
+    fireEvent.click(tryAgain);
+    await landReads();
+    const mountsReads = mountsReader.performCount;
+    mountsReader.dispose();
+    entry.dispose();
+
+    expect(entry.refreshScheduler.performCount).toBe(3);
+    expect(afterTheMountsReadFailed).toBe("Couldn't catch up · Try again");
+    expect(afterAGoodSessionRead).toBe("Couldn't catch up · Try again");
+    expect(mountsReads).toBe(2);
   });
 
   it("asks for exactly one re-read of this session when Try again is pressed", () => {

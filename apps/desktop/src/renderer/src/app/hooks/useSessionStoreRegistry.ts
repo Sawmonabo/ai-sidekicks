@@ -26,7 +26,7 @@ import { SessionStoreRegistry } from "@renderer/store/session/session-store-regi
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { type EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
+import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
 import { SessionEventSubscriber } from "@renderer/services/session-events/session-event-subscriber.js";
 
 /**
@@ -41,7 +41,7 @@ import { SessionEventSubscriber } from "@renderer/services/session-events/sessio
  */
 export function useSessionStoreRegistry(
   projectorRegistry: EntityProjectorRegistry,
-  readSession: SessionSnapshotReader,
+  readSession: SessionBaseStateReader,
 ): SessionStoreRegistry {
   // Resolved from context so every caller gets the bridge the rest of the frame renders against.
   const bridge = usePlatformBridge();
@@ -89,7 +89,7 @@ function createWindowSessionPlumbing(
   bridge: PlatformBridge,
   clock: Clock,
   projectorRegistry: EntityProjectorRegistry,
-  readSession: SessionSnapshotReader,
+  readSession: SessionBaseStateReader,
 ): WindowSessionPlumbing {
   const registry = new SessionStoreRegistry({
     read: readSession,

@@ -176,7 +176,7 @@ describe("the repair read answers at the cursor the store already reached", () =
     return store;
   }
 
-  it("admits an equal-cursor snapshot into a degraded store and clears the gap", () => {
+  it("admits an equal-cursor base state into a degraded store and clears the gap", () => {
     const store = degradedAtCursorSeven();
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 6, toSequence: 6 }]);
@@ -187,13 +187,13 @@ describe("the repair read answers at the cursor the store already reached", () =
       timeline: [eventAt(6), eventAt(7)],
     });
 
-    // Discarding this snapshot would leave 6 missing and the banner stuck.
+    // Discarding this base state would leave 6 missing and the banner stuck.
     expect(store.snapshot().degradedCause).toBeUndefined();
     expect(store.snapshot().gaps).toStrictEqual([]);
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([6, 7]);
   });
 
-  it("still refuses a snapshot BEHIND the cursor, so a racing re-read cannot rewind", () => {
+  it("still refuses a base state BEHIND the cursor, so a racing re-read cannot rewind", () => {
     const store = degradedAtCursorSeven();
     const before = store.snapshot();
 
@@ -209,9 +209,9 @@ describe("the repair read answers at the cursor the store already reached", () =
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
   });
 
-  it("leaves a HEALTHY store untouched by an equal-cursor snapshot", () => {
-    // Guards against admitting every equal-cursor snapshot, which would rebuild the projection on
-    // each focus refresh and empty the timeline for a snapshot carrying none.
+  it("leaves a HEALTHY store untouched by an equal-cursor base state", () => {
+    // Guards against admitting every equal-cursor base state, which would rebuild the projection on
+    // each focus refresh and empty the timeline for a base state carrying none.
     const store = new SessionStore({ sessionId: "session-1" });
     store.initialize({ cursor: 0, entities: [] });
     store.apply(eventAt(1));

@@ -52,8 +52,8 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
     }
   }
 
-  /** A snapshot at `cursor`, acknowledged where one is supplied. */
-  function snapshotAt(cursor: number, acknowledged?: string): SessionBaseState {
+  /** A base state at `cursor`, acknowledged where one is supplied. */
+  function baseStateAt(cursor: number, acknowledged?: string): SessionBaseState {
     return {
       cursor,
       entities: [],
@@ -75,8 +75,8 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   it("submits nothing on the first read and the acknowledged position on the next", async () => {
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [
-      snapshotAt(7, "7_1723291480000000000"),
-      snapshotAt(9, "9_1723291500000000000"),
+      baseStateAt(7, "7_1723291480000000000"),
+      baseStateAt(9, "9_1723291500000000000"),
     ]);
 
     await refresh(clock, entry);
@@ -92,9 +92,9 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   it("re-reads from the beginning when the position is refused", async () => {
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [
-      snapshotAt(7, "7_1723291480000000000"),
+      baseStateAt(7, "7_1723291480000000000"),
       CURSOR_REFUSAL,
-      snapshotAt(0),
+      baseStateAt(0),
     ]);
 
     await refresh(clock, entry);
@@ -108,7 +108,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
       { resumeFromCursor: undefined },
     ]);
     // The store keeps its projection: the recovery answered behind the cursor, which
-    // `admitsSnapshotAt` refuses.
+    // `admitsBaseStateAt` refuses.
     expect(entry.store.snapshot().cursor).toBe(7);
   });
 });

@@ -10,13 +10,13 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
   it("opens at the bottom of the stream and carries the daemon's cursor block unread", async () => {
     const { bridge } = bridgeAnswering((_call, passThrough) => passThrough());
 
-    const snapshot = await sessionReadThroughDaemon(bridge)(
+    const baseState = await sessionReadThroughDaemon(bridge)(
       CONCURRENT_STREAMING_SCENARIO.sessionId,
       [],
       undefined,
     );
 
-    expect(snapshot).toStrictEqual({
+    expect(baseState).toStrictEqual({
       cursor: 0,
       entities: [],
       timelineCursors: { latest: "concurrent-streaming-cursor-45" },

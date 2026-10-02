@@ -73,7 +73,7 @@ export class SequenceReconciler {
     const missingBefore = sequence - (this.#cursor + 1);
     if (this.#missingSequenceCount + missingBefore > MAX_REPAIRABLE_SEQUENCE_GAP) {
       // Admitting it would put the cursor where no authoritative read need answer, and the
-      // snapshot guard would then refuse every real repair as a rewind.
+      // base-state guard would then refuse every real repair as a rewind.
       return DIVERGED;
     }
     let openedGap: SequenceGap | undefined;

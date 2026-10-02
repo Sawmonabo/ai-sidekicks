@@ -1,5 +1,6 @@
 // What a view reads about one session's projection rather than out of it: whether a base state
-// landed, whether the projection moved and whether it is known incomplete.
+// landed, whether the projection moved, whether it is known incomplete, and whether a read the
+// session's screen depends on failed.
 // `useOpenSessionStore.ts` answers with session content.
 //
 // Like the content hooks, nothing builds a value in a selector (zustand v5 compares with
@@ -8,6 +9,7 @@
 import { useStore } from "zustand";
 
 import type { SessionDegradedCause } from "../../session-degradation.js";
+import type { FailedDependentReadsState } from "../failed-dependent-reads.js";
 import type { SessionStore, SessionStoreState } from "../session-store.js";
 
 /** Whether the store has been initialized, so a view can tell "not loaded" apart. */
@@ -47,6 +49,14 @@ export function useSessionDegradedCause(store: SessionStore): SessionDegradedCau
   return useStore(store.readable, readDegradedCause);
 }
 
+/**
+ * Whether a read this session's screen depends on beside its own failed its last pass, and
+ * has not succeeded since. A good read of the session itself does not clear it.
+ */
+export function useDependentReadFailed(store: SessionStore): boolean {
+  return useStore(store.failedDependentReads.readable, readAnyDependentReadFailed);
+}
+
 function readInitialized(state: SessionStoreState): boolean {
   return state.initialized;
 }
@@ -61,4 +71,8 @@ function readDegraded(state: SessionStoreState): boolean {
 
 function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
   return state.degradedCause;
+}
+
+function readAnyDependentReadFailed(state: FailedDependentReadsState): boolean {
+  return state.failedReads.length > 0;
 }

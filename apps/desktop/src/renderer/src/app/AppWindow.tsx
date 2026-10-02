@@ -9,7 +9,7 @@ import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { parseRoute } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
+import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
@@ -31,7 +31,7 @@ import { applyColorScheme } from "./token-installation.js";
 export interface AppWindowProps {
   readonly bridge: PlatformBridge;
   /** The call that reads one session's base state, handed to the session registry. */
-  readonly readSession: SessionSnapshotReader;
+  readonly readSession: SessionBaseStateReader;
 }
 
 /**
