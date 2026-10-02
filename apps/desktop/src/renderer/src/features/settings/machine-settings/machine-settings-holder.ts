@@ -1,7 +1,7 @@
 // Who owns this window's machine-settings store, and for how long.
 //
 // The store is the window's, not a page's: several pages read these keys. Module scope is
-// window scope because an auxiliary window is its own renderer process.
+// window scope.
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore } from "./machine-settings-store.js";

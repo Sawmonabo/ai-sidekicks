@@ -14,7 +14,7 @@ import { readHueWheelColor, formatHueWheelTokenName } from "./tokens.js";
 /** One agent's place on the wheel. */
 export interface AgentHueAssignment {
   /** The identity this assignment belongs to. */
-  readonly userId: string;
+  readonly agentId: string;
   /** Wheel step, 0 to `HUE_WHEEL_STEPS - 1`. */
   readonly step: number;
   /** The resolved color of the step. */
@@ -22,7 +22,7 @@ export interface AgentHueAssignment {
   /** The CSS custom-property name carrying that color. */
   readonly tokenName: string;
   /** True when this assignment shares its step with an earlier one. */
-  readonly sharesStepWithEarlierUser: boolean;
+  readonly sharesStepWithEarlierAgent: boolean;
 }
 
 /**
@@ -30,7 +30,7 @@ export interface AgentHueAssignment {
  * order. Not a module-level singleton, because each session starts its own wheel.
  */
 export class AgentHueAllocator {
-  readonly #assignmentsByUserId = new Map<string, AgentHueAssignment>();
+  readonly #assignmentsByAgentId = new Map<string, AgentHueAssignment>();
   readonly #occupantCountByStep: number[] = new Array<number>(HUE_WHEEL_STEPS).fill(0);
 
   /**
@@ -38,8 +38,8 @@ export class AgentHueAllocator {
    * color. The store keys the wheel on each event's `actorId`, which is a user id, an agent id or
    * nobody with no discriminator between the first two.
    */
-  public admit(userId: string): AgentHueAssignment {
-    const existing = this.#assignmentsByUserId.get(userId);
+  public admit(agentId: string): AgentHueAssignment {
+    const existing = this.#assignmentsByAgentId.get(agentId);
     if (existing !== undefined) {
       return existing;
     }
@@ -48,15 +48,15 @@ export class AgentHueAllocator {
     const occupantCount = this.#occupantCountByStep[step] ?? 0;
 
     const assignment: AgentHueAssignment = {
-      userId,
+      agentId,
       step,
       color: readHueWheelColor(step),
       tokenName: formatHueWheelTokenName(step),
-      sharesStepWithEarlierUser: occupantCount > 0,
+      sharesStepWithEarlierAgent: occupantCount > 0,
     };
 
     this.#occupantCountByStep[step] = occupantCount + 1;
-    this.#assignmentsByUserId.set(userId, assignment);
+    this.#assignmentsByAgentId.set(agentId, assignment);
     return assignment;
   }
 
@@ -65,18 +65,18 @@ export class AgentHueAllocator {
    * Never allocates: a renderer asking about an unknown identity must show the unrecognized
    * shape, not mint one.
    */
-  public assignmentFor(userId: string): AgentHueAssignment | undefined {
-    return this.#assignmentsByUserId.get(userId);
+  public assignmentFor(agentId: string): AgentHueAssignment | undefined {
+    return this.#assignmentsByAgentId.get(agentId);
   }
 
   /** Every assignment, in log order. */
   public assignments(): readonly AgentHueAssignment[] {
-    return [...this.#assignmentsByUserId.values()];
+    return [...this.#assignmentsByAgentId.values()];
   }
 
   /** How many identities the wheel has admitted. */
   public get admittedCount(): number {
-    return this.#assignmentsByUserId.size;
+    return this.#assignmentsByAgentId.size;
   }
 
   /**

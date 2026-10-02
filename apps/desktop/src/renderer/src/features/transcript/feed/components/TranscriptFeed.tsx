@@ -52,7 +52,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // The store's wheel, which the session header also reads, so one person wears one color
   // everywhere. `assignmentFor` never allocates: an actor the wheel has never admitted gets
   // `undefined` and the row renders unattributed.
-  const hueForActor = useCallback(
+  const hueForAgent = useCallback(
     (userId: string) => props.sessionStore.hueAllocator.assignmentFor(userId),
     [props.sessionStore],
   );
@@ -69,7 +69,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
     openedTerminalRunIds,
-    hueForActor,
+    hueForAgent,
     toggleRunGroup,
     rowLease,
     renderTranscriptRow,

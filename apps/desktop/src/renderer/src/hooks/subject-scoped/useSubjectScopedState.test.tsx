@@ -148,32 +148,32 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
   const WHAT_THE_VISIT_ON_SCREEN_READ = "what the visit on screen read";
 
   it("settles through the publisher the component has been holding all along", async () => {
-    const detour = await driveValueCase();
+    const discardedRender = await driveValueCase();
     act(() => {
-      detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
+      discardedRender.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
     });
 
-    expect(detour.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
+    expect(discardedRender.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
     // Two addressings, not three: the parked pass proposed one and never committed it, so the
     // render back at the subject on screen found the committed addressing right and re-seeded
     // nothing.
-    expect(detour.seedings()).toBe(2);
+    expect(discardedRender.seedings()).toBe(2);
   });
 
   it("refuses the settlement a pass that never committed handed out", async () => {
     // The parked pass handed its caller a publisher naming an addressing no frame carried, and
     // admitting it would write another subject's answer into the visit on screen.
-    const detour = await driveValueCase();
+    const discardedRender = await driveValueCase();
     act(() => {
-      detour.publishers.from(SUBJECT_TWO)("what a pass nobody saw read");
+      discardedRender.publishers.from(SUBJECT_TWO)("what a pass nobody saw read");
     });
 
-    expect(detour.text()).toBe("seed");
+    expect(discardedRender.text()).toBe("seed");
 
     // The visit on screen still settles, so the claim is about which pass answered.
     act(() => {
-      detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
+      discardedRender.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
     });
-    expect(detour.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
+    expect(discardedRender.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
   });
 });

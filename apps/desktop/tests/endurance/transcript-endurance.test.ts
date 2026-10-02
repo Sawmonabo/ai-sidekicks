@@ -3,7 +3,7 @@
 // seams and a superseded index), over a generated session of ten thousand rows, and is the one
 // file in this tier that does not launch Electron.
 //
-// It cannot launch one: the endurance scenario is absent from `fixtures/index.ts`, so no
+// It cannot launch one: the endurance log is not a scenario in `fixtures/index.ts`, so no
 // launched console can be asked to play it. The generator is called directly with the row count.
 //
 // A Node heap reading is honest here though not in `heap-at-rest.test.ts`. That file's subject
@@ -96,7 +96,7 @@ function resolveForcedCollection(): () => void {
 
 /** One generated session's log, as the events a store would have admitted. */
 function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
-  return createTranscriptEnduranceFixture({ rowCount }).beats.map((beat) => beat.event);
+  return createTranscriptEnduranceFixture({ rowCount });
 }
 
 /**
@@ -178,7 +178,7 @@ describe("endurance — the transcript's fold over a long session", () => {
 
     // Reported before the assertion so a shrinking margin is visible.
     process.stdout.write(
-      `[console-endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
+      `[endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${longFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(ENDURANCE_ROW_COUNT)} rows — ${costRatio.toFixed(2)}× over a 4× log ` +
         `(ceiling ${String(SUPERLINEAR_COST_RATIO_CEILING)}×)\n`,
@@ -201,7 +201,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const retainedBytes = finalHeapBytes - baselineHeapBytes;
 
     process.stdout.write(
-      `[console-endurance] transcript fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
+      `[endurance] transcript fold retention ${String(Math.round(retainedBytes / 1024))} kB ` +
         `over ${String(REPEATED_FOLD_COUNT)} folds of ${String(ENDURANCE_ROW_COUNT)} rows ` +
         `(ceiling ${String(Math.round(REPEATED_FOLD_RETENTION_CEILING_BYTES / 1024))} kB)\n`,
     );

@@ -1,6 +1,6 @@
-// Which columns a worktree row has, what each is called, and what a card draws where the wire
-// sent nothing. Every cell is the wire's own string or absent, never derived. The absence copy
-// is total over exactly the optional columns (`OptionalColumnKey`), so a column that becomes
+// Which columns a worktree row has, what each is called, and what a card draws where the wire sent
+// nothing. Every cell is the wire's own string or absent, never derived. The copy for a missing
+// value is total over exactly the optional columns (`OptionalColumnKey`), so a column that becomes
 // optional or stops being optional fails to compile until its sentence is written or removed.
 
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts";
@@ -16,7 +16,7 @@ export type WorktreeColumnKey = {
     : never;
 }[keyof WorktreeStatusRecord];
 
-/** The keys a record may legally omit, derived so the absence copy stays total over them. */
+/** The keys a record may legally omit, derived so the missing-value copy stays total over them. */
 type OptionalColumnKey<TRecord> = {
   [Key in keyof TRecord]-?: object extends Pick<TRecord, Key> ? Key : never;
 }[keyof TRecord];

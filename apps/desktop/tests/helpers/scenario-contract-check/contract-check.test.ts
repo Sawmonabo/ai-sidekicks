@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { SCENARIOS } from "../../../fixtures/index.js";
 import { findScenarioContractDefects } from "./contract-check.js";
 
-describe("scenario wire truth — the shipped scenarios", () => {
+describe("scenario contract — the shipped scenarios", () => {
   it("accepts every scenario a feature has landed in the registry", () => {
     expect(
       findScenarioContractDefects(SCENARIOS).map(

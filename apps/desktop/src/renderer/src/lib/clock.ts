@@ -1,8 +1,8 @@
 // The console's clock seam, an interface rather than direct calls to `Date.now` and
 // `requestAnimationFrame` for two reasons:
 //
-//   1. In fixture mode the fixture clock is the only clock the renderer reads; a frozen tick
-//      names one exact frame only if nothing reaches past it to the wall clock.
+//   1. In fixture mode the fixture clock is the only clock the renderer reads; a pinned frame
+//      is one exact tick only if nothing reaches past it to the wall clock.
 //   2. A test can count armed timers only if every timer in the console is minted through one
 //      object.
 //

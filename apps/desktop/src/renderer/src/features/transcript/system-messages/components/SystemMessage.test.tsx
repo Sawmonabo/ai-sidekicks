@@ -1,6 +1,6 @@
-// The seam row, read from the rendered line: each declared loss is drawn as itself, a switch that
-// declares no loss draws no clause and no caution, and a failed switch carries its reason verbatim
-// as the one caution.
+// The system message, read from the rendered line: each declared loss is drawn as itself, a switch
+// that declares no loss draws no clause and no caution, and a failed switch carries its reason
+// verbatim as the one caution.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,12 +29,12 @@ function renderSeam(seam: SystemMessageReading): HTMLElement {
   const { container } = render(<SystemMessage seam={seam} />);
   const line = container.querySelector<HTMLElement>(".meridian-system-message");
   if (line === null) {
-    throw new Error("the seam row drew no line");
+    throw new Error("the system message drew no line");
   }
   return line;
 }
 
-describe("the seam row — the switch outcomes", () => {
+describe("the system message — the switch outcomes", () => {
   it("carries the failed switch's reason verbatim, and marks it the one caution", () => {
     const line = renderSeam(
       seamOf(
@@ -70,7 +70,7 @@ describe("the seam row — the switch outcomes", () => {
   });
 });
 
-describe("the seam row — the loss clause", () => {
+describe("the system message — the loss clause", () => {
   it("renders each declared loss as itself", () => {
     const line = renderSeam(
       seamOf(

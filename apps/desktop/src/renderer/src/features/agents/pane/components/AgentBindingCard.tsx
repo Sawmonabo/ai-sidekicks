@@ -1,4 +1,5 @@
-// The binding one agent runs under now, with its identity and tool grant. The grant position is
+// The binding one agent runs under now, with its identity and tool allowlist. The allowlist
+// position is
 // resolved once here and handed to the line and the echo's Tools row so they cannot disagree; the
 // resolved configuration is never re-read from the registry, whose row may have moved. `createdAt`
 // sits in the head, not the effective line, whose members are all provider axes.
@@ -17,11 +18,11 @@ export interface AgentBindingCardProps {
   readonly agent: AgentListEntry;
 }
 
-/** One agent: its identity, the binding it runs under, and the tool grant it holds. */
+/** One agent: its identity, the binding it runs under, and the tool allowlist it holds. */
 export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Element {
   const { agent } = props;
   const { binding } = agent;
-  const toolGrant = agentToolAllowlistPosition(agent);
+  const toolAllowlist = agentToolAllowlistPosition(agent);
 
   return (
     <article className="meridian-agent-card" aria-label={`Agent ${agent.name}`}>
@@ -51,14 +52,17 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
       </p>
 
       <ObservedOutputSpeed agent={agent} />
-      <ToolAllowlistLine position={toolGrant} />
+      <ToolAllowlistLine position={toolAllowlist} />
 
       {agent.resolvedConfiguration === undefined ? null : (
         <details className="meridian-agent-card__disclosure">
           <summary className="meridian-agent-card__disclosure-summary">
             Resolved configuration
           </summary>
-          <ResolvedConfiguration resolved={agent.resolvedConfiguration} toolGrant={toolGrant} />
+          <ResolvedConfiguration
+            resolved={agent.resolvedConfiguration}
+            toolAllowlist={toolAllowlist}
+          />
         </details>
       )}
     </article>

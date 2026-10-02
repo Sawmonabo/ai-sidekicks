@@ -44,7 +44,7 @@ function initializedStore(sessionId: string): SessionStore {
 }
 
 describe("RepoMountsReader — the read", () => {
-  it("learns the mounts from the workspace roster and reads each one for health", async () => {
+  it("learns the mounts from the listed workspaces and reads each one for health", async () => {
     const clock = new ManualClock();
     const reader = openReader(sessionOperations(), clock);
     expect(reader.snapshot.status).toBe("not-read");

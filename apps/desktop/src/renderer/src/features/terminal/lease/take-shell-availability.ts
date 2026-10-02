@@ -15,17 +15,17 @@ import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.j
 export type TakeShellAvailability = { readonly control: "acquire" } | { readonly control: "none" };
 
 /**
- * Resolve the one control the lease line allows, from the holding and the identity read.
+ * Resolve the one control the lease line allows, from the holder and the identity read.
  *
  * With no identity read there is no control and no sentence about one.
  */
 export function resolveTakeShellAvailability(input: {
-  readonly holding: TerminalLeaseHolder;
+  readonly holder: TerminalLeaseHolder;
   readonly deviceIdentity: TerminalDeviceIdentity;
 }): TakeShellAvailability {
   if (
-    input.holding === "held-by-this-device" ||
-    input.holding === "held-by-run" ||
+    input.holder === "held-by-this-device" ||
+    input.holder === "held-by-run" ||
     input.deviceIdentity.status !== "read"
   ) {
     return { control: "none" };

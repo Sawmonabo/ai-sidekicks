@@ -19,7 +19,7 @@ describe("diffFileListReading", () => {
   });
 
   it("keeps the reset control counting the whole change set under a filter", () => {
-    // The count is what the control does (clear the narrowing); a count that followed the
+    // The count is what the control does (clear the one-file filter); a count that followed the
     // filter would report the change set as smaller than it is.
     const { entries, matchCount } = diffFileListReading(DIFF, "module-01");
     expect(entries[0]).toStrictEqual({ kind: "all-files", fileCount: SMALL_DIFF_SHAPE.fileCount });
@@ -39,8 +39,8 @@ describe("selectedEntryRow", () => {
     });
   });
 
-  it("answers that the filter hides the narrowing rather than naming another row", () => {
-    // Row zero clears the narrowing, so answering it for a hidden narrowing would mark "All
+  it("answers that the filter hides the shown file rather than naming another row", () => {
+    // Row zero clears the one-file filter, so answering it for a hidden shown file would mark "All
     // files" current while the renderer still shows the hidden file.
     const { entries } = diffFileListReading(DIFF, "module-01");
     expect(selectedEntryRow(entries, FIRST_PATH)).toStrictEqual({ kind: "hidden-by-filter" });

@@ -564,7 +564,7 @@ const desktopConfig = defineConfig(
   //
   // `services/**` is exempt as a layer, not the chokepoint file alone: the registry composes
   // contracts-exported schemas, the run-stream projector decodes a subscription payload, and the
-  // wire-truth scenarios assert against the wire's own shapes, three modules in one layer below
+  // scenario contract checks assert against the wire's own shapes, three modules in one layer below
   // every surface.
   //
   // It restates the renderer ban because flat config replaces a rule's options at the last matching

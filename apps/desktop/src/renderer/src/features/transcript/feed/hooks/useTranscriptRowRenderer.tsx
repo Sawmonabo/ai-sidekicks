@@ -17,7 +17,7 @@ import { densityFor } from "../run-group-fold.js";
 export interface TranscriptRowRendererOptions {
   readonly transcriptWindow: TranscriptWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
-  readonly hueForActor: (userId: string) => AgentHueAssignment | undefined;
+  readonly hueForAgent: (userId: string) => AgentHueAssignment | undefined;
   readonly toggleRunGroup: (runGroup: RunGroup) => void;
   readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** The registered row renderer. STABLE across renders, or the memo below moves with it. */
@@ -32,7 +32,7 @@ export interface TranscriptRowRendererOptions {
 export function useTranscriptRowRenderer(
   options: TranscriptRowRendererOptions,
 ): ViewportRowRenderer {
-  const { transcriptWindow, openedTerminalRunIds, hueForActor, toggleRunGroup, rowLease } = options;
+  const { transcriptWindow, openedTerminalRunIds, hueForAgent, toggleRunGroup, rowLease } = options;
   const renderTranscriptRow = options.renderTranscriptRow;
   return useCallback(
     (row: ViewportRow) => {
@@ -44,7 +44,7 @@ export function useTranscriptRowRenderer(
           <RunGroupHeader
             runGroup={runGroup}
             isOpen={openedTerminalRunIds.has(runGroup.runId)}
-            actorHue={runGroup.actorId === undefined ? undefined : hueForActor(runGroup.actorId)}
+            agentHue={runGroup.actorId === undefined ? undefined : hueForAgent(runGroup.actorId)}
             onToggle={toggleRunGroup}
           />
         );
@@ -57,7 +57,7 @@ export function useTranscriptRowRenderer(
           <Nothing kind="not-loaded" placement="inline" title="This entry is no longer loaded." />
         );
       }
-      const actorHue = projected.actor === undefined ? undefined : hueForActor(projected.actor);
+      const agentHue = projected.actor === undefined ? undefined : hueForAgent(projected.actor);
       const isSuperseded = transcriptWindow.supersededRowIds.has(projected.id);
       // A seam is the transcript's own row, drawn before the row renderer is asked: it has no
       // body, being a change in the run's condition laid on one line from parts
@@ -65,7 +65,7 @@ export function useTranscriptRowRenderer(
       // receipt and drop the boundary position, continuity, losses and reason.
       const seam = transcriptWindow.seamByRowId.get(projected.id);
       if (seam !== undefined) {
-        return <SystemMessage seam={seam} actorHue={actorHue} isSuperseded={isSuperseded} />;
+        return <SystemMessage seam={seam} agentHue={agentHue} isSuperseded={isSuperseded} />;
       }
       // Through `TranscriptFeedRow` rather than straight into the row renderer: it is the memo
       // boundary. This callback moves on every admitted event, but the four values below are
@@ -73,7 +73,7 @@ export function useTranscriptRowRenderer(
       return (
         <TranscriptFeedRow
           row={projected}
-          actorHue={actorHue}
+          agentHue={agentHue}
           isSuperseded={isSuperseded}
           // The lease overlays the list, which is the fallback: an untouched row holds no lease
           // and follows the run group fold, and an opened row keeps its choice across an unmount
@@ -87,7 +87,7 @@ export function useTranscriptRowRenderer(
       );
     },
     [
-      hueForActor,
+      hueForAgent,
       transcriptWindow,
       openedTerminalRunIds,
       renderTranscriptRow,

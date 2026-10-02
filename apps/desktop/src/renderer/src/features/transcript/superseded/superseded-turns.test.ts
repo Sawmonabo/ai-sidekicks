@@ -6,9 +6,9 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
-import { SupersededIndex, deriveSupersededBands, supersededBandKey } from "./superseded-bands.js";
+import { SupersededIndex, deriveSupersededTurns, supersededTurnsKey } from "./superseded-turns.js";
 
-describe("superseded bands — the rewind floor is EXCEEDS and nothing else", () => {
+describe("superseded turns — the rewind floor is EXCEEDS and nothing else", () => {
   function rewoundWindow(): readonly TimelineRow[] {
     return [
       runRow({ id: "a1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
@@ -77,7 +77,7 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
 
   it("takes the LOWEST applicable cutoff when a row is reached by two", () => {
     // The first accepted rollback wins: a later, higher cutoff never displaces an earlier one.
-    const bands = deriveSupersededBands([
+    const bands = deriveSupersededTurns([
       runRow({
         id: "a5",
         sequence: 1,
@@ -100,14 +100,14 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
 
   it("answers which band each superseded row belongs to, and no other row", () => {
     const index = new SupersededIndex(rewoundWindow());
-    const [band] = index.bands();
+    const [band] = index.supersededTurns();
     if (band === undefined) {
       throw new Error("the rewound window derived no band");
     }
-    expect(index.bandKeyByRowId().get("a3")).toBe(supersededBandKey(band));
+    expect(index.supersededTurnsKeyByRowId().get("a3")).toBe(supersededTurnsKey(band));
     // The retained floor and earlier turns are in no band, so the fold never takes them.
-    expect(index.bandKeyByRowId().has("a2")).toBe(false);
-    expect(index.bandKeyByRowId().has("a1")).toBe(false);
+    expect(index.supersededTurnsKeyByRowId().has("a2")).toBe(false);
+    expect(index.supersededTurnsKeyByRowId().has("a1")).toBe(false);
   });
 
   it("keeps two rewinds of one epoch apart, and both apart from a bare run id", () => {
@@ -131,7 +131,7 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
         targetPosition: 1,
       }),
     ]);
-    const keys = [...index.bandByHeaderKey().keys()];
+    const keys = [...index.supersededTurnsByHeaderKey().keys()];
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).not.toContain("run-a");
     expect(keys.every((key) => key.startsWith("superseded "))).toBe(true);

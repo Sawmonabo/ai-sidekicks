@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
 import { isContractTimelineRow } from "@renderer/services/daemon/timeline-row-contract.test-support.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { deriveSupersededBands } from "../superseded/superseded-bands.js";
+import { deriveSupersededTurns } from "../superseded/superseded-turns.js";
 import { projectTranscriptRows } from "./transcript-row-projection.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
@@ -197,7 +197,7 @@ describe("counting through a rewind", () => {
       rollbackEvent(9, RUN_ONE, 3),
     ]);
 
-    const secondEpochBands = deriveSupersededBands(projection.rows).filter(
+    const secondEpochBands = deriveSupersededTurns(projection.rows).filter(
       (band) => band.epoch === 1,
     );
     expect(secondEpochBands).toHaveLength(1);

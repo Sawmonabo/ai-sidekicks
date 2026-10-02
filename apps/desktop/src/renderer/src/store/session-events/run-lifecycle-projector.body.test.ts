@@ -1,5 +1,5 @@
-// What the `run` partition's body carries and what it refuses: the execution posture the composer
-// reads, the agent a creation binds, and no wrong-shaped member. The partition under every
+// What the `run` partition's body carries and what it refuses: the execution posture a run
+// stamps, the agent a creation binds, and no wrong-shaped member. The partition under every
 // scenario and the fold across transitions are in `run-lifecycle-projector.test.ts`.
 
 import { describe, expect, it } from "vitest";
@@ -54,7 +54,7 @@ describe("the registered payload members the body carries", () => {
   }
 
   it("carries the execution posture a run.running payload stamps", () => {
-    // The composer's posture chip reads this member; it is carried whole and unparsed.
+    // Carried whole and unparsed.
     expect(
       bodyOf(
         runEvent("run.running", {

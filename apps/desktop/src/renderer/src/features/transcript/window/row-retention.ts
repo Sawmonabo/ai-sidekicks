@@ -47,8 +47,8 @@ export class TranscriptRowRetention {
 
   /**
    * A group header's place in that list, which no projected row backs. The header is its group,
-   * so it is keyed by the group key (a run id, or `supersededBandKey`'s composite for a rewound
-   * band) and is its own cut unit, so pruning it takes its subtree with it.
+   * so it is keyed by the group key (a run id, or `supersededTurnsKey`'s composite for rewound
+   * turns) and is its own cut unit, so pruning it takes its subtree with it.
    */
   public retainGroupHeaderIdentity(groupKey: string): ViewportRow {
     return this.#retainIdentity(groupKey, undefined, groupKey);

@@ -7,4 +7,4 @@
  * it has finished. Lower-case and bracketed, unlike the smoke tags in `src/shared/probe-tags.ts`
  * that a scanner parses.
  */
-export const LAUNCH_TRACE_TAG: string = "[sidekicks-console-launch]";
+export const LAUNCH_TRACE_TAG: string = "[sidekicks-launch]";

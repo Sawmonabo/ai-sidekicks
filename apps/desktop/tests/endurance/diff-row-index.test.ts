@@ -83,7 +83,7 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
       index.rowCount / 100,
     );
     process.stdout.write(
-      `[console-endurance] rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
+      `[endurance] rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
         `tail ${tailMilliseconds.toFixed(2)} ms\n`,
     );
     // A generous ceiling: the tail must not be a multiple of the head, and shared-runner timing
@@ -144,7 +144,7 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
     // Fifty viewports of sixty rows, and not one further flattening.
     expect(index.bodyLayoutBuildCount).toBe(1);
     process.stdout.write(
-      `[console-endurance] one hunk: ${String(index.rowCount)} rows, ` +
+      `[endurance] one hunk: ${String(index.rowCount)} rows, ` +
         `${String(index.bodyLayoutBuildCount)} body layouts built\n`,
     );
   });
@@ -160,7 +160,7 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
       index.rowCount / 100,
     );
     process.stdout.write(
-      `[console-endurance] one hunk rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
+      `[endurance] one hunk rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
         `tail ${tailMilliseconds.toFixed(2)} ms\n`,
     );
     expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds * 8, 1));
@@ -198,7 +198,7 @@ describe("endurance — one pathological line inside a five-thousand-line patch"
     const widestLineLength = diffLineText(lines[0] as DiffLine).length;
     expect(widestLineLength).toBeGreaterThan(20_000);
     process.stdout.write(
-      `[console-endurance] pathological parse: ${parseMilliseconds.toFixed(1)} ms, ` +
+      `[endurance] pathological parse: ${parseMilliseconds.toFixed(1)} ms, ` +
         `${String(lines.length)} lines, widest ${String(widestLineLength)} chars\n`,
     );
     expect(parseMilliseconds).toBeLessThan(PATHOLOGICAL_PARSE_BUDGET_MS);

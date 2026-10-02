@@ -1,16 +1,16 @@
 // Runs one recognized command and waits for it before the line is cleared. The registry's
 // `invoke` hands back its command's promise without awaiting it, so this is the one place that
 // spends `completion` and answers with a settlement rather than a start. Every arm settles and
-// none throws, including a rejecting directive-line handler: the send controller awaits under
+// none throws, including a rejecting command handler: the send controller awaits under
 // a `finally` with no `catch`, so an escaping rejection would show no refusal.
 
 import { isErrorInstance, lossyStringify, readGuardedProperty } from "@renderer/lib/wire-errors.js";
 import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../types.js";
 import {
-  clientCommandRefusal,
-  recognizeClientCommand,
-  type ClientCommandRecognitionInput,
-} from "./client-command-recognizer.js";
+  consoleCommandRefusal,
+  recognizeConsoleCommand,
+  type ConsoleCommandRecognitionInput,
+} from "./console-command-recognizer.js";
 import { type ComposerCommands } from "./composer-commands.js";
 import { type ComposerCommandLineHandlers } from "./composer-command-line-handlers.js";
 
@@ -19,7 +19,7 @@ import { type ComposerCommandLineHandlers } from "./composer-command-line-handle
  * frame registers this window's commands after the composer mounts, and the handlers close
  * over the composer's address, which moves.
  */
-export function createClientCommandExecutor(options: {
+export function createConsoleCommandExecutor(options: {
   readonly readCommands: () => ComposerCommands;
   readonly readCommandLineHandlers: () => ComposerCommandLineHandlers;
   /**
@@ -30,10 +30,10 @@ export function createClientCommandExecutor(options: {
 }): CommandExecutor {
   return async (line: ComposerCommandLine): Promise<CommandOutcome> => {
     const commands = options.readCommands();
-    const recognitionInput: ClientCommandRecognitionInput = {
+    const recognitionInput: ConsoleCommandRecognitionInput = {
       registeredCommandIds: commands.registeredCommandIds,
     };
-    const recognition = recognizeClientCommand(line.commandName, recognitionInput);
+    const recognition = recognizeConsoleCommand(line.commandName, recognitionInput);
     if (recognition.status === "refused") {
       return { status: "refused", refusal: recognition.refusal };
     }
@@ -70,7 +70,7 @@ async function settleInvocation(
       // recognizer's read and this call.
       return {
         status: "refused",
-        refusal: clientCommandRefusal(
+        refusal: consoleCommandRefusal(
           "unknown-command",
           `${commandId} is no longer registered in this window, so there was nothing to run.`,
         ),
@@ -78,7 +78,7 @@ async function settleInvocation(
     case "hidden-in-context":
       return {
         status: "refused",
-        refusal: clientCommandRefusal(
+        refusal: consoleCommandRefusal(
           "command-unavailable-here",
           `${commandId} does not apply where this composer is, so it was not run.`,
         ),
@@ -87,7 +87,7 @@ async function settleInvocation(
       // The owner's own sentence, carried through: this zone knows a command was closed, not why.
       return {
         status: "refused",
-        refusal: clientCommandRefusal("command-unavailable-now", outcome.reason),
+        refusal: consoleCommandRefusal("command-unavailable-now", outcome.reason),
       };
     case "ran":
       try {
@@ -100,7 +100,7 @@ async function settleInvocation(
 }
 
 /**
- * The report a client command's own failure takes from either path into an act, so a failure
+ * The report a console command's own failure takes from either path into an act, so a failure
  * reads the same under the same code. The command's message is carried, not paraphrased. Not
  * `normalizeWireRejection`: the command ran in this window, so no wire code exists to preserve
  * and a thrown `code` must not widen the closed refusal vocabulary. The message is read
@@ -115,7 +115,7 @@ function commandFailureRefusal(commandId: string, cause: unknown): CommandOutcom
       : lossyStringify(cause);
   return {
     status: "refused",
-    refusal: clientCommandRefusal(
+    refusal: consoleCommandRefusal(
       "command-failed",
       `${commandId} did not complete: ${failureMessage}`,
     ),

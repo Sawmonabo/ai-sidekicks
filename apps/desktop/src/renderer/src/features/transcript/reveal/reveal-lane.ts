@@ -4,14 +4,14 @@
 
 import type { RevealDelta, RevealDiagnostic, RevealLaneState } from "./reveal-model.js";
 import { REVEAL_CHECKPOINT_TAIL_CAP } from "../frame/frame-caps.js";
-import { RopeSmoother, type ProvenAppendToken } from "./rope-smoother.js";
+import { RevealTextRope, type ProvenAppendToken } from "./reveal-text-rope.js";
 
 /** Where a lane's diagnostics go. The engine's emitter, in practice. */
 export type RevealDiagnosticSink = (diagnostic: RevealDiagnostic) => void;
 
 /** One reveal lane. A rebase resets it in place: same lane, the reader's agreed prefix. */
 export class RevealLane {
-  #smoother: RopeSmoother;
+  #rope: RevealTextRope;
   #checkpoints: RevealCheckpoint[] = [];
   #publishedText = "";
   #appendToken: ProvenAppendToken | undefined;
@@ -23,11 +23,11 @@ export class RevealLane {
   #isQuarantined = false;
 
   public constructor(laneId: string) {
-    this.#smoother = new RopeSmoother(laneId);
+    this.#rope = new RevealTextRope(laneId);
   }
 
   public get laneId(): string {
-    return this.#smoother.laneId;
+    return this.#rope.laneId;
   }
 
   /** The text a consumer may render for this lane. */
@@ -50,11 +50,11 @@ export class RevealLane {
 
   /** True while the lane has text left to reveal and has not been quarantined. */
   public hasWork(): boolean {
-    return !this.#isQuarantined && !this.#smoother.isSettled;
+    return !this.#isQuarantined && !this.#rope.isSettled;
   }
 
   public get isSettled(): boolean {
-    return this.#smoother.isSettled;
+    return this.#rope.isSettled;
   }
 
   /**
@@ -66,7 +66,7 @@ export class RevealLane {
     if (this.#isQuarantined) {
       return;
     }
-    const token = this.#smoother.append(text);
+    const token = this.#rope.append(text);
     if (token !== undefined) {
       this.#appendToken = token;
     }
@@ -82,9 +82,9 @@ export class RevealLane {
    * quarantine, since the new source is one the producer vouches for.
    */
   public commitAuthoritative(delta: RevealDelta, report: RevealDiagnosticSink): void {
-    if (this.#smoother.isPrefixOf(delta.text)) {
-      const appended = delta.text.slice(this.#smoother.sourceLength);
-      const token = this.#smoother.append(appended);
+    if (this.#rope.isPrefixOf(delta.text)) {
+      const appended = delta.text.slice(this.#rope.sourceLength);
+      const token = this.#rope.append(appended);
       if (token !== undefined) {
         this.#appendToken = token;
         this.#recordCheckpoint(token, report);
@@ -116,13 +116,13 @@ export class RevealLane {
     tailCharacters: number,
     backtrackCap: number,
   ): number {
-    const tail = this.#smoother.revealedTail(tailCharacters);
-    const window = tail + this.#smoother.lookahead(share + backtrackCap);
+    const tail = this.#rope.revealedTail(tailCharacters);
+    const window = tail + this.#rope.lookahead(share + backtrackCap);
     const candidateInWindow = Math.min(tail.length + share, window.length);
     const gatedInWindow = gate(window, candidateInWindow);
-    const revealed = this.#smoother.advance(Math.max(0, gatedInWindow - tail.length));
-    this.#publishedText = this.#smoother.revealedText();
-    this.isCatchingUp = this.isCatchingUp && !this.#smoother.isSettled;
+    const revealed = this.#rope.advance(Math.max(0, gatedInWindow - tail.length));
+    this.#publishedText = this.#rope.revealedText();
+    this.isCatchingUp = this.isCatchingUp && !this.#rope.isSettled;
     this.#assertPublishedTextIsRevealCursor();
     return revealed;
   }
@@ -132,9 +132,9 @@ export class RevealLane {
     return {
       laneId: this.laneId,
       publishedText: this.#publishedText,
-      pendingCharacterCount: this.#smoother.pendingCharacterCount,
+      pendingCharacterCount: this.#rope.pendingCharacterCount,
       isCatchingUp: this.isCatchingUp,
-      isSettled: this.#smoother.isSettled,
+      isSettled: this.#rope.isSettled,
       appendToken: this.#appendToken,
     };
   }
@@ -145,10 +145,10 @@ export class RevealLane {
    * reveal cursor.
    */
   #adoptAsWholeSource(source: string, revealedLength: number = source.length): void {
-    const adopted = new RopeSmoother(this.laneId);
+    const adopted = new RevealTextRope(this.laneId);
     const token = adopted.append(source);
     adopted.advance(revealedLength);
-    this.#smoother = adopted;
+    this.#rope = adopted;
     this.#appendToken = token;
     this.#publishedText = adopted.revealedText();
   }
@@ -168,7 +168,7 @@ export class RevealLane {
   }
 
   /**
-   * The reveal engine's named invariant: published text is the smoother's reveal cursor.
+   * The reveal engine's named invariant: published text is the rope's reveal cursor.
    * Asserted in dev and test only: it checks this module's own bookkeeping, and
    * `import.meta.env.DEV` compiles away in a release bundle.
    */
@@ -176,9 +176,9 @@ export class RevealLane {
     if (!import.meta.env.DEV) {
       return;
     }
-    if (this.#publishedText !== this.#smoother.revealedText()) {
+    if (this.#publishedText !== this.#rope.revealedText()) {
       throw new Error(
-        `reveal invariant broken on lane ${this.laneId}: published text is not the smoother's reveal cursor`,
+        `reveal invariant broken on lane ${this.laneId}: published text is not the rope's reveal cursor`,
       );
     }
   }

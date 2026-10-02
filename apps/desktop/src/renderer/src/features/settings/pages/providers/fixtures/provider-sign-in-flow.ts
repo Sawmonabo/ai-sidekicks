@@ -25,7 +25,7 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
  * The three held arms carry the account, so a disabled row can say which account holds
  * the flow.
  */
-export type SignInFlowState =
+export type ProviderSignInFlowState =
   | { readonly kind: "idle" }
   | { readonly kind: "starting"; readonly accountId: ProviderAccountId }
   | {
@@ -41,7 +41,7 @@ export type SignInFlowState =
   | { readonly kind: "ended"; readonly because: string };
 
 /** The state a flow starts in and returns to. Shared so it has one spelling. */
-export const IDLE_PROVIDER_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
+export const IDLE_PROVIDER_SIGN_IN_FLOW: ProviderSignInFlowState = { kind: "idle" };
 
 /**
  * What a flow ending on the registry's own tail says.
@@ -49,7 +49,7 @@ export const IDLE_PROVIDER_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
  * Its own sentence: this ending is neither a cancellation nor a reply to a call. The
  * report comes from the provider and is not a claim the account is authenticated.
  */
-export const SIGN_IN_ENDED_BY_REGISTRY =
+export const PROVIDER_SIGN_IN_ENDED_BY_REGISTRY =
   "This machine reports the provider's sign-in finished. That is not a claim the account is authenticated — the registry is being read again to see what became of it.";
 
 /**
@@ -58,26 +58,27 @@ export const SIGN_IN_ENDED_BY_REGISTRY =
  * A `Record` over the union's discriminant, so a new arm is a compile error here rather
  * than a control that silently stays pressable.
  */
-const SIGN_IN_RUNNING_BY_KIND: Readonly<Record<SignInFlowState["kind"], boolean>> = {
-  idle: false,
-  starting: true,
-  live: true,
-  canceling: true,
-  ended: false,
-};
+const PROVIDER_SIGN_IN_RUNNING_BY_KIND: Readonly<Record<ProviderSignInFlowState["kind"], boolean>> =
+  {
+    idle: false,
+    starting: true,
+    live: true,
+    canceling: true,
+    ended: false,
+  };
 
 /**
  * What one start attempt answered: a live flow. It carries the account so the tracker
  * can record it, and it is the only arm because a start that never became a flow raises.
  */
-export interface SignInStartOutcome {
+export interface ProviderSignInStartOutcome {
   readonly kind: "live";
   readonly accountId: ProviderAccountId;
   readonly attempt: ProviderAccountLoginResponse;
 }
 
 /** What one cancel answered: the flow is over. */
-export interface SignInCancelOutcome {
+export interface ProviderSignInCancelOutcome {
   readonly kind: "ended";
   readonly because: string;
 }
@@ -111,8 +112,8 @@ export type ProviderAccountRegisterCall = (
 ) => Promise<ProviderAccountRegisterResponse>;
 
 /** Whether this flow is running. The one reading of the table above. */
-export function isSignInRunning(flow: SignInFlowState): boolean {
-  return SIGN_IN_RUNNING_BY_KIND[flow.kind];
+export function isProviderSignInRunning(flow: ProviderSignInFlowState): boolean {
+  return PROVIDER_SIGN_IN_RUNNING_BY_KIND[flow.kind];
 }
 
 /**
@@ -120,7 +121,9 @@ export function isSignInRunning(flow: SignInFlowState): boolean {
  *
  * Reads the union's own arms, so the set of kinds that carry an account is stated once.
  */
-export function readSignInAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
+export function readProviderSignInAccountId(
+  flow: ProviderSignInFlowState,
+): ProviderAccountId | undefined {
   return "accountId" in flow ? flow.accountId : undefined;
 }
 
@@ -128,7 +131,7 @@ export function readSignInAccountId(flow: SignInFlowState): ProviderAccountId | 
 export async function startProviderSignIn(
   login: ProviderAccountLoginCall,
   accountId: ProviderAccountId,
-): Promise<SignInStartOutcome> {
+): Promise<ProviderSignInStartOutcome> {
   return { kind: "live", accountId, attempt: await login({ accountId }) };
 }
 
@@ -139,10 +142,10 @@ export async function startProviderSignIn(
  * stop because it finished or expired first. Reporting that as a cancellation would claim
  * the console stopped something it did not.
  */
-export async function cancelSignIn(
+export async function cancelProviderSignIn(
   cancel: ProviderAccountLoginCancelCall,
   attempt: ProviderAccountLoginResponse,
-): Promise<SignInCancelOutcome> {
+): Promise<ProviderSignInCancelOutcome> {
   const reply = await cancel({ attemptId: attempt.attemptId });
   return {
     kind: "ended",

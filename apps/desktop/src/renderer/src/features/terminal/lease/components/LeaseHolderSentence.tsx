@@ -6,14 +6,14 @@
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import type { TerminalLeaseHolder } from "../lease-model.js";
 
-/** The holding the statement words. */
+/** The holder the statement words. */
 export interface LeaseHolderSentenceProps {
-  readonly holding: TerminalLeaseHolder;
+  readonly holder: TerminalLeaseHolder;
 }
 
 /** One sentence saying where the shared shell is held. */
 export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.Element {
-  switch (props.holding) {
+  switch (props.holder) {
     case "not-checked":
       return <DerivedFigure text="The lease has not been read." />;
     case "unrecognized-transition":

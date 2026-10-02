@@ -28,9 +28,8 @@ export const FIRST_RUN_SCENARIO: Scenario = {
   purpose:
     "A freshly installed console with no sessions, no agents, and no history — the state the empty-state design and the screenshot baseline are pinned against.",
   sessionId: SESSION_ID,
-  userIdsInJoinOrder: [USER_YOU],
+  thisDeviceId: USER_YOU,
   // A fresh install has exactly one user, and this window is them.
-  callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: [
     {

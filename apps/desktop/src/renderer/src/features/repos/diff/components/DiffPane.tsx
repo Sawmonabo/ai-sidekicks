@@ -1,4 +1,4 @@
-// The diff pane body: the change set it was handed, or the absence copy for the subject the
+// The diff pane body: the change set it was handed, or the empty state for the subject the
 // address names. `PaneFrame` draws the section, kind glyph, trail and body box, so none of
 // those are set here.
 
@@ -45,7 +45,7 @@ export interface DiffPaneProps {
   readonly diff?: DiffModel;
 }
 
-/** The diff pane body: the change set when one is held, otherwise the absence copy. */
+/** The diff pane body: the change set when one is held, otherwise the empty state. */
 export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
   const absence = ABSENT_DIFF_COPY[context.entity.kind];

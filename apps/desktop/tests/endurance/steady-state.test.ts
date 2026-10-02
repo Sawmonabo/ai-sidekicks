@@ -194,7 +194,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           CONCURRENT_STREAMING_SESSION_ID,
         );
         process.stdout.write(
-          `[console-endurance] baseline ${String(Math.round(baselineHeapBytes / 1024))} kB, ` +
+          `[endurance] baseline ${String(Math.round(baselineHeapBytes / 1024))} kB, ` +
             `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
             `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
             `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
@@ -268,7 +268,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           throw new Error("unreachable: the assertion above fails first");
         }
         process.stdout.write(
-          `[console-endurance] transcript window ${String(transcriptWindow.mountedRowCount)} mounted / ` +
+          `[endurance] transcript window ${String(transcriptWindow.mountedRowCount)} mounted / ` +
             `${String(transcriptWindow.virtualItemCount)} windowed / ` +
             `${String(transcriptWindow.visibleRowCount)} visible of ` +
             `${String(transcriptWindow.totalRowCount)} rows ` +
@@ -338,7 +338,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
           // Reported whether or not it passes, so a reviewer can watch a margin close.
           process.stdout.write(
-            `[console-endurance] retained after ${String(SNAPSHOT_CHURN_CYCLE_COUNT)} cycles: ` +
+            `[endurance] retained after ${String(SNAPSHOT_CHURN_CYCLE_COUNT)} cycles: ` +
               readings
                 .map(
                   (reading) =>

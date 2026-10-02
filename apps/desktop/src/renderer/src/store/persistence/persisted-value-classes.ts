@@ -33,8 +33,8 @@ import { refusePersistence, type PersistenceRefusal } from "./persistence-refusa
 
 /**
  * The classes of UI state the durable store admits. Closed, and the single source
- * for both the type and the validator table. Stable order: tests and the
- * diagnostics page read it as written.
+ * for both the type and the validator table. Stable order: tests read it as
+ * written.
  */
 export const PERSISTED_VALUE_CLASSES = [
   "layout",
@@ -178,13 +178,7 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
   ),
   "scroll-position": recordOf(isFiniteNumber, "scroll-position"),
   selection: recordOf(isIdentifierString, "selection"),
-  pin: recordOf(
-    (value) =>
-      value === "front" || value === "back"
-        ? undefined
-        : invalid('a pin tier is "front" or "back"'),
-    "pin",
-  ),
+  pin: recordOf((value) => (value === "pinned" ? undefined : invalid('a pin is "pinned"')), "pin"),
   expansion: (value) => {
     if (!Array.isArray(value)) {
       return invalid("expansion is an array of entity identifiers");

@@ -1,4 +1,4 @@
-/* The agent card and the roster's allowlist note; the axis field, library and pane column have
+/* The agent card and the agent list's allowlist note; the axis field, library and pane column have
  * their own sheets. An absent axis is text, never a gap, so a blank never has to be read as
  * "default" or "nobody asked".
  */

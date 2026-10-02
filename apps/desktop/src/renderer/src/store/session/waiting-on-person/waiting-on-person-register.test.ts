@@ -43,8 +43,8 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
   it("seeds a blocked run off the entity the read carried", () => {
     // A run's `state` is a registered `RunState`, so a run blocked below the window's head shows
     // on the base state.
-    const journal = new WaitingOnPersonRegister();
-    journal.seedFrom({
+    const register = new WaitingOnPersonRegister();
+    register.seedFrom({
       cursor: 12,
       windowHeadCursor: "cursor-12",
       entities: [
@@ -52,31 +52,31 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
       ],
     });
 
-    expect(openCountOf(journal.ledger)).toBe(1);
-    expect(journal.ledger.runsByRunId.get("run-a")?.atSequence).toBe(12);
+    expect(openCountOf(register.ledger)).toBe(1);
+    expect(register.ledger.runsByRunId.get("run-a")?.atSequence).toBe(12);
   });
 
   it("keeps what it already held when a later read re-establishes the window", () => {
     // A read says nothing about a request it did not carry; clearing here would lose older asks.
-    const journal = new WaitingOnPersonRegister();
-    journal.admit([rowOf(3, "approval.requested", { approvalRequestId: "req-1" })]);
-    journal.seedFrom({ cursor: 40, windowHeadCursor: "cursor-40", entities: [] });
+    const register = new WaitingOnPersonRegister();
+    register.admit([rowOf(3, "approval.requested", { approvalRequestId: "req-1" })]);
+    register.seedFrom({ cursor: 40, windowHeadCursor: "cursor-40", entities: [] });
 
-    expect(openCountOf(journal.ledger)).toBe(1);
+    expect(openCountOf(register.ledger)).toBe(1);
   });
 
   it("lets a newer row supersede the seed, and refuses one at the seed's own position", () => {
-    const journal = new WaitingOnPersonRegister();
-    journal.seedFrom({
+    const register = new WaitingOnPersonRegister();
+    register.seedFrom({
       cursor: 12,
       windowHeadCursor: undefined,
       entities: [{ kind: "run", id: "run-a", state: "waiting_for_approval" }],
     });
-    journal.admit([rowOf(12, "run.running", { runId: "run-a" })]);
-    expect(openCountOf(journal.ledger)).toBe(1);
+    register.admit([rowOf(12, "run.running", { runId: "run-a" })]);
+    expect(openCountOf(register.ledger)).toBe(1);
 
-    journal.admit([rowOf(13, "run.running", { runId: "run-a" })]);
-    expect(openCountOf(journal.ledger)).toBe(0);
+    register.admit([rowOf(13, "run.running", { runId: "run-a" })]);
+    expect(openCountOf(register.ledger)).toBe(0);
   });
 });
 
@@ -84,19 +84,19 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
   it("does not re-open a request whose terminal arrived first", () => {
     // A backward page delivers a request's opener after its terminal; a register that deleted
     // the key on a terminal would hold the ask open for the rest of the session.
-    const journal = new WaitingOnPersonRegister();
-    journal.admit([rowOf(9, "approval.approved", { approvalRequestId: "req-1" })]);
-    journal.admit([rowOf(4, "approval.requested", { approvalRequestId: "req-1" })]);
+    const register = new WaitingOnPersonRegister();
+    register.admit([rowOf(9, "approval.approved", { approvalRequestId: "req-1" })]);
+    register.admit([rowOf(4, "approval.requested", { approvalRequestId: "req-1" })]);
 
-    expect(openCountOf(journal.ledger)).toBe(0);
+    expect(openCountOf(register.ledger)).toBe(0);
   });
 
   it("keeps the newest run state whichever end of the log it arrived from", () => {
-    const journal = new WaitingOnPersonRegister();
-    journal.admit([rowOf(8, "run.running", { runId: "run-a" })]);
-    journal.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
+    const register = new WaitingOnPersonRegister();
+    register.admit([rowOf(8, "run.running", { runId: "run-a" })]);
+    register.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
 
-    expect(openCountOf(journal.ledger)).toBe(0);
+    expect(openCountOf(register.ledger)).toBe(0);
   });
 });
 

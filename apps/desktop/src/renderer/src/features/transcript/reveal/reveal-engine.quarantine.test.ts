@@ -10,7 +10,7 @@ import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
-import { RopeSmoother } from "./rope-smoother.js";
+import { RevealTextRope } from "./reveal-text-rope.js";
 import type { RevealDiagnostic } from "./reveal-model.js";
 
 /** One engine on the test's own clock, as the sibling suite builds one. */
@@ -39,7 +39,7 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
     const engine = engineOn(clock);
     const diagnostics: RevealDiagnostic[] = [];
     engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
-    vi.spyOn(RopeSmoother.prototype, "advance").mockImplementationOnce(() => {
+    vi.spyOn(RevealTextRope.prototype, "advance").mockImplementationOnce(() => {
       throw unrenderableFailure();
     });
 
@@ -78,7 +78,7 @@ describe("the reveal engine — what a quarantined lane costs", () => {
   /** A lane the engine has given up on, over a source three frames long. */
   function engineWithAQuarantinedLane(clock: ManualClock): RevealEngine {
     const engine = engineOn(clock);
-    vi.spyOn(RopeSmoother.prototype, "advance").mockImplementationOnce(() => {
+    vi.spyOn(RevealTextRope.prototype, "advance").mockImplementationOnce(() => {
       throw new Error("the rope refused a backtrack");
     });
     engine.ingest({

@@ -92,7 +92,7 @@ jobs:
     #     restated. No `actions:` grant is added on purpose: the cache backend authenticates with
     #     the runner-injected `ACTIONS_RUNTIME_TOKEN`, not `GITHUB_TOKEN`, so `actions: write` would
     #     buy the cache nothing while giving PR-authored code Actions-API writes (deleting caches on
-    #     any ref, cancelling runs) that cache ref-scoping does not contain.
+    #     any ref, canceling runs) that cache ref-scoping does not contain.
     #   - The signature key is read by the `pnpm turbo run` steps, not the caching action, so it
     #     sits at job scope; a step-level `env:` would silently disable artifact signing.
     permissions:
@@ -609,13 +609,13 @@ jobs:
       # `--continue` so a leg naming two tasks reports both results; without it the first failure
       # hides the second. `--concurrency=1` only on legs the matrix marks `serial`.
       #
-      # `CONSOLE_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the runner's temp
+      # `SIDEKICKS_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the runner's temp
       # directory: `apps/desktop/tests/bench/ledger.json` is a curated record a person reads, and no
       # CI run should rewrite it. The runner's own numbers are in this step's log. Other legs ignore
       # the variable.
       - name: Run tier
         env:
-          CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
+          SIDEKICKS_BENCH_LEDGER_PATH: ${{ runner.temp }}/bench-ledger.json
         run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --continue ${{ matrix.serial && '--concurrency=1' || '' }} ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
   # Dead code across every workspace. It reads source only, so the job installs
@@ -876,7 +876,7 @@ jobs:
       # `test:coverage` is `vitest run --project=renderer`, a happy-dom project, and the smoke
       # project that spawns the binary is not in the coverage set. Otherwise the `apps/desktop`
       # postinstall would pull a 120-160 MB archive this job cannot use. Electron's own `install.js`
-      # ignores the variable; `apps/desktop/scripts/materialize-electron.ts` honours it.
+      # ignores the variable; `apps/desktop/scripts/materialize-electron.ts` honors it.
       - name: Install dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -1126,8 +1126,8 @@ jobs:
         #
         # One predicate for every job: `skipped` counts as success. A path-filtered job that did not
         # need to run must not hold the gate pending, and a job skipped by its filter carries as
-        # much signal as a green one. `test` is never skipped. A cancelled or failed dependency
-        # still fails, since neither result is accepted.
+        # much signal as a green one. `test` is never skipped. A dependency whose result is
+        # `cancelled` or `failure` still fails, since neither result is accepted.
         #
         # `changes` is checked too, and that is load-bearing: a path filter that errors (a transient
         # files-API failure, a bad expression) skips every job that needs it, the same result a

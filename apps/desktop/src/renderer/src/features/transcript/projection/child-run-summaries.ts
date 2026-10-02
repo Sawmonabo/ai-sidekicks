@@ -9,7 +9,7 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
-/** The one event type that carries the orchestration linkage. */
+/** The one event type that carries the child-run links. */
 const RUN_CREATED_TYPE = "run.queued";
 
 /** The state a creation row announces; the transition mapping deliberately omits `queued`. */

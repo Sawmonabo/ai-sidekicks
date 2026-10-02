@@ -2,7 +2,7 @@
 // which coalesces a burst of reasons into one read and never overlaps two. Reads happen on
 // subscribe, window focus, reconnect and the terminal events this class names, never on an
 // interval. The order is forced by the wire: there is no mount list call, so mounts are learned
-// from the workspace roster, then read once per distinct mount (the only read carrying
+// from the listed workspaces, then read once per distinct mount (the only read carrying
 // `health`), then worktree status once per mount. A rejected call is not caught here: the
 // scheduler re-throws it and the reading stays where it was. The state is not in the session
 // store because a mount read is a probe, not an event projection.
@@ -190,7 +190,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * The section's whole reading: the workspace roster, one mount read per distinct mount, one
+   * The section's whole reading: the listed workspaces, one mount read per distinct mount, one
    * worktree read per mount and one capability read per workspace. The round's signal reaches
    * each read, so an abandoned pass costs only the pre-send check per remaining call.
    */

@@ -10,7 +10,7 @@ import {
   type DiffFileChangeCounts,
 } from "./diff-model.js";
 
-/** Row zero: the control that clears the narrowing, and what it counts. */
+/** Row zero: the control that clears the one-file filter, and what it counts. */
 export interface AllFilesEntry {
   readonly kind: "all-files";
   /** Every file the change set holds, which the filter never narrows. */
@@ -41,8 +41,8 @@ export interface DiffFileListReading {
 }
 
 /**
- * Where the current narrowing sits in the drawn rows, or that the filter hides it. A hidden
- * narrowing has no row; answering row zero would mark "All files" current while the renderer
+ * Where the shown file sits in the drawn rows, or that the filter hides it. A hidden shown
+ * file has no row; answering row zero would mark "All files" current while the renderer
  * still shows the file, and `-1` would pass as an index, so the state is a union member.
  */
 export type SelectedEntryRow =

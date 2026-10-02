@@ -124,7 +124,7 @@ function resolveUnpackedBinary(rootPath: string): string | null {
     }
     // Windows names the executable `<product>.exe`; Linux names it `<product>` with no
     // extension. Every sibling an unpacked root carries — the ICU data, the snapshot,
-    // the shared libraries, the licences — has one.
+    // the shared libraries, the licenses — has one.
     return entry.endsWith(".exe") || !entry.includes(".");
   });
   return entries.length === 1 ? join(rootPath, entries[0] ?? "") : null;
@@ -264,7 +264,7 @@ describe("the packaged-artifact discovery can fail", () => {
   const temporaryDirectories: string[] = [];
 
   function syntheticOutputDirectory(): string {
-    const directory = mkdtempSync(join(tmpdir(), "console-fuse-artifact-"));
+    const directory = mkdtempSync(join(tmpdir(), "sidekicks-fuse-artifact-"));
     temporaryDirectories.push(directory);
     return directory;
   }

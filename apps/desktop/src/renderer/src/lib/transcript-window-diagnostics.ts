@@ -83,6 +83,6 @@ export class TranscriptWindowDiagnosticsRegistry {
   }
 }
 
-/** The console's registry, one per renderer process (an auxiliary window has its own). */
+/** The console's registry, one per renderer process. */
 export const transcriptWindowDiagnostics: TranscriptWindowDiagnosticsRegistry =
   new TranscriptWindowDiagnosticsRegistry();

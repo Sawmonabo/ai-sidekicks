@@ -11,14 +11,14 @@ import {
   PROVIDER_SIGN_IN_ATTEMPT,
 } from "./account-plane-bridge.test-support.js";
 import {
-  cancelSignIn,
+  cancelProviderSignIn,
   readRegistrationFields,
   startProviderSignIn,
   submitTokenRegistration,
   TOKEN_REGISTRATION_REFUSAL_ORIGIN,
   type RegistrationFieldReading,
-  type SignInFlowState,
-} from "./sign-in-flow.js";
+  type ProviderSignInFlowState,
+} from "./provider-sign-in-flow.js";
 
 const ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 
@@ -44,11 +44,11 @@ const REGISTERED: ProviderAccountRegisterResponse = {
 };
 
 /** The sentence one settled flow state carries, or the empty string where it has none. */
-function endedBecause(state: SignInFlowState): string {
+function endedBecause(state: ProviderSignInFlowState): string {
   return state.kind === "ended" ? state.because : "";
 }
 
-describe("startSignIn", () => {
+describe("startProviderSignIn", () => {
   it("answers a live flow carrying the attempt and the account it is for", async () => {
     const state = await startProviderSignIn(
       accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }).login,
@@ -64,9 +64,9 @@ describe("startSignIn", () => {
   });
 });
 
-describe("cancelSignIn", () => {
+describe("cancelProviderSignIn", () => {
   it("says the sign-in was canceled when the daemon canceled one", async () => {
-    const state = await cancelSignIn(
+    const state = await cancelProviderSignIn(
       accountPlaneCalls({ cancel: { status: "canceled" } }).cancelLogin,
       PROVIDER_SIGN_IN_ATTEMPT,
     );
@@ -76,7 +76,7 @@ describe("cancelSignIn", () => {
   // Guards the two statuses staying apart: a `notFound` reported as a cancellation would
   // claim the console stopped something it did not.
   it("reports a notFound as nothing to cancel, never as a cancellation", async () => {
-    const state = await cancelSignIn(
+    const state = await cancelProviderSignIn(
       accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
       PROVIDER_SIGN_IN_ATTEMPT,
     );

@@ -1,6 +1,6 @@
 // Closes a launched console within the cleanup ceiling and removes its private profile.
 //
-// The bound is the registered `console-launch-cleanup` ceiling on both the launch-failure path and
+// The bound is the registered `launch-cleanup` ceiling on both the launch-failure path and
 // the success path. A bound drawn from what the launch deadline has left would be near zero on the
 // success path, where the caller closes long after the launch, and would SIGKILL a healthy
 // application.

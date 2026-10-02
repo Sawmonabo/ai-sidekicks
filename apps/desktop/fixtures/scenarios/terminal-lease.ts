@@ -23,7 +23,7 @@ import type { Scenario, ScenarioBeat } from "../scenario.js";
 // Who and what the scenario is about: the session, the people and the agent's run. Ids are
 // UUIDs because the contract check presents each beat to the strict layer as a whole envelope.
 const HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
-const SECOND_DEVICE_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
+const OTHER_DEVICE_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
 /** The session whose shell this scenario is about. */
@@ -42,8 +42,7 @@ const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 const TERMINAL_AGENT_COMMAND_ID = "command-pnpm-test";
 
 /**
- * The scenario's cast by role, so tests get each id with the role it plays instead of
- * indexing `userIdsInJoinOrder`, which yields `string | undefined`.
+ * The scenario's cast by role, so tests get each id with the role it plays.
  */
 interface TerminalScenarioRoles {
   /**
@@ -63,7 +62,7 @@ interface TerminalScenarioRoles {
 /** The scenario's owner, other device and agent, by role. */
 export const TERMINAL_SCENARIO_ROLES: TerminalScenarioRoles = {
   owner: HUMAN_USER_ID,
-  otherDevice: SECOND_DEVICE_USER_ID,
+  otherDevice: OTHER_DEVICE_ID,
   agent: AGENT_USER_ID,
 };
 
@@ -181,10 +180,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     "and ending held. The output stream is absent until the terminal pane's " +
     "renderer is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
-  userIdsInJoinOrder: [OWNER, OTHER_DEVICE, AGENT],
-  // The owner is the device at this window. The lease line's `held-by-me` arm needs a caller
-  // that names the holder, and this scenario ends with the owner holding the lease.
-  callerUserId: OWNER,
+  thisDeviceId: OWNER,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
     terminalScenarioBeat({

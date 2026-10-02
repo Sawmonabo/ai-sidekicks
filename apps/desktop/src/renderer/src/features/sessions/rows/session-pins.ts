@@ -11,10 +11,10 @@ import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js
 import { DurableViewState } from "../durable-view/durable-view-state.js";
 
 /** The record key inside the global partition. Identifier-shaped, as the store requires. */
-export const PINNED_SESSIONS_KEY = "session-pin-tiers";
+export const PINNED_SESSIONS_KEY = "session-pins";
 
 /** The literal the `pin` value class stores for a pinned session. */
-const PINNED = "front";
+const PINNED = "pinned";
 
 /** The persisted map: session identifier to the pinned literal, pinned sessions only. */
 export type SessionPins = Readonly<Record<string, typeof PINNED>>;

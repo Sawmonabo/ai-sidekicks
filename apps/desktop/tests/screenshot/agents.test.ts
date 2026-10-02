@@ -1,8 +1,8 @@
 // The screenshot tier for the agents console pane. `settled-capture.ts` owns the mechanism: every
 // capture is written into the gitignored `__screenshots__/` and compared against nothing, so this
 // file gates only on whether the pane can be captured at all. It is a picture rather than an
-// assertion because how the cards read together under the tool-grant line is a layout claim a DOM
-// assertion cannot see. The pane carries the feature's palette, so both schemes are captured.
+// assertion because how the cards read together under the tool-allowlist line is a layout claim a
+// DOM assertion cannot see. The pane carries the feature's palette, so both schemes are captured.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -20,7 +20,7 @@ const PINNED_CAPTURES: readonly {
   readonly scheme: ColorScheme;
   readonly mount: () => Promise<HTMLElement>;
 }[] = COLOR_SCHEMES.map((scheme) => ({
-  captureName: `agents-console-pane-${scheme}`,
+  captureName: `agents-pane-${scheme}`,
   scheme,
   mount: mountAgentsPane,
 }));

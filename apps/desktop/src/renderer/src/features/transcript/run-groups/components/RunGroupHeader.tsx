@@ -17,14 +17,14 @@ export interface RunGroupHeaderProps {
   /** Whether the run group's rows are on screen beneath this header. */
   readonly isOpen: boolean;
   /** The actor's allocated hue, or `undefined` where the wheel never admitted them. */
-  readonly actorHue?: AgentHueAssignment | undefined;
+  readonly agentHue?: AgentHueAssignment | undefined;
   readonly onToggle: (runGroup: RunGroup) => void;
 }
 
 /** One run's run group, as a header. */
 export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
   const { runGroup } = props;
-  const hueStep = props.actorHue?.step ?? -1;
+  const hueStep = props.agentHue?.step ?? -1;
   return (
     <div
       className="meridian-run-group-header"
@@ -32,7 +32,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
         hueStep < 0 || hueStep >= HUE_WHEEL_STEPS
           ? undefined
           : {
-              // The same 2 px attribution edge every transcript row wears, so a run group and
+              // The same 2 px leading edge every transcript row wears, so a run group and
               // its rows are attributed by the same wheel. An edge, not a tint: a hue never
               // sits behind text.
               borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),

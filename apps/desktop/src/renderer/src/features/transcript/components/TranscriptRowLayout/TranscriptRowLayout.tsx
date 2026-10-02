@@ -1,4 +1,4 @@
-// The transcript row: a flush-left line with a 2 px attribution edge in the author's hue, the
+// The transcript row: a flush-left line with a 2 px leading edge in the author's hue, the
 // author and timestamp in a fixed gutter, and content in a single measure. The hue is only ever
 // on the edge, never a tint behind body text, and the footer is revealed on hover and focus.
 // Rows are `<article>` elements named by their author, so a container can be `role="feed"`.
@@ -13,7 +13,7 @@ import { formatClockTime } from "@renderer/lib/wire-figures.js";
 
 /** What one transcript row lays out. */
 export interface TranscriptRowLayoutProps {
-  /** Wheel step, 0 to 11 — drives the 2 px attribution edge. */
+  /** Wheel step, 0 to 11 — drives the 2 px leading edge. */
   readonly agentHueStep: number;
   readonly occurredAtIso: string;
   readonly authorLabel: string;
@@ -26,7 +26,7 @@ export interface TranscriptRowLayoutProps {
   readonly isSuperseded?: boolean;
 }
 
-/** One transcript row: attribution edge, actor and time gutter, body, and a revealed footer. */
+/** One transcript row: leading edge, actor and time gutter, body, and a revealed footer. */
 export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.Element {
   const actorId = useId();
 
@@ -43,7 +43,7 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
     Number.isInteger(props.agentHueStep) &&
     props.agentHueStep >= 0 &&
     props.agentHueStep < HUE_WHEEL_STEPS;
-  const edgeStyle: AttributionEdgeStyle = {
+  const edgeStyle: LeadingEdgeStyle = {
     "--meridian-row-hue": isAttributed
       ? tokenReference(formatHueWheelTokenName(props.agentHueStep))
       : tokenReference("edge-strong"),
@@ -84,7 +84,7 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
   );
 }
 
-/** Carries the row's user hue into the edge's fill patterns. */
-interface AttributionEdgeStyle extends React.CSSProperties {
+/** Carries the row's agent hue into the edge's fill patterns. */
+interface LeadingEdgeStyle extends React.CSSProperties {
   readonly "--meridian-row-hue": string;
 }

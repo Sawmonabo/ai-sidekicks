@@ -50,7 +50,7 @@
 }
 
 .meridian-nothing__detail {
-  /* A measure, not a column width: absence copy is prose and reads badly full-bleed. */
+  /* A measure, not a column width: empty-state copy is prose and reads badly full-bleed. */
   max-inline-size: 52ch;
   margin: 0;
   color: var(--meridian-text-muted);

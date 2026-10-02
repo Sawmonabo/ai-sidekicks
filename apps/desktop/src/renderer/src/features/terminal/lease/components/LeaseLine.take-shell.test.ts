@@ -8,7 +8,7 @@ import { takeShellButton, leaseState, renderLease } from "./LeaseLine.test-suppo
 describe("the take control", () => {
   it("makes one acquire per press", () => {
     const take = vi.fn();
-    const { container } = renderLease(leaseState({ holding: "unheld" }), {
+    const { container } = renderLease(leaseState({ holder: "unheld" }), {
       isInFlight: false,
       take,
     });

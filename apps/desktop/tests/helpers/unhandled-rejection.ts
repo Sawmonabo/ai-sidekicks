@@ -1,4 +1,4 @@
-// Witness for the half of a failure `render` cannot see. A detached async body (a drain started
+// Observes the half of a failure `render` cannot see. A detached async body (a drain started
 // with `void`, an effect that discards its promise) reports nothing to React when it throws, so a
 // case asserting only what is on screen passes against code that leaves an unhandled rejection.
 // The runner's own report is the only witness.

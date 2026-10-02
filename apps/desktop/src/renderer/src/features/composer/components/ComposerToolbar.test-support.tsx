@@ -1,4 +1,4 @@
-// Mounts the accessory rail over a real session store with events applied, a fixture bridge, and
+// Mounts the toolbar cluster over a real session store with events applied, a fixture bridge, and
 // the two entities a composer must be addressed to before any run-scoped reading exists.
 
 import { render } from "@testing-library/react";
@@ -25,7 +25,6 @@ const TOOLBAR_SCENARIO: Scenario = {
   label: "Rail unit",
   purpose: "A bridge for the rail's mount; the rail's own reads come from the store.",
   sessionId: SESSION_ID,
-  userIdsInJoinOrder: ["user-you"],
   startedAtIso: "2026-01-01T00:00:00.000Z",
   beats: [],
   replies: [],

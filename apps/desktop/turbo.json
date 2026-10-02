@@ -336,7 +336,7 @@
         "vitest/**",
         "tsconfig.paths.json"
       ],
-      "passThroughEnv": ["CONSOLE_BENCH_LEDGER_PATH"],
+      "passThroughEnv": ["SIDEKICKS_BENCH_LEDGER_PATH"],
       "outputs": [],
       "cache": false
     },

@@ -39,7 +39,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     target,
     draftStore,
     commandExecutor,
-    recognizeClientCommand,
+    recognizeConsoleCommand,
     recognizeProviderCommand,
   } = dependencies;
   // Allocated on first use, not on every render.
@@ -50,10 +50,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       new ComposerSendRouter({
         calls,
         runVersions,
-        ...(recognizeClientCommand === undefined ? {} : { recognizeClientCommand }),
+        ...(recognizeConsoleCommand === undefined ? {} : { recognizeConsoleCommand }),
         ...(recognizeProviderCommand === undefined ? {} : { recognizeProviderCommand }),
       }),
-    [calls, runVersions, recognizeClientCommand, recognizeProviderCommand],
+    [calls, runVersions, recognizeConsoleCommand, recognizeProviderCommand],
   );
   // Claimed before the await and released in `finally`, so every settlement releases the round
   // on one path.

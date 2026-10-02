@@ -40,7 +40,7 @@ function renderMessageCard(
       <MessageRow
         row={row}
         rowKind={rowKind}
-        actorHue={undefined}
+        agentHue={undefined}
         isSuperseded={false}
         density="expanded"
         footnotes={new FootnoteRegistry()}

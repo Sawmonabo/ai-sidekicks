@@ -1,5 +1,5 @@
 // The two acts a definition's detail offers, and what each settled to. Controls are never
-// greyed: whether a caller may write at a scope is the daemon's adjudication, and the answer
+// grayed: whether a caller may write at a scope is the daemon's adjudication, and the answer
 // renders under the control that asked. The paste box belongs to the import act (this build has
 // no file-open wire). The export's bytes stay on screen after the copy, since the host may refuse
 // the clipboard.

@@ -2,7 +2,7 @@
 //
 // It is registered as the `browser` section in `settings-pages.ts`. The page is a projection:
 // everything it draws arrives as children, and it fetches nothing, holds no store and runs no
-// effect, so it renders the same in a test, a screenshot tier and an auxiliary window.
+// effect, so it renders the same in a test, a screenshot tier and the app.
 
 import type { ReactNode } from "react";
 

@@ -25,42 +25,42 @@ beforeEach(() => {
 
 describe("SessionEventSubscriber — the console's one subscription to the wire", () => {
   it("admits every beat of an open session to the apply chokepoint", () => {
-    const { registry, binder, engine } = createHarness();
-    binder.attach();
+    const { registry, subscriber, engine } = createHarness();
+    subscriber.attach();
     registry.open(SESSION_ID);
 
     engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(
+    expect(subscriber.appliedEventCountFor(SESSION_ID)).toBe(
       CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
-    expect(binder.boundSessionIds).toEqual([SESSION_ID]);
-    expect(binder.droppedAfterCloseCount).toBe(0);
-    expect(binder.unreadableDeliveryCount).toBe(0);
+    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.droppedAfterCloseCount).toBe(0);
+    expect(subscriber.unreadableDeliveryCount).toBe(0);
 
     // The count above is an admission count and moves before the queue drains; draining proves the
     // events reached the store's chokepoint.
     engine.advance(APPLY_COALESCE_MS + 1);
     expect(registry.applyDrainCountFor(SESSION_ID)).toBeGreaterThan(0);
 
-    binder.dispose();
+    subscriber.dispose();
   });
 
   it("binds a session that was already open before it attached", () => {
     // The lost-open race in the order that loses it: the session is open before the subscriber
     // subscribes to the registry, so one listening only for changes would never hear of it.
-    const { registry, binder, engine } = createHarness();
+    const { registry, subscriber, engine } = createHarness();
     registry.open(SESSION_ID);
-    binder.attach();
+    subscriber.attach();
 
     engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(binder.boundSessionIds).toEqual([SESSION_ID]);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(
+    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+    expect(subscriber.appliedEventCountFor(SESSION_ID)).toBe(
       CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
 
-    binder.dispose();
+    subscriber.dispose();
   });
 
   it("asks for the base-state read in the same act as taking the subscription", async () => {
@@ -78,8 +78,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
       clock: engine.clock,
       refreshDebounceMs: 0,
     });
-    const binder = new SessionEventSubscriber({ registry, bridge });
-    binder.attach();
+    const subscriber = new SessionEventSubscriber({ registry, bridge });
+    subscriber.attach();
     registry.open(SESSION_ID);
 
     // The scheduler debounces on the frozen clock, so the read lands on an advance, not a
@@ -97,25 +97,25 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
       CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
 
-    binder.dispose();
+    subscriber.dispose();
   });
 
   it("refuses a delivered payload that is not a session event, and counts it", () => {
-    const { registry, binder, engine } = createHarness({
+    const { registry, subscriber, engine } = createHarness({
       ...CONCURRENT_STREAMING_SCENARIO,
       id: "concurrent-streaming-malformed-payload-probe",
       beats: [{ atMs: 0, event: { sequence: 1 } as unknown as ProjectedSessionEvent }],
     });
-    binder.attach();
+    subscriber.attach();
     registry.open(SESSION_ID);
 
     engine.advance(1);
 
-    expect(binder.unreadableDeliveryCount).toBe(1);
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
+    expect(subscriber.unreadableDeliveryCount).toBe(1);
+    expect(subscriber.appliedEventCountFor(SESSION_ID)).toBe(0);
     // Counted, not reported: an unfamiliar payload is a wire fact, not a console defect.
     expect(windowTripwires.totalFiringCount).toBe(0);
 
-    binder.dispose();
+    subscriber.dispose();
   });
 });

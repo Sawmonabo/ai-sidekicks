@@ -14,7 +14,7 @@
 // be the same race, and a retry would hide a palette that never took focus.
 //
 // The two waits are one phase. Two waits each declaring `IN_WINDOW_STEP_TIMEOUT_MS` would entitle
-// an opening to twenty seconds, while `console-launch-body` counts it as one ten-second phase, so
+// an opening to twenty seconds, while `launch-body` counts it as one ten-second phase, so
 // the phase is minted once and both waits draw from what is left.
 
 import type { Locator, Page } from "@playwright/test";
@@ -80,7 +80,7 @@ async function readPaletteInputFocus(consoleWindow: Page): Promise<PaletteInputF
  * never opened fails on the dialog, one that opened without focus fails on the input. Both are
  * charged to the body's allowance so neither's sentence is replaced by the generic overrun. They
  * draw on one phase minted here, so the pair costs the one ten-second opening
- * `console-launch-body` counts, and an opening that spends the whole phase fails on the focus
+ * `launch-body` counts, and an opening that spends the whole phase fails on the focus
  * reading inside it. `now` is the seam every clock here takes, since a case proving the second
  * wait gets the remainder cannot wait one out.
  */

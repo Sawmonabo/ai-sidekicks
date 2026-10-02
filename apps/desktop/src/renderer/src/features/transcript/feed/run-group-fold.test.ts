@@ -11,11 +11,7 @@ import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/emp
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type RunGroup } from "../run-groups/run-groups.js";
-import {
-  foldRunGroupHeaders,
-  narrowRunGroupToAdmittedRows,
-  type RunGroupDisclosure,
-} from "./run-group-fold.js";
+import { foldRunGroupHeaders, type RunGroupDisclosure } from "./run-group-fold.js";
 import { useRunGroupDisclosure } from "./hooks/useRunGroupDisclosure.js";
 import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
@@ -93,38 +89,6 @@ describe("an opened run group admits the cap's own window and no more", () => {
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, false);
     expect(renderedMemberKeys(model)).toHaveLength(1);
     expect(model.rows[0]?.type).toBe("run.completed");
-  });
-});
-
-describe("a run group re-sealed over the rows a narrowing admitted", () => {
-  const MEMBER_COUNT = 6;
-
-  function wholeRunGroup(): NonNullable<ReturnType<typeof runGroupOf>> {
-    const runGroup = runGroupOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT)));
-    if (runGroup === undefined) {
-      throw new Error("the fold produced no run group for a finished run");
-    }
-    return runGroup;
-  }
-
-  function runGroupOf(model: TranscriptWindowModel) {
-    return model.runGroupByHeaderKey.get(RUN_ID);
-  }
-
-  it("re-counts membership and carries the run's own facts through untouched", () => {
-    const runGroup = wholeRunGroup();
-    const admitted = new Set(runGroup.rowIds.slice(0, 2));
-    const narrowed = narrowRunGroupToAdmittedRows(runGroup, admitted);
-    expect(narrowed?.rowCount).toBe(2);
-    expect(narrowed?.rowIds).toStrictEqual([...admitted]);
-    // Lifecycle and terminal are session facts; re-deriving them would turn a finished run live.
-    expect(narrowed?.lifecycle).toBe("terminal");
-    expect(narrowed?.terminalEventType).toBe(runGroup.terminalEventType);
-    expect(narrowed?.terminalRowId).toBe(runGroup.terminalRowId);
-  });
-
-  it("answers undefined for a run group the narrowing admits no row of", () => {
-    expect(narrowRunGroupToAdmittedRows(wholeRunGroup(), new Set<string>())).toBeUndefined();
   });
 });
 

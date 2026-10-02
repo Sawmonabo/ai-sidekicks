@@ -61,7 +61,7 @@ describe("diff file list — a change set too long to mount", () => {
   });
 
   it("opens the window on a selection the window would not otherwise reach", () => {
-    // A narrowing whose row is off-window has no visible state, and a pane reopened on a file
+    // A shown file whose row is off-window has no visible state, and a pane reopened on a file
     // far down opens on exactly that.
     const selected = fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path;
     const container = renderFileList(REPOSITORY_WIDE_DIFF, selected);

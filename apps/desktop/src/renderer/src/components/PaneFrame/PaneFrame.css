@@ -23,7 +23,7 @@
   align-items: center;
   min-height: 34px;
   /* Block padding and type size come from the pane layout's rhythm, with fallbacks for a pane
-     mounted outside one (the auxiliary window). */
+     mounted outside one. */
   padding: var(--meridian-pane-head-padding-block, 0) var(--meridian-space-2)
     var(--meridian-pane-head-padding-block, 0) var(--meridian-space-3);
   font-size: var(--meridian-pane-head-font-size, inherit);

@@ -12,13 +12,13 @@ import {
 } from "../tool-allowlist.js";
 import { ToolAllowlistReading } from "./ToolAllowlistReading.js";
 
-/** The tool grant line: what this agent may reach, worded by the grant table. */
+/** The tool allowlist line: what this agent may reach, worded by the allowlist table. */
 export function ToolAllowlistLine(props: {
   readonly position: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   return (
     <p className="meridian-agent-card__tool-allowlist">
-      <span className="meridian-agent-card__line-label">Tool grant</span>{" "}
+      <span className="meridian-agent-card__line-label">Tool allowlist</span>{" "}
       {positionSentence(props.position)}
     </p>
   );

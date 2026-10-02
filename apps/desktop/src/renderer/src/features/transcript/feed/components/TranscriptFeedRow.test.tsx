@@ -35,7 +35,7 @@ function rendererOptions(
   return {
     transcriptWindow,
     openedTerminalRunIds: new Set<string>(),
-    hueForActor: () => undefined,
+    hueForAgent: () => undefined,
     toggleRunGroup: () => undefined,
     rowLease: (): RetainedRowState | undefined => undefined,
     renderTranscriptRow: () => <output data-rendered-row="yes" />,

@@ -9,7 +9,7 @@ import type { ComposerTarget } from "../composer-target.js";
 import type { CommandExecutor } from "../types.js";
 import type { DraftCaret } from "./draft-line.js";
 import type { ComposerSendCalls } from "./send-dispatch.js";
-import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
+import type { ConsoleCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
@@ -22,10 +22,10 @@ export interface SendControllerDependencies {
   readonly target: ComposerTarget;
   readonly draftStore: DraftStore;
   /**
-   * Whether a name is a registered client command. Supplied with `commandExecutor` by the
+   * Whether a name is a registered console command. Supplied with `commandExecutor` by the
    * command zone: a recognizer without an executor intercepts into a refusal.
    */
-  readonly recognizeClientCommand?: ClientCommandPredicate | undefined;
+  readonly recognizeConsoleCommand?: ConsoleCommandPredicate | undefined;
   /**
    * Whether a name is one the bound provider published, for discovery only. Read off the
    * same holder the discovery popover renders from. Absent, a typed provider command is like
@@ -33,7 +33,7 @@ export interface SendControllerDependencies {
    */
   readonly recognizeProviderCommand?: ProviderCommandPredicate | undefined;
   /**
-   * Runs a recognized client command. Absent, an intercepted line refuses, since clearing the
+   * Runs a recognized console command. Absent, an intercepted line refuses, since clearing the
    * line would report success for an act nothing performed.
    */
   readonly commandExecutor?: CommandExecutor | undefined;

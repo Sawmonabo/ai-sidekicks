@@ -20,7 +20,7 @@ export interface DiffRendererProps {
   readonly viewMode: DiffViewMode;
   readonly expansion: DiffGapExpansion;
   /**
-   * Show only this file of the model, by its wire-verbatim path. A narrowing, not a smaller
+   * Show only this file of the model, by its wire-verbatim path. A filter, not a smaller
    * model, so `fileIndex` on rows and in `onExpandGap` still addresses `model.files`.
    */
   readonly shownFilePath?: string | undefined;
@@ -35,7 +35,7 @@ export interface DiffRendererProps {
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-  // Re-flattened only when the diff, expansion, narrowing or view mode changes, not per scroll.
+  // Re-flattened only when the diff, expansion, shown file or view mode changes, not per scroll.
   // Split view pairs a deletion with its insertion, so the two modes differ in row count.
   const index = useMemo(
     () => new DiffRowIndex(props.model, props.expansion, props.shownFilePath, props.viewMode),

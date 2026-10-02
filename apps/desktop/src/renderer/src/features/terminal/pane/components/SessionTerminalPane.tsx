@@ -46,7 +46,7 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
       <LeaseLine state={lease} />
       <XtermMountPoint
         terminalId={sessionId}
-        isWriteEnabled={lease.holding === "held-by-this-device"}
+        isWriteEnabled={lease.holder === "held-by-this-device"}
         label={TERMINAL_OUTPUT_LABEL}
       />
     </>

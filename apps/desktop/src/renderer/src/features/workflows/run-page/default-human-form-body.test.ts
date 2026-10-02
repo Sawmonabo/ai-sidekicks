@@ -138,7 +138,7 @@ describe("a submit call that fails", () => {
       const probe = failingSubmits(failure);
       const container = await renderMountPoint(fixtureWaitPhase(), probe.submitForm);
       // The form does not catch the failure, so the runner reports an unhandled rejection; the
-      // witness reads that report instead of letting it fail the run.
+      // case reads that report instead of letting it fail the run.
       const escaped = await unhandledRejectionsDuring(async () => {
         await act(async () => {
           pressSubmit();

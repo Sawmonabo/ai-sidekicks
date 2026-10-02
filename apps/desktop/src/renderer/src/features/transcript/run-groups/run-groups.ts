@@ -216,7 +216,7 @@ function absorbRow(accumulator: RunGroupAccumulator, row: TimelineRow): void {
   // The account is settled at admission, so the first naming wins.
   accumulator.payingAccountId ??= payingAccountIdOf(row);
   // The first actor wins: a later row naming another is a human steering inside the agent's run
-  // group, which stays on that row's own attribution edge.
+  // group, which stays on that row's own leading edge.
   accumulator.actorId ??= row.actor;
   if (isRunStateEventType(row.type)) {
     // The newest state wins: a state is what the run is now.

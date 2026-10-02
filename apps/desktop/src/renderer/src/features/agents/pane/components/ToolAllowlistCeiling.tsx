@@ -1,8 +1,8 @@
-// The ceiling a tool allowlist cannot raise, said once for the whole roster. It is a node-wide
+// The ceiling a tool allowlist cannot raise, said once for the whole agent list. It is a node-wide
 // fact, so its subject is the mechanism ("applied at spawn"), not one agent; a card would make it
 // a claim about that agent. It offers no control: the switch lives on the browser settings page.
 
-/** The ceiling, once, above a roster that has at least one agent to state it about. */
+/** The ceiling, once, above an agent list that has at least one agent to state it about. */
 export function ToolAllowlistCeiling(): React.JSX.Element {
   return (
     <p className="meridian-agents__allowlist-note">

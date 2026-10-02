@@ -109,32 +109,6 @@ export function selectRunGroupRowIdsWithinCap(rowIds: readonly string[]): readon
     : rowIds.slice(-RUN_GROUP_VISIBLE_ROW_CAP);
 }
 
-/**
- * One run group as a narrowing leaves it, or `undefined` when it admits no row of it.
- *
- * `rowIds`, `rowCount` and the clipped figure are re-derived over the admitted rows;
- * lifecycle and the terminal row are session facts and pass through, so a filter that hides
- * a run's `run.completed` row cannot turn a finished group live.
- */
-export function narrowRunGroupToAdmittedRows(
-  runGroup: RunGroup,
-  admittedRowIds: ReadonlySet<string>,
-): RunGroup | undefined {
-  const rowIds = runGroup.rowIds.filter((rowId) => admittedRowIds.has(rowId));
-  if (rowIds.length === 0) {
-    return undefined;
-  }
-  if (rowIds.length === runGroup.rowIds.length) {
-    return runGroup;
-  }
-  return {
-    ...runGroup,
-    rowIds,
-    rowCount: rowIds.length,
-    clippedRowCount: rowIds.length - selectRunGroupRowIdsWithinCap(rowIds).length,
-  };
-}
-
 /** One row's collapse state, from the list's own decision. */
 export function densityFor(
   rowId: string,

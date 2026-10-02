@@ -105,7 +105,7 @@ export function PaletteEmptyState(props: PaletteEmptyStateProps): React.JSX.Elem
     return (
       <QuietEmptyState
         headline="No commands are registered in this window"
-        detail="An auxiliary window carries only the commands it can perform. The main window has the full set."
+        detail="Nothing has registered a command yet, so there is nothing to run."
       />
     );
   }

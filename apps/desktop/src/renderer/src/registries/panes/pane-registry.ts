@@ -34,11 +34,11 @@ export interface PaneDescriptor {
  * with `never` arms, so the compiler refuses a registration carrying both or neither.
  */
 export type PaneRegistration =
-  | (ConsolePaneRegistrationBase & {
+  | (PaneRegistrationBase & {
       readonly render: (context: PaneContext) => React.ReactNode;
       readonly body?: never;
     })
-  | (ConsolePaneRegistrationBase & {
+  | (PaneRegistrationBase & {
       readonly body: LazyBodyLoader<PaneContext>;
       readonly render?: never;
     });
@@ -126,7 +126,7 @@ export class PaneRegistry {
 }
 
 /** What every registration carries, whichever form it takes. */
-interface ConsolePaneRegistrationBase {
+interface PaneRegistrationBase {
   readonly kind: PaneKind;
   readonly owner: string;
 }

@@ -1,6 +1,6 @@
-// What a row is in the mounted feed: a run group header, a seam line, or the row renderer's. Every
-// case drives the composed feed, because each pinned model (run group fold, seam metadata, lease
-// table) is derived on every pass and has to reach a component.
+// What a row is in the mounted feed: a run group header, a system message, or the row renderer's.
+// Every case drives the composed feed, because each pinned model (run group fold, seam metadata,
+// lease table) is derived on every pass and has to reach a component.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -66,7 +66,7 @@ describe("the transcript feed — a finished run folds to a header and its recei
 });
 
 describe("the transcript feed — a seam is the transcript's own row", () => {
-  it("draws a compaction as a seam line rather than delegating it to the row renderer", () => {
+  it("draws a compaction as a system message rather than delegating it to the row renderer", () => {
     withLaidOutViewport();
     const rendererRowTypes: string[] = [];
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {

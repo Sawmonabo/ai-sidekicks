@@ -15,10 +15,10 @@ describe("pins in the durable store", () => {
     const pins = new SessionPinStore(store);
     await pins.setPinned("session-a", true);
 
-    expect(pins.pinned).toStrictEqual({ "session-a": "front" });
+    expect(pins.pinned).toStrictEqual({ "session-a": "pinned" });
     const record = await store.read(PERSISTENCE_GLOBAL_PARTITION, PINNED_SESSIONS_KEY);
     expect(record?.valueClass).toBe("pin");
-    expect(record?.value).toStrictEqual({ "session-a": "front" });
+    expect(record?.value).toStrictEqual({ "session-a": "pinned" });
   });
 
   it("records only pinned sessions: unpinning removes the entry", async () => {
@@ -40,7 +40,7 @@ describe("pins in the durable store", () => {
     const second = new SessionPinStore(openStoreOver(adapter));
     expect(second.pinned).toStrictEqual({});
     await second.hydrate();
-    expect(second.pinned).toStrictEqual({ "session-a": "front" });
+    expect(second.pinned).toStrictEqual({ "session-a": "pinned" });
   });
 });
 
@@ -57,10 +57,10 @@ describe("a write the store will not take", () => {
 
 describe("reading a record this build did not write", () => {
   it("keeps the entries it recognizes, and refuses a record that is not a map at all", () => {
-    expect(narrowSessionPins({ "session-a": "front", "session-b": "middle" })).toStrictEqual({
-      "session-a": "front",
+    expect(narrowSessionPins({ "session-a": "pinned", "session-b": "middle" })).toStrictEqual({
+      "session-a": "pinned",
     });
     expect(narrowSessionPins(["session-a"])).toBeUndefined();
-    expect(narrowSessionPins("front")).toBeUndefined();
+    expect(narrowSessionPins("pinned")).toBeUndefined();
   });
 });

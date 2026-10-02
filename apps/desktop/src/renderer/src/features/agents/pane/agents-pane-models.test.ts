@@ -1,6 +1,6 @@
 // The Agents pane models never belong to a session, bridge or store they are not for (state
 // replaced from an effect lags its inputs by a frame, so the mismatched frame is watched as it
-// happens), and the linkage read ends with its last lease.
+// happens), and the child-run links read ends with its last lease.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -56,31 +56,31 @@ describe("the Agents pane's models — the session they belong to", () => {
   });
 });
 
-describe("the Agents pane's models — the linkage lease", () => {
+describe("the Agents pane's models — the child-run links lease", () => {
   it("disposes the read when the last lease on it is given back", () => {
-    const { bridge, scenarioEngine } = unscriptedBridge("agent-linkage-release");
+    const { bridge, scenarioEngine } = unscriptedBridge("agent-child-run-links-release");
     const models = new AgentsPaneModels(
       bridge,
       scenarioEngine.clock,
       initializedStore("session-lease"),
       REJECTING_AGENTS_PANE_CALLS,
     );
-    const first = models.acquireLinkage();
-    const second = models.acquireLinkage();
+    const first = models.acquireChildRunLinks();
+    const second = models.acquireChildRunLinks();
     first.read.start();
 
     // One read, joined.
     expect(second.read).toBe(first.read);
-    expect(models.outstandingLinkageLeaseCount).toBe(2);
+    expect(models.outstandingChildRunLinksLeaseCount).toBe(2);
 
     first.release();
     first.release();
-    expect(models.holdsLinkage).toBe(true);
+    expect(models.holdsChildRunLinks).toBe(true);
     expect(second.read.isSubscribed).toBe(true);
 
     second.release();
-    expect(models.outstandingLinkageLeaseCount).toBe(0);
-    expect(models.holdsLinkage).toBe(false);
+    expect(models.outstandingChildRunLinksLeaseCount).toBe(0);
+    expect(models.holdsChildRunLinks).toBe(false);
     expect(second.read.isSubscribed).toBe(false);
   });
 });
@@ -141,8 +141,8 @@ describe("the Agents pane's models — the exact bridge and store they answer fo
       { bridge, sessionStore: rebuilt },
     );
 
-    // Same session id, a different projection: the held roster answers from the previous store's
-    // stream, which nothing appends to any more.
+    // Same session id, a different projection: the held agent list answers from the previous
+    // store's stream, which nothing appends to any more.
     expect(afterReplacement[0]).toBeUndefined();
     expect(afterReplacement.at(-1)?.subject.sessionStore).toBe(rebuilt);
   });

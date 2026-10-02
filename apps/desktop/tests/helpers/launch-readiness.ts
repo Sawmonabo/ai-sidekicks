@@ -28,10 +28,10 @@ export async function awaitPaintingAppWindow(
   let visibilityState: string;
   try {
     // Readiness first, then the frame question. Every wait draws from the cold-start budget so a
-    // slow boot is charged to what is slow, and the frame witness is armed only once the renderer
-    // is ready. In the order the renderer reaches them: the first window; `load`, which can land
-    // after React has mounted; then the frame element, not `domcontentloaded`, since the document
-    // exists before React mounts anything and a test could assert against an empty body.
+    // slow boot is charged to what is slow, and the frame paint probe is armed only once the
+    // renderer is ready. In the order the renderer reaches them: the first window; `load`, which
+    // can land after React has mounted; then the frame element, not `domcontentloaded`, since the
+    // document exists before React mounts anything and a test could assert against an empty body.
     window = await application.firstWindow({
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
@@ -80,8 +80,8 @@ export async function awaitPaintingAppWindow(
 }
 
 /**
- * The Playwright implementation of the witness's seam. The interval is timed inside the
- * renderer, so the printed figure is the frame schedule without a CDP round trip; the witness
+ * The Playwright implementation of the paint probe's seam. The interval is timed inside the
+ * renderer, so the printed figure is the frame schedule without a CDP round trip; the paint probe
  * separately records driver-side wall time, so a disagreement says which half was slow.
  */
 function rendererFrameSource(window: Page): RendererFrameSource {

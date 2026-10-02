@@ -130,6 +130,6 @@ export function clampSummary(summary: string): string {
  * The row's step on the hue wheel, or `-1`, which `TranscriptRowLayout` treats as unattributed
  * (neutral boundary). Not `0`: step zero belongs to somebody.
  */
-function hueStepOf(props: Pick<ToolRowProps, "actorHue">): number {
-  return props.actorHue?.step ?? -1;
+function hueStepOf(props: Pick<ToolRowProps, "agentHue">): number {
+  return props.agentHue?.step ?? -1;
 }

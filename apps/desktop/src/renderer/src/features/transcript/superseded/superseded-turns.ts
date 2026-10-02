@@ -1,4 +1,4 @@
-// Superseded bands: the rows a rewind put behind it, kept and dimmed rather than removed.
+// Superseded turns: the rows a rewind put behind it, kept and dimmed rather than removed.
 // A band is the group of rows one rollback rewound past. Unlike a seam in
 // `system-message-classifier.ts`, it is ranked over a whole loaded window, not one row.
 // Marks are single-field and present exactly when superseded, a row at the cutoff survives,
@@ -7,7 +7,7 @@
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 /** One group of rows a single rollback rewound. */
-export interface SupersededBand {
+export interface SupersededTurns {
   readonly runId: string;
   readonly epoch: number;
   /** The rewind cutoff. Rows whose position EXCEEDS it are in the band. */
@@ -23,10 +23,10 @@ export interface SupersededBand {
  */
 export class SupersededIndex {
   readonly #rows: readonly TimelineRow[];
-  #bands: readonly SupersededBand[] | undefined;
+  #supersededTurns: readonly SupersededTurns[] | undefined;
   #supersededRowIds: ReadonlySet<string> | undefined;
-  #bandByHeaderKey: ReadonlyMap<string, SupersededBand> | undefined;
-  #bandKeyByRowId: ReadonlyMap<string, string> | undefined;
+  #supersededTurnsByHeaderKey: ReadonlyMap<string, SupersededTurns> | undefined;
+  #supersededTurnsKeyByRowId: ReadonlyMap<string, string> | undefined;
 
   public constructor(rows: readonly TimelineRow[]) {
     this.#rows = rows;
@@ -34,35 +34,35 @@ export class SupersededIndex {
 
   /** Whether this row is past a rollback cutoff in its own run and epoch. */
   public isSuperseded(rowId: string): boolean {
-    this.#supersededRowIds ??= new Set(this.bands().flatMap((band) => band.rowIds));
+    this.#supersededRowIds ??= new Set(this.supersededTurns().flatMap((band) => band.rowIds));
     return this.#supersededRowIds.has(rowId);
   }
 
   /** Every band, keyed by run and epoch, in first-row order. */
-  public bands(): readonly SupersededBand[] {
-    this.#bands ??= deriveSupersededBands(this.#rows);
-    return this.#bands;
+  public supersededTurns(): readonly SupersededTurns[] {
+    this.#supersededTurns ??= deriveSupersededTurns(this.#rows);
+    return this.#supersededTurns;
   }
 
   /**
    * Every band, keyed by the header key the feed dispatches a band header on: the feed's row
    * dispatch is a map read on `row.key`.
    */
-  public bandByHeaderKey(): ReadonlyMap<string, SupersededBand> {
-    this.#bandByHeaderKey ??= new Map(
-      this.bands().map((band) => [supersededBandKey(band), band] as const),
+  public supersededTurnsByHeaderKey(): ReadonlyMap<string, SupersededTurns> {
+    this.#supersededTurnsByHeaderKey ??= new Map(
+      this.supersededTurns().map((band) => [supersededTurnsKey(band), band] as const),
     );
-    return this.#bandByHeaderKey;
+    return this.#supersededTurnsByHeaderKey;
   }
 
   /** Which band a row belongs to, or nothing where no rollback ranked it past a cutoff. */
-  public bandKeyByRowId(): ReadonlyMap<string, string> {
-    this.#bandKeyByRowId ??= new Map(
-      this.bands().flatMap((band) =>
-        band.rowIds.map((rowId) => [rowId, supersededBandKey(band)] as const),
+  public supersededTurnsKeyByRowId(): ReadonlyMap<string, string> {
+    this.#supersededTurnsKeyByRowId ??= new Map(
+      this.supersededTurns().flatMap((band) =>
+        band.rowIds.map((rowId) => [rowId, supersededTurnsKey(band)] as const),
       ),
     );
-    return this.#bandKeyByRowId;
+    return this.#supersededTurnsKeyByRowId;
   }
 }
 
@@ -71,16 +71,16 @@ export class SupersededIndex {
  * Prefixed because it shares a namespace with run group header keys (a bare run id) and row ids
  * in the one map the feed reads. Two rollbacks to different cutoffs in one epoch are two bands.
  */
-export function supersededBandKey(band: SupersededBand): string {
+export function supersededTurnsKey(band: SupersededTurns): string {
   return `superseded ${band.runId} ${String(band.epoch)} ${String(band.targetPosition)}`;
 }
 
 /**
- * Derive every superseded band over one loaded window.
+ * Derive every superseded turns group over one loaded window.
  * A pre-marked row carries its own cutoff and a later boundary supersedes rows around it;
  * both feed one per-row cutoff and the lowest wins, matching `SupersededMarker`.
  */
-export function deriveSupersededBands(rows: readonly TimelineRow[]): readonly SupersededBand[] {
+export function deriveSupersededTurns(rows: readonly TimelineRow[]): readonly SupersededTurns[] {
   const cutoffsByEpoch = new Map<string, number[]>();
   const rankableRows: RankableRow[] = [];
 
@@ -100,7 +100,7 @@ export function deriveSupersededBands(rows: readonly TimelineRow[]): readonly Su
 
   const bandsByKey = new Map<
     string,
-    { readonly band: SupersededBand; readonly rowIds: string[] }
+    { readonly band: SupersededTurns; readonly rowIds: string[] }
   >();
   for (const row of rankableRows) {
     const cutoff = lowestApplicableCutoff(row, cutoffsByEpoch);

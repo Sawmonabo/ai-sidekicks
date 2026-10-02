@@ -3,7 +3,7 @@
 // `2026-01-01T09:00:00Z` yet sorts after it as text. `Date.parse` is no validator: it reads a
 // timezone-less time in the host's zone and normalizes a day that does not exist (`2026-02-30`).
 //
-// No library: `Temporal` is absent on this repo's Node 24 floor and the `console-unit` tier runs
+// No library: `Temporal` is absent on this repo's Node 24 floor and the `renderer` tier runs
 // under Node; the polyfill's weight is a bundle-budget cost; `date-fns` `parseISO` accepts
 // date-only and timezone-less values; `zod` is admitted only in `services/` and narrows the
 // lowercase `t` and `z` that RFC 3339 section 5.6 permits.

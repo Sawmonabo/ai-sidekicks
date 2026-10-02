@@ -141,7 +141,7 @@ export async function closeEveryPane(
  * Opens the harness at this row's address, with the session it binds to delivered.
  *
  * The script is walked before any measurement, so every reading is taken over a settled store:
- * the pane folds its lease and transition ledger off this session's timeline, and those are part
+ * the pane folds its lease off this session's timeline, and that is part
  * of what the row bounds.
  */
 export async function openHarnessOnDeliveredSession(

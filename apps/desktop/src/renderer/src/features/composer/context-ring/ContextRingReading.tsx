@@ -1,4 +1,4 @@
-// The context meter's own reading: how much of the window this run has spent. The source note
+// The context ring's own reading: how much of the window this run has spent. The source note
 // table lives here because where a figure came from is part of what it means.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

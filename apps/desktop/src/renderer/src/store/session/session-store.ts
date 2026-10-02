@@ -4,7 +4,7 @@
 // Events drain into `ApplyQueue` and arrive as a batch, so N events in one frame are one
 // notification and `snapshot()` never disagrees with what React last rendered.
 //
-// Collaborators own their rules: `sequence-reconciler.ts` (ordering, dedupe, holes, divergence),
+// Its dependencies own their rules: `sequence-reconciler.ts` (ordering, dedupe, holes, divergence),
 // `pre-initialization-buffer.ts`, `entities/entity-projection-runner.ts`,
 // `entities/entity-partitions.ts`, `../session-degradation.ts` and `session-state.ts`.
 //
@@ -57,7 +57,7 @@ import {
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 
-// The store's vocabulary, re-exported so callers need not know which collaborator declares it.
+// The store's vocabulary, re-exported so callers need not know which dependency declares it.
 // `SequenceGap` is not: nothing outside its owner imports it.
 export type { SessionDegradedCause } from "../session-degradation.js";
 export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
@@ -95,7 +95,7 @@ export class SessionStore {
    * Constructed here so its inputs are exactly the rows this store admits or recovers; a
    * supplied register could publish a count over rows it never saw.
    */
-  readonly #outstandingAsks = new WaitingOnPersonRegister();
+  readonly #waitingOnPersonRegister = new WaitingOnPersonRegister();
   readonly #reentrantQueue: ProjectedSessionEvent[] = [];
   #applying = false;
   /**
@@ -165,7 +165,7 @@ export class SessionStore {
    * reader subscribed to that re-asks when it could have changed.
    */
   public get outstandingAskLedger(): WaitingOnPersonRecords {
-    return this.#outstandingAsks.ledger;
+    return this.#waitingOnPersonRegister.ledger;
   }
 
   /**
@@ -197,13 +197,13 @@ export class SessionStore {
     this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
     // The register keeps the older asks this read did not carry; the seed moves only the
     // window-head fact, which is a property of this read.
-    this.#outstandingAsks.seedFrom({
+    this.#waitingOnPersonRegister.seedFrom({
       entities: snapshot.entities,
       cursor: snapshot.cursor,
       windowHeadCursor: snapshot.readFromCursor,
     });
     const timeline = orderBatchBySequence(snapshot.timeline ?? []);
-    this.#outstandingAsks.admit(timeline);
+    this.#waitingOnPersonRegister.admit(timeline);
     this.#reconciler.rebaseTo(
       snapshot.cursor,
       timeline.map((event) => event.sequence),
@@ -285,7 +285,7 @@ export class SessionStore {
         projectionRunner: this.#projectionRunner,
         preInitializationBuffer: this.#preInitializationBuffer,
         hueAllocator: this.#hueAllocator,
-        outstandingAsks: this.#outstandingAsks,
+        waitingOnPersonRegister: this.#waitingOnPersonRegister,
         timelineCap: this.#timelineCap,
         retainedEnd: this.#retainedEnd,
       });
@@ -320,7 +320,7 @@ export class SessionStore {
    *
    * Not a second apply chokepoint (`earlier-window.ts`): no sequence reconciled, no projector
    * run, no cursor moved, no gap recorded, and the degraded flag neither set nor cleared. It
-   * does advance the outstanding-ask register, since a recovered row is what a backward page
+   * does advance the waiting-on-person register, since a recovered row is what a backward page
    * is worth to it. The merge result tells an exhausted walk (nothing admitted, nothing
    * overlapping) from a page asked at the wrong position (every row refused as not-earlier).
    */
@@ -329,7 +329,7 @@ export class SessionStore {
     const { merge, nextState } = foldEarlierWindowPage(current, events, {
       sessionId: this.#sessionId,
       hueAllocator: this.#hueAllocator,
-      outstandingAsks: this.#outstandingAsks,
+      waitingOnPersonRegister: this.#waitingOnPersonRegister,
       timelineCap: this.#timelineCap,
     });
     if (nextState === undefined) {

@@ -17,7 +17,7 @@
 // Every composed candidate is parsed through the registered schema before delivery and a failure
 // is a refusal with the failing member's path. Hand-checking required members and casting would
 // leave optionals such as `intendedClose` unchecked; the run-lifecycle kinds register no payload
-// variant for the wire-truth predicate to check, so nothing else catches it. Parsing also removes
+// variant for the scenario contract check to read, so nothing else catches it. Parsing also removes
 // the branded-identifier casts. The value import of the schemas costs the release bundle nothing:
 // this module is reached only from the fixture bridge, and the fixture composition sits behind
 // the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `run-stream-shapes.ts` holds what all
@@ -185,14 +185,12 @@ function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  const channelId = readWireString(payload["channelId"]);
   return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
     // The payload's own session, already checked equal to the envelope's. Copying the envelope's
     // here would make that check vacuous.
     sessionId: payload["sessionId"],
     runId: payload["runId"],
     runVersion: payload["runVersion"],
-    ...(channelId === undefined ? {} : { channelId }),
     targetPosition: payload["targetPosition"],
   });
 }

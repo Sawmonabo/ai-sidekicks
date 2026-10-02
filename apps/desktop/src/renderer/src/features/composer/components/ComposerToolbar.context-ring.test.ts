@@ -1,4 +1,4 @@
-// What the context meter puts on screen: the not-checked state before the daemon has reported
+// What the context ring puts on screen: the not-checked state before the daemon has reported
 // anything, the share the reading carries once it has, and no hint, status line, state attribute
 // or color class on the fill however full the window is. Uses the real `SessionStore`.
 
@@ -11,7 +11,7 @@ import {
   mountToolbar,
 } from "./ComposerToolbar.test-support.js";
 
-describe("ComposerToolbar — the context meter", () => {
+describe("ComposerToolbar — the context ring", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {
     const container = mountToolbar([], ADDRESSED);
     expect(container.querySelector(".meridian-context-ring")).toBeNull();

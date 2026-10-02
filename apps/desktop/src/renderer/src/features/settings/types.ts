@@ -42,7 +42,7 @@ export interface SettingsPageContext {
    * That session's store, where this window has it open.
    *
    * A session-scoped read needs a push signal or it goes stale silently, and the session's
-   * event stream is the one the console already subscribes to, once, in the frame's binder.
+   * event stream is the one the console already subscribes to, once, in the frame's subscriber.
    * Handing the store lets a page bind to that stream instead of opening a second
    * `daemon.subscribe`. It is the retained session's store only: `undefined` means this
    * window has that session closed, and a page reads that as one refresh signal fewer, not a

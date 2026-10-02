@@ -1,6 +1,6 @@
 // The Agents pane body: what each agent in the session is running under. It draws no heading of
 // its own; the pane frame names the pane. Every prop the frame resolves is optional because a
-// bare route resolves no session and an auxiliary address may name no agent, so the column
+// bare route resolves no session and an address may name no agent, so the column
 // states which half is missing.
 
 import type { ReactNode } from "react";
@@ -16,7 +16,7 @@ import { AgentBindingColumn } from "./components/AgentBindingColumn.js";
 export interface AgentsPaneProps {
   /**
    * The agent this pane is about, wire-verbatim. `undefined` is not a fault: a picked session
-   * arrives with no agent named, and the column then shows the whole roster.
+   * arrives with no agent named, and the column then shows the whole agent list.
    */
   readonly agentId: string | undefined;
   /** Absent where the mount could not resolve one; the column says so. */
@@ -52,7 +52,7 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
           kind="not-checked"
           placement="block"
           title="This console was not handed a session to read agents from."
-          detail="The roster and the binding are scoped to one session, so nothing was asked of the background service."
+          detail="The agent list and the binding are scoped to one session, so nothing was asked of the background service."
         />
       ) : (
         <AgentBindingColumn models={models} agentId={props.agentId} />

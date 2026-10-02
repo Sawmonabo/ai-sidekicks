@@ -30,14 +30,14 @@ export interface SessionProbeProps {
   readonly onObserve: (observation: Observation) => void;
 }
 
-/** The flagship scenario's base state for a session, standing in for the window's read. */
-const readFlagshipSession: SessionSnapshotReader = (sessionId) =>
+/** The concurrent-streaming scenario's base state for a session, standing in for the read. */
+const readConcurrentStreamingSession: SessionSnapshotReader = (sessionId) =>
   Promise.resolve(fixtureSessionSnapshot(CONCURRENT_STREAMING_SCENARIO, sessionId));
 
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {
   const projectorRegistry = useRunLifecycleProjectorRegistry();
-  const registry = useSessionStoreRegistry(projectorRegistry, readFlagshipSession);
+  const registry = useSessionStoreRegistry(projectorRegistry, readConcurrentStreamingSession);
   const store = useActiveSessionStore(registry, props.sessionId);
   props.onObserve({ registry, store });
   return null;

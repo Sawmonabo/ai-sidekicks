@@ -1,7 +1,7 @@
 // What a pane renders while its body's module is still arriving: the pane's own chrome with an
 // empty body. The chrome comes from the address, known before the module lands, so nothing moves
 // when the body arrives. No spinner or skeleton: the chunk loads from local disk in a frame or two.
-// It is not any of the console's absence states (not loaded, empty, error, not checked, unknown),
+// It is not any of the console's empty states (not loaded, empty, error, not checked, unknown),
 // since what is missing is a module, not data. It adds only the pending marker, so the screenshot
 // tier can refuse to capture this frame.
 

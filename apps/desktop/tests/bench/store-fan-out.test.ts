@@ -222,7 +222,7 @@ export function measurePerEventApplyCost(
 }
 
 const ledgerFilePath: string =
-  process.env["CONSOLE_BENCH_LEDGER_PATH"] ?? DEFAULT_BENCHMARK_LEDGER_PATH;
+  process.env["SIDEKICKS_BENCH_LEDGER_PATH"] ?? DEFAULT_BENCHMARK_LEDGER_PATH;
 
 test(
   "store fan-out: the console's partition merge applies an event more cheaply than a flat map at 20,000 entities",

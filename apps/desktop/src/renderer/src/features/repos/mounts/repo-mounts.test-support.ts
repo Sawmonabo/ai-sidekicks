@@ -96,7 +96,7 @@ export function buildMount(
   } as RepoMountReadResponse;
 }
 
-/** One workspace row as the roster reads it, in the mode most cases want. */
+/** One workspace row as the workspace list reads it, in the mode most cases want. */
 export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): RepoWorkspaceRow {
   return {
     id: "workspace-sidekicks",

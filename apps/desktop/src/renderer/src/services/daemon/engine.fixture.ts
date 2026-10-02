@@ -27,7 +27,7 @@ import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /**
  * The fixture scenario clock's tick, in milliseconds of scenario time. Every scenario's
- * script is expressed in whole ticks, so a frozen tick names one exact frame and a capture
+ * script is expressed in whole ticks, so a pinned frame is one exact tick and a capture
  * target is byte-stable.
  */
 export const SCENARIO_TICK_MS = 50;

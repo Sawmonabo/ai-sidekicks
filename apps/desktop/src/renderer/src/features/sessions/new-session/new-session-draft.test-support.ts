@@ -117,7 +117,6 @@ function scenario(options: ScriptedLegs): Scenario {
     label: "Draft send",
     purpose: "Drives the new-session draft's create call.",
     sessionId: "session-draft",
-    userIdsInJoinOrder: ["user-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
     replies: options.scriptsCreate ? [{ call: SESSION_CREATE_METHOD, result: CREATE_REPLY }] : [],

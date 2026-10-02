@@ -1,5 +1,5 @@
 // One durable piece of per-install view state, held in memory and written through the
-// persistence chokepoint. The pin map and the auto-pin switch share it: hold a value, hydrate
+// persistence chokepoint. The pin map uses it: hold a value, hydrate
 // it once, notify subscribers, write every change through `UiStateStore`, and keep the last
 // refusal so a view renders it instead of pretending the write landed.
 //

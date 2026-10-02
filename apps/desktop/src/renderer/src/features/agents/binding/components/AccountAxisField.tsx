@@ -21,7 +21,7 @@ import { AccountChoiceList } from "./AccountChoiceList.js";
 export interface AccountAxisFieldProps {
   /** The node's account registry, as the caller last read it. */
   readonly registry: AccountRegistryReading;
-  /** Asks the caller to read the registry again. Pressed from the absence states. */
+  /** Asks the caller to read the registry again. Pressed from the empty states. */
   readonly onReopenRegistry: () => void;
   /** The driver the form resolved to, entered or inherited. Decides the provider. */
   readonly driverName: string | undefined;

@@ -29,7 +29,7 @@ const registry = BudgetRegistry.load();
 
 /** Lets an out-of-tree build be measured; it is not a way to skip measuring. */
 const rendererOutputDirectory: string =
-  process.env["CONSOLE_BUDGET_RENDERER_OUT_DIR"] ?? DEFAULT_RENDERER_OUTPUT_DIRECTORY;
+  process.env["SIDEKICKS_BUDGET_RENDERER_OUT_DIR"] ?? DEFAULT_RENDERER_OUTPUT_DIRECTORY;
 
 function measureOrFailLoudly(): RendererBundleMeasurement {
   try {

@@ -338,7 +338,7 @@
 }
 
 /*
- * The marker column and its rule. The rule's style is the greyscale-safe half of the
+ * The marker column and its rule. The rule's style is the grayscale-safe half of the
  * insert/delete signal: solid for an insertion, dashed for a deletion, absent on context.
  */
 .meridian-diff__marker {

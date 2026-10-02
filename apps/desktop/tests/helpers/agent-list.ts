@@ -1,4 +1,4 @@
-// The roster fixtures the Agents pane suites, the accessibility tier and the screenshot mounts
+// The agent-list fixtures the Agents pane suites, the accessibility tier and the screenshot mounts
 // share.
 
 import type {
@@ -8,7 +8,7 @@ import type {
   AgentResolvedConfiguration,
 } from "@ai-sidekicks/contracts";
 
-/** One roster row on Claude with every optional member left out; a case adds what it is about. */
+/** One agent-list row on Claude with every optional member left out; a case adds what it is about. */
 export function agentEntry(overrides: Partial<AgentListEntry> = {}): AgentListEntry {
   return {
     agentId: "agent-scout" as AgentId,

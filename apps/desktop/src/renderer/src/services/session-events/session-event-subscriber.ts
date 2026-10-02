@@ -85,10 +85,10 @@ export class SessionEventSubscriber {
    * cannot drop a session, whereas sweeping first would leave a window in which an open goes
    * unobserved; the worst case is binding twice, and `#bindSession` is idempotent by session id.
    *
-   * It also takes one subscription for the binder's whole life to the transport's returning edge,
-   * which re-attempts sessions whose open threw. The signal emits only on
-   * `unreachable → reachable`, so a window whose wire never went away pays nothing. Idempotent,
-   * and a no-op once disposed.
+   * It also takes one subscription for the subscriber's whole life to the transport's returning
+   * edge, which re-attempts sessions whose open threw. The signal emits only on `unreachable →
+   * reachable`, so a window whose wire never went away pays nothing. Idempotent, and a no-op once
+   * disposed.
    */
   public attach(): void {
     if (this.#disposed || this.#attached) {
@@ -110,12 +110,12 @@ export class SessionEventSubscriber {
     }
   }
 
-  /** What the endurance tier reads about this binder, frozen and read-only. */
+  /** What the endurance tier reads about this subscriber, frozen and read-only. */
   public get diagnostics(): SessionDiagnostics {
     return this.#diagnostics;
   }
 
-  /** Sessions this binder holds a wire subscription for, in bind order. */
+  /** Sessions this subscriber holds a wire subscription for, in bind order. */
   public get boundSessionIds(): readonly string[] {
     return [...this.#unsubscribeBySessionId.keys()];
   }
@@ -161,7 +161,7 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Releases every subscription this binder holds. Final and idempotent. Applied-event counts
+   * Releases every subscription this subscriber holds. Final and idempotent. Applied-event counts
    * survive so `diagnostics` stays readable.
    */
   public dispose(): void {
@@ -177,7 +177,7 @@ export class SessionEventSubscriber {
       unsubscribe();
     }
     this.#unsubscribeBySessionId.clear();
-    // A retained id is a promise to re-attempt, and a disposed binder makes none.
+    // A retained id is a promise to re-attempt, and a disposed subscriber makes none.
     this.#retry.clear();
   }
 
@@ -220,7 +220,7 @@ export class SessionEventSubscriber {
       reportTripwire(
         "apply-chokepoint-bypass",
         SITE,
-        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the binder holds no subscription for it, its store is marked subscription-closed, and the session is retried on the transport's returning edge`,
+        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the subscriber holds no subscription for it, its store is marked subscription-closed, and the session is retried on the transport's returning edge`,
       );
       return;
     }
@@ -279,7 +279,7 @@ export class SessionEventSubscriber {
       reportTripwire(
         "apply-chokepoint-bypass",
         SITE,
-        `a wire delivery for session ${sessionId} arrived after that session closed; the binder dropped it (${refusal.code}) rather than delivering into a store this window no longer holds`,
+        `a wire delivery for session ${sessionId} arrived after that session closed; the subscriber dropped it (${refusal.code}) rather than delivering into a store this window no longer holds`,
       );
       return;
     }

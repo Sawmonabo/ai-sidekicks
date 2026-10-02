@@ -14,10 +14,9 @@ function mintSessionPinStore(store: UiStateStore): SessionPinStore {
 }
 
 /**
- * This window's pin holder. Module scope is window scope (an auxiliary window is its own
- * renderer process); minted per mount, a second visit would build a second store over the one
- * database, two writers each spreading its own copy over the other's writes. A `const` holding
- * an encapsulated object, not a module-level `let` or `Map`.
+ * This window's pin holder. Module scope is window scope; minted per mount, a second visit would
+ * build a second store over the one database, two writers each spreading its own copy over the
+ * other's writes. A `const` holding an encapsulated object, not a module-level `let` or `Map`.
  */
 const consoleSessionPins = new DurableViewBindingHolder(mintSessionPinStore);
 

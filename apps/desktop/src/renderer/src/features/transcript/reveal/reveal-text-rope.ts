@@ -6,7 +6,7 @@
 /**
  * A receipt that the source grew by an append rather than changing underneath.
  *
- * `sequence` is per smoother and monotonic, so a consumer can tell a token it has
+ * `sequence` is per rope and monotonic, so a consumer can tell a token it has
  * already folded from one it has not without comparing text.
  */
 export interface ProvenAppendToken {
@@ -17,7 +17,7 @@ export interface ProvenAppendToken {
 }
 
 /** One lane's text as immutable parts and a cursor that never moves backwards. */
-export class RopeSmoother {
+export class RevealTextRope {
   readonly #laneId: string;
   /** Immutable once pushed. Nothing mutates a part, which is what makes slicing safe. */
   readonly #parts: string[] = [];
@@ -117,7 +117,7 @@ export class RopeSmoother {
   }
 
   /**
-   * Whether this smoother's source is a prefix of `candidate`. Walks the fixed parts rather
+   * Whether this rope's source is a prefix of `candidate`. Walks the fixed parts rather
    * than materializing the source.
    */
   public isPrefixOf(candidate: string): boolean {

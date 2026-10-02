@@ -2,7 +2,8 @@
 // page's claim on the tracker: `AccountsFixtureBody.test.ts` asserts the control is disabled
 // with its reason, but a control is a courtesy, so these assert what happens to a press it did
 // not stop (a stale frame, a keyboard activation racing the commit that disabled it). They
-// drive the real `SignInFlowTracker` over the real `startSignIn` and `cancelSignIn` with stub
+// drive the real `ProviderSignInFlowTracker` over the real `startProviderSignIn` and
+// `cancelProviderSignIn` with stub
 // calls; the single-flight guard is `lib/reads/generation-latch.ts`, so a case fails if its
 // refusal contract changes.
 
@@ -16,30 +17,34 @@ import {
   PROVIDER_SIGN_IN_ATTEMPT,
   type AccountPlaneCalls,
 } from "./account-plane-bridge.test-support.js";
-import { cancelSignIn, startProviderSignIn } from "./sign-in-flow.js";
-import { SignInFlowTracker, findRunningSignInAccountId } from "./sign-in-flow-tracker.js";
+import { cancelProviderSignIn, startProviderSignIn } from "./provider-sign-in-flow.js";
+import {
+  ProviderSignInFlowTracker,
+  findRunningProviderSignInAccountId,
+} from "./provider-sign-in-flow-tracker.js";
 
 const RUNNING_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 
 /**
- * A tracker over stub calls, bound the way the fixture body binds it. The real `startSignIn` and
- * `cancelSignIn` are used so a case drives the outcome narrowing they perform too.
+ * A tracker over stub calls, bound the way the fixture body binds it. The real
+ * `startProviderSignIn` and `cancelProviderSignIn` are used so a case drives the outcome narrowing
+ * they perform too.
  */
 function trackerOver(
   calls: AccountPlaneCalls,
   onFlowSettled: () => void = (): void => undefined,
-): SignInFlowTracker {
-  return new SignInFlowTracker({
-    startSignIn: async (accountId) => await startProviderSignIn(calls.login, accountId),
-    cancelSignIn: async (attempt) => await cancelSignIn(calls.cancelLogin, attempt),
+): ProviderSignInFlowTracker {
+  return new ProviderSignInFlowTracker({
+    startProviderSignIn: async (accountId) => await startProviderSignIn(calls.login, accountId),
+    cancelProviderSignIn: async (attempt) => await cancelProviderSignIn(calls.cancelLogin, attempt),
     onFlowSettled,
   });
 }
 
 /** A tracker whose start is served and whose cancel is honored. */
 function trackerOverServedCalls(): {
-  readonly tracker: SignInFlowTracker;
+  readonly tracker: ProviderSignInFlowTracker;
   readonly calls: AccountPlaneCalls;
   readonly onFlowSettled: ReturnType<typeof vi.fn>;
 } {
@@ -51,7 +56,7 @@ function trackerOverServedCalls(): {
   return { tracker: trackerOver(calls, onFlowSettled), calls, onFlowSettled };
 }
 
-describe("SignInFlowTracker", () => {
+describe("ProviderSignInFlowTracker", () => {
   it("refuses a second start while the first is in flight, and sends nothing for it", async () => {
     const { tracker, calls } = trackerOverServedCalls();
 
@@ -76,7 +81,7 @@ describe("SignInFlowTracker", () => {
       attempt: PROVIDER_SIGN_IN_ATTEMPT,
     });
     expect(settled.refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(true);
-    expect(findRunningSignInAccountId(tracker.snapshot())).toBe(RUNNING_ACCOUNT_ID);
+    expect(findRunningProviderSignInAccountId(tracker.snapshot())).toBe(RUNNING_ACCOUNT_ID);
     // The refusal is the console's own and the daemon was never asked, so it arrives in the
     // same tick as the press.
     expect(calls.login).toHaveBeenCalledTimes(1);
@@ -105,7 +110,7 @@ describe("SignInFlowTracker", () => {
 
     expect(tracker.snapshot().flow.kind).toBe("ended");
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
-    expect(findRunningSignInAccountId(tracker.snapshot())).toBeUndefined();
+    expect(findRunningProviderSignInAccountId(tracker.snapshot())).toBeUndefined();
 
     // Negative control for the guard: a single-flight key never released would make every later
     // start unreachable.

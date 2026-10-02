@@ -9,7 +9,7 @@
 //
 // Exactly two things end a flow: a cancel that answered `canceled` or `notFound`, and
 // the registry's own tail reporting that attempt completed
-// ({@link SignInFlowTracker.noteLoginCompleted}).
+// ({@link ProviderSignInFlowTracker.noteLoginCompleted}).
 
 import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
 
@@ -18,19 +18,19 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   IDLE_PROVIDER_SIGN_IN_FLOW,
-  SIGN_IN_ENDED_BY_REGISTRY,
-  isSignInRunning,
-  readSignInAccountId,
-  type SignInCancelOutcome,
-  type SignInFlowState,
-  type SignInStartOutcome,
-} from "./sign-in-flow.js";
+  PROVIDER_SIGN_IN_ENDED_BY_REGISTRY,
+  isProviderSignInRunning,
+  readProviderSignInAccountId,
+  type ProviderSignInCancelOutcome,
+  type ProviderSignInFlowState,
+  type ProviderSignInStartOutcome,
+} from "./provider-sign-in-flow.js";
 
 /** The subsystem name the one refusal this module raises on its own carries. */
-export const SIGN_IN_REFUSAL_ORIGIN = "provider-account-signin";
+export const PROVIDER_SIGN_IN_REFUSAL_ORIGIN = "provider-account-sign-in";
 
 /** Why this tracker declined a start it never sent. Its own code, never a daemon's. */
-const START_ALREADY_RUNNING_CODE = "signin-already-running";
+const START_ALREADY_RUNNING_CODE = "sign-in-already-running";
 
 /**
  * The one key the sign-in flow is claimed under.
@@ -38,30 +38,34 @@ const START_ALREADY_RUNNING_CODE = "signin-already-running";
  * One key for every account: the daemon runs one brokered flow whichever account it is for,
  * so a key per account would admit a second start the daemon then refuses.
  */
-const SIGN_IN_FLOW_KEY = "brokered-sign-in";
+const PROVIDER_SIGN_IN_FLOW_KEY = "brokered-sign-in";
 
 /** Everything the accounts fixture body renders the sign-in flow from, in one value. */
-export interface SignInFlowTrackerSnapshot {
+export interface ProviderSignInFlowTrackerSnapshot {
   /** The flow this window is running, where it is running one. */
-  readonly flow: SignInFlowState;
+  readonly flow: ProviderSignInFlowState;
   /** The last refused start per account, dropped when that account is tried again. */
   readonly refusalByAccountId: ReadonlyMap<ProviderAccountId, Refusal>;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
   readonly revision: number;
 }
 
-const NOTHING_STARTED: SignInFlowTrackerSnapshot = {
+const NOTHING_STARTED: ProviderSignInFlowTrackerSnapshot = {
   flow: IDLE_PROVIDER_SIGN_IN_FLOW,
   refusalByAccountId: new Map(),
   revision: 0,
 };
 
-/** The calls a {@link SignInFlowTracker} makes, all supplied by its owner. */
-export interface SignInFlowTrackerOptions {
+/** The calls a {@link ProviderSignInFlowTracker} makes, all supplied by its owner. */
+export interface ProviderSignInFlowTrackerOptions {
   /** Start one brokered sign-in. Supplied by the caller, never held here. */
-  readonly startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
+  readonly startProviderSignIn: (
+    accountId: ProviderAccountId,
+  ) => Promise<ProviderSignInStartOutcome>;
   /** Cancel the flow this tracker holds. Likewise supplied by the caller. */
-  readonly cancelSignIn: (attempt: ProviderAccountLoginResponse) => Promise<SignInCancelOutcome>;
+  readonly cancelProviderSignIn: (
+    attempt: ProviderAccountLoginResponse,
+  ) => Promise<ProviderSignInCancelOutcome>;
   /**
    * Called once a canceled flow has settled, either way.
    *
@@ -77,9 +81,13 @@ export interface SignInFlowTrackerOptions {
  * Owns the single-flight claim and decides which settlement installs. The React binding is
  * in `AccountsFixtureBody.tsx`.
  */
-export class SignInFlowTracker {
-  readonly #startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
-  readonly #cancelSignIn: (attempt: ProviderAccountLoginResponse) => Promise<SignInCancelOutcome>;
+export class ProviderSignInFlowTracker {
+  readonly #startProviderSignIn: (
+    accountId: ProviderAccountId,
+  ) => Promise<ProviderSignInStartOutcome>;
+  readonly #cancelProviderSignIn: (
+    attempt: ProviderAccountLoginResponse,
+  ) => Promise<ProviderSignInCancelOutcome>;
   readonly #onFlowSettled: () => void;
   readonly #changes = new Emitter<void>("sign-in flow change");
   /**
@@ -97,16 +105,16 @@ export class SignInFlowTracker {
    * the daemon runs one brokered flow at a time.
    */
   #completedAttemptId: string | undefined = undefined;
-  #snapshot: SignInFlowTrackerSnapshot = NOTHING_STARTED;
+  #snapshot: ProviderSignInFlowTrackerSnapshot = NOTHING_STARTED;
   #isDisposed = false;
 
-  public constructor(options: SignInFlowTrackerOptions) {
-    this.#startSignIn = options.startSignIn;
-    this.#cancelSignIn = options.cancelSignIn;
+  public constructor(options: ProviderSignInFlowTrackerOptions) {
+    this.#startProviderSignIn = options.startProviderSignIn;
+    this.#cancelProviderSignIn = options.cancelProviderSignIn;
     this.#onFlowSettled = options.onFlowSettled;
   }
 
-  public snapshot(): SignInFlowTrackerSnapshot {
+  public snapshot(): ProviderSignInFlowTrackerSnapshot {
     return this.#snapshot;
   }
 
@@ -125,7 +133,7 @@ export class SignInFlowTracker {
     if (this.#isDisposed) {
       return;
     }
-    const claim = this.#flows.claim(this, SIGN_IN_FLOW_KEY);
+    const claim = this.#flows.claim(this, PROVIDER_SIGN_IN_FLOW_KEY);
     if (claim === undefined) {
       this.#publish({
         refusalByAccountId: this.#refusalsWith(
@@ -141,13 +149,13 @@ export class SignInFlowTracker {
       flow: { kind: "starting", accountId },
       refusalByAccountId: this.#refusalsWithout(accountId),
     });
-    void this.#startSignIn(accountId).then((outcome) => {
+    void this.#startProviderSignIn(accountId).then((outcome) => {
       claim.settle(() => {
         if (outcome.attempt.attemptId === this.#completedAttemptId) {
           // The registry reported this attempt finished before its start reply arrived;
           // recording it would put a card on screen for a flow that is over.
           claim.release();
-          this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
+          this.#settleEndedFlow(PROVIDER_SIGN_IN_ENDED_BY_REGISTRY);
           return;
         }
         this.#publish({ flow: outcome });
@@ -167,11 +175,11 @@ export class SignInFlowTracker {
       return;
     }
     const { accountId, attempt } = flow;
-    const round = this.#flows.currentClaim(this, SIGN_IN_FLOW_KEY);
+    const round = this.#flows.currentClaim(this, PROVIDER_SIGN_IN_FLOW_KEY);
     this.#publish({ flow: { kind: "canceling", accountId, attempt } });
-    void this.#cancelSignIn(attempt).then((outcome) => {
+    void this.#cancelProviderSignIn(attempt).then((outcome) => {
       round.settle(() => {
-        this.#flows.supersede(this, SIGN_IN_FLOW_KEY);
+        this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
         this.#publish({ flow: outcome });
         this.#onFlowSettled();
       });
@@ -194,8 +202,8 @@ export class SignInFlowTracker {
     if (!("attempt" in flow) || flow.attempt.attemptId !== attemptId) {
       return;
     }
-    this.#flows.supersede(this, SIGN_IN_FLOW_KEY);
-    this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
+    this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
+    this.#settleEndedFlow(PROVIDER_SIGN_IN_ENDED_BY_REGISTRY);
   }
 
   /** Terminal. A settlement landing after this installs nothing. */
@@ -217,7 +225,7 @@ export class SignInFlowTracker {
 
   /** Whether the account asking is the one whose sign-in is already running. */
   #isHolder(accountId: ProviderAccountId): boolean {
-    return findRunningSignInAccountId(this.#snapshot) === accountId;
+    return findRunningProviderSignInAccountId(this.#snapshot) === accountId;
   }
 
   #refusalsWith(
@@ -239,7 +247,7 @@ export class SignInFlowTracker {
    * The snapshot is held, not composed per read, because `useSyncExternalStore` compares
    * identity.
    */
-  #publish(changes: Partial<Omit<SignInFlowTrackerSnapshot, "revision">>): void {
+  #publish(changes: Partial<Omit<ProviderSignInFlowTrackerSnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
     this.#changes.emit();
   }
@@ -251,11 +259,11 @@ export class SignInFlowTracker {
  * A function over the snapshot, so the page and the tracker's guard derive it the same way
  * from one reading.
  */
-export function findRunningSignInAccountId(
-  snapshot: SignInFlowTrackerSnapshot,
+export function findRunningProviderSignInAccountId(
+  snapshot: ProviderSignInFlowTrackerSnapshot,
 ): ProviderAccountId | undefined {
   const { flow } = snapshot;
-  return isSignInRunning(flow) ? readSignInAccountId(flow) : undefined;
+  return isProviderSignInRunning(flow) ? readProviderSignInAccountId(flow) : undefined;
 }
 
 /**
@@ -264,7 +272,7 @@ export function findRunningSignInAccountId(
  * The other-account sentence names the account where the caller holds a label for it, and
  * says "another account" where it does not.
  */
-export function describeRunningSignIn(options: {
+export function describeRunningProviderSignIn(options: {
   readonly isTheSameAccount: boolean;
   readonly holdingAccountLabel: string | undefined;
 }): string {
@@ -283,8 +291,8 @@ export function describeRunningSignIn(options: {
  */
 function startAlreadyRunning(isTheSameAccount: boolean): Refusal {
   return refuse(
-    SIGN_IN_REFUSAL_ORIGIN,
+    PROVIDER_SIGN_IN_REFUSAL_ORIGIN,
     START_ALREADY_RUNNING_CODE,
-    describeRunningSignIn({ isTheSameAccount, holdingAccountLabel: undefined }),
+    describeRunningProviderSignIn({ isTheSameAccount, holdingAccountLabel: undefined }),
   );
 }

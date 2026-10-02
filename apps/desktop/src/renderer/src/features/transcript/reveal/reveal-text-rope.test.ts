@@ -4,25 +4,25 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RopeSmoother } from "./rope-smoother.js";
+import { RevealTextRope } from "./reveal-text-rope.js";
 
-function fedWith(parts: readonly string[]): RopeSmoother {
-  const smoother = new RopeSmoother("lane-1");
+function fedWith(parts: readonly string[]): RevealTextRope {
+  const rope = new RevealTextRope("lane-1");
   for (const part of parts) {
-    smoother.append(part);
+    rope.append(part);
   }
-  return smoother;
+  return rope;
 }
 
-describe("the rope smoother", () => {
+describe("the reveal text rope", () => {
   it("mints a token per append, monotonic, carrying the source length after it", () => {
-    const smoother = new RopeSmoother("lane-1");
-    expect(smoother.append("hello ")).toStrictEqual({
+    const rope = new RevealTextRope("lane-1");
+    expect(rope.append("hello ")).toStrictEqual({
       laneId: "lane-1",
       sequence: 1,
       sourceLength: 6,
     });
-    expect(smoother.append("world")).toStrictEqual({
+    expect(rope.append("world")).toStrictEqual({
       laneId: "lane-1",
       sequence: 2,
       sourceLength: 11,
@@ -30,39 +30,39 @@ describe("the rope smoother", () => {
   });
 
   it("reveals across part boundaries and never past the source", () => {
-    const smoother = fedWith(["abc", "de", "fghi"]);
-    expect(smoother.advance(4)).toBe(4);
-    expect(smoother.revealedText()).toBe("abcd");
-    expect(smoother.advance(100)).toBe(5);
-    expect(smoother.revealedText()).toBe("abcdefghi");
-    expect(smoother.isSettled).toBe(true);
+    const rope = fedWith(["abc", "de", "fghi"]);
+    expect(rope.advance(4)).toBe(4);
+    expect(rope.revealedText()).toBe("abcd");
+    expect(rope.advance(100)).toBe(5);
+    expect(rope.revealedText()).toBe("abcdefghi");
+    expect(rope.isSettled).toBe(true);
   });
 
   it("never moves the cursor backwards, and never reveals on a negative budget", () => {
-    const smoother = fedWith(["abcdef"]);
-    smoother.advance(3);
-    expect(smoother.advance(-10)).toBe(0);
-    expect(smoother.revealedText()).toBe("abc");
-    expect(smoother.revealedLength).toBe(3);
+    const rope = fedWith(["abcdef"]);
+    rope.advance(3);
+    expect(rope.advance(-10)).toBe(0);
+    expect(rope.revealedText()).toBe("abc");
+    expect(rope.revealedLength).toBe(3);
   });
 
   it("hands back a bounded tail and a bounded lookahead", () => {
-    const smoother = fedWith(["one two ", "three four"]);
-    smoother.advance(8);
-    expect(smoother.revealedTail(3)).toBe("wo ");
-    expect(smoother.revealedTail(100)).toBe("one two ");
-    expect(smoother.lookahead(5)).toBe("three");
-    expect(smoother.lookahead(100)).toBe("three four");
+    const rope = fedWith(["one two ", "three four"]);
+    rope.advance(8);
+    expect(rope.revealedTail(3)).toBe("wo ");
+    expect(rope.revealedTail(100)).toBe("one two ");
+    expect(rope.lookahead(5)).toBe("three");
+    expect(rope.lookahead(100)).toBe("three four");
   });
 
   it("recognizes a candidate that extends it, and one that does not", () => {
-    const smoother = fedWith(["The run ", "started"]);
-    expect(smoother.isPrefixOf("The run started at noon")).toBe(true);
-    expect(smoother.isPrefixOf("The run started")).toBe(true);
+    const rope = fedWith(["The run ", "started"]);
+    expect(rope.isPrefixOf("The run started at noon")).toBe(true);
+    expect(rope.isPrefixOf("The run started")).toBe(true);
     // The negative control for the case above: a producer that re-wrote its own
     // history must not read as an append.
-    expect(smoother.isPrefixOf("The run failed")).toBe(false);
-    expect(smoother.isPrefixOf("The run")).toBe(false);
+    expect(rope.isPrefixOf("The run failed")).toBe(false);
+    expect(rope.isPrefixOf("The run")).toBe(false);
   });
 });
 
@@ -81,14 +81,14 @@ function codePointBoundaryPrefixes(text: string): ReadonlySet<string> {
   return prefixes;
 }
 
-describe("the rope smoother — a frame never cuts a character in half", () => {
+describe("the reveal text rope — a frame never cuts a character in half", () => {
   it("publishes the whole non-BMP character or stops before it, at every cut offset", () => {
     const source = `ab${GRINNING_FACE}cd`;
     const allowed = codePointBoundaryPrefixes(source);
     for (let budget = 0; budget <= source.length; budget += 1) {
-      const smoother = fedWith([source]);
-      smoother.advance(budget);
-      expect(allowed.has(smoother.revealedText())).toBe(true);
+      const rope = fedWith([source]);
+      rope.advance(budget);
+      expect(allowed.has(rope.revealedText())).toBe(true);
     }
   });
 
@@ -96,19 +96,19 @@ describe("the rope smoother — a frame never cuts a character in half", () => {
     // The check walks the parts from the cursor, so a pair split across two appends
     // is the same pair — reading it through a materialized source is what the rope
     // exists to avoid.
-    const smoother = fedWith(["ab", GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
-    expect(smoother.advance(3)).toBe(4);
-    expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}`);
+    const rope = fedWith(["ab", GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
+    expect(rope.advance(3)).toBe(4);
+    expect(rope.revealedText()).toBe(`ab${GRINNING_FACE}`);
   });
 
   it("publishes a producer-split lone surrogate at the source end rather than stalling", () => {
     // The source, not the budget, cut this one. Withholding it would hold the lane
     // on text that may never arrive; publishing it self-heals on the next append.
-    const smoother = fedWith([`ab${GRINNING_FACE.slice(0, 1)}`]);
-    expect(smoother.advance(100)).toBe(3);
-    expect(smoother.isSettled).toBe(true);
-    smoother.append(`${GRINNING_FACE.slice(1)}cd`);
-    smoother.advance(100);
-    expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}cd`);
+    const rope = fedWith([`ab${GRINNING_FACE.slice(0, 1)}`]);
+    expect(rope.advance(100)).toBe(3);
+    expect(rope.isSettled).toBe(true);
+    rope.append(`${GRINNING_FACE.slice(1)}cd`);
+    rope.advance(100);
+    expect(rope.revealedText()).toBe(`ab${GRINNING_FACE}cd`);
   });
 });

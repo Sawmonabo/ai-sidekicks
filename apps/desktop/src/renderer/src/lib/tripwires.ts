@@ -130,7 +130,7 @@ export class TripwireRegistry {
 }
 
 /**
- * The console's registry, one per renderer process (an auxiliary window has its own). Throws in a
+ * The console's registry, one per renderer process. Throws in a
  * development build; `import.meta.env.DEV` is a Vite compile-time substitution, not a runtime
  * environment read.
  */

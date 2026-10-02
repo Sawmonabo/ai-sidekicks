@@ -19,7 +19,7 @@ import { join } from "node:path";
 const PROFILE_REMOVAL_RETRIES = 3;
 
 /** The prefix every launch profile's directory name carries. */
-const PROFILE_DIRECTORY_PREFIX = "ai-sidekicks-console-";
+const PROFILE_DIRECTORY_PREFIX = "ai-sidekicks-launch-profile-";
 
 /** One launch's private profile directory, reduced to what cleanup needs of it. */
 export interface LaunchProfile {

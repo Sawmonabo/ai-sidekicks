@@ -97,7 +97,7 @@ describe("the pin binding when the window replaces its durable store", () => {
       view.container.querySelector("button")?.click();
     });
     await settle();
-    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "pinned" });
 
     // A fresh adapter, as a scenario swap arrives: the replacement never saw these writes.
     view.rerender(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
@@ -121,24 +121,24 @@ describe("the pin binding when the window replaces its durable store", () => {
     });
     await settle();
 
-    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "pinned" });
     // Read back through a fresh store over the replacement's adapter: this asserts what was
     // persisted, not what is on screen.
     const readBack = await openStoreOver(replacementAdapter).readGlobal(PINNED_SESSIONS_KEY);
-    expect(readBack?.value).toStrictEqual({ "session-a": "front" });
+    expect(readBack?.value).toStrictEqual({ "session-a": "pinned" });
   });
 
   it("hydrates the replacement from what that store already holds", async () => {
     const replacementAdapter = new MemoryPersistenceAdapter();
     const seeding = openStoreOver(replacementAdapter);
-    await seeding.writeGlobal(PINNED_SESSIONS_KEY, "pin", { "session-b": "front" });
+    await seeding.writeGlobal(PINNED_SESSIONS_KEY, "pin", { "session-b": "pinned" });
 
     const view = render(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
     view.rerender(<PinProbe store={openStoreOver(replacementAdapter)} />);
     await settle();
 
-    expect(renderedPins(view.container)).toStrictEqual({ "session-b": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-b": "pinned" });
   });
 
   it("negative control: a re-render with the SAME store keeps the binding it had", async () => {
@@ -155,6 +155,6 @@ describe("the pin binding when the window replaces its durable store", () => {
     view.rerender(<PinProbe store={store} />);
     await settle();
 
-    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
+    expect(renderedPins(view.container)).toStrictEqual({ "session-a": "pinned" });
   });
 });

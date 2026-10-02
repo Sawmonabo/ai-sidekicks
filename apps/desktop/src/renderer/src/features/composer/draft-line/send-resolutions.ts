@@ -21,11 +21,11 @@ export interface ComposerSteerResolution {
 }
 
 /**
- * The interception arm: a registered client command. A registered command is executed by the
+ * The interception arm: a registered console command. A registered command is executed by the
  * client and never composes into a message on any path, so this arm carries only its name.
  */
-export interface ComposerClientCommandResolution {
-  readonly outcome: "client-command";
+export interface ComposerConsoleCommandResolution {
+  readonly outcome: "console-command";
   readonly commandName: string;
 }
 
@@ -39,7 +39,7 @@ export interface ComposerRefusedResolution {
 export type ComposerSendResolution =
   | ComposerNewTurnResolution
   | ComposerSteerResolution
-  | ComposerClientCommandResolution
+  | ComposerConsoleCommandResolution
   | ComposerRefusedResolution;
 
 /** What a dispatch settled as. The composer renders exactly one of these. */
@@ -49,18 +49,18 @@ export type ComposerSendOutcome =
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
- * Whether a name is a registered client command. A port, since the composer has no command
+ * Whether a name is a registered console command. A port, since the composer has no command
  * registry handle. The default answers `false`, so an unrecognized `/word` is not
  * intercepted.
  */
-export type ClientCommandPredicate = (commandName: string) => boolean;
+export type ConsoleCommandPredicate = (commandName: string) => boolean;
 
 /** What the console knows about a provider-published name, narrowed from the catalog entry. */
 export type EnumeratedProviderCommand = Pick<ProviderCommandEntry, "name" | "kind" | "driverName">;
 
 /**
  * Whether a name is one the addressed agent's provider published, for discovery. A second
- * port because the outcome differs: a client command runs, a provider entry is refused by
+ * port because the outcome differs: a console command runs, a provider entry is refused by
  * name (only the compaction command has its own control). The default answers `undefined`.
  */
 export type ProviderCommandPredicate = (

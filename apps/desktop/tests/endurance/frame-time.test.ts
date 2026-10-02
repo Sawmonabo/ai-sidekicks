@@ -256,7 +256,7 @@ describe.skipIf(!bundleIsBuilt)(
       // run crosses. The p50 tells the readings apart: one at the display's cadence (~16.67 ms
       // at 60 Hz) would mean the instrument reports how often frames arrive.
       process.stdout.write(
-        `[console-endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
+        `[endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
           `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
           `${perRunPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
           `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
@@ -285,7 +285,7 @@ describe.skipIf(!bundleIsBuilt)(
       const run = await runOnce(PLANTED_FRAME_STALL_MS);
       const stalledP95 = percentileByNearestRank(run.frameDurationsMs, 0.95);
       process.stdout.write(
-        `[console-endurance] frame time p95 under a planted ${String(PLANTED_FRAME_STALL_MS)} ms ` +
+        `[endurance] frame time p95 under a planted ${String(PLANTED_FRAME_STALL_MS)} ms ` +
           `per-frame stall: ${stalledP95.toFixed(2)} ms\n`,
       );
 

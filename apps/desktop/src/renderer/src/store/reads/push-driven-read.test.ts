@@ -47,8 +47,8 @@ function buildRefusingRead(
   let subscribeCount = 0;
   const model = new PushDrivenRead<string>({
     clock: options.clock,
-    origin: "presence-roster",
-    read: async () => "roster",
+    origin: "presence-list",
+    read: async () => "presence",
     subscribe: () => {
       subscribeCount += 1;
       if (!opensAdmitted) {
@@ -109,7 +109,7 @@ describe("push-driven read — no swallowed failure", () => {
     // The installed stub preload bridge throws exactly this way from every daemon method.
     const model = new PushDrivenRead<string>({
       clock,
-      origin: "presence-roster",
+      origin: "presence-list",
       read,
       subscribe: () => {
         throw new Error("daemon.subscribe is not available in this build");
@@ -125,7 +125,7 @@ describe("push-driven read — no swallowed failure", () => {
       refusal: {
         code: "subscribe-failed",
         detail: "daemon.subscribe is not available in this build",
-        origin: "presence-roster",
+        origin: "presence-list",
       },
     });
     // No read behind a subscription that never opened, and no timer armed for one.
@@ -159,7 +159,7 @@ describe("push-driven read — a refused open is not the end of the read", () =>
 
     expect(harness.model.isSubscribed).toBe(true);
     // The refusal is gone rather than standing beside a live subscription.
-    expect(harness.model.state).toStrictEqual({ kind: "loaded", value: "roster" });
+    expect(harness.model.state).toStrictEqual({ kind: "loaded", value: "presence" });
     expect(harness.subscribeCount()).toBe(2);
   });
 
@@ -174,8 +174,8 @@ describe("push-driven read — a refused open is not the end of the read", () =>
     });
     const model = new PushDrivenRead<string>({
       clock,
-      origin: "presence-roster",
-      read: async () => "roster",
+      origin: "presence-list",
+      read: async () => "presence",
       subscribe,
     });
 
@@ -185,7 +185,7 @@ describe("push-driven read — a refused open is not the end of the read", () =>
 
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(model.isSubscribed).toBe(true);
-    expect(model.state).toStrictEqual({ kind: "loaded", value: "roster" });
+    expect(model.state).toStrictEqual({ kind: "loaded", value: "presence" });
     model.dispose();
   });
 });

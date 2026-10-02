@@ -17,7 +17,7 @@
 //
 // A reply is scripted only when a composer control issues that call to a real daemon method,
 // because `services/daemon/scripted-reply.fixture.ts` refuses an unscripted call as
-// `reply-unscripted`: `driver.compactContext` from the compaction control,
+// `reply-unscripted`: `driver.compactContext` from the compaction popover,
 // `driver.listProviderCommands` from the command zone's discovery popover, and
 // `driver.listModels` and `driver.listCapabilities`, the driver catalog. The approval reads are
 // deliberately not scripted, so this scenario makes a refused approval read reachable.
@@ -48,7 +48,6 @@ import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fix
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
 const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
 const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a11-1100-7a6e-8110-d1a4c1150301");
-const AGENT_REVIEWER: AgentId = AgentIdSchema.parse("019b7a11-1100-7a6e-8120-d1a4c1150302");
 const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");
 
 /** The session's lead, born with it. */
@@ -151,7 +150,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     },
   },
   {
-    // The compaction control's dispatch. The `applied` arm of `DriverCompactionResult` requires
+    // The compaction popover's dispatch. The `applied` arm of `DriverCompactionResult` requires
     // `boundaryPosition` (`number | null`); this scenario reports a position so the boundary is
     // renderable.
     call: "driver.compactContext",
@@ -238,11 +237,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
-  // The person who joined, then the agents in join order.
-  userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
-  // Which of the three this window is; the head of the join order is whoever opened the
-  // session, which need not be this window.
-  callerUserId: USER_YOU,
+  thisDeviceId: USER_YOU,
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
     {

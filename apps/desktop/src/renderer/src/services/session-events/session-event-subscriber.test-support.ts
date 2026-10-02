@@ -22,7 +22,7 @@ export const PAST_EVERY_BEAT_MS: number =
 /** The registry, subscriber and engine a suite drives. */
 export interface SubscriberHarness {
   readonly registry: SessionStoreRegistry;
-  readonly binder: SessionEventSubscriber;
+  readonly subscriber: SessionEventSubscriber;
   readonly engine: ScenarioEngine;
 }
 
@@ -40,5 +40,5 @@ export function createHarness(
     read: () => Promise.resolve(undefined),
     clock: engine.clock,
   });
-  return { registry, binder: new SessionEventSubscriber({ registry, bridge }), engine };
+  return { registry, subscriber: new SessionEventSubscriber({ registry, bridge }), engine };
 }

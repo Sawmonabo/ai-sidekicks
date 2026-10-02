@@ -1,7 +1,7 @@
 // One loaded transcript window, derived from a session's log once per store revision. The
 // virtualizer's rows are identity only (`key`, `parentKey`, `rootCursor`); `rowsByKey` joins a key
 // to its projected row. The window is unfurled (every member of every run group) because the fold
-// in `feed/run-group-fold.ts` runs after the narrowing, which must count a folded group's rows.
+// in `feed/run-group-fold.ts` runs after it, and Find counts a folded group's rows.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -13,7 +13,7 @@ import {
 } from "../dispatches/child-run-entries.js";
 import { projectTranscriptRows } from "../projection/transcript-row-projection.js";
 import { RunGroupIndex, type RunGroup } from "../run-groups/run-groups.js";
-import { SupersededIndex, type SupersededBand } from "../superseded/superseded-bands.js";
+import { SupersededIndex, type SupersededTurns } from "../superseded/superseded-turns.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
@@ -49,9 +49,9 @@ export interface TranscriptWindowModel {
    * The rewound band behind each band header row, keyed by the band key the header is. Every band
    * has an entry, folded or open, since the control that folds it back is on its header.
    */
-  readonly supersededBandByHeaderKey: ReadonlyMap<string, SupersededBand>;
+  readonly supersededTurnsByHeaderKey: ReadonlyMap<string, SupersededTurns>;
   /** Which band each superseded row belongs to — the fold's per-row question. */
-  readonly supersededBandKeyByRowId: ReadonlyMap<string, string>;
+  readonly supersededTurnsKeyByRowId: ReadonlyMap<string, string>;
   /** Which rows are collapsed, under the fold that closes every finished run group. */
   readonly collapsedRowIds: ReadonlySet<string>;
   /**
@@ -118,8 +118,8 @@ export function deriveTranscriptWindow(
     viewportRows,
     rowsByKey,
     supersededRowIds,
-    supersededBandByHeaderKey: supersededIndex.bandByHeaderKey(),
-    supersededBandKeyByRowId: supersededIndex.bandKeyByRowId(),
+    supersededTurnsByHeaderKey: supersededIndex.supersededTurnsByHeaderKey(),
+    supersededTurnsKeyByRowId: supersededIndex.supersededTurnsKeyByRowId(),
     collapsedRowIds: collapsedRowIdsOf(runGroupIndex),
     runGroupByHeaderKey: new Map(
       runGroupIndex.terminalRunGroups().map((runGroup) => [runGroup.runId, runGroup]),

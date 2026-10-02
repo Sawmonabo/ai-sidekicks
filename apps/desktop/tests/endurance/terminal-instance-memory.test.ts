@@ -142,7 +142,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
           let admissibility = admissibilityOf(series);
           if (!admissibility.admissible) {
             process.stdout.write(
-              `[console-endurance] re-measuring the terminal pane sweep: ${admissibility.reason}\n`,
+              `[endurance] re-measuring the terminal pane sweep: ${admissibility.reason}\n`,
             );
             series = await measureTerminalInstanceSeries(consoleApplication, heapProbe);
             admissibility = admissibilityOf(series);
@@ -156,7 +156,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
           // named because a sum that moved raises which half moved, and the per-instance
           // intervals so the slope's readings can be checked against each other.
           process.stdout.write(
-            `[console-endurance] populated terminal pane ` +
+            `[endurance] populated terminal pane ` +
               `${String(Math.round(populatedInstanceBytes / 1024))} kB ` +
               `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
               `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) = ` +

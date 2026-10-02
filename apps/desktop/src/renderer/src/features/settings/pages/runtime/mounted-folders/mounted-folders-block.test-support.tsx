@@ -49,7 +49,7 @@ export function contextReading(options: {
   readonly calls: MountInventoryCalls;
 } {
   let rejectedCallCount = 0;
-  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workspace-mounts-page") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("mounted-folders-block") });
   const clock = frozenClockOf(fixture.scenarioEngine.clock);
   const rejectIfAsked = (): void => {
     if (

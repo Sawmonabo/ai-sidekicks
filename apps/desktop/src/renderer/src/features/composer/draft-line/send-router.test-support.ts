@@ -82,7 +82,7 @@ export function routerWith(
 ): ComposerSendRouter {
   return new ComposerSendRouter({
     calls: sendCallsAnswering(async (recorded) => call(recorded.method, recorded.params)),
-    recognizeClientCommand: (name) => recognized.includes(name),
+    recognizeConsoleCommand: (name) => recognized.includes(name),
     recognizeProviderCommand: (name) =>
       published.includes(name)
         ? { name, kind: "command" as const, driverName: "claude" }

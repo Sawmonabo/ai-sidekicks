@@ -8,11 +8,10 @@
 // hydrated. So a binding is keyed on the store's identity: the same store hands its binding
 // back, a different one disposes it and mints a successor.
 //
-// The holder lives at module scope, which is window scope (an auxiliary window is its own
-// renderer process). Per component, leaving and returning to the sessions destination would
-// mint a second `SessionPinStore` over the one `UiStateStore`: two writers of one record, and
-// the auto-pin authority read at a first send would use the older copy. This is one holder
-// per binding kind per window, as `machineSettingsHolder` is.
+// The holder lives at module scope, which is window scope. Per component, leaving and returning
+// to the sessions destination would mint a second `SessionPinStore` over the one `UiStateStore`:
+// two writers of one record. This is one holder per binding kind per window, as
+// `machineSettingsHolder` is.
 //
 // Reading and acquiring are separate methods. `bindingIfCurrent` mutates nothing and is what
 // a render body calls; `acquire` mints and disposes, and only an effect or an event handler

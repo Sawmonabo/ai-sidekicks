@@ -80,7 +80,7 @@ export interface MountInventory {
   readonly unreadMountCount: number;
 }
 
-/** The read the mounts page is built on, with its refresh already bound. */
+/** The read `Folders this machine can reach` is built on, with its refresh already bound. */
 export type MountInventoryRead = PushDrivenRead<MountInventory>;
 
 /**

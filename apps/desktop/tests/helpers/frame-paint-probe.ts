@@ -6,35 +6,36 @@
 //
 // "Is the renderer painting at all?" and "did its first frame arrive quickly?" are separate
 // questions: a throttled window delivers no frame ever, while a healthy window on a loaded 2-vCPU
-// runner can deliver its first one late. The harness arms this witness only after the renderer
+// runner can deliver its first one late. The harness arms this paint probe only after the renderer
 // signals readiness (the document `load` event, then the console's frame element); everything
-// before that is charged to the cold-start budget and this witness bounds the interval after it.
+// before that is charged to the cold-start budget and this paint probe bounds the interval after
+// it.
 //
 // The frame source is a constructor argument, so the interval does not depend on Electron.
 
 import { FRAME_PAINT_PROBE_TIMEOUT_MS } from "./launch-budgets.js";
 
 /**
- * The renderer, reduced to the one question the witness asks it.
+ * The renderer, reduced to the one question the paint probe asks it.
  *
  * `awaitTwoFrames` resolves with the renderer-side milliseconds between the request and the
  * second frame; two, because a single callback can be the tail of a frame already in production.
- * It never rejects for lateness, since the witness owns the bound, but may reject for a real
- * failure such as a closed page, which the witness lets through.
+ * It never rejects for lateness, since the paint probe owns the bound, but may reject for a real
+ * failure such as a closed page, which the paint probe lets through.
  */
 export interface RendererFrameSource {
   readonly awaitTwoFrames: () => Promise<number>;
 }
 
 /**
- * What every verdict carries, whichever way the race went. `budgetMs` is the bound the witness
+ * What every verdict carries, whichever way the race went. `budgetMs` is the bound the paint probe
  * applied: the budget is a constructor argument, so a caller interpolating the module constant
  * could name a bound that was never used. `CleanupOutcome.budgetMs` follows the same rule.
  */
 interface FramePaintMeasurement {
-  /** Wall milliseconds the witness waited, measured on the driver side. */
+  /** Wall milliseconds the paint probe waited, measured on the driver side. */
   readonly waitedMs: number;
-  /** The bound this witness was actually held to, in milliseconds. */
+  /** The bound this paint probe was actually held to, in milliseconds. */
   readonly budgetMs: number;
 }
 
@@ -50,7 +51,7 @@ export interface FramesMissing extends FramePaintMeasurement {
   readonly painting: false;
 }
 
-/** The witness's verdict: frames painted inside the budget, or missing. */
+/** The paint probe's verdict: frames painted inside the budget, or missing. */
 export type FramePaintProbeOutcome = FramesPainted | FramesMissing;
 
 /**

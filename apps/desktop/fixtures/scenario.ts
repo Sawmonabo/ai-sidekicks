@@ -18,7 +18,7 @@ export interface ScenarioBeat {
   readonly event: ProjectedSessionEvent;
 }
 
-/** A scripted session: who joins, the beats it plays, and the replies it answers with. */
+/** A scripted session: the beats it plays and the replies it answers with. */
 export interface Scenario {
   readonly id: string;
   /** A short name, not a sentence. */
@@ -26,16 +26,8 @@ export interface Scenario {
   /** What this scenario is for, so a reader knows which to reach for. */
   readonly purpose: string;
   readonly sessionId: string;
-  /** Users in join order. */
-  readonly userIdsInJoinOrder: readonly string[];
-  /**
-   * Which of those users this window is, when the scenario states one.
-   *
-   * Join order says who opened the session, not who is looking, so its head is never taken
-   * as "me". When present it must be in `userIdsInJoinOrder`, which
-   * `tests/helpers/scenario-contract-check/` enforces.
-   */
-  readonly callerUserId?: string;
+  /** Which of the session's users this window is, when the scenario states one. */
+  readonly thisDeviceId?: string;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**

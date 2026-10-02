@@ -26,8 +26,7 @@
 //
 // The first turn is the draft's, because `run.queueCreate` takes the turn's body. A blank
 // first turn is the one refusal that is a choice rather than a fact about the build: the
-// session exists and nothing has been said. Auto-pin is not done here: it fires on a first
-// successful send and needs facts about how the session was opened that no reply carries.
+// session exists and nothing has been said.
 
 import type { AgentProviderBinding, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

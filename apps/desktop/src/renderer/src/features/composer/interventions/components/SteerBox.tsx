@@ -122,7 +122,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           ...held,
           localRefusal: refuse(
             RUN_INTERVENTION_REFUSAL_ORIGIN,
-            "empty-directive",
+            "empty-steer",
             "There is nothing to steer with yet. Type what the run should do differently.",
           ),
         }));

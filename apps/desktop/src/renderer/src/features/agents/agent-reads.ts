@@ -1,6 +1,6 @@
 // The three reads behind the Agents pane and what refreshes each one. How long a read
 // lives is `pane/agents-pane-models.ts`'s concern. The clock is the caller's: no factory
-// reads one of its own, so frozen scenario time drives every debounce.
+// reads one of its own, so the scenario clock drives every debounce.
 
 import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
@@ -22,8 +22,8 @@ import { subscribeToSessionEventKinds } from "@renderer/store/session/session-ev
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import type { DriverCatalogReading } from "./binding/driver-catalog.js";
 
-/** The events the roster refreshes on: a provider switch landing, or failing after acceptance. */
-const AGENT_ROSTER_EVENT_KINDS: readonly SessionEventType[] = [
+/** The events the agent list refreshes on: a provider switch landing, or failing after acceptance. */
+const AGENT_LIST_EVENT_KINDS: readonly SessionEventType[] = [
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
 ];
@@ -37,18 +37,18 @@ const CHILD_RUN_LINK_EVENT_KINDS: readonly SessionEventType[] = [
   "orchestration.rejected",
 ];
 
-/** Names the roster read in a refusal, so a failed read says which read failed. */
-export const AGENT_LIST_ORIGIN = "agent-roster";
+/** Names the agent-list read in a refusal, so a failed read says which read failed. */
+export const AGENT_LIST_ORIGIN = "agent-list";
 /** Names the driver catalog read in a refusal. */
 export const DRIVER_CATALOG_ORIGIN = "driver-catalog";
 /** Names the child-run links read in a refusal. */
-export const CHILD_RUN_LINKS_ORIGIN = "child-run-linkage";
+export const CHILD_RUN_LINKS_ORIGIN = "child-run-links";
 
-/** What the roster reads off `agent.list`'s acknowledgment: the session's agents. */
-export type AgentRoster = Pick<AgentListAck, "agents">;
+/** What the agent list reads off `agent.list`'s acknowledgment: the session's agents. */
+export type AgentListReading = Pick<AgentListAck, "agents">;
 
 /** Lists the agents of one session. */
-export type ListSessionAgents = (request: AgentListRequest) => Promise<AgentRoster>;
+export type ListSessionAgents = (request: AgentListRequest) => Promise<AgentListReading>;
 
 /** Reads the session's child-run tree, its counts and its refused creates. */
 export type ReadChildRunLinks = (
@@ -64,25 +64,25 @@ export interface AgentsPaneCalls {
   readonly readChildRunLinks: ReadChildRunLinks;
 }
 
-/** The roster read. */
-export type AgentListRead = PushDrivenRead<AgentRoster>;
+/** The agent-list read. */
+export type AgentListRead = PushDrivenRead<AgentListReading>;
 /** The driver catalog read. */
 export type DriverCatalogRead = PushDrivenRead<DriverCatalogReading>;
 /** The child-run links read. */
 export type ChildRunLinksRead = PushDrivenRead<ChildRunLinkReadResponse>;
 
-/** The roster read, refreshed by the two events that settle a provider switch. */
+/** The agent-list read, refreshed by the two events that settle a provider switch. */
 export function createAgentList(
   sessionStore: SessionStore,
   clock: Clock,
   listAgents: ListSessionAgents,
 ): AgentListRead {
-  return new PushDrivenRead<AgentRoster>({
+  return new PushDrivenRead<AgentListReading>({
     clock,
     origin: AGENT_LIST_ORIGIN,
     read: async () => await listAgents({ sessionId: sessionStore.sessionId as SessionId }),
     subscribe: (onChangeSignal) =>
-      subscribeToSessionEventKinds(sessionStore, AGENT_ROSTER_EVENT_KINDS, onChangeSignal),
+      subscribeToSessionEventKinds(sessionStore, AGENT_LIST_EVENT_KINDS, onChangeSignal),
   });
 }
 

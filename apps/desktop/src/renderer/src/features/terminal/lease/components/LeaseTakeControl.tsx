@@ -8,11 +8,11 @@ import type { UseTakeShellResult } from "../hooks/useTakeShell.js";
 import type { TerminalLeaseHolder } from "../lease-model.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
 
-/** What the take control needs: its call state, the holding, and which device this is. */
+/** What the take control needs: its call state, the holder, and which device this is. */
 export interface LeaseTakeControlProps {
   /** The take control's call state. */
   readonly takeShell: UseTakeShellResult;
-  readonly holding: TerminalLeaseHolder;
+  readonly holder: TerminalLeaseHolder;
   /**
    * Which device this is. Without it no control is offered: the fold names holders by user id,
    * so a take could come back as a hold the line cannot recognize as this device's.
@@ -22,8 +22,8 @@ export interface LeaseTakeControlProps {
 
 /** The button that takes the shell, drawn only where this device may take it. */
 export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Element | null {
-  const { takeShell, holding, deviceIdentity } = props;
-  if (resolveTakeShellAvailability({ holding, deviceIdentity }).control === "none") {
+  const { takeShell, holder, deviceIdentity } = props;
+  if (resolveTakeShellAvailability({ holder, deviceIdentity }).control === "none") {
     return null;
   }
   return (

@@ -1,5 +1,5 @@
 // What a route renders while its screen's module is still arriving: the `ScreenNotice` absence
-// frame, empty. It is not any of the console's absence states, since those are claims about data
+// frame, empty. It is not any of the console's empty states, since those are claims about data
 // and no read has been attempted (see `registries/panes/PendingPaneBody.tsx`). The pending marker
 // rides a `hidden` element, which adds no box.
 

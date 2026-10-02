@@ -10,7 +10,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { WorkflowRunLiveRefresh } from "./run-live-refresh.js";
 
-const SESSION_ID = "session-live-rounds";
+const SESSION_ID = "session-live-refresh";
 const RUN_ON_SCREEN = "019b7a10-0280-7aa1-8100-70100000000a";
 
 const openReadings: WorkflowRunLiveRefresh[] = [];

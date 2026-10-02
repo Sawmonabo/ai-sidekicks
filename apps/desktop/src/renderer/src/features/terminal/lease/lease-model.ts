@@ -43,12 +43,12 @@ export const TERMINAL_LEASE_HOLDERS = [
   "unrecognized-transition",
 ] as const;
 
-/** One of the holdings above. */
+/** One of the holders above. */
 export type TerminalLeaseHolder = (typeof TERMINAL_LEASE_HOLDERS)[number];
 
 /** What a log of lease transitions folds to, from this device's point of view. */
 export interface TerminalLeaseState {
-  readonly holding: TerminalLeaseHolder;
+  readonly holder: TerminalLeaseHolder;
   /** The device the wire named as the holder, or `null` for a free lease. Never inferred. */
   readonly holderDeviceId: string | null;
   /** The run the wire named as the holder, while an agent's run holds the shell. */
@@ -72,7 +72,7 @@ export interface TerminalLeaseProjectionInput {
 
 /** The state before any transition has been read. */
 export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
-  holding: "not-checked",
+  holder: "not-checked",
   holderDeviceId: null,
   holderRunId: undefined,
   holderCommandId: undefined,
@@ -85,7 +85,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * Other event kinds and transitions naming another shell are skipped. A `pty.control_changed`
  * the reader cannot read (an unknown reason, no payload, or a holder shape that contradicts
  * its reason) is not skipped unless it plainly names another shell: it is recorded as the
- * unread transition and the holding becomes `unrecognized-transition`, which shows no holder
+ * unread transition and the holder becomes `unrecognized-transition`, which shows no holder
  * and writes nothing. Skipping it would leave the previous holder standing, and stdin open
  * for someone who no longer holds the shell.
  *
@@ -125,7 +125,7 @@ export function projectTerminalLease(
   const holderCommandId = readable?.holderCommandId;
 
   return {
-    holding: readHolding({
+    holder: readHolder({
       hasReadTransition: newest !== undefined,
       unreadTransition,
       holderDeviceId,
@@ -142,7 +142,7 @@ export function projectTerminalLease(
 // An unread transition comes first because it says the reading failed, so neither "free" nor
 // "yours" is known. A run's hold comes before the device comparison because the run's machine
 // may be this device, yet only the run writes.
-function readHolding(state: {
+function readHolder(state: {
   readonly hasReadTransition: boolean;
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
   readonly holderDeviceId: string | null;

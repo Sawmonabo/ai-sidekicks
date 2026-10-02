@@ -15,7 +15,7 @@ import type {
   ProviderAccountLoginCall,
   ProviderAccountLoginCancelCall,
   ProviderAccountRegisterCall,
-} from "./sign-in-flow.js";
+} from "./provider-sign-in-flow.js";
 
 /** One brokered attempt, as the account plane answers a start with it. */
 export const PROVIDER_SIGN_IN_ATTEMPT: ProviderAccountLoginResponse = {

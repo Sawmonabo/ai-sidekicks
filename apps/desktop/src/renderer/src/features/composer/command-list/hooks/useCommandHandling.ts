@@ -8,11 +8,11 @@ import type { AppRoute } from "@renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type {
-  ClientCommandPredicate,
+  ConsoleCommandPredicate,
   ProviderCommandPredicate,
 } from "../../draft-line/send-resolutions.js";
-import { createClientCommandExecutor } from "../client-command-executor.js";
-import { recognizeClientCommand } from "../client-command-recognizer.js";
+import { createConsoleCommandExecutor } from "../console-command-executor.js";
+import { recognizeConsoleCommand } from "../console-command-recognizer.js";
 import { addressedProviderBinding } from "../command-list-entries.js";
 import {
   LINE_READING_COMMAND_IDS,
@@ -27,7 +27,7 @@ import type { ProviderCommandEnumeration } from "../provider-command-enumeration
  * predicate asks the enumeration holder the popover renders from whether the provider published it.
  */
 export interface CommandHandling {
-  readonly recognizeClientCommand: ClientCommandPredicate;
+  readonly recognizeConsoleCommand: ConsoleCommandPredicate;
   readonly commandExecutor: CommandExecutor;
   readonly recognizeProviderCommand: ProviderCommandPredicate;
 }
@@ -45,9 +45,9 @@ export function useCommandHandling(options: {
 }): CommandHandling {
   const { route, commandEnumeration, target, commandLineHandlers } = options;
   const readCommands = useCallback(() => readComposerCommands(route), [route]);
-  const recognizeName = useCallback<ClientCommandPredicate>(
+  const recognizeName = useCallback<ConsoleCommandPredicate>(
     (commandName) =>
-      recognizeClientCommand(commandName, {
+      recognizeConsoleCommand(commandName, {
         registeredCommandIds: readCommands().registeredCommandIds,
       }).status === "recognized",
     [readCommands],
@@ -57,7 +57,7 @@ export function useCommandHandling(options: {
   const handlersRef = useLatestRef(commandLineHandlers);
   const commandExecutor = useMemo(
     () =>
-      createClientCommandExecutor({
+      createConsoleCommandExecutor({
         readCommands,
         readCommandLineHandlers: () => handlersRef.current,
         lineReadingCommandIds: LINE_READING_COMMAND_IDS,
@@ -70,7 +70,7 @@ export function useCommandHandling(options: {
     [commandEnumeration, addressed],
   );
   return {
-    recognizeClientCommand: recognizeName,
+    recognizeConsoleCommand: recognizeName,
     commandExecutor,
     recognizeProviderCommand: recognizePublished,
   };

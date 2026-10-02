@@ -17,7 +17,7 @@ import { readRunId, readSessionId } from "@renderer/services/daemon/wire-identif
 import type { ComposerSessionTarget, ComposerTarget } from "../composer-target.js";
 import { readSlashCommandName } from "../slash-command-syntax.js";
 import type {
-  ClientCommandPredicate,
+  ConsoleCommandPredicate,
   ComposerRefusedResolution,
   ComposerSendOutcome,
   ComposerSendResolution,
@@ -40,7 +40,7 @@ export interface ComposerSendRouterOptions {
   /** The two daemon calls a resolved send makes. */
   readonly calls: ComposerSendCalls;
   /** Defaults to recognizing none, which is the fail-loud arm rather than the quiet one. */
-  readonly recognizeClientCommand?: ClientCommandPredicate;
+  readonly recognizeConsoleCommand?: ConsoleCommandPredicate;
   /** Defaults to naming none, so an unread enumeration changes no refusal. */
   readonly recognizeProviderCommand?: ProviderCommandPredicate;
   /**
@@ -59,14 +59,14 @@ export interface ComposerSendRouterOptions {
 /** Resolves composed text to a wire call and dispatches it; see the module header. */
 export class ComposerSendRouter {
   readonly #calls: ComposerSendCalls;
-  readonly #recognizeClientCommand: ClientCommandPredicate;
+  readonly #recognizeConsoleCommand: ConsoleCommandPredicate;
   readonly #recognizeProviderCommand: ProviderCommandPredicate;
   readonly #mintIdempotencyKey: () => string;
   readonly #runVersions: AnsweredRunVersions;
 
   public constructor(options: ComposerSendRouterOptions) {
     this.#calls = options.calls;
-    this.#recognizeClientCommand = options.recognizeClientCommand ?? (() => false);
+    this.#recognizeConsoleCommand = options.recognizeConsoleCommand ?? (() => false);
     this.#recognizeProviderCommand = options.recognizeProviderCommand ?? (() => undefined);
     this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
     this.#runVersions = options.runVersions ?? new AnsweredRunVersions();
@@ -96,7 +96,7 @@ export class ComposerSendRouter {
     switch (resolution.outcome) {
       case "refused":
         return { status: "refused", refusal: resolution.refusal };
-      case "client-command":
+      case "console-command":
         return { status: "intercepted", commandName: resolution.commandName };
       case "new-turn":
         return await dispatchQueuedTurn(this.#calls, resolution.request);
@@ -116,8 +116,8 @@ export class ComposerSendRouter {
     if (commandName === undefined) {
       return undefined;
     }
-    if (commandName.length > 0 && this.#recognizeClientCommand(commandName)) {
-      return { outcome: "client-command", commandName };
+    if (commandName.length > 0 && this.#recognizeConsoleCommand(commandName)) {
+      return { outcome: "console-command", commandName };
     }
     return this.#resolveDiscoveryOnly(commandName);
   }
