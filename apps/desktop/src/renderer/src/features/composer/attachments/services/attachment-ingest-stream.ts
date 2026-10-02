@@ -98,7 +98,7 @@ export class AttachmentIngestStreamDriver {
         return;
       }
       reportTripwire(
-        "apply-chokepoint-bypass",
+        "publish-failure",
         INGEST_STREAM_SITE,
         `the ingest of ${localId} recorded its step and could not publish it (${lossyStringify(escape)}); the record holds the entry and every view subscribed to it is now a step behind`,
       );

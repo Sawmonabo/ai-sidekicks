@@ -70,7 +70,7 @@ export class ScenarioEngine {
     return this.#scenario;
   }
 
-  /** The frozen clock. Every console subsystem in fixture mode reads this one. */
+  /** The frozen clock. Every app subsystem in fixture mode reads this one. */
   public get clock(): Clock {
     return this.#clock;
   }
@@ -120,7 +120,7 @@ export class ScenarioEngine {
   public advance(deltaMs: number): void {
     if (this.#disposed) {
       reportTripwire(
-        "apply-chokepoint-bypass",
+        "tick-after-teardown",
         `ScenarioEngine(${this.#scenario.id})`,
         `a scenario tick of ${String(deltaMs)}ms arrived after teardown; the engine dropped it rather than delivering into a disposed store`,
       );

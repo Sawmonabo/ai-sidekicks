@@ -53,7 +53,7 @@ export function hunkLines(
       // Every defined prefix is handled above, so this line carries something unplaceable;
       // dropping it silently would stop both counters and leave every later number wrong.
       reportTripwire(
-        "wire-figure-formatting",
+        "diff-hunk-prefix",
         HUNK_LINES_SITE,
         `a hunk body line carried the unrecognized prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
       );
