@@ -1,7 +1,7 @@
 // What a run event's payload puts on the run entity's body: the member vocabulary, a reader per
 // shape, and the walk that composes a body from an untyped payload. `run-lifecycle-projector.ts`
 // decides which run a beat mutates; this changes when the wire's members do. It imports nothing
-// of the store or the event envelope.
+// of the session store or the event envelope.
 
 import type {
   RunQueuedPayload,
@@ -11,7 +11,8 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { isWireRecord } from "@renderer/lib/wire-record.js";
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
+import { RUN_QUEUED_EVENT_KIND } from "./run-state-kinds.js";
 
 /** Every member either registered run shape names. */
 type RegisteredRunMemberName = keyof RunStateChangeEvent | keyof RunRolledBackEvent;
@@ -52,7 +53,7 @@ const RUN_BODY_MEMBER_READERS = {
   intendedClose: "boolean",
   /** Stamped on `run.running`, where the resolved root and posture are final. */
   executionPosture: "object",
-  /** The stop condition that ended the run, such as a budget exhaustion or idle timeout. */
+  /** The stop reason that ended the run, such as a step or spend limit. */
   trigger: "string",
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
 
@@ -64,9 +65,6 @@ type RunQueuedOwnMemberName = Exclude<
   keyof RunQueuedPayload,
   RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent"
 >;
-
-/** The run's creation, the one kind that can bring its agent into the session. */
-const RUN_QUEUED_EVENT_KIND: Extract<SessionEventType, "run.queued"> = "run.queued";
 
 /**
  * The registered kinds whose durable payload names members of its own. `Extract`ed from the
@@ -114,9 +112,9 @@ const NO_PER_TYPE_MEMBERS: Readonly<Record<string, WireMemberReaderName>> = Obje
  * merge would let a present `undefined` erase what an earlier event established.
  */
 const WIRE_MEMBER_READERS: Readonly<Record<WireMemberReaderName, (value: unknown) => unknown>> = {
-  // The string arm is the shared `wire-strings` predicate, not a second copy of its rule.
+  // The string and number arms are the shared `wire-strings` predicates.
   string: readWireString,
-  number: (value) => (typeof value === "number" && Number.isFinite(value) ? value : undefined),
+  number: readWireNumber,
   boolean: (value) => (typeof value === "boolean" ? value : undefined),
   // Carried whole and unparsed: the console renders `executionPosture` through its own consumer,
   // and the contract owns its shape. `isWireRecord` decides whether it is a body.

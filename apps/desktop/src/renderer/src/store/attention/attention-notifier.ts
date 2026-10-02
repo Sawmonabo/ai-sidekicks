@@ -11,7 +11,7 @@
 // The first settled read of a session raises nothing for it: opening a window is not an event,
 // and announcing the standing projection would fire a banner per outstanding approval. This is
 // per session, not per window, because a window opened on one session reads that session
-// before the node's directory adds the others, and one window-wide baseline would treat every
+// before the service's directory adds the others, and one window-wide baseline would treat every
 // later session as already baselined. A session's items may announce only from the read after
 // the one that first covered it, and the set is re-derived on every settled read so a session
 // that leaves the address set forgets its baseline.

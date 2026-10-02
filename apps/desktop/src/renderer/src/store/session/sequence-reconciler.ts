@@ -53,15 +53,6 @@ export class SequenceReconciler {
   }
 
   /**
-   * Sequences still retained for duplicate detection. Bounded by construction, since everything
-   * at or below the cursor is released at the batch boundary. Exposed so the steady-heap claim
-   * is counted; a set that grew with the session would hide behind a capped timeline.
-   */
-  public get retainedSequenceCount(): number {
-    return this.#admittedSequences.size;
-  }
-
-  /**
    * The runs observed as missing, oldest first. A fresh array per call, since the caller commits
    * it into immutable state and a shared list would let the next admission mutate rendered state.
    */

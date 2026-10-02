@@ -1,6 +1,6 @@
 // What a view reads about one session's projection rather than out of it: whether a base state
-// landed, whether the projection moved, whether it is known incomplete, and what the newest read
-// said about where the stream picks up. `useOpenSessionStore.ts` answers with session content.
+// landed, whether it is known incomplete, and what the newest read said about where the stream
+// picks up. `useOpenSessionStore.ts` answers with session content.
 // The resume reading here also takes the registry, because the decision is a fact about the read
 // that produced a projection, and the registry holds it.
 //
@@ -18,18 +18,6 @@ import type { TimelineResumeDecision } from "../timeline-resume.js";
 /** Whether the store has been initialized, so a view can tell "not loaded" apart. */
 export function useSessionInitialized(store: SessionStore): boolean {
   return useStore(store.readable, readInitialized);
-}
-
-/**
- * The store's monotonic transition counter: "the projection moved", and nothing more. For the
- * one consumer that cannot name a partition, a view asking other features to report off their
- * own projections during render. It says a transition happened without saying which kind moved,
- * the widest claim the store offers. A number, so an unchanged store costs a pointer comparison.
- *
- * @consumedBy a view that re-renders whenever the session projection moves
- */
-export function useSessionProjectionRevision(store: SessionStore): number {
-  return useStore(store.readable, readRevision);
 }
 
 /**
@@ -81,10 +69,6 @@ export function useTimelineResume(
 
 function readInitialized(state: SessionStoreState): boolean {
   return state.initialized;
-}
-
-function readRevision(state: SessionStoreState): number {
-  return state.revision;
 }
 
 function readDegraded(state: SessionStoreState): boolean {

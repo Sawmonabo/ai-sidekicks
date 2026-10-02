@@ -24,7 +24,7 @@ import { WindowAttentionContext, type WindowAttention } from "./hooks/useAttenti
 /** The subtree it provides for, and the calls and window handles it keeps answers from. */
 export interface AttentionProviderProps {
   readonly children: ReactNode;
-  /** The call that lists the node's sessions. */
+  /** The call that lists the service's sessions. */
   readonly readDirectory: SessionDirectoryReadCall;
   /** The call that reads the attention projection. */
   readonly readAttention: AttentionProjectionReadCall;

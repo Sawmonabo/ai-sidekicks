@@ -130,9 +130,9 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
 export const ATTENTION_SUBJECT = "what needs you";
 
 /**
- * How complete a read that answered was, in the console's own vocabulary.
+ * How complete a read that answered was, as reading states.
  *
- * Today the only fact is `droppedCount`, which maps to `partial`; its sentence comes from
+ * The only fact is `droppedCount`, which maps to `partial`; its sentence comes from
  * `lib/partial-read.ts` alone, so the panel and the spoken settlement say the same thing.
  * `refusedSessions` is not folded in, because how many sessions never answered is the whole of
  * what it tells a person and a `beside-an-answer` refusal carries no figure; it stays the

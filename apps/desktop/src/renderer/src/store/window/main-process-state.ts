@@ -3,8 +3,8 @@
 // words a connection state reads as. The topic's vocabulary is `@shared/daemon-status-topic.ts`;
 // this half lives in `store/` because the settings pages read it and `store/` sits below features.
 //
-// Main does not publish the topic yet, so a window's ordinary state is `unreported`: not
-// `connected` and not `offline`, since either would be a guess.
+// `unreported` is the state before main's first delivery: not `connected` and not `offline`,
+// since either would be a guess.
 
 import type {
   DaemonConnection,
@@ -46,28 +46,33 @@ export function mainProcessReportsAreEqual(
   );
 }
 
+/** What a window with no report says about the service, spelled once for the settings state row. */
+export const UNREPORTED_DAEMON_NOTICE: { readonly title: string } = {
+  title: "Reading the background service…",
+};
+
 /**
- * One supervisor state in a person's words. Here rather than in `layout/` because the
- * local-runtime settings page renders it and imports point one way.
+ * One supervisor state in a person's words. Here rather than in `layout/` because the Runtime
+ * settings page renders it and imports point one way.
  */
 export function describeDaemonConnection(connection: DaemonConnection): string {
   switch (connection.kind) {
     case "unreported":
-      return "Local runtime";
+      return UNREPORTED_DAEMON_NOTICE.title;
     case "probing":
-      return "Checking the local runtime";
+      return "Connecting to the background service…";
     case "starting":
-      return "Starting the local runtime";
+      return "Starting the background service…";
     case "connected":
-      return "Local runtime connected";
+      return "Running";
     case "reconnecting":
-      return `Reconnecting — attempt ${String(connection.attempt)} of ${String(connection.attemptLimit)}`;
+      return "Reconnecting…";
     case "version-incompatible":
       return "Version mismatch";
     case "offline":
-      return "Local runtime offline";
+      return "The background service is not answering.";
     case "stopped":
-      return "Local runtime stopped";
+      return "Stopped";
   }
 }
 
@@ -111,7 +116,7 @@ function mainProcessNegotiationsAreEqual(
     left.compatible === right.compatible &&
     left.reason === right.reason &&
     left.behind === right.behind &&
-    left.consoleProtocolVersion === right.consoleProtocolVersion &&
+    left.appProtocolVersion === right.appProtocolVersion &&
     left.daemonProtocolVersion === right.daemonProtocolVersion &&
     left.daemonSupportedProtocols.length === right.daemonSupportedProtocols.length &&
     left.daemonSupportedProtocols.every(
@@ -134,10 +139,3 @@ function cannotStartsAreEqual(
       (right.reason === "restartsExhausted" && left.error === right.error))
   );
 }
-
-/** What a window with no report says about the runtime, spelled once for the settings state row. */
-export const UNREPORTED_DAEMON_NOTICE: { readonly title: string; readonly detail: string } = {
-  title: "Local runtime",
-  detail:
-    "This build has no channel carrying the supervisor's state, so this window has not been told whether the local runtime is running.",
-};

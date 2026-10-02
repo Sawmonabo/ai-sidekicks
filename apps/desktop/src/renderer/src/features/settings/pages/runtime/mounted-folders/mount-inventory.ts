@@ -168,7 +168,7 @@ export async function readMountInventory(
  * and reports nothing, where an empty inventory would be a reading never taken.
  */
 function raiseAbandonedInventoryRead(): never {
-  throw new RefusalError(abandonedReadRefusal("mount inventory"));
+  throw new RefusalError(abandonedReadRefusal());
 }
 
 /** The subscribe for a window with no session store open: nothing to bind, nothing to release. */

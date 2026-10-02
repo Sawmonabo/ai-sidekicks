@@ -12,8 +12,9 @@
 //
 // A refused position degrades honestly. When the daemon answers `event.cursor_unresolvable` the
 // entry forgets the position, re-reads from the window's beginning through the same reader, and
-// records the refusal for the view. The refused cursor is remembered so the next read does not
-// submit it again (two reads per refresh otherwise).
+// records the refusal for the view and, with its cause, in the window's diagnostic capture. The
+// refused cursor is remembered so the next read does not submit it again (two reads per refresh
+// otherwise).
 //
 // The decision has its own notification because the store revision cannot carry it:
 // `initialize` refuses a snapshot behind the store's cursor, which is what the re-read after a
@@ -73,7 +74,6 @@ export interface OpenSessionEntryOptions {
    */
   readonly onTimelineResumeSettled?: () => void;
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
-  /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
   readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
   readonly projectors?: EntityProjectorTable;
@@ -109,10 +109,12 @@ export class OpenSessionEntry {
   #unresolvableCursor: string | undefined = undefined;
   readonly #onTimelineResumeSettled: (() => void) | undefined;
   readonly #releaseCauseCapture: () => void;
+  readonly #clock: Clock;
 
   public constructor(sessionId: string, options: OpenSessionEntryOptions) {
     this.#onTimelineResumeSettled = options.onTimelineResumeSettled;
     const clock = options.clock ?? new RealClock();
+    this.#clock = clock;
     this.store = new SessionStore({
       sessionId,
       ...(options.projectors === undefined ? {} : { projectors: options.projectors }),
@@ -128,6 +130,18 @@ export class OpenSessionEntry {
           // costs one repair and never overlaps a read in flight.
           this.refreshScheduler.request("gap-repull");
         }
+      },
+      // A throwing drain keeps its batch; the session says it is behind and the cause is kept
+      // for diagnostics, since the store could not take rows it was handed.
+      onDrainError: (error) => {
+        this.store.markDegraded("projection-failed");
+        windowDiagnosticCapture.record({
+          at: diagnosticStampAt(clock),
+          severity: "error",
+          source: "store/session",
+          kind: "apply-drain-failed",
+          detail: `session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+        });
       },
       ...(options.applyCoalesceMs === undefined ? {} : { coalesceMs: options.applyCoalesceMs }),
     });
@@ -206,7 +220,15 @@ export class OpenSessionEntry {
       // that carried a cursor, so a read with none cannot have raised it about our position.
       this.#unresolvableCursor = submitted;
       this.#resumeFromCursor = undefined;
-      this.#settleTimelineResume(refuseUnresolvableResume());
+      const refused = refuseUnresolvableResume();
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(this.#clock),
+        severity: "warning",
+        source: "store/session",
+        kind: refused.refusal.code,
+        detail: `session ${sessionId}: ${refused.refusal.detail}`,
+      });
+      this.#settleTimelineResume(refused);
       snapshot = await read(sessionId, reasons, undefined);
       if (snapshot === undefined) {
         return;

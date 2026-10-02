@@ -1,5 +1,5 @@
 // What each bound driver declared, read once per bridge and shared by every view. The answer is
-// addressed at the node, not a run or session, so it belongs to the bridge; the cache is a
+// addressed at the service, not a run or session, so it belongs to the bridge; the cache is a
 // `WeakMap` so a closed window's entry and a test's fixture reply are not kept.
 // `useDriverCapabilities` and `useDriverCapabilityRepairRead` are the two entry points.
 //
@@ -42,8 +42,8 @@ const NO_DECLARATIONS: ReadonlyMap<ProviderName, DeclaredDriverFlags> = new Map<
  */
 class BridgeCapabilityRead implements ReadTriggerTarget {
   /**
-   * Nothing in a session's timeline says this node's declarations changed: a driver declares at
-   * the node and session events are about that session's runs. The reading goes stale when the
+   * Nothing in a session's timeline says the service's declarations changed: a driver declares at
+   * the service and session events are about that session's runs. The reading goes stale when the
    * window has been away or the connection was repaired, never because a run ended.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
@@ -60,9 +60,6 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
       perform: async (_reasons, round) => {
         await this.#read(round);
       },
-      // A failed read is already recorded as the readout's refusal; re-throwing would surface it
-      // again as an unhandled rejection.
-      onError: () => undefined,
     });
   }
 
@@ -88,7 +85,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   }
 
   /**
-   * Takes the node's declarations on the round the scheduler opened. The signal goes to
+   * Takes the service's declarations on the round the scheduler opened. The signal goes to
    * `callDaemon` to stop an abandoned read before its reply is parsed; `settle` guards what
    * reaches the readout, so a replaced round installs nothing and its refusal is never published.
    */
@@ -112,7 +109,8 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
     for (const report of reply.value.drivers) {
       flagsByDriverName.set(report.driverName, report.capabilities.flags);
     }
-    // A reply naming no driver settles with no entries and no refusal: this node declares nothing.
+    // A reply naming no driver settles with no entries and no refusal: the service declares
+    // nothing.
     round.settle(() => {
       this.#settle({
         flagsByDriverName,

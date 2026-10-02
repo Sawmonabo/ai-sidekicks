@@ -1,26 +1,12 @@
-// The per-session store and its single apply chokepoint. One store per open session, and one
-// way in: `applyBatch`, which validates, reconciles the sequence, runs the projectors and commits
-// one immutable transition. The zustand setter is private, so the chokepoint is structural.
-// Events drain into `ApplyQueue` and arrive as a batch, so N events in one frame are one
-// notification and `snapshot()` never disagrees with what React last rendered.
+// The per-session store and its single apply chokepoint, `applyBatch`: it validates, reconciles
+// the sequence, runs the projectors and commits one immutable transition. The zustand setter is
+// private, so the chokepoint is structural, and a re-entrant apply is queued and drained, never
+// lost.
 //
-// Its dependencies own their rules: `sequence-reconciler.ts` (ordering, dedupe, holes, divergence),
-// `pre-initialization-buffer.ts`, `entities/entity-projection-runner.ts`,
-// `entities/entity-partitions.ts`, `../session-degradation.ts` and `session-state.ts`.
-//
-// This class owns:
-//   - A sticky degraded flag set by a gap, a drop or a projection failure and cleared only by a
-//     completed re-pull (`admitsSnapshotAt`), since a later event proves nothing about the one
-//     that never arrived.
-//   - Refusal of a foreign `sessionId`.
-//   - A re-entrant apply is queued, drained and reported, never lost.
-//   - `prependEarlierEvents`, the only way the log grows at its head: rows below
-//     `windowHeadCursor` exist but were never delivered here. It admits nothing at or above the
-//     head, moves no cursor, runs no projector and clears no flag (`earlier-window.ts`).
-//     `windowGeneration` says which window a page was asked under.
-//   - What is outstanding outlives the capped timeline: `waiting-on-person/
-//     waiting-on-person-register.ts` holds it, seeded by each base state and advanced by every
-//     admitted or recovered row.
+// The degraded flag is sticky: a gap, a drop or a projection failure sets it, and only a
+// completed re-pull clears it, since a later event proves nothing about the one that never
+// arrived. `prependEarlierEvents` is the only way the log grows at its head, and what is
+// outstanding outlives the capped timeline in the waiting-on-person register.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -149,23 +135,13 @@ export class SessionStore {
     return this.#preInitializationBuffer.pendingCount;
   }
 
-  /** Events this store dropped from the pre-initialization buffer at the cap. */
-  public get preInitializationDropCount(): number {
-    return this.#preInitializationBuffer.dropCount;
-  }
-
-  /** Sequences still retained for duplicate detection. Bounded by construction. */
-  public get retainedDedupeSequenceCount(): number {
-    return this.#reconciler.retainedSequenceCount;
-  }
-
   /**
    * What this session still has open, as of every row this store has ever been given. A getter,
-   * not a state member: the ledger moves only on an act that also bumps `revision`, so a
+   * not a state member: the records move only on an act that also bumps `revision`, so a
    * reader subscribed to that re-asks when it could have changed.
    */
-  public get outstandingAskLedger(): WaitingOnPersonRecords {
-    return this.#waitingOnPersonRegister.ledger;
+  public get waitingOnPersonRecords(): WaitingOnPersonRecords {
+    return this.#waitingOnPersonRegister.records;
   }
 
   /**

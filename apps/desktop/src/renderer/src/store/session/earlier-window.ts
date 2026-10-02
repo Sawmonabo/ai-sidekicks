@@ -40,7 +40,7 @@ export interface EarlierWindowMerge {
 export interface EarlierWindowDependencies {
   readonly sessionId: string;
   readonly hueAllocator: AgentHueAllocator;
-  /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
+  /** The register of what is still waiting on a person. Recovered rows advance it too. */
   readonly waitingOnPersonRegister: WaitingOnPersonRegister;
   readonly timelineCap: number | undefined;
 }

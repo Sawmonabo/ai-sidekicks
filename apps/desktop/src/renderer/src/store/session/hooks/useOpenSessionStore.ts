@@ -51,7 +51,7 @@ export function useOpenSessionStore(
 }
 
 /**
- * The sessions this window has open, in open order; the node's own list is
+ * The sessions this window has open, in open order; the service's own list is
  * `useSessionDirectory`. Subscribed through the registry's change emitter, and the read returns
  * the registry's stable array rather than building one.
  *

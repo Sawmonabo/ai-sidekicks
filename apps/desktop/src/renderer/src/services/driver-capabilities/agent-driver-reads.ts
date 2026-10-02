@@ -1,5 +1,5 @@
 // The two log reads that say which driver a run is bound to. `driver.listCapabilities` is
-// addressed at the node and names no run, but the session's log does: `session.created` carries
+// addressed at the daemon and names no run, but the session's log does: `session.created` carries
 // the lead, `run.queued` an agent started from a saved definition, and the run-lifecycle projector
 // carries a run's `agentId` onto its body. Both are read through a schema because the payload and
 // body are `unknown`, and a hand-shaped read would take a number or an empty string as a binding.
@@ -17,14 +17,14 @@ import {
   type StoredEntity,
   type ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
+import { RUN_QUEUED_EVENT_KIND } from "@renderer/store/session-events/run-state-kinds.js";
 
 /**
- * The event kinds that bring an agent into its session: the session's birth brings the lead, and
- * a run's creation brings an agent started from a saved definition. Typed against the taxonomy so
- * a misspelling fails to compile.
+ * The event kind of the session's birth, which brings the lead into the session; a run's creation
+ * (`RUN_QUEUED_EVENT_KIND`) brings an agent started from a saved definition. Typed against the
+ * taxonomy so a misspelling fails to compile.
  */
 const SESSION_CREATED_EVENT_KIND: Extract<SessionEventType, "session.created"> = "session.created";
-const RUN_QUEUED_EVENT_KIND: Extract<SessionEventType, "run.queued"> = "run.queued";
 
 /** The one member of a run's body this read takes. */
 const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });

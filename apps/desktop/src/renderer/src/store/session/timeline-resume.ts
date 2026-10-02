@@ -58,17 +58,19 @@ export function resolveTimelineResume(cursors: unknown): TimelineResumeDecision 
 }
 
 /**
- * The refusal a caller records when the daemon could not resolve the cursor it sent.
- *
- * The detail says what the console did about it and never carries the refused cursor.
+ * The refusal a caller records when the daemon could not resolve the cursor it sent. The detail
+ * is for diagnostics, says what was done about it, and never carries the refused cursor.
  */
-export function refuseUnresolvableResume(): TimelineResumeDecision {
+export function refuseUnresolvableResume(): Extract<
+  TimelineResumeDecision,
+  { outcome: "refused" }
+> {
   return {
     outcome: "refused",
     refusal: refuse(
       TIMELINE_RESUME_ORIGIN,
       "resume-cursor-unresolvable",
-      "the position this session was last read up to could not be resolved, so the log was re-read from the beginning of its window instead. Nothing was lost from the stream; the remembered position was. The next read takes whatever position the background service acknowledges.",
+      "the remembered read position could not be resolved, so the log was re-read from the beginning of its window",
     ),
   };
 }

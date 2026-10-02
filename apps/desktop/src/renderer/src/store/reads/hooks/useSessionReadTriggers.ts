@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 
-import { eventTriggersRead, type ReadTriggerTarget } from "../read-triggers.js";
+import { eventTriggersRead, isRepairEdge, type ReadTriggerTarget } from "../read-triggers.js";
 import type { ProjectedSessionEvent } from "../../session/entities/entities.js";
 import { useSessionDegradedCause } from "../../session/hooks/useSessionInitialized.js";
 import { useSessionStore } from "../../session/hooks/useOpenSessionStore.js";
@@ -49,16 +49,15 @@ export function useSessionReadTriggers(
  * session's first re-read.
  */
 class ReadTriggerMemory {
-  #wasDegraded = false;
+  #previousCause: string | undefined = undefined;
   #examinedThroughSequence = -1;
   #latestSignalSequence = -1;
   #requestedThroughSequence = -1;
 
   /** True exactly on the pass where a standing cause became none. */
   public observeRepair(degradedCause: string | undefined): boolean {
-    const isDegraded = degradedCause !== undefined;
-    const isRepaired = this.#wasDegraded && !isDegraded;
-    this.#wasDegraded = isDegraded;
+    const isRepaired = isRepairEdge(this.#previousCause, degradedCause);
+    this.#previousCause = degradedCause;
     return isRepaired;
   }
 

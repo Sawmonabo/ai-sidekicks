@@ -7,8 +7,9 @@
 // code verbatim.
 //
 // No refused value reaches a refusal's detail, because a rejected value can be a user's message, a
-// path or a credential. This module composes its own sentence from the method and the failing
-// member paths, and never renders the validator's message, which quotes received values.
+// path or a credential. The detail is a plain sentence; the method and the failing member paths go
+// to the window's diagnostic capture, and the validator's message, which quotes received values,
+// goes nowhere.
 //
 // A rejection goes to `normalizeWireRejection` (`lib/wire-rejection.ts`), the console's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
@@ -18,16 +19,23 @@
 
 import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts";
 
+import { RealClock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, refusedMemberPaths, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
 import type { RegisteredDaemonMethod } from "./daemon-method-contract.js";
-import { describeFailingPaths } from "./failing-member-paths.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
+
+/** How many failing member paths one diagnostic record names before it stops. */
+const NAMED_FAILING_PATH_CAP = 3;
 
 /**
  * Why the console refused a call on its own side of the wire. None overlaps a daemon code: a
@@ -74,15 +82,15 @@ export interface DaemonCallOptions {
 }
 
 /**
- * The refusal a read that nobody is waiting for settles as. It names the method and no value.
- * Exported for composed reads, which have `await` boundaries `callDaemon` cannot see and must
- * stop with this same refusal rather than a code of their own.
+ * The refusal a read that nobody is waiting for settles as. Exported for composed reads, which
+ * have `await` boundaries `callDaemon` cannot see and must stop with this same refusal rather
+ * than a code of their own.
  */
-export function abandonedReadRefusal(method: string): Refusal {
+export function abandonedReadRefusal(): Refusal {
   return refuse(
     DAEMON_REPLY_REFUSAL_ORIGIN,
     "read-abandoned" satisfies DaemonReplyRefusalCode,
-    `Nothing is waiting for the ${method} read any more, so the console read nothing from it.`,
+    "This read was closed before it finished.",
   );
 }
 
@@ -107,17 +115,18 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   const { signal } = options;
 
   if (isReadAbandoned(signal)) {
-    return abandonedRead(method);
+    return abandonedRead();
   }
 
   const sendable = binding.requestSchema.safeParse(request);
   if (!sendable.success) {
+    recordCallFailure("request-unsendable", method, sendable.error.issues);
     return {
       status: "refused",
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "request-unsendable" satisfies DaemonReplyRefusalCode,
-        `The console could not build a ${method} request the background service would accept${describeFailingPaths(sendable.error)}, so it sent none.`,
+        "This request could not be sent to the background service.",
       ),
     };
   }
@@ -129,24 +138,23 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       signal,
     );
     if (settlement.status === "abandoned") {
-      return abandonedRead(method);
+      return abandonedRead();
     }
     reply = settlement.value;
   } catch (rejection: unknown) {
     if (isReadAbandoned(signal)) {
       // The read lost its owner and the call failed, in either order; the departure is the
       // fact that explains the settlement.
-      return abandonedRead(method);
+      return abandonedRead();
     }
-    return {
-      status: "refused",
-      // The fallback applies only to a rejection with no code of its own, and never quotes the
-      // rejected value, which can carry user content.
-      refusal: normalizeWireRejection(DAEMON_REPLY_REFUSAL_ORIGIN, rejection, {
-        code: "call-rejected" satisfies DaemonReplyRefusalCode,
-        detail: `${method} was rejected.`,
-      }),
-    };
+    // The fallback applies only to a rejection with no code of its own, and never quotes the
+    // rejected value, which can carry user content.
+    const refusal = normalizeWireRejection(DAEMON_REPLY_REFUSAL_ORIGIN, rejection, {
+      code: "call-rejected" satisfies DaemonReplyRefusalCode,
+      detail: "The background service is not answering.",
+    });
+    recordCallFailure(refusal.code, method, []);
+    return { status: "refused", refusal };
   }
 
   if (isReadAbandoned(signal)) {
@@ -154,17 +162,18 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     // listener, so an abort landing before this frame resumes says `settled` while nobody is
     // waiting. Reading the signal again, next to the parse, makes "an abandoned reply is never
     // parsed" independent of microtask order.
-    return abandonedRead(method);
+    return abandonedRead();
   }
 
   const readable = binding.responseSchema.safeParse(reply);
   if (!readable.success) {
+    recordCallFailure("reply-unreadable", method, readable.error.issues);
     return {
       status: "refused",
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "reply-unreadable" satisfies DaemonReplyRefusalCode,
-        `The background service's reply to ${method} is not the shape this build registers for it${describeFailingPaths(readable.error)}, so the console read nothing from it.`,
+        "The background service's reply could not be read.",
       ),
     };
   }
@@ -174,6 +183,27 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 }
 
 /** The abandoned-read refusal as `callDaemon`'s own answer. */
-function abandonedRead(method: string): DaemonReply<never> {
-  return { status: "refused", refusal: abandonedReadRefusal(method) };
+function abandonedRead(): DaemonReply<never> {
+  return { status: "refused", refusal: abandonedReadRefusal() };
+}
+
+/**
+ * Record a refused call where diagnostics read it: the method and the failing member paths, which
+ * the screen never shows. Paths only, never values, which may be user content.
+ */
+function recordCallFailure(
+  code: string,
+  method: string,
+  issues: readonly { readonly path: readonly PropertyKey[] }[],
+): void {
+  const paths = refusedMemberPaths(issues);
+  const named = paths.slice(0, NAMED_FAILING_PATH_CAP).join(", ");
+  const more = paths.length > NAMED_FAILING_PATH_CAP ? ", and more" : "";
+  windowDiagnosticCapture.record({
+    at: diagnosticStampAt(new RealClock()),
+    severity: "warning",
+    source: "services/daemon",
+    kind: code,
+    detail: paths.length === 0 ? method : `${method} at ${named}${more}`,
+  });
 }

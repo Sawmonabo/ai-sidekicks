@@ -1,5 +1,5 @@
 // The console's one transport-reconnect signal: the wire went away, and it is back. A window-scoped
-// reading (this node's diagnostics or accounts, the machine's settings) has no session and no
+// reading (the service's diagnostics or accounts, the machine's settings) has no session and no
 // repair edge, so this is where its `reconnect` refresh reason comes from.
 //
 // The signal observes rather than polls. It is told what happened by every daemon subscription the
@@ -62,15 +62,5 @@ export class TransportReconnectSignal implements TransportReconnectObservable {
 
   public subscribe(onReconnect: () => void): Unsubscribe {
     return this.#reconnects.subscribe(onReconnect);
-  }
-
-  /** How many readings are listening. Asserted by tests, never rendered. */
-  public get listenerCount(): number {
-    return this.#reconnects.sinkCount;
-  }
-
-  /** Release every listener. Terminal for a window whose bridge is being torn down. */
-  public dispose(): void {
-    this.#reconnects.clear();
   }
 }

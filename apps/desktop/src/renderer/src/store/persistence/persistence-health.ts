@@ -3,8 +3,8 @@
 // The chokepoint in `ui-state-store.ts` decides whether a write may land; this module decides
 // what that decision meant: whether a refusal is the caller handing the store something it may
 // not keep or the store failing to keep something legitimate, which fires the
-// `persistence-value-class` tripwire, and what the diagnostics view shows. It is separate
-// because the two can be wrong independently: a full disk reported as a caller defect sends an
+// `persistence-value-class` tripwire, and what the store reports about itself. It is separate
+// because the two can be wrong independently: a full disk reported as a caller defect sends a
 // person to audit the wrong half. Counts are cumulative for the window's lifetime, since a
 // count that could be cleared cannot answer "has this happened since the window opened".
 
@@ -41,7 +41,7 @@ const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>>
  */
 export const REFUSED_ADDRESS_SITE = "<address>";
 
-/** What the diagnostics view renders about storage. */
+/** What the store reports about itself: its adapter, the quota gauge, refusals and trims. */
 export interface PersistenceHealth {
   readonly adapterKind: PersistenceAdapterKind;
   readonly durable: boolean;
@@ -96,7 +96,7 @@ export class PersistenceHealthTracker {
   }
 
   /**
-   * The reading the diagnostics view renders, for one adapter. The adapter is passed in rather
+   * The store's report on itself, for one adapter. The adapter is passed in rather
    * than held, so there is one answer to which adapter the store is on.
    */
   public snapshot(adapter: PersistenceAdapter): PersistenceHealth {

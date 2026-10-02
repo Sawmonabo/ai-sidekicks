@@ -18,9 +18,6 @@ export interface StoredEntity {
   readonly kind: EntityKind;
   readonly id: string;
   /** Wire-verbatim state string, rendered as received and never re-parsed. */
-  /**
-   * Wire-verbatim state string. Rendered as received, never re-parsed.
-   */
   readonly state?: string;
   /** ISO-8601 timestamp of the newest event that touched this entity. */
   readonly touchedAt?: string;

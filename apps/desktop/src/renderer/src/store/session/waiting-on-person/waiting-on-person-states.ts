@@ -1,5 +1,5 @@
 // Which event kinds open and close which waiting-on-person lifecycle, where each carries its
-// identity, and how those compose into a key. `waiting-on-person-register.ts` holds the ledger.
+// identity, and how those compose into a key. `waiting-on-person-register.ts` holds the records.
 //
 // Every derivation is fail-closed: an event the wire did not identify is held open under a key of
 // its own rather than dropped, and a state this build cannot name is not an attention state.
@@ -23,30 +23,10 @@ export const ATTENTION_RUN_STATES: readonly RunState[] = [
   "failed",
 ];
 
-/** Every run state. Typed as `RunState` so the compiler rejects a state the contract lacks. */
-const RUN_STATES: readonly RunState[] = [
-  "queued",
-  "starting",
-  "running",
-  "waiting_for_approval",
-  "waiting_for_input",
-  "paused",
-  "completed",
-  "interrupted",
-  "failed",
-];
-
-/**
- * Every run state transition as an event kind. It covers all states, not just attention ones,
- * because a run leaves the attention set by moving to any other state.
- */
-export const RUN_STATE_KINDS: readonly string[] = RUN_STATES.map(
-  (state) => `${RUN_STATE_EVENT_PREFIX}${state}`,
-);
-
 /**
  * The event kinds that put a run in the attention set. Derived from the states above so the
- * base-state and log vocabularies cannot disagree about which state needs a person.
+ * base-state and log vocabularies cannot disagree about which state needs a person. Every other
+ * run-state kind takes the run out of it.
  */
 export const ATTENTION_RUN_STATE_KINDS: readonly string[] = ATTENTION_RUN_STATES.map(
   (state) => `${RUN_STATE_EVENT_PREFIX}${state}`,

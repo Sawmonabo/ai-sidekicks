@@ -66,6 +66,7 @@ const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
   "running",
   "waiting_for_approval",
   "waiting_for_input",
+  "pausing",
   "paused",
 ]);
 

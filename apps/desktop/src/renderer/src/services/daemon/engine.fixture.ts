@@ -1,19 +1,16 @@
 // The engine that plays a scenario, and the one frozen clock it plays it on: the only clock the
-// renderer reads in fixture mode. `dispose()` is final; a later tick is dropped and reported on
+// renderer reads in fixture mode. `dispose()` is final; a later advance is dropped and reported on
 // the tripwire, never delivered into a torn-down subscriber.
 //
 // The engine decides what is due; `event-delivery.fixture.ts` decides who gets it (fan-out, replay
 // and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies against
-// engine time. Each reach that delivers (`advance`, `appendEvent`) is guarded here by the disposed
-// flag. Attaching a sink needs no guard, since `dispose()` clears the emitters and closes every
-// producing path. `appendEvent` puts a frame the script does not carry on the stream now and is
-// not a clock move. An advance is published even when no beat is due, so a frame scheduled in a
-// quiet stretch of the script (a transport outage) reaches `subscribeToAdvances`.
+// engine time. `advance`, the one reach that delivers, is guarded here by the disposed flag.
+// Attaching a sink needs no guard, since `dispose()` clears the emitter.
 
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
@@ -21,16 +18,8 @@ import {
   type ScenarioSink,
   type ScenarioSubscribeOptions,
 } from "./event-delivery.fixture.js";
-import type { UnpositionedSessionEvent } from "./session-log.fixture.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
-
-/**
- * The fixture scenario clock's tick, in milliseconds of scenario time. Every scenario's
- * script is expressed in whole ticks, so a pinned frame is one exact tick and a capture
- * target is byte-stable.
- */
-export const SCENARIO_TICK_MS = 50;
 
 /**
  * Scripted replies the engine holds waiting for the frozen clock. A held reply is one
@@ -49,20 +38,17 @@ export interface ScenarioProgress {
   readonly isComplete: boolean;
 }
 
-/** How a `ScenarioEngine` is built: the scenario to play, and optionally its clock and tick. */
+/** How a `ScenarioEngine` is built: the scenario to play, and optionally its clock. */
 export interface ScenarioEngineOptions {
   readonly scenario: Scenario;
   /** Defaults to a `ManualClock`, which is what makes the fixture deterministic. */
   readonly clock?: Clock & { advance?: (deltaMs: number) => void };
-  /** How far each `tick()` moves the frozen clock. */
-  readonly tickMs?: number;
 }
 
 /** Plays one scenario on a frozen clock, delivering each beat to subscribers as it falls due. */
 export class ScenarioEngine {
   readonly #scenario: Scenario;
   readonly #clock: Clock & { advance?: (deltaMs: number) => void };
-  readonly #tickMs: number;
   // Who is listening, and the record of what has landed.
   readonly #delivery = new ScenarioDelivery();
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
@@ -71,7 +57,6 @@ export class ScenarioEngine {
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
   #disposed = false;
-  #droppedTickCount = 0;
 
   public constructor(options: ScenarioEngineOptions) {
     this.#scenario = options.scenario;
@@ -79,7 +64,6 @@ export class ScenarioEngine {
     // ever be due. The epoch is a visibly wrong start; silence is an invisible one.
     const declaredStart = parseInstant(options.scenario.startedAtIso);
     this.#clock = options.clock ?? new ManualClock(declaredStart.epochMilliseconds ?? 0);
-    this.#tickMs = options.tickMs ?? SCENARIO_TICK_MS;
   }
 
   public get scenario(): Scenario {
@@ -101,11 +85,7 @@ export class ScenarioEngine {
     };
   }
 
-  /** Ticks refused because the engine was already torn down. Asserted by tests. */
-  public get droppedTickCount(): number {
-    return this.#droppedTickCount;
-  }
-
+  /** Whether `dispose` has run; the bridge provider reads it as the composition's disposal. */
   public get isDisposed(): boolean {
     return this.#disposed;
   }
@@ -125,49 +105,12 @@ export class ScenarioEngine {
   }
 
   /**
-   * Subscribe to every advance of the frozen clock. Returns an idempotent unsubscribe.
-   *
-   * The sink is handed the tick the clock now stands at and applies its own due rule. It runs
-   * on every advance, including one that delivered no beat or moved the clock by zero, after that
-   * advance's beats have landed; a disposed engine never calls it. There is no replay: an advance
-   * is a moment, and a late subscriber reads the standing tick off `progress` at attach.
-   */
-  public subscribeToAdvances(sink: EmitterSink<number>): Unsubscribe {
-    return this.#delivery.subscribeToAdvances(sink);
-  }
-
-  /**
-   * Append one frame this scenario's script does not carry, and deliver it now.
-   *
-   * The one entry a fixture namespace uses to put an act's consequence on the session's stream.
-   * It takes its position from the log (see `session-log.fixture.ts`), so an appended frame
-   * shifts the beats after it. A disposed engine appends nothing and reports it.
-   */
-  public appendEvent(event: UnpositionedSessionEvent): ProjectedSessionEvent | undefined {
-    if (this.#disposed) {
-      reportTripwire(
-        "apply-chokepoint-bypass",
-        `ScenarioEngine(${this.#scenario.id})`,
-        `a "${event.kind}" frame was appended after teardown; the engine dropped it rather than delivering into a disposed store`,
-      );
-      return undefined;
-    }
-    return this.#delivery.appendEvent(event);
-  }
-
-  /**
-   * The frames this playback has already delivered, in log order. The log's answer, not a slice
-   * of the script: an appended frame is in no slice and later beats sit at positions their
-   * author did not write. Public so a read the daemon derives from the log can be answered from
-   * it here too, instead of serving the opening state for the whole playback.
+   * The frames this playback has already delivered, in log order. Public so a read the daemon
+   * derives from the log can be answered from it here too, instead of serving the opening state
+   * for the whole playback.
    */
   public deliveredEvents(): readonly ProjectedSessionEvent[] {
     return this.#delivery.deliveredEvents();
-  }
-
-  /** Advance one tick. A no-op after teardown, reported rather than silent. */
-  public tick(): void {
-    this.advance(this.#tickMs);
   }
 
   /**
@@ -176,7 +119,6 @@ export class ScenarioEngine {
    */
   public advance(deltaMs: number): void {
     if (this.#disposed) {
-      this.#droppedTickCount += 1;
       reportTripwire(
         "apply-chokepoint-bypass",
         `ScenarioEngine(${this.#scenario.id})`,
@@ -205,10 +147,6 @@ export class ScenarioEngine {
       this.#deliveredBeatCount += due.length;
       this.#delivery.admitScriptedBeats(due.map((beat) => beat.event));
     }
-    // Last, so a subscriber sees the beats for this tick already landed; unconditional, because
-    // an advance crossing no beat still moved the clock and a scripted outage between two beats
-    // is due exactly then.
-    this.#delivery.publishAdvance(this.#elapsedMs);
   }
 
   /**
@@ -237,15 +175,6 @@ export class ScenarioEngine {
     return this.#heldReplies.heldCount;
   }
 
-  /** Advance until every beat has been delivered. The screenshot tier's entry point. */
-  public runToCompletion(): void {
-    const lastBeat = this.#scenario.beats.at(-1);
-    if (lastBeat === undefined) {
-      return;
-    }
-    this.advance(Math.max(0, lastBeat.atMs - this.#elapsedMs));
-  }
-
   /** The canned reply for one call, or `undefined` if the scenario scripts none. */
   public replyFor(call: string): ScenarioReply | undefined {
     return this.#scenario.replies.find((reply) => reply.call === call);
@@ -265,13 +194,8 @@ export class ScenarioEngine {
     return ordinal;
   }
 
-  /** How many sinks are attached. Read by tests. */
-  public get sinkCount(): number {
-    return this.#delivery.beatSinkCount;
-  }
-
   /**
-   * Final. Later ticks are dropped and counted; sinks are released and held replies abandoned,
+   * Final. Later advances are dropped and reported; sinks are released and held replies abandoned,
    * since an unsettled promise would leave its view loading for the life of the window.
    */
   public dispose(): void {

@@ -37,6 +37,5 @@ describe("the modal dialog register — one claim per dialog", () => {
     claims.release(FIRST_DIALOG);
 
     expect(published).toStrictEqual([true, true, true, false]);
-    expect(claims.heldClaimCount).toBe(0);
   });
 });

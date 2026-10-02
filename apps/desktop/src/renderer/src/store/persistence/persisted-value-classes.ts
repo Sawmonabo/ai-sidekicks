@@ -247,7 +247,7 @@ export function measureRecordByteLength(
   partition: string,
   key: string,
   valueClass: string,
-  value: PersistableValue,
+  value: unknown,
 ): number {
   return (
     measureUtf8ByteLength(partition) +

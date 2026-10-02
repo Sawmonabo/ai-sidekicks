@@ -15,8 +15,8 @@ import {
   runEventAt,
   projectors,
   readsNothing,
-  settleMicrotasks,
 } from "@test/helpers/session-store-fixtures.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SESSION_REGISTRY_ORIGIN, SessionStoreRegistry } from "./session-store-registry.js";
 
 describe("SessionStoreRegistry — one store per open session", () => {
@@ -153,7 +153,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     registry.requestRefresh("session-1", "window-focus");
     registry.requestRefresh("session-1", "reconnect");
     clock.advance(20);
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     expect(readCalls).toStrictEqual([["subscribe", "window-focus", "reconnect"]]);
     expect(registry.refreshCountFor("session-1")).toBe(1);
@@ -176,7 +176,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
 
     registry.requestRefresh("session-1", "reconnect");
     clock.advance(20);
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     // Stale rows that look current are the failure this prevents.
     expect(store.snapshot().degradedCause).toBe("read-failed");
@@ -230,7 +230,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     expect(clock.pendingCount).toBe(1);
 
     clock.advance(20);
-    await settleMicrotasks();
+    await crossMacrotaskBoundary();
 
     // Exactly one `gap-repull`: the reason names what asked and the count is the repair.
     expect(readCalls).toStrictEqual([["gap-repull"]]);

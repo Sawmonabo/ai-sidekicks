@@ -1,4 +1,4 @@
-// The account-plane quota fold: which reading is current for each `(accountId, limitId)`, and
+// The account quota fold: which reading is current for each `(accountId, limitId)`, and
 // how the pair is read out. It is pure and opens no wire, so tests drive it without a bridge.
 //
 // The key is `(accountId, limitId)` and not the window's duration, because a pinned provider
@@ -43,17 +43,6 @@ export interface ProviderQuotaReading {
    * credential.
    */
   readonly isStale: boolean;
-}
-
-/**
- * Remaining quota, from the consumed figure the wire supplies. Never sent as such.
- *
- * @consumedBy the provider account's quota gauge
- */
-export function remainingPercentOf(reading: ProviderQuotaReading): number {
-  // Floored at zero, but the used figure is not clamped: a soft limit can be over-consumed,
-  // while a negative remainder is an arithmetic artifact.
-  return Math.max(0, 100 - reading.usedPercent);
 }
 
 /**

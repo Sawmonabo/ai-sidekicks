@@ -51,7 +51,7 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * `WireErrorEnvelope` is a scripted daemon refusal, reaching the caller as the `refusal` arm does.
  *
  * It is handed the instant it settles at, from the engine's frozen clock, so a read about a
- * lifetime (a ledger row expiring forty seconds in) can change with time. It is also handed the
+ * lifetime (a transcript row expiring forty seconds in) can change with time. It is also handed the
  * ordinal of this answer, counted per call by the engine, so a create call mints a distinct
  * identity each time; an instant cannot, since two parked calls released by one advance read the
  * same tick.
@@ -75,7 +75,7 @@ export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply | Sc
 
 /** What every canned reply carries, whichever way it settles. */
 interface ScenarioReplyBase {
-  /** The daemon method or control-plane procedure name, verbatim. */
+  /** The daemon method name, verbatim. */
   readonly call: string;
   /**
    * Simulated latency, so a loading state is reachable. Measured in scenario time, which only

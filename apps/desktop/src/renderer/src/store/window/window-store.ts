@@ -1,10 +1,10 @@
-// Window-level state: the route, the scheme, the palette, the banner stack.
+// Window-level state: the route, the scheme, the modal-dialog flag, the banner stack.
 //
 // Separate from `SessionStore`: session state is per session and arrives from the bridge, while
 // frame state is per window and arrives from the person. Merging them would re-render the rail on
-// a session switch. Nothing here copies what
-// the session store owns: `activeSessionId` is a route projection, and `lastOpenedSessionId` is
-// navigation memory (where this window has been), not a record of which sessions are open.
+// a session switch. Nothing here copies what the session store owns: `activeSessionId` is a route
+// projection, and `lastOpenedSessionId` is navigation memory (where this window has been), not a
+// record of which sessions are open.
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Refusal } from "@renderer/lib/refusal.js";
@@ -26,19 +26,18 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly dismissible: boolean;
 }
 
-/** The window store's state: route, scheme, palette, modal-dialog flag, banners, focus, report. */
+/** The window store's state: route, scheme, modal-dialog flag, banners, focus, report. */
 export interface WindowStoreState {
   readonly route: AppRoute;
   /**
    * The session this window most recently had in hand, kept after the route stops naming one.
    * The registry does not close a session when the route leaves it, so without this the rail
-   * would drop Workspace and the go-back command would have no id. Not persisted: after a reload
+   * would lose the session and the go-back command would have no id. Not persisted: after a reload
    * nothing is open, and a restored id could offer a way back into a session this window is not
    * in. It is re-seeded from the hash the window opens at.
    */
   readonly lastOpenedSessionId: string | undefined;
   readonly schemePreference: SchemePreference;
-  readonly isPaletteOpen: boolean;
   /**
    * True while a modal dialog the frame cannot name owns the window. The dialog runs under
    * `modal="trap-focus"`, which leaves inerting the app root to `AppShell`; the frame knows the
@@ -57,8 +56,8 @@ export interface WindowStoreState {
   /**
    * What the main process reported about itself, folded with this window's recovery state. It is
    * window state because the supervisor, handshake, transport and keystore are facts about a
-   * process. It lives in `store/` because the
-   * settings pages read it and a feature may not import `layout/`.
+   * process. It lives in `store/` because the settings pages read it and a feature may not import
+   * `layout/`.
    */
   readonly mainProcessState: MainProcessState;
 }
@@ -85,7 +84,6 @@ export class WindowStore {
       // Seeded from the opening route so a window opened at a session has it in hand at once.
       lastOpenedSessionId: routeSessionId(initialRoute),
       schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
-      isPaletteOpen: false,
       isModalDialogOpen: false,
       banners: [],
       isWindowFocused: documentReportsWindowFocus(),
@@ -101,6 +99,7 @@ export class WindowStore {
     return toReadableStore(this.#store);
   }
 
+  /** The current state, read once. */
   public getState(): WindowStoreState {
     return this.#store.getState();
   }
@@ -118,6 +117,7 @@ export class WindowStore {
     return this.#store.getState().lastOpenedSessionId;
   }
 
+  /** Move this window to a route. */
   public navigate(route: AppRoute): void {
     this.#setRoute(route);
   }
@@ -132,12 +132,9 @@ export class WindowStore {
     this.#setRoute(route);
   }
 
+  /** Record the person's color-scheme choice. */
   public setSchemePreference(schemePreference: SchemePreference): void {
     this.#store.setState({ schemePreference });
-  }
-
-  public setPaletteOpen(isPaletteOpen: boolean): void {
-    this.#store.setState({ isPaletteOpen });
   }
 
   /**
@@ -160,6 +157,7 @@ export class WindowStore {
     this.#store.setState({ mainProcessState: report });
   }
 
+  /** Record whether the window has focus; an unchanged value publishes nothing. */
   public setWindowFocused(isWindowFocused: boolean): void {
     if (this.#store.getState().isWindowFocused === isWindowFocused) {
       return;

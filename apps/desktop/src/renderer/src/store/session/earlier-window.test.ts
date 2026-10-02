@@ -9,7 +9,7 @@ import { eventOfKind } from "@test/helpers/session-events.js";
 const SESSION_ID = "session-earlier-window";
 
 function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[] {
-  return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence));
+  return sequences.map((sequence) => eventOfKind(SESSION_ID, "run.running", sequence));
 }
 
 describe("mergeEarlierWindow — a page grows a log at the head and nowhere else", () => {

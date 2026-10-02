@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 
-import type { ReadTriggerTarget } from "../read-triggers.js";
+import { requestReadOnWindowFocus, type ReadTriggerTarget } from "../read-triggers.js";
 import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 
 /**
  * The three triggers that are properties of the window rather than of a session.
  *
- * A node-scoped reading (this node's provider accounts, declared driver capabilities, this
+ * A machine-scoped reading (the provider accounts, declared driver capabilities, this
  * machine's health) holds no session, so no session's timeline bears on it.
  *
  * The transport signal is required: the session store's repair edge was the console's only
@@ -25,18 +25,7 @@ export function useWindowReadTriggers(
     reader.requestRead("subscribe");
   }, [reader]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onWindowFocused = (): void => {
-      reader.requestRead("window-focus");
-    };
-    window.addEventListener("focus", onWindowFocused);
-    return () => {
-      window.removeEventListener("focus", onWindowFocused);
-    };
-  }, [reader]);
+  useEffect(() => requestReadOnWindowFocus(reader), [reader]);
 
   useEffect(
     () =>

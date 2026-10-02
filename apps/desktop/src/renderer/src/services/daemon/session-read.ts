@@ -23,11 +23,7 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionSnapsho
     const wireSessionId = readSessionId(sessionId);
     if (wireSessionId === undefined) {
       throw new RefusalError(
-        refuse(
-          SESSION_READ_ORIGIN,
-          "session-unreadable",
-          "This session's identifier is not one the background service registers, so it was not read.",
-        ),
+        refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
       );
     }
     const { timelineCursors } = unwrapDaemonReply(

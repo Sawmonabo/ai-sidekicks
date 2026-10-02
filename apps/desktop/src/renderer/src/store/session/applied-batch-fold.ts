@@ -29,7 +29,7 @@ export interface AppliedBatchDependencies {
   readonly projectionRunner: EntityProjectionRunner;
   readonly preInitializationBuffer: PreInitializationBuffer;
   readonly hueAllocator: AgentHueAllocator;
-  /** The ledger of what is still waiting on a person. Advanced by every admitted row. */
+  /** The register of what is still waiting on a person. Advanced by every admitted row. */
   readonly waitingOnPersonRegister: WaitingOnPersonRegister;
   readonly timelineCap: number | undefined;
   readonly retainedEnd: TimelineRetainedEnd;

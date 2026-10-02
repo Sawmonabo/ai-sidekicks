@@ -1,4 +1,4 @@
-// Re-reading the node's driver declarations when a session's stream is repaired.
+// Re-reading the service's driver declarations when a session's stream is repaired.
 
 import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -7,9 +7,9 @@ import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";
 
 /**
- * Re-reads this node's declarations when a session's stream is repaired.
+ * Re-reads the service's declarations when a session's stream is repaired.
  *
- * A node-scoped read has no connection state of its own, so this watches the session store's
+ * A machine-scoped read has no connection state of its own, so this watches the session store's
  * sticky degraded flag: its clearing means a stream stopped and a re-pull re-established it, the
  * transient that leaves a refused or stale capability set standing. A caller holding a session
  * calls this beside `useDriverCapabilities`.

@@ -67,17 +67,15 @@ export interface WorkflowPhaseDefinition {
 }
 
 /**
- * The entry node's record: a single-value structure, not a union.
- *
- * No `schedule`, `event` or `webhook` arm exists at V1. A stored definition always carries one,
- * because the daemon materializes it when an authoring request omitted it.
+ * The entry node's record. A stored definition always carries one, because the daemon
+ * materializes it when an authoring request omitted it.
  */
 export interface WorkflowEntry {
   readonly startMode: (typeof WORKFLOW_START_MODES)[number];
 }
 
 /**
- * The start modes a stored entry record may carry; exactly one at V1.
+ * The start modes a stored entry record may carry.
  *
  * An imported file naming an entry the engine cannot honor is refused, and that check reads
  * this declared set.

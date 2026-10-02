@@ -25,14 +25,14 @@ export interface UnreadableDeliveryReading {
  */
 export type UnreadableDeliveryIssues = readonly { readonly path: readonly PropertyKey[] }[];
 
-/** The composer one stream hands its ledger: an issue list in, that stream's refusal out. */
+/** The composer one stream hands its counter: an issue list in, that stream's refusal out. */
 export type UnreadableDeliveryRefusalComposer = (issues: UnreadableDeliveryIssues) => Refusal;
 
 /** The one code every stream raises for a delivery it could not read. */
 const UNREADABLE_DELIVERY_REFUSAL_CODE = "delivery-unreadable";
 
 /**
- * One stream's unreadable-delivery ledger. The count and the refusal move together, so a
+ * One stream's unreadable-delivery count. The count and the refusal move together, so a
  * holder cannot advance one without the other; the stream owner supplies the refusal composer.
  */
 export class UnreadableDeliveryCounter {

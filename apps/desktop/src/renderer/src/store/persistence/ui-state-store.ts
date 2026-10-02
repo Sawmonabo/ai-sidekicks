@@ -11,7 +11,8 @@
 //      and one retry; a second failure is surfaced. Every adapter failure on the write path
 //      surfaces as a returned refusal, since `write` declares its failure as a value.
 //   3. Reads never throw, and say which kind of nothing they found. `readOutcome` answers
-//      `present`, `absent` or `failed` (counted on health); `read` and `readGlobal` are its
+//      `present`, `absent` or `failed` (counted on health, the cause kept in the window's
+//      diagnostic capture); `read` and `readGlobal` are its
 //      lossy projection. A caller that writes back a value derived from an absence, such as a
 //      layout restore filing its fallback, takes `readOutcome`.
 //   4. The adapter is resolved once, not swapped; see `UiStateStoreOptions.adapter`.
@@ -24,6 +25,10 @@ import {
   PERSISTENCE_SESSION_PARTITION_CAP,
 } from "../persistence-caps.js";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
@@ -219,8 +224,8 @@ export class UiStateStore {
     try {
       const record = await (await this.#adapterReady).read(partition, key);
       return record === undefined ? PERSISTENCE_READ_ABSENT : { outcome: "present", record };
-    } catch {
-      this.#health.recordFailedRead();
+    } catch (error) {
+      this.#recordFailedRead(error);
       return PERSISTENCE_READ_FAILED;
     }
   }
@@ -246,21 +251,13 @@ export class UiStateStore {
   public async readPartition(partition: string): Promise<readonly StoredRecord[]> {
     try {
       return await (await this.#adapterReady).readPartition(partition);
-    } catch {
-      this.#health.recordFailedRead();
+    } catch (error) {
+      this.#recordFailedRead(error);
       return [];
     }
   }
 
-  public async delete(partition: string, key: string): Promise<void> {
-    try {
-      await (await this.#adapterReady).delete(partition, key);
-    } catch {
-      this.#health.recordFailedRead();
-    }
-  }
-
-  /** What the diagnostics view renders. Refreshes the quota gauge. */
+  /** What the store reports about itself. Refreshes the quota gauge. */
   public async health(): Promise<PersistenceHealth> {
     const adapter = await this.#adapterReady;
     this.#health.recordQuota(await adapter.measureQuota());
@@ -290,6 +287,18 @@ export class UiStateStore {
   public async close(): Promise<void> {
     this.#closed = true;
     (await this.#adapterReady).close();
+  }
+
+  /** Count a failed read and keep its cause for diagnostics; the read itself answers "failed". */
+  #recordFailedRead(error: unknown): void {
+    this.#health.recordFailedRead();
+    windowDiagnosticCapture.record({
+      at: diagnosticStampAt(this.#clock),
+      severity: "warning",
+      source: "store/persistence",
+      kind: "read-failed",
+      detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+    });
   }
 
   #refuse(refusal: PersistenceRefusal, site: string): PersistenceWriteResult {

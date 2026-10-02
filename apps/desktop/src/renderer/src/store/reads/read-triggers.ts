@@ -4,8 +4,8 @@
 //
 // The vocabulary is `RefreshReason`'s and the coalescing is `RefreshScheduler`'s. This module
 // schedules nothing: a reading hands it the one method that puts a reason into its own
-// scheduler, so a reading added later cannot ship with two of the four. The repair edge is
-// detected here, in the same memory as the timeline cursor it is minted and discarded with.
+// scheduler, so a reading added later cannot ship with two of the four. The rules both wirings
+// share, the repair edge, the frame admission and the focus listener, are here once.
 import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 
@@ -54,6 +54,28 @@ export function eventTriggersRead(
     return false;
   }
   return target.admitsTriggeringEvent?.(event) ?? true;
+}
+
+/**
+ * Whether a session store moved from a standing degraded cause to none. The store clears its
+ * cause only by a completed re-pull, so this edge is the moment its projection is whole again.
+ */
+export function isRepairEdge(
+  previousCause: string | undefined,
+  currentCause: string | undefined,
+): boolean {
+  return previousCause !== undefined && currentCause === undefined;
+}
+
+/** Ask `target` for a read each time the window regains focus. Returns the detach. */
+export function requestReadOnWindowFocus(target: ReadTriggerTarget): () => void {
+  const onWindowFocus = (): void => {
+    target.requestRead("window-focus");
+  };
+  window.addEventListener("focus", onWindowFocus);
+  return () => {
+    window.removeEventListener("focus", onWindowFocus);
+  };
 }
 
 /**

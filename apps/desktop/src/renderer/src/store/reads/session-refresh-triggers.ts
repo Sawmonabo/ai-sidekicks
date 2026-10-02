@@ -13,7 +13,12 @@
 // is whole again. A base state is not a frame: `initialize()` backfill is already reflected by
 // the reader's first read, so the scan runs only over an initialized store's transitions.
 
-import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
+import {
+  eventTriggersRead,
+  isRepairEdge,
+  requestReadOnWindowFocus,
+  type ReadTriggerTarget,
+} from "./read-triggers.js";
 import type { SessionStore } from "../session/session-store.js";
 
 /** Options for a `SessionRefreshTriggers`. */
@@ -55,17 +60,8 @@ export class SessionRefreshTriggers {
       this.#sessionStore.readable.subscribe((state, previous) => {
         this.#observeSessionTransition(state, previous);
       }),
+      requestReadOnWindowFocus(this.#target),
     );
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onWindowFocus = (): void => {
-      this.#target.requestRead("window-focus");
-    };
-    window.addEventListener("focus", onWindowFocus);
-    this.#detachers.push(() => {
-      window.removeEventListener("focus", onWindowFocus);
-    });
   }
 
   /** Terminal. No later frame and no later focus can re-arm a read behind an unmount. */
@@ -84,7 +80,7 @@ export class SessionRefreshTriggers {
     state: ReturnType<SessionStore["snapshot"]>,
     previous: ReturnType<SessionStore["snapshot"]>,
   ): void {
-    if (previous.degradedCause !== undefined && state.degradedCause === undefined) {
+    if (isRepairEdge(previous.degradedCause, state.degradedCause)) {
       this.#target.requestRead("reconnect");
     }
     if (!previous.initialized || state.cursor <= previous.cursor) {

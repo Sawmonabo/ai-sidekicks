@@ -2,14 +2,12 @@
 // transport scripted to refuse, while `session-event-subscriber.test.ts` asks what a delivery does.
 // The second is the sharper: the subscriber must not be both the only producer and the only
 // consumer of the transport signal, or a window with one failed session could never emit the edge
-// its retry waits for. There the recovery arrives on a node-scoped tail belonging to no session.
+// its retry waits for. There the recovery arrives on a machine-scoped tail belonging to no session.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
-  subscribeNodeDaemon,
-} from "../daemon/daemon-streams.js";
+import { PRESENCE_EVENT_STREAM } from "../daemon/session-event-streams.js";
+import { openObservedSubscription } from "../transport/observed-subscription.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
@@ -82,7 +80,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
   };
 }
 
-// Tripwires throw in development; under test they are recorded, since a failed open reports one.
+// Tripwires throw in development; under test they are recorded.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
@@ -123,11 +121,8 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     expect(subscriber.unboundSessionIds).toEqual([SESSION_ID]);
     expect(bridge.transportReconnect.reachability).toBe("unreachable");
 
-    const releaseNodeTail = subscribeNodeDaemon(
-      bridge,
-      PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
-      {},
-      () => undefined,
+    const releaseMachineTail = openObservedSubscription(bridge.transportReconnect, () =>
+      bridge.daemon.subscribe(PRESENCE_EVENT_STREAM, {}, () => undefined),
     );
 
     expect(subscriber.retriedBindCount).toBe(1);
@@ -138,7 +133,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     await Promise.resolve();
     expect(reasonsSeen).toEqual(["subscribe"]);
 
-    releaseNodeTail();
+    releaseMachineTail();
     subscriber.dispose();
   });
 });
