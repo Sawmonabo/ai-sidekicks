@@ -21,7 +21,7 @@ import { advanceScenarioUntil } from "../scenario-manual-clock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "@renderer/features/repos/diff/components/DiffPane.js";
-import { paneContext } from "@renderer/features/repos/pane-context.test-support.js";
+import { paneContext } from "../pane-context.js";
 import {
   HEALTHY_WORKSPACE_ID,
   MOUNTS,
@@ -72,14 +72,12 @@ export async function mountDiffPane(): Promise<MountedView> {
   const { bridge, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
     <DiffPane
-      context={paneContext({
+      context={paneContext(
         // The session's own workspace, named from the mounts fixture so the subject the tier pins
         // and the workspace the list states cannot drift.
-        address: { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
-        paneId: "pane-diff",
-        bridge,
-        sessionStore,
-      })}
+        { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
+        { paneId: "pane-diff", bridge, sessionStore },
+      )}
       diff={extendedHeaderChangeSet()}
     />,
   );
