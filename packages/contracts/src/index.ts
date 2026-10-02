@@ -1,7 +1,18 @@
 // @ai-sidekicks/contracts public surface: everything re-exported here is a cross-package
 // contract.
-export { ACCOUNT_PROCEDURE_DESCRIPTORS, AccountDeleteRequestSchema } from "./account.js";
-export type { AccountDeleteRequest, AccountProcedureDescriptors } from "./account.js";
+export {
+  ACCOUNT_PROCEDURE_DESCRIPTORS,
+  AccountDeleteRequestSchema,
+  AccountExportRequestSchema,
+  AccountExportResponseSchema,
+} from "./account.js";
+export type {
+  AccountDeleteRequest,
+  AccountExportRequest,
+  AccountExportResponse,
+  AccountProcedureDescriptors,
+  AccountRecord,
+} from "./account.js";
 export {
   AGENT_DEFINITION_ORIGINS,
   AGENT_DEFINITION_SCOPES,

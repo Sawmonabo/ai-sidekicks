@@ -3406,7 +3406,7 @@ The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out
 | Trade | the service, through its credential provider | the refresh token, with a DPoP proof under the same key | the refresh token | a short-lived PASETO v4.public access token and a new refresh token of the same family, the presented one marked spent; a spent refresh token presented again revokes the whole family (T5.4) |
 | Sign-out | `sidekicks sign-out` | the signed-in machine's tokens | none | revokes the refresh-token family; the refresh token has no expiry of its own and lasts until sign-out or revocation (T5.4) |
 | `account.delete` | `sidekicks delete-account` | the signed-in account | none | revokes every refresh-token family of the account, hard-deletes the account's rows through [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 2, and returns; a second call returns the same result and deletes nothing more; the command line then signs this machine out (T5.5) |
-| `account.export` | the data export ([Plan-019](../../plans/019-data-retention-and-gdpr.md)) | the signed-in account | none | the account record and its device list, written as `hosted-account.json`; changes nothing (T5.5) |
+| `account.export` | the data export ([Plan-019](../../plans/019-data-retention-and-gdpr.md)) | the signed-in account | none | `{account: {userId, createdAt, displayName, metadata}, devices}`: the account record and its device list, each device as its card on the Devices page carries it, written as `hosted-account.json`; changes nothing (T5.5) |
 
 ---
 
@@ -8951,7 +8951,16 @@ interface PluginUninstallRequest {
   id: string;
 }
 interface PluginInstallResponse {
-  plugin: PluginCatalogListResponse["plugins"][number]; // the installed plugin, without its `carries` counts
+  plugin: {
+    id: string;
+    provider: PluginProvider;
+    name: string;
+    displayName: string;
+    description: string;
+    marketplace: string;
+    installed: boolean;
+    installedInTerminal: boolean;
+  };
 }
 interface PluginUninstallResponse {
   uninstalled: true;
