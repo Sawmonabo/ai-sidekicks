@@ -54,9 +54,7 @@ type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
 export interface ProviderExecutableResolverDependencies {
   readonly realpath: ExecutableRealpathResolver;
   readonly isExecutableFile: ExecutableFileProbe;
-  /** Read once per resolution; supplies `PATH` and, on win32, `PATHEXT`. */
-  readonly readEnvironment: () => Readonly<Record<string, string | undefined>>;
-  /** `"win32"` selects the `PATHEXT` candidate expansion. */
+  /** `"win32"` selects the `PATHEXT` candidate expansion and case-insensitive name lookup. */
   readonly platform: NodeJS.Platform;
   /** Anchor for a relative configured command. */
   readonly workingDirectory: string;
@@ -86,7 +84,6 @@ function resolveExecutableResolverDependencies(
   return {
     realpath: partial.realpath ?? DEFAULT_EXECUTABLE_REALPATH,
     isExecutableFile: partial.isExecutableFile ?? DEFAULT_IS_EXECUTABLE_FILE,
-    readEnvironment: partial.readEnvironment ?? (() => process.env),
     platform: partial.platform ?? process.platform,
     workingDirectory: partial.workingDirectory ?? process.cwd(),
   };
@@ -109,14 +106,29 @@ function windowsCandidateNames(command: string, pathExtensions: readonly string[
   return extname(command) === "" ? [...withExtensions, command] : [command, ...withExtensions];
 }
 
+// The value of `name` in a spawn environment, matched the way the host matches names.
+function readSpawnEnvValue(
+  spawnEnvironment: readonly SpawnEnvPair[],
+  name: string,
+  platform: NodeJS.Platform,
+): string | undefined {
+  const caseInsensitive = hostEnvNameMatchForPlatform(platform) === "case-insensitive";
+  const entry = spawnEnvironment.find(([entryName]) =>
+    caseInsensitive ? entryName.toUpperCase() === name : entryName === name,
+  );
+  return entry?.[1];
+}
+
 /**
  * Resolves a configured command to the exact build path to spawn: a command with a separator is
- * anchored, a bare one is searched along `PATH`, and the winner is `realpath`ed. Throws
- * {@link ProviderExecutableUnresolvableError} when nothing resolves.
+ * anchored, a bare one is searched along the spawn environment's `PATH` (never the daemon's own),
+ * and the winner is `realpath`ed. Throws {@link ProviderExecutableUnresolvableError} when nothing
+ * resolves.
  */
 export async function resolveProviderExecutable(
   driverName: ProviderName,
   requestedCommand: string,
+  spawnEnvironment: readonly SpawnEnvPair[],
   dependencies: Partial<ProviderExecutableResolverDependencies> = {},
 ): Promise<ResolvedProviderExecutable> {
   const resolvedDependencies = resolveExecutableResolverDependencies(dependencies);
@@ -128,10 +140,10 @@ export async function resolveProviderExecutable(
     );
   }
 
-  const environment = resolvedDependencies.readEnvironment();
-  const isWindows = resolvedDependencies.platform === "win32";
+  const platform = resolvedDependencies.platform;
+  const isWindows = platform === "win32";
   const pathExtensions = isWindows
-    ? (environment["PATHEXT"] ?? "")
+    ? (readSpawnEnvValue(spawnEnvironment, "PATHEXT", platform) ?? "")
         .split(";")
         .map((extension) => extension.trim())
         .filter((extension) => extension !== "")
@@ -145,7 +157,7 @@ export async function resolveProviderExecutable(
     (isWindows && requestedCommand.includes("\\"));
   const searchRoots: string[] = anchored
     ? [resolve(resolvedDependencies.workingDirectory, requestedCommand)]
-    : (environment["PATH"] ?? "")
+    : (readSpawnEnvValue(spawnEnvironment, "PATH", platform) ?? "")
         .split(pathDelimiter)
         .filter((entry) => entry !== "")
         .map((entry) => join(entry, requestedCommand));
@@ -228,7 +240,7 @@ export interface SpawnedProviderVersionReadRequest {
   readonly handshake: ProviderVersionHandshake;
   /**
    * The curated base the provider's session spawn uses, never the daemon's own `process.env`;
-   * the opt-out is applied over it.
+   * the opt-out is applied over it, and a bare command is searched along its `PATH`.
    */
   readonly baseEnv: readonly SpawnEnvPair[];
   /** Defaults to {@link DEFAULT_PROVIDER_VERSION_CLIENT_NAME}. */
@@ -245,19 +257,20 @@ export async function readSpawnedProviderVersion(
 ): Promise<SpawnedProviderVersionReading> {
   const { driverName, requestedCommand } = request;
   const clientName = request.clientName ?? DEFAULT_PROVIDER_VERSION_CLIENT_NAME;
+  // The same builder as a session spawn, so the opt-out wins under the host's name matching.
+  const spawnEnvironment = buildProviderSpawnEnv({
+    driverName,
+    baseEnv: request.baseEnv,
+    hostEnvNameMatch: hostEnvNameMatchForPlatform(request.resolver?.platform ?? process.platform),
+  });
+  // Searched along the child's own environment, so the version read and the spawn find one build.
   const resolved = await resolveProviderExecutable(
     driverName,
     requestedCommand,
+    spawnEnvironment,
     request.resolver ?? {},
   );
-  // The same builder as a session spawn, so the opt-out wins under the host's name matching.
-  const environment = Object.fromEntries(
-    buildProviderSpawnEnv({
-      driverName,
-      baseEnv: request.baseEnv,
-      hostEnvNameMatch: hostEnvNameMatchForPlatform(request.resolver?.platform ?? process.platform),
-    }),
-  );
+  const environment = Object.fromEntries(spawnEnvironment);
 
   const payload = await request.handshake({
     driverName,

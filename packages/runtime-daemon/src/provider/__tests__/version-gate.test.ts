@@ -34,6 +34,7 @@ import {
 import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../drivers/codex/capabilities.js";
 import type { DriverCliVersionReport } from "../provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
+import type { SpawnEnvPair } from "../spawn-env.js";
 
 /**
  * A handshake transport keyed by resolved path, so the fixture can answer differently for a
@@ -164,7 +165,7 @@ describe("provider executable resolution", () => {
   describe.skipIf(process.platform === "win32")("against a real launcher symlink", () => {
     it("dereferences a launcher to the exact build path", async () => {
       const { launcherPath, buildPath } = await makeLauncherFixture();
-      const resolved = await resolveProviderExecutable("claude", launcherPath);
+      const resolved = await resolveProviderExecutable("claude", launcherPath, []);
       expect(resolved.requestedCommand).toBe(launcherPath);
       // `realpath` also resolves the temp root's own symlinks (macOS `/var` to `/private/var`),
       // so assert on the final components.
@@ -175,12 +176,24 @@ describe("provider executable resolution", () => {
       expect(buildPath.endsWith(join("builds", "2.1.245", "claude"))).toBe(true);
     });
 
-    it("finds a BARE command along PATH and then dereferences it", async () => {
-      const { binDirectory } = await makeLauncherFixture();
-      const resolved = await resolveProviderExecutable("claude", "claude", {
-        readEnvironment: () => ({ PATH: binDirectory }),
+    it("finds a BARE command along the spawn's PATH, never the daemon's, and dereferences it", async () => {
+      // The launcher's folder is on the spawn's base alone, so a search of the daemon's own PATH
+      // finds nothing, and a read that found another build would describe one never spawned.
+      const { binDirectory, launcherPath } = await makeLauncherFixture();
+      const dereferenced = await resolveProviderExecutable("claude", launcherPath, []);
+      const handshake = new RecordingHandshake({
+        [dereferenced.resolvedExecutablePath]: { version: "2.1.245" },
       });
-      expect(resolved.resolvedExecutablePath.endsWith(join("builds", "2.1.245", "claude"))).toBe(
+
+      const reading = await readSpawnedProviderVersion({
+        driverName: "claude",
+        requestedCommand: "claude",
+        handshake: handshake.run,
+        baseEnv: [["PATH", binDirectory]],
+      });
+
+      expect(reading.resolvedExecutablePath).toBe(dereferenced.resolvedExecutablePath);
+      expect(reading.resolvedExecutablePath.endsWith(join("builds", "2.1.245", "claude"))).toBe(
         true,
       );
     });
@@ -189,7 +202,7 @@ describe("provider executable resolution", () => {
       // Launcher drift: the transport answers `2.1.245` for the dereferenced build and `2.1.198`
       // for the launcher path; the reading and both binding carriers must carry the build's.
       const { launcherPath } = await makeLauncherFixture();
-      const resolved = await resolveProviderExecutable("claude", launcherPath);
+      const resolved = await resolveProviderExecutable("claude", launcherPath, []);
       const handshake = new RecordingHandshake({
         [resolved.resolvedExecutablePath]: { version: "2.1.245" },
         [launcherPath]: { version: "2.1.198" },
@@ -221,8 +234,7 @@ describe("provider executable resolution", () => {
 
   it("refuses an unresolvable command as driver.unavailable", async () => {
     const thrown = await captureRejection(async () => {
-      await resolveProviderExecutable("codex", "codex", {
-        readEnvironment: () => ({ PATH: "/nowhere/at/all" }),
+      await resolveProviderExecutable("codex", "codex", [["PATH", "/nowhere/at/all"]], {
         isExecutableFile: () => Promise.resolve(false),
       });
     });
@@ -233,13 +245,18 @@ describe("provider executable resolution", () => {
     expect(refusal.fields.requestedCommand).toBe("codex");
   });
 
+  // Spelled `Path`, as Windows spells it: names are matched case-insensitively there.
+  const WINDOWS_SPAWN_ENV: readonly SpawnEnvPair[] = [
+    ["Path", join("/tools")],
+    ["PATHEXT", ".COM;.EXE;.CMD"],
+  ];
+
   it("expands PATHEXT on win32, where the executable-bit probe is inert", async () => {
     // The win32 logic under test is the `PATHEXT` expansion and its ordering. Path syntax is
     // `node:path`'s and follows the host, so the fixture uses host-shaped PATH entries.
     const probed: string[] = [];
-    const resolved = await resolveProviderExecutable("claude", "claude", {
+    const resolved = await resolveProviderExecutable("claude", "claude", WINDOWS_SPAWN_ENV, {
       platform: "win32",
-      readEnvironment: () => ({ PATH: join("/tools"), PATHEXT: ".COM;.EXE;.CMD" }),
       isExecutableFile: (candidate) => {
         probed.push(candidate);
         return Promise.resolve(candidate.endsWith(".CMD"));
@@ -255,9 +272,8 @@ describe("provider executable resolution", () => {
     // the first executable candidate); an extensionless file must never shadow the `.CMD` shim.
     const probed: string[] = [];
     await expect(
-      resolveProviderExecutable("claude", "claude", {
+      resolveProviderExecutable("claude", "claude", WINDOWS_SPAWN_ENV, {
         platform: "win32",
-        readEnvironment: () => ({ PATH: join("/tools"), PATHEXT: ".COM;.EXE;.CMD" }),
         isExecutableFile: (candidate) => {
           probed.push(candidate);
           return Promise.resolve(false);
@@ -277,7 +293,7 @@ describe("provider executable resolution", () => {
     // The candidate vanished between probe and dereference; falling back to the unresolved path
     // would record the launcher this module exists to distrust, so it is skipped.
     await expect(
-      resolveProviderExecutable("claude", "/opt/bin/claude", {
+      resolveProviderExecutable("claude", "/opt/bin/claude", [], {
         isExecutableFile: () => Promise.resolve(true),
         realpath: () => Promise.reject(new Error("ENOENT")),
       }),
