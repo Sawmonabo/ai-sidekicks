@@ -23,7 +23,7 @@ The `agent_definitions` table in the daemon's one local schema; the `agent.*` op
 ## Non-Goals
 
 - **No orchestration mechanism.** Run admission, link projection, and budget accounting are Plan-013's and are consumed unchanged. There is no depth limit and no count limit to consume: the runtime adds none, and the provider's own limits apply under the person's own provider settings. This plan authors no admission rule.
-- **No approval mechanism.** The Cedar gate, the approval pipeline, and the remembered-grant store are Plan-009's. This plan registers no action of its own — editing a definition passes no policy check — rides the existing `tool_execution` category for a bridge call, and authors no Plan-009 symbol.
+- **No approval mechanism.** The Cedar gate, the approval pipeline, and the remembered rules are Plan-009's. This plan registers no action of its own — editing a definition passes no policy check — rides the existing `tool_execution` category for a bridge call, and authors no Plan-009 symbol.
 - **No driver or transport work.** The callback-tool registry, its dispatch seam, and the daemon-hosted ephemeral MCP server that carries it on the Claude leg are Plan-003's and already ship. This plan registers the bridge's verbs into that registry and authors no Plan-003 file.
 - **No provider-account mechanism.** Account identity, readiness, and credential homes are Plan-023's. This plan reads its published registry surface and authors no Plan-023 file.
 - **No new session event type, and no new error code _on the peer-invocation path_.** Nothing that manages definitions appends to the event log: every session-visible consequence of a peer invocation rides existing events, and every peer-invocation refusal rides the callback-tool result's existing `denied` / `failed` arms. The definition and resolution paths do own the registered `agent.*` definition codes ([error-contracts.md §Agent Definitions](../architecture/contracts/error-contracts.md#agent-definitions)), the export write failure and the refused update among them; reusing another namespace's codes for them would make the code itself a lie about which subsystem refused.
@@ -366,7 +366,7 @@ Plan-024 implementation lands as a sequence of small PRs. Each PR exercises one 
   - **Consumes:** T2.1's watch; Plan-003 Phase 3's driver lifecycle; Plan-001's session record (the rebind).
   - **Spec coverage:** Spec-026 §The editor.
   - **Verifies invariant:** none — delivery of an already-resolved change.
-  - **Tests:** a save during an idle Claude Code session restarting it once on resume with its history intact and the new agent in its roster; three saves before the idle moment making one restart; a save during a turn waiting for the turn's end, and on Claude Code for a running background task; a Codex save forking the lead with its history intact; one reload row per reload; `/reload` with no agent change restarting nothing; the restart's cost to the first answer measured against its figure of about 1.6 s.
+  - **Tests:** a save during an idle Claude Code session restarting it once on resume with its history intact and the new agent in its agent list; three saves before the idle moment making one restart; a save during a turn waiting for the turn's end, and on Claude Code for a running background task; a Codex save forking the lead with its history intact; one reload row per reload; `/reload` with no agent change restarting nothing; the restart's cost to the first answer measured against its figure of about 1.6 s.
 
 ### Phase 4 — Peer invocation
 

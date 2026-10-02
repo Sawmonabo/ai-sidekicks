@@ -132,7 +132,7 @@ The simpler flat model is unacceptable because it collapses account authenticati
 
 ### Related Specs
 
-- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
 
 ### Related ADRs

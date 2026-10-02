@@ -201,7 +201,7 @@ This code is registry-only (code + message; no structured `details`): no accepta
 
 ### PTY
 
-Terminal write-lease refusals ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and no holder means writes to that shell are refused (fail-closed). Every refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another.
+Terminal write-lease refusals ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and no holder means writes to that shell are refused (fail-closed). Every refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -395,7 +395,7 @@ Domain-level quota saturation: a create or an open that would pass a limit the d
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `resource.limit_exceeded` | A request would pass a daemon limit. `data.fields`: `resource` (the limit's name, such as `shells` for `pty.open` at the machine's shell limit or `shell write` for a `pty.write` over the daemon's bound), `limit` and `current`, all required. The screen says the limit was reached in words and draws no figure | 429 |
+| `resource.limit_exceeded` | A request would pass a daemon limit. `data.fields`: `resource` (the limit's name, such as `shell write` for a `pty.write` over the daemon's bound), `limit` and `current`, all required. The screen says the limit was reached in words and draws no figure | 429 |
 
 ### Transport
 

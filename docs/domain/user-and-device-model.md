@@ -82,4 +82,4 @@ A device moves through three states and does not come back:
 ## Related Specs
 
 - [Spec-027: Remote Control](../specs/027-remote-control.md)
-- [Spec-002: Machine Registration](../specs/002-runtime-node-attach.md)
+- [Spec-002: Machine Registration](../specs/002-machine-registration.md)

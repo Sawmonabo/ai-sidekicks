@@ -7,7 +7,7 @@
 | **Slug** | `multi-agent-orchestration` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Agent And Run Model](../domain/agent-and-run-model.md), [Session Model](../domain/session-model.md), [Session Core](../specs/001-session-core.md), [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md), [Machine Registration](../specs/002-runtime-node-attach.md), [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md), [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md), [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md) |
+| **Depends On** | [Agent And Run Model](../domain/agent-and-run-model.md), [Session Model](../domain/session-model.md), [Session Core](../specs/001-session-core.md), [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md), [Machine Registration](../specs/002-machine-registration.md), [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md), [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md), [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md) |
 | **V1 Quality Bar** | Declared per [ADR-014](../decisions/014-v1-feature-scope-definition.md) |
 | **Implementation Plan** | [Plan-013: Multi-Agent Orchestration](../plans/013-multi-agent-orchestration.md) |
 
@@ -349,7 +349,7 @@ Admission still refuses on the state of what a run targets. A reached spend limi
 
 ## Partition And Reconnect Behavior
 
-Every agent of a session runs on the machine that runs the session, so a partition separates that machine from the user's other devices, never one agent from another. How the machine is reached, and when it counts as not reachable, belongs to [Spec-002](../specs/002-runtime-node-attach.md); catch-up belongs to [Spec-013](../specs/013-persistence-recovery-and-replay.md).
+Every agent of a session runs on the machine that runs the session, so a partition separates that machine from the user's other devices, never one agent from another. How the machine is reached, and when it counts as not reachable, belongs to [Spec-002](../specs/002-machine-registration.md); catch-up belongs to [Spec-013](../specs/013-persistence-recovery-and-replay.md).
 
 - When the machine loses its relay connection, its runs keep going wherever it can still reach its providers, and their events stay in its local audit log ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)).
 - Another device shows the machine not reachable, with the time it was last seen, and keeps each of its runs at the last-known state preserved from the event cursor. Not reachable is the machine's state, read from its relay connection; it is not a run-state transition, it is distinct from the run-level `paused` state defined in Spec-003, and no run carries a reachability field of its own.
@@ -407,7 +407,7 @@ Every agent of a session runs on the machine that runs the session, so a partiti
 - [Agent And Run Model](../domain/agent-and-run-model.md)
 - [Session Core](../specs/001-session-core.md)
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
-- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 - [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
 - [ADR-011: Generic Intervention Dispatch](../decisions/011-generic-intervention-dispatch.md)

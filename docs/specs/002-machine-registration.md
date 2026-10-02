@@ -4,7 +4,7 @@
 | --- | --- |
 | **Status** | `approved` |
 | **NNN** | `002` |
-| **Slug** | `runtime-node-attach` |
+| **Slug** | `machine-registration` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Runtime Node Model](../domain/runtime-node-model.md), [Session Model](../domain/session-model.md), [User And Device Model](../domain/user-and-device-model.md), [Daemon Architecture](../architecture/daemon.md), [Control Plane Architecture](../architecture/control-plane.md), [Session Core](../specs/001-session-core.md), [Spec-005: Session Event Taxonomy](./005-session-event-taxonomy-and-audit-log.md), [Spec-027: Remote Control](./027-remote-control.md) |

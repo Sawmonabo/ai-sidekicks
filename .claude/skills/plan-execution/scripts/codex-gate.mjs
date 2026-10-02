@@ -9,7 +9,7 @@
  * a no-findings verdict arrives as a THUMBS_UP reaction on the PR ISSUE and
  * frequently produces no review object at all.
  *
- * The terminal states are modelled here so a caller cannot miss one:
+ * The terminal states are modeled here so a caller cannot miss one:
  *   1. findings     — review object whose .commit_id is HEAD, with open threads
  *   2. clean        — +1 reaction on the PR issue, at or after the ack anchor
  *   3. clean        — "Didn't find any major issues" comment, same freshness bind
@@ -254,7 +254,7 @@ const {
 // `max`, never replacement — the same rule `derivePushAnchor` already applies
 // internally. The baseline dominates in practice, but a suite timestamp skewed
 // into the future is a later floor than a local clock reading, and handing that
-// back would loosen the gate relative to today's behaviour.
+// back would loosen the gate relative to today's behavior.
 const ackAnchorMs = observationBaselineKnown
   ? Math.max(fallbackAnchorMs, baselineObservedAtMs)
   : fallbackAnchorMs;
@@ -277,7 +277,7 @@ const { botReviews, reviewAcksHead, latestReviewAgeMs, latestReviewAgeUnknown } 
 // -------------------------------------------------- signal 2: +1 on the issue
 
 // REST, not GraphQL: GraphQL `reactions.nodes.user` is User-typed, so a Bot
-// reactor deserialises to null and no filter can ever match it.
+// reactor deserializes to null and no filter can ever match it.
 const allReactions = ghJsonPaginated([
   "api",
   `repos/${repository}/issues/${pullRequestNumber}/reactions`,
@@ -495,7 +495,7 @@ const pullRequestAtFinish = ghJson([
 const headShaAtFinish = pullRequestAtFinish?.headRefOid;
 // A re-read that returns nothing is not evidence HEAD held still. Stopping is
 // the only honest option: reporting `head_moved` would name a move nobody saw,
-// and carrying on would authorise a merge against an unconfirmed head.
+// and carrying on would authorize a merge against an unconfirmed head.
 if (!headShaAtFinish) {
   fail(
     `could not re-read HEAD for PR #${pullRequestNumber} — the gate cannot confirm what it read`,

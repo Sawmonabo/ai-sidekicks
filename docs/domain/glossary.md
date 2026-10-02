@@ -14,7 +14,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | --- | --- |
 | `Session` | The primary container for agents, runs, queue items, workspaces, artifacts, and approvals, owned by one user and run by one machine for its whole life. |
 | `User` | The account holder — the single human actor a session belongs to, with one stable identity across every device they connect from. |
-| `Device` | A connected client of that account — a phone, a laptop app, a second desktop. Shown on screen as **Linked Devices**. Defined in [User And Device Model](./user-and-device-model.md). |
+| `Device` | A connected client of that account — a phone, a laptop app, a second desktop. Listed on screen on the **Devices** page of Settings. Defined in [User And Device Model](./user-and-device-model.md). |
 | `Presence` | The ephemeral liveness of one of the user's own devices or runtime nodes — which of them are currently reachable. It is never a roster of other people. |
 | `RuntimeNode` | The machine that executes a session's work, owned by the user. |
 | `Agent` | A configured execution persona inside a session, used to perform runs. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
@@ -85,7 +85,7 @@ The glossary changes with the domain docs: each entry carries the same meaning a
 ## Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Machine Registration](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 - [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
 - [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)

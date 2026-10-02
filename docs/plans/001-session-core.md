@@ -92,7 +92,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 - `.nvmrc` — pins Node 24.16, the floor the daemon and the command line run on because the memory gate reads `process.availableMemory()`, per [ADR-021](../decisions/021-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
-**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.15 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (its type set leaves out `style`), Renovate config (`renovate.json5`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (the self-signed macOS identity, then Apple Developer Individual, and SignPath Foundation for Windows) are owned by [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision).
+**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.15 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config (its type set leaves out `style`), Renovate config (`renovate.json5`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (the self-signed macOS identity, then Apple Developer Individual, and SignPath Foundation for Windows) are owned by [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision).
 
 ### Per-Package Scaffolding
 
@@ -216,7 +216,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.3 — Native-binding installation surface
 
-**Acceptance:** `better-sqlite3@13.0.3` declared exactly in `packages/runtime-daemon/package.json`; `pg@^8.20` declared in `packages/control-plane/package.json`; `pnpm install` triggers `better-sqlite3` postinstall native rebuild against the Node 24.16 ABI under `node-linker=isolated` without error. **Spec coverage:** none (native-binding install surface) **Verifies invariant:** none
+**Acceptance:** `better-sqlite3@13.0.3` declared exactly in `packages/runtime-daemon/package.json`; `pg@^8.23.1` declared in `packages/control-plane/package.json`; `pnpm install` resolves `better-sqlite3`'s bundled Node-API prebuild under `node-linker=isolated` with no source compile. **Spec coverage:** none (native-binding install surface) **Verifies invariant:** none
 
 ##### T1.4 — Lint, format, type-check config
 

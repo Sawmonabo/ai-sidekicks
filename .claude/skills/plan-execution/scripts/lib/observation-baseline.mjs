@@ -77,7 +77,7 @@ export function resolveBaselinePath({ stateDir, prNumber, headSha }) {
  *
  * FAILURE IS NOT COLLAPSED INTO SUCCESS. An unwritable or unparseable record
  * returns `baselineKnown: false` with no timestamp, never a silent `nowMs`.
- * Substituting `nowMs` would look like elegant fail-closed behaviour and would
+ * Substituting `nowMs` would look like elegant fail-closed behavior and would
  * instead be unrecoverable: the caller cannot distinguish "this ack really does
  * predate the first sighting" from "the store is broken", so it prints the wrong
  * remediation, and every subsequent call stamps a fresh `now` that also

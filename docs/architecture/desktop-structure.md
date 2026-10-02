@@ -167,7 +167,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 ## Imports
 
 - **Aliases:** `@renderer/*` → `src/renderer/src/*`, `@main/*` → `src/main/*`, `@preload/*` → `src/preload/*`, `@shared/*` → `src/shared/*`, and `@test/*` → `tests/*`. They are defined once, in `tsconfig.paths.json`; `vitest/path-aliases.ts` turns that table into the `resolve.alias` the build and every Vitest project use, and dependency-cruiser resolves through the same file.
-- **When to use which.** An import that crosses from one top-level folder to another uses the alias. An import inside a feature or module stays `./`. No deep relative import (`../../../`).
+- **When to use which.** An import that crosses from one top-level folder to another uses the alias. An import inside a feature or module stays `./`. No deep relative import (`../../../`). Files a tool loads itself use relative imports, because neither loader reads the tsconfig paths: `vitest.config.ts`, `electron.vite.config.ts` and every module they import (Vite's config loader), and the files under `apps/desktop/build/` and `apps/desktop/scripts/` (Node's type stripping).
 - **The import direction:** `shared → lib/styles/assets → routing → components/hooks → store → services → registries → features → layout → app`. Each folder imports only folders before it. `services/` may import the store's types, since the store sits below it; `layout/` imports nothing from `app/`.
 - **Features never import features,** including another feature's `index.ts`.
 - **Wire values are parsed in `services/`.** A surface reaches the daemon through `callDaemon`, which parses each reply against the method's schema. Outside `services/`, renderer code imports neither `zod` nor a contracts schema (an export ending in `Schema`); a test may parse through a contracts schema to build or check contract-shaped data. A module that validates data it owns rather than a wire value, such as the schema form's answer validator, may use `zod`, named in `eslint.config.mjs`, and still imports no contracts schema.
@@ -177,7 +177,7 @@ The CSS is plain CSS on global design tokens. A component's `.css` sits beside i
 ## Enforcement
 
 - `.dependency-cruiser.mjs` (`structure:layering`) enforces the import direction, feature isolation and the fixture import boundary.
-- `.dependency-cruiser.mjs` also keeps the main process and the preload from importing renderer code; a value both sides need lives in `src/shared/`.
+- `.dependency-cruiser.mjs`'s `main-not-renderer` rule keeps the main process and the preload from importing renderer code; a value both sides need lives in `src/shared/`.
 - ESLint (`lint`, `eslint.config.mjs`) refuses a stylesheet import that reaches another folder, outside a chunk root and `main.tsx`.
 - ESLint's file-name rules (`lint`, `eslint-plugin-check-file` in the root `eslint.config.mjs`) hold the case each name takes under [Naming](#naming): PascalCase for a `.tsx` under `app/`, `components/`, `features/` or `layout/` that is not a test, test support or hook, and for a group owner folder directly under `components/` or `layout/`; `useThing` for a file in a `hooks/` folder that is not test support; kebab-case for every file and folder outside the renderer and every other renderer folder; and no `.spec` file.
 - ESLint (`lint`, a `no-restricted-syntax` selector that `requireJsxInTsx` in the root `eslint.config.mjs` adds for `.tsx` files) refuses a `.tsx` file with no JSX.

@@ -57,7 +57,7 @@ function cleanSignals(overrides = {}) {
     // explicit rather than defaulted because the fixture's ack is the `+1` —
     // a timestamp-only leg — so an absent baseline signal would make every test
     // built on this fixture unvouchable, which is the correct fail-closed
-    // behaviour and would be a useless default here.
+    // behavior and would be a useless default here.
     observationBaselineKnown: true,
     ackPredatesBaseline: false,
     openThreadCount: 0,
@@ -254,7 +254,7 @@ test("the youngest FIRING leg decides the window, and names itself", () => {
 });
 
 test("a NaN age on a FIRING leg is unsettled, not 'safely settled'", () => {
-  // The R4-1 false pass, at the decision table. This case used to normalise to
+  // The R4-1 false pass, at the decision table. This case used to normalize to
   // Infinity and score ack_clean + merge_ok=1: an ack whose age cannot be
   // measured was read as an ack comfortably OUTSIDE the settle window, which is
   // the one reading the evidence does not support. Unknown recency is the
@@ -276,7 +276,7 @@ test("a NaN age on a FIRING leg is unsettled, not 'safely settled'", () => {
 });
 
 test("CONTROL: the same NaN on a NON-firing leg still contributes Infinity", () => {
-  // The half of the old behaviour that was CORRECT and must survive the fix. A
+  // The half of the old behavior that was CORRECT and must survive the fix. A
   // leg the gate rejected has no standing to shorten the window, so its age —
   // measurable or not — must not pull the minimum down. Collapsing these two
   // cases together is what produced R4-1; this is the control that proves they
@@ -379,7 +379,7 @@ test("CONTROL: an unchanged HEAD is what restores the merge", () => {
 
 test("an absent headUnchanged signal fails closed WITHOUT claiming a move", () => {
   // A caller that never re-read HEAD saw no move, so `head_moved` would name an
-  // event nobody observed — but an unconfirmed head must not authorise a merge
+  // event nobody observed — but an unconfirmed head must not authorize a merge
   // either. Hence `=== false` for the verdict and `=== true` for mergeOk.
   const result = computeVerdict(cleanSignals({ headUnchanged: undefined }));
   assert.equal(result.verdict, "ack_clean", "no move was observed, so none is reported");
@@ -553,7 +553,7 @@ test("the OPEN case is unaffected", () => {
 
 test("isOpen does NOT lean on a merged PR happening to report UNKNOWN", () => {
   // Live #256 (merged) reports mergeStateStatus=UNKNOWN, which the merge-state
-  // conjunct already refuses — but that is observed behaviour, not a contract.
+  // conjunct already refuses — but that is observed behavior, not a contract.
   // Pinning CLEAN against a closed PR proves the state check does the work on
   // its own, so the gate stays correct if GitHub ever reports CLEAN there.
   assert.equal(
@@ -638,7 +638,7 @@ test("the earliest suite wins, not the latest", () => {
 
 test("the anchor never moves earlier than the commit time", () => {
   // A suite predating the commit means the sha was already on the server from an
-  // earlier branch. `max` keeps the previous behaviour as the floor.
+  // earlier branch. `max` keeps the previous behavior as the floor.
   const { anchorMs, pushAnchorKnown } = derivePushAnchor(COMMITTED_AT_MS, [
     { created_at: "2026-07-27T17:00:00Z" },
   ]);
@@ -702,7 +702,7 @@ test("an absent pushAnchorKnown signal fails closed", () => {
 function* cartesianProduct(dimensions) {
   const dimensionEntries = Object.entries(dimensions);
   // An odometer rather than recursive `yield*` delegation, which is not a
-  // premature optimisation at this width: delegation spreads a fresh partial at
+  // premature optimization at this width: delegation spreads a fresh partial at
   // every one of the ~19 levels, so it allocates ~19 objects per combination and
   // bubbles each result back up through as many generator frames. The odometer
   // allocates exactly one. Measured on this suite, recursion cost 2.3x the
@@ -730,7 +730,7 @@ function* cartesianProduct(dimensions) {
  * `ciStatus` and `mergeStateStatus` each carry a value this gate does not know:
  * a status string outside the documented four, and `DIRTY` — a real GitHub
  * MergeStateStatus the gate has never had a branch for. Both have to fail
- * CLOSED, and a space built only from recognised values cannot tell "refuses
+ * CLOSED, and a space built only from recognized values cannot tell "refuses
  * unknown input" apart from "was never asked".
  *
  * Both age dimensions carry `NaN` for the same reason. An age that cannot be
@@ -759,7 +759,7 @@ const VERDICT_SIGNAL_DIMENSIONS = {
   latestCommentAckAgeMs: [1_000, DEFAULT_SETTLE_WINDOW_MS + 1, Number.NaN],
   threadWindowTruncated: [true, false],
   checkWindowTruncated: [true, false],
-  ciStatus: ["green", "red", "pending", "none", "unrecognised-ci-status"],
+  ciStatus: ["green", "red", "pending", "none", "unrecognized-ci-status"],
   mergeStateStatus: ["CLEAN", "UNSTABLE", "BLOCKED", "UNKNOWN", "DIRTY", undefined],
 };
 
@@ -893,7 +893,7 @@ test("invariant: mergeOk implies ack, no threads, green CI, no truncation, merge
     //
     // These two also carry the R4-1 tripwire at no extra cost, because `NaN >=
     // X` is false: a firing leg whose age is unmeasurable can only satisfy them
-    // by never reaching a merge in the first place. Normalising an undatable
+    // by never reaching a merge in the first place. Normalizing an undatable
     // firing leg back to Infinity fails here rather than passing quietly.
     if (signals.reviewAcksHead) {
       assert.ok(signals.latestReviewAgeMs >= DEFAULT_SETTLE_WINDOW_MS, where);
@@ -963,7 +963,7 @@ function run(name, conclusion, startedAt, extra = {}) {
 }
 
 test("a superseded CANCELLED run beside its real SUCCESS does not make CI red", () => {
-  // Verbatim shape observed on PR #256: a push cancelled the in-flight advisory
+  // Verbatim shape observed on PR #256: a push canceled the in-flight advisory
   // lychee run, and the rollup then carried both rows for the same check name.
   const rollup = [
     run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z"),
@@ -1681,14 +1681,14 @@ test("selectNewestReview keeps the later position on a tie", () => {
 
 test("selectNewestReview falls back to position when no review carries a stamp", () => {
   // Degenerate payload: without timestamps the documented order is the only
-  // signal left, so this must degrade to the old behaviour rather than to an
+  // signal left, so this must degrade to the old behavior rather than to an
   // arbitrary pick.
   const first = review({ submitted_at: undefined, commit_id: "aaaaaaaaaa" });
   const second = review({ submitted_at: undefined, commit_id: "bbbbbbbbbb" });
   assert.equal(selectNewestReview([first, second]), second);
 });
 
-test("selectNewestReview ignores an unparseable stamp in favour of a real one", () => {
+test("selectNewestReview ignores an unparseable stamp in favor of a real one", () => {
   const real = review({ submitted_at: "2026-07-27T09:00:00Z", commit_id: "aaaaaaaaaa" });
   const broken = review({ submitted_at: "not a date", commit_id: "bbbbbbbbbb" });
   assert.equal(selectNewestReview([real, broken]), real);
@@ -1849,7 +1849,7 @@ function verdictForShape({
   // coincides with the fallback anchor so nothing is refused for predating it.
   // Defaulting this to "absent" instead would quietly run every end-to-end case
   // through the unvouchable branch — the tests would still pass, for the wrong
-  // reason, and would stop modelling the gate they exist to model.
+  // reason, and would stop modeling the gate they exist to model.
   baselineMs = HEAD_COMMITTED_AT_MS,
 }) {
   // Mirrors the gate: the effective floor is the later of the two.
@@ -2008,7 +2008,7 @@ const pr28Anchors = {
   nowMs: Date.parse("2026-05-03T02:25:00Z"),
 };
 
-test("the real PR #28 findings comment is recognised as findings against HEAD", () => {
+test("the real PR #28 findings comment is recognized as findings against HEAD", () => {
   const result = deriveCommentSignals(
     [comment({ body: PR28_FINDINGS_BODY, created_at: "2026-05-03T02:18:54Z" })],
     pr28Anchors,
@@ -2100,7 +2100,7 @@ test("an empty headShaShort cites nothing — no ack invented from a missing fie
   assert.equal(result.commentAcksHead, false);
 });
 
-test("an unrecognised comment body asserts nothing — CLEAN fails closed", () => {
+test("an unrecognized comment body asserts nothing — CLEAN fails closed", () => {
   // The clean assertion requires a POSITIVE match, so a shape nobody anticipated
   // reads as "not clean" rather than as "clean by default".
   const result = deriveCommentSignals(
@@ -2150,7 +2150,7 @@ test("comment-borne findings outrank the settle window", () => {
 });
 
 test("a sha-citing findings comment cannot merge with the window fully expired", () => {
-  // The shape with no second line of defence: zero threads means
+  // The shape with no second line of defense: zero threads means
   // require-conversation-resolution has nothing to hold, so GitHub would allow
   // this merge and only the gate refuses it. Settled by an hour, so the settle
   // window is provably not what does the refusing.
@@ -2584,7 +2584,7 @@ test("CONTROL: the same +1 AFTER first sight is not refused", () => {
 });
 
 test("a +1 older than the FALLBACK anchor is not blamed on the baseline", () => {
-  // It was already stale under the previous behaviour, so reporting it here
+  // It was already stale under the previous behavior, so reporting it here
   // would send the operator to re-trigger over a floor that is not what
   // rejected it. `ack_predates_baseline` has to mean the baseline, and only it.
   const result = derivePreBaselineAcks({
