@@ -26,7 +26,7 @@ When this plan is done, Skills is a working rail destination. One list shows eve
 
 ## Cross-Plan Obligations
 
-### CP-026-1 — Rail arm and routing arm in [Plan-020](./020-desktop-app-and-renderer.md)-owned files
+### CP-026-1 — Routing arm in [Plan-020](./020-desktop-app-and-renderer.md)-owned files
 
 The icon rail, `rail-navigation.ts` and the routing module are Plan-020's files. The rail has one owner, Plan-020, which builds the Skills item and its place in the keyboard order with the rail's five destinations; this destination consumes that item and needs one routing arm carrying its four addresses; nothing else about skills belongs there.
 
@@ -77,7 +77,7 @@ The provider-facing half. At launch the daemon adds every skill available to a p
 
 Done when: a session started after a skill is authored can invoke it under the namespaced form, a skill in a provider's own tree is invocable under its bare name, a Claude Code skill is invocable on Codex as `$sidekicks:claude-<name>` and a Codex skill on Claude Code as `/sidekicks:codex-<name>`, two folders of one origin sharing a name are both invocable, the project one with `-2`, a skill saved while a session is running is invocable in that same session on both providers without a restart, and a skill switched off on a provider, that provider's own skill included, does not load in that provider's session while no config file of the person's is written.
 
-### Phase 4 — The destination: rail, addresses and the list
+### Phase 4 — The destination: addresses and the list
 
 Precondition: Plan-026 Phase 3 merged; Plan-020 Phase 5 merged.
 

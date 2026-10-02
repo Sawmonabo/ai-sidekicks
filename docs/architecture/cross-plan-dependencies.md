@@ -204,6 +204,7 @@ flowchart TD
  n013_4 --> n013_4B
  n013_4B --> n024_4
  n014_1 --> n014_2
+ n014_1 --> n024_2
  n014_2 --> n014_2B
  n014_2 --> n014_3
  n014_2B --> n014_5B
@@ -361,7 +362,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-018 Phase 4](../plans/018-rate-limiting-policy.md) | verification. | Plan-018 Phase 3 |
 |  | [Plan-020 Phase 2](../plans/020-desktop-app-and-renderer.md) | IPC bridge registry and handlers. | Plan-005 Phase R3, Plan-020 Phase 1B, Plan-025 Phase 1 |
 |  | [Plan-023 Phase 3](../plans/023-provider-accounts-and-credential-homes.md) | credential homes and spawn binding. | Plan-023 Phase 2 |
-|  | [Plan-024 Phase 2](../plans/024-agent-definitions-and-peer-invocation.md) | definition registry, CLI, SDK. | Plan-005 Phase R3, Plan-009 Phase 2, Plan-024 Phase 1 |
+|  | [Plan-024 Phase 2](../plans/024-agent-definitions-and-peer-invocation.md) | definition registry, CLI, SDK. | Plan-005 Phase R3, Plan-009 Phase 2, Plan-014 Phase 1, Plan-024 Phase 1 |
 |  | [Plan-025 Phase 4](../plans/025-remote-control.md) | method proxy and terminal streaming. | Plan-025 Phase 3 |
 |  | [Plan-014 Phase 2B](../plans/014-workflow-authoring-and-execution.md) | usage-limit park and durable pacing. | Plan-014 Phase 2 |
 |  | [Plan-025 Phase 8](../plans/025-remote-control.md) | self-host deployment. | Plan-025 Phase 3 |

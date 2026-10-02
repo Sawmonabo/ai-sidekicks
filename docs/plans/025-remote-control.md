@@ -26,17 +26,17 @@ Anything that admits a second account to a session. Anything that puts a second 
 
 Backend Phases 1 to 6 in order, Phase 8 after Phase 3, then Phase 7's screens and clients. Within Phase 7 the web client comes first; the Devices page and the one-column fold follow it; the Android app follows the fold; the iPhone app comes last; the desktop app as a client of other machines follows the web client and the main process's window registry; the `sidekicks devices` commands follow Phase 5.
 
-## Phases
+## Foundations
 
-### Phase 0 — Existing foundations
-
-These exist and carry no tasks; they are named so the later phases build on them rather than rebuild them.
+The phases build on these rather than rebuild them; none carries a task.
 
 - **A per-device liveness machine**, keyed by device rather than by account: a live reading goes `online → reconnecting → offline` on missed presence beats, on a fifteen-second and forty-five-second grace pair. It is a device's liveness; a machine's reachability is read from its relay connection (Phase 3).
 - **The tRPC host**, serving the runtime-node router behind one fetch handler, with a shared context. Its typed error envelope is built in Phase 3.
 - **The client SDK's session client on the daemon transport**, speaking its method strings over the SDK transport.
 - **The daemon session store and projector**: SQLite-backed append and read, and a pure fold from the event stream to a session snapshot.
 - **The Postgres table for them**: `users`.
+
+## Phases
 
 ### Phase 1 — The daemon as a running process
 
