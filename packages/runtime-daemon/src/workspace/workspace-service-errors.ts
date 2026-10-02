@@ -7,8 +7,8 @@ import { JsonRpcErrorCode, type ExecutionMode } from "@ai-sidekicks/contracts";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 /**
- * The workspace-scoped codes this module raises; the provisioner's `workspace.*` codes are not
- * listed.
+ * The workspace-scoped codes this module raises; the execution-root service's `workspace.*` codes
+ * are not listed.
  */
 type WorkspaceServiceErrorCode =
   | "workspace.not_found"

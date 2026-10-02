@@ -24,7 +24,7 @@ export const WORKTREE_STATE_PRESENTATION: Readonly<
 > = {
   creating: {
     tone: "neutral",
-    meaning: "The background service is provisioning this checkout.",
+    meaning: "The background service is preparing this checkout.",
   },
   ready: {
     tone: "neutral",
@@ -41,6 +41,6 @@ export const WORKTREE_STATE_PRESENTATION: Readonly<
   failed: {
     tone: "failure",
     meaning:
-      "Provisioning failed. This state is not separately evented; it arrives on a status re-read.",
+      "Preparation failed. This state is not separately evented; it arrives on a status re-read.",
   },
 };

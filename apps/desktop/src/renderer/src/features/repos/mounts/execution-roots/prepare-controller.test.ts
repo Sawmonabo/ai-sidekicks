@@ -75,8 +75,8 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 
 describe("ExecutionRootPrepareController — the prepare", () => {
   it("publishes the root the daemon put on disk, settled the only way a prepare settles", async () => {
-    // `ready`, not `preparing`: the execution-root service awaits the reprovision completion
-    // before answering, so "prepared / provisioning" is a pair no daemon can send.
+    // `ready`, not `preparing`: the execution-root service awaits the preparation's completion
+    // before answering, so "prepared / preparing" is a pair no daemon can send.
     const { controller, clock } = open();
     controller.checkReuse("feat/fresh-root");
     await settleCheck(controller, clock);

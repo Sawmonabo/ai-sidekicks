@@ -246,7 +246,7 @@ CREATE TABLE workspaces (
   repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
   execution_mode  TEXT NOT NULL
                   CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
-  fs_root         TEXT,                         -- NULL while the root is provisioning
+  fs_root         TEXT,                         -- NULL while the root is being prepared
   state           TEXT NOT NULL DEFAULT 'preparing'
                   CHECK(state IN ('preparing', 'ready', 'busy', 'stale', 'archived')),
   metadata        TEXT NOT NULL DEFAULT '{}',   -- JSON; lastError after a failed mode switch

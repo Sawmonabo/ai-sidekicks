@@ -41,7 +41,7 @@ export class ExecutionModeSelections {
   /**
    * Record one explicit mode switch, then re-read. A press while this workspace's switch is
    * unanswered sends nothing. An accepted switch re-reads because the workspace transitions
-   * `ready -> provisioning -> ready` on its existing id and the row has to follow.
+   * `ready -> preparing -> ready` on its existing id and the row has to follow.
    */
   public async request(workspaceId: WorkspaceId, executionMode: ExecutionMode): Promise<void> {
     const claim = this.#inFlight.claim(this, workspaceId);

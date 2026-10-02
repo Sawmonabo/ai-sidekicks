@@ -204,7 +204,7 @@ describe("repo_mounts and workspaces constraints", () => {
       expect(other.pk).toBe(0);
     }
 
-    // `fs_root` is the only nullable column: a workspace still provisioning has no execution
+    // `fs_root` is the only nullable column: a workspace still preparing has no execution
     // root, and NOT NULL would force the bind path to invent a placeholder.
     expect(byName.get("fs_root")?.notnull).toBe(0);
     for (const required of [
