@@ -111,8 +111,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
   it("keeps the widths the person set during the read while the record adds a pane", async () => {
     // The record names an address that is not on screen, so the merge actually runs; a record
-    // whose addresses are all open adopts nothing and cannot constrain the commit. The merge
-    // once equalized every live pane, undoing the drag the person had just finished. The
+    // whose addresses are all open adopts nothing and cannot constrain the commit. A merge
+    // that equalized every live pane would undo the drag the person had just finished. The
     // arriving pane takes the equal share of three, and the two live panes keep their
     // seventy-thirty ratio across the rest (467 to 200, from 700 and 300 rescaled into 667).
     const store = memoryStore();

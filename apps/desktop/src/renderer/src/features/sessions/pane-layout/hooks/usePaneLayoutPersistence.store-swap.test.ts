@@ -40,12 +40,12 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     // Unkeyed, the shape the defect lives in: a replaced store re-renders this subtree.
-    const { container, rerender } = render(workspaceFor(session, retiredStore, false));
+    const { container, rerender } = render(workspaceFor(session, retiredStore));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
-    rerender(workspaceFor(session, storeOver(liveAdapter), false));
+    rerender(workspaceFor(session, storeOver(liveAdapter)));
     const askedOfRetiredStore = retiredAdapter.asked.length;
     cyclePaneFocus(container);
     await crossMacrotaskBoundary();
@@ -68,12 +68,12 @@ describe("SessionScreen — the restore runs once for the session on screen", ()
     await saveLayout(secondStore, SESSION_ID, ["transcript"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
-    const { container, rerender } = render(workspaceFor(session, firstStore, false));
+    const { container, rerender } = render(workspaceFor(session, firstStore));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
-    rerender(workspaceFor(session, secondStore, false));
+    rerender(workspaceFor(session, secondStore));
     await crossMacrotaskBoundary();
     await crossMacrotaskBoundary();
 

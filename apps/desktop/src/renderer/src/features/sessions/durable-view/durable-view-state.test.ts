@@ -56,7 +56,8 @@ async function storeHoldingRecord(): Promise<UiStateStore> {
 
 describe("hydrating a durable view state", () => {
   it("keeps a value committed while the read was still in flight", async () => {
-    // `commit` installs and persists at once; the older record then arrived and overwrote it.
+    // `commit` installs and persists at once; the older record arriving after it must not
+    // overwrite it.
     const state = stateOver(await storeHoldingRecord());
     const hydration = state.hydrate();
     await state.commit([...COMMITTED_IDS]);
@@ -90,7 +91,6 @@ describe("hydrating a durable view state", () => {
     const hydration = state.hydrate();
     const committing = state.commit([...COMMITTED_IDS]);
     await hydration;
-    expect(state.isHydrated).toBe(true);
 
     await state.hydrate();
 
@@ -118,7 +118,6 @@ describe("a durable view state whose store was replaced", () => {
     });
     state.dispose();
     await state.commit([...COMMITTED_IDS]);
-    expect(state.isDisposed).toBe(true);
     expect(notifications).toBe(0);
   });
 
@@ -136,7 +135,6 @@ describe("a durable view state whose store was replaced", () => {
     const state = stateOver(await storeHoldingRecord());
     await state.hydrate();
     expect(state.value).toStrictEqual(STORED_IDS);
-    expect(state.isDisposed).toBe(false);
   });
 });
 

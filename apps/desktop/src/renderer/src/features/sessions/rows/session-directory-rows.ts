@@ -1,4 +1,4 @@
-// What the all-sessions destination may list, merged from two sources: the node's directory
+// What the all-sessions destination may list, merged from two sources: the daemon's directory
 // (the only one that can name a session this window never opened) and `SessionStoreRegistry`
 // (every session this window holds a store for, including one created a moment ago). Neither
 // subsumes the other, so they are merged, directory first, and a row the local store can describe
@@ -15,7 +15,7 @@ export type SessionListNothingKind = "not-loaded" | "empty";
 
 /** What a caller hands in for the sessions only this window can describe. */
 export interface SessionRowSources {
-  /** The node's answer, whatever it was. */
+  /** The daemon's answer, whatever it was. */
   readonly directory: SessionDirectoryState;
   /** Every session this window holds a store for, in open order. */
   readonly windowSessionIds: readonly string[];
@@ -23,7 +23,11 @@ export interface SessionRowSources {
   readonly projectedRows: readonly SessionListRow[];
 }
 
-/** Which absence a directory state means. Total, so a new state fails to compile here. */
+/**
+ * Which absence a directory state means. Total, so a new state fails to compile here.
+ *
+ * @consumedBy the sessions list's absence line, which takes its kind from the directory read
+ */
 export function sessionListNothingKindFor(
   directory: SessionDirectoryState,
 ): SessionListNothingKind {
@@ -67,7 +71,7 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
     const directoryRow = rowsBySessionId.get(projected.sessionId);
     rowsBySessionId.set(projected.sessionId, {
       ...projected,
-      // A store that has seen no session event has no state; the node's answer stands in.
+      // A store that has seen no session event has no state; the daemon's answer stands in.
       state: projected.state ?? directoryRow?.state,
     });
   }

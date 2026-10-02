@@ -4,13 +4,15 @@
 //   - One entity, one pane: a second open of the same entity focuses the pane already showing
 //     it. The pane registry (`registries/panes/pane-registry.ts`) enforces it again
 //     structurally, so neither side trusts the other.
-//   - Ephemeral panes cascade: a `browser` pane opens right of its source and closes with it.
+//   - Ephemeral panes cascade: a Preview pane (kind `browser`) opens right of its source and
+//     closes with it.
 //
 // State lives in the class rather than React: every mutation publishes one new immutable
 // `PaneLayoutState` that React reads through `useSyncExternalStore`, so `useState` never
 // becomes a second source of truth. Value shapes and width arithmetic are in `pane-layout.ts`.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
 import { isEphemeralPaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneAddress, PaneLink } from "@renderer/routing/panes/pane-address.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
@@ -128,7 +130,7 @@ export class PaneLayoutStore {
   /**
    * Closes a pane and every ephemeral pane that opened beside it.
    *
-   * The cascade is one level deep, since nothing opens beside a `browser` pane, and is a filter
+   * The cascade is one level deep, since nothing opens beside a Preview pane, and is a filter
    * rather than a recursive walk so a cyclic `sourcePaneId` cannot loop.
    */
   public close(paneId: string): void {
@@ -186,7 +188,7 @@ export class PaneLayoutStore {
     if (from < 0) {
       return;
     }
-    const to = Math.min(Math.max(toPosition, 0), this.#state.panes.length - 1);
+    const to = clampedRowIndex(toPosition, this.#state.panes.length);
     if (to === from) {
       return;
     }

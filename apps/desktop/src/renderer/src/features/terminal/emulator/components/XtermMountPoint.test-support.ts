@@ -1,5 +1,5 @@
-// The emulator readings the mount point's suite takes, and the ledger sweep after each case.
-// Claims about the component are asserted through observable consequences: the ledger's
+// The emulator readings the mount point's suite takes, and the pool sweep after each case.
+// Claims about the component are asserted through observable consequences: the pool's
 // readings, the emulator's first child, the hidden textarea's gate. The loader is the real one,
 // since a stub that resolved the adapter synchronously would erase the commit gap the component
 // exists to handle.
@@ -64,7 +64,7 @@ export async function settleEmulatorLoad(): Promise<void> {
 }
 
 /**
- * Give back every page-ledger hold these components took. The ledger is module state reached
+ * Give back every page-pool hold these components took. The pool is module state reached
  * through the adapter's default pool, so the sweep is unconditional. It reclaims rather than
  * releases because this environment has no WebGL2 and never made a context.
  */

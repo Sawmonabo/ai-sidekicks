@@ -44,9 +44,9 @@ export class FakeWebglRenderer {
 }
 
 /**
- * The real ledger refusing the first N acquisitions. It proves that a second `attach()`
+ * The real pool refusing the first N acquisitions. It proves that a second `attach()`
  * re-enters the renderer selection, which an always-granting pool cannot: an instance that
- * already holds an addon returns before the ledger is asked.
+ * already holds an addon returns before the pool is asked.
  */
 export class LateGrantingRendererPool extends TerminalRendererPool {
   #refusalsLeft: number;

@@ -1,7 +1,7 @@
 // One live-emulator registry and the builders every suite here mounts through. The suites drive
-// the real `@xterm/xterm`, because what they check (scrollback eviction, `disableStdin` gating)
-// is library behavior a fake would only mirror. The DOM shim has no WebGL2, so instances settle
-// on the DOM renderer; `webgl-fallback.test-support.ts` stands in an activating one.
+// the real `@xterm/xterm`, because what they check (scrollback across a move, `disableStdin`
+// gating) is library behavior a fake would only mirror. The DOM shim has no WebGL2, so instances
+// settle on the DOM renderer; `webgl-fallback.test-support.ts` stands in an activating one.
 
 import { vi } from "vitest";
 
@@ -41,16 +41,10 @@ export function mountedAdapter(options: AdapterOptions = {}): {
   return { adapter, mountElement };
 }
 
-/** Write and wait for the parser to drain, which is the only honest way to read after. */
-export async function writeLines(adapter: XtermTerminalAdapter, lineCount: number): Promise<void> {
-  const chunk = Array.from(
-    { length: lineCount },
-    (_unused, index) => `line ${String(index)}\n`,
-  ).join("");
-  await writeText(adapter, chunk);
-}
-
-/** One write, awaited through the library's own completion callback. */
+/**
+ * One write, awaited through the library's own completion callback, which is the only honest
+ * way to read after.
+ */
 export async function writeText(adapter: XtermTerminalAdapter, text: string): Promise<void> {
   await new Promise<void>((resolve) => {
     adapter.write(text, resolve);

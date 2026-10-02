@@ -8,6 +8,8 @@
 //     banners below a dismissed one and pull focus off the dismiss control.
 // Nothing is dropped; coalescing bounds the repeats and there is no cap.
 
+import { structuralKey } from "@renderer/lib/structural-key.js";
+
 /** One banner on screen: its words, in the order they read, parted by ` · ` when drawn. */
 export interface SessionBanner {
   readonly words: readonly string[];
@@ -25,11 +27,11 @@ export const PANE_LAYOUT_NOT_SAVED_BANNER: SessionBanner = Object.freeze({
 export const NO_SESSION_BANNERS: readonly SessionBanner[] = Object.freeze([]);
 
 /**
- * The identity of a banner as this column counts it. Joined on a NUL so two banners whose words
- * split at different places cannot compose the same string and coalesce.
+ * The identity of a banner as this column counts it, so two banners whose words split at
+ * different places cannot compose the same key and coalesce.
  */
 export function sessionBannerKey(banner: SessionBanner): string {
-  return banner.words.join("\u0000");
+  return structuralKey(banner.words);
 }
 
 /**

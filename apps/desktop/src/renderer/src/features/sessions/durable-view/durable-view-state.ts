@@ -1,23 +1,9 @@
-// One durable piece of per-install view state, held in memory and written through the
-// persistence chokepoint. The pin map uses it: hold a value, hydrate
-// it once, notify subscribers, write every change through `UiStateStore`, and keep the last
-// refusal so a view renders it instead of pretending the write landed.
-//
-// The value class and value type are derived from `UiStateStore.writeGlobal`'s parameters,
-// because the persistence module does not export its vocabulary and a copy would be an
-// unchecked second declaration.
-//
-// The in-memory value updates first so the control responds at once. A refused write is
-// recorded, not rolled back, since a rollback would flicker for reasons a person cannot see.
-//
-// A late hydration never overwrites a newer local act: `hydrate` captures the mutation
-// generation before its read and applies the record only if it is still current. It still
-// marks the state hydrated, because the read did settle and a remount must not re-ask.
-//
-// Writes are serialized. Every commit writes a complete snapshot, so two in flight would race
-// for the same key. One write is at the store at a time; a later act replaces the waiting
-// snapshot instead of queueing behind it, so the store sees every issued snapshot in order,
-// ending on the newest.
+// One durable piece of per-install view state, which the pin map is built on: held in memory,
+// hydrated once, written through `UiStateStore`, with the last refusal kept so a view renders it.
+// The in-memory value updates first and a refused write is recorded, not rolled back, since a
+// rollback would flicker for reasons a person cannot see. A late hydration never overwrites a
+// newer local act. Writes are serialized, one at the store at a time, with a later act replacing
+// the waiting snapshot, so the store sees the issued snapshots in order, ending on the newest.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
@@ -40,7 +26,7 @@ export interface DurableViewStateOptions<TValue extends PersistedValue> {
   readonly initial: TValue;
   /**
    * Narrow one durable record back into the value, or `undefined` to discard it and keep the
-   * initial value. A record this console did not produce is not coerced onto the screen.
+   * initial value. A record this app did not produce is not coerced onto the screen.
    */
   readonly narrow: (raw: unknown) => TValue | undefined;
 }
@@ -66,7 +52,6 @@ export class DurableViewState<TValue extends PersistedValue> {
   readonly #changes = new Emitter<void>("durable view state");
   #value: TValue;
   #hydrated = false;
-  #disposed = false;
   #lastRefusal: Refusal | undefined;
   /**
    * The round local acts are on. `commit` claims afresh and both settlement paths only join,
@@ -93,26 +78,12 @@ export class DurableViewState<TValue extends PersistedValue> {
     return this.#value;
   }
 
-  /** True once the durable read has settled, however it settled. */
-  public get isHydrated(): boolean {
-    return this.#hydrated;
-  }
-
   /**
-   * True once the store behind this state has been replaced. Terminal. Read by the holder's
-   * test, not on a render path.
-   */
-  public get isDisposed(): boolean {
-    return this.#disposed;
-  }
-
-  /**
-   * Release this state: its store has been replaced. Drops the sinks, supersedes the local
-   * acts so a hydration in flight discards its record, and sets the flag. A write already in
-   * flight completes against the store it was sent to; no new write can follow.
+   * Release this state: its store has been replaced. Drops the sinks and supersedes the local
+   * acts, so a hydration in flight discards its record. A write already in flight completes
+   * against the store it was sent to.
    */
   public dispose(): void {
-    this.#disposed = true;
     this.#localActs.supersedeAll();
     this.#changes.clear();
   }
@@ -122,6 +93,7 @@ export class DurableViewState<TValue extends PersistedValue> {
     return this.#lastRefusal;
   }
 
+  /** Be told when the value or the last refusal changes. */
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changes.subscribe(sink);
   }

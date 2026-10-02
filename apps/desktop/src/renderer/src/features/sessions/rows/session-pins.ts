@@ -7,6 +7,7 @@
 // person's decisions, not with the sessions they have opened.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
+import { isWireRecord } from "@renderer/lib/wire-record.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { DurableViewState } from "../durable-view/durable-view-state.js";
 
@@ -68,11 +69,6 @@ export class SessionPinStore {
     this.#state.dispose();
   }
 
-  /** Whether this store has been superseded. Read by the binding's own test. */
-  public get isDisposed(): boolean {
-    return this.#state.isDisposed;
-  }
-
   /** Pins or unpins one session. Unpinning removes the entry rather than storing a default. */
   public async setPinned(sessionId: string, isPinned: boolean): Promise<void> {
     const next: Record<string, typeof PINNED> = { ...this.#state.value };
@@ -90,11 +86,11 @@ export class SessionPinStore {
  * so one bad value loses one pin instead of un-pinning the whole list.
  */
 export function narrowSessionPins(raw: unknown): SessionPins | undefined {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  if (!isWireRecord(raw)) {
     return undefined;
   }
   const narrowed: Record<string, typeof PINNED> = {};
-  for (const [sessionId, marker] of Object.entries(raw as Readonly<Record<string, unknown>>)) {
+  for (const [sessionId, marker] of Object.entries(raw)) {
     if (marker === PINNED) {
       narrowed[sessionId] = PINNED;
     }

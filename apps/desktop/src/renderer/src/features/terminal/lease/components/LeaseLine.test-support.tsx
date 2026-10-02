@@ -84,7 +84,7 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
  */
 const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   status: "read",
-  userId: THIS_DEVICE_ID,
+  deviceId: THIS_DEVICE_ID,
 };
 
 /** A take that has dispatched nothing. */
@@ -111,13 +111,4 @@ export function renderLease(
       }
     />,
   );
-}
-
-/** The single affordance the line puts in its header, as something a test can press. */
-export function takeShellButton(container: HTMLElement): HTMLButtonElement {
-  const control = container.querySelector(".meridian-lease-line__take");
-  if (!(control instanceof HTMLButtonElement)) {
-    throw new Error("the lease line rendered no take control");
-  }
-  return control;
 }

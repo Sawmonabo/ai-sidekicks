@@ -17,7 +17,7 @@ export interface SessionDestinationActs {
   readonly openAttentionItem: (item: AttentionItem) => void;
   /** What a session started here settles into, for both ways of starting one. */
   readonly settleStartedSession: (sessionId: string) => void;
-  /** Declares the node's directory stale, so this destination's list re-reads it. */
+  /** Declares the daemon's directory stale, so this destination's list re-reads it. */
   readonly recheckSessionDirectory: () => void;
 }
 

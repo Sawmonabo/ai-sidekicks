@@ -1,34 +1,23 @@
-// Which `UiStateStore` a durable binding is attached to, and what becomes of one whose store
-// was replaced. `durable-view-state.ts` decides what a durable value is; this module owns
-// the React lifetime.
-//
-// The window's store is rebuilt when the bridge changes (`app/hooks/useUiStateStore.ts` closes
-// the old one). A binding built in a `useState` initializer would stay attached to the closed
-// store: stale pins on screen, writes to a database nothing reads, the new store never
-// hydrated. So a binding is keyed on the store's identity: the same store hands its binding
-// back, a different one disposes it and mints a successor.
-//
-// The holder lives at module scope, which is window scope. Per component, leaving and returning
-// to the sessions destination would mint a second `SessionPinStore` over the one `UiStateStore`:
-// two writers of one record. This is one holder per binding kind per window, as
-// `machineSettingsHolder` is.
-//
-// Reading and acquiring are separate methods. `bindingIfCurrent` mutates nothing and is what
-// a render body calls; `acquire` mints and disposes, and only an effect or an event handler
-// calls it, so a render React discards cannot dispose the committed tree's binding.
+// Which `UiStateStore` a durable binding is attached to. The window's store is rebuilt when the
+// bridge changes, so a binding is keyed on the store's identity: the same store hands its binding
+// back, a different one disposes it and mints a successor. One holder per binding kind lives at
+// module scope (window scope), so a revisit never mints a second writer of one record.
+// `bindingIfCurrent` mutates nothing and is what a render calls; only an effect or an event
+// handler calls `acquire`, so a discarded render cannot dispose the committed tree's binding.
 
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
 /**
  * What a durable binding must offer for a holder to own its lifetime. There is no value
- * accessor: what a binding holds (a pin map, a hide set) is its own vocabulary.
+ * accessor: what a binding holds (a pin map) is its own vocabulary.
  */
 export interface DurableViewBinding {
   /** Read the durable record once. Idempotent, so a re-acquired binding asks once. */
   hydrate(): Promise<void>;
   /** Terminal. The binding's store has been replaced and nothing more may reach it. */
   dispose(): void;
+  /** Be told when the binding's value or refusal changes. */
   subscribe(sink: () => void): Unsubscribe;
 }
 

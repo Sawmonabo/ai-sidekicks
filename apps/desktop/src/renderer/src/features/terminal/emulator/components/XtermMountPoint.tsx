@@ -1,6 +1,6 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
-// The emulator's code arrives a commit after the mount (`emulator-loader.ts`), so the box shows a
-// `not-loaded` absence until it lands. This component names the region and leaves the live text
+// The emulator's code arrives a commit after the mount (`emulator-loader.ts`), so the box reads
+// `Loading the terminal…` until it lands, or `Could not load the terminal` with `Retry`. This component names the region and leaves the live text
 // to xterm's own `aria-live` region, since announcing the grid again would read every cell twice.
 
 import { useEffect, useRef, useState } from "react";
@@ -44,8 +44,8 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
   // or losing a capability does, a fresh function for an existing one does not.
   const canWriteToWire = onKeystroke !== undefined;
   const canActivateLinks = onActivateLink !== undefined;
-  const writeGate = terminalWriteGate(isWriteEnabled, canWriteToWire);
-  const isWritable = writeGate === "writable";
+  // A terminal takes typing only while the lease allows it and a keystroke has somewhere to go.
+  const isWritable = isWriteEnabled && canWriteToWire;
   // The lease as the mount effect sees it, so the write gate has one mutator: a replaced
   // adapter is built with this answer, and `setWriteEnabled` moves it only when the lease
   // moves. Applying the gate only from the lease effect left a fresh binding shut while the
@@ -117,7 +117,7 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
           className="meridian-terminal-mount-point__mount-element"
           ref={mountElementRef}
           role="group"
-          aria-label={accessibleNameFor(props.label, writeGate)}
+          aria-label={isWritable ? props.label : `${props.label}, read-only`}
         />
       ) : (
         renderEmulatorAbsence(emulator)
@@ -130,51 +130,28 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
 type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
 
 /**
- * What stands in the box while the emulator's code is not there: `not-loaded` while the fetch
- * is in flight, `error` with the refusal's code and detail when it refused. Not `empty` or
- * `not-checked`, which would make claims about the shell or the session.
+ * What stands in the box while the emulator's code is not there: one line while the fetch is in
+ * flight, and one line naming the pane with `Retry` when it failed.
  */
 function renderEmulatorAbsence(
   emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="block" title="Loading the terminal emulator" />
+    <Nothing kind="not-loaded" placement="block" title="Loading the terminal…" />
   ) : (
     <Nothing
       kind="error"
       placement="block"
-      title={emulator.refusal.code}
-      detail={emulator.refusal.detail}
+      title="Could not load the terminal"
+      action={
+        <button
+          type="button"
+          className="meridian-action-button meridian-action-button--small meridian-action-button--outline"
+          onClick={emulator.retry}
+        >
+          Retry
+        </button>
+      }
     />
   );
-}
-
-/**
- * Accessible-name suffix for each write gate, and so the set of gates. A terminal may be typed
- * into only when the lease allows it AND `onKeystroke` gives a keystroke somewhere to go; the
- * lease alone left the emulator accepting input that nothing forwarded. A watcher gets
- * read-only watch mode with the input absent rather than disabled, and the state reaches
- * assistive technology through the region's name. "Lease not held" and "no input channel" stay
- * separate because they send a person to different places. Being a table, a fourth gate is a
- * compile error.
- */
-const ACCESSIBLE_NAME_SUFFIXES = {
-  writable: "",
-  "lease-not-held": ", read-only",
-  "no-input-channel": ", read-only: no input channel",
-} as const;
-
-type TerminalWriteGate = keyof typeof ACCESSIBLE_NAME_SUFFIXES;
-
-function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): TerminalWriteGate {
-  if (!isWriteEnabled) {
-    // First, because it is the state a person is usually in; no input channel would not change it.
-    return "lease-not-held";
-  }
-  return canWriteToWire ? "writable" : "no-input-channel";
-}
-
-/** The terminal region's accessible name, which carries the write gate. */
-function accessibleNameFor(label: string, writeGate: TerminalWriteGate): string {
-  return `${label}${ACCESSIBLE_NAME_SUFFIXES[writeGate]}`;
 }

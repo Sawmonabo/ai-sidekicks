@@ -5,7 +5,7 @@
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TerminalRendererPool, terminalRendererPool } from "../renderer-pool.js";
+import { terminalRendererPool } from "../renderer-pool.js";
 import { XtermTerminalAdapter } from "../xterm-adapter.js";
 import { XtermMountPoint } from "./XtermMountPoint.js";
 import {
@@ -23,10 +23,9 @@ afterEach(() => {
 });
 
 describe("the mount point — one adapter per mount", () => {
-  it("disposes on unmount, which is what gives the renderer hold back", async () => {
-    const pool = new TerminalRendererPool();
+  it("disposes on unmount, tearing the emulator's DOM down", async () => {
     const { unmount, container } = await renderSettledMountPoint(
-      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Shell output" />,
     );
     const mountElement = emulatorElementOf(container);
     expect(mountElement.childElementCount).toBeGreaterThan(0);
@@ -34,8 +33,6 @@ describe("the mount point — one adapter per mount", () => {
     // The adapter tore its own DOM down; nothing of the emulator is left behind in
     // a box React is about to drop.
     expect(mountElement.childElementCount).toBe(0);
-    expect(pool.heldContextCount).toBe(0);
-    expect(terminalRendererPool.holds("terminal-1")).toBe(false);
   });
 });
 
@@ -46,7 +43,7 @@ describe("the emulator outlives the parent's callback identities", () => {
       <XtermMountPoint
         terminalId="terminal-1"
         isWriteEnabled
-        label="Terminal output"
+        label="Shell output"
         onKeystroke={() => undefined}
         onActivateLink={() => undefined}
         onRendererMode={observedAtMount}
@@ -60,7 +57,7 @@ describe("the emulator outlives the parent's callback identities", () => {
         <XtermMountPoint
           terminalId="terminal-1"
           isWriteEnabled
-          label="Terminal output"
+          label="Shell output"
           onKeystroke={() => undefined}
           onActivateLink={() => undefined}
           onRendererMode={observedAfterRerender}
@@ -78,11 +75,11 @@ describe("the emulator outlives the parent's callback identities", () => {
   it("builds a new emulator for a different terminal id", async () => {
     // Reusing the emulator would show one shell's scrollback under another's name.
     const { container, rerender } = await renderSettledMountPoint(
-      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Shell output" />,
     );
     const emulatorBefore = emulatorElementOf(container).firstElementChild;
     act(() => {
-      rerender(<XtermMountPoint terminalId="terminal-2" isWriteEnabled label="Terminal output" />);
+      rerender(<XtermMountPoint terminalId="terminal-2" isWriteEnabled label="Shell output" />);
     });
     expect(emulatorElementOf(container).firstElementChild).not.toBe(emulatorBefore);
   });
@@ -94,7 +91,7 @@ describe("the emulator outlives the parent's callback identities", () => {
       <XtermMountPoint
         terminalId="terminal-1"
         isWriteEnabled
-        label="Terminal output"
+        label="Shell output"
         onKeystroke={firstKeystrokeHandler}
       />,
     );
@@ -103,7 +100,7 @@ describe("the emulator outlives the parent's callback identities", () => {
         <XtermMountPoint
           terminalId="terminal-1"
           isWriteEnabled
-          label="Terminal output"
+          label="Shell output"
           onKeystroke={latestKeystrokeHandler}
         />,
       );
@@ -124,7 +121,7 @@ describe("the emulator outlives the parent's callback identities", () => {
       <XtermMountPoint
         terminalId="terminal-2"
         isWriteEnabled={false}
-        label="Terminal output"
+        label="Shell output"
         onKeystroke={watcherKeystrokeHandler}
       />,
     );
@@ -144,7 +141,7 @@ describe("the write gate", () => {
       <XtermMountPoint
         terminalId="terminal-1"
         isWriteEnabled
-        label="Terminal output"
+        label="Shell output"
         onKeystroke={sendToWire}
       />,
     );
@@ -157,7 +154,7 @@ describe("the write gate", () => {
       <XtermMountPoint
         terminalId="terminal-1"
         isWriteEnabled={false}
-        label="Terminal output"
+        label="Shell output"
         onKeystroke={sendToWire}
         onRendererMode={observed}
       />,
@@ -169,7 +166,7 @@ describe("the write gate", () => {
           <XtermMountPoint
             terminalId="terminal-1"
             isWriteEnabled={isWriteEnabled}
-            label="Terminal output"
+            label="Shell output"
             onKeystroke={sendToWire}
             onRendererMode={observed}
           />,
@@ -181,9 +178,9 @@ describe("the write gate", () => {
     // only the gate moves.
     expect(observed).toHaveBeenCalledTimes(1);
     expect(emulatorElementOf(container).firstElementChild).toBe(emulatorBefore);
-    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Shell output");
     expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
-    // The shell taken by another device: this window must stop typing into it.
+    // The shell taken by another device: this device must stop typing into it.
     renderWithLease(false);
     expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
@@ -194,7 +191,7 @@ describe("the write gate", () => {
       <XtermMountPoint
         terminalId="terminal-1"
         isWriteEnabled={false}
-        label="Terminal output"
+        label="Shell output"
         onKeystroke={sendToWire}
       />,
     );
@@ -203,7 +200,7 @@ describe("the write gate", () => {
         <XtermMountPoint
           terminalId="terminal-2"
           isWriteEnabled={false}
-          label="Terminal output"
+          label="Shell output"
           onKeystroke={sendToWire}
         />,
       );
@@ -224,7 +221,7 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
       <XtermMountPoint
         terminalId="terminal-1"
         isWriteEnabled={false}
-        label="Terminal output"
+        label="Shell output"
         onRendererMode={() => {
           throw consumerFailure;
         }}

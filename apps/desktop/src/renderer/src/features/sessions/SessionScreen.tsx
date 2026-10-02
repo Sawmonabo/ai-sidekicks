@@ -4,7 +4,8 @@
 //
 // The layout is restored once at mount and saved through the persistence hook. An empty
 // layout opens the transcript alone at full width. A save that failed raises one banner
-// under the header; its code goes to the window's diagnostic capture. The screen is not
+// under the header; its code goes to the window's diagnostic capture, as does every part of
+// a saved arrangement the restore left closed. The screen is not
 // remounted between two open sessions, so banners are scoped to (bridge, session): the
 // arriving session reads an empty column, and a bridge replacement clears it too.
 
@@ -61,8 +62,8 @@ export interface SessionScreenProps {
   readonly draftStore: DraftStore;
   readonly route: AppRoute;
   /**
-   * The pane registry this composition filled. Required rather than defaulted to the
-   * process-wide one, so a caller cannot mount production's bodies into a composed window.
+   * The pane registry this composition filled, required rather than defaulted to the
+   * process-wide one. The composer still comes from the process-wide composer registry.
    */
   readonly paneRegistry: PaneRegistry;
   /**
@@ -109,11 +110,19 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [settleBanners],
   );
 
-  const restoreRefusals = usePaneLayoutPersistence({
+  const restoreRefused = useCallback(
+    (refusal: Refusal, restoredSessionId: string) => {
+      recordRefusal(clock, "pane-layout-not-restored", restoredSessionId, refusal);
+    },
+    [clock],
+  );
+
+  usePaneLayoutPersistence({
     layout,
     uiStateStore: props.uiStateStore,
     sessionId,
     onSaveRefused: saveRefused,
+    onRestoreRefused: restoreRefused,
   });
 
   const paneContextFor = useCallback(
@@ -164,12 +173,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
           <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
         )}
       </div>
-      <SessionPaneLayout
-        layout={layout}
-        registry={registry}
-        paneContextFor={paneContextFor}
-        restoreRefusals={restoreRefusals}
-      />
+      <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />
       {composer === undefined || props.sessionStore === undefined ? null : (
         <div className="meridian-session-screen__composer">
           {composer({

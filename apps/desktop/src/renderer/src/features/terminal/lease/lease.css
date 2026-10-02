@@ -58,9 +58,3 @@
   cursor: progress;
   opacity: 0.6;
 }
-
-.meridian-lease-line__unread {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-sm);
-}

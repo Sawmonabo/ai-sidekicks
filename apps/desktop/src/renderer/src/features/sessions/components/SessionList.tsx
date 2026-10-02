@@ -1,11 +1,5 @@
-// The all-sessions list: one row per session, pinned rows first.
-//
-// `SessionSnapshot` has no name column, so a row shows the session identifier and its users;
-// the state chip carries the wire's own string. No rename, archive, close or reactivate
-// control is drawn, disabled or not.
-//
-// Every row handed in is mounted, with no virtualization and no cap; rows are memoized, so
-// one row's change re-renders one row.
+// The all-sessions list: one row per session, pinned rows first. Every row handed in is
+// mounted; rows are memoized, so one row's change re-renders one row.
 
 import { useMemo } from "react";
 

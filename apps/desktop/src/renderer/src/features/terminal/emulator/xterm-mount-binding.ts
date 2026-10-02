@@ -1,9 +1,11 @@
 // What ties one emulator to one mount element: the box it is measured against, and whether
-// this user may type into it.
+// this device may type into it.
 //
-// Stdin starts disabled (watch mode) and opens only when the lease says this window holds the
-// shell. The gate is the library's own `disableStdin` option, which shuts the input element
-// and drops every data event, programmatic input included. Keystrokes go to the wire, never
+// Stdin is shut (watch mode) until the binding is shown on a mount element with the lease's
+// answer that this device holds the shell; the emulator gets its gate in the same synchronous
+// `attach()` that builds it, so no keystroke reaches it before the gate is set. The gate is the
+// library's own `disableStdin` option, which shuts the input element and drops every data
+// event, programmatic input included. Keystrokes go to the wire, never
 // the local buffer, because the daemon echoes a shared shell.
 //
 // The gate is the lease's answer and a mount element being on screen. The lease's answer is
@@ -40,6 +42,7 @@ export class XtermMountBinding {
   #keystrokeSubscription: IDisposable | undefined;
   #isWriteAllowedByLease: boolean;
 
+  /** A binding holding the lease's first answer, with no emulator or mount element yet. */
   public constructor(options: XtermMountBindingOptions) {
     this.#isWriteAllowedByLease = options.isWriteEnabled ?? false;
     this.#onKeystroke = options.onKeystroke;
@@ -70,8 +73,8 @@ export class XtermMountBinding {
   }
 
   /**
-   * Say whether this window may type. Watch mode is the default and the fallback, since a
-   * guess here would fail toward writing into a shell this window does not hold. The answer
+   * Say whether this device may type. Watch mode is the default and the fallback, since a
+   * guess here would fail toward writing into a shell this device does not hold. The answer
    * is remembered, so a mount element that takes the emulator later still gets it.
    */
   public setWriteEnabled(isWriteEnabled: boolean): void {

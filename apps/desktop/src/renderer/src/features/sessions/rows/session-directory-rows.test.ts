@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
-import { mergeSessionRows, sessionListNothingKindFor } from "./session-directory-rows.js";
+import { mergeSessionRows } from "./session-directory-rows.js";
 import type { SessionListRow } from "./session-rows.js";
 
 function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
@@ -24,15 +24,8 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
   };
 }
 
-describe("sessionListNothingKindFor — the read decides, not the row count", () => {
-  it("maps each of the two read states to its own kind", () => {
-    expect(sessionListNothingKindFor({ status: "reading" })).toBe("not-loaded");
-    expect(sessionListNothingKindFor(servedDirectory([]))).toBe("empty");
-  });
-});
-
 describe("mergeSessionRows — two sources, neither dropped", () => {
-  it("puts the node's sessions first and appends what only this window holds", () => {
+  it("puts the daemon's sessions first and appends what only this window holds", () => {
     const rows = mergeSessionRows({
       directory: servedDirectory(["session-node"]),
       windowSessionIds: ["session-local"],

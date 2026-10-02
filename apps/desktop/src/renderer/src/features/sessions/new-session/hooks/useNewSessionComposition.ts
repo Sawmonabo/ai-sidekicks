@@ -11,7 +11,7 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { NewSessionDraft, type NewSessionDraftState } from "../new-session-draft.js";
-import { refuseSendThatRejected, type NewSessionSendResult } from "../new-session-settlement.js";
+import { type NewSessionSendResult } from "../new-session-settlement.js";
 
 /**
  * What a person hears once a send settles, one sentence per outcome. A `Record` over the
@@ -150,31 +150,12 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     // on screen moved on before the create settles, the result, the announcement and the
     // flag that would re-enable Send install nowhere.
     publishReport({ isSending: true, result: undefined });
-    void openDraft.send().then(
-      (sendResult) => {
-        publishReport({ isSending: false, result: sendResult });
-      },
-      () => {
-        // A rejection must not publish `NO_SEND_YET`, which would clear the result and leave a
-        // Send that answers a press by doing nothing. The draft names the fault in its own
-        // vocabulary so the announce effect says it out loud.
-        //
-        // No test drives this arm because nothing in this build reaches it: `callDaemon` and
-        // the rest of `send()` are total. What it publishes is asserted where it is built, in
-        // `new-session-draft.test.ts`. It is `then`'s second argument rather than a `.catch`
-        // tail, which would also catch a throw from the arm above and misreport it as the
-        // draft's.
-        publishReport({ isSending: false, result: refuseSendThatRejected() });
-      },
-    );
+    // `send()` settles every path with a result (`callDaemon` returns a typed refusal and the
+    // first-turn rejection is caught), so there is no rejection to answer.
+    void openDraft.send().then((sendResult) => {
+      publishReport({ isSending: false, result: sendResult });
+    });
   }, [openDraft, publishReport]);
-
-  // The destination's directory re-read, straight through. Not memoized: it is read from a
-  // press, and the returned composition is rebuilt every render anyway.
-  const { onSessionDirectoryRecheck } = props;
-  const recheckDirectory = useCallback(() => {
-    onSessionDirectoryRecheck();
-  }, [onSessionDirectoryRecheck]);
 
   // The settlement callback as of the last commit, so the effect below does not depend on its
   // identity. A destination may hand over a fresh function each pass; depending on it would
@@ -234,7 +215,7 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     close,
     setFirstTurn,
     send,
-    recheckDirectory,
+    recheckDirectory: props.onSessionDirectoryRecheck,
     isAmbiguousCreate: result?.outcome === "created-unreadable",
     unsentEditsSentence: hasUnsentLaterEdits ? SESSION_CREATED_WITH_UNSENT_EDITS : undefined,
   };

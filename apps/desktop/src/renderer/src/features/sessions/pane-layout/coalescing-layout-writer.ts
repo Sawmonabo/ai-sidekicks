@@ -1,25 +1,8 @@
-// One durable write in flight, and one pending snapshot behind it. A resize drag commits a
-// new layout on every pointer move, and "save on change" would write sixty records a second
-// to a database that only needs the last.
-//
-// The coalescing comes from the write itself, not a debounce: at most one write is in flight,
-// and further changes replace a single pending snapshot. A drag costs as many writes as the
-// database can absorb, each the newest arrangement, with no timer to arm or leak. The
-// `RefreshScheduler` in `lib/reads/refresh-scheduler.ts` is for reads, and its reasons are a
-// diagnostics vocabulary a rearrangement has no honest value in.
-//
-// The partition rides the request, not the caller's current state: the pump writes what the
-// request named however long it waited, so an arrangement queued in one session is never
-// filed under the session the person navigated to meanwhile.
-//
-// The writer is held per store through `hooks/subject-scoped/useSubjectScopedResource.ts`,
-// because the `UiStateStore` is replaced under a live pane layout on reconnect. A writer built
-// in a `useState` initializer would keep writing to the first render's store, which nothing
-// reads again.
-//
-// Retirement flushes rather than cancels: `flushAndClose` sends the pending snapshot, since
-// the last arrangement is the one a person expects to find, then drops later requests, as the
-// pane layout on screen holds the writer bound to the live store.
+// One durable write in flight and one pending snapshot behind it, so a resize drag that commits
+// a layout per pointer move costs only as many writes as the database absorbs, with no timer.
+// The partition rides each request, so an arrangement queued in one session is never filed
+// under the session navigated to meanwhile. Retirement flushes the pending snapshot, then drops
+// later requests.
 
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 

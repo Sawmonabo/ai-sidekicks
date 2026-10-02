@@ -104,7 +104,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-kind-unknown"]);
   });
 
-  it("drops a kind the console never saves, however it got into the record", () => {
+  it("drops a kind the app never saves, however it got into the record", () => {
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-98"] = { position: 5, kind: "browser", sizePermille: 300 };
     expect(emptyLayout().restore(snapshot).restoredPaneCount).toBe(2);

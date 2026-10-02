@@ -4,14 +4,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { terminalFixtureBridge } from "../components/TerminalPane.test-support.js";
 import { useTerminalOutputStream, type TerminalOutputStream } from "./useTerminalOutputStream.js";
-
-function freshBridge(): PlatformBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("terminal-output-stream") }).bridge;
-}
 
 /** A subscription the case serves by hand, so the case chooses when it lands. */
 function heldSubscription(): {
@@ -63,7 +58,7 @@ interface StreamProps {
 describe("terminal output stream — the handle belongs to the shell it was opened for", () => {
   it("subscribes once per terminal and holds the stream the daemon served", async () => {
     const held = heldSubscription();
-    const bridge = freshBridge();
+    const bridge = terminalFixtureBridge();
     const { result } = renderHook(
       (props: StreamProps) =>
         useTerminalOutputStream(props.bridge, props.terminalId, held.subscribeOutput),
@@ -79,7 +74,7 @@ describe("terminal output stream — the handle belongs to the shell it was open
 
   it("closes the stream and subscribes again when bound to a different shell", async () => {
     const held = heldSubscription();
-    const bridge = freshBridge();
+    const bridge = terminalFixtureBridge();
     const { result, rerender } = renderHook(
       (props: StreamProps) =>
         useTerminalOutputStream(props.bridge, props.terminalId, held.subscribeOutput),
@@ -96,7 +91,7 @@ describe("terminal output stream — the handle belongs to the shell it was open
 
   it("closes a stream that is served after its terminal was left, and never reads it", async () => {
     const held = heldSubscription();
-    const bridge = freshBridge();
+    const bridge = terminalFixtureBridge();
     const { result, rerender } = renderHook(
       (props: StreamProps) =>
         useTerminalOutputStream(props.bridge, props.terminalId, held.subscribeOutput),
@@ -112,7 +107,7 @@ describe("terminal output stream — the handle belongs to the shell it was open
 
   it("closes the stream when the pane unmounts", async () => {
     const held = heldSubscription();
-    const bridge = freshBridge();
+    const bridge = terminalFixtureBridge();
     const { unmount } = renderHook(() =>
       useTerminalOutputStream(bridge, "session-one", held.subscribeOutput),
     );

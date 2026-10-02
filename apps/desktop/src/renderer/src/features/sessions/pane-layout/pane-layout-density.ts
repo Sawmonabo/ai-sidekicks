@@ -24,11 +24,3 @@ export function isPaneLayoutDensity(value: unknown): value is PaneLayoutDensity 
 export function minimumPaneWidthPx(density: PaneLayoutDensity): number {
   return PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX[density];
 }
-
-/**
- * How many panes of `density` fit in `availableWidthPx`, at least one: a pane just opened must
- * have somewhere to go, and a too-narrow pane can be fixed by resizing the window.
- */
-export function panesThatFit(density: PaneLayoutDensity, availableWidthPx: number): number {
-  return Math.max(1, Math.floor(availableWidthPx / minimumPaneWidthPx(density)));
-}

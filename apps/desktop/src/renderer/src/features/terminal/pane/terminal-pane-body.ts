@@ -2,7 +2,6 @@
 //
 // A loader-backed body: the emulator chunk was already lazy, and this keeps the lease line,
 // the pane and its frame out of the initial graph for sessions that never open a terminal.
-// Separate from the component so the registration terms can be asserted without rendering.
 
 // The feature's stylesheets enter here, the only way into the feature, so they ride the
 // lazy chunk beside `@xterm/xterm/css/xterm.css`.

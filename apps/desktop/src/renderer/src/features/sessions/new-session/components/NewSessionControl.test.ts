@@ -13,10 +13,9 @@
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CREATED_SESSION_ID } from "../new-session-draft.test-support.js";
+import { CREATED_SESSION_ID, bridgeFor } from "../new-session-draft.test-support.js";
 import {
   bridgeAnsweringCreateUnreadably,
-  bridgeFor,
   bridgeHoldingCreate,
   completingFirstTurn,
   composeAndCompleteASend,
@@ -84,8 +83,8 @@ describe("the composed new-session draft — what a completed send hands out", (
   afterEach(cleanup);
 
   it("names the session it made, and leaves the screen", async () => {
-    // A send that fully succeeded once left this form standing with Send enabled and a real
-    // session nothing above could name.
+    // A completed send hands its session out and closes the form, so no real session is left
+    // that nothing above can name.
     const settledSessionIds: string[] = [];
     const container = renderControlOn(bridgeFor({ scriptsCreate: true }), {
       onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
@@ -123,8 +122,8 @@ describe("the composed new-session draft — the create it cannot answer for", (
   afterEach(cleanup);
 
   it("names the ambiguity, closes Send, and offers the sessions list instead", async () => {
-    // An unreadable reply once rendered as `session-create-failed` beside a live Send, which
-    // invites the press that makes a second orphan session.
+    // An unreadable reply read as `session-create-failed` beside a live Send would invite the
+    // press that makes a second orphan session.
     const rechecks: number[] = [];
     const container = renderControlOn(bridgeAnsweringCreateUnreadably(), {
       onSessionDirectoryRecheck: () => rechecks.push(1),

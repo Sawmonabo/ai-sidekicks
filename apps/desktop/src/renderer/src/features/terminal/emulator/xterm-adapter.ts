@@ -1,4 +1,4 @@
-// The console's wrapper over `@xterm/xterm`: one terminal, composed from `xterm-addons.ts`
+// The app's wrapper over `@xterm/xterm`: one terminal, composed from `xterm-addons.ts`
 // (addons and renderer choice), `xterm-links.ts` (both link paths, through `link-guard.ts`)
 // and `xterm-mount-binding.ts` (size seam and write gate).
 //
@@ -24,12 +24,11 @@ import { applyDeclaredMonospaceFamily } from "./xterm-typeface.js";
 // Re-exported so consumers name the mode through the emulator's own entry point.
 export type { TerminalRendererMode } from "./xterm-addons.js";
 
-/** What one adapter is built with: its terminal id, renderer pool, scrollback, and callbacks. */
+/** What one adapter is built with: its terminal id, renderer pool, and callbacks. */
 export interface XtermTerminalAdapterOptions {
   /** The shared terminal this adapter is a view of. One per session. */
   readonly terminalId: string;
   readonly pool?: TerminalRendererPool | undefined;
-  readonly scrollbackLines?: number | undefined;
   /**
    * Whether the lease already says this user may type, at build time; absent means shut. A
    * construction input, because a binding corrected afterwards is briefly wrong.
@@ -49,8 +48,6 @@ export interface XtermTerminalAdapterOptions {
  * renderer; only `dispose()` is final.
  */
 export class XtermTerminalAdapter {
-  readonly #terminalId: string;
-  readonly #scrollbackLines: number;
   readonly #onActivateLink: ((url: string) => void) | undefined;
   readonly #addons: TerminalAddonSuite;
   readonly #mountBinding: XtermMountBinding;
@@ -60,10 +57,8 @@ export class XtermTerminalAdapter {
   #isDisposed = false;
 
   public constructor(options: XtermTerminalAdapterOptions) {
-    this.#terminalId = options.terminalId;
-    this.#scrollbackLines = options.scrollbackLines ?? TERMINAL_DEFAULT_SCROLLBACK_LINES;
     this.#onActivateLink = options.onActivateLink;
-    this.#addons = new TerminalAddonSuite(this.#terminalId, options.pool ?? terminalRendererPool);
+    this.#addons = new TerminalAddonSuite(options.terminalId, options.pool ?? terminalRendererPool);
     this.#mountBinding = new XtermMountBinding({
       isWriteEnabled: options.isWriteEnabled,
       onKeystroke: options.onKeystroke,
@@ -73,10 +68,7 @@ export class XtermTerminalAdapter {
     });
   }
 
-  public get terminalId(): string {
-    return this.#terminalId;
-  }
-
+  /** The renderer this instance is on now. */
   public get rendererMode(): TerminalRendererMode {
     return this.#addons.rendererMode;
   }
@@ -89,10 +81,6 @@ export class XtermTerminalAdapter {
     return this.#addons.subscribeToRendererMode(sink);
   }
 
-  public get isDisposed(): boolean {
-    return this.#isDisposed;
-  }
-
   /** Whether an emulator exists yet. False before the first attach and after disposal. */
   public get isEmulatorLive(): boolean {
     return this.#terminal !== undefined;
@@ -101,11 +89,6 @@ export class XtermTerminalAdapter {
   /** Lines the buffer is holding, scrollback included. Bounded by the scrollback. */
   public get bufferLineCount(): number {
     return this.#terminal?.buffer.active.length ?? 0;
-  }
-
-  /** The scrollback ceiling this instance was built with. */
-  public get scrollbackLines(): number {
-    return this.#scrollbackLines;
   }
 
   /**
@@ -148,6 +131,7 @@ export class XtermTerminalAdapter {
     this.#mountBinding.setWriteEnabled(isWriteEnabled);
   }
 
+  /** Whether a keystroke may reach the wire now: the lease allows it and a mount point holds it. */
   public get isWriteEnabled(): boolean {
     return this.#mountBinding.isWriteEnabled;
   }
@@ -202,7 +186,7 @@ export class XtermTerminalAdapter {
 
   #buildTerminal(): Terminal {
     const options: ITerminalOptions = {
-      scrollback: this.#scrollbackLines,
+      scrollback: TERMINAL_DEFAULT_SCROLLBACK_LINES,
       // The only proposed API this wrapper uses is the `unicode` getter.
       allowProposedApi: true,
       // The only textual output: the grid is a canvas under WebGL and positioned spans under

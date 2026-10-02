@@ -14,8 +14,8 @@ export interface LeaseTakeControlProps {
   readonly takeShell: UseTakeShellResult;
   readonly holder: TerminalLeaseHolder;
   /**
-   * Which device this is. Without it no control is offered: the fold names holders by user id,
-   * so a take could come back as a hold the line cannot recognize as this device's.
+   * Which device this is. Without it no control is offered: the fold names holders by device
+   * id, so a take could come back as a hold the line cannot recognize as this device's.
    */
   readonly deviceIdentity: TerminalDeviceIdentity;
 }

@@ -31,7 +31,7 @@ export class TerminalAddonSuite {
   #searchAddon: SearchAddon | undefined;
   #serializeAddon: SerializeAddon | undefined;
   #webglAddon: WebglAddon | undefined;
-  // The ledger's receipt for the context this suite created. The hand-backs name it, so a
+  // The pool's lease for the context this suite created. The hand-backs name it, so a
   // sibling pane on the same session keeps its own context.
   #contextLease: TerminalContextLease | undefined;
   #contextLossSubscription: { dispose: () => void } | undefined;
@@ -44,11 +44,13 @@ export class TerminalAddonSuite {
   // Emitted on change, because the mode moves again when the host takes the context away.
   readonly #rendererModeChanges = new Emitter<TerminalRendererMode>("terminal renderer mode");
 
+  /** Builds the suite for one terminal, drawing its WebGL allowance from `pool`. */
   public constructor(terminalId: string, pool: TerminalRendererPool) {
     this.#terminalId = terminalId;
     this.#pool = pool;
   }
 
+  /** The renderer this instance is on now. */
   public get rendererMode(): TerminalRendererMode {
     return this.#rendererMode;
   }
@@ -109,16 +111,12 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Re-measure the grid. The fit addon's division is undefined for a host with no measurable
-   * box; skipping self-heals when the observer fires again, where throwing would take the
-   * pane down.
+   * Re-measure the grid. `@xterm/addon-fit` 0.11.0 returns without resizing for a host it
+   * cannot measure (no parent, a zero cell, a size that parses to `NaN`), so a host that is
+   * detached or zero-sized while a layout settles needs no guard here.
    */
   public fitGrid(): void {
-    try {
-      this.#fitAddon?.fit();
-    } catch {
-      // A host with no measurable box, detached or zero-sized while a layout settles.
-    }
+    this.#fitAddon?.fit();
   }
 
   /** The visible grid, as text, through the serialize addon. */
@@ -165,7 +163,7 @@ export class TerminalAddonSuite {
    * The context is gone and the addon does not restore it, so this instance is a DOM
    * terminal from here on. It reclaims because the host destroyed the context. Every state
    * change, the reclaim included, precedes the notification: `Emitter` re-raises a failing
-   * sink, and a reclaim placed after it would be skipped, leaving the ledger counting a
+   * sink, and a reclaim placed after it would be skipped, leaving the pool counting a
    * context the host destroyed.
    */
   #fallBackToDomRenderer(webglAddon: WebglAddon): void {

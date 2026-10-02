@@ -148,7 +148,7 @@ export function renderSessionScreen(
   store?: SessionStore,
 ): { readonly container: HTMLElement; readonly uiStateStore: UiStateStore } {
   const { container } = render(
-    workspaceFor({ sessionId: SESSION_ID, store: store ?? sessionStore() }, uiStateStore, false),
+    workspaceFor({ sessionId: SESSION_ID, store: store ?? sessionStore() }, uiStateStore),
   );
   return { container, uiStateStore };
 }
@@ -167,20 +167,17 @@ export function otherSession(): SessionWithStore {
 
 /**
  * The session screen for one session, in the shape `AppFrame` mounts it. The provider carries
- * the same bridge the screen is handed, as the frame does: one window, one transport, with
- * the scenario's frozen clock resolved beside it for the pane layout's rect tracker.
+ * the same bridge the screen is handed, as the frame does: one window, one transport.
  */
 export function workspaceFor(
   session: SessionWithStore,
   uiStateStore: UiStateStore,
-  isKeyed: boolean,
   fixture: FixtureBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
   return (
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <SessionScreen
-          {...(isKeyed ? { key: session.sessionId } : {})}
           bridge={fixture.bridge}
           frameStore={
             new WindowStore({ initialRoute: { kind: "session", sessionId: session.sessionId } })

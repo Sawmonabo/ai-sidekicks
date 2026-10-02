@@ -5,14 +5,15 @@
 // Restore rules:
 //   - A snapshot of an unknown version is discarded whole; a half-restored layout hides which
 //     half is missing.
-//   - An unknown pane kind is dropped and reported as a typed refusal the layout renders.
+//   - An unknown pane kind is dropped and reported as a typed refusal.
 //   - The restore count is capped, because a corrupted or hand-edited record is untrusted.
 //   - One entity, one pane: a duplicate address is coalesced during decoding, first in position
 //     order winning, and reported. `open()` would not repair it, and the duplicate would be
 //     written back on every save.
 //
 // Drops are refusals rather than tripwires, which throw in development and are for defects; a
-// snapshot from an older build is expected input. `InlineRefusal` renders them.
+// snapshot from an older build is expected input. The session screen records them in the
+// window's diagnostic capture.
 
 import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
@@ -67,7 +68,7 @@ export const PANE_LAYOUT_REFUSAL_ORIGIN = "pane-layout";
 /** The shared refusal shape, narrowed to the restore codes. */
 export type PaneLayoutRestoreRefusal = NarrowedRefusal<PaneLayoutRestoreRefusalCode>;
 
-/** What one restore did, and everything it refused. Rendered, never swallowed. */
+/** What one restore did, and everything it refused. Recorded, never swallowed. */
 export interface PaneLayoutRestoreReport {
   readonly restoredPaneCount: number;
   readonly refusals: readonly PaneLayoutRestoreRefusal[];
@@ -237,7 +238,7 @@ function decodePane(
     refusals.push(
       refusePaneLayoutRestore(
         "pane-kind-unknown",
-        "One saved pane is a kind the console never saves, so it was left closed.",
+        "One saved pane is a kind the app never saves, so it was left closed.",
       ),
     );
     return undefined;
@@ -258,7 +259,7 @@ function decodePane(
           )
         : refusePaneLayoutRestore(
             "pane-entity-invalid",
-            "One saved pane named something the console could not resolve, so it was left closed.",
+            "One saved pane named something the app could not resolve, so it was left closed.",
           ),
     );
     return undefined;

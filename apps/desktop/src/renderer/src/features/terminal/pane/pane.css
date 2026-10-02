@@ -1,16 +1,9 @@
 /*
- * The terminal pane's box: the padding and the column the lease line and the emulator host
- * sit in, inside the body region `components/PaneFrame/PaneFrame.css` leaves.
- *
- * No literal color; every value comes from a custom property. One of the terminal feature's
- * three sheets, each imported only from `pane/terminal-pane-body.ts`, so the bundler sees one
- * edge into each and the styles stay out of the initial document.
- *
- * `box-sizing` is stated because the generated base sheet has no global `border-box` reset:
- * padding added outside a box sized to fill its region would make the pane taller than the
- * region by twice `--meridian-space-3`, pushing the emulator's bottom rows out of view or
- * adding a scrollbar. The fill is `flex: 1 1 auto` against the frame's column rather than
- * `block-size: 100%` against a parent with no stated height.
+ * The terminal pane's box: the padding and the column the lease line and the emulator's mount
+ * point sit in, inside the body region `components/PaneFrame/PaneFrame.css` leaves. Imported
+ * only from `pane/terminal-pane-body.ts`, so it rides the lazy chunk. `box-sizing` is stated
+ * because the base sheet has no global `border-box` reset, and padding outside a box sized to
+ * its region would push the emulator's bottom rows out of view.
  */
 .meridian-terminal-pane {
   box-sizing: border-box;

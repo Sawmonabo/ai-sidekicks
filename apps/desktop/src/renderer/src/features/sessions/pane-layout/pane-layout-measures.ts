@@ -1,4 +1,4 @@
-// The density presets, their pane widths, and the visibility threshold a native view hides at.
+// The density presets and their pane widths.
 // The restored-pane cap is declared beside the store that spends it (`pane-layout-store.ts`).
 //
 // The presets live with their widths because the width table is keyed by the preset union;
@@ -29,9 +29,3 @@ export const PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX: Readonly<Record<PaneLayoutDensit
   // About 32 characters plus chrome, the legibility floor.
   compact: 256,
 };
-
-/**
- * The smallest visible extent a native view is drawn at, in CSS pixels: below it in either
- * dimension the view hides. Not zero, because a sub-pixel view is composited and invisible.
- */
-export const NATIVE_VIEW_MINIMUM_VISIBLE_PX = 1;

@@ -125,8 +125,8 @@ describe("the pane layout's keyboard paths", () => {
 
   it("never takes a chord from an editable target inside a pane body", () => {
     // Option+Arrow is word-wise caret movement on macOS and Option+Backspace deletes a word,
-    // so typing in a pane's find field once rearranged or closed the pane, and `preventDefault`
-    // swallowed the keystroke.
+    // so a chord taken from a pane's find field would rearrange or close the pane, and
+    // `preventDefault` would swallow the keystroke.
     const layout = emptyLayout();
     const first = layout.open({ kind: "transcript" });
     layout.open({ kind: "terminal" });

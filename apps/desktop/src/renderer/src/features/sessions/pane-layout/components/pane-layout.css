@@ -28,13 +28,6 @@
   min-height: 0;
 }
 
-.meridian-pane-layout__refusals {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  padding: var(--meridian-space-2) var(--meridian-space-4);
-}
-
 /* One pane's frame. The panel owns the width, and the density floor rides its `minSize`. */
 .meridian-pane-layout__pane {
   display: flex;
