@@ -24,12 +24,12 @@ const FIRST_LOG_POSITION = BASE_STATE_CURSOR + 1;
  * are ordinary and their array order is the order a subscriber receives them. The defect costs a
  * late delivery, but the screenshot and endurance tiers pin frames at an exact tick.
  *
- * The position: `session.subscribe` represents the whole log and the fixture's snapshot starts at
+ * The position: `session.subscribe` represents the whole log and the fixture's base state starts at
  * cursor zero, so the store's reconciler reads a jump as a gap and a step backwards as a
  * divergence. Either sends it into degradation and repair, where it can drop later rows, while
  * every per-beat schema parse passes. Each `sequence` is therefore its predecessor's plus one,
  * and two beats at one tick still take two positions. The first beat must take the position
- * right after the snapshot's cursor, which contiguity between beats cannot check.
+ * right after the base state's cursor, which contiguity between beats cannot check.
  */
 export function findBeatOrderDefects(scenario: Scenario): readonly ScenarioContractDefect[] {
   const defects: ScenarioContractDefect[] = [];

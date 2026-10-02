@@ -65,7 +65,8 @@ function makeStore(now: () => string = makeAdvancingClock()): RuntimeBindingStor
 const EXECUTION_POSTURE: ExecutionPosture = {
   networkAccess: "none",
   writableRoots: ["/workspace/repo"],
-  mode: "trusted",
+  mode: "sandboxed",
+  credentialPolicyRef: "policy://default",
 };
 
 const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
@@ -558,8 +559,8 @@ describe("RuntimeBindingStore — spawn_config", () => {
   const malformed: { label: string; raw: string }[] = [
     { label: "unparseable JSON", raw: "{not json at all" },
     { label: "JSON null", raw: "null" },
-    { label: "an unknown member", raw: '{"executionPostures":{"mode":"trusted"}}' },
-    { label: "a string where an object belongs", raw: '{"executionPosture":"trusted"}' },
+    { label: "an unknown member", raw: '{"executionPostures":{"mode":"yolo"}}' },
+    { label: "a string where an object belongs", raw: '{"executionPosture":"yolo"}' },
     { label: "an object where an array belongs", raw: '{"callbackTools":{}}' },
     { label: "a number where a string belongs", raw: '{"resolvedExecutablePath":42}' },
     { label: "a null-valued known member", raw: '{"providerAccountId":null}' },

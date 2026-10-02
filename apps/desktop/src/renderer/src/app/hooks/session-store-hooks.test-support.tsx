@@ -7,7 +7,7 @@ import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBrid
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
+import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import {
@@ -31,7 +31,7 @@ export interface SessionProbeProps {
 }
 
 /** The concurrent-streaming scenario's base state for a session, standing in for the read. */
-const readConcurrentStreamingSession: SessionSnapshotReader = (sessionId) =>
+const readConcurrentStreamingSession: SessionBaseStateReader = (sessionId) =>
   Promise.resolve(fixtureSessionBaseState(CONCURRENT_STREAMING_SCENARIO, sessionId));
 
 /** A component that does exactly what the frame does, and reports what it saw. */

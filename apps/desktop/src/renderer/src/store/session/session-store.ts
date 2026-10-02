@@ -32,10 +32,11 @@ import {
   type WaitingOnPersonRecords,
 } from "./waiting-on-person/waiting-on-person-register.js";
 import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
+import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
-  admitsSnapshotAt,
+  admitsBaseStateAt,
   establishedState,
   uninitializedState,
   type TimelineRetainedEnd,
@@ -69,6 +70,11 @@ const WINDOW_GENERATION_KEY = "window";
  * `applyBatch` chokepoint. `initialize` establishes the base state; nothing else writes.
  */
 export class SessionStore {
+  /**
+   * The reads this session's screen depends on beside its own that failed. Outside the state,
+   * so `initialize` cannot clear a failure only that read's own success clears.
+   */
+  public readonly failedDependentReads: FailedDependentReads = new FailedDependentReads();
   readonly #sessionId: string;
   readonly #timelineCap: number | undefined;
   readonly #store: StoreApi<SessionStoreState>;
@@ -157,11 +163,11 @@ export class SessionStore {
 
   /**
    * Establish the base state from a read response and drain anything that arrived first.
-   * Idempotent against a rewind and admits the equal-cursor repair (`admitsSnapshotAt`).
+   * Idempotent against a rewind and admits the equal-cursor repair (`admitsBaseStateAt`).
    */
-  public initialize(snapshot: SessionBaseState): void {
+  public initialize(baseState: SessionBaseState): void {
     const current = this.#store.getState();
-    if (current.initialized && !admitsSnapshotAt(snapshot.cursor, current)) {
+    if (current.initialized && !admitsBaseStateAt(baseState.cursor, current)) {
       return;
     }
 
@@ -174,14 +180,14 @@ export class SessionStore {
     // The register keeps the older asks this read did not carry; the seed moves only the
     // window-head fact, which is a property of this read.
     this.#waitingOnPersonRegister.seedFrom({
-      entities: snapshot.entities,
-      cursor: snapshot.cursor,
-      windowHeadCursor: snapshot.readFromCursor,
+      entities: baseState.entities,
+      cursor: baseState.cursor,
+      windowHeadCursor: baseState.readFromCursor,
     });
-    const timeline = orderBatchBySequence(snapshot.timeline ?? []);
+    const timeline = orderBatchBySequence(baseState.timeline ?? []);
     this.#waitingOnPersonRegister.admit(timeline);
     this.#reconciler.rebaseTo(
-      snapshot.cursor,
+      baseState.cursor,
       timeline.map((event) => event.sequence),
     );
 
@@ -189,7 +195,7 @@ export class SessionStore {
     this.#store.setState(
       establishedState({
         sessionId: this.#sessionId,
-        snapshot,
+        baseState,
         orderedTimeline: timeline,
         timelineCap: this.#timelineCap,
         revision: current.revision + 1,

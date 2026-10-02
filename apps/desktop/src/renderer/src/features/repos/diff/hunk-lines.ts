@@ -2,7 +2,11 @@
 // and the `\ No newline at end of file` annotation. `patch-parse.ts` reads the patch's
 // structure; this reads inside one hunk.
 
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { RealClock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import type { DiffLine, DiffLineKind } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 
@@ -13,8 +17,8 @@ const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {
   "-": "delete",
 };
 
-/** What a tripwire report from this module names as the site it fired at. */
-const HUNK_LINES_SITE = "features/repos/diff/hunk-lines.ts";
+/** The source a diagnostic record from this module carries. */
+const HUNK_LINES_SOURCE = "features/repos/diff/hunk-lines";
 
 /**
  * The prefix the unified format reserves for its one annotation. The prefix is read, not
@@ -48,17 +52,7 @@ export function hunkLines(
     // An empty line is a context line with empty text, the one body line with no prefix:
     // `parsePatch` pushes blank context lines raw (`""`). Dropping it would hide the blank
     // and stop both counters, leaving every later gutter number in the hunk one too low.
-    const kind = prefixedLine === "" ? "context" : LINE_KIND_BY_PREFIX[prefixedLine.slice(0, 1)];
-    if (kind === undefined) {
-      // Every defined prefix is handled above, so this line carries something unplaceable;
-      // dropping it silently would stop both counters and leave every later number wrong.
-      reportTripwire(
-        "diff-hunk-prefix",
-        HUNK_LINES_SITE,
-        `a hunk body line carried the unrecognized prefix ${JSON.stringify(prefixedLine.slice(0, 1))}; it is not rendered and both line counters stop advancing at it, so every later number in this hunk is low`,
-      );
-      continue;
-    }
+    const kind = prefixedLine === "" ? "context" : lineKindOf(prefixedLine);
     const text = prefixedLine.slice(1);
     // Spread rather than `: undefined`: under `exactOptionalPropertyTypes` an optional member
     // set to `undefined` is a different type from an absent one.
@@ -76,4 +70,25 @@ export function hunkLines(
     }
   }
   return lines;
+}
+
+/**
+ * The line's kind by its prefix. The patch comes from git through the daemon, so a prefix no kind
+ * has is outside input: it is recorded and the line drawn as unchanged, which keeps it visible and
+ * keeps both counters advancing.
+ */
+function lineKindOf(prefixedLine: string): DiffLineKind {
+  const prefix = prefixedLine.slice(0, 1);
+  const kind = LINE_KIND_BY_PREFIX[prefix];
+  if (kind !== undefined) {
+    return kind;
+  }
+  windowDiagnosticCapture.record({
+    at: diagnosticStampAt(new RealClock()),
+    severity: "warning",
+    source: HUNK_LINES_SOURCE,
+    kind: "unknown-hunk-prefix",
+    detail: `a hunk body line carried the prefix ${JSON.stringify(prefix)}; drawn as an unchanged line`,
+  });
+  return "context";
 }

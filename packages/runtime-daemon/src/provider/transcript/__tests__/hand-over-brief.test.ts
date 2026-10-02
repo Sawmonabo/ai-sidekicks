@@ -1169,6 +1169,28 @@ describe("brief delivery — only the coordinator that established a target send
     target.applyPendingSends();
     expect(target.turns).toHaveLength(1);
   });
+
+  it("forgets a released target: its handle is refused and its unconfirmed send is dropped", async () => {
+    // A long-running daemon must not keep every ended session's registers; the release at
+    // session end is what bounds them.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "refuse";
+    const coordinator = new BriefDeliveryCoordinator(target);
+    const request: BriefDeliveryRequest = addressedTo(coordinator, REQUEST_DRAFT);
+
+    const ambiguous: BriefDeliverySettlement = await coordinator.deliver(request);
+    expect(ambiguous.disposition).toBe("unconfirmed");
+
+    coordinator.releaseTarget(TARGET.providerSessionId);
+
+    await expect(coordinator.deliver(request)).rejects.toBeInstanceOf(UnownedBriefTargetError);
+
+    // Established again, the target carries no unconfirmed entry, so nothing holds the send back.
+    target.sendBehavior = "accept";
+    const fresh: BriefDeliverySettlement = await deliverVia(coordinator, REQUEST_DRAFT);
+    expect(fresh.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(2);
+  });
 });
 
 describe("brief delivery — overlapping calls for one brief", () => {

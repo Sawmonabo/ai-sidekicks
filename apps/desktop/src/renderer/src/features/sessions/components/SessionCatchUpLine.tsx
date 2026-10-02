@@ -1,18 +1,22 @@
 // The one line under the session header that says the window is catching up, or that a read
-// failed. It names no technical cause (the session store's diagnostic entry records it),
-// and `Try again` reads again; the screen never polls.
+// failed: the session's own read or one its screen depends on, such as the repo mounts read. It
+// names no technical cause, which goes to the window's diagnostic capture, and `Try again` reads
+// each failed read again; the screen never polls.
 
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { useSessionDegraded } from "@renderer/store/session/hooks/useSessionInitialized.js";
+import {
+  useDependentReadFailed,
+  useSessionDegraded,
+} from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { useCatchUpLineWords } from "../hooks/useCatchUpLineWords.js";
+import { useCatchUpLineWords, type CatchUpWords } from "../hooks/useCatchUpLineWords.js";
 
 /** What the catch-up line is handed: the session store and the retry callback. */
 export interface SessionCatchUpLineProps {
   readonly sessionStore: SessionStore;
-  /** Reads this session again, for the press on `Try again`. */
+  /** Reads this session again, for the press on `Try again`, beside its failed dependent reads. */
   readonly onTryAgain: (sessionId: string) => void;
 }
 
@@ -21,8 +25,9 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
   const clock = useClock();
   const isBehind = useSessionDegraded(props.sessionStore);
   const lastReadFailed = useSessionStore(props.sessionStore, readLastReadFailed);
+  const dependentReadFailed = useDependentReadFailed(props.sessionStore);
   const words = useCatchUpLineWords(
-    isBehind ? (lastReadFailed ? "could-not-catch-up" : "catching-up") : undefined,
+    standingWords(isBehind, lastReadFailed, dependentReadFailed),
     clock,
   );
   if (words === undefined) {
@@ -37,6 +42,7 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
             type="button"
             className="meridian-action-button meridian-action-button--small meridian-action-button--outline"
             onClick={() => {
+              props.sessionStore.failedDependentReads.retryFailed();
               props.onTryAgain(props.sessionStore.sessionId);
             }}
           >
@@ -48,6 +54,21 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
       )}
     </div>
   );
+}
+
+/**
+ * The words that stand now. A failed dependent read says it could not catch up whether or not
+ * the session's own projection is whole; otherwise the line follows the session's own reads.
+ */
+function standingWords(
+  isBehind: boolean,
+  lastReadFailed: boolean,
+  dependentReadFailed: boolean,
+): CatchUpWords | undefined {
+  if (dependentReadFailed || (isBehind && lastReadFailed)) {
+    return "could-not-catch-up";
+  }
+  return isBehind ? "catching-up" : undefined;
 }
 
 /** Whether the newest read of this session failed, whatever cause stands beside it. */

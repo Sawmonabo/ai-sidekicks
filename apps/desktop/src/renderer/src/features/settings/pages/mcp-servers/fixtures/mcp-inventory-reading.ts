@@ -22,8 +22,11 @@ export interface McpInventory {
 /** The read the MCP fixture body is built on. */
 export type McpInventoryRead = PushDrivenRead<McpInventory>;
 
-/** Asks the daemon for the unified inventory. */
-export type ListMcpInventory = () => Promise<McpInventory>;
+/**
+ * Asks the daemon for the unified inventory. The signal aborts when a newer read supersedes this
+ * one or the read is disposed.
+ */
+export type ListMcpInventory = (signal: AbortSignal) => Promise<McpInventory>;
 
 /** Opens the daemon's live-status subscription; the callback fires when a status changed. */
 export type SubscribeMcpInventoryChanges = (onChange: () => void) => Unsubscribe;

@@ -9,7 +9,7 @@ import { ClaudeSessionUnavailableError } from "./session-errors.js";
 import type { SubagentDefinition, SubagentPolicy } from "../../provider-driver.js";
 
 /**
- * Supervised postures never let commands run outside the sandbox: every non-`trusted` posture runs
+ * Supervised postures never let commands run outside the sandbox: every level below `yolo` runs
  * with the always-armed permission prompt, and the daemon's prompt tool adjudicates every call.
  */
 export const CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS = false;

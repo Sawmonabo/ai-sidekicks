@@ -25,8 +25,8 @@ export interface CodexSessionConfig {
   providerAccountId?: string | undefined;
   /**
    * The effective credential policy resolved by the daemon, whose denied names are stripped from
-   * the child environment; absent under `trusted`. Re-derived from the posture on every create and
-   * resume, never inherited from the original launch.
+   * the child environment; absent only when no posture and no policy was declared. Re-derived from
+   * the posture on every create and resume, never inherited from the original launch.
    */
   credentialEnvPolicy?: CredentialEnvPolicy | undefined;
 }
@@ -79,18 +79,36 @@ export interface CodexRunConfig {
 
 // Provider keys below come from the pinned build's `v2/` schema and serde field names.
 
-/** Approval supervision for every non-`trusted` posture; `never` is for `trusted` alone. */
-const CODEX_SUPERVISED_APPROVAL_POLICY = "on-request" as const;
+/** Codex's thread-level sandbox (`SandboxMode` at the pin). */
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
-const CODEX_TRUSTED_APPROVAL_POLICY = "never" as const;
+/**
+ * The sandbox each permission level runs in: Read Only at `readonly`, the workspace sandbox at the
+ * three levels that write inside the workspace, and Full Access at `yolo`.
+ */
+const CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], CodexSandboxMode>
+> = Object.freeze({
+  readonly: "read-only",
+  ask: "workspace-write",
+  reviewed: "workspace-write",
+  sandboxed: "workspace-write",
+  yolo: "danger-full-access",
+});
 
-/** Thread-level sandbox selection per posture mode (`SandboxMode` at the pin). */
-const CODEX_SANDBOX_MODE_BY_POSTURE_MODE: Readonly<Record<ExecutionPosture["mode"], string>> =
-  Object.freeze({
-    trusted: "danger-full-access",
-    "workspace-sandboxed": "workspace-write",
-    "readonly-sandboxed": "read-only",
-  });
+/**
+ * The approval policy each permission level runs under: the three asking levels ask on request,
+ * and `sandboxed` and `yolo` never ask. No level sends `untrusted`.
+ */
+const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
+  Record<ExecutionPosture["mode"], "on-request" | "never">
+> = Object.freeze({
+  readonly: "on-request",
+  ask: "on-request",
+  reviewed: "on-request",
+  sandboxed: "never",
+  yolo: "never",
+});
 
 /**
  * Whether the posture allows network access. A domain allow-list resolves down to `false` (the
@@ -109,25 +127,28 @@ const CODEX_WORKSPACE_NETWORK_ACCESS_CONFIG_KEY = "sandbox_workspace_write.netwo
 
 /** Thread-level posture: `sandbox` and `approvalPolicy` on `thread/start`. */
 interface CodexThreadPostureParams {
-  readonly sandbox: string;
+  readonly sandbox: CodexSandboxMode;
   readonly approvalPolicy: string;
 }
 
-/** The thread sandbox and approval policy a posture maps to. */
+/** The thread sandbox and approval policy a posture's permission level maps to. */
 export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPostureParams {
-  const sandbox = CODEX_SANDBOX_MODE_BY_POSTURE_MODE[posture.mode];
   return {
-    sandbox,
-    approvalPolicy:
-      posture.mode === "trusted" ? CODEX_TRUSTED_APPROVAL_POLICY : CODEX_SUPERVISED_APPROVAL_POLICY,
+    sandbox: CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode],
+    approvalPolicy: CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode],
   };
 }
 
-/** The thread config overrides a posture needs; only a workspace-sandboxed posture sets any. */
+/** Whether the posture's level runs in the workspace sandbox, the only one with a network axis. */
+function runsInCodexWorkspaceSandbox(posture: ExecutionPosture): boolean {
+  return CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode] === "workspace-write";
+}
+
+/** The thread config overrides a posture needs; only a workspace-sandbox level sets any. */
 export function composeCodexThreadPostureConfig(
   posture: ExecutionPosture,
 ): Record<string, unknown> {
-  if (posture.mode !== "workspace-sandboxed") {
+  if (!runsInCodexWorkspaceSandbox(posture)) {
     return {};
   }
   return { [CODEX_WORKSPACE_NETWORK_ACCESS_CONFIG_KEY]: codexNetworkAccessEnabled(posture) };
@@ -141,8 +162,8 @@ export function describeCodexPostureDivergence(
   posture: ExecutionPosture,
   realizedSandbox: unknown,
 ): { readonly requestedNetworkAccess: boolean; readonly realizedNetworkAccess: boolean } | null {
-  // Only `workspace-sandboxed` can express its request at thread scope.
-  if (posture.mode !== "workspace-sandboxed" || !isPlainObject(realizedSandbox)) {
+  // Only the workspace sandbox can express its request at thread scope.
+  if (!runsInCodexWorkspaceSandbox(posture) || !isPlainObject(realizedSandbox)) {
     return null;
   }
   const realizedNetworkAccess = realizedSandbox["networkAccess"];
@@ -164,12 +185,12 @@ export function describeCodexPostureDivergence(
  */
 export function composeCodexTurnSandboxPolicy(posture: ExecutionPosture): Record<string, unknown> {
   const networkAccess = codexNetworkAccessEnabled(posture);
-  switch (posture.mode) {
-    case "trusted":
+  switch (CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode]) {
+    case "danger-full-access":
       return { type: "dangerFullAccess" };
-    case "readonly-sandboxed":
+    case "read-only":
       return { type: "readOnly", networkAccess };
-    case "workspace-sandboxed":
+    case "workspace-write":
       return {
         type: "workspaceWrite",
         writableRoots: posture.writableRoots,
@@ -306,8 +327,8 @@ export function resolveBoundProviderAccountId(claims: {
 const ENV_NAME_MATCH_MODES: readonly SpawnEnvNameMatch[] = ["case-sensitive", "case-insensitive"];
 
 /**
- * Fail-closed parse of the daemon's resolved credential policy. Absent is legitimate (a `trusted`
- * posture); a malformed one throws, since defaulting to "deny nothing" would spawn with the
+ * Fail-closed parse of the daemon's resolved credential policy. Absent is legitimate (a declared
+ * posture supplies it); a malformed one throws, since defaulting to "deny nothing" would spawn with the
  * variables the policy withholds. `envNameMatch` is required: guessing it could let `path` slip
  * past a list naming `PATH`.
  */

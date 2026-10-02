@@ -20,8 +20,8 @@ export interface ComposerSteerResolution {
 }
 
 /**
- * The interception arm: a registered console command. A registered command is executed by the
- * client and never composes into a message on any path, so this arm carries only its name.
+ * The interception arm: a console command that runs here. It is handed to the client's executor
+ * rather than composed into a message, so this arm carries only its name.
  */
 export interface ComposerConsoleCommandResolution {
   readonly outcome: "console-command";
@@ -34,21 +34,27 @@ export interface ComposerRefusedResolution {
   readonly refusal: Refusal;
 }
 
-/** What Send resolves to: one of the four arms. */
-export type ComposerSendResolution =
+/** What a message resolves to once no slash rule applies: a wire call, or a refusal. */
+export type ComposerMessageResolution =
   | ComposerNewTurnResolution
   | ComposerSteerResolution
-  | ComposerConsoleCommandResolution
   | ComposerRefusedResolution;
 
-/** What a dispatch settled as. The composer renders exactly one of these. */
-export type ComposerSendOutcome =
+/** What Send resolves to: one of the four arms. */
+export type ComposerSendResolution = ComposerMessageResolution | ComposerConsoleCommandResolution;
+
+/** What a message dispatch settled as: it reached the wire, or it was refused. */
+export type ComposerMessageOutcome =
   | { readonly status: "sent"; readonly path: ComposerSendPath }
-  | { readonly status: "intercepted"; readonly commandName: string }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
+/** What a send settled as. The composer renders exactly one of these. */
+export type ComposerSendOutcome =
+  | ComposerMessageOutcome
+  | { readonly status: "intercepted"; readonly commandName: string };
+
 /**
- * Whether a name is a registered console command. A port, since the composer has no command
+ * Whether a name is a console command that runs here. A port, since the composer has no command
  * registry handle. The default answers `false`, so an unrecognized `/word` is not
  * intercepted.
  */

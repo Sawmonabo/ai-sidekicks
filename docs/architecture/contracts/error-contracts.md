@@ -203,12 +203,13 @@ This code is registry-only (code + message; no structured `details`): no accepta
 
 ### PTY
 
-Terminal write-lease refusals ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and no holder means writes to that shell are refused (fail-closed). Every refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another.
+Terminal refusals: the write lease ([Spec-002 §Required Behavior](../../specs/002-machine-registration.md#required-behavior)) and the PTY backend ([ADR-018](../../decisions/018-windows-v1-tier-and-pty-sidecar.md)). The lease is **one per shell**: a session opens as many shells as the node can hold, exactly one writer holds a given shell at a time, and no holder means writes to that shell are refused (fail-closed). Every lease refusal below is about one shell, named by the terminal identifier the request carried, and a lease held on one shell never authorizes a write to another.
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `pty.control_not_held` | A write to a shell attempted without holding that shell's write lease — take it first (null-holder-refuses-writes) | 409 |
 | `pty.control_held_by_other` | `session.takeControl` refused for the named shell. **Two refusals share this code; the second has the stronger precondition.** A plain take while another of the account's devices holds that shell: refused, and the recourse is the take's forced form, which moves the lease to the taker without a release. Any take while the hold belongs to a run that is writing: refused, and normatively so, because a run's writes are stopped by intervening on the run and never by a lease contest — the recourse is pause or interrupt, and the run-lifecycle release then frees that shell on the run's first transition out of running. `data.fields.holder` names the holder as `pty.control_changed` does — `{ holderDeviceId, holderRunId? }`, with `holderRunId` set while an agent's run holds the shell and the agent read from that run — on the JSON-RPC surface, mirrored as `details.holder` on the HTTP `ErrorResponse` envelope (same value on both surfaces, via the canonical envelope's structured-context field) | 409 |
+| `pty.backend_unavailable` | The PTY backend a shell needs cannot be constructed: the Rust sidecar binary and the `node-pty` fallback are both unavailable, the backend setting names an unknown backend, or the sidecar host has used up its crash-respawn budget. `details`: `attemptedBackend` (`rust-sidecar` \| `node-pty`) and an optional `cause` | 503 |
 
 Opening a shell on a session that is a chat is refused: a chat has no folder, so it has no shells. The screen never offers the control on a chat, so only a caller fault reaches this refusal. Its code is the one `packages/contracts/src/pty.ts` registers with `pty.open`, under the rules in [§Error Codes](#error-codes).
 
@@ -363,7 +364,7 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `skill.path_refused` | `skill.update` refused a path in the folder it would save. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` | 422 |
+| `skill.path_refused` | `skill.update` refused a path in the folder it would save, or `run.queueCreate` refused a picked skill whose name and path match no row of the session's `skill.list`. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` from `skill.update`, `not_listed` from `run.queueCreate` | 422 |
 | `skill.name_taken` | A save would rename a folder of ours onto a name another folder of ours already holds in the same place; nothing is renamed and nothing is written. `data.fields`: `folderPath`, the folder already holding the name, which the screen names under the Name field | 409 |
 | `skill.write_refused` | A write to a skill was refused. `data.fields.reason` is one of `plugin_read_only` (every operation that writes refuses a plugin's skill, which is read-only) or `not_orphaned` (`skill.recordReattach` named a record that is not orphaned) | 409 |
 

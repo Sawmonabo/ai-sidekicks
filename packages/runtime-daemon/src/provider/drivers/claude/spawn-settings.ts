@@ -65,15 +65,17 @@ export interface ClaudeSandboxSettings {
     readonly filesystem: { readonly allowWrite: readonly string[] };
     readonly network?: { readonly allowedDomains: readonly string[] } | undefined;
   };
-  readonly credentialPolicyRef?: string | undefined;
+  readonly credentialPolicyRef: string;
 }
 
 /**
- * Composes the sandbox settings document for a posture. `failIfUnavailable` is `true` on every
- * arm: a sandboxed posture must refuse to start rather than run unsandboxed.
+ * Composes the sandbox settings document for a posture. Every permission level but `yolo` runs in
+ * the sandbox, and `readonly` writes nowhere. `failIfUnavailable` is `true` on every level: a
+ * sandboxed level must refuse to start rather than run unsandboxed. The credential policy is
+ * handed over on every level.
  */
 export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeSandboxSettings {
-  const sandboxed = posture.mode !== "trusted";
+  const sandboxed = posture.mode !== "yolo";
   return {
     sandbox: {
       enabled: sandboxed,
@@ -81,7 +83,7 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
       allowUnsandboxedCommands: sandboxed ? CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS : true,
       filesystem: {
         // Empty, not omitted: an omitted list asks for the provider's default.
-        allowWrite: posture.mode === "readonly-sandboxed" ? [] : posture.writableRoots,
+        allowWrite: posture.mode === "readonly" ? [] : posture.writableRoots,
       },
       // `full` omits the restriction, since an empty list means the opposite; `none` is empty.
       ...(posture.networkAccess === "full"
@@ -93,6 +95,6 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
             },
           }),
     },
-    ...(posture.mode === "trusted" ? {} : { credentialPolicyRef: posture.credentialPolicyRef }),
+    credentialPolicyRef: posture.credentialPolicyRef,
   };
 }

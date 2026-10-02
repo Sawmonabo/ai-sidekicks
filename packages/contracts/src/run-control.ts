@@ -77,6 +77,7 @@ import {
 } from "./run-provider-choice.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
 import {
+  PermissionLevelSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   type RunSafetyBufferingUpdatedPayload,
 } from "./session-controls.js";
@@ -293,24 +294,18 @@ const allowedDomainsSchema: z.ZodType<[string, ...string[]], [string, ...string[
   wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains"),
 );
 
-// The parts the four posture arms share: two network forms, each with either mode.
+// The parts both network forms of a posture share.
 const executionPostureSharedShape = {
+  mode: PermissionLevelSchema,
   writableRoots: z.array(filesystemPathSchema),
   profileName: wireFreeFormString(
     DRIVER_WIRE_HANDLE_MAX_LEN,
     "ExecutionPosture.profileName",
   ).optional(),
-};
-const sandboxedPostureModeShape = {
-  mode: z.enum(["workspace-sandboxed", "readonly-sandboxed"]),
   credentialPolicyRef: wireFreeFormString(
     DRIVER_WIRE_HANDLE_MAX_LEN,
     "ExecutionPosture.credentialPolicyRef",
   ),
-};
-const allowedDomainsNetworkShape = {
-  networkAccess: z.literal("allowed-domains"),
-  allowedDomains: allowedDomainsSchema,
 };
 
 const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
@@ -318,28 +313,13 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
     .object({
       networkAccess: z.enum(["none", "full"]),
       ...executionPostureSharedShape,
-      mode: z.literal("trusted"),
     })
     .strict(),
   z
     .object({
-      networkAccess: z.enum(["none", "full"]),
+      networkAccess: z.literal("allowed-domains"),
+      allowedDomains: allowedDomainsSchema,
       ...executionPostureSharedShape,
-      ...sandboxedPostureModeShape,
-    })
-    .strict(),
-  z
-    .object({
-      ...allowedDomainsNetworkShape,
-      ...executionPostureSharedShape,
-      mode: z.literal("trusted"),
-    })
-    .strict(),
-  z
-    .object({
-      ...allowedDomainsNetworkShape,
-      ...executionPostureSharedShape,
-      ...sandboxedPostureModeShape,
     })
     .strict(),
 ]);

@@ -34,8 +34,8 @@ export function useCommandHandling(options: {
   const recognizeName = useCallback<ConsoleCommandPredicate>(
     (commandName) =>
       recognizeConsoleCommand(commandName, {
-        registeredCommandIds: readCommands().registeredCommandIds,
-      }).status === "recognized",
+        runnableCommandIds: readCommands().runnableCommandIds,
+      }),
     [readCommands],
   );
   // The executor is memoized and outlives every render, so it reads the handlers through

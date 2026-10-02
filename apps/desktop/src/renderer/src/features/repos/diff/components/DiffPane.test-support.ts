@@ -5,7 +5,8 @@
 
 import { afterEach, beforeEach } from "vitest";
 
-import { paneContext } from "../../pane-context.test-support.js";
+import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { paneContext } from "@test/helpers/pane-context.js";
 import type { DiffPaneProps } from "./DiffPane.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
@@ -22,11 +23,15 @@ export const DIFF_PANE_WORKSPACE_ENTITY = {
 } as const;
 
 /**
- * A pane context whose dependencies are never reached: these cases render from the address
- * alone. The entity is the arm's own, so a subject a diff never opens over fails to compile.
+ * A pane context over a bridge that scripts nothing and no session: these cases render from the
+ * address alone. The entity is the arm's own, so a subject a diff never opens over fails to
+ * compile.
  */
 export function diffPaneContextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {
-  return paneContext({ address: { kind: "diff", entity }, paneId: "pane-diff-1" });
+  return paneContext(
+    { kind: "diff", entity },
+    { bridge: bridgeOnClock("diff-pane").bridge, sessionStore: undefined, paneId: "pane-diff-1" },
+  );
 }
 
 /**

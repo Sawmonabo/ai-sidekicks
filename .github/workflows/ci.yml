@@ -116,6 +116,8 @@ jobs:
       fail-fast: false
       matrix:
         # One OS and one Node version, the floor; `native-prebuilds` covers the other platforms.
+        # `node` is the `.nvmrc` floor as major.minor. It stays a literal because the job's name
+        # renders it, and reading `.nvmrc` whole would rename the check.
         os: [ubuntu-latest]
         node: ["24.16"]
     steps:

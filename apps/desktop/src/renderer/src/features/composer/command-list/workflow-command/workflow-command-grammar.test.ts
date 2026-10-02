@@ -40,8 +40,8 @@ function routerOverRegistry(): ComposerSendRouter {
     calls: sendCallsAnswering(async () => undefined),
     recognizeConsoleCommand: (commandName) =>
       recognizeConsoleCommand(commandName, {
-        registeredCommandIds: readComposerCommands(DEFAULT_ROUTE).registeredCommandIds,
-      }).status === "recognized",
+        runnableCommandIds: readComposerCommands(DEFAULT_ROUTE).runnableCommandIds,
+      }),
   });
 }
 

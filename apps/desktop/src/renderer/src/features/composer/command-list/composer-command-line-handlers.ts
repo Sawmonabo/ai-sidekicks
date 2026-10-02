@@ -6,8 +6,8 @@ import { WORKFLOW_COMMAND_ROOT } from "./workflow-command/workflow-command-gramm
 
 /**
  * Handlers for commands that read arguments off the typed line, keyed by the registry's command id.
- * The registry's `run()` takes no line, so such a command is reached here. A handler for an id the
- * registry lacks is unreachable: the recognizer refuses the name first.
+ * The registry's `run()` takes no line, so such a command is reached here. A handler for an id that
+ * does not run here is unreachable: the executor sends that line as typed first.
  */
 export type ComposerCommandLineHandlers = ReadonlyMap<
   string,

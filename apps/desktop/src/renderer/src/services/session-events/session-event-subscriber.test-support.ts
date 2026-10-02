@@ -29,8 +29,8 @@ export interface SubscriberHarness {
 /**
  * A registry, a fixture bridge and a subscriber over both. The registry's read is registered but
  * resolves `undefined` (the transient miss between reads): registered so the subscriber binds at
- * all, and `undefined` because a snapshot would initialize the stores and change what `applyBatch`
- * does with each event.
+ * all, and `undefined` because a base state would initialize the stores and change what
+ * `applyBatch` does with each event.
  */
 export function createHarness(
   scenario: Scenario = CONCURRENT_STREAMING_SCENARIO,

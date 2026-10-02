@@ -640,17 +640,17 @@ The normalized-table-over-blob shape and the rebuildable-projection split align 
 -- Commitments: C-1 (one document plus a typed TypeScript SDK), C-8 (schema version marker)
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
-  session_id           TEXT NOT NULL,                  -- owning session
   name                 TEXT NOT NULL,                  -- author-facing name
   -- Three-value scope domain per Spec-015 §State And Data Implications
-  -- 'session' binds to the authoring session,
+  -- 'session' binds to one session, named by scope_ref,
   -- 'project' spans a project's sessions, 'shared' is the cross-project reuse tier —
   -- visible to any project on this daemon, out of this same table. 'shared' is
   -- breadth only: no distribution, no cross-machine sync, no additional table.
-  -- session_id below keeps recording the authoring session at every scope.
+  -- No column records an owning session: a 'session' definition names its session in
+  -- scope_ref, and it is runs, not definitions, that live in sessions.
   scope                TEXT NOT NULL DEFAULT 'session'
                        CHECK(scope IN ('session','project','shared')),
-  -- Scope identity: the authoring session id at 'session', the project record's id at
+  -- Scope identity: the session's id at 'session', the project record's id at
   -- 'project', the '' sentinel at 'shared'. Without this column a 'project' row would name no
   -- project, so the scope tier is not storable on `scope` alone.
   -- The DEFAULT '' is safe beside `scope`'s DEFAULT 'session' only because the
@@ -684,13 +684,12 @@ CREATE TABLE workflow_definitions (
   -- REQUIRE a ref. Mirrors the Spec-024 binding CHECK idiom as defense in depth
   -- behind the schema-layer validation.
   CHECK((scope = 'shared') = (scope_ref = '')),
-  -- Dedupe is per scope identity, NOT per authoring session: two sessions storing
-  -- the same 'shared' or 'project' definition must converge on one row, or
-  -- resolution has two irreconcilable candidates. session_id stays provenance only.
+  -- Dedupe is per scope identity: two sessions storing the same 'shared' or
+  -- 'project' definition must converge on one row, or resolution has two
+  -- irreconcilable candidates.
   UNIQUE(scope, scope_ref, content_hash)
 );
 
-CREATE INDEX idx_workflow_definitions_session ON workflow_definitions(session_id);
 CREATE INDEX idx_workflow_definitions_scope ON workflow_definitions(scope, scope_ref);
 CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 

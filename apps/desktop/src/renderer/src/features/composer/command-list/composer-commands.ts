@@ -13,15 +13,14 @@ import type { AppRoute } from "@renderer/routing/routes.js";
 
 /**
  * The narrow face of the console's command list the composer reads and acts through.
- * `offeredCommands` is what the popover may list; `registeredCommandIds` is every id this window
- * holds, visible or not, and a typed name is recognized against it so a command that exists but
- * does not apply here is not reported as unknown. Visibility still decides whether it runs.
+ * `offeredCommands` is what the popover may list; `runnableCommandIds` is what a typed name is
+ * recognized against, so a command hidden or closed here is sent as typed rather than run.
  */
 export interface ComposerCommands {
   /** Every command offered where this composer is, ordered by group then title. */
   readonly offeredCommands: readonly CommandDefinition[];
-  /** Every command this window has registered, in registration order, visible or not. */
-  readonly registeredCommandIds: readonly string[];
+  /** Every offered command whose owner has not closed it, so it would run if typed. */
+  readonly runnableCommandIds: readonly string[];
   /** Run one by id, fail-closed on visibility. Never awaits the command itself. */
   invoke(commandId: string): CommandInvocationOutcome;
 }
@@ -32,9 +31,12 @@ export interface ComposerCommands {
  */
 export function readComposerCommands(route: AppRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
+  const offeredCommands = commandRegistry.commandsFor(whenContext);
   return {
-    offeredCommands: commandRegistry.commandsFor(whenContext),
-    registeredCommandIds: commandRegistry.all().map((command) => command.id),
+    offeredCommands,
+    runnableCommandIds: offeredCommands
+      .filter((command) => command.unavailable === undefined)
+      .map((command) => command.id),
     invoke: (commandId: string) => commandRegistry.invoke(commandId, whenContext),
   };
 }

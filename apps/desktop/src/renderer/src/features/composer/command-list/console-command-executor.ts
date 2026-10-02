@@ -2,16 +2,12 @@
 // `invoke` hands back its command's promise without awaiting it, so this is the one place that
 // spends `completion` and answers with a settlement rather than a start. Every arm settles and
 // none throws, including a rejecting command handler: the send controller awaits under
-// a `finally` with no `catch`, so an escaping rejection would show no refusal.
+// a `finally` with no `catch`, so an escaping rejection would show no refusal. A command that
+// does not run here settles as `send-as-typed`, so the provider answers the line, not the console.
 
 import { isErrorInstance, lossyStringify, readGuardedProperty } from "@renderer/lib/wire-errors.js";
 import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../types.js";
-import {
-  consoleCommandRefusal,
-  recognizeConsoleCommand,
-  unknownCommandRefusal,
-  type ConsoleCommandRecognitionInput,
-} from "./console-command-recognizer.js";
+import { consoleCommandRefusal, recognizeConsoleCommand } from "./console-command-recognizer.js";
 import { type ComposerCommands } from "./composer-commands.js";
 import { type ComposerCommandLineHandlers } from "./composer-command-line-handlers.js";
 
@@ -31,16 +27,14 @@ export function createConsoleCommandExecutor(options: {
 }): CommandExecutor {
   return async (line: ComposerCommandLine): Promise<CommandOutcome> => {
     const commands = options.readCommands();
-    const recognitionInput: ConsoleCommandRecognitionInput = {
-      registeredCommandIds: commands.registeredCommandIds,
-    };
-    const recognition = recognizeConsoleCommand(line.commandName, recognitionInput);
-    if (recognition.status === "refused") {
-      return { status: "refused", refusal: recognition.refusal };
+    const commandId = line.commandName;
+    if (!recognizeConsoleCommand(commandId, { runnableCommandIds: commands.runnableCommandIds })) {
+      // The registry changed since the router claimed the name, or a picked entry is closed.
+      return { status: "send-as-typed" };
     }
     // Preferred over the argument-free `invoke`, and only after the recognizer claimed the
     // name: an argument-reading command run through `invoke` would drop the line.
-    const handler = options.readCommandLineHandlers().get(recognition.commandId);
+    const handler = options.readCommandLineHandlers().get(commandId);
     if (handler !== undefined) {
       try {
         // Called inside the boundary so a handler that throws synchronously and one that
@@ -49,13 +43,13 @@ export function createConsoleCommandExecutor(options: {
       } catch (cause) {
         // A handler is reached through an executor that never throws to report a failure, so
         // it settles here as a registered command's own failure would.
-        return commandFailureRefusal(recognition.commandId, cause);
+        return commandFailureRefusal(commandId, cause);
       }
     }
-    if (options.lineReadingCommandIds.includes(recognition.commandId)) {
+    if (options.lineReadingCommandIds.includes(commandId)) {
       return { status: "not-run" };
     }
-    return await settleInvocation(commands, recognition.commandId);
+    return await settleInvocation(commands, commandId);
   };
 }
 
@@ -67,23 +61,9 @@ async function settleInvocation(
   const outcome = composerCommands.invoke(commandId);
   switch (outcome.status) {
     case "unknown-command":
-      // Reachable: the frame's registration lifecycle can unregister a command between the
-      // recognizer's read and this call.
-      return { status: "refused", refusal: unknownCommandRefusal(commandId) };
     case "hidden-in-context":
-      return {
-        status: "refused",
-        refusal: consoleCommandRefusal(
-          "command-unavailable-here",
-          `${commandId} does not apply here, so it was not run.`,
-        ),
-      };
     case "unavailable":
-      // The owner's own sentence, carried through: this zone knows a command was closed, not why.
-      return {
-        status: "refused",
-        refusal: consoleCommandRefusal("command-unavailable-now", outcome.reason),
-      };
+      return { status: "send-as-typed" };
     case "ran":
       try {
         await outcome.completion;

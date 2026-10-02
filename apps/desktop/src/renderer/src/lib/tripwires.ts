@@ -16,8 +16,6 @@
 //     timer outlived the pane that owned it.
 //   - `publish-failure`: a record's change landed and a subscriber threw while it was published,
 //     so every view subscribed to it is a step behind.
-//   - `diff-hunk-prefix`: a diff hunk line carried a prefix no line kind has, so it was not drawn
-//     and the hunk's line numbers after it are low.
 //
 // Loud in development, reported in production: a development build throws so the author sees it
 // at once; a release build records and reports without crashing the session. Both arms record.
@@ -38,7 +36,6 @@ export const TRIPWIRE_KINDS = [
   "region-render-failure",
   "tick-after-teardown",
   "publish-failure",
-  "diff-hunk-prefix",
 ] as const;
 
 /** One runtime tripwire, derived from the tuple above. */

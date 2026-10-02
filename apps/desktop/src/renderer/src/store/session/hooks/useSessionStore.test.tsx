@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import { useSessionStore } from "./useOpenSessionStore.js";
 import { useSessionInitialized } from "./useSessionInitialized.js";
-import { type SessionSnapshotReader } from "../open-session-entry.js";
+import { type SessionBaseStateReader } from "../open-session-entry.js";
 import { SessionStoreRegistry } from "../session-store-registry.js";
 import type { SessionStore } from "../session-store.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 
-const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
+const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 
 function StoreHeader(props: { readonly store: SessionStore }): React.JSX.Element {
   const initialized = useSessionInitialized(props.store);

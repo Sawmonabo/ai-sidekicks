@@ -22,6 +22,8 @@ import type {
 import { readSlashCommandName } from "../slash-command-syntax.js";
 import type {
   ConsoleCommandPredicate,
+  ComposerMessageOutcome,
+  ComposerMessageResolution,
   ComposerRefusedResolution,
   ComposerSendOutcome,
   ComposerSendResolution,
@@ -81,9 +83,7 @@ export class ComposerSendRouter {
     if (slashOutcome !== undefined) {
       return slashOutcome;
     }
-    return target.path === "session-message"
-      ? this.#resolveNewTurn(text, target)
-      : this.#resolveSteer(text, target);
+    return this.#resolveMessage(text, target);
   }
 
   /**
@@ -92,21 +92,23 @@ export class ComposerSendRouter {
    */
   public async send(text: string, target: ComposerTarget): Promise<ComposerSendOutcome> {
     const resolution = this.resolve(text, target);
-    switch (resolution.outcome) {
-      case "refused":
-        return { status: "refused", refusal: resolution.refusal };
-      case "console-command":
-        return { status: "intercepted", commandName: resolution.commandName };
-      case "new-turn":
-        return await dispatchQueuedTurn(this.#calls, resolution.request);
-      case "steer":
-        return await dispatchIntervention(this.#calls, resolution.request, this.#runVersions);
+    if (resolution.outcome === "console-command") {
+      return { status: "intercepted", commandName: resolution.commandName };
     }
+    return await this.#dispatchMessage(resolution);
+  }
+
+  /**
+   * Send an intercepted line its command did not act on, exactly as typed: the slash rules are
+   * skipped, so the provider answers it as it does in its own terminal.
+   */
+  public async sendAsTyped(text: string, target: ComposerTarget): Promise<ComposerMessageOutcome> {
+    return await this.#dispatchMessage(this.#resolveMessage(text, target));
   }
 
   /**
    * The slash rules under the reserved prefix. Returns `undefined` when the line names no
-   * registered command, the only outcome that continues to a send: the provider answers any
+   * command that runs here, the only outcome that continues to a send: the provider answers any
    * other slash word, its own included, as it does in its own terminal. Whether a line names a
    * command is asked of `slash-command-syntax.ts`, as the command list does.
    */
@@ -120,7 +122,24 @@ export class ComposerSendRouter {
       : undefined;
   }
 
-  #resolveNewTurn(body: string, target: ComposerSessionTarget): ComposerSendResolution {
+  #resolveMessage(body: string, target: ComposerTarget): ComposerMessageResolution {
+    return target.path === "session-message"
+      ? this.#resolveNewTurn(body, target)
+      : this.#resolveSteer(body, target);
+  }
+
+  async #dispatchMessage(resolution: ComposerMessageResolution): Promise<ComposerMessageOutcome> {
+    switch (resolution.outcome) {
+      case "refused":
+        return { status: "refused", refusal: resolution.refusal };
+      case "new-turn":
+        return await dispatchQueuedTurn(this.#calls, resolution.request);
+      case "steer":
+        return await dispatchIntervention(this.#calls, resolution.request, this.#runVersions);
+    }
+  }
+
+  #resolveNewTurn(body: string, target: ComposerSessionTarget): ComposerMessageResolution {
     const sessionId = readSessionId(target.sessionId);
     if (sessionId === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier() };
@@ -136,7 +155,7 @@ export class ComposerSendRouter {
     return { outcome: "new-turn", request };
   }
 
-  #resolveSteer(body: string, target: ComposerRunTarget): ComposerSendResolution {
+  #resolveSteer(body: string, target: ComposerRunTarget): ComposerMessageResolution {
     // The store's projection and the daemon's last answer, reconciled: only the answer has
     // moved after an applied native steer.
     const expectedRunVersion = this.#runVersions.comparandFor(

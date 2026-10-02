@@ -87,7 +87,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
       previousState: "starting",
       newState: "running",
       executionPosture: {
-        mode: "workspace-sandboxed",
+        mode: "ask",
         credentialPolicyRef: "policy://workspace",
         networkAccess: "allowed-domains",
         allowedDomains: ["registry.npmjs.org", "github.com"],

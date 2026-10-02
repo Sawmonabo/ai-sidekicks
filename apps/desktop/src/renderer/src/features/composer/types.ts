@@ -3,7 +3,7 @@
 // The router intercepts a leading slash whose name a recognizer knows, carrying the name and
 // no request. The outcome is a value, not a void, so a controller never clears the line for
 // work nothing performed: it clears on `applied` only, `refused` renders beside the input,
-// and `not-run` leaves the line as typed.
+// `not-run` leaves the line as typed, and `send-as-typed` sends the line to the provider.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 
@@ -19,13 +19,15 @@ export interface ComposerCommandLine {
 }
 
 /**
- * What running one console command settled as. There is no "not found" arm: whether a name is
- * registered is answered by the recognizer before this seam, and an executor that could
- * disagree would be a second registry. `not-run` leaves the line as typed and draws nothing.
+ * What running one console command settled as. `not-run` leaves the line as typed and draws
+ * nothing. `send-as-typed` is a line the console does not act on: a command that does not run
+ * here, or an argument its control cannot take. It goes to the provider exactly as typed, so
+ * the provider's own answer shows and the console adds none.
  */
 export type CommandOutcome =
   | { readonly status: "applied" }
   | { readonly status: "not-run" }
+  | { readonly status: "send-as-typed" }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** Run one recognized console command. Returns a settlement; never throws to report one. */

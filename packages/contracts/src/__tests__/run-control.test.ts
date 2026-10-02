@@ -185,30 +185,18 @@ describe("RunStateChangeEvent", () => {
   });
 
   describe("the executionPosture member", () => {
-    const base = { writableRoots: ["/workspace"] };
+    const base = { writableRoots: ["/workspace"], credentialPolicyRef: "policy://default" };
 
-    it("admits both network arms against both mode arms", () => {
+    it("admits both network arms at a permission level", () => {
       const postures = [
-        { ...base, networkAccess: "none", mode: "trusted" },
-        { ...base, networkAccess: "full", mode: "trusted", profileName: "default" },
-        {
-          ...base,
-          networkAccess: "full",
-          mode: "workspace-sandboxed",
-          credentialPolicyRef: "policy://workspace",
-        },
+        { ...base, networkAccess: "none", mode: "readonly", writableRoots: [] },
+        { ...base, networkAccess: "full", mode: "ask", profileName: "default" },
+        { ...base, networkAccess: "full", mode: "yolo", writableRoots: [] },
         {
           ...base,
           networkAccess: "allowed-domains",
           allowedDomains: ["registry.npmjs.org"],
-          mode: "trusted",
-        },
-        {
-          ...base,
-          networkAccess: "allowed-domains",
-          allowedDomains: ["registry.npmjs.org"],
-          mode: "readonly-sandboxed",
-          credentialPolicyRef: "policy://readonly",
+          mode: "sandboxed",
         },
       ];
       for (const executionPosture of postures) {
@@ -218,9 +206,16 @@ describe("RunStateChangeEvent", () => {
       }
     });
 
-    it("refuses a posture whose members disagree with its mode or network arm", () => {
-      // A recorded posture that claims a sandbox with no credential policy, a credential policy
-      // on a trusted run, or a domain list on an open network misstates the run's boundary.
+    it("refuses a posture with no credential policy, a mode outside the levels, or a stray domain list", () => {
+      // A recorded posture missing its credential policy, naming a mode that is not a permission
+      // level, or carrying a domain list on an open network misstates the run's boundary.
+      const { credentialPolicyRef: _omitted, ...withoutPolicy } = base;
+      expect(() =>
+        RunStateChangeEventSchema.parse({
+          ...minimalRunStateChange,
+          executionPosture: { ...withoutPolicy, networkAccess: "full", mode: "yolo" },
+        }),
+      ).toThrow();
       expect(() =>
         RunStateChangeEventSchema.parse({
           ...minimalRunStateChange,
@@ -232,20 +227,9 @@ describe("RunStateChangeEvent", () => {
           ...minimalRunStateChange,
           executionPosture: {
             ...base,
-            networkAccess: "none",
-            mode: "trusted",
-            credentialPolicyRef: "policy://workspace",
-          },
-        }),
-      ).toThrow();
-      expect(() =>
-        RunStateChangeEventSchema.parse({
-          ...minimalRunStateChange,
-          executionPosture: {
-            ...base,
             networkAccess: "full",
             allowedDomains: ["example.test"],
-            mode: "trusted",
+            mode: "ask",
           },
         }),
       ).toThrow();

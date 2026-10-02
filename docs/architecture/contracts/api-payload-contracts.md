@@ -3011,7 +3011,10 @@ interface QueueItemCreateRequest {
   // provider's call form into the text either way; to a Codex agent each pick also travels in the
   // turn's input as Codex's own skill item `{type: "skill", name, path}`, so of two Codex folders
   // sharing one name the row picked is the one that runs. A Claude Code agent receives only the
-  // `/name` text. Absent when nothing was picked.
+  // `/name` text. Absent when nothing was picked. The path crosses in from the client and reaches the
+  // provider as a file it loads, so the daemon accepts a pick only when its name and path match a row
+  // of this session's `skill.list`, and refuses the send otherwise (`skill.path_refused`,
+  // `not_listed`).
   skills?: { name: string; path: string }[];
   // An edit of a message still waiting, made in one call: the named item reads `superseded` and this
   // one takes its place in the order, so the edited message keeps its position. Refused once the agent
@@ -6328,7 +6331,7 @@ Order, fan-out and join are the document's own edges ([Spec-015 §Graph model �
 type WorkflowDefinitionScope = "session" | "project" | "shared";
 
 // Scope identity, in the shape Spec-024 already uses for scope-qualified bindings:
-// non-empty for `session` (the authoring session id) and `project` (the project record's id); the empty string for `shared`, which is
+// non-empty for `session` (the session's id) and `project` (the project record's id); the empty string for `shared`, which is
 // daemon-wide and refers to nothing narrower. Enforced at the schema layer as a typed
 // validation error, with the DDL CHECK mirroring it as defense in depth — without it,
 // `project` names no project and definition dedupe cannot converge.

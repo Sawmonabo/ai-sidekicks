@@ -1,5 +1,5 @@
 // The dependencies every session-store-registry suite constructs a registry with: the reader,
-// the projector, the event and snapshot builders, the microtask settle, and an initialized store.
+// the projector, the event and base-state builders, the microtask settle, and an initialized store.
 //
 // Shared because suites in several features build their initialized store through it. It is the
 // surrounding cast and not a stand-in for the registry, and one builder for the store keeps every
@@ -9,12 +9,12 @@ import type {
   ProjectedSessionEvent,
   EntityProjectorTable,
 } from "@renderer/store/session/entities/entities.js";
-import type { SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
+import type { SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
 import { eventOfKind } from "./session-events.js";
 import { SessionStore, type SessionBaseState } from "@renderer/store/session/session-store.js";
 
 /** A reader that establishes nothing: the honest "no wire is registered" answer. */
-export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
+export const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 
 function runIdOf(event: ProjectedSessionEvent): string {
   const raw = event.payload?.["runId"];
@@ -37,17 +37,17 @@ export function runEventAt(sequence: number, runId: string): ProjectedSessionEve
 }
 
 /** A base state at `cursor` holding nothing, which the read answers with. */
-export function emptySnapshot(cursor: number): SessionBaseState {
+export function emptyBaseState(cursor: number): SessionBaseState {
   return { cursor, entities: [] };
 }
 
 /**
  * An initialized store, so an appended event is admitted rather than buffered.
  *
- * Built from {@link emptySnapshot} so the shape a store is opened with is written once.
+ * Built from {@link emptyBaseState} so the shape a store is opened with is written once.
  */
 export function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialize(emptySnapshot(0));
+  sessionStore.initialize(emptyBaseState(0));
   return sessionStore;
 }

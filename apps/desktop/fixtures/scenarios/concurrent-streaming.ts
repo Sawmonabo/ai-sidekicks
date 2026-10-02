@@ -33,6 +33,9 @@
 // Ids are UUIDs, as the strict layer requires. `session.created` carries no title, because
 // its `.strict()` payload rejects one. Assistant and tool payloads describe their body and
 // never carry it; the body is stored in `content_payload`.
+//
+// Beside the session's own read it answers the MCP servers and Providers settings pages, whose
+// reads belong to the machine rather than the session.
 
 import {
   composeScenarioInstant,
@@ -47,6 +50,7 @@ import {
   composeResolvedAgent,
   findScenarioMember,
 } from "../data/opening-entries.js";
+import { SETTINGS_PAGE_REPLIES } from "../data/settings-page-replies.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.
@@ -534,5 +538,6 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
         timelineCursors: { latest: "concurrent-streaming-cursor-45" },
       },
     },
+    ...SETTINGS_PAGE_REPLIES,
   ],
 };

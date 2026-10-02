@@ -30,17 +30,17 @@ export interface KeybindingRow {
   readonly group: string;
   /** The chord bound to this command, or `undefined` when it has none. */
   readonly chord: string | undefined;
-  /** Present when the host takes this chord before the console can. */
+  /** Present when the host takes this chord before the app can. */
   readonly unavailableReason: string | undefined;
   /**
-   * The chord the console ships for this command, or `undefined` where it ships none.
+   * The chord the app ships for this command, or `undefined` where it ships none.
    *
    * Carried so a reset control can name what it restores. It is the shipped table's answer,
    * never the effective one, which already has the overrides composed onto it.
    */
   readonly shippedChord: string | undefined;
   /**
-   * True when this row's chord is a person's rather than the console's.
+   * True when this row's chord is a person's rather than the app's.
    *
    * Read from the override map, not by comparing chords: an explicitly unbound command and a
    * command that never had a chord both show none, and only the first has something to reset.
@@ -61,9 +61,9 @@ export type ChordRecording =
   | {
       readonly outcome: "incomplete";
       /**
-       * The modifiers held at this keystroke, in the order the console writes them.
+       * The modifiers held at this keystroke, in the order the app writes them.
        *
-       * Carried so the row can show the console received each key while a chord is in
+       * Carried so the row can show the app received each key while a chord is in
        * progress. Empty is a real answer: a bare key that is not yet a chord key.
        */
       readonly heldModifiers: readonly string[];
@@ -90,7 +90,7 @@ export function composeKeybindingRows(options: {
   readonly commands: readonly CommandDefinition[];
   readonly bindings: readonly Keybinding[];
   /**
-   * The table the console ships, so each row can name the chord a reset restores. Required,
+   * The table the app ships, so each row can name the chord a reset restores. Required,
    * since an omitted table would render a reset that promises something it cannot name.
    */
   readonly shippedBindings: readonly Keybinding[];
@@ -204,7 +204,7 @@ export function readChordFromEvent(
 }
 
 /**
- * The modifiers held, in the order the console writes them.
+ * The modifiers held, in the order the app writes them.
  *
  * `$mod` is the platform's command modifier (Cmd on macOS, Ctrl elsewhere), the token shipped
  * chords are authored in. The other control key is written literally because `⌃` and `⌘` are

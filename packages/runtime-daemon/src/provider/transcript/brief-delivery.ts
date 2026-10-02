@@ -120,14 +120,14 @@ export class BriefDeliveryCoordinator {
   >();
   /**
    * Targets whose last send was ambiguous (memory only). Keyed by target, not (target, brief),
-   * since a grown projection derives a new key. Unbounded on purpose: evicting an entry would give
-   * up the guarantee, so entries leave on evidence only.
+   * since a grown projection derives a new key. Never evicted, since that would give up the
+   * guarantee: an entry leaves on evidence, or with its target when the target's session ends.
    */
   readonly #unconfirmedDeliveries: Set<string> = new Set<string>();
   /**
    * Brief keys attempted per target, recorded before dispatch so an ambiguous send's marker is
-   * attributable. A marker under an unrecorded key is foreign prose and settles nothing. Unbounded
-   * on purpose, like the register above.
+   * attributable. A marker under an unrecorded key is foreign prose and settles nothing. Never
+   * evicted, like the register above, and released with its target.
    */
   readonly #attemptedBriefIdentityKeysByTarget: Map<string, Set<string>> = new Map<
     string,
@@ -169,13 +169,21 @@ export class BriefDeliveryCoordinator {
     return established;
   }
 
+  /**
+   * Forgets a target whose provider session has ended: its handle stops delivering and its
+   * registers are dropped. A delivery in flight still settles for its caller, and what it records
+   * after this call is dropped when it settles.
+   */
+  releaseTarget(providerSessionId: string): void {
+    this.#establishedTargets.delete(providerSessionId);
+    this.#dropTargetRegisters(providerSessionId);
+  }
+
   /** Delivers the brief into the established target at most once and settles what happened. */
   async deliver(request: BriefDeliveryRequest): Promise<BriefDeliverySettlement> {
     // Before anything is rendered, read or sent. Thrown, not settled `withheld`, which would assert
     // the target was never sent to.
-    if (this.#establishedTargets.get(request.target.providerSessionId) !== request.target) {
-      throw new UnownedBriefTargetError(request.target.providerSessionId);
-    }
+    this.#assertOwnedTarget(request.target);
 
     // Rendering is pure, so overlapping callers may both do it.
     const rendering: BriefRendering = this.#projection.render({
@@ -202,6 +210,8 @@ export class BriefDeliveryCoordinator {
         () => undefined,
         () => undefined,
       );
+      // The target may have been released while this call waited.
+      this.#assertOwnedTarget(request.target);
     }
 
     const flight: Promise<BriefDeliverySettlement> = this.#reconcileThenSend(request, rendering);
@@ -215,7 +225,22 @@ export class BriefDeliveryCoordinator {
       // Cleared however the flight ended. The unconfirmed register is kept on purpose: an ambiguous
       // send outlives its call.
       this.#deliveriesInFlight.delete(targetProviderSessionId);
+      // Released mid-flight: drop what the flight recorded after the release.
+      if (this.#establishedTargets.get(targetProviderSessionId) !== request.target) {
+        this.#dropTargetRegisters(targetProviderSessionId);
+      }
     }
+  }
+
+  #assertOwnedTarget(target: EstablishedBriefTarget): void {
+    if (this.#establishedTargets.get(target.providerSessionId) !== target) {
+      throw new UnownedBriefTargetError(target.providerSessionId);
+    }
+  }
+
+  #dropTargetRegisters(providerSessionId: string): void {
+    this.#unconfirmedDeliveries.delete(providerSessionId);
+    this.#attemptedBriefIdentityKeysByTarget.delete(providerSessionId);
   }
 
   async #reconcileThenSend(

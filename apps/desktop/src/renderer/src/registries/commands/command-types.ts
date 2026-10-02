@@ -30,8 +30,9 @@ export interface CommandDefinition {
   readonly preload?: () => void;
   /**
    * Why this row cannot run now, in the owning feature's words; absent where it can. The row
-   * still lists and shows the reason beside it and in the refusal a press earns. Use `when`
-   * for an act that does not exist in this scope.
+   * still lists and shows the reason beside it and in the refusal a palette press earns; typed
+   * in the composer, the word is sent to the provider as typed. Use `when` for an act that does
+   * not exist in this scope.
    */
   readonly unavailable?: string;
 }

@@ -93,6 +93,33 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
+  # The Node version the probes run on, read from `.nvmrc` so it has one home.
+  #
+  # The probe jobs keep no repository checkout, so this job alone checks out,
+  # and only `.nvmrc`. It holds no secret and persists no credential.
+  # ---------------------------------------------------------------------------
+  node-version:
+    name: Node version
+    runs-on: ubuntu-latest
+    # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
+    # stalled job would block later probes.
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - name: Read .nvmrc
+        id: read
+        run: |
+          set -euo pipefail
+          echo "version=$(tr -d '[:space:]' < .nvmrc)" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
   # Codex: a real, credential-free protocol handshake.
   #
   # `codex app-server` answers `initialize` and `account/read` against a scratch
@@ -105,6 +132,7 @@ jobs:
     # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
     # stalled job would block later probes.
     timeout-minutes: 20
+    needs: node-version
     strategy:
       fail-fast: false
       matrix:
@@ -119,7 +147,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version: ${{ needs.node-version.outputs.version }}
 
       - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
         with:
@@ -441,6 +469,7 @@ jobs:
     # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
     # stalled job would block later probes.
     timeout-minutes: 20
+    needs: node-version
     strategy:
       fail-fast: false
       matrix:
@@ -458,7 +487,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version: ${{ needs.node-version.outputs.version }}
 
       - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
         with:
@@ -669,12 +698,12 @@ jobs:
     # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
     # stalled job would block later probes.
     timeout-minutes: 15
-    needs: secret-gate
+    needs: [secret-gate, node-version]
     if: needs.secret-gate.outputs.claude-token-present == 'true'
     steps:
       - uses: actions/setup-node@v5
         with:
-          node-version: "24.16"
+          node-version: ${{ needs.node-version.outputs.version }}
 
       - uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
         with:
