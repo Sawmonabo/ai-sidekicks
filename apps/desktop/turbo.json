@@ -159,6 +159,7 @@
         "src/renderer/**",
         "src/shared/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
         "package.json"
@@ -178,6 +179,7 @@
         "tests/helpers/**",
         "scripts/materialize-electron.ts",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
         "package.json"
@@ -203,6 +205,7 @@
         "tests/endurance/streaming-lanes*",
         "tests/endurance/transcript-endurance.test-support*",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
         "package.json"
@@ -217,6 +220,7 @@
         "tests/browser/**",
         "tests/helpers/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json"
       ],
@@ -230,6 +234,7 @@
         "tests/screenshot/**",
         "tests/helpers/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json"
       ],
@@ -243,6 +248,7 @@
         "tests/accessibility/**",
         "tests/helpers/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json"
       ],
@@ -258,6 +264,7 @@
         "tests/budget/**",
         "scripts/budget/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json",
         "electron.vite.config.ts",
@@ -282,6 +289,7 @@
         "tests/e2e/**",
         "tests/helpers/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json",
         "out/**"
@@ -300,6 +308,7 @@
         "tests/endurance/**",
         "tests/helpers/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json",
         "out/**"
@@ -323,6 +332,7 @@
         "src/renderer/src/**",
         "tests/bench/**",
         "vitest.config.*",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig.paths.json"
       ],
