@@ -5,12 +5,14 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * Where the question an act depends on stands. `not-read` means nobody has asked yet, as
- * distinct from asked and waiting for the reply.
+ * distinct from asked and waiting for the reply. `refused` carries the service's own refusal of
+ * the newest question.
  */
 export type ActPrerequisiteReading<TValue> =
   | { readonly status: "not-read" }
   | { readonly status: "reading" }
-  | { readonly status: "read"; readonly value: TValue };
+  | { readonly status: "read"; readonly value: TValue }
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** The three statuses the act half owns. A settlement arm's discriminant is none of them. */
 export type ActArmStatus = "idle" | "sending" | "refused";

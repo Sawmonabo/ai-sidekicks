@@ -114,6 +114,7 @@ export function readReuseCheckState(
       return { answered: true, verdict: reading.value };
     case "not-read":
     case "reading":
+    case "refused":
       return { answered: false, verdict: NO_REUSE_CANDIDATE };
   }
 }

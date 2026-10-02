@@ -10,6 +10,8 @@ import type {
   WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts";
 
+import type { Refusal } from "@renderer/lib/refusal.js";
+
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
 
@@ -35,6 +37,11 @@ export interface RepoMountsReading {
    * is holding for. No entry means nothing is on the wire.
    */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
+  /**
+   * Per workspace: why the newest switch was refused, until the next switch on that workspace is
+   * sent. No entry means its newest switch was not refused.
+   */
+  readonly refusedModeByWorkspaceId: Readonly<Record<string, Refusal>>;
 }
 
 /** The reading before anything has been asked. */
@@ -46,4 +53,5 @@ export const REPO_MOUNTS_NOT_READ: RepoMountsReading = {
   readAtMilliseconds: 0,
   capabilitiesByWorkspaceId: {},
   pendingModeByWorkspaceId: {},
+  refusedModeByWorkspaceId: {},
 };

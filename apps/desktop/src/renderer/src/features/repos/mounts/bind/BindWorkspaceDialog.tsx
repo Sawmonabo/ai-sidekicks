@@ -146,7 +146,8 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
             Bind
           </button>
         </div>
-        {verdict.status === "incomplete" ? (
+        {/* A refused read draws its refusal with the modes, which this line would contradict. */}
+        {verdict.status === "incomplete" && reading.prerequisite.status !== "refused" ? (
           <p className="meridian-bind__blocked" role="status">
             {verdict.because}
           </p>
@@ -167,6 +168,13 @@ function renderModes(
       return <Nothing kind="not-checked" title="What this mount admits has not been read." />;
     case "reading":
       return <Nothing kind="computing" title="Reading what this mount admits." />;
+    case "refused":
+      return (
+        <InlineRefusal
+          code={reading.prerequisite.refusal.code}
+          detail={reading.prerequisite.refusal.detail}
+        />
+      );
     case "read":
       return (
         <BindModePicker

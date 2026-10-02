@@ -29,11 +29,12 @@ export class AttachmentIngestClient {
   #disposed = false;
 
   public constructor(options: AttachmentIngestClientOptions) {
-    this.#reclaimer = new AttachmentSpoolReclaimer(options.port);
+    const clock = options.clock ?? new RealClock();
+    this.#reclaimer = new AttachmentSpoolReclaimer(options.port, clock);
     this.#streams = new AttachmentIngestStreamDriver({
       port: options.port,
       sessionId: options.sessionId,
-      clock: options.clock ?? new RealClock(),
+      clock,
       entries: this.#entries,
       reclaimer: this.#reclaimer,
     });

@@ -17,6 +17,7 @@ interface StartedRead {
   readonly question: string;
   readonly signal: AbortSignal;
   serve(value: string): void;
+  refuse(reason: Error): void;
 }
 
 interface OpenedReader {
@@ -36,10 +37,12 @@ function open(): OpenedReader {
     // Captures the signal instead of consuming it, so a case can check what ended the read.
     readPrerequisite: async (question: string, signal: AbortSignal) => {
       let serve: (value: string) => void = () => undefined;
-      const answer = new Promise<string>((resolve) => {
+      let refuse: (reason: Error) => void = () => undefined;
+      const answer = new Promise<string>((resolve, reject) => {
         serve = resolve;
+        refuse = reject;
       });
-      reads.push({ question, signal, serve });
+      reads.push({ question, signal, serve, refuse });
       return await answer;
     },
   });
@@ -122,6 +125,21 @@ describe("PrerequisiteReader — a read is performed inside a round", () => {
     await flush();
     expect(reads).toHaveLength(1);
     expect(reader.snapshot.status).toBe("not-read");
+    reader.dispose();
+  });
+
+  it("publishes a refused read's refusal as the prerequisite", async () => {
+    // Without it the half would say it is reading for good, and the scheduler would re-throw
+    // the rejection where no view can draw it.
+    const { reader, clock, reads } = open();
+    reader.ask("first", "user-request");
+    await runScheduledRead(clock);
+    reads[0]?.refuse(new Error("The mount could not be read."));
+    await flush();
+    const prerequisite = reader.snapshot;
+    expect(prerequisite.status === "refused" && prerequisite.refusal.detail).toBe(
+      "The mount could not be read.",
+    );
     reader.dispose();
   });
 });

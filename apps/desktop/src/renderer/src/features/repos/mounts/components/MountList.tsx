@@ -39,6 +39,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
             workspaces={reading.workspaces.filter((row) => row.repoMountId === mount.id)}
             capabilitiesByWorkspaceId={reading.capabilitiesByWorkspaceId}
             pendingModeByWorkspaceId={reading.pendingModeByWorkspaceId}
+            refusedModeByWorkspaceId={reading.refusedModeByWorkspaceId}
             bridge={props.bridge}
             sessionStore={props.sessionStore}
             operations={props.operations}

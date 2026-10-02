@@ -20,6 +20,7 @@ import { PrepareExecutionRoot } from "../execution-roots/PrepareExecutionRoot.js
 import type { PrepareOperations } from "../execution-roots/prepare-controller.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a new wire member
@@ -40,6 +41,8 @@ export interface WorkspaceCardProps {
   readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined;
   /** The mode a switch on this workspace is waiting on the daemon for, where one is. */
   readonly pendingMode: ExecutionMode | undefined;
+  /** Why the newest switch on this workspace was refused, where it was. */
+  readonly modeRefusal: Refusal | undefined;
   /** The bridge the prepare act takes its clock from. */
   readonly bridge: PlatformBridge;
   /** The calls the prepare act makes. */
@@ -95,6 +98,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         capabilities={props.capabilities}
         pendingMode={props.pendingMode}
         availability={availability}
+        refusal={props.modeRefusal}
         onSelect={props.onSelectExecutionMode}
       />
 

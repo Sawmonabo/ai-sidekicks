@@ -28,6 +28,7 @@ function renderRow(
       workspace={row}
       capabilities={undefined}
       pendingMode={undefined}
+      modeRefusal={undefined}
       bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
       bridge={bridge}
       operations={scriptedRepoOperations()}

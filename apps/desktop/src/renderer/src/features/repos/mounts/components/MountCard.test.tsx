@@ -38,6 +38,7 @@ function renderCard(
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
         pendingModeByWorkspaceId={{}}
+        refusedModeByWorkspaceId={{}}
         bridge={bridge}
         operations={scriptedRepoOperations()}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
