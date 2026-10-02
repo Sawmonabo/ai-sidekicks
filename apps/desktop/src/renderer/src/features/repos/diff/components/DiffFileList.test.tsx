@@ -21,7 +21,7 @@ import {
   fixtureFileAt,
   renderFileList,
   tabbableEntryCount,
-} from "./diff-file-list.test-support.js";
+} from "./DiffFileList.test-support.js";
 
 const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);

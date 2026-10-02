@@ -1,4 +1,5 @@
-// Fixtures shared by the workspace tests: hermetic real git, a seeded session and a stepping clock.
+// Fixtures shared by the workspace tests: hermetic real git, a seeded session, a stepping clock and
+// a rejection catcher, which the worktree tests use too.
 
 import { execFile } from "node:child_process";
 import { join } from "node:path";

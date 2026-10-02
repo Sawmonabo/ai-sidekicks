@@ -13,7 +13,7 @@ import {
   type ApprovalCommandInput,
 } from "../contributions/approval-commands.js";
 import { isAcceptedAnswer, pendingRecord } from "../approval-record.test-support.js";
-import { renderCard } from "./approval-card.test-support.js";
+import { renderCard } from "./ApprovalCard.test-support.js";
 
 /**
  * Engages the remember opt-in by clicking its label: the visible control is a `span` whose

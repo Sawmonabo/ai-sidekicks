@@ -15,7 +15,7 @@ import {
   mountDraftLine,
   openSessionStore,
   pressSend,
-} from "./draft-line.test-support.js";
+} from "./DraftLine.test-support.js";
 
 describe("DraftLine — the unsent body lives in the supplied draft store", () => {
   it("restores the text a remount would otherwise have thrown away", () => {

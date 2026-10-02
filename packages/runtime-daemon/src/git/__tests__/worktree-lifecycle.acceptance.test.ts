@@ -32,7 +32,7 @@ import type {
   WorkspaceLifecyclePrimitives,
 } from "../../workspace/execution-root-service.js";
 import { WorkspaceEventEmitter } from "../../workspace/workspace-event-emitter.js";
-import { captureRejection } from "../../workspace/__tests__/workspace-test-support.js";
+import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 import { computeExecutionModeCapabilities } from "../../workspace/workspace-projector.js";
 import { WorkspaceService } from "../../workspace/workspace-service.js";
 import {

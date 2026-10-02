@@ -39,7 +39,7 @@ import type { FilesystemPathProbeFn } from "../workspace-row-guards.js";
 import { WorkspaceBusyError, WorkspaceStaleError } from "../workspace-service-errors.js";
 import { WorkspaceService, type SessionExistenceReader } from "../workspace-service.js";
 
-import { captureRejection } from "./workspace-test-support.js";
+import { captureRejection } from "./workspace.test-support.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures

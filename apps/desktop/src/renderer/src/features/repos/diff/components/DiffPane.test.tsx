@@ -14,7 +14,7 @@ import {
   DIFF_PANE_WORKSPACE_ENTITY,
   diffPaneContextFor,
   installDiffPaneLayout,
-} from "./diff-pane.test-support.js";
+} from "./DiffPane.test-support.js";
 
 const WORKSPACE_ENTITY = DIFF_PANE_WORKSPACE_ENTITY;
 

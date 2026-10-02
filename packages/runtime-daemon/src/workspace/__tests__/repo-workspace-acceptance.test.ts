@@ -28,7 +28,7 @@ import {
   runFixtureGit,
   seedSession,
   steppingClock,
-} from "./workspace-test-support.js";
+} from "./workspace.test-support.js";
 
 // Fixtures
 

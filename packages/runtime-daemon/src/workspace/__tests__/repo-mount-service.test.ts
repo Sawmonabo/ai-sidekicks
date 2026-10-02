@@ -36,7 +36,7 @@ import {
   runFixtureGit,
   seedSession,
   steppingClock,
-} from "./workspace-test-support.js";
+} from "./workspace.test-support.js";
 
 const SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000002" as SessionId;

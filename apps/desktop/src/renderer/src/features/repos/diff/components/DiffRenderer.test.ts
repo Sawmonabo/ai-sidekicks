@@ -20,7 +20,7 @@ import {
   DiffLayoutFixture,
   type DiffGrownRow,
 } from "@test/helpers/diff-layout-fixture.js";
-import { SMALL_DIFF, renderDiff, reportedRowCount } from "./diff-renderer.test-support.js";
+import { SMALL_DIFF, renderDiff, reportedRowCount } from "./DiffRenderer.test-support.js";
 import { expandGap } from "../diff-row-model.js";
 
 /** The rendered-row ceiling one window may reach: viewport rows, overscan, and a boundary row. */
