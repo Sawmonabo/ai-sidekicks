@@ -58,8 +58,8 @@ export const ProjectStateSchema: z.ZodType<ProjectState> = z.enum([
 /**
  * What runs after a worktree is made in the project: files copied into the new
  * tree, then commands run in order, each given up on after the time limit. The
- * steps run with the repository's own git hooks off and never raise an
- * approval, so only the person writes them.
+ * steps run with the repository's own git config, its hooks included, and never
+ * raise an approval, so only the person writes them.
  */
 export interface ProjectSetup {
   filesToCopy: string[];

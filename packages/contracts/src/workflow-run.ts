@@ -381,5 +381,5 @@ export const WorkflowCodeInstallFailedDetailsSchema: z.ZodType<WorkflowCodeInsta
   .object({ reason: z.enum(WORKFLOW_CODE_INSTALL_FAILED_REASONS), detail: z.string().min(1) })
   .strict();
 
-/** A Code step over its memory or time budget. */
+/** A Code step over its memory budget; a deadline cut is `workflow.step_timed_out` instead. */
 export const WORKFLOW_CODE_OVER_BUDGET_CODE = "workflow.code_over_budget" as const;

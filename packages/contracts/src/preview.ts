@@ -83,7 +83,7 @@ export interface PreviewAddressRefusedDetails {
 }
 /** Parses {@link PreviewAddressRefusedDetails}. */
 export const PreviewAddressRefusedDetailsSchema: z.ZodType<PreviewAddressRefusedDetails> = z
-  .object({ reason: z.enum(PREVIEW_ADDRESS_REFUSED_REASONS as [PreviewAddressRefusedReason]) })
+  .object({ reason: z.enum(PREVIEW_ADDRESS_REFUSED_REASONS) })
   .strict();
 
 /**
