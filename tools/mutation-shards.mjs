@@ -6,18 +6,17 @@
 //   plan  - prints the GitHub Actions matrix. A pull request's shards hold only the source files it
 //           changed (`BASE_SHA` set); otherwise every source file. Files are dealt heaviest first
 //           onto the lightest shard, weighed by the tests each file's mutants ran in the saved
-//           results (a static mutant runs the whole suite), or by source length with no result yet.
+//           results (a static mutant runs the whole suite), or by source length when the file has
+//           no saved result.
 //   merge - folds each shard's results for the files it mutated over the package's saved ones, so
 //           the next run of any shard layout reuses every result.
 //
-// `MUTATION_SHARDS` is a JSON object of shard counts per package.
+// `MUTATION_SHARDS` is a JSON object of shard counts per package. A CLI `--mutate` replaces the
+// config's `mutate` list, so the plan applies that list's patterns and exclusions itself.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-
-const SOURCE_FILE = /\.ts$/;
-const NOT_MUTATED = /(__tests__\/|\.test\.ts$|\.test-d\.ts$|\/migrations\/)/;
+import { dirname, join, matchesGlob } from "node:path";
 
 const incrementalPath = (packageName) =>
   join("packages", packageName, ".stryker", "incremental.json");
@@ -58,7 +57,18 @@ function balance(files, count, weigh) {
   return shards.map((shard) => shard.files.sort());
 }
 
-function sourceFiles(packageName, baseSha) {
+/** The `mutate` globs of `stryker.config.json`, split into what is mutated and what is excluded. */
+function readMutatePatterns() {
+  const { mutate } = JSON.parse(readFileSync("stryker.config.json", "utf8"));
+  return {
+    included: mutate.filter((pattern) => !pattern.startsWith("!")),
+    excluded: mutate
+      .filter((pattern) => pattern.startsWith("!"))
+      .map((pattern) => pattern.slice(1)),
+  };
+}
+
+function sourceFiles(packageName, baseSha, { included, excluded }) {
   const directory = `packages/${packageName}/src`;
   const listing = baseSha
     ? execFileSync("git", [
@@ -73,18 +83,26 @@ function sourceFiles(packageName, baseSha) {
   return listing
     .toString()
     .split("\n")
-    .filter((path) => SOURCE_FILE.test(path) && !NOT_MUTATED.test(path))
-    .map((path) => path.slice(`packages/${packageName}/`.length));
+    .map((path) => path.slice(`packages/${packageName}/`.length))
+    .filter(
+      (path) =>
+        included.some((pattern) => matchesGlob(path, pattern)) &&
+        !excluded.some((pattern) => matchesGlob(path, pattern)),
+    );
 }
 
 function plan() {
+  if (process.env.MUTATION_SHARDS === undefined) {
+    throw new Error("MUTATION_SHARDS is not set: give a JSON object of shard counts per package");
+  }
   const shardCounts = JSON.parse(process.env.MUTATION_SHARDS);
+  const mutatePatterns = readMutatePatterns();
   const include = [];
   for (const [packageName, count] of Object.entries(shardCounts)) {
-    const files = sourceFiles(packageName, process.env.BASE_SHA);
+    const files = sourceFiles(packageName, process.env.BASE_SHA, mutatePatterns);
     const cost = measuredCost(readIncremental(incrementalPath(packageName)));
     const sourceLength = (file) => statSync(join("packages", packageName, file)).size;
-    // Tests run per byte of the measured files prices a file with no result yet.
+    // Tests run per byte of the measured files prices a file with no saved result.
     let measuredTests = 0;
     let measuredBytes = 0;
     for (const [file, testsRun] of cost) {
@@ -104,7 +122,7 @@ function plan() {
 /**
  * Folds shard results over the saved report. A shard's report also carries the
  * saved copies of files it did not mutate, so only the files it mutated are
- * taken from it. Files that no longer exist are dropped, so the saved report
+ * taken from it. Files deleted from the tree are dropped, so the saved report
  * does not grow with deleted code.
  */
 function mergeIncremental(saved, shardResults, fileExists) {
