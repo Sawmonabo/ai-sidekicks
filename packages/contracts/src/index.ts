@@ -1671,13 +1671,8 @@ export type {
   SessionCallbackTool,
   SteerPayload,
 } from "./provider-driver.js";
-export {
-  RECOVERY_CONDITIONS,
-  RECOVERY_SPAN_CLASSIFICATIONS,
-  RecoveryConditionSchema,
-  RecoverySpanClassificationSchema,
-} from "./provider-driver-recovery.js";
-export type { RecoveryCondition, RecoverySpanClassification } from "./provider-driver-recovery.js";
+export { RECOVERY_CONDITIONS, RecoveryConditionSchema } from "./provider-driver-recovery.js";
+export type { RecoveryCondition } from "./provider-driver-recovery.js";
 export {
   DECLARED_LOSS_KINDS,
   DeclaredLossKindSchema,
@@ -1976,7 +1971,6 @@ export type {
   RepoCloneSubscribeResponse,
 } from "./repo-clone.js";
 export {
-  FOLDER_LIST_ENTRY_LIMIT,
   FOLDER_TOKEN_MAX_LEN,
   FolderTokenSchema,
   REPO_FOLDER_UNREACHABLE_CODE,
@@ -2198,7 +2192,7 @@ export type {
   RunQueueSubscribeRequest,
 } from "./run-queue.js";
 export { RunQueuedPayloadSchema } from "./run-queued.js";
-export type { EffectiveRunConfig, RunQueuedPayload, RunReachedBy } from "./run-queued.js";
+export type { ChildRunProvenance, EffectiveRunConfig, RunQueuedPayload } from "./run-queued.js";
 export { RunStateSchema } from "./run-state.js";
 export type { RunState } from "./run-state.js";
 export {

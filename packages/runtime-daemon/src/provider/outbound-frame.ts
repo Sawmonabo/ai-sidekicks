@@ -324,7 +324,7 @@ export function composeSupersededDeliveryRunFailure(
     eventType: "run.failed",
     failureCategory: "provider failure",
     recoveryCondition: "recovery-needed",
-    providerFailureDetail: `The provider binding carrying ${SUPERSEDED_DELIVERY_ORIGIN_PHRASE[origin]} for this run was superseded by a fresh spawn before the provider settled the turn, so whether those words reached the model was never established.`,
+    providerFailureDetail: `The runtime binding carrying ${SUPERSEDED_DELIVERY_ORIGIN_PHRASE[origin]} for this run was superseded by a fresh spawn before the provider settled the turn, so whether those words reached the model was never established.`,
   };
 }
 
@@ -371,7 +371,7 @@ export interface AbandonedFrameDelivery {
 
 interface PendingCorrelatedFrame {
   readonly frame: OutboundTextFrame;
-  /** The provider binding written on (a session id on both legs); the join key cannot supply it. */
+  /** The runtime binding written on (a session id on both legs); the join key cannot supply it. */
   readonly scopeKey: string;
   /** Mutable: `recorrelateFrame` re-keys a frame from a run id to the provider's turn id. */
   joinKey: string;
@@ -401,7 +401,7 @@ export type OutboundFrameRole = "turn-opening" | "turn-joining";
 
 /** One frame's registration with the tripwire that will rule on it. */
 export interface OutboundFrameRegistration {
-  /** The provider binding written on (a session id on both legs); it feeds per-binding capacity. */
+  /** The runtime binding written on (a session id on both legs); it feeds per-binding capacity. */
   readonly scopeKey: string;
   /** The key the settling turn will carry — a run id or a provider turn id. */
   readonly joinKey: string;
@@ -583,14 +583,14 @@ export class OutboundFrameTripwire {
   /**
    * Drops one frame's registration for a send that provably never reached the wire. Callers must
    * classify first: a send whose bytes may have been taken must be ruled with `settleFrame`,
-   * because forgetting it is how a swallowed directive escapes. The retained decision is kept.
+   * because forgetting it is how a swallowed message escapes. The retained decision is kept.
    */
   forgetFrame(frame: OutboundTextFrame): void {
     this.#pendingByCorrelationId.delete(frame.correlationId);
   }
 
   /**
-   * Rules on every frame still pending on one provider binding and returns each ruling with the key
+   * Rules on every frame still pending on one runtime binding and returns each ruling with the key
    * it was owed on (a run id until the provider names the turn, then a turn id). For a binding
    * taken from live turns; `forgetScope` fits only pure occupancy. Writes no retained decision.
    */
@@ -768,7 +768,7 @@ export class OutboundFrameTripwire {
  * publish an unregistered `data.type`: it falls through to `-32603`.
  */
 export class OutboundFrameCapacityRefusedError extends Error {
-  /** The provider binding whose budget was exhausted. */
+  /** The runtime binding whose budget was exhausted. */
   readonly scopeKey: string;
   /** Unsettled frames that binding was holding when the write was refused. */
   readonly scopePendingFrameCount: number;
@@ -798,14 +798,14 @@ export class TextNeutralizationRefusedError extends Error {
 
   constructor(subject: "run" | "session", subjectId: string) {
     super(
-      `The provider binding for ${subject} ${subjectId} was disposed after a provider-bound text neutralization failure and cannot be attached to.`,
+      `The runtime binding for ${subject} ${subjectId} was disposed after a provider-bound text neutralization failure and cannot be attached to.`,
     );
     this.name = "TextNeutralizationRefusedError";
   }
 }
 
 /**
- * Tracks provider bindings quarantined by a trip; the caller owns the liveness check against the
+ * Tracks runtime bindings quarantined by a trip; the caller owns the liveness check against the
  * process supervisor's registry, and this class only refuses. Runs are recorded with the session
  * that condemned them but looked up by run id, since `assertRunAttachable` runs before the session
  * is resolved.
@@ -816,7 +816,7 @@ export class RuntimeBindingQuarantine {
   readonly #disposedSessionIds = new Set<string>();
 
   /**
-   * Quarantines a run's provider binding so a later attach refuses rather than answer a stale
+   * Quarantines a run's runtime binding so a later attach refuses rather than answer a stale
    * channel. Idempotent; `sessionId` is the condemned binding the quarantine is released against.
    */
   disposeRun(runId: string, sessionId: string): void {

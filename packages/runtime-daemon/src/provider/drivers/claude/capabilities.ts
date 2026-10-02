@@ -51,7 +51,7 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // `--resume` / `--resume-session-at`.
     resume: true,
     // No mid-turn content injection exists on the programmatic surface. Steer degrades to queue
-    // plus interrupt, a reported degradation; declaring `true` would turn it into a lost directive.
+    // plus interrupt, a reported degradation; declaring `true` would turn it into a lost message.
     steer: false,
     // Control-request registry: tool-permission and clarification requests.
     interactive_requests: true,

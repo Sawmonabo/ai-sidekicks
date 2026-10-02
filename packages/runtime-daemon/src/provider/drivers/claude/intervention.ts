@@ -32,7 +32,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { ClaudeSessionUnavailableError } from "./session-errors.js";
-import { type ClaudeRunChannelLookup } from "./session-transport.js";
+import { type ClaudeRunProcessLookup } from "./session-transport.js";
 
 /**
  * The fallback the daemon applies for a steer this provider cannot do natively: queue the steer
@@ -57,12 +57,12 @@ function countSurvivingQueuedMessages(payload: Record<string, unknown> | undefin
 
 /** What the dispatcher needs: a lookup from a run to its live Claude channel. */
 export interface ClaudeInterventionDispatcherDependencies {
-  readonly channelLookup: ClaudeRunChannelLookup;
+  readonly channelLookup: ClaudeRunProcessLookup;
 }
 
 /** Applies interventions to Claude runs; every arm resolves to a `DriverInterventionResult`. */
 export class ClaudeInterventionDispatcher {
-  readonly #channelLookup: ClaudeRunChannelLookup;
+  readonly #channelLookup: ClaudeRunProcessLookup;
 
   constructor(dependencies: ClaudeInterventionDispatcherDependencies) {
     this.#channelLookup = dependencies.channelLookup;
@@ -96,7 +96,7 @@ export class ClaudeInterventionDispatcher {
     targetRunId: RunId,
     cancelQueued: boolean,
   ): Promise<DriverInterventionResult> {
-    const channel = this.#channelLookup.findChannelForRun(targetRunId);
+    const channel = this.#channelLookup.findProcessForRun(targetRunId);
     if (channel === undefined) {
       throw new ClaudeSessionUnavailableError("no_live_run", { runId: targetRunId });
     }

@@ -9,7 +9,7 @@ import {
   CLAUDE_COMPACTION_COMMAND_TEXT,
   CLAUDE_COMPACTION_FRAME_ORIGIN,
   CLAUDE_COMPACTION_WAIT_MS,
-  type ClaudeSessionChannel,
+  type ClaudeProviderProcess,
   type ClaudeUserTextWriteAttempt,
 } from "./session-transport.js";
 import { describeFailure, sanitizeFailureDetail } from "./session-errors.js";
@@ -40,7 +40,7 @@ export class ClaudeCompactionDispatch {
   /** Arms the wait, writes the command frame and settles on the wait's terminal. */
   async dispatchCompaction(
     sessionId: SessionId,
-    channel: ClaudeSessionChannel,
+    channel: ClaudeProviderProcess,
   ): Promise<DriverCompactionResult> {
     // Armed before dispatch so a fast compaction is not lost; any early exit withdraws it.
     const wait = this.#pendingCompactions.arm(sessionId, CLAUDE_COMPACTION_WAIT_MS);
@@ -93,7 +93,7 @@ export class ClaudeCompactionDispatch {
       dispositionReason:
         observed.terminal === "wait_expired"
           ? "the declared compaction bound elapsed with no typed compaction frame; a later boundary still projects"
-          : "the provider binding was lost while a compaction wait was armed",
+          : "the runtime binding was lost while a compaction wait was armed",
       details: { sessionId, terminal: observed.terminal },
     });
     return { status: "failed", reason: observed.terminal };

@@ -11,7 +11,7 @@ function claudeRow(overrides: Record<string, unknown> = {}): Record<string, unkn
     installation: { state: "installed", version: "2.1.271" },
     commandPath: null,
     availableForNewSessions: true,
-    helpersAtOnce: 0,
+    helpersAtOnce: null,
     autoCompactPercent: { value: 80, lowest: 50, highest: 95 },
     outputStyle: {
       current: "Explanatory",
@@ -77,6 +77,9 @@ describe("provider.update", () => {
   it("changes exactly one setting per press", () => {
     expect(
       ProviderUpdateRequestSchema.safeParse({ provider: "claude", helpersAtOnce: 3 }).success,
+    ).toBe(true);
+    expect(
+      ProviderUpdateRequestSchema.safeParse({ provider: "claude", helpersAtOnce: null }).success,
     ).toBe(true);
     expect(
       ProviderUpdateRequestSchema.safeParse({ provider: "codex", commandPath: null }).success,

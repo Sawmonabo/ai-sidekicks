@@ -1,5 +1,6 @@
-// PASETO v4 conformance against the upstream vectors vendored in `__fixtures__/v4.json` (see
-// `__fixtures__/PROVENANCE.md`): 4-E-* for v4.local, 4-S-* for v4.public, 4-F-* for the failures.
+// PASETO v4 conformance against the upstream vectors vendored in `../__fixtures__/v4.json`
+// (see `../__fixtures__/PROVENANCE.md`): 4-E-* for v4.local, 4-S-* for v4.public, 4-F-* for the
+// failures.
 //
 // Every failure asserts the base InvalidTokenError, not the MacMismatchError subclass, on purpose:
 // 4-F-4 is rejected at the base64url canonical-form check before the MAC step, so a stricter
@@ -33,7 +34,7 @@ interface VectorFile {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const FIXTURE = resolve(__dirname, "__fixtures__/v4.json");
+const FIXTURE = resolve(__dirname, "../__fixtures__/v4.json");
 const FILE: VectorFile = JSON.parse(readFileSync(FIXTURE, "utf8"));
 
 function hex(s: string): Uint8Array {

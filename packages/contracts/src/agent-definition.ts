@@ -195,8 +195,8 @@ const turnCapSchema = z.number().int().positive();
  *   tools at all, and a list is exactly those. Collapsing the first two would make
  *   "I did not choose" read as "I chose nothing".
  * - `turnCap` null is no cap. One number on both providers: where a provider has no
- *   limit of its own the daemon counts the agent's rounds, interrupts at the cap and
- *   lets one wrap-up turn run.
+ *   limit of its own the daemon counts the agent's rounds and, at the cap, denies
+ *   every further tool call with words telling the agent to report what it did.
  * - `hooks` null is none; `memoryScope` null is no memory.
  */
 export interface AgentDefinition {

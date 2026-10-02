@@ -19,7 +19,7 @@ import {
   ProtocolNegotiator,
 } from "../protocol-negotiation.js";
 
-import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
+import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
 
 // A negotiator with its raw and gated registries; `daemon.hello` is registered on the gated one,
 // as bootstrap does.

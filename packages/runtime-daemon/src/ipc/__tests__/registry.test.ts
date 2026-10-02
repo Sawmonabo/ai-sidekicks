@@ -14,7 +14,7 @@ import {
   RegistryRegistrationError,
 } from "../registry.js";
 
-import { passthroughSchema, rejectingSchema } from "./__fixtures__/zod-schemas.js";
+import { passthroughSchema, rejectingSchema } from "../__fixtures__/zod-schemas.js";
 
 // No transportId, so dispatch runs without a wire boundary or negotiation gate.
 const directCtx: HandlerContext = {};

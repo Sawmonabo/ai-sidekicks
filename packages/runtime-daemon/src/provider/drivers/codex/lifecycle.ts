@@ -8,7 +8,7 @@
  *   Splitting a frame across small writes does not help: the cap is per line, not per write, and
  *   it performs worse.
  * - The establishment legs, spawn posture, text-neutralization tripwire, steer dispatch, routing
- *   band, routed-ask attribution, command cache and compaction dispatch are collaborators this
+ *   band, routed-ask attribution, command cache and compaction dispatch are dependencies this
  *   class builds once; it keeps the session slots, the run and turn entry
  *   points and teardown.
  * - Every spawn or dispose runs inside `#claimSessionSlot` (`establishing`, `live`, `closing`),

@@ -65,7 +65,6 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   failureCategory: true,
   failureCause: true,
   recoveryCondition: true,
-  recoverySpanClassification: true,
   providerFailureDetail: true,
   completionKind: true,
   intendedClose: true,

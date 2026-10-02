@@ -110,8 +110,6 @@ export const RepoMountListResponseSchema: z.ZodType<RepoMountListResponse> = z
 
 /** The longest folder token the daemon mints. */
 export const FOLDER_TOKEN_MAX_LEN = 256;
-/** The most entries one `repo.folderList` reply carries. */
-export const FOLDER_LIST_ENTRY_LIMIT = 500;
 
 /**
  * A folder the service listed, as another device names it. The service mints one per folder it
@@ -159,8 +157,8 @@ export interface RepoFolderPathSegment {
 
 /**
  * The `repo.folderList` result: the folder in view as the service writes its path, the path's
- * segments from the top down (the last is the folder in view), at most
- * {@link FOLDER_LIST_ENTRY_LIMIT} of its folders, and `more` when the filter would narrow further.
+ * segments from the top down (the last is the folder in view), its folders, and `more` when the
+ * filter would narrow further.
  */
 export interface RepoFolderListResponse {
   path: string;
@@ -182,17 +180,15 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
           .strict(),
       )
       .min(1),
-    entries: z
-      .array(
-        z
-          .object({
-            name: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.entries[].name"),
-            folderToken: FolderTokenSchema,
-            isRepository: z.boolean(),
-          })
-          .strict(),
-      )
-      .max(FOLDER_LIST_ENTRY_LIMIT),
+    entries: z.array(
+      z
+        .object({
+          name: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.entries[].name"),
+          folderToken: FolderTokenSchema,
+          isRepository: z.boolean(),
+        })
+        .strict(),
+    ),
     more: z.boolean(),
   })
   .strict();

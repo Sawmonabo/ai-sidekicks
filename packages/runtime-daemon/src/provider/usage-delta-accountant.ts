@@ -374,16 +374,15 @@ export class UsageDeltaAccountant {
 // --------------------------------------------------------------------------
 
 /** The cost-provenance values of a cost update. */
-type UsageCostSource = "provider_reported" | "derived_exact" | "derived_family_prefix";
+type UsageCostSource = "provider_reported" | "derived_exact";
 
 /**
- * A pricing-table answer: whole micro-dollars derived from the provider's full breakdown, and
- * whether the model family matched exactly or by prefix. The lookup is injected; this module
- * owns provenance, never the price list.
+ * A pricing-table answer: whole micro-dollars derived from the provider's full breakdown, for a
+ * model the price list carries by its exact id, never by family. The lookup is injected; this
+ * module owns provenance, never the price list.
  */
 export interface DerivedCostQuote {
   readonly costUsdMicros: number;
-  readonly familyMatch: "exact" | "prefix";
 }
 
 /**
@@ -403,9 +402,9 @@ export type CostUpdateResolution =
  * Resolve one `usage.cost_update`'s provenance ladder: (a) a sanity-bounded provider-reported
  * cost (finite, non-negative, below the absurdity ceiling) is `provider_reported`, and gross
  * divergence from a derivable estimate is a diagnostic, never a halt; (b) else a cost derived
- * from the provider's full breakdown and the per-model-family pricing table is `derived_exact`
- * or `derived_family_prefix`; (c) else the request is held until the price list prices it. This
- * never halts and never branches on `costSource`.
+ * from the provider's full breakdown and the price list's entry for the model is `derived_exact`;
+ * (c) else the request is held until the price list prices it. This never halts and never
+ * branches on `costSource`.
  */
 export function resolveCostUpdateProvenance(options: {
   readonly provider: ProviderName;
@@ -471,8 +470,7 @@ export function resolveCostUpdateProvenance(options: {
   if (options.derivedQuote !== null) {
     return {
       resolution: "cost-update",
-      costSource:
-        options.derivedQuote.familyMatch === "exact" ? "derived_exact" : "derived_family_prefix",
+      costSource: "derived_exact",
       costUsdMicros: options.derivedQuote.costUsdMicros,
     };
   }

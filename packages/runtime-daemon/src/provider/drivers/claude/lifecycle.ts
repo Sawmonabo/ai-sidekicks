@@ -1,11 +1,11 @@
 // The Claude driver's session and run lifecycle: `createSession`, `resumeSession`, `startRun`,
 // `interruptRun` and `closeSession`, over one slot per session. The establishment legs, the
 // text-neutralization tripwire, frame routing, the handshake register, the spawn legs and
-// compaction dispatch are collaborators this class builds once; the other driver operations live
+// compaction dispatch are dependencies this class builds once; the other driver operations live
 // in sibling modules.
 //
 // Provider-process concerns sit behind the injected `ClaudeSessionTransport` and
-// `ClaudeSessionChannel` ports: this module spawns nothing and reads no environment variable, so
+// `ClaudeProviderProcess` ports: this module spawns nothing and reads no environment variable, so
 // it cannot leak a `CLAUDE_CODE_OAUTH_TOKEN`. Errors here carry a registered `driver.*` code.
 
 import {
@@ -34,9 +34,9 @@ import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 import {
   CLAUDE_COMPACTION_COMMAND_NAME,
   ClaudeControlRequestRefusedError,
-  type ClaudeRunChannelLookup,
+  type ClaudeRunProcessLookup,
   type ClaudeRunDispatchResolver,
-  type ClaudeSessionChannel,
+  type ClaudeProviderProcess,
   type ClaudeSessionTransport,
   composeClaudeMandatedEnvironment,
   disposeSubagentAdmission,
@@ -79,7 +79,7 @@ import type {
 } from "../../provider-driver.js";
 
 /** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
-export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
+export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   readonly #transport: ClaudeSessionTransport;
   readonly #runDispatchResolver: ClaudeRunDispatchResolver;
   // Every session's slot. Create and resume refuse on a non-EMPTY slot instead of chaining, since
@@ -122,7 +122,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
           };
         }),
     );
-    // Composes all provider-bound text; handed to the collaborators that write it.
+    // Composes all provider-bound text; handed to the dependencies that write it.
     const outboundTextFrameWriter = new OutboundTextFrameWriter({
       // `emulated` at the pinned build: its input intercepts command-shaped text (measured).
       mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
@@ -313,7 +313,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * `ClaudeControlRequestRefusedError` when the CLI refuses.
    */
   async interruptRun(params: InterruptRunParams): Promise<void> {
-    const channel = this.findChannelForRun(params.runId);
+    const channel = this.findProcessForRun(params.runId);
     if (channel === undefined) {
       throw new ClaudeSessionUnavailableError("no_live_run", { runId: params.runId });
     }
@@ -451,7 +451,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
   // Holds the slot as CLOSING for the whole await, so it never reads EMPTY while a process is dying
   // and a concurrent create cannot spawn a replacement beside it.
-  async #disposeHeldChannel(sessionId: SessionId, channel: ClaudeSessionChannel): Promise<void> {
+  async #disposeHeldChannel(sessionId: SessionId, channel: ClaudeProviderProcess): Promise<void> {
     let markSettled = (): void => undefined;
     const settled = new Promise<void>((resolve) => {
       markSettled = resolve;
@@ -486,7 +486,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * The live channel a run is bound to, or `undefined` when it has none yet. Throws if a tripwire
    * trip disposed the run's binding.
    */
-  findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined {
+  findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
     // Refused, not `undefined`, which would read as "no channel yet" and invite a retry into the
     // same swallow; the refusal carries the run terminal's code.
     this.#runtimeBindingQuarantine.assertRunAttachable(runId);
@@ -654,7 +654,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * Wider than `#findLiveSession`, for frame routing only: a rewind holds an `establishing` slot
    * while the predecessor keeps emitting, and refusing those frames would leave a transcript hole.
    */
-  #isChannelCurrentlyBound(sessionId: SessionId, channel: ClaudeSessionChannel): boolean {
+  #isChannelCurrentlyBound(sessionId: SessionId, channel: ClaudeProviderProcess): boolean {
     const slot = this.#sessionSlots.get(sessionId);
     if (slot === undefined) {
       return false;

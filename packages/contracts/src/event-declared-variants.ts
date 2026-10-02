@@ -51,7 +51,7 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
 // family shape over their own state vocabulary. None is run-scoped (no `runId`), so none takes
 // the epoch stamp.
 
-/** Emitted when a workspace's (re)provisioning begins. */
+/** Emitted when a workspace's preparation begins, the first time or again. */
 export interface WorkspacePreparingEvent extends EventEnvelope {
   type: "workspace.preparing";
   category: "session_lifecycle";
@@ -67,7 +67,7 @@ export const WorkspacePreparingEventSchema: z.ZodType<WorkspacePreparingEvent> =
   })
   .strict();
 
-/** Emitted when provisioning completes and the execution root is bound. */
+/** Emitted when preparation completes and the execution root is bound. */
 export interface WorkspaceReadyEvent extends EventEnvelope {
   type: "workspace.ready";
   category: "session_lifecycle";
@@ -84,7 +84,7 @@ export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
   .strict();
 
 /**
- * Emitted when a workspace becomes unavailable: a failed reprovision, or a path that went away
+ * Emitted when a workspace becomes unavailable: a failed preparation, or a path that went away
  * after binding. Write runs are blocked until repair.
  */
 export interface WorkspaceStaleEvent extends EventEnvelope {

@@ -23,7 +23,6 @@ import {
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
   RecoveryConditionSchema,
-  RecoverySpanClassificationSchema,
   RunIdSchema,
   SessionIdSchema,
   wireFreeFormString,
@@ -40,7 +39,6 @@ import {
   type ProviderModel,
   type ProviderToolMetadata,
   type RecoveryCondition,
-  type RecoverySpanClassification,
   type RunId,
   type SessionCallbackTool,
   type SessionId,
@@ -289,19 +287,18 @@ export type CapabilityDetectionSource = "static" | "probed";
 /**
  * Return of `ProviderDriver.resumeSession()`, parsed from untrusted provider output. Discriminated
  * on `status` so a failed resume cannot pose as a successful one: `failed` carries a
- * `RecoveryCondition`, a `RecoverySpanClassification` and `providerFailureDetail` and has no
- * `bindingId`, and a failed resume must never silently create a replacement provider session under
- * the same run. The `resumed` arm's required `sessionPosition` is the driver's normalized monotonic
- * position (a turn or event ordinal, as in `ForkConversationResult`); the daemon compares it with
- * its recorded position, which catches a provider answering a resume with a fresh session (e.g.
- * Claude on a working-directory mismatch). Timestamps live on `runtime_bindings.updated_at`.
+ * `RecoveryCondition` and `providerFailureDetail` and has no `bindingId`, and a failed resume must
+ * never silently create a replacement provider session under the same run. The `resumed` arm's
+ * required `sessionPosition` is the driver's normalized monotonic position (a turn or event
+ * ordinal, as in `ForkConversationResult`); the daemon compares it with its recorded position,
+ * which catches a provider answering a resume with a fresh session (e.g. Claude on a
+ * working-directory mismatch). Timestamps live on `runtime_bindings.updated_at`.
  */
 export type DriverResumeResult =
   | { status: "resumed"; bindingId: string; sessionPosition: number }
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
-      recoverySpanClassification: RecoverySpanClassification;
       providerFailureDetail: string;
     };
 /** Validates a {@link DriverResumeResult}; both arms are `.strict()`. */
@@ -325,10 +322,6 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
         status: z.literal("failed"),
         // References the shared parser so a new condition reaches this carrier by construction.
         recoveryCondition: RecoveryConditionSchema,
-        // Required on this live return: a resume failure is produced fresh and never replayed, so
-        // no older record needs it optional. A driver that cannot classify the span emits
-        // `unclassifiable`, so omission is a schema failure.
-        recoverySpanClassification: RecoverySpanClassificationSchema,
         // The cap is generous so a verbose detail (wrapped upstream stack trace or nested-cause
         // chain) is not suppressed. A value past it is pathological; a driver treats a result that
         // fails this schema as a provider failure and surfaces `recovery-needed`, so the signal
@@ -774,10 +767,9 @@ export interface SubagentDefinition {
 /**
  * How the daemon reaches a driver process; a daemon driver-registry setting, not an RPC payload or
  * a `ProviderDriver` member. Only the Codex leg uses it (`app-server --listen unix://|ws://`,
- * config-gated, off by default); the Claude CLI exposes no local listener, so remote Claude
- * participation is cross-node dispatch. `bearerTokenRef` references the ws bearer credential in
- * daemon config, never the secret value, and is required on the websocket arm so an unauthenticated
- * ws listener is unrepresentable.
+ * config-gated, off by default); the Claude CLI exposes no local listener. `bearerTokenRef`
+ * references the ws bearer credential in daemon config, never the secret value, and is required on
+ * the websocket arm so an unauthenticated ws listener is unrepresentable.
  */
 export type DriverTransportConfig =
   | { transport: "stdio" }

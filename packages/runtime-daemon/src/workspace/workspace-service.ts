@@ -119,10 +119,10 @@ export class WorkspaceService {
   readonly #listWorkspacesStmt: Statement;
   readonly #listWorkspacesByMountStmt: Statement;
   readonly #bindWorkspaceStmt: Statement;
-  readonly #beginReprovisionStmt: Statement;
-  readonly #completeReprovisionStmt: Statement;
-  readonly #failReprovisionWithDetailStmt: Statement;
-  readonly #failReprovisionWithoutDetailStmt: Statement;
+  readonly #beginRootPreparationStmt: Statement;
+  readonly #completeRootPreparationStmt: Statement;
+  readonly #failRootPreparationWithDetailStmt: Statement;
+  readonly #failRootPreparationWithoutDetailStmt: Statement;
   readonly #markStaleStmt: Statement;
   readonly #markBusyStmt: Statement;
   readonly #releaseBusyStmt: Statement;
@@ -190,7 +190,7 @@ export class WorkspaceService {
     // `stale` is a legal predecessor so a failed switch can be retried. `fs_root` is nulled because
     // a stale root would keep matching approvals; `lastError` is cleared so a retried `preparing`
     // row does not advertise the last failure. `execution_mode` is set: completion takes no mode.
-    this.#beginReprovisionStmt = database.prepare(
+    this.#beginRootPreparationStmt = database.prepare(
       `UPDATE workspaces
           SET execution_mode = @execution_mode,
               fs_root = NULL,
@@ -201,7 +201,7 @@ export class WorkspaceService {
     );
 
     // A cycle can complete without re-entering through `beginRootPreparation`; clear it here too.
-    this.#completeReprovisionStmt = database.prepare(
+    this.#completeRootPreparationStmt = database.prepare(
       `UPDATE workspaces
           SET fs_root = @fs_root,
               state = 'ready',
@@ -211,7 +211,7 @@ export class WorkspaceService {
     );
 
     // `json_set`, not a whole-blob rewrite: `metadata` is shared and holds keys other writers own.
-    this.#failReprovisionWithDetailStmt = database.prepare(
+    this.#failRootPreparationWithDetailStmt = database.prepare(
       `UPDATE workspaces
           SET state = 'stale',
               metadata = json_set(metadata, '${LAST_ERROR_METADATA_PATH}', @last_error),
@@ -219,7 +219,7 @@ export class WorkspaceService {
         WHERE id = @workspace_id AND state = 'preparing'`,
     );
 
-    this.#failReprovisionWithoutDetailStmt = database.prepare(
+    this.#failRootPreparationWithoutDetailStmt = database.prepare(
       `UPDATE workspaces
           SET state = 'stale',
               metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
@@ -352,7 +352,7 @@ export class WorkspaceService {
   /**
    * List a session's workspaces through the health projection (`repo.workspaceList`), persisting
    * any derived stale transition. A per-row failure fails the whole response: dropping the row
-   * would shorten the roster the person uses to decide what to detach.
+   * would shorten the list the person uses to decide what to detach.
    */
   async list(request: WorkspaceListRequest): Promise<WorkspaceListResponse> {
     // One binding from two statements that select the same columns and must project identically.
@@ -405,7 +405,7 @@ export class WorkspaceService {
   }
 
   /**
-   * Enter the reprovision cycle, `ready | stale -> preparing`, in `targetMode`. The mode is checked
+   * Enter the preparation cycle, `ready | stale -> preparing`, in `targetMode`. The mode is checked
    * against the mount's matrix first, since completion takes none. Does not call
    * {@link assertWritable}, which refuses `stale`, a legal predecessor here.
    */
@@ -430,7 +430,7 @@ export class WorkspaceService {
     }
 
     // Precise refusal before the compare-and-swap, which can only say the predecessor was illegal.
-    this.#refuseIllegalPredecessor(row, ["ready", "stale"], "reprovision");
+    this.#refuseIllegalPredecessor(row, ["ready", "stale"], "begin preparing");
 
     const now = this.#now();
     await this.#events.emitWorkspacePreparing({
@@ -439,13 +439,13 @@ export class WorkspaceService {
       actor: options.actor ?? null,
       transactionalPrelude: () => {
         assertSingleRowChanged(
-          this.#beginReprovisionStmt.run({
+          this.#beginRootPreparationStmt.run({
             workspace_id: workspaceId,
             execution_mode: targetMode,
             now,
           }),
           workspaceId,
-          "reprovision",
+          "begin preparing",
         );
       },
     });
@@ -463,7 +463,7 @@ export class WorkspaceService {
   ): Promise<void> {
     assertAbsoluteExecutionRoot(fsRoot, workspaceId);
     const row = this.#requireWorkspaceRow(workspaceId);
-    this.#refuseIllegalPredecessor(row, ["preparing"], "complete provisioning of");
+    this.#refuseIllegalPredecessor(row, ["preparing"], "finish preparing");
 
     const now = this.#now();
     await this.#events.emitWorkspaceReady({
@@ -472,9 +472,13 @@ export class WorkspaceService {
       actor: options.actor ?? null,
       transactionalPrelude: () => {
         assertSingleRowChanged(
-          this.#completeReprovisionStmt.run({ workspace_id: workspaceId, fs_root: fsRoot, now }),
+          this.#completeRootPreparationStmt.run({
+            workspace_id: workspaceId,
+            fs_root: fsRoot,
+            now,
+          }),
           workspaceId,
-          "complete provisioning of",
+          "finish preparing",
         );
       },
     });
@@ -491,7 +495,7 @@ export class WorkspaceService {
     options: { readonly actor?: string | null } = {},
   ): Promise<void> {
     const row = this.#requireWorkspaceRow(workspaceId);
-    this.#refuseIllegalPredecessor(row, ["preparing"], "record a provisioning failure for");
+    this.#refuseIllegalPredecessor(row, ["preparing"], "record a preparation failure for");
 
     const lastError = normalizeWorkspaceLastError(failureDetail);
     const now = this.#now();
@@ -502,13 +506,13 @@ export class WorkspaceService {
       transactionalPrelude: () => {
         const result =
           lastError === null
-            ? this.#failReprovisionWithoutDetailStmt.run({ workspace_id: workspaceId, now })
-            : this.#failReprovisionWithDetailStmt.run({
+            ? this.#failRootPreparationWithoutDetailStmt.run({ workspace_id: workspaceId, now })
+            : this.#failRootPreparationWithDetailStmt.run({
                 workspace_id: workspaceId,
                 last_error: lastError,
                 now,
               });
-        assertSingleRowChanged(result, workspaceId, "record a provisioning failure for");
+        assertSingleRowChanged(result, workspaceId, "record a preparation failure for");
       },
     });
   }

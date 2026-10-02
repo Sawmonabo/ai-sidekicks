@@ -334,10 +334,10 @@ describe("bind", () => {
 });
 
 // ----------------------------------------------------------------------------
-// reprovision cycle
+// root preparation cycle
 // ----------------------------------------------------------------------------
 
-describe("reprovision cycle", () => {
+describe("root preparation cycle", () => {
   let workspaceId: string;
 
   beforeEach(async () => {
@@ -423,7 +423,7 @@ describe("reprovision cycle", () => {
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
   });
 
-  it("refuses to reprovision a held workspace with `workspace.busy`", async () => {
+  it("refuses to prepare a held workspace with `workspace.busy`", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
 
     const refusal = await captureRejection(() =>

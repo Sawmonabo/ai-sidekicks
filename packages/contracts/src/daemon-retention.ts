@@ -1,6 +1,7 @@
-// The three retention bounds on Settings › Runtime, and `Delete old data`. Only the service's
-// diagnostic logs and a workflow run's step data go on their own past a bound; a session is
-// removed only by the purge, which the person confirms after reading the count.
+// The two retention bounds on Settings › Runtime, and `Delete old data`. Only the service's
+// diagnostic logs go on their own past a bound; a session is removed only by the purge, which the
+// person confirms after reading the count, and a workflow run's step data stays until its run or
+// its session is deleted.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -8,24 +9,20 @@ import { defineMethodDescriptors, type MethodDescriptor } from "./method-descrip
 const DaysSchema = z.number().int().positive();
 const TimestampSchema = z.iso.datetime({ offset: true });
 
-/** The three bounds, each in whole days. */
+/** The two bounds, each in whole days. */
 export interface DaemonRetentionBounds {
   /**
    * The service's own logs and, in each account home, what the provider writes
-   * and never reads back for a session. Past thirty days the service records a
-   * warning about the setting; it still takes it.
+   * and never reads back for a session. Any period is taken as set.
    */
   keepDiagnosticLogsDays: number;
   /** How long a finished session stays before it can be deleted. */
   keepSessionsDays: number;
-  /** How long a workflow run keeps what each step read and wrote. */
-  keepRunDataDays: number;
 }
 const RetentionBoundsObjectSchema = z
   .object({
     keepDiagnosticLogsDays: DaysSchema,
     keepSessionsDays: DaysSchema,
-    keepRunDataDays: DaysSchema,
   })
   .strict();
 /** Parses {@link DaemonRetentionBounds}. */
@@ -67,7 +64,6 @@ export const DaemonRetentionReadResponseSchema: z.ZodType<DaemonRetentionReadRes
 export interface DaemonRetentionUpdateRequest {
   keepDiagnosticLogsDays?: number | undefined;
   keepSessionsDays?: number | undefined;
-  keepRunDataDays?: number | undefined;
 }
 /** Parses a {@link DaemonRetentionUpdateRequest}: one bound, never none and never two. */
 export const DaemonRetentionUpdateRequestSchema: z.ZodType<

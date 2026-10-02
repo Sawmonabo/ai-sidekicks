@@ -13,7 +13,7 @@ import type {
   ClaudeChannelDisposalReason,
   ClaudeResumedSessionAttachment,
   ClaudeRewoundSessionAttachment,
-  ClaudeSessionChannel,
+  ClaudeProviderProcess,
   ClaudeSessionTransport,
   ClaudeSpawnBoundLegs,
 } from "./session-transport.js";
@@ -39,9 +39,6 @@ import {
   type ProviderSessionHandle,
   type ResumeSessionParams,
 } from "../../provider-driver.js";
-
-// A refused attach hides the previous leg's work; consumers treat it as `irreversible`.
-const CLAUDE_RESUME_SPAN_CLASSIFICATION = "unclassifiable" as const;
 
 /** What the establishment legs spawn through and hand an adopted channel to. */
 export interface ClaudeSessionEstablishmentDependencies {
@@ -69,7 +66,6 @@ export function buildClaudeResumeFailure(
   return {
     status: "failed",
     recoveryCondition: condition,
-    recoverySpanClassification: CLAUDE_RESUME_SPAN_CLASSIFICATION,
     providerFailureDetail: sanitizeFailureDetail(detail),
   };
 }
@@ -80,7 +76,7 @@ export function buildClaudeResumeFailure(
  * (a held slot would make create un-retryable); the transport takes ownership on `dispose`.
  */
 async function disposeRefusedChannel(
-  channel: ClaudeSessionChannel,
+  channel: ClaudeProviderProcess,
   reason: ClaudeChannelDisposalReason,
 ): Promise<string> {
   try {

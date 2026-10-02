@@ -24,7 +24,7 @@ import {
   type StreamingPrimitiveOptions,
 } from "../streaming-primitive.js";
 
-import { passthroughSchema, rejectingSchema } from "./__fixtures__/zod-schemas.js";
+import { passthroughSchema, rejectingSchema } from "../__fixtures__/zod-schemas.js";
 
 interface PrimitiveFixture {
   readonly registry: MethodRegistryImpl;

@@ -13,8 +13,8 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
  * How a child run was reached: a provider's own subagent, a run another agent asked for through
  * the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
  */
-export type RunReachedBy = "provider_subagent" | "bridge_run" | "workflow_step";
-const RunReachedBySchema: z.ZodType<RunReachedBy> = z.enum([
+export type ChildRunProvenance = "provider_subagent" | "bridge_run" | "workflow_step";
+const ChildRunProvenanceSchema: z.ZodType<ChildRunProvenance> = z.enum([
   "provider_subagent",
   "bridge_run",
   "workflow_step",
@@ -52,7 +52,7 @@ export type RunQueuedPayload = {
   newState: "queued";
   agentId?: AgentId | undefined;
   parentRunId?: RunId | undefined;
-  reachedBy?: RunReachedBy | undefined;
+  reachedBy?: ChildRunProvenance | undefined;
   internalHelper?: boolean | undefined;
   effectiveRunConfig?: EffectiveRunConfig | undefined;
   resolvedAgent?: AgentListEntry | undefined;
@@ -68,7 +68,7 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     newState: z.literal("queued"),
     agentId: AgentIdSchema.optional(),
     parentRunId: RunIdSchema.optional(),
-    reachedBy: RunReachedBySchema.optional(),
+    reachedBy: ChildRunProvenanceSchema.optional(),
     internalHelper: z.boolean().optional(),
     effectiveRunConfig: EffectiveRunConfigSchema.optional(),
     resolvedAgent: AgentListEntrySchema.optional(),

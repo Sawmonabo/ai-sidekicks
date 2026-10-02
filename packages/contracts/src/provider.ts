@@ -153,8 +153,8 @@ export const ProviderOutputStyleSettingSchema: z.ZodType<ProviderOutputStyleSett
 /**
  * One provider's section as `provider.list` reads it.
  *
- * `commandPath` is `null` while the person has typed none (auto-detect). `helpersAtOnce` is `0`
- * where the provider decides. The compaction bound and the output style are `null` until the
+ * `commandPath` is `null` while the person has typed none (auto-detect). `helpersAtOnce` is `null`
+ * for no limit and `0` for none. The compaction bound and the output style are `null` until the
  * provider has been read, which a missing or undecided command never is. The output style and the
  * terminal plugin are Claude Code's alone and the shared terminal service is Codex's alone, so
  * each provider's row carries only its own.
@@ -165,7 +165,7 @@ interface ProviderSettingsCommon {
   installation: ProviderInstallation;
   commandPath: string | null;
   availableForNewSessions: boolean;
-  helpersAtOnce: number;
+  helpersAtOnce: number | null;
   autoCompactPercent: ProviderAutoCompactBound | null;
 }
 
@@ -191,7 +191,7 @@ const providerSettingsCommonShape = {
   installation: ProviderInstallationSchema,
   commandPath: commandPathSchema.nullable(),
   availableForNewSessions: z.boolean(),
-  helpersAtOnce: helpersAtOnceSchema,
+  helpersAtOnce: helpersAtOnceSchema.nullable(),
   autoCompactPercent: ProviderAutoCompactBoundSchema.nullable(),
 };
 
@@ -266,15 +266,14 @@ export const ProviderListResponseSchema: z.ZodType<ProviderListResponse> = z
  *
  * `commandPath: null` returns the command to auto-detect; a new path is checked again where it
  * now points and the provider's model catalog is read again. `outputStyle` and
- * `terminalSessionsReachable` are refused for a provider without them. A `helpersAtOnce` outside
- * the range the provider accepts settles on the nearest value it accepts, and the reply carries
- * the value that settled.
+ * `terminalSessionsReachable` are refused for a provider without them. `helpersAtOnce: null` lifts
+ * the limit and `0` withholds the helper tool.
  */
 export interface ProviderUpdateRequest {
   provider: ProviderName;
   commandPath?: string | null | undefined;
   availableForNewSessions?: boolean | undefined;
-  helpersAtOnce?: number | undefined;
+  helpersAtOnce?: number | null | undefined;
   autoCompactPercent?: number | undefined;
   outputStyle?: string | undefined;
   terminalSessionsReachable?: boolean | undefined;
@@ -315,7 +314,7 @@ export const ProviderUpdateRequestSchema: z.ZodType<ProviderUpdateRequest, Provi
       provider: ProviderNameSchema,
       commandPath: commandPathSchema.nullable().optional(),
       availableForNewSessions: z.boolean().optional(),
-      helpersAtOnce: helpersAtOnceSchema.optional(),
+      helpersAtOnce: helpersAtOnceSchema.nullable().optional(),
       autoCompactPercent: wholePercentSchema.multipleOf(5).optional(),
       outputStyle: outputStyleNameSchema.optional(),
       terminalSessionsReachable: z.boolean().optional(),

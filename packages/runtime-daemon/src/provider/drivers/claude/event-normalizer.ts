@@ -344,7 +344,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/request_user_dialog",
     channel: "control-request",
     reason:
-      "a host-rendered dialog of a kind the host declares at start (`refusal_fallback_prompt`, `auto_mode_server_fallback` and others); the CLI treats an undeclared kind as one the host cannot display and fails closed, and the daemon declares none, so Claude Code never sends it",
+      "a host-rendered dialog, sent only for a kind the host declared at `initialize`; the CLI fails closed on any other. The daemon's two kinds are `refusal_fallback_prompt` and `fable_overage_consent_prompt`, recorded as `run.refusal_choice_requested` and `run.usage_credits_choice_requested`, and neither arrives until the driver declares them. `auto_mode_server_fallback` stays undeclared, its words reaching the working line as a provider warning, and `auto_mode_outside_reads` never reaches a headless host",
   },
   "control_request/hook_callback": {
     disposition: "not-evented",

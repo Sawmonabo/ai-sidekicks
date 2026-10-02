@@ -142,7 +142,7 @@ export function computeWorkspaceHealth(
     throw new Error(
       `computeWorkspaceHealth: a workspace in state "${workspaceRow.state}" must carry a ` +
         "resolved fs_root; this row carries NULL. A probe-bearing state with no execution root " +
-        "is a corrupt row — the reprovision path sets fs_root whenever it writes either " +
+        "is a corrupt row — the preparation path sets fs_root whenever it writes either " +
         "state — and there is nothing to probe.",
     );
   }

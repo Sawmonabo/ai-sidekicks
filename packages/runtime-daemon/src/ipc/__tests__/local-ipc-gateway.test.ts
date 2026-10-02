@@ -35,7 +35,7 @@ import {
 } from "../local-ipc-gateway.js";
 import { MethodRegistryImpl } from "../registry.js";
 
-import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
+import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
 
 /**
  * The envelope-level `protocolVersion` every non-handshake request must carry (an ISO 8601

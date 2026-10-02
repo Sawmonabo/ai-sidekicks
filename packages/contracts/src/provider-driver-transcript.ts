@@ -25,11 +25,11 @@ export const DECLARED_LOSS_KINDS = [
   // an exact reproduction of block order and count, whose failures surface as opaque signature
   // rejections rather than declared losses.
   "provider_private_reasoning",
-  // The memo budget evicted older exchanges — whole exchanges only, never halves.
+  // The brief budget evicted older exchanges — whole exchanges only, never halves.
   "context_truncated",
   // An unpaired call took a synthetic error result rather than being dropped.
   "tool_call_history_repaired",
-  // The memo floor: verbatim exchanges replaced by a bounded prose rendering.
+  // The brief floor: verbatim exchanges replaced by a bounded prose rendering.
   "conversation_history_summarized",
   // A logged turn's body could not be read when the fold ran, so the turn is carried with its
   // position and an empty body rather than dropped. Named because the alternatives, a turn that
@@ -37,9 +37,9 @@ export const DECLARED_LOSS_KINDS = [
   "turn_content_unavailable",
   // A logged turn's body exceeded the append-time plaintext ceiling and is stored as a
   // codepoint-boundary prefix; the fold carries the prefix and names the loss. Not
-  // `context_truncated` (the memo budget evicting whole exchanges) and not
+  // `context_truncated` (the brief budget evicting whole exchanges) and not
   // `turn_content_unavailable` (which would overstate a turn available as a prefix). Kept in the
-  // vocabulary because the memo continuity-marker parser refuses a record carrying a token it
+  // vocabulary because the brief continuity-marker parser refuses a record carrying a token it
   // cannot place, and the unreadable-record upper bound reports this whole list.
   "turn_content_truncated",
 ] as const;

@@ -19,5 +19,5 @@ regexes = [
   '''^Ed25519PrivateKey$''',
 ]
 paths = [
-  '''packages/crypto-paseto/src/__tests__/__fixtures__/v4\.json''',
+  '''packages/crypto-paseto/src/__fixtures__/v4\.json''',
 ]

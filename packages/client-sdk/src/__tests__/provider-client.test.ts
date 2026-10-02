@@ -61,7 +61,6 @@ const METHOD_LIST_CAPABILITIES = "driver.listCapabilities";
 const METHOD_LIST_MODELS = "driver.listModels";
 const METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
 const METHOD_COMPACT_CONTEXT = "driver.compactContext";
-const METHOD_LIST_PROVIDER_COMMANDS = "driver.listProviderCommands";
 
 /** A well-formed steer against the run whose bound driver declares no steer. */
 const STEER_AGAINST_NO_NATIVE_STEER_DRIVER: ApplyInterventionParams = {
@@ -348,9 +347,6 @@ describe("driver.subscribeEvents — the stream is narrowed to driver events", (
 
 // A daemon refusal reaches the caller typed
 
-/** Low-entropy sentinel; see the header note on the secret scanner. */
-const TEST_AGENT_ID = "00000000-0000-4000-8000-000000000007";
-
 describe("driver.* — a refusal surfaces as its registered code", () => {
   it("surfaces driver.capability_unsupported as a typed remote error, not as a degraded envelope", async () => {
     // The gate's refusal and the driver's degraded answer are different outcomes; a refusal shaped
@@ -400,7 +396,7 @@ describe("driver.* — a refusal surfaces as its registered code", () => {
     }
   });
 
-  it("surfaces driver.capability_unsupported on compactContext and listProviderCommands as the typed remote refusal", async () => {
+  it("surfaces driver.capability_unsupported on compactContext as the typed remote refusal", async () => {
     // The static gate's refusal must stay a remote error; `{ status: 'refused' }` would claim the
     // caller was adjudicated when the driver simply lacks the capability.
     const capabilityRefusal = {
@@ -410,23 +406,17 @@ describe("driver.* — a refusal surfaces as its registered code", () => {
     };
     const { client } = buildDriverClient({
       [METHOD_COMPACT_CONTEXT]: { refusal: capabilityRefusal },
-      [METHOD_LIST_PROVIDER_COMMANDS]: { refusal: capabilityRefusal },
     });
 
-    for (const call of [
-      () => client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID }),
-      () => client.listProviderCommands({ sessionId: TEST_SESSION_ID, agentId: TEST_AGENT_ID }),
-    ]) {
-      let caught: unknown = null;
-      try {
-        await call();
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(JsonRpcRemoteError);
-      if (caught instanceof JsonRpcRemoteError) {
-        expect(caught.data?.type).toBe("driver.capability_unsupported");
-      }
+    let caught: unknown = null;
+    try {
+      await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+    if (caught instanceof JsonRpcRemoteError) {
+      expect(caught.data?.type).toBe("driver.capability_unsupported");
     }
   });
 });

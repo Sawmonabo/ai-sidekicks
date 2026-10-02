@@ -300,7 +300,7 @@ describe("outbound frame tripwire", () => {
     }).compose({ text, origin });
   }
 
-  // The scope key is the provider binding the frame is written on. Correlation cases share one
+  // The scope key is the runtime binding the frame is written on. Correlation cases share one
   // binding; the capacity cases name their own.
   function registerFrame(
     tripwire: OutboundFrameTripwire,
@@ -497,7 +497,7 @@ describe("outbound frame tripwire", () => {
   });
   it("does not let evidence produced BEFORE a steer vouch for the steer", () => {
     // The settling envelope's item list is the whole turn's, so every item precedes a steer
-    // written later; crediting the list to the steer would let a swallowed directive pass. Items
+    // written later; crediting the list to the steer would let a swallowed message pass. Items
     // and the envelope credit the turn-opening frame alone. The frames carry different origins
     // so the failure detail names which one went unaccounted for.
     const tripwire = new OutboundFrameTripwire();
@@ -767,7 +767,7 @@ describe("outbound frame tripwire", () => {
     expect(tripwire.pendingFrameCount).toBe(0);
   });
 
-  it("caps each provider binding separately, so one stalled session starves none", () => {
+  it("caps each runtime binding separately, so one stalled session starves none", () => {
     // The bound is per binding: a manager-wide budget would let one session that never settles a
     // turn starve every other session.
     const tripwire = new OutboundFrameTripwire();

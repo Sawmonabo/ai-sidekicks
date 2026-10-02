@@ -52,7 +52,7 @@ export async function releaseAbandonedConnection(
   }
 }
 
-/** The session records, collaborators and lifecycle accessors the establishment legs write into. */
+/** The session records, dependencies and lifecycle accessors the establishment legs write into. */
 export interface CodexSessionEstablishmentDependencies {
   readonly options: Pick<CodexLifecycleOptions, "reportDiagnostic">;
   readonly sessions: Map<SessionId, CodexSessionRecord>;
@@ -266,9 +266,6 @@ export class CodexSessionEstablishment {
       return DriverResumeResultSchema.parse({
         status: "failed",
         recoveryCondition,
-        // The driver saw a refused resume, not the span of work in flight; classifying that needs
-        // run state it lacks.
-        recoverySpanClassification: "unclassifiable",
         providerFailureDetail: normalizeProviderFailureDetail(cause),
       });
     }

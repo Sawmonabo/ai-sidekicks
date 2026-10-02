@@ -267,7 +267,7 @@ describe("resolveCostUpdateProvenance", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
       providerReportedCostUsdMicros: 42,
-      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
+      derivedQuote: { costUsdMicros: 40 },
       diagnostics: makeDiagnostics(),
     });
     expect(resolved).toEqual({
@@ -282,7 +282,7 @@ describe("resolveCostUpdateProvenance", () => {
       const resolved = resolveCostUpdateProvenance({
         ...ladderDefaults,
         providerReportedCostUsdMicros: badReportedUsdMicros,
-        derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
+        derivedQuote: { costUsdMicros: 40 },
         diagnostics: makeDiagnostics(),
       });
       expect(resolved).toEqual({
@@ -291,20 +291,6 @@ describe("resolveCostUpdateProvenance", () => {
         costUsdMicros: 40,
       });
     }
-  });
-
-  it("family-prefix fallback resolves derived_family_prefix", () => {
-    const resolved = resolveCostUpdateProvenance({
-      ...ladderDefaults,
-      providerReportedCostUsdMicros: null,
-      derivedQuote: { costUsdMicros: 33, familyMatch: "prefix" },
-      diagnostics: makeDiagnostics(),
-    });
-    expect(resolved).toEqual({
-      resolution: "cost-update",
-      costSource: "derived_family_prefix",
-      costUsdMicros: 33,
-    });
   });
 
   it("holds a request on a model the price list does not price, with no made-up cost", () => {

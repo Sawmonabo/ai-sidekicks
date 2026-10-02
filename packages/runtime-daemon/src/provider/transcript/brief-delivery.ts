@@ -1,6 +1,6 @@
 /**
- * Delivers a rendered memo to a target once, and settles the outcome: the outbound frame, the
- * target gateway, and the coordinator that keeps a repeat send from duplicating the memo.
+ * Delivers a rendered brief to a target once, and settles the outcome: the outbound frame, the
+ * target gateway, and the coordinator that keeps a repeat send from duplicating the brief.
  */
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
@@ -8,41 +8,41 @@ import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 import type { OutboundTextFrame } from "../outbound-frame.js";
 import { OutboundTextFrameWriter } from "../outbound-frame.js";
 import {
-  EstablishedMemoTarget,
-  type MemoBudgetPolicy,
-  MemoProjection,
-  type MemoRendering,
-  type MemoTargetIdentity,
-  UnownedMemoTargetError,
-} from "./memo-projection.js";
+  EstablishedBriefTarget,
+  type BriefBudgetPolicy,
+  BriefProjection,
+  type BriefRendering,
+  type BriefTargetIdentity,
+  UnownedBriefTargetError,
+} from "./hand-over-brief.js";
 import {
-  type MemoContinuityMarkerOccurrence,
-  readAnyMemoContinuityMarkerOccurrences,
-  targetTurnsCarryAttributableMemoMarker,
-  targetTurnsCarryMemoMarker,
-} from "./memo-marker-reader.js";
+  type BriefContinuityMarkerOccurrence,
+  readAnyBriefContinuityMarkerOccurrences,
+  targetTurnsCarryAttributableBriefMarker,
+  targetTurnsCarryBriefMarker,
+} from "./brief-marker-reader.js";
 import type { CanonicalTranscriptProjection } from "../provider-driver.js";
 
 /**
  * The frame handed to the gateway, minted `system_narration`; the driver owns encoding. A frame,
  * not a string, so a gateway cannot send bytes that skipped neutralization and correlation minting.
  */
-export interface MemoOutboundFrame {
+export interface BriefOutboundFrame {
   readonly targetProviderSessionId: string;
-  readonly memoIdentityKey: string;
+  readonly briefIdentityKey: string;
   readonly frame: OutboundTextFrame;
 }
 
 /** The target as this floor sees it: the read reconciliation rests on, and the one send. */
-export interface MemoTargetGateway {
+export interface BriefTargetGateway {
   /**
-   * Turns of the named session (the id `sendMemoTurn` is handed) as text, to decide whether the
+   * Turns of the named session (the id `sendBriefTurn` is handed) as text, to decide whether the
    * marker is present. Must cover the whole session, not a tail, or a scrolled-out marker causes a
-   * second memo. Rejecting means unreadable and never licenses a send.
+   * second brief. Rejecting means unreadable and never licenses a send.
    */
   readTurnsForMarkerReconciliation(targetProviderSessionId: string): Promise<readonly string[]>;
-  /** Delivers the memo turn. A rejection is ambiguous: the frame may have been applied. */
-  sendMemoTurn(frame: MemoOutboundFrame): Promise<void>;
+  /** Delivers the brief turn. A rejection is ambiguous: the frame may have been applied. */
+  sendBriefTurn(frame: BriefOutboundFrame): Promise<void>;
 }
 
 /**
@@ -50,47 +50,47 @@ export interface MemoTargetGateway {
  * send, so an absent marker read afterwards is definitive. Rejecting or absent leaves delivery
  * unconfirmed; a barrier that resolves early is a caller error nothing here can catch.
  */
-export type MemoSendSettlementBarrier = () => Promise<void>;
+export type BriefSendSettlementBarrier = () => Promise<void>;
 
 /** One delivery: the projection, the established target, the budget, and an optional barrier. */
-export interface MemoDeliveryRequest {
+export interface BriefDeliveryRequest {
   readonly projection: CanonicalTranscriptProjection;
   /** An established handle, not a bare identity: only its minting coordinator may deliver. */
-  readonly target: EstablishedMemoTarget;
-  readonly budget: MemoBudgetPolicy;
-  /** Optional. Without it an ambiguous send stays unconfirmed; a late memo still settles. */
-  readonly sendSettlementBarrier?: MemoSendSettlementBarrier | undefined;
+  readonly target: EstablishedBriefTarget;
+  readonly budget: BriefBudgetPolicy;
+  /** Optional. Without it an ambiguous send stays unconfirmed; a late brief still settles. */
+  readonly sendSettlementBarrier?: BriefSendSettlementBarrier | undefined;
 }
 
 /**
- * `delivered` and `already-delivered` mean the target holds the memo; `withheld` means nothing was
+ * `delivered` and `already-delivered` mean the target holds the brief; `withheld` means nothing was
  * sent; `unconfirmed` means a send is outstanding and unknown, and persists across calls until
  * evidence moves it.
  */
-type MemoDeliveryDisposition = "delivered" | "already-delivered" | "withheld" | "unconfirmed";
+type BriefDeliveryDisposition = "delivered" | "already-delivered" | "withheld" | "unconfirmed";
 
 /** Why nothing reached the target; `send-refused` needs a later call's barrier, not a rejection. */
-type MemoWithheldReason = "target-unreadable" | "send-refused";
+type BriefWithheldReason = "target-unreadable" | "send-refused";
 
 /**
- * Which memo `declaredLosses` describes: this call's render, the memo already on the target
+ * Which brief `declaredLosses` describes: this call's render, the brief already on the target
  * (possibly rendered under a tighter budget), or `unknown` when its record was unreadable, where
  * the list is the whole producible set as an upper bound.
  */
-type MemoDeclaredLossSource = "this-delivery" | "delivered-memo" | "unknown";
+type BriefDeclaredLossSource = "this-delivery" | "delivered-brief" | "unknown";
 
 /** The outcome of one delivery: its disposition, the declared losses, and the rendering. */
-export interface MemoDeliverySettlement {
+export interface BriefDeliverySettlement {
   /** Always `degraded`: `applied` would tell the user the model sees the conversation. */
   readonly status: "degraded";
-  readonly disposition: MemoDeliveryDisposition;
-  readonly memoIdentityKey: string;
+  readonly disposition: BriefDeliveryDisposition;
+  readonly briefIdentityKey: string;
   readonly declaredLosses: readonly DeclaredLossKind[];
-  /** Which memo `declaredLosses` describes. */
-  readonly declaredLossSource: MemoDeclaredLossSource;
-  readonly withheldReason?: MemoWithheldReason | undefined;
+  /** Which brief `declaredLosses` describes. */
+  readonly declaredLossSource: BriefDeclaredLossSource;
+  readonly withheldReason?: BriefWithheldReason | undefined;
   /** What was rendered, whether or not it was sent. Held in memory only. */
-  readonly rendering: MemoRendering;
+  readonly rendering: BriefRendering;
 }
 
 /**
@@ -98,35 +98,36 @@ export interface MemoDeliverySettlement {
  * marker and no unresolved earlier send. Guards are in-memory and per coordinator (one delivery
  * per target at a time; an ambiguous send blocks the target); a restart relies on the reconcile.
  */
-export class MemoDeliveryCoordinator {
-  readonly #gateway: MemoTargetGateway;
-  readonly #projection: MemoProjection;
+export class BriefDeliveryCoordinator {
+  readonly #gateway: BriefTargetGateway;
+  readonly #projection: BriefProjection;
   readonly #frameWriter: OutboundTextFrameWriter;
   /** Targets by provider session id; a foreign handle or a bare `new` is refused by identity. */
-  readonly #establishedTargets: Map<string, EstablishedMemoTarget> = new Map<
+  readonly #establishedTargets: Map<string, EstablishedBriefTarget> = new Map<
     string,
-    EstablishedMemoTarget
+    EstablishedBriefTarget
   >();
   /**
-   * The delivery in flight into each target id, with the key of the memo it rendered. Target-scoped
-   * because two overlapping calls with different keys would each find no marker and both send.
+   * The delivery in flight into each target id, with the key of the brief it rendered.
+   * Target-scoped because two overlapping calls with different keys would each find no marker and
+   * both send.
    */
-  readonly #deliveriesInFlight: Map<string, MemoDeliveryInFlight> = new Map<
+  readonly #deliveriesInFlight: Map<string, BriefDeliveryInFlight> = new Map<
     string,
-    MemoDeliveryInFlight
+    BriefDeliveryInFlight
   >();
   /**
-   * Targets whose last send was ambiguous (memory only). Keyed by target, not (target, memo), since
-   * a grown projection derives a new key. Unbounded on purpose: evicting an entry would give up the
-   * guarantee, so entries leave on evidence only.
+   * Targets whose last send was ambiguous (memory only). Keyed by target, not (target, brief),
+   * since a grown projection derives a new key. Unbounded on purpose: evicting an entry would give
+   * up the guarantee, so entries leave on evidence only.
    */
   readonly #unconfirmedDeliveries: Set<string> = new Set<string>();
   /**
-   * Memo keys attempted per target, recorded before dispatch so an ambiguous send's marker is
+   * Brief keys attempted per target, recorded before dispatch so an ambiguous send's marker is
    * attributable. A marker under an unrecorded key is foreign prose and settles nothing. Unbounded
    * on purpose, like the register above.
    */
-  readonly #attemptedMemoIdentityKeysByTarget: Map<string, Set<string>> = new Map<
+  readonly #attemptedBriefIdentityKeysByTarget: Map<string, Set<string>> = new Map<
     string,
     Set<string>
   >();
@@ -136,8 +137,8 @@ export class MemoDeliveryCoordinator {
    * writer, so an undeclared caller cannot opt out of the boundary.
    */
   constructor(
-    gateway: MemoTargetGateway,
-    projection: MemoProjection = new MemoProjection(),
+    gateway: BriefTargetGateway,
+    projection: BriefProjection = new BriefProjection(),
     frameWriter: OutboundTextFrameWriter = new OutboundTextFrameWriter({
       mechanismGrade: "emulated",
     }),
@@ -149,30 +150,32 @@ export class MemoDeliveryCoordinator {
 
   /**
    * Mints the handle a delivery is addressed to, asserting the target is fresh (which this
-   * coordinator cannot verify; see {@link EstablishedMemoTarget}). Idempotent per provider session
+   * coordinator cannot verify; see {@link EstablishedBriefTarget}). Idempotent per provider session
    * and never touches the unconfirmed register.
    */
-  establishTarget(target: MemoTargetIdentity): EstablishedMemoTarget {
-    const alreadyEstablished: EstablishedMemoTarget | undefined = this.#establishedTargets.get(
+  establishTarget(target: BriefTargetIdentity): EstablishedBriefTarget {
+    const alreadyEstablished: EstablishedBriefTarget | undefined = this.#establishedTargets.get(
       target.providerSessionId,
     );
     if (alreadyEstablished !== undefined) {
       return alreadyEstablished;
     }
-    const established: EstablishedMemoTarget = new EstablishedMemoTarget(target.providerSessionId);
+    const established: EstablishedBriefTarget = new EstablishedBriefTarget(
+      target.providerSessionId,
+    );
     this.#establishedTargets.set(target.providerSessionId, established);
     return established;
   }
 
-  async deliver(request: MemoDeliveryRequest): Promise<MemoDeliverySettlement> {
+  async deliver(request: BriefDeliveryRequest): Promise<BriefDeliverySettlement> {
     // Before anything is rendered, read or sent. Thrown, not settled `withheld`, which would assert
     // the target was never sent to.
     if (this.#establishedTargets.get(request.target.providerSessionId) !== request.target) {
-      throw new UnownedMemoTargetError(request.target.providerSessionId);
+      throw new UnownedBriefTargetError(request.target.providerSessionId);
     }
 
     // Rendering is pure, so overlapping callers may both do it.
-    const rendering: MemoRendering = this.#projection.render({
+    const rendering: BriefRendering = this.#projection.render({
       projection: request.projection,
       target: request.target,
       budget: request.budget,
@@ -183,12 +186,12 @@ export class MemoDeliveryCoordinator {
     // another budget; a different key waits the flight out, then reconciles against what it seeded.
     // Terminates: an entry leaves the map when its owner settles.
     for (;;) {
-      const inFlight: MemoDeliveryInFlight | undefined =
+      const inFlight: BriefDeliveryInFlight | undefined =
         this.#deliveriesInFlight.get(targetProviderSessionId);
       if (inFlight === undefined) {
         break;
       }
-      if (inFlight.memoIdentityKey === rendering.memoIdentityKey) {
+      if (inFlight.briefIdentityKey === rendering.briefIdentityKey) {
         return await inFlight.settlement;
       }
       // Awaited for completion only; this call derives its own settlement from the target.
@@ -198,9 +201,9 @@ export class MemoDeliveryCoordinator {
       );
     }
 
-    const flight: Promise<MemoDeliverySettlement> = this.#reconcileThenSend(request, rendering);
+    const flight: Promise<BriefDeliverySettlement> = this.#reconcileThenSend(request, rendering);
     this.#deliveriesInFlight.set(targetProviderSessionId, {
-      memoIdentityKey: rendering.memoIdentityKey,
+      briefIdentityKey: rendering.briefIdentityKey,
       settlement: flight,
     });
     try {
@@ -213,9 +216,9 @@ export class MemoDeliveryCoordinator {
   }
 
   async #reconcileThenSend(
-    request: MemoDeliveryRequest,
-    rendering: MemoRendering,
-  ): Promise<MemoDeliverySettlement> {
+    request: BriefDeliveryRequest,
+    rendering: BriefRendering,
+  ): Promise<BriefDeliverySettlement> {
     // A target left ambiguous is possibly applied until evidence says otherwise. The barrier is
     // awaited before the read, which is definitive only after the provider settled that send.
     const priorSendUnconfirmed: boolean = this.#unconfirmedDeliveries.has(
@@ -231,27 +234,28 @@ export class MemoDeliveryCoordinator {
         request.target.providerSessionId,
       );
     } catch {
-      // Unreadable: nothing is sent, since a duplicate corrupts the conversation and a missing memo
-      // only degrades it. With a send outstanding the honest arm is unconfirmed, not withheld.
+      // Unreadable: nothing is sent, since a duplicate corrupts the conversation and a missing
+      // brief only degrades it. With a send outstanding the honest arm is unconfirmed, not
+      // withheld.
       return priorSendUnconfirmed
         ? settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering))
         : settle(rendering, "withheld", "target-unreadable", thisDeliveryLosses(rendering));
     }
 
-    const attributableMemoIdentityKeys: Set<string> = new Set<string>(
-      this.#attemptedMemoIdentityKeysByTarget.get(request.target.providerSessionId),
+    const attributableBriefIdentityKeys: Set<string> = new Set<string>(
+      this.#attemptedBriefIdentityKeysByTarget.get(request.target.providerSessionId),
     );
-    attributableMemoIdentityKeys.add(rendering.memoIdentityKey);
-    if (targetTurnsCarryAttributableMemoMarker(priorTurns, attributableMemoIdentityKeys)) {
-      // The one evidence needing no barrier: the target is seeded by this memo, an earlier key this
-      // coordinator attempted, or an outstanding send now known applied (it is the only sender
+    attributableBriefIdentityKeys.add(rendering.briefIdentityKey);
+    if (targetTurnsCarryAttributableBriefMarker(priorTurns, attributableBriefIdentityKeys)) {
+      // The one evidence needing no barrier: the target is seeded by this brief, an earlier key
+      // this coordinator attempted, or an outstanding send now known applied (it is the only sender
       // into an established target). The target leaves the register and nothing more is sent.
       this.#unconfirmedDeliveries.delete(request.target.providerSessionId);
       return settle(
         rendering,
         "already-delivered",
         undefined,
-        deliveredMemoLosses(priorTurns, rendering.memoIdentityKey),
+        deliveredBriefLosses(priorTurns, rendering.briefIdentityKey),
       );
     }
 
@@ -269,19 +273,19 @@ export class MemoDeliveryCoordinator {
 
     // Recorded before dispatch so the marker of a send that throws below is attributable.
     let attemptedKeysForTarget: Set<string> | undefined =
-      this.#attemptedMemoIdentityKeysByTarget.get(request.target.providerSessionId);
+      this.#attemptedBriefIdentityKeysByTarget.get(request.target.providerSessionId);
     if (attemptedKeysForTarget === undefined) {
       attemptedKeysForTarget = new Set<string>();
-      this.#attemptedMemoIdentityKeysByTarget.set(
+      this.#attemptedBriefIdentityKeysByTarget.set(
         request.target.providerSessionId,
         attemptedKeysForTarget,
       );
     }
-    attemptedKeysForTarget.add(rendering.memoIdentityKey);
+    attemptedKeysForTarget.add(rendering.briefIdentityKey);
     try {
-      await this.#gateway.sendMemoTurn({
+      await this.#gateway.sendBriefTurn({
         targetProviderSessionId: request.target.providerSessionId,
-        memoIdentityKey: rendering.memoIdentityKey,
+        briefIdentityKey: rendering.briefIdentityKey,
         frame: this.#frameWriter.compose({
           text: rendering.text,
           origin: "system_narration",
@@ -301,16 +305,16 @@ export class MemoDeliveryCoordinator {
       } catch {
         return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
       }
-      if (targetTurnsCarryMemoMarker(turnsAfterSend, rendering.memoIdentityKey)) {
-        // The memo is visibly there, so the unacknowledged send applied; no ordering is needed.
+      if (targetTurnsCarryBriefMarker(turnsAfterSend, rendering.briefIdentityKey)) {
+        // The brief is visibly there, so the unacknowledged send applied; no ordering is needed.
         this.#unconfirmedDeliveries.delete(request.target.providerSessionId);
-        // Losses come from the marker; one with no record is not the memo this call composed, so it
-        // takes the conservative arm.
+        // Losses come from the marker; one with no record is not the brief this call composed, so
+        // it takes the conservative arm.
         return settle(
           rendering,
           "delivered",
           undefined,
-          deliveredMemoLosses(turnsAfterSend, rendering.memoIdentityKey),
+          deliveredBriefLosses(turnsAfterSend, rendering.briefIdentityKey),
         );
       }
       // One absent snapshot while the provider may still be applying is not evidence.
@@ -323,8 +327,8 @@ export class MemoDeliveryCoordinator {
  * Awaits the caller's barrier; true means a readback taken next is definitive. An absent and a
  * rejected barrier both give false, since a bounded wait expiring is the ordinary unanswered case.
  */
-async function awaitSendSettlement(request: MemoDeliveryRequest): Promise<boolean> {
-  const barrier: MemoSendSettlementBarrier | undefined = request.sendSettlementBarrier;
+async function awaitSendSettlement(request: BriefDeliveryRequest): Promise<boolean> {
+  const barrier: BriefSendSettlementBarrier | undefined = request.sendSettlementBarrier;
   if (barrier === undefined) {
     return false;
   }
@@ -336,21 +340,21 @@ async function awaitSendSettlement(request: MemoDeliveryRequest): Promise<boolea
   }
 }
 
-interface MemoDeliveryInFlight {
-  readonly memoIdentityKey: string;
-  readonly settlement: Promise<MemoDeliverySettlement>;
+interface BriefDeliveryInFlight {
+  readonly briefIdentityKey: string;
+  readonly settlement: Promise<BriefDeliverySettlement>;
 }
 
 function settle(
-  rendering: MemoRendering,
-  disposition: MemoDeliveryDisposition,
-  withheldReason: MemoWithheldReason | undefined,
-  lossRecord: MemoDeclaredLossRecord,
-): MemoDeliverySettlement {
+  rendering: BriefRendering,
+  disposition: BriefDeliveryDisposition,
+  withheldReason: BriefWithheldReason | undefined,
+  lossRecord: BriefDeclaredLossRecord,
+): BriefDeliverySettlement {
   return {
     status: "degraded",
     disposition,
-    memoIdentityKey: rendering.memoIdentityKey,
+    briefIdentityKey: rendering.briefIdentityKey,
     declaredLosses: lossRecord.losses,
     declaredLossSource: lossRecord.source,
     withheldReason,
@@ -358,29 +362,29 @@ function settle(
   };
 }
 
-interface MemoDeclaredLossRecord {
-  readonly source: MemoDeclaredLossSource;
+interface BriefDeclaredLossRecord {
+  readonly source: BriefDeclaredLossSource;
   readonly losses: readonly DeclaredLossKind[];
 }
 
-function thisDeliveryLosses(rendering: MemoRendering): MemoDeclaredLossRecord {
+function thisDeliveryLosses(rendering: BriefRendering): BriefDeclaredLossRecord {
   return { source: "this-delivery", losses: rendering.declaredLosses };
 }
 
 /**
- * Losses recorded by the memo the target holds, for settlements resting on a read marker. Only
- * when every occurrence is a readable record of this memo; otherwise the whole closed vocabulary,
+ * Losses recorded by the brief the target holds, for settlements resting on a read marker. Only
+ * when every occurrence is a readable record of this brief; otherwise the whole closed vocabulary,
  * as an unparsed marker may hold kinds a newer peer daemon wrote, and understating misleads.
  */
-function deliveredMemoLosses(
+function deliveredBriefLosses(
   targetTurns: readonly string[],
-  memoIdentityKey: string,
-): MemoDeclaredLossRecord {
-  const occurrences: readonly MemoContinuityMarkerOccurrence[] =
-    readAnyMemoContinuityMarkerOccurrences(targetTurns);
+  briefIdentityKey: string,
+): BriefDeclaredLossRecord {
+  const occurrences: readonly BriefContinuityMarkerOccurrence[] =
+    readAnyBriefContinuityMarkerOccurrences(targetTurns);
   const recorded: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
   for (const occurrence of occurrences) {
-    if (occurrence.form !== "recorded" || occurrence.memoIdentityKey !== memoIdentityKey) {
+    if (occurrence.form !== "recorded" || occurrence.briefIdentityKey !== briefIdentityKey) {
       return { source: "unknown", losses: DECLARED_LOSS_KINDS };
     }
     for (const kind of occurrence.kinds) {
@@ -389,5 +393,5 @@ function deliveredMemoLosses(
   }
   return occurrences.length === 0
     ? { source: "unknown", losses: DECLARED_LOSS_KINDS }
-    : { source: "delivered-memo", losses: [...recorded] };
+    : { source: "delivered-brief", losses: [...recorded] };
 }
