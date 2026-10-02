@@ -38,18 +38,17 @@ export const RepoCloneRequestSchema: z.ZodType<RepoCloneRequest, RepoCloneReques
   .strict();
 
 /**
- * The refusal `repo.clone` answers before any clone starts: the address is neither https nor ssh,
- * or the destination folder is not empty. Nothing is made.
+ * The refusal `repo.clone` answers before any clone starts: the destination folder is not empty.
+ * Nothing is made. The address goes to git as typed, and git's own transport rules decide it.
  */
 export const REPO_CLONE_REFUSED_CODE = "repo.clone_refused" as const;
 /** The type of {@link REPO_CLONE_REFUSED_CODE}. */
 export type RepoCloneRefusedCode = typeof REPO_CLONE_REFUSED_CODE;
 
 /** Why a clone was refused before it started. */
-export type RepoCloneRefusedReason = "unsupported_address" | "destination_not_empty";
+export type RepoCloneRefusedReason = "destination_not_empty";
 /** Every {@link RepoCloneRefusedReason}. */
 export const REPO_CLONE_REFUSED_REASONS: readonly RepoCloneRefusedReason[] = Object.freeze([
-  "unsupported_address",
   "destination_not_empty",
 ]);
 

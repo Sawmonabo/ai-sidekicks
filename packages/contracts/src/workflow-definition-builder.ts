@@ -24,9 +24,6 @@ import {
 /** A workflow turned on with a trigger that cannot be armed; nothing turns on. */
 export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as const;
 
-/** An expression whose evaluation ran past its time budget. */
-export const WORKFLOW_EXPRESSION_OVER_BUDGET_CODE = "workflow.expression_over_budget" as const;
-
 /**
  * A webhook call whose bearer token does not match the workflow's, or that came while
  * the workflow has no token. It is recorded as the workflow's last fire.
@@ -248,7 +245,6 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
  * The `workflow.expressionPreview` input: one expression of one node, of a saved
  * workflow or of the builder's draft, evaluated in the daemon against an item of the
  * last run. It never resolves a secret: a sensitive field previews the secret's name.
- * An evaluation past its budget is refused with {@link WORKFLOW_EXPRESSION_OVER_BUDGET_CODE}.
  */
 export interface WorkflowExpressionPreviewRequest {
   definitionId?: WorkflowDefinitionId | undefined;

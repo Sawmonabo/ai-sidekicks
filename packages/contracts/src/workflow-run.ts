@@ -317,18 +317,6 @@ export const WORKFLOW_NOT_FOUND_CODE = "workflow.not_found" as const;
 
 // Step failures: each rides the failed step's error and its failed event
 
-/** A value `Keep for later runs` would keep over {@link WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP}. */
-export const WORKFLOW_KEPT_VALUE_TOO_LARGE_CODE = "workflow.kept_value_too_large" as const;
-/** The kept-value refusal's details: the value's name and its size in bytes. */
-export interface WorkflowKeptValueTooLargeDetails {
-  name: string;
-  sizeBytes: number;
-}
-/** Wire schema for {@link WorkflowKeptValueTooLargeDetails}. */
-export const WorkflowKeptValueTooLargeDetailsSchema: z.ZodType<WorkflowKeptValueTooLargeDetails> = z
-  .object({ name: z.string().min(1), sizeBytes: z.number().int().positive() })
-  .strict();
-
 /** A step cut by a time limit: its own `Timeout`, or the run's cap. */
 export const WORKFLOW_STEP_TIMED_OUT_CODE = "workflow.step_timed_out" as const;
 /** Which limit cut the step. */

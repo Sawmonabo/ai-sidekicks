@@ -2817,7 +2817,6 @@ export type {
 export { WEB_ADDRESS_FAULTS, WEB_ADDRESS_SCHEMES, webAddressFault } from "./web-address.js";
 export type { WebAddressFault } from "./web-address.js";
 export {
-  WORKFLOW_EXPRESSION_OVER_BUDGET_CODE,
   WORKFLOW_TRIGGER_UNARMABLE_CODE,
   WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE,
   WorkflowDefinitionSettingResponseSchema,
@@ -3136,7 +3135,6 @@ export {
   WORKFLOW_CODE_INSTALL_FAILED_CODE,
   WORKFLOW_CODE_INSTALL_FAILED_REASONS,
   WORKFLOW_CODE_OVER_BUDGET_CODE,
-  WORKFLOW_KEPT_VALUE_TOO_LARGE_CODE,
   WORKFLOW_NOT_FOUND_CODE,
   WORKFLOW_RUN_MODES,
   WORKFLOW_RUN_STATUSES,
@@ -3149,7 +3147,6 @@ export {
   WorkflowCancelReasonSchema,
   WorkflowCodeInstallFailedDetailsSchema,
   WorkflowCostSchema,
-  WorkflowKeptValueTooLargeDetailsSchema,
   WorkflowPayloadRefSchema,
   WorkflowRunIdSchema,
   WorkflowRunModeSchema,
@@ -3165,7 +3162,6 @@ export type {
   WorkflowCodeInstallFailedDetails,
   WorkflowCodeInstallFailedReason,
   WorkflowCost,
-  WorkflowKeptValueTooLargeDetails,
   WorkflowPayloadRef,
   WorkflowRunId,
   WorkflowRunMode,
