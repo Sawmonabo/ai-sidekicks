@@ -20,7 +20,7 @@ import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { CodexDriverConfigError } from "./session-errors.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "./server-requests.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type {
   CreateSessionParams,
   ResumeSessionParams,

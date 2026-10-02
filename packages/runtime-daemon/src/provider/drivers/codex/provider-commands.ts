@@ -11,7 +11,7 @@ import {
   type ProviderCommandEntry,
 } from "@ai-sidekicks/contracts";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 
 /** The provider's native compaction trigger and its typed evidence frame. */
 export const CODEX_THREAD_COMPACT_START_METHOD = "thread/compact/start" as const;
@@ -28,13 +28,6 @@ export const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
  * @consumedBy the Codex leg that hands a loaded conversation changed instructions
  */
 export const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
-
-/**
- * How long the driver waits for a compaction's typed evidence before telling the caller: a bound
- * it publishes, not a provider figure. A later frame still normalizes, since the wait only taps
- * the route. Distinct from `DEFAULT_REQUEST_TIMEOUT_MS` because compaction is model work.
- */
-export const CODEX_COMPACTION_WAIT_MS = 120_000;
 
 /**
  * Reads the boundary position off the compaction evidence frame. `null` at the pin, since

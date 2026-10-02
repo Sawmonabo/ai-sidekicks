@@ -4,18 +4,14 @@
  */
 
 import { type RecoveryCondition } from "@ai-sidekicks/contracts";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { CodexAppServerConnection } from "./app-server-connection.js";
 import { CodexProviderRequestError, normalizeProviderFailureDetail } from "./session-errors.js";
 import {
   type CodexDiagnosticSink,
   reportDiagnosticFromDetachedFrame,
 } from "./transport-diagnostics.js";
-import {
-  DRIVER_AUTH_DETAIL_MAX_LEN,
-  DriverAuthProbeResultSchema,
-  type DriverAuthProbeResult,
-} from "../../provider-driver.js";
+import { buildAuthProbeResult, type DriverAuthProbeResult } from "../../provider-driver.js";
 
 /**
  * Zero-turn auth probe; answerable with `experimentalApi: false`. Preferred over the `codex login
@@ -29,22 +25,6 @@ export const CODEX_AUTH_PROBE_TIMEOUT_MS = 10_000;
 
 /** Deadline for the resume-failure auth classification; short so it never delays the failure. */
 const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS = 2_000;
-
-/**
- * Builds a probe result without throwing. `detail` is bounded tighter than failure detail and
- * dropped if the envelope still refuses it; `status` carries the decision.
- */
-export function buildAuthProbeResult(
-  status: DriverAuthProbeResult["status"],
-  detail: string,
-): DriverAuthProbeResult {
-  const bounded =
-    detail.length > DRIVER_AUTH_DETAIL_MAX_LEN
-      ? detail.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
-      : detail;
-  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
-  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
-}
 
 /**
  * Maps a `getAuthStatus` answer onto the probe result. Only `authMethod` is read, never

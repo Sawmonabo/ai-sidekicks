@@ -50,11 +50,11 @@ import {
   type LiveClaudeSession,
 } from "./session-state.js";
 import {
-  buildAuthProbeResult,
   CLAUDE_AUTH_PROBE_REACHED_DETAIL,
   ClaudeAuthenticationRequiredError,
   ClaudeSessionUnavailableError,
   describeFailure,
+  sanitizeFailureDetail,
 } from "./session-errors.js";
 import { assertClaudeSpawnBoundRealization, ClaudeSpawnLegComposer } from "./spawn-legs.js";
 import { ClaudeRunRoutes } from "./run-routes.js";
@@ -63,18 +63,19 @@ import { ClaudeFrameRouting } from "./frame-routing.js";
 import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session-establishment.js";
 import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
-import type {
-  CloseSessionParams,
-  CompactContextParams,
-  CreateSessionParams,
-  DriverAuthProbeResult,
-  DriverResumeResult,
-  ForkConversationResult,
-  ListProviderCommandsParams,
-  ProviderSessionHandle,
-  ResumeSessionParams,
-  ForkConversationParams,
-  StartRunParams,
+import {
+  buildAuthProbeResult,
+  type CloseSessionParams,
+  type CompactContextParams,
+  type CreateSessionParams,
+  type DriverAuthProbeResult,
+  type DriverResumeResult,
+  type ForkConversationResult,
+  type ListProviderCommandsParams,
+  type ProviderSessionHandle,
+  type ResumeSessionParams,
+  type ForkConversationParams,
+  type StartRunParams,
 } from "../../provider-driver.js";
 
 /** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
@@ -300,13 +301,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       });
       return buildAuthProbeResult(
         "authenticated",
-        reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL,
+        sanitizeFailureDetail(reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL),
       );
     } catch (cause) {
       // Typed, not sniffed from the message, which provider rewording would break.
       return buildAuthProbeResult(
         cause instanceof ClaudeAuthenticationRequiredError ? "unauthenticated" : "indeterminate",
-        describeFailure(cause),
+        sanitizeFailureDetail(describeFailure(cause)),
       );
     }
   }

@@ -1,6 +1,6 @@
 /** Reads a Codex thread, its turns and its turn ids as the client returns them. */
 
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CodexTransportError } from "./session-errors.js";
 
 interface ThreadView {

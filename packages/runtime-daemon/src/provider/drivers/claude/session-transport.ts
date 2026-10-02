@@ -18,7 +18,7 @@ import {
   type SpawnEnvPair,
 } from "../../spawn-env.js";
 import { type ProviderRequestFailureObservation } from "../../transcript/failure-mapping.js";
-import { type CallerDeclaredFrameOrigin, type OutboundTextFrame } from "../../outbound-frame.js";
+import { type OutboundTextFrame } from "../../outbound-frame.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import { type ClaudeSubagentLifecycleSignal } from "./event-normalizer.js";
 import type {
@@ -33,12 +33,6 @@ import type {
   StartRunParams,
   SubagentPolicy,
 } from "../../provider-driver.js";
-
-/**
- * How long a user-triggered compaction waits for typed evidence before it is reported failed; the
- * provider is never canceled and a late boundary frame keeps its ordinary route.
- */
-export const CLAUDE_COMPACTION_WAIT_MS: number = 120_000;
 
 /** Bare name: `system/init` lists `slash_commands` without the leading slash. */
 export const CLAUDE_COMPACTION_COMMAND_NAME = "compact";
@@ -324,9 +318,6 @@ export interface ClaudeSessionTransport {
    */
   probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading>;
 }
-
-/** A constant, not a port member: the opening text is the user's own message. */
-export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 /** The daemon-owned facts `startRun` needs that `StartRunParams` lacks. */
 export interface ClaudeRunDispatch {

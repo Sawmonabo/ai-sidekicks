@@ -2,13 +2,12 @@
 // typed compaction frame that proves it ran.
 
 import type { DriverCompactionResult, SessionId } from "@ai-sidekicks/contracts";
-import type { PendingCompactionRegistry } from "../../compaction-wait.js";
+import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { OutboundTextFrameWriter } from "../../outbound-frame.js";
 import {
   CLAUDE_COMPACTION_COMMAND_TEXT,
   CLAUDE_COMPACTION_FRAME_ORIGIN,
-  CLAUDE_COMPACTION_WAIT_MS,
   type ClaudeProviderProcess,
   type ClaudeUserTextWriteAttempt,
 } from "./session-transport.js";
@@ -43,7 +42,7 @@ export class ClaudeCompactionDispatch {
     channel: ClaudeProviderProcess,
   ): Promise<DriverCompactionResult> {
     // Armed before dispatch so a fast compaction is not lost; any early exit withdraws it.
-    const wait = this.#pendingCompactions.arm(sessionId, CLAUDE_COMPACTION_WAIT_MS);
+    const wait = this.#pendingCompactions.arm(sessionId, COMPACTION_WAIT_MS);
     let attempt: ClaudeUserTextWriteAttempt;
     try {
       // Not registered with the tripwire: a pending frame would make `startRun` refuse until a

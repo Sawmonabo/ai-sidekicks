@@ -5,14 +5,9 @@
 
 import { SessionIdSchema, type ExecutionPosture, type SessionId } from "@ai-sidekicks/contracts";
 import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../spawn-env.js";
-import { type CallerDeclaredFrameOrigin } from "../../outbound-frame.js";
+import { RUN_OPENING_FRAME_ORIGIN } from "../../outbound-frame.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CodexDriverConfigError } from "./session-errors.js";
-import {
-  isPlainObject,
-  readOptionalString,
-  readRecord,
-  readRequiredString,
-} from "./record-readers.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
 
 /**
@@ -35,11 +30,6 @@ export interface CodexSessionConfig {
    */
   credentialEnvPolicy?: CredentialEnvPolicy | undefined;
 }
-
-/**
- * The origin declared for a run's opening frame: a fact of the code path, not a caller's claim.
- */
-export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 /**
  * Posture-affecting `turn/start` fields the daemon derives; `StartRunParams.agentConfig` is
@@ -407,4 +397,40 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     ...(model === undefined ? {} : { model }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
   };
+}
+
+/** Returns the value as an object, or throws a configuration error naming the label. */
+function readRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw new CodexDriverConfigError(`${label} must be an object.`, label);
+  }
+  return value;
+}
+
+/** Reads a non-empty string field, or throws a configuration error naming the label. */
+function readRequiredString(source: Record<string, unknown>, key: string, label: string): string {
+  const value = source[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new CodexDriverConfigError(`${label} must be a non-empty string.`, label);
+  }
+  return value;
+}
+
+/**
+ * Reads a non-empty string field, or undefined when it is absent; throws when present but empty or
+ * not a string.
+ */
+function readOptionalString(
+  source: Record<string, unknown>,
+  key: string,
+  label: string,
+): string | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.length === 0) {
+    throw new CodexDriverConfigError(`${label} must be a non-empty string when present.`, label);
+  }
+  return value;
 }

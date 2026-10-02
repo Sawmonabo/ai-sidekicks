@@ -31,6 +31,9 @@ const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.freeze([
  */
 export type CallerDeclaredFrameOrigin = Exclude<OutboundFrameOrigin, "driver_command">;
 
+/** A run's opening text is the user's own message: a fact of the code path, not a caller's claim. */
+export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
+
 /**
  * The origin a trip's visible detail may carry. An off-union or absent origin becomes `unknown`,
  * so a rejected caller value is never echoed into a persisted string.

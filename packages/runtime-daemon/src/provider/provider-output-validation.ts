@@ -12,6 +12,7 @@ import {
 import semver from "semver";
 
 import type { DriverCliVersionReport } from "./provider-driver.js";
+import { isPlainObject } from "./record-readers.js";
 
 /** Maximum length of a provider-owned opaque `resume_handle`; equals the SQL CHECK bound. */
 export const RESUME_HANDLE_MAX_LEN = 4096;
@@ -124,21 +125,20 @@ export function assertValidCliVersionReport(
  * dereferences at once; flags, version and tool entries keep their own validators.
  */
 export function assertValidGetCapabilitiesResultShape(result: unknown): void {
-  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+  if (!isPlainObject(result)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "result",
       reason: "result must be an object",
     });
   }
-  const resultRecord = result as Record<string, unknown>;
-  const capabilities = resultRecord["capabilities"];
-  if (typeof capabilities !== "object" || capabilities === null || Array.isArray(capabilities)) {
+  const capabilities = result["capabilities"];
+  if (!isPlainObject(capabilities)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "capabilities",
       reason: "capabilities must be an object",
     });
   }
-  const tools = resultRecord["tools"];
+  const tools = result["tools"];
   if (!Array.isArray(tools)) {
     throw new ProviderOutputValidationError("Invalid provider capability result.", {
       field: "tools",
@@ -163,14 +163,13 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
  * CHECK mid-transaction and an inherited flag beside a typo'd key would pass a prototype lookup.
  */
 export function assertValidCapabilityFlags(flags: unknown): void {
-  if (typeof flags !== "object" || flags === null || Array.isArray(flags)) {
+  if (!isPlainObject(flags)) {
     throw new ProviderOutputValidationError("Invalid driver capability flags.", {
       field: "flags",
       reason: "flags must be an object",
     });
   }
-  const flagRecord = flags as Record<string, unknown>;
-  const keys = Object.keys(flagRecord);
+  const keys = Object.keys(flags);
   if (keys.length !== DRIVER_CAPABILITY_FLAGS.length) {
     throw new ProviderOutputValidationError("Invalid driver capability flags.", {
       field: "flags",
@@ -178,10 +177,7 @@ export function assertValidCapabilityFlags(flags: unknown): void {
     });
   }
   for (const flag of DRIVER_CAPABILITY_FLAGS) {
-    if (
-      !Object.prototype.hasOwnProperty.call(flagRecord, flag) ||
-      typeof flagRecord[flag] !== "boolean"
-    ) {
+    if (!Object.prototype.hasOwnProperty.call(flags, flag) || typeof flags[flag] !== "boolean") {
       throw new ProviderOutputValidationError("Invalid driver capability flags.", {
         field: "flags",
         reason: "each canonical capability flag must be present and boolean",

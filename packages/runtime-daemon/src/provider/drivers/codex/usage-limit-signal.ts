@@ -3,7 +3,7 @@
  * usage-limit signal with the reset boundary the provider reported.
  */
 
-import { readCodexRecord } from "./turn-evidence.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { ProviderUsageLimitSignal } from "../../provider-driver.js";
 
 /**
@@ -48,8 +48,11 @@ interface CodexMergedRateLimitReading {
 }
 
 function readCodexRateLimitSnapshot(carrier: unknown): Record<string, unknown> | null {
-  const record = readCodexRecord(carrier);
-  return record === null ? null : readCodexRecord(record["rateLimits"]);
+  if (!isPlainObject(carrier)) {
+    return null;
+  }
+  const rateLimits = carrier["rateLimits"];
+  return isPlainObject(rateLimits) ? rateLimits : null;
 }
 
 // The vendor's merge: a value present in the sparse update wins, else the last full read. Members
@@ -70,15 +73,14 @@ function mergeCodexRateLimitReading(
 // Any finite number is accepted because `usedPercent` is `f64` in the core protocol type and `i32`
 // in the app-server struct at the pin.
 function readCodexSpentWindowResetEpochSeconds(window: unknown): number | null {
-  const record = readCodexRecord(window);
-  if (record === null) {
+  if (!isPlainObject(window)) {
     return null;
   }
-  const usedPercent = record["usedPercent"];
+  const usedPercent = window["usedPercent"];
   if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent) || usedPercent < 100) {
     return null;
   }
-  const resetsAt = record["resetsAt"];
+  const resetsAt = window["resetsAt"];
   if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt)) {
     return null;
   }

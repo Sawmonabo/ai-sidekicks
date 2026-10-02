@@ -28,9 +28,7 @@ import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   type CallerDeclaredFrameOrigin,
 } from "../../outbound-frame.js";
-
-/** The fallback the orchestration layer performs when a native intervention is unavailable. */
-export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
+import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
 
 /** Capability flag governing each intervention type; `null` means no flag gates it. */
 const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
@@ -104,7 +102,7 @@ function normalizeSteerAcknowledgement(
   if (acknowledgement.acknowledgedTurnId === acknowledgement.targetedTurnId) {
     return { status: "applied" };
   }
-  return { status: "degraded", fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION };
+  return { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
 }
 
 /** Routes normalized interventions onto Codex's native operations, or degrades them. */
@@ -124,7 +122,7 @@ export class CodexInterventionDispatcher {
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     const requiredFlag = CODEX_INTERVENTION_CAPABILITY_FLAGS[params.type];
     if (requiredFlag !== null && !this.#isDeclaredSupported(requiredFlag)) {
-      return { status: "degraded", fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION };
+      return { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
     }
 
     switch (params.type) {

@@ -7,6 +7,7 @@ import type {
   ProviderDriverDescriptor,
   ReportedVersionReading,
 } from "../../provider-driver-descriptor.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CLAUDE_BUILT_IN_TOOLS } from "./tools.js";
 
 /**
@@ -111,22 +112,16 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
 
 const CLAUDE_UNSUPPORTED_SUBTYPE_PREFIX = "Unsupported control request subtype:";
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 /**
  * Classifies one `control_response`, given the full envelope or the inner response object. The
  * refusal is name-level already, so the probe name is not read.
  */
 function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
-  const envelope = asRecord(payload);
-  if (envelope === undefined) {
+  if (!isPlainObject(payload)) {
     return "unrecognized";
   }
-  const response = asRecord(envelope["response"]) ?? envelope;
+  const inner = payload["response"];
+  const response = isPlainObject(inner) ? inner : payload;
   const subtype = response["subtype"];
   if (subtype === "success") {
     return "accepted";
@@ -147,7 +142,7 @@ function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
  * as-is.
  */
 function readClaudeReportedVersion(payload: unknown): ReportedVersionReading {
-  const version = asRecord(payload)?.["version"];
+  const version = isPlainObject(payload) ? payload["version"] : undefined;
   return typeof version === "string" ? { version } : { unreadableReply: "" };
 }
 

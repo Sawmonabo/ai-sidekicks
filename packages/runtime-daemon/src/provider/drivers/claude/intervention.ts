@@ -30,14 +30,9 @@ import {
   type RunId,
 } from "@ai-sidekicks/contracts";
 
+import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
 import { ClaudeSessionUnavailableError } from "./session-errors.js";
 import { type ClaudeRunProcessLookup } from "./session-transport.js";
-
-/**
- * The fallback the daemon applies for a steer this driver does not send: queue the steer text and
- * interrupt the running turn. Returned as a hint; the schema bounds its length.
- */
-export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
 
 // Key of the uuids of queued user messages that outlived an interrupt. Builds without
 // `interrupt_receipt_v1` omit it, so absence means "reported nothing", not "nothing survived".
@@ -78,7 +73,7 @@ export class ClaudeInterventionDispatcher {
         // is live. Nothing is sent.
         return DriverInterventionResultSchema.parse({
           status: "degraded",
-          fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
+          fallbackAction: STEER_FALLBACK_ACTION,
         });
       }
       case "interrupt": {

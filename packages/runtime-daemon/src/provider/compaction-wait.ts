@@ -20,6 +20,13 @@ export interface CompactionWaitSettlement {
   readonly boundaryPosition: number | null;
 }
 
+/**
+ * How long a user-triggered compaction waits for typed evidence before it is reported failed: a
+ * bound the daemon publishes, not a provider figure, and longer than a request deadline because
+ * compaction is model work. The provider is never canceled; a late frame keeps its ordinary route.
+ */
+export const COMPACTION_WAIT_MS = 120_000;
+
 /** Schedules a one-shot callback and returns its canceler; injected so tests skip real waits. */
 export type CompactionWaitScheduler = (callback: () => void, delayMs: number) => () => void;
 

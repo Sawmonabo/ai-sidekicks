@@ -2,7 +2,7 @@
 // frame that proves it ran.
 
 import type { DriverCompactionResult, SessionId } from "@ai-sidekicks/contracts";
-import type { PendingCompactionRegistry } from "../../compaction-wait.js";
+import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   codexCompactionWaitKey,
@@ -10,10 +10,7 @@ import {
   type CodexSessionRecord,
 } from "./session-state.js";
 import { normalizeProviderFailureDetail } from "./session-errors.js";
-import {
-  CODEX_COMPACTION_WAIT_MS,
-  CODEX_THREAD_COMPACT_START_METHOD,
-} from "./provider-commands.js";
+import { CODEX_THREAD_COMPACT_START_METHOD } from "./provider-commands.js";
 
 /**
  * Sends the native compaction request and answers `applied` only on the typed compaction frame,
@@ -38,7 +35,7 @@ export class CodexCompactionDispatch {
   ): Promise<DriverCompactionResult> {
     const wait = this.#pendingCompactions.arm(
       codexCompactionWaitKey(sessionId, record.threadId),
-      CODEX_COMPACTION_WAIT_MS,
+      COMPACTION_WAIT_MS,
     );
     try {
       await record.connection.request(CODEX_THREAD_COMPACT_START_METHOD, {
@@ -70,7 +67,7 @@ export class CodexCompactionDispatch {
       details: {
         sessionId,
         terminal: settlement.terminal,
-        declaredBoundMs: CODEX_COMPACTION_WAIT_MS,
+        declaredBoundMs: COMPACTION_WAIT_MS,
       },
     });
     return { status: "failed", reason: settlement.terminal };

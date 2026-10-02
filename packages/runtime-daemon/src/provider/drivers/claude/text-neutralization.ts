@@ -14,6 +14,7 @@ import {
   composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
   type TextNeutralizationRunFailure,
+  RUN_OPENING_FRAME_ORIGIN,
 } from "../../outbound-frame.js";
 import { classifyClaudeTurnEvidence } from "./turn-evidence.js";
 import {
@@ -21,7 +22,6 @@ import {
   type ClaudeProviderProcess,
   type ClaudeUserTextDelivery,
   type ClaudeUserTextWriteAttempt,
-  RUN_OPENING_FRAME_ORIGIN,
 } from "./session-transport.js";
 import type { ClaudeSessionLifecycleDependencies } from "./session-state.js";
 import { describeFailure } from "./session-errors.js";

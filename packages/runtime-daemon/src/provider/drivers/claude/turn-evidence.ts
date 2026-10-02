@@ -6,6 +6,7 @@ import {
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
 } from "../../outbound-frame.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CLAUDE_WIRE_FRAME_KINDS } from "./event-normalizer.js";
 
 // Derived from the census so a new subtype joins without a second edit. `success` is excluded:
@@ -28,12 +29,7 @@ export function isPositiveFiniteNumber(value: unknown): boolean {
 }
 
 function isNonEmptyRecord(value: unknown): boolean {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length > 0
-  );
+  return isPlainObject(value) && Object.keys(value).length > 0;
 }
 
 /**

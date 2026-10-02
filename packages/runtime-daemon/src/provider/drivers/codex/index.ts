@@ -95,7 +95,7 @@ export {
 // Only the model-catalog symbols: `listModels` is the one operation from `./capabilities.ts`.
 export { type CodexModelCatalogExchange } from "./capabilities.js";
 
-export { CodexInterventionDispatcher, CODEX_INTERVENTION_FALLBACK_ACTION } from "./intervention.js";
+export { CodexInterventionDispatcher } from "./intervention.js";
 
 /** Construction inputs for the Codex driver. */
 export interface CodexDriverOptions extends CodexLifecycleOptions {

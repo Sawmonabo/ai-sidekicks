@@ -8,6 +8,7 @@ import type {
   ProviderDriverDescriptor,
   ReportedVersionReading,
 } from "../../provider-driver-descriptor.js";
+import { isPlainObject } from "../../record-readers.js";
 import { CODEX_BUILT_IN_TOOLS } from "./tools.js";
 
 /**
@@ -126,27 +127,20 @@ function parseEnumeratedWireNames(enumerationTail: string): readonly string[] {
   return [...enumerationTail.matchAll(/`([^`]*)`/g)].map((match) => match[1] ?? "");
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 /**
  * Classify one Codex reply about `probeName`. `-32600` is `unknown-name` only when the message's
  * unknown-variant enumeration names the probe as refused and its accepted set lacks it; every
  * ambiguous arm resolves toward `accepted`, since a wrong `unknown-name` disables a capability.
  */
 function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnswer {
-  const envelope = asRecord(payload);
-  if (envelope === undefined) {
+  if (!isPlainObject(payload)) {
     return "unrecognized";
   }
-  if ("result" in envelope) {
+  if ("result" in payload) {
     return "accepted";
   }
-  const error = asRecord(envelope["error"]);
-  if (error === undefined) {
+  const error = payload["error"];
+  if (!isPlainObject(error)) {
     return "unrecognized";
   }
   const code = error["code"];
@@ -193,7 +187,7 @@ function readCodexReportedVersion(payload: unknown, clientName: string): Reporte
       "Codex version extraction requires a daemon-supplied clientInfo.name carrying no '/' and no whitespace",
     );
   }
-  const userAgent = asRecord(payload)?.["userAgent"];
+  const userAgent = isPlainObject(payload) ? payload["userAgent"] : undefined;
   if (typeof userAgent !== "string") {
     return { unreadableReply: "" };
   }

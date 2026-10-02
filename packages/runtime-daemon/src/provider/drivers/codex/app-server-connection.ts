@@ -44,7 +44,7 @@ import {
   CodexTransportError,
   normalizeProviderFailureDetail,
 } from "./session-errors.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { SpawnRequest } from "../../../pty/pty-host-protocol.js";
 import type { PtyHost } from "../../../pty/pty-host.js";
 

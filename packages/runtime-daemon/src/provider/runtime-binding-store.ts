@@ -25,6 +25,7 @@ import {
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
+import { isPlainObject } from "./record-readers.js";
 import {
   type CallbackToolInvocation,
   type CallbackToolResult,
@@ -155,10 +156,6 @@ interface ParsedRuntimeBindingColumns {
 interface UpdatedRuntimeBindingRow {
   readonly row: RuntimeBindingRow;
   readonly parsedColumns: ParsedRuntimeBindingColumns;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

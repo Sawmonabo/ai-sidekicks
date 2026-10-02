@@ -87,6 +87,21 @@ export interface ProviderDriver {
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
 }
 
+/**
+ * The `fallbackAction` of a steer a driver does not deliver natively: the daemon queues the steer
+ * text and interrupts the running turn.
+ */
+export const STEER_FALLBACK_ACTION = "queue_and_interrupt";
+
+/** A provider's model-list reply that could not be read as a catalog (a provider fault). */
+export class ModelCatalogUnreadableError extends Error {
+  /** `replyName` names the provider and its request, such as `Codex model/list`. */
+  constructor(replyName: string, detail: string) {
+    super(`${replyName} reply is not a readable model catalog: ${detail}`);
+    this.name = "ModelCatalogUnreadableError";
+  }
+}
+
 // ---- Method parameters and returns ----
 
 /** What the daemon hands a driver to open a session: config, spawn-bound legs and callbacks. */
@@ -227,6 +242,10 @@ export const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
 /** Max length of `CallbackToolInvocation.toolCallId`, an opaque provider correlation id. */
 export const DRIVER_TOOL_CALL_ID_MAX_LEN = 256;
 
+/** The fixed sentence every `driver.capability_unsupported` refusal carries. */
+export const DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE =
+  "Requested capability is not supported by the driver";
+
 // ---- Capabilities ----
 
 /**
@@ -330,6 +349,21 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
       })
       .strict(),
   ]);
+
+/**
+ * Fits failure text to `providerFailureDetail`'s rules (1..MAX characters, one non-whitespace
+ * character, no NUL): NULs are dropped and the text trimmed before it is truncated, and text left
+ * empty becomes the driver's `emptyFallback`.
+ */
+export function boundFailureDetail(detail: string, emptyFallback: string): string {
+  const trimmed = detail.replaceAll("\0", "").trim();
+  if (trimmed.length === 0) {
+    return emptyFallback;
+  }
+  return trimmed.length > DRIVER_FAILURE_DETAIL_MAX_LEN
+    ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
+    : trimmed;
+}
 
 // ---- Provider usage-limit signal ----
 
@@ -497,6 +531,22 @@ export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, Drive
       ).optional(),
     })
     .strict();
+
+/**
+ * Builds a probe result without throwing. `detail` is bounded to the auth cap and dropped if the
+ * envelope still refuses it, since `status` carries the decision.
+ */
+export function buildAuthProbeResult(
+  status: DriverAuthProbeResult["status"],
+  detail: string,
+): DriverAuthProbeResult {
+  const bounded =
+    detail.length > DRIVER_AUTH_DETAIL_MAX_LEN
+      ? detail.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
+      : detail;
+  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
+  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
+}
 
 // ---- Canonical transcript ----
 

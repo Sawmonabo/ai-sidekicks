@@ -48,7 +48,10 @@ import { DaemonDomainError } from "../domain-error.js";
 import { SessionNotFoundError } from "../session-errors.js";
 
 import { registerDescribedMethod } from "./register-described-method.js";
-import type { ProviderDriver } from "../../provider/provider-driver.js";
+import {
+  DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
+  type ProviderDriver,
+} from "../../provider/provider-driver.js";
 
 /** The registry surface a roster read needs; it excludes `checkCapability`, which is a gate. */
 type DriverRosterSource = Pick<ProviderRegistry, "listAvailable" | "lookup">;
@@ -233,7 +236,7 @@ function requireDriverOperation(
   operation: keyof ProviderDriver,
 ): void {
   if (typeof driver[operation] !== "function") {
-    throw new DaemonDomainError("Requested capability is not supported by the driver", {
+    throw new DaemonDomainError(DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, {
       code: "driver.capability_unsupported",
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
       detail: { driverId: driverName, operation },

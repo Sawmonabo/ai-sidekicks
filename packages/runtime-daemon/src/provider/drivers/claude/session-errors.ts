@@ -3,18 +3,9 @@
  * detail text and recovery condition a caller reports.
  */
 
-import {
-  DRIVER_FAILURE_DETAIL_MAX_LEN,
-  type RecoveryCondition,
-  type RunId,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { type RecoveryCondition, type RunId, type SessionId } from "@ai-sidekicks/contracts";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
-import {
-  DRIVER_AUTH_DETAIL_MAX_LEN,
-  DriverAuthProbeResultSchema,
-  type DriverAuthProbeResult,
-} from "../../provider-driver.js";
+import { boundFailureDetail } from "../../provider-driver.js";
 
 const UNDESCRIBED_FAILURE_DETAIL =
   "The Claude provider transport failed the resume with no describable detail.";
@@ -150,35 +141,9 @@ export function describeFailure(error: unknown): string {
   return UNDESCRIBED_FAILURE_DETAIL;
 }
 
-/**
- * `wireFreeFormString` needs 1..MAX characters, one non-whitespace character and no NUL; trim
- * before truncating.
- */
+/** Fits failure text to the persisted detail's rules, with this driver's empty-text fallback. */
 export function sanitizeFailureDetail(detail: string): string {
-  const trimmed = detail.replaceAll("\0", "").trim();
-  if (trimmed.length === 0) {
-    return UNDESCRIBED_FAILURE_DETAIL;
-  }
-  return trimmed.length <= DRIVER_FAILURE_DETAIL_MAX_LEN
-    ? trimmed
-    : trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN);
-}
-
-/**
- * Builds a probe result without throwing; a detail the strict envelope refuses is dropped, since
- * `status` carries the decision.
- */
-export function buildAuthProbeResult(
-  status: DriverAuthProbeResult["status"],
-  detail: string,
-): DriverAuthProbeResult {
-  const sanitized = sanitizeFailureDetail(detail);
-  const bounded =
-    sanitized.length > DRIVER_AUTH_DETAIL_MAX_LEN
-      ? sanitized.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
-      : sanitized;
-  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
-  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
+  return boundFailureDetail(detail, UNDESCRIBED_FAILURE_DETAIL);
 }
 
 /** Names the evidence, not a credential source the probe did not report. */

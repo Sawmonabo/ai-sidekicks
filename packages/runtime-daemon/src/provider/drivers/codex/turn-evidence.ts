@@ -6,6 +6,7 @@ import {
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
 } from "../../outbound-frame.js";
+import { isPlainObject } from "../../record-readers.js";
 
 /** The `ThreadItem` variant that IS model output at the pin. */
 const CODEX_MODEL_OUTPUT_ITEM_TYPE = "agentMessage";
@@ -34,13 +35,6 @@ export interface CodexTurnEvidenceObservation {
   readonly observation: TurnEvidenceClass;
 }
 
-/** The value as a plain record, or `null` for anything else (including arrays). */
-export function readCodexRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 /**
  * Reads one in-flight notification for evidence that a turn is producing model output (an
  * `agentMessage` item, not the `userMessage` echo), or `null`. Evidence must accrue mid-turn
@@ -53,16 +47,15 @@ export function classifyCodexTurnEvidenceObservation(
   if (!method.startsWith("item/")) {
     return null;
   }
-  const payload = readCodexRecord(params);
-  if (payload === null) {
+  if (!isPlainObject(params)) {
     return null;
   }
-  const turnId = payload["turnId"];
+  const turnId = params["turnId"];
   if (typeof turnId !== "string" || turnId.length === 0) {
     return null;
   }
-  const item = readCodexRecord(payload["item"]);
-  if (item === null || item["type"] !== CODEX_MODEL_OUTPUT_ITEM_TYPE) {
+  const item = params["item"];
+  if (!isPlainObject(item) || item["type"] !== CODEX_MODEL_OUTPUT_ITEM_TYPE) {
     return null;
   }
   return { turnId, observation: "model_output" };
@@ -74,12 +67,11 @@ export function classifyCodexTurnEvidenceObservation(
  * `durationMs` is not evidence: a measured quota-exhausted turn carried `durationMs: 2838`.
  */
 export function classifyCodexTurnEvidence(params: unknown): TurnEvidenceClassification {
-  const payload = readCodexRecord(params);
-  if (payload === null) {
+  if (!isPlainObject(params)) {
     return UNRECOGNIZED_TURN_EVIDENCE;
   }
-  const turn = readCodexRecord(payload["turn"]);
-  if (turn === null) {
+  const turn = params["turn"];
+  if (!isPlainObject(turn)) {
     return UNRECOGNIZED_TURN_EVIDENCE;
   }
   const status = turn["status"];
@@ -91,13 +83,15 @@ export function classifyCodexTurnEvidence(params: unknown): TurnEvidenceClassifi
   const items = turn["items"];
   if (
     Array.isArray(items) &&
-    items.some((entry) => readCodexRecord(entry)?.["type"] === CODEX_MODEL_OUTPUT_ITEM_TYPE)
+    items.some((entry) => isPlainObject(entry) && entry["type"] === CODEX_MODEL_OUTPUT_ITEM_TYPE)
   ) {
     observations.push("model_output");
   }
+  const turnError = turn["error"];
   if (
     CODEX_DECLARED_NON_COMPLETION_STATUSES.has(status) &&
-    typeof readCodexRecord(turn["error"])?.["message"] === "string"
+    isPlainObject(turnError) &&
+    typeof turnError["message"] === "string"
   ) {
     observations.push("declared_turn_failure");
   } else if (status === "interrupted") {

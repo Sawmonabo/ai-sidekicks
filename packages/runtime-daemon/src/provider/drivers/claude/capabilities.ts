@@ -31,7 +31,12 @@ import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { CLAUDE_DRIVER_DESCRIPTOR } from "./claude-driver-descriptor.js";
 import { getClaudeToolMetadata } from "./tools.js";
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  ModelCatalogUnreadableError,
+} from "../../provider-driver.js";
+import { readNonEmptyString } from "../../record-readers.js";
 
 /** The registry and capability-table key: daemon-controlled identity, never provider output. */
 export const CLAUDE_DRIVER_NAME = "claude" as const;
@@ -153,52 +158,41 @@ export class ClaudeCapabilityReporter {
  */
 export type ClaudeModelCatalogExchange = () => Promise<unknown>;
 
-/** A `list_models` reply that could not be read as a catalog (a provider fault). */
-export class ClaudeModelCatalogUnreadableError extends Error {
-  constructor(detail: string) {
-    super(`Claude list_models reply is not a readable model catalog: ${detail}`);
-    this.name = "ClaudeModelCatalogUnreadableError";
-  }
+function claudeCatalogUnreadable(detail: string): ModelCatalogUnreadableError {
+  return new ModelCatalogUnreadableError("Claude list_models", detail);
 }
 
 /** The reserved `value` that points at whichever model is currently default. */
 const CLAUDE_DEFAULT_MODEL_POINTER = "default";
 
-function readNonEmptyString(source: Record<string, unknown>, key: string): string | undefined {
-  const value = source[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 /**
  * Normalizes one `list_models` reply into the contract's model shape. Strict: anything but the
- * pinned `{ models: [...] }` shape throws {@link ClaudeModelCatalogUnreadableError}, so a dropped
+ * pinned `{ models: [...] }` shape throws {@link ModelCatalogUnreadableError}, so a dropped
  * model stays distinguishable from a parser failure.
  */
 export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
-    throw new ClaudeModelCatalogUnreadableError("reply is not an object");
+    throw claudeCatalogUnreadable("reply is not an object");
   }
   const rawModels = (payload as Record<string, unknown>)["models"];
   if (!Array.isArray(rawModels)) {
-    throw new ClaudeModelCatalogUnreadableError("reply has no `models` array");
+    throw claudeCatalogUnreadable("reply has no `models` array");
   }
 
   // Insertion-ordered, so the catalog keeps the provider's ordering (its recommended model first).
   const byResolvedModel = new Map<string, { model: ProviderModel; fromPointer: boolean }>();
   for (const rawEntry of rawModels) {
     if (typeof rawEntry !== "object" || rawEntry === null) {
-      throw new ClaudeModelCatalogUnreadableError("a `models` entry is not an object");
+      throw claudeCatalogUnreadable("a `models` entry is not an object");
     }
     const entry = rawEntry as Record<string, unknown>;
     const resolvedModel = readNonEmptyString(entry, "resolvedModel");
     if (resolvedModel === undefined) {
-      throw new ClaudeModelCatalogUnreadableError("a `models` entry has no `resolvedModel`");
+      throw claudeCatalogUnreadable("a `models` entry has no `resolvedModel`");
     }
     const displayName = readNonEmptyString(entry, "displayName");
     if (displayName === undefined) {
-      throw new ClaudeModelCatalogUnreadableError(
-        `model '${resolvedModel}' has no \`displayName\``,
-      );
+      throw claudeCatalogUnreadable(`model '${resolvedModel}' has no \`displayName\``);
     }
     const fromPointer = entry["value"] === CLAUDE_DEFAULT_MODEL_POINTER;
     const existing = byResolvedModel.get(resolvedModel);
@@ -209,7 +203,7 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
     }
     const supportsFastMode = entry["supportsFastMode"];
     if (supportsFastMode !== undefined && typeof supportsFastMode !== "boolean") {
-      throw new ClaudeModelCatalogUnreadableError(
+      throw claudeCatalogUnreadable(
         `model '${resolvedModel}' has an unreadable \`supportsFastMode\``,
       );
     }
@@ -227,9 +221,7 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
       effortLevels.length > 0
     ) {
       if (!effortLevels.every((level): level is string => typeof level === "string")) {
-        throw new ClaudeModelCatalogUnreadableError(
-          `model '${resolvedModel}' has a non-string effort level`,
-        );
+        throw claudeCatalogUnreadable(`model '${resolvedModel}' has a non-string effort level`);
       }
       model.effortLevels = [...effortLevels];
     }

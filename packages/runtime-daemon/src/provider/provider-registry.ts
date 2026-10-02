@@ -16,7 +16,7 @@ import type {
   DriverCapabilityFlag,
   ProviderName,
 } from "@ai-sidekicks/contracts";
-import type { ProviderDriver } from "./provider-driver.js";
+import { DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, type ProviderDriver } from "./provider-driver.js";
 
 /**
  * Thrown when a capability check targets a `driverId` that is not registered.
@@ -47,7 +47,7 @@ export class DriverCapabilityUnsupportedError extends Error {
   readonly fields: { readonly driverId: ProviderName; readonly flag: DriverCapabilityFlag };
 
   constructor(driverId: ProviderName, flag: DriverCapabilityFlag) {
-    super("Requested capability is not supported by the driver");
+    super(DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE);
     this.name = "DriverCapabilityUnsupportedError";
     this.fields = { driverId, flag };
   }

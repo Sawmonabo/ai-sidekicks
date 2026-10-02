@@ -36,7 +36,7 @@ import type { CodexAppServerConnection, CodexConnectionOptions } from "./app-ser
 import type { CodexSessionConfig } from "./session-config.js";
 import { CodexProviderRequestError, type CodexSessionSlotState } from "./session-errors.js";
 import type { CodexSessionServerRequestResponder } from "./server-requests.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
 
 /** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */

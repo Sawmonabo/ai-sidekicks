@@ -15,6 +15,7 @@ import {
   composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
   observedTurnEvidence,
+  RUN_OPENING_FRAME_ORIGIN,
 } from "../../outbound-frame.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { CODEX_TURN_COMPLETED_METHOD } from "./event-normalizer.js";
@@ -30,13 +31,13 @@ import {
   rememberUnmatchedTurn,
 } from "./session-state.js";
 import type { CodexRequestDelivery } from "./app-server-connection.js";
-import { type CodexRunConfig, RUN_OPENING_FRAME_ORIGIN } from "./session-config.js";
+import { type CodexRunConfig } from "./session-config.js";
 import { normalizeProviderFailureDetail } from "./session-errors.js";
 import {
   type CodexTransportDiagnostic,
   reportDiagnosticFromDetachedFrame,
 } from "./transport-diagnostics.js";
-import { isPlainObject } from "./record-readers.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { CodexRunRoutes } from "./run-routes.js";
 import type { StartRunParams } from "../../provider-driver.js";
 

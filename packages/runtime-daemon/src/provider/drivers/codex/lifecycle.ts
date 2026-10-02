@@ -66,7 +66,6 @@ import {
 import { readTurnId } from "./thread-view.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
-  buildAuthProbeResult,
   classifyCodexAuthStatus,
   CODEX_AUTH_PROBE_TIMEOUT_MS,
   requestCodexAuthStatus,
@@ -82,6 +81,7 @@ import { CodexSteerDispatch } from "./steer-dispatch.js";
 import { CodexCompactionDispatch } from "./compaction-dispatch.js";
 import { CodexSessionEstablishment, releaseAbandonedConnection } from "./session-establishment.js";
 import {
+  buildAuthProbeResult,
   type ClearSessionGoalParams,
   type CloseSessionParams,
   type CompactContextParams,
