@@ -1,12 +1,7 @@
 // Renovate config.
 //
-// minimumReleaseAge: 14 days matches Renovate's documented automerge floor and is the controlling
-// defense against Shai-Hulud-class transitive compromise (post-publish malicious-version detection
-// windows are commonly under 7 days).
-//
-// The security:minimumReleaseAgeNpm preset injects a 3-day floor for npm packages; an explicit
-// packageRule below, placed after the extends chain (packageRules are last-write-wins), overrides
-// it back to 14 days.
+// Renovate sets no release age of its own: a new release waits pnpm's one-day
+// `minimumReleaseAge` in pnpm-workspace.yaml, which every install enforces.
 //
 // helpers:pinGitHubActionDigests pairs with the SHA-pinned third-party actions in
 // .github/workflows/*.yml, and Renovate keeps the SHAs current. A few current pins (e.g.
@@ -15,13 +10,12 @@
 // through the tag object), so the immutable-pin property is identical, and the preset normalizes
 // them to commit SHAs on the next bump.
 //
-// Dependabot is not used: it has no first-class minimum-release-age.
+// Dependabot is not used: it has no first-class minimum release age.
 
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: [
     "config:recommended",
-    "security:minimumReleaseAgeNpm",
     "helpers:pinGitHubActionDigests",
     ":semanticCommits",
     // Force every Renovate PR's commit scope to `deps` (matches commitlint scope-enum). The type
@@ -32,17 +26,10 @@
     // commitlint type and would block every Renovate PR.
     ":semanticCommitScope(deps)",
   ],
-  minimumReleaseAge: "14 days",
   prConcurrentLimit: 5,
   prHourlyLimit: 4,
   // Hold major bumps for human review; minor/patch can group + automerge after CI green.
   packageRules: [
-    // Override security:minimumReleaseAgeNpm's 3-day npm floor back to the
-    // canonical 14-day uniform floor (last-write-wins on packageRules).
-    {
-      matchManagers: ["npm"],
-      minimumReleaseAge: "14 days",
-    },
     {
       matchUpdateTypes: ["patch"],
       automerge: true,
@@ -65,12 +52,10 @@
     {
       matchPackageNames: [
         "googleapis/release-please-action",
-        "actions/attest",
         "actions/checkout",
         "actions/setup-node",
         "pnpm/action-setup",
         "gitleaks/gitleaks-action",
-        "anchore/sbom-action",
       ],
       matchUpdateTypes: ["major"],
       automerge: false,
@@ -82,9 +67,7 @@
     enabled: true,
     schedule: ["before 5am on monday"],
   },
-  // Vulnerability alerts run independently of cooldown.
   vulnerabilityAlerts: {
     enabled: true,
-    minimumReleaseAge: "0 days",
   },
 }

@@ -33,7 +33,7 @@ allowBuilds:
   # cannot hold a `.node` if no build ever runs.
   better-sqlite3: false
   lefthook: true
-  # Cloudflare Workers tooling (wrangler@^4.145.0):
+  # Cloudflare Workers tooling (wrangler):
   # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.
   # - esbuild: Worker-bundle compiler invoked by wrangler. Approve: required.
   # - sharp: Cloudflare Images binding emulation pulled in via miniflare. The control plane does not
