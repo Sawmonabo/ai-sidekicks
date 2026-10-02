@@ -2375,13 +2375,8 @@ export type {
   SessionSetWorkingFolderResponse,
 } from "./session-directory.js";
 export {
-  ARTIFACT_PICTURE_PIXEL_LIMIT,
-  ARTIFACT_PICTURE_REFUSED_CODE,
-  ARTIFACT_PICTURE_REFUSED_REASONS,
-  SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT,
   SESSION_ATTACHMENT_REFUSED_CODE,
   SESSION_ATTACHMENT_REFUSED_REASONS,
-  SESSION_ATTACHMENT_UNRESOLVED_CAUSES,
   SESSION_DRAFT_METHOD_DESCRIPTORS,
   SessionAttachmentAddRequestSchema,
   SessionAttachmentAddResponseSchema,
@@ -2394,8 +2389,6 @@ export {
   SessionDraftUpdateResponseSchema,
 } from "./session-draft.js";
 export type {
-  ArtifactPictureRefusedCode,
-  ArtifactPictureRefusedReason,
   SessionAttachmentAddRequest,
   SessionAttachmentAddResponse,
   SessionAttachmentCoverBox,
@@ -2411,7 +2404,6 @@ export type {
   SessionAttachmentRemoveRequest,
   SessionAttachmentRemoveResponse,
   SessionAttachmentSummary,
-  SessionAttachmentUnresolvedCause,
   SessionDraftMethodDescriptors,
   SessionDraftUpdateRequest,
   SessionDraftUpdateResponse,

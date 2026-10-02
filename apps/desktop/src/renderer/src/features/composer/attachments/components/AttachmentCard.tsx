@@ -1,9 +1,8 @@
 // One attachment in the position the user put it: in flight (progress from `receivedBytes`),
 // complete (the daemon's derived name, type and size replace the advisory declaration), or
-// unresolved (a marker naming its cause and remedy). The label and the face read the same name
+// unresolved (a marker standing in the file's place). The label and the face read the same name
 // from `attachment-provenance.ts`, so a screen reader hears the identity a sighted user sees.
 
-import type { SessionAttachmentUnresolvedCause } from "@ai-sidekicks/contracts";
 import { Fragment } from "react";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
@@ -18,7 +17,7 @@ import {
   attachmentNameReading,
 } from "../attachment-provenance.js";
 import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../attachment-policy.js";
-import { UNRESOLVED_ATTACHMENT_PRESENTATION, isIngestStalled } from "../attachment-presentation.js";
+import { isIngestStalled } from "../attachment-presentation.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import type { AttachmentIngestEntry, AttachmentReading } from "../attachment-shapes.js";
 
@@ -58,7 +57,7 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
           </span>
         </div>
       ) : null}
-      {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId, reading.cause) : null}
+      {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId) : null}
     </article>
   );
 }
@@ -174,28 +173,16 @@ function renderIngesting(
   );
 }
 
-/**
- * The unresolved arm: the cause from the reading node's own manifest row, rendered verbatim
- * with its remedy. The console recomputes nothing from live relay state.
- */
-function renderUnresolved(
-  attachmentId: string,
-  cause: SessionAttachmentUnresolvedCause,
-): React.JSX.Element {
-  const presentation = UNRESOLVED_ATTACHMENT_PRESENTATION[cause];
+/** The unresolved arm: a marker in the file's own place, naming the attachment by its id. */
+function renderUnresolved(attachmentId: string): React.JSX.Element {
   return (
     <div className="meridian-attachment__unresolved">
       <div className="meridian-attachment__face">
         <Glyph name="alert" size={GLYPH_SIZE_ROW} />
-        <Chip label={cause} mono tone="attention" />
         <span className="meridian-attachment__artifact-id">
           <WireFigure value={attachmentId} />
         </span>
       </div>
-      <p className="meridian-attachment__note">{presentation.meaning}</p>
-      <p className="meridian-attachment__note">
-        {presentation.remedy ?? "There is no way to restore it."}
-      </p>
     </div>
   );
 }
