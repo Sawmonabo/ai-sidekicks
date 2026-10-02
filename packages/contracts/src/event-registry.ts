@@ -1,22 +1,14 @@
-// The closed roster of session event types, grouped by category. The category record itself is
-// in `event.ts`.
+// The closed list of session event types, grouped by category. Each type's category is
+// `SESSION_EVENT_CATEGORY_BY_TYPE` in `event.ts`.
 
+import type { EventCategory } from "./event-envelope.js";
 import type { SessionEvent } from "./event-variant-types.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "./event.js";
 
-// Every wire `type` string. Each type belongs to exactly one category and
-// `SESSION_EVENT_CATEGORY_BY_TYPE` (in `event.ts`) covers every type: its `satisfies
-// Record<SessionEventType, EventCategory>` check makes a missing, unknown or duplicate key a
-// compile error. Type strings are immutable wire identifiers (MINOR bumps only add), so a
-// registered literal is never renamed. Blocks follow `EventCategory` order, which is not
-// load-bearing.
-//
-// A type's category is its registry entry, not its prefix: `daemon.*` and `relay.pin_refused` are
-// `security_events`, `moderation.review_flagged` and `plan.*` are `approval_flow`, and
-// `orchestration.rejected` is `orchestration_admission`.
-/**
- * Every wire event type string the taxonomy registers, whether or not a payload variant exists
- * for it yet.
- */
+// A type string is an immutable wire identifier, never renamed. Its category is its entry in the
+// category map, not its prefix: `relay.pin_refused` is `security_events`, `plan.*` is
+// `approval_flow`.
+/** Every wire event type string, whether or not a payload variant is registered for it. */
 export type SessionEventType =
   // run_lifecycle
   | "run.queued"
@@ -179,10 +171,8 @@ export type SessionEventType =
   | "workflow.gate_resolved";
 
 /**
- * The event types with a payload variant registered in `SessionEventSchema`: a subset of the
- * census (`SESSION_EVENT_CATEGORY_BY_TYPE`). The `SessionEvent["type"]` annotation refuses a
- * literal that has no variant, but not a missing one: the list is hand-written, so registering a
- * union arm means adding its type here in the same change. Order follows the union arms.
+ * The event types with a payload variant registered in `SessionEventSchema`. The annotation refuses
+ * a literal with no variant but not a missing one, so registering a union arm adds its type here.
  */
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
@@ -264,225 +254,69 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "backup.restored",
 ] as const;
 
-// One exported const per `EventCategory`, named `<CATEGORY_IN_SCREAMING_SNAKE>_EVENT_TYPES`, so
-// the `*_events` categories read `..._EVENTS_EVENT_TYPES`. Each array holds exactly the registry
-// types of its category, and together the arrays partition the census. No type check enforces
-// either, so a type added to the census is added to its category's array in the same change. The
-// explicit `readonly SessionEventType[]` annotations keep the exports `isolatedDeclarations`-clean.
+// One array per `EventCategory`, derived from `SESSION_EVENT_CATEGORY_BY_TYPE`, so each holds
+// exactly its category's types and together they partition the registry.
+function eventTypesIn(category: EventCategory): readonly SessionEventType[] {
+  return [...SESSION_EVENT_CATEGORY_BY_TYPE]
+    .filter(([, typeCategory]) => typeCategory === category)
+    .map(([type]) => type);
+}
 
 /** The event types of the `run_lifecycle` category. */
-export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "run.queued",
-  "run.starting",
-  "run.running",
-  "run.waiting_for_approval",
-  "run.waiting_for_input",
-  "run.pausing",
-  "run.paused",
-  "run.completed",
-  "run.interrupted",
-  "run.failed",
-  "run.rolled_back",
-  "run.provider_initialized",
-  "run.turn_started",
-  "run.worker_shutdown",
-  "run.step_limit_reached",
-  "run.token_limit_reached",
-  "run.recovery_resolved",
-  "run.refusal_choice_requested",
-  "run.refusal_choice_resolved",
-  "run.usage_credits_choice_requested",
-  "run.usage_credits_choice_resolved",
-] as const;
-
+export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn("run_lifecycle");
 /** The event types of the `assistant_output` category. */
-export const ASSISTANT_OUTPUT_EVENT_TYPES: readonly SessionEventType[] = [
-  "assistant.message",
-  "assistant.thinking_update",
-] as const;
-
+export const ASSISTANT_OUTPUT_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("assistant_output");
 /** The event types of the `tool_activity` category. */
-export const TOOL_ACTIVITY_EVENT_TYPES: readonly SessionEventType[] = [
-  "tool.invoked",
-  "tool.result",
-  "tool.error",
-  "tool.replayed",
-  "tool.skipped_during_recovery",
-  "subagent.started",
-  "subagent.completed",
-  "command.ended",
-] as const;
-
+export const TOOL_ACTIVITY_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn("tool_activity");
 /** The event types of the `interactive_request` category. */
-export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
-  "queue_item.created",
-  "queue_item.admitted",
-  "queue_item.superseded",
-  "queue_item.canceled",
-  "queue_item.not_delivered",
-  "intervention.requested",
-  "intervention.accepted",
-  "intervention.applied",
-  "intervention.rejected",
-  "intervention.degraded",
-  "intervention.expired",
-  "user.message",
-  "question.asked",
-] as const;
-
+export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("interactive_request");
 /** The event types of the `artifact_publication` category. */
-export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
-  "artifact.published",
-  "artifact.superseded",
-  "diff.created",
-  "git.settled",
-] as const;
-
+export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("artifact_publication");
 /**
  * The event types of the `session_lifecycle` category: session (including the side question, the
  * undo record, the pin and mute marks and a chat's conversion), agent, repo, workspace and
  * worktree (including the branch change and the sweep to the repository root), pty and cloud task.
  */
-export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "session.created",
-  "session.activated",
-  "session.archived",
-  "session.reactivated",
-  "session.closed",
-  "session.goal_updated",
-  "session.goal_cleared",
-  "session.provider_status",
-  "session.notice",
-  "session.renamed",
-  "session.pinned",
-  "session.unpinned",
-  "session.muted",
-  "session.unmuted",
-  "session.converted",
-  "session.side_question_answered",
-  "session.spend_limit_reached",
-  "session.restore_finished",
-  "agent.provider_binding_changed",
-  "agent.provider_binding_change_failed",
-  "workspace.preparing",
-  "workspace.ready",
-  "workspace.stale",
-  "workspace.archived",
-  "worktree.created",
-  "worktree.ready",
-  "worktree.dirty",
-  "worktree.merged",
-  "worktree.retired",
-  "session.branch_changed",
-  "session.swept_to_repo_root",
-  "pty.control_changed",
-  "cloud.task_updated",
-] as const;
-
+export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("session_lifecycle");
 /** The event types of the `approval_flow` category. */
-export const APPROVAL_FLOW_EVENT_TYPES: readonly SessionEventType[] = [
-  "approval.requested",
-  "approval.approved",
-  "approval.rejected",
-  "approval.canceled",
-  "approval.remembered",
-  "approval.rule_revoked",
-  "approval.reviewer_denied",
-  "approval.denial_overridden",
-  "moderation.review_flagged",
-  "plan.proposed",
-  "plan.accepted",
-  "plan.handed_off",
-] as const;
-
+export const APPROVAL_FLOW_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn("approval_flow");
 /** The event types of the `usage_telemetry` category. */
-export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] = [
-  "usage.token_count",
-  "usage.cost_update",
-  "usage.context_window_update",
-  "usage.rate_limit_update",
-  "usage.api_retry",
-  "usage.context_compacted",
-  "usage.model_rerouted",
-] as const;
-
+export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("usage_telemetry");
 /** The event types of the `recovery_events` category. */
-export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "recovery.attempted",
-  "recovery.succeeded",
-  "recovery.failed",
-] as const;
-
+export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("recovery_events");
 /** The event types of the `security_events` category. */
-export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "security.update.available",
-  "relay.pin_refused",
-] as const;
-
+export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("security_events");
 /** The event types of the `event_maintenance` category. */
-export const EVENT_MAINTENANCE_EVENT_TYPES: readonly SessionEventType[] = [
-  "event.compacted",
-  "backup.completed",
-  "backup.failed",
-  "backup.restored",
-] as const;
-
+export const EVENT_MAINTENANCE_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("event_maintenance");
 /** The event types of the `orchestration_admission` category. */
-export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] = [
-  "orchestration.rejected",
-] as const;
-
+export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("orchestration_admission");
 /**
  * The event types of the `mcp_governance` category. `mcp.server_oauth_completed` binds to the
  * daemon-scope sentinel session; `mcp.server_status_changed` binds per event.
  */
-export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
-  "mcp.server_status_changed",
-  "mcp.server_oauth_completed",
-] as const;
-
+export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("mcp_governance");
 /** The event types of the `workflow_lifecycle` category. */
-export const WORKFLOW_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "workflow.created",
-  "workflow.started",
-  "workflow.gated",
-  "workflow.failed",
-  "workflow.completed",
-  "workflow.resumed",
-  "workflow.canceled",
-  "workflow.run_waiting",
-  "workflow.schedule_armed",
-  "workflow.schedule_fired",
-  "workflow.trigger_armed",
-  "workflow.trigger_fired",
-  "workflow.results_posted",
-] as const;
-
+export const WORKFLOW_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
+  eventTypesIn("workflow_lifecycle");
 /** The event types of the `workflow_phase_lifecycle` category. */
-export const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "workflow.phase_admitted",
-  "workflow.phase_waiting_on_pool",
-  "workflow.phase_started",
-  "workflow.phase_progressed",
-  "workflow.phase_canceling",
-  "workflow.phase_failed",
-  "workflow.phase_retried",
-  "workflow.phase_suspended",
-  "workflow.phase_resumed",
-  "workflow.phase_completed",
-  "workflow.step_started",
-  "workflow.step_finished",
-  "workflow.step_failed",
-  "workflow.step_canceled",
-  "workflow.step_skipped",
-] as const;
-
+export const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn(
+  "workflow_phase_lifecycle",
+);
 /** The event types of the `workflow_parallel_coordination` category. */
-export const WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES: readonly SessionEventType[] = [
-  "workflow.parallel_join_cancellation",
-] as const;
-
+export const WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn(
+  "workflow_parallel_coordination",
+);
 /** The event types of the `workflow_gate_resolution` category. */
-export const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES: readonly SessionEventType[] = [
-  "workflow.gate_resolved",
-] as const;
+export const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn(
+  "workflow_gate_resolution",
+);

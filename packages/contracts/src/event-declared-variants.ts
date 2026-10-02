@@ -1,20 +1,19 @@
-// Session events whose payload this package declares itself: session, repo, workspace and worktree
-// lifecycle, event compaction, and assistant and tool activity. Each has an event interface and a
-// strict schema.
+// Session events whose payload this package declares itself: session, workspace and worktree
+// lifecycle, event compaction, and assistant and tool activity. Each has an event interface here;
+// `SessionEventSchema` in event.ts parses them.
 
 import { z } from "zod";
 import { EVENT_FIELD_MAX_LEN } from "./event-core.js";
 import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
-  buildCommonShape,
   withEpochStamp,
   type EventEnvelope,
   type SourceEpoch,
   type SourcePosition,
 } from "./event-envelope.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
-import { SessionCreatedPayloadSchema, type SessionCreatedPayload } from "./session-created.js";
+import type { RepoWorkspaceLifecyclePayload } from "./repo.js";
+import type { SessionCreatedPayload } from "./session-created.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 import type { WorktreeCreatedPayload, WorktreeRetiredPayload } from "./worktree-events.js";
 import type { WorktreeLifecyclePayload } from "./worktree.js";
@@ -29,20 +28,8 @@ export interface SessionCreatedEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: SessionCreatedPayload;
 }
-/** Wire schema for {@link SessionCreatedEvent}. */
-export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("session.created"),
-    category: z.literal("session_lifecycle"),
-    payload: SessionCreatedPayloadSchema,
-  })
-  .strict();
 
-// workspace.*: four variants sharing repo.ts's `RepoWorkspaceLifecyclePayloadSchema`, so their
-// payload cannot drift between them. The `worktree.*` variants below use the same
-// family shape over their own state vocabulary. None is run-scoped (no `runId`), so none takes
-// the epoch stamp.
+// The four workspace events share one payload; none is run-scoped, so none takes the epoch stamp.
 
 /** Emitted when a workspace's preparation begins, the first time or again. */
 export interface WorkspacePreparingEvent extends EventEnvelope {
@@ -50,15 +37,6 @@ export interface WorkspacePreparingEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: RepoWorkspaceLifecyclePayload;
 }
-/** Wire schema for {@link WorkspacePreparingEvent}. */
-export const WorkspacePreparingEventSchema: z.ZodType<WorkspacePreparingEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.preparing"),
-    category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
-  })
-  .strict();
 
 /** Emitted when preparation completes and the execution root is bound. */
 export interface WorkspaceReadyEvent extends EventEnvelope {
@@ -66,15 +44,6 @@ export interface WorkspaceReadyEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: RepoWorkspaceLifecyclePayload;
 }
-/** Wire schema for {@link WorkspaceReadyEvent}. */
-export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.ready"),
-    category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
-  })
-  .strict();
 
 /**
  * Emitted when a workspace becomes unavailable: a failed preparation, or a path that went away
@@ -85,15 +54,6 @@ export interface WorkspaceStaleEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: RepoWorkspaceLifecyclePayload;
 }
-/** Wire schema for {@link WorkspaceStaleEvent}. */
-export const WorkspaceStaleEventSchema: z.ZodType<WorkspaceStaleEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.stale"),
-    category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
-  })
-  .strict();
 
 /** Emitted once per dependent workspace archived by the detach cascade. */
 export interface WorkspaceArchivedEvent extends EventEnvelope {
@@ -101,23 +61,10 @@ export interface WorkspaceArchivedEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: RepoWorkspaceLifecyclePayload;
 }
-/** Wire schema for {@link WorkspaceArchivedEvent}. */
-export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.archived"),
-    category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
-  })
-  .strict();
 
-// worktree.*: five variants. Their payload is the family factory instantiated over
-// `WorktreeStateSchema` (`WorktreeLifecyclePayloadSchema` in worktree.ts), so a worktree event
-// claiming a workspace state stays a parse error. `worktree.created` and `worktree.retired` add
-// the members worktree-events.ts declares. There is no `worktree.failed`: the worktree row's
-// `-> failed` transition emits no worktree event, because `workspace.stale` already records the
-// failure, and `SessionEventSchema` must keep rejecting it. None is run-scoped, so none takes the
-// epoch stamp.
+// The five worktree events carry worktree states, so one claiming a workspace state fails to
+// parse. There is no `worktree.failed`: `workspace.stale` already records that failure. None is
+// run-scoped, so none takes the epoch stamp.
 
 /** Emitted with worktree row creation; carries the kept copy a put-back came from, if any. */
 export interface WorktreeCreatedEvent extends EventEnvelope {
@@ -125,15 +72,6 @@ export interface WorktreeCreatedEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: WorktreeCreatedPayload;
 }
-/** Wire schema for {@link WorktreeCreatedEvent}. */
-export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.created"),
-    category: z.literal("session_lifecycle"),
-    payload: WorktreeCreatedPayloadSchema,
-  })
-  .strict();
 
 /** Emitted on the `creating -> ready` transition: the checkout is bound as an execution root. */
 export interface WorktreeReadyEvent extends EventEnvelope {
@@ -141,15 +79,6 @@ export interface WorktreeReadyEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: WorktreeLifecyclePayload;
 }
-/** Wire schema for {@link WorktreeReadyEvent}. */
-export const WorktreeReadyEventSchema: z.ZodType<WorktreeReadyEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.ready"),
-    category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
-  })
-  .strict();
 
 /** Emitted on the `-> dirty` transition: uncommitted work was observed in the checkout. */
 export interface WorktreeDirtyEvent extends EventEnvelope {
@@ -157,15 +86,6 @@ export interface WorktreeDirtyEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: WorktreeLifecyclePayload;
 }
-/** Wire schema for {@link WorktreeDirtyEvent}. */
-export const WorktreeDirtyEventSchema: z.ZodType<WorktreeDirtyEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.dirty"),
-    category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
-  })
-  .strict();
 
 /** Emitted on the `-> merged` transition: the worktree's branch has merged back. */
 export interface WorktreeMergedEvent extends EventEnvelope {
@@ -173,15 +93,6 @@ export interface WorktreeMergedEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: WorktreeLifecyclePayload;
 }
-/** Wire schema for {@link WorktreeMergedEvent}. */
-export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.merged"),
-    category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
-  })
-  .strict();
 
 /**
  * Emitted on the `-> retired` transition, recorded and evented before any disk mutation; cleanup
@@ -192,22 +103,9 @@ export interface WorktreeRetiredEvent extends EventEnvelope {
   category: "session_lifecycle";
   payload: WorktreeRetiredPayload;
 }
-/** Wire schema for {@link WorktreeRetiredEvent}. */
-export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.retired"),
-    category: z.literal("session_lifecycle"),
-    payload: WorktreeRetiredPayloadSchema,
-  })
-  .strict();
 
-// event.compacted: the purge receipt. Its payload is declared here because the daemon emits the
-// row itself. It re-spells `occurredAt` beside the envelope's own, as `session.created`'s payload
-// re-spells `sessionId`, rather than deduplicating. The row is a node-level record bound to the
-// daemon-scope sentinel `sessionId`; that binding is the emitter's job and the schema does not
-// narrow to it, so an `event.compacted` for one session may carry that session's id. It is not
-// run-scoped, so it takes no epoch stamp.
+// `event.compacted` is a machine-level record the daemon writes under its own sentinel
+// `sessionId`; the schema does not narrow to it. It is not run-scoped, so it takes no epoch stamp.
 
 /**
  * A `session_events.sequence` value carried inside a payload (a range end or an implicated row).
@@ -273,35 +171,12 @@ export interface EventCompactedEvent extends EventEnvelope {
   category: "event_maintenance";
   payload: EventCompactedPayload;
 }
-/** Wire schema for {@link EventCompactedEvent}. */
-export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("event.compacted"),
-    category: z.literal("event_maintenance"),
-    payload: EventCompactedPayloadSchema,
-  })
-  .strict();
 
-// Machine-authored content: `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
-// `tool.result` and `tool.error`.
-//
-// The body is not a payload member. It lives in `session_events.content_payload`, left out of the
-// canonical bytes; `payload` carries only its length and whether it was cut. A reader pairs the
-// event with the body
-// ({@link HydratedSessionEvent}). The schemas are `.strict()`, so a body spliced into `payload`
-// fails validation.
-//
-// Two families, not one schema: the assistant pair has `contentType` and no tool identity; the
-// tool trio has a required `toolName` beside optional `toolCallId` and `durationMs`, and no
-// `contentType`.
-//
-// Member ownership splits at the append path. `contentType` is the producer's, which knows the
-// media type. The two {@link MachineContentDescriptor} members are the append path's: facts about
-// what it stored, determined after the plaintext bound was applied. A producer that pre-carries
-// either is refused at the write path.
-//
-// All five are run-scoped (`runId`), so each takes the epoch stamp.
+// The `assistant.*` and `tool.*` events: the body lives in `session_events.content_payload`,
+// outside the canonical bytes, and `payload` carries only its length and whether it was cut; a
+// reader pairs the two ({@link HydratedSessionEvent}). The strict payloads refuse a spliced body.
+// `contentType` is the producer's; the {@link MachineContentDescriptor} members are the append
+// path's, which refuses a producer that pre-carries either. All five take the epoch stamp.
 
 /**
  * The payload key carrying the body's pre-truncation UTF-8 byte length, so a truncated row still
@@ -310,30 +185,22 @@ export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
 export const CONTENT_LENGTH_PAYLOAD_KEY = "contentLength" as const;
 
 /**
- * The payload key marking a body stored as a prefix. Present only as `true` and omitted when the
- * stored body is complete, never written as `false`: absence is the completeness signal, and an
- * omitted key keeps a complete row's canonical bytes identical to what they would be without the
- * bound.
+ * The payload key marking a body stored as a prefix. Present only as `true`, never `false`, so a
+ * complete row's canonical bytes are what they would be without the bound.
  */
 export const CONTENT_TRUNCATED_PAYLOAD_KEY = "contentTruncated" as const;
 
 /**
- * The per-row plaintext ceiling for `session_events.content_payload`: 262144 bytes (256 KiB) of
- * UTF-8. The column holds machine-scale text (a tool result is often a file dump or a command's
- * whole stdout), so an over-bound body is truncated at a codepoint boundary, never refused or
- * dropped: refusing the append would lose the turn, and dropping the body would misreport that
- * the turn never happened.
+ * The per-row plaintext ceiling for `session_events.content_payload`, in UTF-8 bytes. A longer
+ * body is cut at a codepoint boundary, never refused, so the turn is never lost.
  */
 export const CONTENT_PAYLOAD_PLAINTEXT_MAX: number = 262_144;
 
-// A type alias, not an interface: `EventEnvelope.payload` is `Record<string, unknown>`, and
-// TypeScript gives an implicit index signature to object-literal types but never to an interface,
-// so an interface payload could not satisfy the envelope it extends.
+// A type alias, not an interface: only an object-literal type gets the implicit index signature
+// `EventEnvelope.payload` (`Record<string, unknown>`) needs.
 /**
- * The two descriptive members the append path owns, carried by every body-bearing payload. Each
- * is optional: a row with no body (an `assistant.message` whose body the driver could not read,
- * a `tool.invoked` with no arguments) is valid, and requiring them would make its producer invent
- * a length for bytes that do not exist.
+ * The two members the append path owns on every body-bearing payload. Each is optional, because a
+ * row may have no body.
  */
 export type MachineContentDescriptor = {
   /** Pre-truncation UTF-8 byte length of the body that was stored. */
@@ -425,15 +292,6 @@ export interface AssistantMessageEvent extends EventEnvelope {
   category: "assistant_output";
   payload: AssistantOutputPayload;
 }
-/** Wire schema for {@link AssistantMessageEvent}. */
-export const AssistantMessageEventSchema: z.ZodType<AssistantMessageEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("assistant.message"),
-    category: z.literal("assistant_output"),
-    payload: assistantMessagePayloadSchema,
-  })
-  .strict();
 
 /** Emitted when the assistant reports a reasoning update; its body is kept apart. */
 export interface AssistantThinkingUpdateEvent extends EventEnvelope {
@@ -441,15 +299,6 @@ export interface AssistantThinkingUpdateEvent extends EventEnvelope {
   category: "assistant_output";
   payload: AssistantOutputPayload;
 }
-/** Wire schema for {@link AssistantThinkingUpdateEvent}. */
-export const AssistantThinkingUpdateEventSchema: z.ZodType<AssistantThinkingUpdateEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("assistant.thinking_update"),
-    category: z.literal("assistant_output"),
-    payload: assistantThinkingUpdatePayloadSchema,
-  })
-  .strict();
 
 /** Emitted when a tool call starts; its arguments are kept apart from the payload. */
 export interface ToolInvokedEvent extends EventEnvelope {
@@ -457,15 +306,6 @@ export interface ToolInvokedEvent extends EventEnvelope {
   category: "tool_activity";
   payload: ToolActivityPayload;
 }
-/** Wire schema for {@link ToolInvokedEvent}. */
-export const ToolInvokedEventSchema: z.ZodType<ToolInvokedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("tool.invoked"),
-    category: z.literal("tool_activity"),
-    payload: toolInvokedPayloadSchema,
-  })
-  .strict();
 
 /** Emitted when a tool call returns; its result is kept apart from the payload. */
 export interface ToolResultEvent extends EventEnvelope {
@@ -473,15 +313,6 @@ export interface ToolResultEvent extends EventEnvelope {
   category: "tool_activity";
   payload: ToolActivityPayload;
 }
-/** Wire schema for {@link ToolResultEvent}. */
-export const ToolResultEventSchema: z.ZodType<ToolResultEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("tool.result"),
-    category: z.literal("tool_activity"),
-    payload: toolResultPayloadSchema,
-  })
-  .strict();
 
 /** Emitted when a tool call fails; its error body is kept apart from the payload. */
 export interface ToolErrorEvent extends EventEnvelope {
@@ -489,12 +320,3 @@ export interface ToolErrorEvent extends EventEnvelope {
   category: "tool_activity";
   payload: ToolActivityPayload;
 }
-/** Wire schema for {@link ToolErrorEvent}. */
-export const ToolErrorEventSchema: z.ZodType<ToolErrorEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("tool.error"),
-    category: z.literal("tool_activity"),
-    payload: toolErrorPayloadSchema,
-  })
-  .strict();
