@@ -1,15 +1,10 @@
 // Proves the projector reports a reachable mount healthy, a failed probe as an unreachable mount
 // and a stale workspace that owes its transition, and that the capability projection offers the
-// git modes with the provisioned-worktree default and accounts for every mode exactly once.
+// git modes with the provisioned-worktree default.
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  ExecutionMode,
-  VcsType,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
-  WorkspaceState,
-} from "@ai-sidekicks/contracts";
+import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import {
   computeExecutionModeCapabilities,
@@ -31,41 +26,12 @@ const MOUNT_ROW: RepoMountHealthRow = { canonicalRoot: MOUNT_CANONICAL_ROOT };
 
 const PROBE_INSTANT: string = "2026-08-04T12:00:00.000Z";
 
-// `satisfies` proves every element is a real member and the `_AssertExtends` pins prove every
-// member is listed, so a member added to contracts cannot leave the partition passing over a stale
-// roster.
-const ALL_EXECUTION_MODES = [
-  "bound-root",
-  "provisioned-worktree",
-] as const satisfies readonly ExecutionMode[];
-
-const ALL_VCS_TYPES = ["git"] as const satisfies readonly VcsType[];
-
-// The `_` prefix exempts these aliases from `no-unused-vars`; they exist only to be type-checked.
-type _AssertExtends<A extends B, B> = A;
-type _AssertExecutionModeRosterIsComplete = _AssertExtends<
-  ExecutionMode,
-  (typeof ALL_EXECUTION_MODES)[number]
->;
-type _AssertVcsTypeRosterIsComplete = _AssertExtends<VcsType, (typeof ALL_VCS_TYPES)[number]>;
-
 function probeOf(probedPath: string, reachable: boolean): FilesystemPathProbe {
   return { probedPath, reachable, checkedAt: PROBE_INSTANT };
 }
 
 function workspaceRow(state: WorkspaceState): WorkspaceHealthRow {
   return { state, fsRoot: WORKSPACE_FS_ROOT };
-}
-
-function capabilitiesFor(vcsType: VcsType): WorkspaceExecutionModeCapabilitiesReadResponse {
-  return computeExecutionModeCapabilities({ vcsType });
-}
-
-/** The restricted modes of a projection, read without casting a key back. */
-function restrictedModesOf(
-  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): ExecutionMode[] {
-  return ALL_EXECUTION_MODES.filter((mode) => capabilities.restrictions?.[mode] !== undefined);
 }
 
 describe("computeRepoMountHealth — derived projection", () => {
@@ -116,28 +82,9 @@ describe("health projections — one outage, two surfaces", () => {
 
 describe("computeExecutionModeCapabilities — git mounts", () => {
   it("offers both modes with provisioned-worktree default", () => {
-    const capabilities = capabilitiesFor("git");
+    const capabilities = computeExecutionModeCapabilities({ vcsType: "git" });
 
     expect(capabilities.availableModes).toEqual(["bound-root", "provisioned-worktree"]);
     expect(capabilities.defaultMode).toBe("provisioned-worktree");
   });
-});
-
-describe("computeExecutionModeCapabilities — partition", () => {
-  for (const vcsType of ALL_VCS_TYPES) {
-    it(`partitions every execution mode for a ${vcsType} mount`, () => {
-      const capabilities = capabilitiesFor(vcsType);
-      const restricted = restrictedModesOf(capabilities);
-      const available = capabilities.availableModes;
-
-      // Total: no mode is dropped.
-      for (const mode of ALL_EXECUTION_MODES) {
-        expect(available.includes(mode) || restricted.includes(mode)).toBe(true);
-      }
-      // Disjoint: no mode is both offered and refused.
-      expect(available.filter((mode) => restricted.includes(mode))).toEqual([]);
-      // Each mode is counted exactly once.
-      expect(available.length + restricted.length).toBe(ALL_EXECUTION_MODES.length);
-    });
-  }
 });

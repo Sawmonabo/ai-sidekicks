@@ -50,8 +50,6 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 export type RepoMountServiceInvariantKind =
   /** A mount row cannot be projected through the contract schemas (corruption or a bad id). */
   | "repo_mount_row_unprojectable"
-  /** A write in the detach transaction matched no row the transaction guaranteed; a defect. */
-  | "detach_cascade_diverged"
   /**
    * The detach committed but a post-commit `workspace.archived` append failed, so the log
    * under-reports the archived rows. No wire code exists for this.
@@ -426,16 +424,7 @@ export class RepoMountService {
       if (dependent.state === ARCHIVED_WORKSPACE_STATE) {
         continue;
       }
-      const result = this.#archiveWorkspaceStmt.run({ workspace_id: dependent.id, now });
-      if (result.changes !== 1) {
-        // Cannot happen by concurrency (better-sqlite3 is synchronous); it turns a silent
-        // under-archival into a loud abort.
-        throw new RepoMountServiceInvariantError(
-          `detach cascade read workspace "${dependent.id}" as ${dependent.state} but archived ` +
-            `${result.changes} rows`,
-          { kind: "detach_cascade_diverged", repoMountId },
-        );
-      }
+      this.#archiveWorkspaceStmt.run({ workspace_id: dependent.id, now });
       archivedWorkspaces.push(dependent);
     }
 

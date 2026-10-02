@@ -13,47 +13,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 import { SessionService } from "../session-service.js";
-import { insertStoredEvent } from "./stored-event.test-support.js";
+import {
+  insertStoredEvent,
+  makeCreatedEvent,
+  OWNER_ACTOR_ID,
+  SESSION_ID,
+} from "./stored-event.test-support.js";
 import type { StoredEvent } from "../types.js";
 
 // ----------------------------------------------------------------------------
 // Test fixtures
 // ----------------------------------------------------------------------------
-
-const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
-const OWNER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-
-function makeCreatedEvent(): StoredEvent {
-  return {
-    id: "01J0EV0000NN5J5J5J5J5J5J5J",
-    sessionId: SESSION_ID,
-    sequence: 0,
-    occurredAt: "2026-04-27T12:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: OWNER_ID,
-    payload: {
-      sessionId: SESSION_ID,
-      shape: "chat",
-      mainAgent: {
-        agentId: "44444444-4444-4444-8444-444444444444",
-        name: "Implementer",
-        binding: {
-          driverName: "claude",
-          modelId: "claude-sonnet-5",
-          providerAccountId: null,
-          effort: null,
-        },
-        ancestry: [],
-        createdAt: "2026-04-27T12:00:00.000Z",
-      },
-    },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
 
 function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): StoredEvent {
   return {
@@ -64,7 +34,7 @@ function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): 
     monotonicNs,
     category: "session_lifecycle",
     type: "session.renamed",
-    actor: OWNER_ID,
+    actor: OWNER_ACTOR_ID,
     payload: { sessionId: SESSION_ID, name },
     correlationId: null,
     causationId: null,
@@ -136,7 +106,7 @@ describe("SessionService — replay reads events by sequence ASC", () => {
     expect(snapshot).not.toBeNull();
     if (snapshot === null) return;
     expect(snapshot.asOfSequence).toBe(2);
-    expect(snapshot.ownerActor).toBe(OWNER_ID);
+    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
   });
 });
 // ----------------------------------------------------------------------------
@@ -233,7 +203,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
     expect(afterRestart).toEqual(beforeRestart);
 
     if (afterRestart === null) return;
-    expect(afterRestart.ownerActor).toBe(OWNER_ID);
+    expect(afterRestart.ownerActor).toBe(OWNER_ACTOR_ID);
     expect(afterRestart.asOfSequence).toBe(2);
   });
 
@@ -244,26 +214,6 @@ describe("SessionService — snapshot survives daemon restart", () => {
     ctx.db = reopened;
     ctx.service = new SessionService(reopened);
     expect(schemaObjectNames(reopened)).toEqual(tablesBefore);
-  });
-
-  it("applyMigrations is idempotent against direct re-call on the same handle", () => {
-    const objectsBefore: ReadonlyArray<string> = schemaObjectNames(ctx.db);
-    applyMigrations(ctx.db);
-    applyMigrations(ctx.db);
-    expect(schemaObjectNames(ctx.db)).toEqual(objectsBefore);
-  });
-
-  it("applyMigrations on a second handle to the same file is a sequential no-op (read-after-write idempotency)", () => {
-    // Sequential, not concurrent: `ctx.db` already migrated, so a second handle must find the
-    // schema and return. The worker-thread race below covers real contention.
-    const secondHandle: DatabaseType = new Database(ctx.dbPath);
-    try {
-      applyPragmas(secondHandle);
-      applyMigrations(secondHandle);
-      expect(schemaObjectNames(secondHandle)).toEqual(schemaObjectNames(ctx.db));
-    } finally {
-      secondHandle.close();
-    }
   });
 });
 

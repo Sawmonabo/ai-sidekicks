@@ -51,8 +51,8 @@
 // the wait is exactly what pins the stale snapshot. Parked workers hold READ
 // transactions, which in WAL mode block neither each other nor a late sibling's
 // reads. The wait carries a hard deadline and proceeds regardless once it
-// expires, so a worker that dies before arriving degrades the test to its
-// previous probabilistic behavior instead of hanging the suite.
+// expires, so a worker that dies before arriving degrades the test to
+// probabilistic contention instead of hanging the suite.
 
 import { register } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";

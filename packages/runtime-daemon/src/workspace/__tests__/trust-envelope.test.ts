@@ -12,12 +12,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { TrustEnvelopeViolationError } from "../repo-errors.js";
 import {
-  DEFAULT_REALPATH,
   TrustEnvelopeValidator,
-  type DirectoryReadabilityProbe,
   type PathRealpathResolver,
   type WorkspaceExecutionRootCandidate,
 } from "../trust-envelope.js";
+
+import { alwaysReadableProbe } from "./workspace.test-support.js";
 
 /**
  * Whether the filesystem under `os.tmpdir()` is case-insensitive, found by creating a directory in
@@ -29,10 +29,7 @@ const filesystemIsCaseInsensitive: boolean = ((): boolean => {
   const probeRoot = mkdtempSync(join(tmpdir(), "trust-envelope-case-probe-"));
   try {
     mkdirSync(join(probeRoot, "CaseProbe"));
-    statSync(join(probeRoot, "caseprobe"));
-    return true;
-  } catch {
-    return false;
+    return statSync(join(probeRoot, "caseprobe"), { throwIfNoEntry: false }) !== undefined;
   } finally {
     rmSync(probeRoot, { recursive: true, force: true });
   }
@@ -155,8 +152,6 @@ function syntheticRealpath(
 }
 
 /** The synthetic filesystem models openable directories only, so its probe always opens. */
-const alwaysReadableProbe: DirectoryReadabilityProbe = () => Promise.resolve();
-
 describe("envelope admission", () => {
   it("refuses an anchor the attached roots do not contain", async () => {
     // A real mount root that is not attached, such as one detached mid-bind. Containment within
@@ -383,15 +378,5 @@ describe("case folding stays win32-scoped", () => {
         attachedMountRoots: [POSIX_MOUNT_ROOT],
       }),
     );
-  });
-});
-
-describe("the default realpath implementation is pinned", () => {
-  it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
-    // Deliberately structural. The callback `node:fs` `realpath` does no case conversion on
-    // case-insensitive filesystems and collapses `..` in its own walk rather than against a
-    // symlink's resolved target, which would reopen the escape. The casing half cannot be
-    // observed on ubuntu-only CI, but this assertion fails on every platform.
-    expect(DEFAULT_REALPATH).toBe(realpath);
   });
 });

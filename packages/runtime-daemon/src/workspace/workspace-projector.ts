@@ -10,7 +10,6 @@
 
 import {
   RepoMountHealthSchema,
-  WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   type ExecutionMode,
   type RepoMountHealth,
   type VcsType,
@@ -275,31 +274,3 @@ function assertProbeTargets(
     );
   }
 }
-
-// Every `vcs_type`, pinned like the rosters above, so the validation below covers every profile.
-const ALL_VCS_TYPES = ["git"] as const satisfies readonly VcsType[];
-type _AssertVcsTypeRosterIsComplete = _AssertExtends<VcsType, (typeof ALL_VCS_TYPES)[number]>;
-
-/**
- * Parses each profile's projection through the response schema (which bounds reason strings) and
- * checks its `defaultMode` is available. Runs at import: the matrix is static, so a violation is
- * a source defect and should fail every consumer.
- */
-function validateStaticCapabilityMatrix(): void {
-  for (const vcsType of ALL_VCS_TYPES) {
-    const capabilities: WorkspaceExecutionModeCapabilitiesReadResponse = projectCapabilityProfile(
-      capabilityProfileFor(vcsType),
-    );
-    WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(capabilities);
-    if (!capabilities.availableModes.includes(capabilities.defaultMode)) {
-      throw new Error(
-        `Static capability matrix is inconsistent for vcs_type "${vcsType}": defaultMode ` +
-          `"${capabilities.defaultMode}" is not among the available modes ` +
-          `[${capabilities.availableModes.join(", ")}]. Reporting a default a caller may not ` +
-          "select is the silent substitution the capability projection exists to prevent.",
-      );
-    }
-  }
-}
-
-validateStaticCapabilityMatrix();

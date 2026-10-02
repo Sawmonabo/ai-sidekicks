@@ -13,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExecutionMode, WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
@@ -28,8 +27,8 @@ import type {
 } from "../../git/worktree-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { ExecutionRootService } from "../execution-root-service.js";
+import type { GitRunner } from "../../git/git-process.js";
 import type {
-  ExecutionRootGitRunner,
   ExecutionRootServiceDeps,
   ExecutionRootWorktreeProvisioner,
   WorkspaceLifecyclePrimitives,
@@ -39,7 +38,7 @@ import type { FilesystemPathProbeFn } from "../workspace-row-guards.js";
 import { WorkspaceBusyError, WorkspaceStaleError } from "../workspace-service-errors.js";
 import { WorkspaceService, type SessionExistenceReader } from "../workspace-service.js";
 
-import { captureRejection } from "./workspace.test-support.js";
+import { captureRejection, requireWorkspaceRow } from "./workspace.test-support.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -121,12 +120,12 @@ class FakeGit {
   /** The branch the main checkout is on. */
   headBranch: string = MAIN_BRANCH;
 
-  readonly run: ExecutionRootGitRunner = (argv) => {
+  readonly run: GitRunner = (argv) => {
     this.invocations.push({ argv: [...argv] });
     const verb: string | undefined = gitVerb(argv);
 
     if (verb === "symbolic-ref") {
-      return Promise.resolve({ exitCode: 0, stdout: `${this.headBranch}\n`, stderr: "" });
+      return Promise.resolve({ stdout: Buffer.from(`${this.headBranch}\n`, "utf8"), stderr: "" });
     }
 
     return Promise.reject(new Error(`unexpected git verb in fixture: ${String(verb)}`));
@@ -268,9 +267,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a queue entry left behind would stall the
-  // next case on the same session id.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -449,27 +445,6 @@ function readBranchContext(branchContextId: string): BranchContextTestRow {
   return found;
 }
 
-interface WorkspaceTestRow {
-  readonly state: string;
-  readonly execution_mode: string;
-  readonly fs_root: string | null;
-  readonly metadata: string;
-  readonly updated_at: string;
-}
-
-function readWorkspaceRow(workspaceId: string = WORKSPACE_ID): WorkspaceTestRow {
-  const row = ctx.db
-    .prepare<
-      [string],
-      WorkspaceTestRow
-    >(`SELECT state, execution_mode, fs_root, metadata, updated_at FROM workspaces WHERE id = ?`)
-    .get(workspaceId);
-  if (row === undefined) {
-    throw new Error(`expected a workspaces row for ${workspaceId}`);
-  }
-  return row;
-}
-
 function readWorkspaceLastError(workspaceId: string = WORKSPACE_ID): string | null {
   const row = ctx.db
     .prepare<
@@ -571,7 +546,7 @@ describe("pre-bracket refusals", () => {
     // The only invocation was the read; a `switch` or `checkout` here would be the mutation.
     expect(ctx.git.verbs()).toEqual(["symbolic-ref"]);
 
-    const row = readWorkspaceRow();
+    const row = requireWorkspaceRow(ctx.db, WORKSPACE_ID);
     expect(row.state).toBe("ready");
     expect(row.fs_root).toBe(PRIOR_ROOT);
     expect(readEventTypes()).toEqual([]);
@@ -784,7 +759,7 @@ describe("explicit worktree reuse", () => {
     expect(readBranchContext(SEEDED_CONTEXT_ID).updated_at).toBe(SEEDED_CONTEXT_STAMP);
     // After the bracket opened, so the workspace parks `stale` with the detail rather than
     // adopting a doomed root.
-    expect(readWorkspaceRow().state).toBe("stale");
+    expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID).state).toBe("stale");
   });
 
   it("preserves a same-workspace candidate's existing row without duplication", async () => {
@@ -859,7 +834,7 @@ describe("no raw workspaces write", () => {
     // With the primitives replaced by recording no-ops, any change to the row could only come
     // from this module's own SQL, so an unchanged row is a direct observation.
     insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
-    const before = readWorkspaceRow();
+    const before = requireWorkspaceRow(ctx.db, WORKSPACE_ID);
 
     const calls: string[] = [];
     const stubbed: WorkspaceLifecyclePrimitives = {
@@ -892,7 +867,7 @@ describe("no raw workspaces write", () => {
     expect(readBranchContexts()).toHaveLength(1);
     // It asked the primitive to adopt the root rather than writing it.
     expect(calls).toEqual([`completeRootPreparation:${WORKSPACE_ID}:${prepared.executionRoot}`]);
-    expect(readWorkspaceRow()).toEqual(before);
+    expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID)).toEqual(before);
     expect(readEventTypes()).toEqual([]);
   });
 });
@@ -938,14 +913,14 @@ describe("the root preparation bracket", () => {
       branchName: FEATURE_BRANCH,
     });
 
-    const row = readWorkspaceRow();
+    const row = requireWorkspaceRow(ctx.db, WORKSPACE_ID);
     expect(row.state).toBe("ready");
     // The prepared root, not the one the workspace arrived with.
     expect(row.fs_root).toBe(prepared.executionRoot);
     expect(row.fs_root).not.toBe(PRIOR_ROOT);
     expect(prepared.state).toBe("ready");
-    // The bracket rides the primitives, which is what puts these on the timeline; a raw row
-    // write would produce neither.
+    // The bracket rides the primitives, which is what puts these in the session's event log; a raw
+    // row write would produce neither.
     expect(readEventTypes()).toEqual(["workspace.preparing", "workspace.ready"]);
   });
 
@@ -962,7 +937,7 @@ describe("the root preparation bracket", () => {
     expect(rejection).toBe(failure);
 
     // The run blocks in setup rather than degrading.
-    const row = readWorkspaceRow();
+    const row = requireWorkspaceRow(ctx.db, WORKSPACE_ID);
     expect(row.state).toBe("stale");
     expect(row.fs_root).toBeNull();
     expect(readWorkspaceLastError()).toContain("worktree.create_failed");

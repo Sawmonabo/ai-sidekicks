@@ -1,7 +1,6 @@
 /**
  * Typed carriers for the five `repo.*` error codes, each a `DaemonDomainError` subclass with its
- * code and notional HTTP status fixed: `code` becomes `data.type` and `detail` becomes
- * `data.fields`.
+ * code fixed: `code` becomes `data.type` and `detail` becomes `data.fields`.
  *
  * - Only `RepoMountNotFoundError` sets `jsonRpcCode` (`-32602`, as `session.not_found` does); the
  *   others take `-32603` and consumers discriminate on `data.type`.
@@ -52,7 +51,7 @@ const ROOT_RESOLUTION_MESSAGES: Record<RepoRootResolutionReason, string> = {
     "supplied path, or did not report itself as its own root",
 };
 
-/** `repo.not_found` (notional HTTP 404): the repo mount does not exist. */
+/** `repo.not_found`: the repo mount does not exist. */
 export class RepoMountNotFoundError extends DaemonDomainError {
   readonly repoMountId: string;
 
@@ -61,7 +60,6 @@ export class RepoMountNotFoundError extends DaemonDomainError {
       code: "repo.not_found" satisfies RepoErrorCode,
       // An unresolved id is a param-shape failure, as with `session.not_found`.
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 404,
       detail: { repoMountId },
     });
     this.repoMountId = repoMountId;
@@ -69,8 +67,8 @@ export class RepoMountNotFoundError extends DaemonDomainError {
 }
 
 /**
- * `repo.root_resolution_failed` (notional HTTP 422). Takes only the closed `reason`, so the
- * attempted path never enters the carrier.
+ * `repo.root_resolution_failed`. Takes only the closed `reason`, so the attempted path never enters
+ * the carrier.
  */
 export class RepoRootResolutionError extends DaemonDomainError {
   readonly reason: RepoRootResolutionReason;
@@ -78,7 +76,6 @@ export class RepoRootResolutionError extends DaemonDomainError {
   constructor(reason: RepoRootResolutionReason) {
     super(ROOT_RESOLUTION_MESSAGES[reason], {
       code: "repo.root_resolution_failed" satisfies RepoErrorCode,
-      httpStatus: 422,
       detail: { reason },
     });
     this.reason = reason;
@@ -86,9 +83,9 @@ export class RepoRootResolutionError extends DaemonDomainError {
 }
 
 /**
- * `repo.outside_trust_envelope` (notional HTTP 403): a path or workspace binding resolves outside
- * the machine's attached mount roots. Argument-free on purpose: the no-path rule is then
- * structural, and adding a parameter later is additive whereas retracting a leaky one is not.
+ * `repo.outside_trust_envelope`: a path or workspace binding resolves outside the machine's
+ * attached mount roots. Argument-free on purpose: the no-path rule is then structural, and adding a
+ * parameter later is additive whereas retracting a leaky one is not.
  */
 export class TrustEnvelopeViolationError extends DaemonDomainError {
   constructor() {
@@ -97,15 +94,14 @@ export class TrustEnvelopeViolationError extends DaemonDomainError {
         "trust envelope",
       {
         code: "repo.outside_trust_envelope" satisfies RepoErrorCode,
-        httpStatus: 403,
       },
     );
   }
 }
 
 /**
- * `repo.already_attached` (notional HTTP 409): the canonical root is already attached on this
- * node. Carries the conflicting mount's id rather than the root, so the refusal names no path.
+ * `repo.already_attached`: the canonical root is already attached on this node. Carries the
+ * conflicting mount's id rather than the root, so the refusal names no path.
  */
 export class RepoAlreadyAttachedError extends DaemonDomainError {
   readonly conflictingRepoMountId: string;
@@ -116,7 +112,6 @@ export class RepoAlreadyAttachedError extends DaemonDomainError {
         `node (repo mount ${conflictingRepoMountId})`,
       {
         code: "repo.already_attached" satisfies RepoErrorCode,
-        httpStatus: 409,
         detail: { conflictingRepoMountId },
       },
     );
@@ -125,23 +120,17 @@ export class RepoAlreadyAttachedError extends DaemonDomainError {
 }
 
 /**
- * `repo.detach_conflict` (notional HTTP 409): detach refused while a dependent workspace is
- * `busy`. The ids are copied into the field and `detail` so a caller mutating its array cannot
- * rewrite a thrown error.
+ * `repo.detach_conflict`: detach refused while a dependent workspace is `busy`. The ids are copied
+ * into the field and `detail` so a caller mutating its array cannot rewrite a thrown error.
  */
 export class RepoDetachConflictError extends DaemonDomainError {
   readonly busyWorkspaceIds: readonly string[];
 
   constructor(busyWorkspaceIds: readonly string[]) {
-    super(
-      `repo detach refused: ${busyWorkspaceIds.length} dependent workspace(s) still busy; ` +
-        "there is no force-detach in V1",
-      {
-        code: "repo.detach_conflict" satisfies RepoErrorCode,
-        httpStatus: 409,
-        detail: { busyWorkspaceIds: [...busyWorkspaceIds] },
-      },
-    );
+    super(`repo detach refused: ${busyWorkspaceIds.length} dependent workspace(s) still busy`, {
+      code: "repo.detach_conflict" satisfies RepoErrorCode,
+      detail: { busyWorkspaceIds: [...busyWorkspaceIds] },
+    });
     this.busyWorkspaceIds = [...busyWorkspaceIds];
   }
 }

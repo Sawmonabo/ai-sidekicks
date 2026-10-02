@@ -2,7 +2,6 @@
 // otherwise refuses with a typed reason: incomplete input, a missing or unreadable path, damaged
 // git metadata, a git that cannot run, a redirected root, or ambient GIT_* redirection.
 
-import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, opendir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
@@ -16,19 +15,25 @@ import {
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type {
+  GitInvocationFailure,
+  GitInvocationOptions,
+  GitInvocationResult,
+  GitRunner,
+} from "../../git/git-process.js";
 import { RepoRootResolutionError, type RepoRootResolutionReason } from "../repo-errors.js";
 import {
   GIT_FATAL_EXIT_CODE,
   RepoRootResolver,
-  type GitCommandFailure,
-  type GitCommandOptions,
-  type GitCommandResult,
-  type GitFileExecutor,
   type RepoRootResolution,
 } from "../repo-root-resolver.js";
-import type { DirectoryReadabilityProbe } from "../trust-envelope.js";
 
-import { buildFixtureEnvironment, runFixtureGit } from "./workspace.test-support.js";
+import {
+  alwaysReadableProbe,
+  buildFixtureEnvironment,
+  runFixtureGit,
+  spawnFixtureGit,
+} from "./workspace.test-support.js";
 
 // Mode bits, `/bin/sh` scripts and raw git stdout need POSIX; win32 shapes are driven from POSIX by
 // injecting `path.win32`.
@@ -276,30 +281,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-interface RawGitOutcome {
-  readonly stderr: string;
-  readonly exitCode: unknown;
-}
-
-/** Runs git directly and resolves with its exit code, for premises about git's own verdict. */
-function runGitDirectly(
-  args: readonly string[],
-  environment: NodeJS.ProcessEnv,
-): Promise<RawGitOutcome> {
-  return new Promise<RawGitOutcome>((resolve) => {
-    execFile(
-      "git",
-      [...args],
-      { encoding: "utf8", env: environment, timeout: 30_000 },
-      (error, _stdout, stderr) => {
-        resolve({ stderr, exitCode: error === null ? 0 : (error as { code?: unknown }).code });
-      },
-    );
-  });
-}
-
 /** A rejection shaped like `execFile`'s, for shapes real git cannot be made to emit on demand. */
-function syntheticGitFailure(shape: Partial<GitCommandFailure>): GitCommandFailure {
+function syntheticGitFailure(shape: Partial<GitInvocationFailure>): GitInvocationFailure {
   return Object.assign(new Error("synthetic git failure"), shape);
 }
 
@@ -307,20 +290,17 @@ function syntheticGitFailure(shape: Partial<GitCommandFailure>): GitCommandFailu
 const REAL_NOT_A_REPOSITORY_STDERR =
   "fatal: not a git repository (or any of the parent directories): .git\n";
 
-function rejectingExecutor(failure: unknown): GitFileExecutor {
+function rejectingExecutor(failure: unknown): GitRunner {
   return () => Promise.reject(failure);
 }
 
-function succeedingExecutor(stdout: string): GitFileExecutor {
-  return () => Promise.resolve({ stdout, stderr: "" });
+function succeedingExecutor(stdout: string): GitRunner {
+  return () => Promise.resolve({ stdout: Buffer.from(stdout, "utf8"), stderr: "" });
 }
 
-const alwaysReadableProbe: DirectoryReadabilityProbe = () => Promise.resolve();
-
 interface RecordedInvocation {
-  readonly file: string;
   readonly args: readonly string[];
-  readonly options: GitCommandOptions;
+  readonly options: GitInvocationOptions;
 }
 
 /**
@@ -330,10 +310,13 @@ interface RecordedInvocation {
 function directoryAnsweringExecutor(
   recorded: RecordedInvocation[],
   answerFor: (directory: string) => string,
-): GitFileExecutor {
-  return (file: string, args: readonly string[], options: GitCommandOptions) => {
-    recorded.push({ file, args, options });
-    return Promise.resolve<GitCommandResult>({ stdout: answerFor(args[1] ?? ""), stderr: "" });
+): GitRunner {
+  return (args: readonly string[], options: GitInvocationOptions) => {
+    recorded.push({ args, options });
+    return Promise.resolve<GitInvocationResult>({
+      stdout: Buffer.from(answerFor(args[1] ?? ""), "utf8"),
+      stderr: "",
+    });
   };
 }
 
@@ -468,7 +451,7 @@ describe("non-absolute input is refused before resolution", () => {
   it("never spawns git for a non-absolute input", async () => {
     const recorded: RecordedInvocation[] = [];
     const resolver = new RepoRootResolver({
-      executeFile: directoryAnsweringExecutor(recorded, () => `${fixtures.repositoryRoot}\n`),
+      git: directoryAnsweringExecutor(recorded, () => `${fixtures.repositoryRoot}\n`),
     });
     await expectResolutionFailure(resolver.resolveCanonicalRoot("src/workspace"), "not_absolute");
     expect(recorded).toHaveLength(0);
@@ -496,7 +479,7 @@ describe("win32 driveless roots are refused, complete roots admitted", () => {
     await expectResolutionFailure(
       new RepoRootResolver({
         platformPath: win32Path,
-        executeFile: directoryAnsweringExecutor(recorded, () => `${fixtures.repositoryRoot}\n`),
+        git: directoryAnsweringExecutor(recorded, () => `${fixtures.repositoryRoot}\n`),
       }).resolveCanonicalRoot(String.raw`\repos\foo`),
       "not_absolute",
     );
@@ -637,9 +620,10 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   it("refuses a `.git` gitfile whose `gitdir:` target does not exist", async () => {
     // The premise is verified inline: the shape must reach the not-a-repository arm for the gate
     // to be what refuses it.
-    const rawGitOutcome = await runGitDirectly(
+    const rawGitOutcome = await spawnFixtureGit(
       ["-C", fixtures.damagedMetadataDanglingGitfile, "rev-parse", "--show-toplevel"],
       fixtures.environment,
+      fixtures.fixtureRoot,
     );
     expect(rawGitOutcome.exitCode).toBe(GIT_FATAL_EXIT_CODE);
     expect(rawGitOutcome.stderr).toMatch(/^fatal: not a git repository/im);
@@ -651,9 +635,10 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   });
 
   itOnPosixAsNonRoot("refuses a checkout whose `.git` directory cannot be opened", async () => {
-    const rawGitOutcome = await runGitDirectly(
+    const rawGitOutcome = await spawnFixtureGit(
       ["-C", fixtures.damagedMetadataUnreadable, "rev-parse", "--show-toplevel"],
       fixtures.environment,
+      fixtures.fixtureRoot,
     );
     expect(rawGitOutcome.exitCode).toBe(GIT_FATAL_EXIT_CODE);
     expect(rawGitOutcome.stderr).toMatch(/^fatal: not a git repository/im);
@@ -667,9 +652,10 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   it("classifies a `.git` symlink that points nowhere as absence, not damage", async () => {
     // The premise first: git reads this as absence too, in the generic wording an honest
     // non-repository gets.
-    const rawGitOutcome = await runGitDirectly(
+    const rawGitOutcome = await spawnFixtureGit(
       ["-C", fixtures.absentMetadataDanglingSymlink, "rev-parse", "--show-toplevel"],
       fixtures.environment,
+      fixtures.fixtureRoot,
     );
     expect(rawGitOutcome.exitCode).toBe(GIT_FATAL_EXIT_CODE);
     expect(rawGitOutcome.stderr).toMatch(
@@ -685,10 +671,10 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   it("reads ENOENT on the `.git` path as absence, through the seam", async () => {
     // What a genuine non-repository presents; it must still be `not_a_git_repository`.
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({
           code: GIT_FATAL_EXIT_CODE,
-          stdout: "",
+          stdout: Buffer.alloc(0),
           stderr: REAL_NOT_A_REPOSITORY_STDERR,
         }),
       ),
@@ -706,10 +692,10 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   it("reads a SUCCESSFUL open of the `.git` path as presence, through the seam", async () => {
     // For `finish` a resolving probe is a pass; here it means damaged metadata.
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({
           code: GIT_FATAL_EXIT_CODE,
-          stdout: "",
+          stdout: Buffer.alloc(0),
           stderr: REAL_NOT_A_REPOSITORY_STDERR,
         }),
       ),
@@ -764,7 +750,7 @@ describe("fail-closed not-a-repository classification", () => {
     // A directory can be named "not a git repository"; without the line anchor its own error
     // message would be read as git's verdict.
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({
           code: GIT_FATAL_EXIT_CODE,
           stderr:
@@ -780,7 +766,7 @@ describe("fail-closed not-a-repository classification", () => {
 
   it("refuses the verdict on an exit code other than 128 (exit-code drift)", async () => {
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({ code: 1, stderr: REAL_NOT_A_REPOSITORY_STDERR }),
       ),
     });
@@ -792,7 +778,7 @@ describe("fail-closed not-a-repository classification", () => {
 
   it("refuses the verdict on different exit-128 wording (message drift)", async () => {
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({
           code: GIT_FATAL_EXIT_CODE,
           stderr: "fatal: detected dubious ownership in repository at '/srv/repo'\n",
@@ -807,7 +793,7 @@ describe("fail-closed not-a-repository classification", () => {
 
   it("refuses the verdict when the process was killed, exit code notwithstanding", async () => {
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({
           code: GIT_FATAL_EXIT_CODE,
           killed: true,
@@ -823,7 +809,7 @@ describe("fail-closed not-a-repository classification", () => {
 
   it("refuses the verdict when the process died on a signal", async () => {
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(
+      git: rejectingExecutor(
         syntheticGitFailure({
           code: GIT_FATAL_EXIT_CODE,
           signal: "SIGTERM",
@@ -839,7 +825,7 @@ describe("fail-closed not-a-repository classification", () => {
 
   it("refuses the verdict when stderr is missing entirely", async () => {
     const resolver = new RepoRootResolver({
-      executeFile: rejectingExecutor(syntheticGitFailure({ code: GIT_FATAL_EXIT_CODE })),
+      git: rejectingExecutor(syntheticGitFailure({ code: GIT_FATAL_EXIT_CODE })),
     });
     await expectResolutionFailure(
       resolver.resolveCanonicalRoot(fixtures.plainDirectory),
@@ -850,7 +836,7 @@ describe("fail-closed not-a-repository classification", () => {
 
 describe("malformed git success", () => {
   it("refuses an empty toplevel", async () => {
-    const resolver = new RepoRootResolver({ executeFile: succeedingExecutor("\n") });
+    const resolver = new RepoRootResolver({ git: succeedingExecutor("\n") });
     await expectResolutionFailure(
       resolver.resolveCanonicalRoot(fixtures.plainDirectory),
       "vcs_error",
@@ -860,7 +846,7 @@ describe("malformed git success", () => {
   it("refuses a relative toplevel", async () => {
     // `.` resolves against the daemon's own working directory, so only the completeness gate stops
     // it from becoming a guessed root.
-    const resolver = new RepoRootResolver({ executeFile: succeedingExecutor(".\n") });
+    const resolver = new RepoRootResolver({ git: succeedingExecutor(".\n") });
     await expectResolutionFailure(
       resolver.resolveCanonicalRoot(fixtures.plainDirectory),
       "vcs_error",
@@ -869,7 +855,7 @@ describe("malformed git success", () => {
 
   it("refuses a toplevel that cannot itself be resolved", async () => {
     const resolver = new RepoRootResolver({
-      executeFile: succeedingExecutor(`${join(fixtures.fixtureRoot, "vanished-root")}\n`),
+      git: succeedingExecutor(`${join(fixtures.fixtureRoot, "vanished-root")}\n`),
     });
     await expectResolutionFailure(
       resolver.resolveCanonicalRoot(fixtures.plainDirectory),
@@ -954,7 +940,7 @@ describe("root verification", () => {
   it("refuses an ancestor root that does not report itself", async () => {
     const recorded: RecordedInvocation[] = [];
     const resolver = new RepoRootResolver({
-      executeFile: directoryAnsweringExecutor(recorded, (directory: string) =>
+      git: directoryAnsweringExecutor(recorded, (directory: string) =>
         directory === fixtures.nestedDirectory
           ? `${fixtures.fixtureRoot}\n`
           : `${fixtures.repositoryRoot}\n`,
@@ -1015,7 +1001,7 @@ describe("no unresolved or guessed root ever escapes", () => {
       },
       {
         label: "empty toplevel",
-        resolver: new RepoRootResolver({ executeFile: succeedingExecutor("\n") }),
+        resolver: new RepoRootResolver({ git: succeedingExecutor("\n") }),
         input: fixtures.plainDirectory,
       },
       {

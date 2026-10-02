@@ -6,6 +6,48 @@ import type { Database } from "better-sqlite3";
 
 import type { StoredEvent } from "../types.js";
 
+/** The session every bootstrap fixture belongs to. */
+export const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
+
+/** The actor the bootstrap event records as the session's owner. */
+export const OWNER_ACTOR_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
+
+/** When the bootstrap event occurred, and so the session's `createdAt`. */
+export const OCCURRED_AT: string = "2026-04-27T12:00:00.000Z";
+
+/** A valid bootstrap `session.created` event at sequence 0. */
+export function makeCreatedEvent(): StoredEvent {
+  return {
+    id: "01J0EV0000NN5J5J5J5J5J5J5J",
+    sessionId: SESSION_ID,
+    sequence: 0,
+    occurredAt: OCCURRED_AT,
+    monotonicNs: 1_000_000_000n,
+    category: "session_lifecycle",
+    type: "session.created",
+    actor: OWNER_ACTOR_ID,
+    payload: {
+      sessionId: SESSION_ID,
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: OCCURRED_AT,
+      },
+    },
+    correlationId: null,
+    causationId: null,
+    version: "1.0",
+  };
+}
+
 /** Inserts one event row as given; throws on a duplicate (session, sequence). */
 export function insertStoredEvent(database: Database, event: StoredEvent): void {
   database
