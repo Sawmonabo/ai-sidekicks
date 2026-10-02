@@ -9,7 +9,7 @@ import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js
 /** What the builder pane hands the node-graph body. */
 export interface NodeGraphMount {
   /** The definition being authored. Opaque and wire-verbatim; never parsed here. */
-  readonly workflowDefinitionId: string;
+  readonly definitionId: string;
   /**
    * The one durable home for canvas geometry, under the `layout` value class. Layout is
    * client-local: dragging a node changes no definition byte, so it is never sent anywhere.
@@ -26,7 +26,7 @@ export type NodeGraphBody = (mount: NodeGraphMount) => React.ReactNode;
 
 /** The node-graph mount plus the body, once there is one. */
 export interface NodeGraphMountPointProps extends NodeGraphMount {
-  /** The body, once there is one. Absent in the product today, so the empty frame stands. */
+  /** The body; while it is absent the empty frame stands. */
   readonly body?: NodeGraphBody;
 }
 

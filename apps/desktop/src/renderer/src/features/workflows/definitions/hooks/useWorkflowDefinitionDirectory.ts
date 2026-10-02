@@ -8,7 +8,6 @@ import { useCallback } from "react";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { subjectReadStart, type SubjectRead } from "../../subject-read-start.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
-import type { WorkflowDefinitionRow } from "../definition-rows.js";
 
 /**
  * The call that enumerates the definitions visible from a session, a page at a time.
@@ -98,7 +97,7 @@ interface WorkflowDefinitionPage {
 /** What this read looks like once its first page has an answer. */
 interface SettledDefinitionDirectory {
   readonly status: "served";
-  readonly definitions: readonly WorkflowDefinitionRow[];
+  readonly definitions: readonly WorkflowDefinitionSummary[];
   readonly continuation: WorkflowDefinitionContinuation;
 }
 
@@ -158,9 +157,9 @@ function appendedPageState(
  * duplicate is dropped so the first page's position stays stable.
  */
 function withUnseenDefinitions(
-  held: readonly WorkflowDefinitionRow[],
-  arriving: readonly WorkflowDefinitionRow[],
-): readonly WorkflowDefinitionRow[] {
+  held: readonly WorkflowDefinitionSummary[],
+  arriving: readonly WorkflowDefinitionSummary[],
+): readonly WorkflowDefinitionSummary[] {
   const heldIds = new Set(held.map((definition) => definition.id));
   const unseen = arriving.filter((definition) => !heldIds.has(definition.id));
   return unseen.length === 0 ? held : [...held, ...unseen];

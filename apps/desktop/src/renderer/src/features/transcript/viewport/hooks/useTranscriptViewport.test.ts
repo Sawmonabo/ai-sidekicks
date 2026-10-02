@@ -9,17 +9,22 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../viewport-constants.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { TRANSCRIPT_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
 import { ViewportController } from "../viewport-controller.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
+import {
+  CALM,
+  LAID_OUT_CONTENT_HEIGHT_PX,
+  LAID_OUT_VIEWPORT_HEIGHT_PX,
+  syntheticRows,
+  withLaidOutViewport,
+} from "../viewport-controller.test-support.js";
 import { type PruneDeferralReason } from "../window-cap.js";
 
-const VIEWPORT_HEIGHT_PX = 400;
-const CONTENT_HEIGHT_PX = 10_000;
-const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
+const TAIL_OFFSET_PX = LAID_OUT_CONTENT_HEIGHT_PX - LAID_OUT_VIEWPORT_HEIGHT_PX;
 /**
  * Inside the tail tolerance, so the reader counts as at the tail, yet far enough that a glide
  * to the exact tail moves the offset and publishes a sample subscribers are woken for.
@@ -27,20 +32,6 @@ const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
 const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
 const OVER_CAP_ROW_COUNT = TRANSCRIPT_WINDOW_ROW_CAP + 40;
-const CALM = { hasActiveTurn: false, isRevealDraining: false } as const;
-
-function syntheticRows(count: number): readonly ViewportRow[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    key: `row-${String(index)}`,
-    parentKey: undefined,
-    rootCursor: `cursor-${String(index)}`,
-  }));
-}
-
-function withLaidOutViewport(): void {
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(VIEWPORT_HEIGHT_PX);
-  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(CONTENT_HEIGHT_PX);
-}
 
 /**
  * A mounted binding over a scroll container a case can scroll, and the controller it minted.

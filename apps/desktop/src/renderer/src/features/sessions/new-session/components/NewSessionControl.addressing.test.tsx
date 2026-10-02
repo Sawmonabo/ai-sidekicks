@@ -11,11 +11,15 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
-import { CREATED_SESSION_ID, NEW_SESSION_LEAD } from "../new-session-draft.test-support.js";
 import {
   CREATE_REPLY,
-  REJECTING_FIRST_TURN,
+  CREATED_SESSION_ID,
+  NEW_SESSION_LEAD,
   bridgeFor,
+} from "../new-session-draft.test-support.js";
+import { SESSION_CREATE_METHOD } from "../new-session-settlement.js";
+import {
+  REJECTING_FIRST_TURN,
   bridgeHoldingCreate,
   bridgeQueueingCreates,
   completingFirstTurn,
@@ -29,8 +33,8 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — which composition a settlement lands in", () => {
   it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
-    // A continuation once wrote its result into whatever composition was on screen, so a
-    // person who discarded and started again saw a refusal for a session this draft never sent.
+    // A settlement lands only in the composition it was sent for, so a person who discarded and
+    // started again never sees a refusal for a session this draft never sent.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
@@ -110,10 +114,9 @@ describe("the composed new-session draft — the composition a completed send cl
   afterEach(cleanup);
 
   it("keeps words typed after the press rather than closing the draft over them", async () => {
-    // A completed send once published `undefined` over whatever draft was on screen. The send
-    // captured the first message when it read the draft, so text typed while the create was in
-    // flight was never sent, and the settlement threw away the only copy. The send is slow
-    // here because that window is where the defect lives.
+    // The send captured the first message when it read the draft, so text typed while the
+    // create was in flight was not sent, and closing the draft would throw away the only copy.
+    // The send is slow here because that window is the one under test.
     const settledSessionIds: string[] = [];
     const held = bridgeHoldingCreate();
     const container = renderControlOn(held.bridge, {
@@ -151,7 +154,7 @@ describe("the composed new-session draft — the composition a completed send cl
 
   it("negative control: a send nobody edited closes its draft and hands the session out", async () => {
     // Without this, a control that never closed a draft would pass the case above and leave a
-    // form standing over a session the console had already started.
+    // form standing over a session the app had already started.
     const settledSessionIds: string[] = [];
     const held = bridgeHoldingCreate();
     const container = renderControlOn(held.bridge, {
@@ -190,7 +193,7 @@ function bridgeCountingCreates(): {
   const { bridge } = withDaemonCall(
     bridgeFor({ scriptsCreate: true }),
     async (call, passThrough) => {
-      if (call.method !== "session.create") {
+      if (call.method !== SESSION_CREATE_METHOD) {
         return await passThrough();
       }
       creates += 1;

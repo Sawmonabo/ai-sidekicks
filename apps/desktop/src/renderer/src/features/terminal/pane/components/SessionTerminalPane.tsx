@@ -15,10 +15,8 @@ import { LeaseLine } from "../../lease/components/LeaseLine.js";
 import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../lease/lease-model.js";
 
-const TERMINAL_PANE_WORD = "Terminal";
-
-// Built from a local word because the pane frame's title table is private to it.
-const TERMINAL_OUTPUT_LABEL = `${TERMINAL_PANE_WORD} output`;
+/** The shell body's accessible name. */
+const TERMINAL_OUTPUT_LABEL = "Shell output";
 
 /** The store of the session whose shell the pane shows. */
 export interface SessionTerminalPaneProps {

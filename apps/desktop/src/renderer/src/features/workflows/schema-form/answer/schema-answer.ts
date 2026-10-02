@@ -1,24 +1,14 @@
-// What a drawn form opens holding, and the plan lookups every reader of it makes. The seed builds
-// a draft (`schema-draft.ts`) with a node for every control on screen and nothing else; the answer
-// is a projection of it (`schema-projection.ts`), so the value the validator checks and the value
-// a submission sends are the same bytes. Writes are in `schema-draft-writes.ts`. Pure: no React,
-// no state.
+// What a drawn form opens holding. The seed builds a draft (`schema-draft.ts`) with a node for
+// every control on screen and nothing else, and the answer is its projection
+// (`schema-projection.ts`), so the value the validator checks and the value a submission sends
+// are the same bytes. Pure: no React, no state.
 //
-// The seed is per control, not read off the validator on `{}`: a schema requiring a member it
-// declares no value for makes that reading a refusal, which would discard every declared default
-// and open the controls blank. A control with no declared value opens unanswered; what that is
-// worth is decided once in the projection (`schema-fields.ts`'s presence rule).
-//
-// An optional container opens inactive unless the schema declared a value for it
-// (`containerOpensAnswered`): its own `default` (`{}` and `[]` count), a child's, or a
-// collection's entries. Seeded through its children alone, an optional group holding a required
-// boolean would open as `{ enabled: false }` and could never satisfy a schema that requires the
-// group to be absent; the same holds for an optional array and `[]`.
-//
-// A group's own `default` is seeded through its children, never as an object, because no control
-// displays the object. The seed takes the nearest declared value on a member's path: the
-// control's own, else the group's at that key. A group default a child could not show sends the
-// schema to the raw editor.
+// The seed is per control, never read off the validator on `{}`: a schema requiring a member it
+// declares no value for would refuse that reading and discard every declared default. An
+// optional container opens inactive unless the schema declared a value for it, or an optional
+// group holding a required boolean could never satisfy a schema requiring it absent. A group's
+// own `default` is seeded through its children, the nearest declared value on a member's path
+// winning; one a child could not show sends the schema to the raw editor.
 
 import {
   activeGroup,
@@ -48,7 +38,8 @@ import {
   type SchemaLeafEntry,
   type SchemaListDescriptor,
 } from "../plan/schema-fields.js";
-import { asAnswerRecord, type SchemaFormAnswerValue } from "./schema-answer-value.js";
+import { type SchemaFormAnswerValue } from "./schema-answer-value.js";
+import { asRecord } from "../plan/schema-declarations.js";
 import { isSameMemberPath, type SchemaMemberPath } from "../schema-member-path.js";
 
 /** The leaf the plan drew at one path, or nothing where it drew none there. */
@@ -100,7 +91,7 @@ export function answeredListDraft(list: SchemaListDescriptor): SchemaListDraft {
 
 /** Every member of one group, opened at whatever that group and its controls declared. */
 export function seededGroupMembers(group: SchemaGroupDescriptor): SchemaGroupMembersDraft {
-  const groupDefault = asAnswerRecord(group.defaultValue);
+  const groupDefault = asRecord(group.defaultValue);
   let members: SchemaGroupMembersDraft = {};
   for (const leaf of group.entries) {
     const key = leafKeyOf(leaf);

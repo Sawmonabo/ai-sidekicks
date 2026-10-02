@@ -3,12 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
-import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { composeCommandList, selectAddressedBindingGroup } from "./command-list-entries.js";
-
-const OFFERED: readonly CommandDefinition[] = [
-  { id: "frame.goToSettings", title: "Go to Settings", group: "Navigate", run: () => undefined },
-];
+import { selectAddressedBindingGroup } from "./command-list-entries.js";
 
 const GROUPS: readonly ProviderCommandBindingGroup[] = [
   {
@@ -86,22 +81,5 @@ describe("selectAddressedBindingGroup", () => {
     expect(
       selectAddressedBindingGroup(GROUPS, { runId: undefined, driverName: undefined }),
     ).toBeUndefined();
-  });
-
-  it("negative control: composing the selected group alone drops the sibling's entries", () => {
-    // Without the selection every group reached `composeCommandList`, putting one binding's
-    // commands under another binding's address.
-    const merged = composeCommandList({ offeredCommands: OFFERED, providerGroups: RUN_ATTRIBUTED });
-    const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
-      runId: CODEX_RUN,
-      driverName: "codex",
-    });
-    const scoped = composeCommandList({
-      offeredCommands: OFFERED,
-      providerGroups: selected === undefined ? [] : [selected],
-    });
-
-    expect(merged.filter((entry) => entry.source === "provider")).toHaveLength(2);
-    expect(scoped.filter((entry) => entry.source === "provider")).toHaveLength(1);
   });
 });

@@ -1,6 +1,7 @@
-// The attachment card a transcript row carries. It draws the same `AttachmentCard` the strip
-// does, so an unresolved marker reads identically. The registry hands over only an opaque
-// `attachmentId` and no bridge, so this body makes no read of its own.
+// The attachment card a transcript row carries. The registry hands over only an opaque
+// `attachmentId` and no bridge, so this body makes no read of its own: mounted from the
+// registry it draws the attachment id, and only a caller holding a reading draws the full
+// `AttachmentCard`.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { AttachmentInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";

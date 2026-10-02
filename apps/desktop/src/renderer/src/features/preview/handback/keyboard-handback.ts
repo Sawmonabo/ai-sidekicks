@@ -20,7 +20,7 @@ import {
 } from "./chord-claim.js";
 
 /** The subsystem name every refusal this module raises carries. */
-export const KEYBOARD_HANDBACK_REFUSAL_ORIGIN = "browser-keyboard-handback";
+export const KEYBOARD_HANDBACK_REFUSAL_ORIGIN = "preview-keyboard-handback";
 
 /** Why a handback was refused. Closed, so a second reason is a decision. */
 export const KEYBOARD_HANDBACK_REFUSAL_CODES = ["not-claimable", "pane-detached"] as const;

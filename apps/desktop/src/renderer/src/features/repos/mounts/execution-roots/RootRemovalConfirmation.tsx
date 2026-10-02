@@ -1,6 +1,6 @@
-// Removing a worktree, with what it costs stated first, as an alert dialog (it traps focus and
-// does not dismiss on an outside press). The settlement renders on the card, outside the popup,
-// because the confirm control closes the dialog. For the same reason the discard rule lives in
+// Removing a worktree, asked as an alert dialog (it traps focus and does not dismiss on an
+// outside press). The settlement renders on the card, outside the popup, because the confirm
+// control closes the dialog. For the same reason the discard rule lives in
 // `useConfirmationLifecycle`, which this file wires.
 
 import "./execution-roots.css";
@@ -8,6 +8,7 @@ import "./execution-roots.css";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { OverlayAlertDialogPopup } from "@renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
@@ -26,14 +27,11 @@ export interface RootRemovalConfirmationProps {
   readonly operations: RootRemovalOperations;
   /** The worktree's own id. Sent verbatim; nothing about it is re-derived here. */
   readonly rootId: string;
-  /** Read the section again, so the root's new state reaches the list it is drawn in. */
-  readonly onSettled: () => void;
 }
 
-/** The alert dialog that removes one worktree after stating what the removal costs. */
+/** The alert dialog that asks before removing one worktree. */
 export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): React.JSX.Element {
   const { reading, send, clear } = useRootRemoval(props.bridge, props.rootId, props.operations);
-  const { onSettled } = props;
   // The settlement belongs to the press that produced it: reconsidering or walking away
   // discards it, and the confirm press, which closes the dialog, discards nothing.
   const lifecycle = useConfirmationLifecycle(clear);
@@ -75,7 +73,7 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
           </div>
         </OverlayAlertDialogPopup>
       </AlertDialog.Root>
-      {renderSettlement(reading, onSettled)}
+      {renderSettlement(reading)}
     </div>
   );
 }
@@ -85,22 +83,18 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
  * not a sentence about disk: the reply carries no cleanup instant, so claiming the files are
  * gone would answer a question the daemon did not.
  */
-function renderSettlement(
-  reading: RootRemovalReading,
-  onSettled: () => void,
-): React.JSX.Element | null {
+function renderSettlement(reading: RootRemovalReading): React.JSX.Element | null {
   switch (reading.status) {
     case "idle":
       return null;
     case "sending":
       return <Nothing kind="computing" title="Sending." />;
+    case "refused":
+      return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "settled":
       return (
         <p className="meridian-root-removal__settled" role="status">
           <span className="meridian-root-removal__state">{reading.state}</span>
-          <button type="button" className="meridian-root-removal__reread" onClick={onSettled}>
-            Read the roots again
-          </button>
         </p>
       );
   }

@@ -2,19 +2,20 @@
 // is on screen.
 //
 // The caller holds this model above whatever discloses the panel and renders the panel with
-// it. A panel that held the start act and the progress drain itself lost the import on
-// unmount: the cleanup closed the subscription while the daemon kept reading, and the panel
-// then offered a second import with nothing reporting the first.
+// it, so closing the panel does not end the import: the daemon keeps reading, and only a
+// holder that outlives the panel can keep reporting it and keep a second import from starting
+// beside it.
 //
-// The act is addressed on the start call through the subject-scoped holder, so a new call
+// The start is addressed on the start call through the subject-scoped holder, so a new call
 // retires the import with everything else the old one answered. How many imports run, what
 // a second start answers, and what the stream sends first are the service's rules, in the
-// contract's `provider-import.ts`. Both calls are arguments; a rejected call propagates.
+// contract's `provider-import.ts`. Both calls are arguments; a rejected call settles as a
+// refusal the panel draws.
 //
 // The start settles once and the stream is a stream, so the two phases are kept apart, and
 // whether an import is underway is composed once here so no two controls can disagree.
 
-import { SingleFlightAct, useSingleFlightAct } from "./useSingleFlightAct.js";
+import { ProviderImportStart, useProviderImportStart } from "./useProviderImportStart.js";
 import {
   isImportUnderway,
   type ImportProgressReading,
@@ -39,6 +40,8 @@ export interface ProviderImportModel {
   readonly progress: ImportProgressReading;
   /** The opening call is still out. */
   readonly isBeginning: boolean;
+  /** The refusal the last opening call was answered with, or `undefined` where none was. */
+  readonly startRefusal: Refusal | undefined;
   /** The daemon's import is still being read. */
   readonly isReading: boolean;
   /**
@@ -49,9 +52,9 @@ export interface ProviderImportModel {
    */
   readonly isUnderway: boolean;
   /**
-   * Put one import. Resolves to the act's own refusal while the last start is still
-   * unanswered, and to `undefined` where the import was put. A rejected start
-   * propagates.
+   * Put one import. Resolves to the start's own refusal while the last start is still
+   * unanswered, and to `undefined` where the import was put. A rejected start settles as
+   * {@link startRefusal}.
    */
   readonly put: (request: ProviderImportProviderRequest) => Promise<Refusal | undefined>;
 }
@@ -69,18 +72,18 @@ export function useProviderImport(
 ): ProviderImportModel {
   // Keyed on the begin call, the whole subject: an act in a mount-lifetime cell would stay
   // bound to a call the window has since replaced.
-  const act = useSubjectScopedState(
+  const start = useSubjectScopedState(
     begin,
     undefined,
     () =>
-      new SingleFlightAct<ProviderImportProviderRequest, StartedImport>({
-        // The provider rides the answer, so the stream is opened on the provider this
-        // start named and lives exactly as long as the act does.
-        attempt: async (request) => ({ provider: request.provider, ...(await begin(request)) }),
-        describeWhat: "The import",
-      }),
+      // The provider rides the answer, so the stream is opened on the provider this start
+      // named and lives exactly as long as the start does.
+      new ProviderImportStart(async (request) => ({
+        provider: request.provider,
+        ...(await begin(request)),
+      })),
   ).value;
-  const settlement = useSingleFlightAct(act);
+  const settlement = useProviderImportStart(start);
   const started = settlement.status === "settled" ? settlement.answer : undefined;
   const progress = useImportProgress(subscribe, started?.provider);
   const isBeginning = settlement.status === "running";
@@ -88,11 +91,9 @@ export function useProviderImport(
   return {
     progress,
     isBeginning,
+    startRefusal: settlement.status === "refused" ? settlement.refusal : undefined,
     isReading,
     isUnderway: isBeginning || isReading,
-    put: async (request) => await act.run(request),
+    put: (request) => start.run(request),
   };
 }
-
-/** A start the service answered: the provider it named, and the import now running for it. */
-type StartedImport = ProviderImportProviderRequest & ProviderImportStartResponse;

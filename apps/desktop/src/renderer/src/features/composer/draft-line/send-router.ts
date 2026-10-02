@@ -14,21 +14,24 @@ import {
   readQueueItemCreateRequest,
 } from "@renderer/services/daemon/wire-requests.js";
 import { readRunId, readSessionId } from "@renderer/services/daemon/wire-identifiers.js";
-import type { ComposerSessionTarget, ComposerTarget } from "../composer-target.js";
+import type {
+  ComposerRunTarget,
+  ComposerSessionTarget,
+  ComposerTarget,
+} from "../composer-target.js";
 import { readSlashCommandName } from "../slash-command-syntax.js";
 import type {
   ConsoleCommandPredicate,
   ComposerRefusedResolution,
   ComposerSendOutcome,
   ComposerSendResolution,
-  ProviderCommandPredicate,
 } from "./send-resolutions.js";
 import {
   composerRefusal,
   unparseableIdentifier,
   type ComposerRefusalCode,
 } from "./send-refusals.js";
-import { AnsweredRunVersions } from "./answered-run-versions.js";
+import { AnsweredRunVersions } from "../answered-run-versions.js";
 import {
   dispatchIntervention,
   dispatchQueuedTurn,
@@ -41,8 +44,6 @@ export interface ComposerSendRouterOptions {
   readonly calls: ComposerSendCalls;
   /** Defaults to recognizing none, which is the fail-loud arm rather than the quiet one. */
   readonly recognizeConsoleCommand?: ConsoleCommandPredicate;
-  /** Defaults to naming none, so an unread enumeration changes no refusal. */
-  readonly recognizeProviderCommand?: ProviderCommandPredicate;
   /**
    * Mints the per-request idempotency key, which must be a UUID. The default is the
    * platform generator: a weak key would defeat the daemon's replay guard.
@@ -50,7 +51,7 @@ export interface ComposerSendRouterOptions {
   readonly mintIdempotencyKey?: () => string;
   /**
    * Where answered run versions are kept. Supplied because the router is rebuilt whenever
-   * the command zone's predicates change, which would empty an owned ledger between steers.
+   * the command zone's predicates change, which would empty an owned record between steers.
    * Defaults to a router-owned one.
    */
   readonly runVersions?: AnsweredRunVersions;
@@ -60,14 +61,12 @@ export interface ComposerSendRouterOptions {
 export class ComposerSendRouter {
   readonly #calls: ComposerSendCalls;
   readonly #recognizeConsoleCommand: ConsoleCommandPredicate;
-  readonly #recognizeProviderCommand: ProviderCommandPredicate;
   readonly #mintIdempotencyKey: () => string;
   readonly #runVersions: AnsweredRunVersions;
 
   public constructor(options: ComposerSendRouterOptions) {
     this.#calls = options.calls;
     this.#recognizeConsoleCommand = options.recognizeConsoleCommand ?? (() => false);
-    this.#recognizeProviderCommand = options.recognizeProviderCommand ?? (() => undefined);
     this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
     this.#runVersions = options.runVersions ?? new AnsweredRunVersions();
   }
@@ -107,44 +106,24 @@ export class ComposerSendRouter {
 
   /**
    * The slash rules under the reserved prefix. Returns `undefined` when the line names no
-   * command or one nothing claims, the only outcome that continues to a send: the provider
-   * answers an unclaimed slash word as it does in its own terminal. Whether a line names a
-   * command is asked of `slash-command-syntax.ts`, as the discovery popover does.
+   * registered command, the only outcome that continues to a send: the provider answers any
+   * other slash word, its own included, as it does in its own terminal. Whether a line names a
+   * command is asked of `slash-command-syntax.ts`, as the command list does.
    */
   #resolveSlashPrefix(body: string): ComposerSendResolution | undefined {
     const commandName = readSlashCommandName(body);
-    if (commandName === undefined) {
+    if (commandName === undefined || commandName.length === 0) {
       return undefined;
     }
-    if (commandName.length > 0 && this.#recognizeConsoleCommand(commandName)) {
-      return { outcome: "console-command", commandName };
-    }
-    return this.#resolveDiscoveryOnly(commandName);
-  }
-
-  /**
-   * The refusal for a name the bound provider published, or `undefined` for any other name.
-   * Discovery only: the console dispatches no provider command from the line, so the refusal
-   * says what the entry is instead of blaming spelling or the slash.
-   */
-  #resolveDiscoveryOnly(commandName: string): ComposerSendResolution | undefined {
-    if (commandName.length === 0) {
-      return undefined;
-    }
-    const published = this.#recognizeProviderCommand(commandName);
-    if (published === undefined) {
-      return undefined;
-    }
-    return refused(
-      "provider-command-discovery-only",
-      `${published.name} is a ${published.kind} the bound ${published.driverName} provider publishes, and this console lists those for discovery only. Nothing was sent.`,
-    );
+    return this.#recognizeConsoleCommand(commandName)
+      ? { outcome: "console-command", commandName }
+      : undefined;
   }
 
   #resolveNewTurn(body: string, target: ComposerSessionTarget): ComposerSendResolution {
     const sessionId = readSessionId(target.sessionId);
     if (sessionId === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier("the session") };
+      return { outcome: "refused", refusal: unparseableIdentifier() };
     }
     const request = readQueueItemCreateRequest({
       sessionId,
@@ -152,15 +131,12 @@ export class ComposerSendRouter {
       content: body,
     } satisfies QueueItemCreateRequest);
     if (request === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier("this message") };
+      return { outcome: "refused", refusal: unparseableIdentifier() };
     }
     return { outcome: "new-turn", request };
   }
 
-  #resolveSteer(body: string, target: ComposerTarget): ComposerSendResolution {
-    if (target.path !== "provider-bound") {
-      return refused("identifier-unparseable", "This message is not addressed to a running turn.");
-    }
+  #resolveSteer(body: string, target: ComposerRunTarget): ComposerSendResolution {
     // The store's projection and the daemon's last answer, reconciled: only the answer has
     // moved after an applied native steer.
     const expectedRunVersion = this.#runVersions.comparandFor(
@@ -175,7 +151,7 @@ export class ComposerSendRouter {
     }
     const runId = readRunId(target.targetRunId);
     if (runId === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier("the run") };
+      return { outcome: "refused", refusal: unparseableIdentifier() };
     }
     const request = readInterventionRequest({
       type: "steer",
@@ -185,7 +161,7 @@ export class ComposerSendRouter {
       content: body,
     } satisfies InterventionRequestPayload);
     if (request === undefined) {
-      return { outcome: "refused", refusal: unparseableIdentifier("this steer") };
+      return { outcome: "refused", refusal: unparseableIdentifier() };
     }
     return { outcome: "steer", request };
   }

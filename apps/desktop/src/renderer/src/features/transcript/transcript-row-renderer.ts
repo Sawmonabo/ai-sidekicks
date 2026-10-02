@@ -49,11 +49,6 @@ export function registerTranscriptRowRenderer(owner: string, render: TranscriptR
   transcriptRowRegistry.register({ owner, render });
 }
 
-/** Release the registered renderer. Test scaffolding: the registry is module-scope. */
-export function unregisterTranscriptRowRenderer(): void {
-  transcriptRowRegistry.unregister();
-}
-
 /** The row body, or `undefined` while nothing is registered. */
 export function findTranscriptRowRenderer(): TranscriptRowRenderer | undefined {
   return transcriptRowRegistry.renderer();

@@ -40,7 +40,7 @@ export function HumanFormMountPoint(props: HumanFormMountPointProps): React.JSX.
   return (
     <EngineMountPoint
       body={HumanFormSubmitBinding}
-      // No phase means no channel and no body: a form composed against an unresolved phase
+      // No phase means no binding and no body: a form composed against an unresolved phase
       // would look answerable and be unsubmittable.
       mount={phase === undefined ? undefined : { phase, body, submitForm }}
     />

@@ -3,7 +3,7 @@
 // drawn under the field, and the control follows it, shut while the check is in flight. The
 // consent box exists only for the dirty verdict and records the candidate's id, so it belongs to
 // one tree. The incompatible verdict closes the control. The form is collapsed and held by the
-// same posture as the mode picker, since a prepare is a bind; held, not withheld, so the
+// same availability as the mode picker, since a prepare is a bind; held, not withheld, so the
 // sentence says what is holding it.
 
 import "./execution-roots.css";
@@ -13,6 +13,7 @@ import { useCallback } from "react";
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -41,7 +42,7 @@ export interface PrepareExecutionRootProps {
   /** The session whose reconnect edge and repo frames re-ask the reuse question. */
   readonly sessionStore: SessionStore;
   /** Whether this workspace's binding controls are live. Derived once by the card. */
-  readonly posture: WorkspaceControlAvailability;
+  readonly availability: WorkspaceControlAvailability;
   /** Read the section again, so a prepared root appears in the roots list. */
   readonly onPrepared: () => void;
 }
@@ -71,7 +72,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   const { verdict } = standing;
   const formVerdict = resolvePrepareForm(form, standing);
   const { onPrepared } = props;
-  const heldBecause = controlHoldSentence(props.posture);
+  const unavailableBecause = controlHoldSentence(props.availability);
 
   const nameBranch = useCallback(
     (branchName: string) => {
@@ -107,7 +108,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           value={form.branchName}
           spellCheck={false}
           autoComplete="off"
-          disabled={heldBecause !== undefined}
+          disabled={unavailableBecause !== undefined}
           onChange={(event) => {
             nameBranch(event.target.value);
           }}
@@ -120,7 +121,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         <label className="meridian-prepare-root__consent">
           <input
             type="checkbox"
-            disabled={heldBecause !== undefined}
+            disabled={unavailableBecause !== undefined}
             // Ticked for a tree, not a form: both halves read the candidate the verdict names
             // now, so a refresh serving a different dirty checkout draws the box unticked.
             checked={isDirtyReuseAcknowledged(form, verdict)}
@@ -141,7 +142,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         type="button"
         className="meridian-prepare-root__confirm"
         disabled={
-          heldBecause !== undefined ||
+          unavailableBecause !== undefined ||
           formVerdict.status !== "sendable" ||
           reading.act.status === "sending"
         }
@@ -149,10 +150,10 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       >
         Prepare
       </button>
-      {heldBecause === undefined ? null : (
+      {unavailableBecause === undefined ? null : (
         // The mount's own sentence, or the selection act's; never a third wording.
         <p className="meridian-prepare-root__held" role="status">
-          {heldBecause}
+          {unavailableBecause}
         </p>
       )}
       {formVerdict.status === "incomplete" ? (
@@ -222,6 +223,8 @@ function renderSettlement(
       return null;
     case "sending":
       return <Nothing kind="computing" title="Preparing." />;
+    case "refused":
+      return <InlineRefusal code={reading.act.refusal.code} detail={reading.act.refusal.detail} />;
     case "prepared":
       return (
         <div className="meridian-prepare-root__prepared" role="status">

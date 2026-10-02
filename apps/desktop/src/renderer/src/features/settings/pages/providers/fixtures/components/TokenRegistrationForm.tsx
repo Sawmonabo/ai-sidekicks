@@ -1,4 +1,9 @@
-import { BILLING_MODES, PROVIDER_NAMES } from "@ai-sidekicks/contracts";
+import {
+  BILLING_MODES,
+  PROVIDER_NAMES,
+  type BillingMode,
+  type ProviderName,
+} from "@ai-sidekicks/contracts";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "./RegistrationOutcomeLine.js";
@@ -28,8 +33,8 @@ export function TokenRegistrationForm(props: {
   const billingFieldId = useId();
   const tokenFieldId = useId();
   const displayLabelInput = useRef<HTMLInputElement>(null);
-  const providerSelect = useRef<HTMLSelectElement>(null);
-  const billingSelect = useRef<HTMLSelectElement>(null);
+  const [provider, setProvider] = useState<ProviderName>(PROVIDER_NAMES[0] as ProviderName);
+  const [billingMode, setBillingMode] = useState<BillingMode>(BILLING_MODES[0] as BillingMode);
   const tokenInput = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<TokenRegistrationOutcome>(IDLE_TOKEN_REGISTRATION);
 
@@ -40,8 +45,8 @@ export function TokenRegistrationForm(props: {
     // of spaces.
     const reading = readRegistrationFields({
       displayLabel: displayLabelInput.current?.value ?? "",
-      provider: providerSelect.current?.value ?? "",
-      billingMode: billingSelect.current?.value ?? "",
+      provider,
+      billingMode,
     });
     if (reading.kind === "refused") {
       setOutcome({ kind: "refused", refusal: reading.refusal });
@@ -68,16 +73,28 @@ export function TokenRegistrationForm(props: {
       <input id={labelFieldId} ref={displayLabelInput} type="text" required />
 
       <label htmlFor={providerFieldId}>Provider</label>
-      <select id={providerFieldId} ref={providerSelect} defaultValue={PROVIDER_NAMES[0]}>
-        {PROVIDER_NAMES.map((provider) => (
-          <option key={provider} value={provider}>
-            {provider}
+      <select
+        id={providerFieldId}
+        value={provider}
+        onChange={(event) => {
+          setProvider(PROVIDER_NAMES.find((name) => name === event.target.value) ?? provider);
+        }}
+      >
+        {PROVIDER_NAMES.map((name) => (
+          <option key={name} value={name}>
+            {name}
           </option>
         ))}
       </select>
 
       <label htmlFor={billingFieldId}>Billing mode</label>
-      <select id={billingFieldId} ref={billingSelect} defaultValue={BILLING_MODES[0]}>
+      <select
+        id={billingFieldId}
+        value={billingMode}
+        onChange={(event) => {
+          setBillingMode(BILLING_MODES.find((mode) => mode === event.target.value) ?? billingMode);
+        }}
+      >
         {BILLING_MODES.map((mode) => (
           <option key={mode} value={mode}>
             {mode}

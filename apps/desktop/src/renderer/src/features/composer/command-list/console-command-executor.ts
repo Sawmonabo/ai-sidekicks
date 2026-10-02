@@ -9,6 +9,7 @@ import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../ty
 import {
   consoleCommandRefusal,
   recognizeConsoleCommand,
+  unknownCommandRefusal,
   type ConsoleCommandRecognitionInput,
 } from "./console-command-recognizer.js";
 import { type ComposerCommands } from "./composer-commands.js";
@@ -68,19 +69,13 @@ async function settleInvocation(
     case "unknown-command":
       // Reachable: the frame's registration lifecycle can unregister a command between the
       // recognizer's read and this call.
-      return {
-        status: "refused",
-        refusal: consoleCommandRefusal(
-          "unknown-command",
-          `${commandId} is no longer registered in this window, so there was nothing to run.`,
-        ),
-      };
+      return { status: "refused", refusal: unknownCommandRefusal(commandId) };
     case "hidden-in-context":
       return {
         status: "refused",
         refusal: consoleCommandRefusal(
           "command-unavailable-here",
-          `${commandId} does not apply where this composer is, so it was not run.`,
+          `${commandId} does not apply here, so it was not run.`,
         ),
       };
     case "unavailable":

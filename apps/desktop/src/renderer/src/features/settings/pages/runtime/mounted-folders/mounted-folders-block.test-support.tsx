@@ -14,6 +14,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
 import type { SettingsPageContext } from "../../../types.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounted-folders.test-support.js";
@@ -111,9 +112,7 @@ export async function renderSettledBlock(reading: {
   const settle = async (): Promise<void> => {
     await act(async () => {
       clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
+      await crossMacrotaskBoundary();
     });
   };
   await settle();

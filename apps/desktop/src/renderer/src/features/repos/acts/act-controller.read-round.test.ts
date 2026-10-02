@@ -6,8 +6,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { PrerequisiteReader } from "./act-controller.js";
+import { flush, runScheduledRead } from "./act-controller.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /** The frames this reading would re-read on. Never fired here; declared to be read. */
@@ -44,18 +44,6 @@ function open(): OpenedReader {
     },
   });
   return { reader, clock, reads };
-}
-
-async function flush(): Promise<void> {
-  for (let turn = 0; turn < 20; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
-async function runScheduledRead(clock: ManualClock): Promise<void> {
-  await flush();
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  await flush();
 }
 
 function signalOf(reads: readonly StartedRead[], index: number): AbortSignal {

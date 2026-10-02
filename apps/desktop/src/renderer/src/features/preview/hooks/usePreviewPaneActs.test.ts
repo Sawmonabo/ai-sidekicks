@@ -5,11 +5,10 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
+import { fixturePreviewBridge } from "../PreviewPane.test-support.js";
 import { usePreviewPaneActs } from "./usePreviewPaneActs.js";
 
 /** The fallback a rejection with no code of its own is rendered as. */
@@ -58,15 +57,14 @@ interface ActSubject {
 
 function subject(paneId: string, bridge?: PlatformBridge): ActSubject {
   return {
-    bridge:
-      bridge ?? createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") }).bridge,
+    bridge: bridge ?? fixturePreviewBridge().bridge,
     paneId,
   };
 }
 
 const FIRST_SUBJECT = subject("pane-browser-1");
 
-describe("the browser pane's act sequence", () => {
+describe("the Preview pane's act sequence", () => {
   it("drops an older act's failure once a newer act has been served", async () => {
     const reload = deferredAct();
     const stop = deferredAct();

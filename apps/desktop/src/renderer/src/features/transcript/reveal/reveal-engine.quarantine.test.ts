@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire-errors.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
+import { REVEAL_FRAME_CHARACTER_BUDGET } from "./reveal-caps.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";

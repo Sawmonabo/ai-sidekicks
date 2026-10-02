@@ -11,11 +11,8 @@ import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
-import {
-  TRANSCRIPT_COMMAND_OWNER,
-  createTranscriptCommands,
-  registerTranscriptCommands,
-} from "./commands.js";
+import { createTranscriptCommands, registerTranscriptCommands } from "./commands.js";
+import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /** The acts, each recording that it and only it fired. */
 function recordingActs(fired: string[]): TranscriptActs {
@@ -57,7 +54,7 @@ describe("transcript commands — the contribution reaches the palette and the k
   /** Contributing an empty set is how a window is left with none of the transcript's rows. */
   function withdrawTranscriptContribution(): void {
     commandContributionRegistry.contribute({
-      owner: TRANSCRIPT_COMMAND_OWNER,
+      owner: TRANSCRIPT_OWNER,
       commands: [],
       keyBindings: [],
     });

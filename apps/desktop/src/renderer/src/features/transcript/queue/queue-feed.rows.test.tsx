@@ -12,6 +12,7 @@ import {
   QUEUE_ITEM_ID,
   QueueFeedProbe,
   SESSION_ID,
+  openFeed,
   queueFeedBridge,
   queueRow,
 } from "./queue-feed.test-support.js";
@@ -19,24 +20,8 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("a queued item is canceled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {
-    const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
-    let held: QueueFeed | undefined;
-    render(
-      <QueueFeedProbe
-        bridge={bridge}
-        sessionId={SESSION_ID}
-        queueCalls={queueCalls}
-        onFeed={(feed) => (held = feed)}
-      />,
-      { wrapper: bridgeWrapper(bridge, clock) },
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-    const cancelItem = held?.cancelItem;
-    if (cancelItem === undefined) {
-      throw new Error("the queue feed reported no cancel");
-    }
+    const { latest, canceledItemIds } = await openFeed();
+    const { cancelItem } = latest();
     // Both presses inside one act, which is the frame a person double-pressing
     // produces: the second reads a control the render has not redrawn yet.
     act(() => {
@@ -49,49 +34,23 @@ describe("a queued item is canceled once", () => {
   it("two rows pressed once each are two mutations", async () => {
     // Without this the case above would pass over a chokepoint that dispatched nothing. The
     // latch is per id.
-    const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
-    let held: QueueFeed | undefined;
-    render(
-      <QueueFeedProbe
-        bridge={bridge}
-        sessionId={SESSION_ID}
-        queueCalls={queueCalls}
-        onFeed={(feed) => (held = feed)}
-      />,
-      { wrapper: bridgeWrapper(bridge, clock) },
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
+    const { latest, canceledItemIds } = await openFeed();
     act(() => {
-      void held?.cancelItem(QUEUE_ITEM_A);
-      void held?.cancelItem(QUEUE_ITEM_B);
+      void latest().cancelItem(QUEUE_ITEM_A);
+      void latest().cancelItem(QUEUE_ITEM_B);
     });
     expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_A, QUEUE_ITEM_B]);
   });
 
   it("takes the row's cancel again once the first has settled", async () => {
-    const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
-    let held: QueueFeed | undefined;
-    render(
-      <QueueFeedProbe
-        bridge={bridge}
-        sessionId={SESSION_ID}
-        queueCalls={queueCalls}
-        onFeed={(feed) => (held = feed)}
-      />,
-      { wrapper: bridgeWrapper(bridge, clock) },
-    );
+    const { latest, canceledItemIds } = await openFeed();
     await act(async () => {
+      void latest().cancelItem(QUEUE_ITEM_ID);
       await crossMacrotaskBoundary();
     });
-    await act(async () => {
-      void held?.cancelItem(QUEUE_ITEM_ID);
-      await crossMacrotaskBoundary();
-    });
-    expect(held?.pendingCancelIds.has(QUEUE_ITEM_ID)).toBe(false);
+    expect(latest().pendingCancelIds.has(QUEUE_ITEM_ID)).toBe(false);
     act(() => {
-      void held?.cancelItem(QUEUE_ITEM_ID);
+      void latest().cancelItem(QUEUE_ITEM_ID);
     });
     expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_ID, QUEUE_ITEM_ID]);
   });

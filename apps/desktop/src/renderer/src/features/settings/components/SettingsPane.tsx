@@ -1,7 +1,7 @@
-// The pane: two absences, or the page the address names.
+// The pane: two empty states, or the page the address names.
 //
 // The page itself is `SettingsPageContent`, which holds hooks; this component may not, because
-// both absence arms render before any section is resolved.
+// both empty-state arms render before any section is resolved.
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { SettingsPageContent } from "./SettingsPageContent.js";
 import type { SettingsPageRegistry } from "../settings-pages.js";
@@ -25,7 +25,7 @@ export interface SettingsPaneProps {
 /**
  * The right-hand pane: the selected section's page, or the reason there is none.
  *
- * Two absences stay apart because the next move differs: no section chosen (`#/settings`
+ * Two empty states stay apart because the next move differs: no section chosen (`#/settings`
  * invites a choice rather than picking one, which would tie the selection to tuple order),
  * and an unknown section (an error, named back).
  */
@@ -37,7 +37,7 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
           kind="error"
           placement="block"
           title="That settings address does not name a section."
-          detail={`Nothing in settings is called “${props.attempted}”. The rail on the left lists every section this console has.`}
+          detail={`Nothing in settings is called “${props.attempted}”. The rail on the left lists every section this app has.`}
         />
       );
     }

@@ -12,17 +12,17 @@ import {
   type WorkspaceControlAvailability,
 } from "../mount-health.js";
 
-/** The two postures a card hands down, composed through the real predicate. */
+/** The two availabilities a card hands down, composed through the real predicate. */
 const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailability(
-  { offered: true },
+  { available: true },
   undefined,
 );
 const CONTROLS_HELD_BY_THE_MOUNT: WorkspaceControlAvailability = readWorkspaceControlAvailability(
-  { offered: false, withheldBecause: "This mount is no longer reachable." },
+  { available: false, unavailableBecause: "This mount is no longer reachable." },
   undefined,
 );
 const CONTROLS_HELD_BY_A_SWITCH: WorkspaceControlAvailability = readWorkspaceControlAvailability(
-  { offered: true },
+  { available: true },
   "provisioned-worktree",
 );
 
@@ -49,7 +49,7 @@ function renderPicker(
       currentMode="bound-root"
       capabilities={capabilities}
       pendingMode={undefined}
-      posture={CONTROLS_LIVE}
+      availability={CONTROLS_LIVE}
       onSelect={() => undefined}
       {...overrides}
     />,
@@ -108,7 +108,7 @@ describe("ExecutionModePicker — absences and holds", () => {
 
   it("disables the whole group when the mount withholds its bind controls", () => {
     const { container, getByRole } = renderPicker(GIT_CAPABILITIES, {
-      posture: CONTROLS_HELD_BY_THE_MOUNT,
+      availability: CONTROLS_HELD_BY_THE_MOUNT,
     });
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
     // A disabled `fieldset` paints nothing that explains itself, so the reason must be text.
@@ -119,11 +119,11 @@ describe("ExecutionModePicker — absences and holds", () => {
 describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   it("holds every row and names the mode it is holding for", () => {
     // Two selects issued before the first settles both run and the last to reach the daemon
-    // decides, so the group holds until the answer arrives. The card supplies the posture and
+    // decides, so the group holds until the answer arrives. The card supplies the availability and
     // `pendingMode` from one derivation, so both are passed.
     const { container, getByRole } = renderPicker(GIT_CAPABILITIES, {
       pendingMode: "provisioned-worktree",
-      posture: CONTROLS_HELD_BY_A_SWITCH,
+      availability: CONTROLS_HELD_BY_A_SWITCH,
     });
 
     // The fieldset, not the inputs: an input's own `disabled` never reflects the group's.

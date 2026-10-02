@@ -110,12 +110,16 @@ export function QueueFeedProbe(props: {
   return null;
 }
 
-/** Mounts one view on a fresh reading, settles the snapshot, and returns the feed it reads. */
+/**
+ * Mounts one view on a fresh reading, settles the snapshot, and returns the feed it reads and
+ * the cancels the stub calls recorded.
+ */
 export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Promise<{
   deliver: (item: QueueItemSummary) => void;
   latest: () => QueueFeed;
+  canceledItemIds: readonly string[];
 }> {
-  const { bridge, clock, queueCalls, deliver } = queueFeedBridge(snapshot);
+  const { bridge, clock, queueCalls, deliver, canceledItemIds } = queueFeedBridge(snapshot);
   let held: QueueFeed | undefined;
   render(
     <QueueFeedProbe
@@ -139,6 +143,7 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
       }
       return held;
     },
+    canceledItemIds,
   };
 }
 

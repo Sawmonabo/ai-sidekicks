@@ -6,7 +6,7 @@
 // The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a time,
 // so every start control is disabled, with its reason, while one runs.
 // `provider-sign-in-flow-tracker.ts` owns that rule, and the registry's completion report
-// releases a flow the node ended on its own, correlated by attempt id.
+// releases a flow the service ended on its own, correlated by attempt id.
 
 import "./accounts-fixture-body.css";
 
@@ -93,7 +93,7 @@ export function AccountsFixtureBody(props: {
     () => providerSignInFlowTracker.snapshot(),
     () => providerSignInFlowTracker.snapshot(),
   );
-  // The registry's completion report ends a flow the node finished on its own; keyed on the
+  // The registry's completion report ends a flow the service finished on its own; keyed on the
   // attempt id so a re-render over the same completion re-runs nothing.
   const completedAttemptId = registry.newestLoginCompletion?.attemptId;
   useEffect(() => {

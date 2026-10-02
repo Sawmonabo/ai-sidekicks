@@ -59,7 +59,7 @@ export function hunkLines(
       );
       continue;
     }
-    const text = prefixedLine === "" ? "" : prefixedLine.slice(1);
+    const text = prefixedLine.slice(1);
     // Spread rather than `: undefined`: under `exactOptionalPropertyTypes` an optional member
     // set to `undefined` is a different type from an absent one.
     lines.push({

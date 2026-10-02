@@ -1,6 +1,6 @@
-// The staged list's ledger: which attachments there are, in order, and where each one's ingest
+// The staged list's record: which attachments there are, in order, and where each one's ingest
 // stands. Every operation settles before it returns, and a continuation returning from an await
-// must consult the ledger rather than the entry it captured, since a user can act mid-call.
+// must consult the record rather than the entry it captured, since a user can act mid-call.
 // Order is attach order, kept in an explicit array of local ids. An entry holds the user's `Blob`
 // only while a send is still possible (`declared`, `ingesting`, `refused`); settled entries are
 // built through `attachmentIngestEntryFrom`, whose settled arm has no payload member, so ten
@@ -24,15 +24,14 @@ import {
 /**
  * What one entry stood at, taken before an await and checked after it. The claim is the round
  * the entry was on, so the check is total even if the state changed and changed back. It comes
- * from the console's shared generation register, which frees a key on supersede and reports
- * `heldKeyCount`.
+ * from the shared generation register, which frees a key on supersede.
  */
 export interface AttachmentIngestStamp {
   readonly state: AttachmentIngestState;
   readonly claim: CurrentGenerationClaim;
 }
 
-/** The ledger of staged attachments, publishing an ordered snapshot on every change. */
+/** The record of staged attachments, publishing an ordered snapshot on every change. */
 export class AttachmentIngestEntries {
   readonly #entriesByLocalId = new Map<string, AttachmentIngestEntry>();
   /** The rounds entries are on, one key per local id. Never a module-level singleton. */
@@ -58,7 +57,7 @@ export class AttachmentIngestEntries {
     return this.#entriesByLocalId.has(localId);
   }
 
-  /** The entry as it stands, or `undefined` once it is gone or the ledger is disposed. */
+  /** The entry as it stands, or `undefined` once it is gone or the record is disposed. */
   public current(localId: string): AttachmentIngestEntry | undefined {
     return this.#disposed ? undefined : this.#entriesByLocalId.get(localId);
   }
@@ -138,28 +137,7 @@ export class AttachmentIngestEntries {
     this.#publish();
   }
 
-  /**
-   * The reference a staged list would carry: artifact ids, ordered, and nothing else. Only
-   * completed ingests contribute, since an ingest mints the id. Held as strings because the
-   * console never mints an identity.
-   */
-  public artifactIds(): readonly string[] {
-    const artifactIds: string[] = [];
-    for (const localId of this.#declaredOrder) {
-      const artifactId = this.#entriesByLocalId.get(localId)?.derived?.artifactId;
-      if (artifactId !== undefined) {
-        artifactIds.push(artifactId);
-      }
-    }
-    return artifactIds;
-  }
-
-  /** How many entries a continuation still holds a round on: the register's bound. */
-  public get heldRoundCount(): number {
-    return this.#rounds.heldKeyCount(this);
-  }
-
-  /** Ends the ledger: continuations lose their rounds and subscribers are dropped. */
+  /** Ends the record: continuations lose their rounds and subscribers are dropped. */
   public dispose(): void {
     this.#disposed = true;
     this.#rounds.supersedeAll();
@@ -187,13 +165,13 @@ export class AttachmentIngestEntries {
  * offset the two sides do not share.
  */
 export function writeIngestRefusal(
-  ledger: AttachmentIngestEntries,
+  entries: AttachmentIngestEntries,
   localId: string,
   entry: AttachmentIngestEntry,
   refusal: { readonly code: string; readonly detail: string },
   disposition?: IngestRefusalDisposition,
 ): void {
-  ledger.write(localId, {
+  entries.write(localId, {
     ...entry,
     state: "refused",
     refusal,

@@ -1,6 +1,6 @@
 // The staged attachments: where a chosen file becomes an ingest, and the one owner of the
 // ingest client's construction, subscription and disposal. The publish instant is stamped when
-// the ledger publishes and travels in the same snapshot, so an age moves only when an upload
+// the record publishes and travels in the same snapshot, so an age moves only when an upload
 // does. A stalled upload stops publishing, so one one-shot timeout at the earliest outstanding
 // disclosure deadline re-stamps the same entries; it reads nothing and there is no interval.
 // The local id is this list's counter, not the file name, since two files can share a name.
@@ -67,7 +67,7 @@ export class StagedAttachments {
   }
 
   /**
-   * Begin following the ledger. Idempotent: strict mode runs an effect twice, and a second
+   * Begin following the record. Idempotent: strict mode runs an effect twice, and a second
    * subscription would re-emit every publish.
    */
   public start(): void {

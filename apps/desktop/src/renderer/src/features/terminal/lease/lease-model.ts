@@ -21,9 +21,7 @@ import type { ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import {
   readTerminalLeaseShell,
   readTerminalLeaseTransition,
-  readTerminalLeaseUnreadTransition,
   type TerminalLeaseTransition,
-  type TerminalLeaseUnreadTransition,
 } from "./lease-transition.js";
 
 /**
@@ -46,6 +44,12 @@ export const TERMINAL_LEASE_HOLDERS = [
 /** One of the holders above. */
 export type TerminalLeaseHolder = (typeof TERMINAL_LEASE_HOLDERS)[number];
 
+/**
+ * The holders the lease line is drawn for: every holder but a lease not yet read and this
+ * device's own hold, where the line draws nothing.
+ */
+export type DrawnLeaseHolder = Exclude<TerminalLeaseHolder, "not-checked" | "held-by-this-device">;
+
 /** What a log of lease transitions folds to, from this device's point of view. */
 export interface TerminalLeaseState {
   readonly holder: TerminalLeaseHolder;
@@ -55,11 +59,6 @@ export interface TerminalLeaseState {
   readonly holderRunId: RunId | undefined;
   /** The run's command the wire named as the holder; stopping it ends the run's hold. */
   readonly holderCommandId: CommandId | undefined;
-  /**
-   * The newest transition the fold could not read, when it arrived after every readable one.
-   * Present means the lease state is unknown rather than stale.
-   */
-  readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
 }
 
 /** What the fold needs beyond the events. */
@@ -76,7 +75,6 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   holderDeviceId: null,
   holderRunId: undefined,
   holderCommandId: undefined,
-  unreadTransition: undefined,
 };
 
 /**
@@ -84,9 +82,8 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  *
  * Other event kinds and transitions naming another shell are skipped. A `pty.control_changed`
  * the reader cannot read (an unknown reason, no payload, or a holder shape that contradicts
- * its reason) is not skipped unless it plainly names another shell: it is recorded as the
- * unread transition and the holder becomes `unrecognized-transition`, which shows no holder
- * and writes nothing. Skipping it would leave the previous holder standing, and stdin open
+ * its reason) is not skipped unless it plainly names another shell: the holder becomes
+ * `unrecognized-transition`, which shows no holder and writes nothing. Skipping it would leave the previous holder standing, and stdin open
  * for someone who no longer holds the shell.
  *
  * A later transition the reader can read clears the unread one.
@@ -96,7 +93,8 @@ export function projectTerminalLease(
   input: TerminalLeaseProjectionInput,
 ): TerminalLeaseState {
   let newest: TerminalLeaseTransition | undefined;
-  let unreadTransition: TerminalLeaseUnreadTransition | undefined;
+  // Whether the newest transition for this shell is one the fold could not read.
+  let isNewestUnread = false;
 
   for (const event of events) {
     if (event.kind !== PTY_CONTROL_CHANGED_EVENT) {
@@ -106,20 +104,20 @@ export function projectTerminalLease(
     if (transition === undefined) {
       const namedShell = readTerminalLeaseShell(event);
       if (namedShell === undefined || namedShell === input.terminalId) {
-        unreadTransition = readTerminalLeaseUnreadTransition(event);
+        isNewestUnread = true;
       }
       continue;
     }
     if (transition.terminalId !== input.terminalId) {
       continue;
     }
-    unreadTransition = undefined;
+    isNewestUnread = false;
     newest = transition;
   }
 
   // Fail-closed: an unread transition collapses to the free lease before the device
   // comparison, so "you hold it" is never shown on the strength of a transition it could not read.
-  const readable = unreadTransition === undefined ? newest : undefined;
+  const readable = isNewestUnread ? undefined : newest;
   const holderDeviceId = readable?.holderDeviceId ?? null;
   const holderRunId = readable?.holderRunId;
   const holderCommandId = readable?.holderCommandId;
@@ -127,7 +125,7 @@ export function projectTerminalLease(
   return {
     holder: readHolder({
       hasReadTransition: newest !== undefined,
-      unreadTransition,
+      isNewestUnread,
       holderDeviceId,
       holderRunId,
       thisDeviceId: input.thisDeviceId,
@@ -135,7 +133,6 @@ export function projectTerminalLease(
     holderDeviceId,
     holderRunId,
     holderCommandId,
-    unreadTransition,
   };
 }
 
@@ -144,12 +141,12 @@ export function projectTerminalLease(
 // may be this device, yet only the run writes.
 function readHolder(state: {
   readonly hasReadTransition: boolean;
-  readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
+  readonly isNewestUnread: boolean;
   readonly holderDeviceId: string | null;
   readonly holderRunId: RunId | undefined;
   readonly thisDeviceId: string | undefined;
 }): TerminalLeaseHolder {
-  if (state.unreadTransition !== undefined) {
+  if (state.isNewestUnread) {
     return "unrecognized-transition";
   }
   if (!state.hasReadTransition) {

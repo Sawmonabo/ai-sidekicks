@@ -1,5 +1,5 @@
 // Holds the transcript frame's four objects together (scroll chokepoint, reading anchor,
-// measurement ledger, window cap) and decides when each is asked and what the tree is told.
+// measurement table, window cap) and decides when each is asked and what the tree is told.
 //
 // The library owns measurements, offsets and the total size; `virtualizer-options.ts` owns its
 // reach to the outside world. The anchor is captured from the virtualizer, never the DOM, so
@@ -10,7 +10,7 @@ import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepoint.js";
+import { ScrollController } from "../scroll/scroll-chokepoint.js";
 import { ViewportAnchorCapture } from "./viewport-anchor-capture.js";
 import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
 import { HeadInsertion } from "./viewport-head-insertion.js";
@@ -36,9 +36,9 @@ export class ViewportController {
   readonly scroll: ScrollController;
   readonly anchor: ReadingAnchor;
   readonly measurements: RowMeasurementTable;
-  readonly window: TranscriptWindow;
+  readonly rowWindow: TranscriptWindow;
   /** The option object the virtualizer is constructed with. */
-  readonly seams: VirtualizerOptions;
+  readonly virtualizerOptions: VirtualizerOptions;
 
   /** The cap, and the re-ask a refusal owes. Constructed over the four above. */
   readonly #pruneCycle: ViewportPruneCycle;
@@ -63,14 +63,14 @@ export class ViewportController {
     this.scroll = new ScrollController({ clock: options.clock });
     this.anchor = new ReadingAnchor();
     this.measurements = new RowMeasurementTable();
-    this.window = new TranscriptWindow();
-    this.seams = new VirtualizerOptions({
+    this.rowWindow = new TranscriptWindow();
+    this.virtualizerOptions = new VirtualizerOptions({
       scroll: this.scroll,
       measurements: this.measurements,
       virtualKeyAt: (index) => this.#virtualKeys[index],
     });
     this.#pruneCycle = new ViewportPruneCycle({
-      window: this.window,
+      window: this.rowWindow,
       measurements: this.measurements,
       anchor: this.anchor,
       scroll: this.scroll,
@@ -83,10 +83,7 @@ export class ViewportController {
       rowKeys: () => this.#rowKeys,
       virtualizer: () => this.#virtualizer,
     });
-    this.#publication = new ViewportPublication({
-      clock: options.clock,
-      build: () => this.#buildSnapshot(),
-    });
+    this.#publication = new ViewportPublication({ build: () => this.#buildSnapshot() });
     this.#deferredHold = new ViewportDeferredHold({
       anchor: this.anchor,
       scroll: this.scroll,
@@ -97,8 +94,9 @@ export class ViewportController {
       },
     });
     this.#teardown.push(
-      // No publication for a scroll sample: it changes nothing the snapshot carries. A mode
-      // change reaches the tree through the anchor's own notification below.
+      // No publication for a scroll sample: it changes nothing the snapshot carries, and the
+      // anchor's capture is silent. A mode change reaches the tree through the anchor's own
+      // notification below.
       this.scroll.subscribeToGeometry((geometry) => {
         this.anchor.observeGeometry(geometry);
         this.#anchorCapture.captureFrom(geometry);
@@ -125,18 +123,21 @@ export class ViewportController {
     return this.#publication.current;
   }
 
+  /** Hear every change to the snapshot. */
   public subscribe(sink: () => void): Unsubscribe {
     return this.#publication.subscribe(sink);
   }
 
-  public attach(scrollContainer: ScrollContainer): void {
+  /** Drive this scroll container: the chokepoint writes it and the virtualizer reads it. */
+  public attach(scrollContainer: HTMLElement): void {
     this.scroll.attach(scrollContainer);
-    this.seams.bindScrollContainer(scrollContainer);
+    this.virtualizerOptions.bindScrollContainer(scrollContainer);
   }
 
+  /** Let go of the scroll container, for an unmount or a container about to be replaced. */
   public detach(): void {
     this.scroll.detach();
-    this.seams.bindScrollContainer(undefined);
+    this.virtualizerOptions.bindScrollContainer(undefined);
   }
 
   /**
@@ -170,7 +171,7 @@ export class ViewportController {
       this.anchor.pin(headGrowth.headRootCursor);
     }
     const { prunedHeightPx, readingFloorRowKey } = this.#pruneCycle.run(conditions);
-    const retained = this.window.rows();
+    const retained = this.rowWindow.rows();
     const appendedCount = countAppendedAfter(retained, previousTailKey);
     this.#rows = retained;
     this.#rowKeys = retained.map((row) => row.key);
@@ -220,7 +221,7 @@ export class ViewportController {
   }
 
   /**
-   * Declares the display every measurement is taken on. A change drops this ledger's priors and
+   * Declares the display every measurement is taken on. A change drops this table's priors and
    * the library's together; two caches disagreeing about a row's height gives a scrollbar that
    * never settles.
    */
@@ -284,11 +285,6 @@ export class ViewportController {
     this.anchor.dispose();
     this.#virtualizer = undefined;
     this.#disposed = true;
-  }
-
-  /** Coalesce a burst of library notifications into one snapshot. Test seam too. */
-  public schedulePublish(): void {
-    this.#publication.scheduleFrame();
   }
 
   #buildSnapshot(): ViewportSnapshot {

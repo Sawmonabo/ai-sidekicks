@@ -4,17 +4,15 @@
 // published types live in `reveal-model.ts`.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import {
-  REVEAL_FRAME_CHARACTER_BUDGET,
-  REVEAL_LITERAL_BACKTRACK_CAP,
-} from "../frame/frame-caps.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import {
   REVEAL_CATCH_UP_MULTIPLIER,
+  REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_GATE_TAIL_CHARACTERS,
-} from "../viewport/viewport-constants.js";
+  REVEAL_LITERAL_BACKTRACK_CAP,
+} from "./reveal-caps.js";
 import { safeRevealCeiling } from "./reveal-gate.js";
 import { RevealLane } from "./reveal-lane.js";
 import type {
@@ -231,8 +229,8 @@ export class RevealEngine {
         REVEAL_LITERAL_BACKTRACK_CAP,
       );
     } catch (transitionFailure: unknown) {
-      // The lane releases what it will not reveal instead of only being flagged: flagged alone,
-      // it stayed in the map with a rope the producer kept growing and no frame would walk.
+      // The lane releases what it will not reveal instead of only being flagged: a flagged lane
+      // would keep a rope the producer goes on growing and no frame would walk.
       lane.quarantine();
       // The total stringifier: a `String(...)` that threw inside this handler would escape the
       // frame loop past `#armFrame()` and stop every lane for good, with no diagnostic.

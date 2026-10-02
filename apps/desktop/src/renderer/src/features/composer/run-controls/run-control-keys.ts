@@ -4,8 +4,8 @@
 
 import { type RunControl } from "./services/run-control-dispatch.js";
 
-/** The separator between the token's three segments. */
-const TOKEN_SEPARATOR = ":";
+/** The separator between the segments of a token or key. */
+const KEY_SEPARATOR = ":";
 
 /**
  * Mints the token an admitted dispatch's record is recorded under. The run and control make
@@ -16,10 +16,10 @@ export function mintRunControlDispatchToken(
   control: RunControl,
   dispatchOrdinal: number,
 ): string {
-  return `${runId}${TOKEN_SEPARATOR}${control}${TOKEN_SEPARATOR}${String(dispatchOrdinal)}`;
+  return `${runId}${KEY_SEPARATOR}${control}${KEY_SEPARATOR}${String(dispatchOrdinal)}`;
 }
 
 /** The key one in-flight dispatch is held under. One control per run at a time. */
 export function inFlightKeyFor(runId: string, control: RunControl): string {
-  return `${runId}:${control}`;
+  return `${runId}${KEY_SEPARATOR}${control}`;
 }

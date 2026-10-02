@@ -1,5 +1,5 @@
 // What one row of the all-sessions list is, and the order rows come in: pinned rows first,
-// then the order the rows arrived in, the node's own first. A row's state never moves it, so a
+// then the order the rows arrived in, the daemon's own first. A row's state never moves it, so a
 // session that finishes under the pointer stays where the pointer is.
 
 import type { SessionState } from "@ai-sidekicks/contracts";
@@ -19,7 +19,7 @@ export interface SessionListRow {
   readonly state: string | undefined;
   /** ISO-8601 of the newest event that touched the session, wire-verbatim. */
   readonly touchedAtIso: string | undefined;
-  /** Users the console has seen in this session, in the order it saw them. */
+  /** Users the app has seen in this session, in the order it saw them. */
   readonly userIds: readonly string[];
 }
 

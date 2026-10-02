@@ -39,20 +39,20 @@ export interface WorkflowRunControlCalls {
   }) => Promise<WorkflowRunResumeReply>;
 }
 
-/** Both controls for one run, and the re-arm round their settlements advance. */
+/** Both controls for one run, and the re-arm refresh their settlements advance. */
 export interface WorkflowRunControls {
   readonly cancel: WorkflowCancelControl;
   /**
    * The resume call and its outcome, and deliberately not the version chain.
    *
-   * The chain is read for the version this hook's round re-reads, so taking it here would be
+   * The chain is read for the version this hook's refresh re-reads, so taking it here would be
    * a cycle; the component that mounts the control joins the two.
    */
   readonly resume: WorkflowResumeDispatch;
-  /** The run read's round. Advances by one per served act; see the state above. */
+  /** The run read's refresh. Advances by one per served act; see the state above. */
   readonly servedActCount: number;
   /**
-   * Advance that round for a served act this dispatcher did not put, such as a human-form
+   * Advance that refresh for a served act this dispatcher did not put, such as a human-form
    * submission. Does nothing on a pane naming no run, which has put no read to make stale.
    */
   readonly recordServedAct: RecordServedRunAct;
@@ -70,7 +70,7 @@ interface RunControlDispatchState {
   /**
    * How many acts on this run have come back served, human-form submissions included.
    *
-   * The run read's re-arm round: a count, not a flag, since each settled act needs its own
+   * The run read's re-arm refresh: a count, not a flag, since each settled act needs its own
    * read. The reply's state is never written into the snapshot.
    */
   readonly servedActCount: number;
@@ -153,17 +153,17 @@ export function useRunControlDispatch(
       if (runtime === undefined) {
         return;
       }
-      advanceServedActRound(runtime);
+      advanceServedActRefresh(runtime);
     },
   };
 }
 
 /**
- * Advance the re-arm round by one, leaving both controls' outcomes as they stand.
+ * Advance the re-arm refresh by one, leaving both controls' outcomes as they stand.
  *
  * Uses the publish this render captured, so an act recorded after a retarget writes nowhere.
  */
-function advanceServedActRound(runtime: RunControlRuntime): void {
+function advanceServedActRefresh(runtime: RunControlRuntime): void {
   runtime.publish((previous) => ({
     ...previous,
     servedActCount: previous.servedActCount + 1,
@@ -195,7 +195,7 @@ async function dispatchAct<TValue>(
   publishOutcome(runtime, action, { kind: "dispatching" });
   try {
     const outcome: WorkflowRunControlOutcome = { kind: "settled", ...describe(await call()) };
-    // `settle` drops the answer once the round is retired; the publish captured at render
+    // `settle` drops the answer once the refresh is retired; the publish captured at render
     // drops it once the pane was retargeted to another run.
     claim.settle(() => {
       publishOutcome(runtime, action, outcome);
@@ -217,7 +217,7 @@ function actKey(action: WorkflowRunControlAction, workflowRunId: string): string
  * Write one action's outcome into the state this render is addressed at.
  *
  * A function-form publish, because both actions share one record and a closure's copy would
- * erase the other action's outcome. A settled outcome advances the round in the same write.
+ * erase the other action's outcome. A settled outcome advances the refresh in the same write.
  */
 function publishOutcome(
   runtime: RunControlRuntime,

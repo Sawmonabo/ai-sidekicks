@@ -1,17 +1,10 @@
-// The one enumeration this composer holds, read by the command list and the send path: one live
-// reading keyed on the addressed agent and bridge, never persisted or cached across sessions.
-// The popover is the only writer; the router only reads the snapshot. The read runs when the
-// command list opens, so a person who never types a slash costs no provider round trip.
+// The one enumeration this composer holds, read by the command list: one live reading keyed on
+// the addressed agent and bridge, never persisted or cached across sessions. The read runs when
+// the command list opens, so a person who never types a slash costs no provider round trip.
 
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  composeCommandList,
-  selectAddressedBindingGroup,
-  type AddressedProviderBinding,
-  type ProviderCommandEntry,
-} from "./command-list-entries.js";
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */
 export interface ProviderCommandReadKey {
@@ -95,30 +88,6 @@ export class ProviderCommandEnumeration {
     // parsed for a list that is gone.
     this.#endReadLine();
     this.#publish(NOT_CHECKED);
-  }
-
-  /**
-   * The entry the addressed binding published under this exact name, if any. Served readings only
-   * and an exact match, so the send path never names an entry the list did not show; a reading
-   * that has not landed answers `undefined`. The binding is an argument, not part of the key: the
-   * addressed run moves as turns settle, and keying on it would re-read on every turn.
-   */
-  public publishedEntryNamed(
-    commandName: string,
-    addressed: AddressedProviderBinding,
-  ): ProviderCommandEntry | undefined {
-    if (this.#state.phase !== "served") {
-      return undefined;
-    }
-    const group = selectAddressedBindingGroup(this.#state.groups, addressed);
-    if (group === undefined) {
-      return undefined;
-    }
-    const published = composeCommandList({ offeredCommands: [], providerGroups: [group] });
-    return published.find(
-      (entry): entry is ProviderCommandEntry =>
-        entry.source === "provider" && entry.name === commandName,
-    );
   }
 
   /** Abandon the held line and hold none, so the next `open` mints a fresh scope. */

@@ -9,10 +9,13 @@
 //
 // Exactly two things end a flow: a cancel that answered `canceled` or `notFound`, and
 // the registry's own tail reporting that attempt completed
-// ({@link ProviderSignInFlowTracker.noteLoginCompleted}).
+// ({@link ProviderSignInFlowTracker.noteLoginCompleted}). A start or a cancel the service
+// refuses is drawn on that account's row in the service's own words: a refused start frees
+// the flow, and a refused cancel leaves it running.
 
 import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
 
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
@@ -31,6 +34,9 @@ export const PROVIDER_SIGN_IN_REFUSAL_ORIGIN = "provider-account-sign-in";
 
 /** Why this tracker declined a start it never sent. Its own code, never a daemon's. */
 const START_ALREADY_RUNNING_CODE = "sign-in-already-running";
+
+/** The code a rejected start or cancel that carried none of its own is reported under. */
+const SIGN_IN_CALL_FAILED_CODE = "sign-in-call-failed";
 
 /**
  * The one key the sign-in flow is claimed under.
@@ -149,18 +155,29 @@ export class ProviderSignInFlowTracker {
       flow: { kind: "starting", accountId },
       refusalByAccountId: this.#refusalsWithout(accountId),
     });
-    void this.#startProviderSignIn(accountId).then((outcome) => {
-      claim.settle(() => {
-        if (outcome.attempt.attemptId === this.#completedAttemptId) {
-          // The registry reported this attempt finished before its start reply arrived;
-          // recording it would put a card on screen for a flow that is over.
+    this.#startProviderSignIn(accountId).then(
+      (outcome) => {
+        claim.settle(() => {
+          if (outcome.attempt.attemptId === this.#completedAttemptId) {
+            // The registry reported this attempt finished before its start reply arrived;
+            // recording it would put a card on screen for a flow that is over.
+            claim.release();
+            this.#settleEndedFlow(PROVIDER_SIGN_IN_ENDED_BY_REGISTRY);
+            return;
+          }
+          this.#publish({ flow: outcome });
+        });
+      },
+      (error: unknown) => {
+        claim.settle(() => {
           claim.release();
-          this.#settleEndedFlow(PROVIDER_SIGN_IN_ENDED_BY_REGISTRY);
-          return;
-        }
-        this.#publish({ flow: outcome });
-      });
-    });
+          this.#publish({
+            flow: IDLE_PROVIDER_SIGN_IN_FLOW,
+            refusalByAccountId: this.#refusalsWith(accountId, refusalOfCall(error)),
+          });
+        });
+      },
+    );
   }
 
   /**
@@ -177,20 +194,30 @@ export class ProviderSignInFlowTracker {
     const { accountId, attempt } = flow;
     const round = this.#flows.currentClaim(this, PROVIDER_SIGN_IN_FLOW_KEY);
     this.#publish({ flow: { kind: "canceling", accountId, attempt } });
-    void this.#cancelProviderSignIn(attempt).then((outcome) => {
-      round.settle(() => {
-        this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
-        this.#publish({ flow: outcome });
-        this.#onFlowSettled();
-      });
-    });
+    this.#cancelProviderSignIn(attempt).then(
+      (outcome) => {
+        round.settle(() => {
+          this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
+          this.#publish({ flow: outcome });
+          this.#onFlowSettled();
+        });
+      },
+      (error: unknown) => {
+        round.settle(() => {
+          this.#publish({
+            flow: { kind: "live", accountId, attempt },
+            refusalByAccountId: this.#refusalsWith(accountId, refusalOfCall(error)),
+          });
+        });
+      },
+    );
   }
 
   /**
    * The registry's tail reports one brokered attempt finished.
    *
    * Only the attempt id this tracker holds ends its flow: another window's flow completes
-   * on the same node-scoped tail and must not clear this card's verification code. Every
+   * on the same machine-wide tail and must not clear this card's verification code. Every
    * completion is remembered, matched or not, for {@link start} to read.
    */
   public noteLoginCompleted(attemptId: string): void {
@@ -282,6 +309,7 @@ export function describeRunningProviderSignIn(options: {
   const holder = options.holdingAccountLabel ?? "another account";
   return `A sign-in for ${holder} is already running. Cancel it before starting this one — this machine runs one brokered sign-in at a time.`;
 }
+
 /**
  * Why this tracker declined a start it never sent.
  *
@@ -295,4 +323,9 @@ function startAlreadyRunning(isTheSameAccount: boolean): Refusal {
     START_ALREADY_RUNNING_CODE,
     describeRunningProviderSignIn({ isTheSameAccount, holdingAccountLabel: undefined }),
   );
+}
+
+/** A rejected start or cancel, in the one refusal shape, carrying the service's own words. */
+function refusalOfCall(error: unknown): Refusal {
+  return coerceToRefusal(error, PROVIDER_SIGN_IN_REFUSAL_ORIGIN, SIGN_IN_CALL_FAILED_CODE);
 }

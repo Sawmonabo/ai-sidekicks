@@ -22,11 +22,6 @@
   color: var(--meridian-text);
 }
 
-.meridian-sessions__count {
-  margin: 0;
-  color: var(--meridian-text-muted);
-}
-
 .meridian-session-list {
   display: flex;
   flex-direction: column;

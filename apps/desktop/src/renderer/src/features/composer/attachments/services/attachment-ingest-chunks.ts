@@ -1,5 +1,5 @@
 // The chunk loop: one bounded slice of the user's `Blob` at a time, from the offset the daemon
-// last acknowledged. The offset is the daemon's: the ledger advances to the reply's spooled
+// last acknowledged. The offset is the daemon's: the record advances to the reply's spooled
 // decoded total, never by the slice sent. Each chunk carries the slice's base64, at most
 // `ARTIFACT_CHUNK_MAX_BYTES` raw bytes, so memory stays bounded. A replayed chunk (same
 // sequence number, same bytes) is acknowledged without re-appending, so retry resumes.
@@ -23,23 +23,23 @@ export const PAYLOAD_READ_REFUSAL_CODE = "payload-read-rejected";
 export interface AttachmentChunkStreamOptions {
   readonly port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly clock: Clock;
-  readonly ledger: AttachmentIngestEntries;
+  readonly entries: AttachmentIngestEntries;
 }
 
 /** One open stream's bytes, sent in slices of at most one chunk cap. */
 export class AttachmentChunkStream {
   readonly #port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly #clock: Clock;
-  readonly #ledger: AttachmentIngestEntries;
+  readonly #entries: AttachmentIngestEntries;
 
   public constructor(options: AttachmentChunkStreamOptions) {
     this.#port = options.port;
     this.#clock = options.clock;
-    this.#ledger = options.ledger;
+    this.#entries = options.entries;
   }
 
   /**
-   * Send the stream's remaining bytes one slice at a time from the ledger's offset, resolving
+   * Send the stream's remaining bytes one slice at a time from the record's offset, resolving
    * `true` when all are acknowledged and `false` when the stream stopped.
    *
    * A resumed stream re-sends the slice that was in flight when a response was lost. The
@@ -50,8 +50,8 @@ export class AttachmentChunkStream {
    */
   public async send(localId: string): Promise<boolean> {
     for (;;) {
-      const entry = this.#ledger.current(localId);
-      const stamp = this.#ledger.stamp(localId);
+      const entry = this.#entries.current(localId);
+      const stamp = this.#entries.stamp(localId);
       if (
         entry === undefined ||
         stamp === undefined ||
@@ -76,16 +76,16 @@ export class AttachmentChunkStream {
       try {
         bytes = new Uint8Array(await slice.arrayBuffer());
       } catch {
-        const unreadable = this.#ledger.currentIfUnchanged(localId, stamp);
+        const unreadable = this.#entries.currentIfUnchanged(localId, stamp);
         if (unreadable !== undefined) {
-          writeIngestRefusal(this.#ledger, localId, unreadable, {
+          writeIngestRefusal(this.#entries, localId, unreadable, {
             code: PAYLOAD_READ_REFUSAL_CODE,
             detail: "The file could not be read.",
           });
         }
         return false;
       }
-      if (this.#ledger.currentIfUnchanged(localId, stamp) === undefined) {
+      if (this.#entries.currentIfUnchanged(localId, stamp) === undefined) {
         return false;
       }
       const acknowledged = await this.#port.writeChunk({
@@ -93,7 +93,7 @@ export class AttachmentChunkStream {
         sequenceNumber: Math.floor(offset / ARTIFACT_CHUNK_MAX_BYTES),
         chunk: encodeBase64(bytes),
       });
-      const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+      const settled = this.#entries.currentIfUnchanged(localId, stamp);
       if (settled === undefined) {
         // Abandoned or removed mid-chunk; `abandon` already asked for this spool back.
         return false;
@@ -103,7 +103,7 @@ export class AttachmentChunkStream {
         // `restart` is passed rather than the retry-in-place default, which assumes client
         // and daemon still agree on the offset.
         writeIngestRefusal(
-          this.#ledger,
+          this.#entries,
           localId,
           settled,
           { code: CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE, detail: acknowledgement.detail },
@@ -111,7 +111,7 @@ export class AttachmentChunkStream {
         );
         return false;
       }
-      this.#ledger.write(localId, {
+      this.#entries.write(localId, {
         ...settled,
         receivedBytes: acknowledgement.receivedBytes,
         lastProgressAtMilliseconds: this.#clock.now(),

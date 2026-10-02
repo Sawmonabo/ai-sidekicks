@@ -20,7 +20,7 @@ import { useAnimationFrameCoordinator } from "@renderer/features/transcript/hook
 import { useReveal } from "@renderer/features/transcript/reveal/hooks/useReveal.js";
 import { useRowReveal } from "@renderer/features/transcript/reveal/hooks/useRowReveal.js";
 import { revealProse } from "@renderer/features/transcript/reveal/reveal.test-support.js";
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "@renderer/features/transcript/frame/frame-caps.js";
+import { REVEAL_FRAME_CHARACTER_BUDGET } from "@renderer/features/transcript/reveal/reveal-caps.js";
 
 const STREAMING_LANE_ID = "browser-tier-lane";
 
@@ -48,7 +48,7 @@ function StreamingProbe(props: StreamingProbeProps): React.JSX.Element {
   // The coordinator orders every drain, and the feed mints one per mount from its clock; the
   // probe composes the engine the same way.
   const frameCoordinator = useAnimationFrameCoordinator(props.clock);
-  const reveal = useReveal({ frameCoordinator });
+  const reveal = useReveal({ frameCoordinator, clock: props.clock });
   props.handle.ingest = (laneId: string, text: string) => {
     reveal.ingest({ laneId, mode: "direct", text });
   };

@@ -1,19 +1,19 @@
-// The WebGL context ledger: arithmetic over leases, needing no emulator or DOM. Chromium drops
+// The WebGL context pool: arithmetic over leases, needing no emulator or DOM. Chromium drops
 // the oldest context past its limit, which is what the cap protects.
 //
 // Churn cases: a disposed `WebglAddon` leaves its context behind, so the cap is checked against
 // contexts created, not terminals drawing. Duplicate-pane cases: two panes on one session build
-// two contexts, so the lease and not the terminal id is the unit; a ledger keyed on the id let
+// two contexts, so the lease and not the terminal id is the unit; a pool keyed on the id let
 // either teardown retire the other's record and walked past the cap.
 
 import { describe, expect, it } from "vitest";
 import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
 
-/** A granted lease; the ledger answers `undefined` past its cap, which a case must not carry on. */
+/** A granted lease; the pool answers `undefined` past its cap, which a case must not carry on. */
 function grantedLease(pool: TerminalRendererPool, terminalId: string): TerminalContextLease {
   const lease = pool.acquire(terminalId);
   if (lease === undefined) {
-    throw new Error(`the ledger refused a context for ${terminalId}`);
+    throw new Error(`the pool refused a context for ${terminalId}`);
   }
   return lease;
 }
@@ -26,7 +26,7 @@ describe("the renderer pool", () => {
 
     pool.release(first);
 
-    // One pane closed, the other still on a live context: a ledger keyed on the id deleted
+    // One pane closed, the other still on a live context: a pool keyed on the id deleted
     // the one record both shared.
     expect(pool.heldContextCount).toBe(1);
     expect(pool.heldContextCountFor("a")).toBe(1);
@@ -36,7 +36,7 @@ describe("the renderer pool", () => {
   });
 
   it("trips on the Nth context however the terminal ids fall", () => {
-    // Same cap and context count, distributed differently over terminal ids: the ledger
+    // Same cap and context count, distributed differently over terminal ids: the pool
     // refuses at the same place in both.
     const acrossOneTerminal = new TerminalRendererPool(2);
     grantedLease(acrossOneTerminal, "shared-session");
@@ -53,8 +53,8 @@ describe("the renderer pool", () => {
   });
 });
 
-describe("the ledger counts contexts created, not terminals drawing", () => {
-  /** A working day of opening and closing the pane, against a ledger of that size. */
+describe("the pool counts contexts created, not terminals drawing", () => {
+  /** A working day of opening and closing the pane, against a pool of that size. */
   const CHURN_CYCLES = 12;
 
   it("does not hand a disposed terminal's context back", () => {
@@ -71,7 +71,7 @@ describe("the ledger counts contexts created, not terminals drawing", () => {
   });
 
   it("reclaims idempotently, and never below zero", () => {
-    // Both teardown arms can run twice; a ledger that went negative would widen the allowance.
+    // Both teardown arms can run twice; a pool that went negative would widen the allowance.
     const pool = new TerminalRendererPool(2);
     const lease = grantedLease(pool, "a");
     pool.reclaim(lease);

@@ -10,6 +10,7 @@ import { useEffect } from "react";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type PaneLayoutStore } from "../pane-layout-store.js";
@@ -26,36 +27,29 @@ import {
   refusePaneLayoutSave,
 } from "../layout-persistence.js";
 
-/** One shared empty array, so a subscriber comparing by identity sees no change. */
-const NO_RESTORE_REFUSALS: readonly Refusal[] = Object.freeze([]);
-
-/** What the persistence hook binds: the layout, its store, the session, the refusal sink. */
+/** What the persistence hook binds: the layout, its store, the session, the refusal sinks. */
 export interface PaneLayoutPersistenceOptions {
   readonly layout: PaneLayoutStore;
   readonly uiStateStore: UiStateStore;
   readonly sessionId: string | undefined;
   /** A save failed: the refusal, and the session whose arrangement it carried. */
   readonly onSaveRefused: (refusal: Refusal, sessionId: string) => void;
+  /** A restore left part of a saved arrangement closed: one refusal, and its session. */
+  readonly onRestoreRefused: (refusal: Refusal, sessionId: string) => void;
 }
 
 /**
- * Restores the pane layout once, then keeps it saved. Returns what the restore refused.
+ * Restores the pane layout once, then keeps it saved. What a restore refused goes to
+ * `onRestoreRefused`; nothing is drawn for it.
  *
  * The restore must complete before the first save, or an empty layout would overwrite the
  * record it was about to read.
  */
-export function usePaneLayoutPersistence(
-  options: PaneLayoutPersistenceOptions,
-): readonly Refusal[] {
+export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions): void {
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
-  // Refusals are held per (layout, session), like the gate below, so one session's restore
-  // errors never show over the next session's layout. A restore that has not landed shows none.
-  const restoreRefusals = useSubjectScopedState<readonly Refusal[]>(
-    layout,
-    sessionId,
-    () => NO_RESTORE_REFUSALS,
-  );
-  const publishRestoreRefusals = restoreRefusals.publish;
+  // Read when a restore lands, so a caller's fresh function does not re-run the restore effect,
+  // whose cleanup would abandon a read in flight.
+  const restoreRefusedRef = useLatestRef(options.onRestoreRefused);
 
   // The session (partition) rides each write request: the writer coalesces, so a queued
   // arrangement settles after the navigation that could change the current session.
@@ -152,10 +146,9 @@ export function usePaneLayoutPersistence(
         report =
           record === undefined ? undefined : layout.adoptBeneath(record.value, closedDuringRead);
       }
-      // Published on every settled restore, even an empty report: a guarded publish would leave
-      // the last session's refusals standing. The publisher is bound to this pass's session, so
-      // a slow read landing after a route installs nothing.
-      publishRestoreRefusals(report?.refusals ?? NO_RESTORE_REFUSALS);
+      for (const refusal of report?.refusals ?? []) {
+        restoreRefusedRef.current(refusal, sessionId);
+      }
       if (layout.snapshot().panes.length === 0) {
         // A window with no panes is not a state this screen has; the transcript fills it.
         layout.open({ kind: "transcript" });
@@ -179,7 +172,7 @@ export function usePaneLayoutPersistence(
       // Abandoned before it landed: this pass adopted nothing, so the gate goes back.
       restore.abandon();
     };
-  }, [layout, publishRestoreRefusals, restore, sessionId, uiStateStore, writer]);
+  }, [layout, restore, restoreRefusedRef, sessionId, uiStateStore, writer]);
 
   useEffect(() => {
     if (sessionId === undefined) {
@@ -194,6 +187,4 @@ export function usePaneLayoutPersistence(
       writer.request(sessionId, layout.toSnapshot());
     });
   }, [layout, restore, writer, sessionId]);
-
-  return restoreRefusals.value;
 }

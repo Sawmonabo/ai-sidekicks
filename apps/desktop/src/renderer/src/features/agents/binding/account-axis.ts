@@ -17,7 +17,7 @@ import {
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
- * The narrow slice of the window's account-plane reading this axis reads; the full readout
+ * The narrow slice of the window's account registry reading this axis reads; the full readout
  * satisfies it structurally, and a test can pass a plain object.
  */
 export interface AccountRegistryReading extends WireReadState {

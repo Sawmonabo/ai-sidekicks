@@ -15,13 +15,13 @@ function sourceNamed(localId: string): ReturnType<typeof attachmentSourceFrom> {
   });
 }
 
-/** A ledger holding the named attachments, in that order. */
-function ledgerHolding(...localIds: readonly string[]): AttachmentIngestEntries {
-  const ledger = new AttachmentIngestEntries();
+/** Entries holding the named attachments, in that order. */
+function entriesHolding(...localIds: readonly string[]): AttachmentIngestEntries {
+  const entries = new AttachmentIngestEntries();
   for (const localId of localIds) {
-    ledger.declare(sourceNamed(localId));
+    entries.declare(sourceNamed(localId));
   }
-  return ledger;
+  return entries;
 }
 
 /** One entry rewritten into a new state, the way the client rewrites it. */
@@ -29,19 +29,19 @@ function moveTo(entry: AttachmentIngestEntry, state: AttachmentIngestEntry["stat
   return { ...entry, state };
 }
 
-describe("ingest ledger — the stamp a continuation checks against", () => {
+describe("ingest entries — the stamp a continuation checks against", () => {
   it("withholds it after a rewrite that ends where it began", () => {
     // A state comparison alone cannot see this: an entry moved and moved back is not the entry
     // the continuation captured, and the generation says so.
-    const ledger = ledgerHolding("first");
-    const stamp = ledger.stamp("first");
-    const entry = ledger.current("first");
-    expect(stamp).toBeDefined();
-    if (stamp !== undefined && entry !== undefined) {
-      ledger.write("first", moveTo(entry, "ingesting"));
-      ledger.write("first", moveTo(entry, "declared"));
-      expect(ledger.current("first")?.state).toBe("declared");
-      expect(ledger.currentIfUnchanged("first", stamp)).toBeUndefined();
+    const entries = entriesHolding("first");
+    const stamp = entries.stamp("first");
+    const entry = entries.current("first");
+    if (stamp === undefined || entry === undefined) {
+      throw new Error("the declared attachment has no entry to stamp");
     }
+    entries.write("first", moveTo(entry, "ingesting"));
+    entries.write("first", moveTo(entry, "declared"));
+    expect(entries.current("first")?.state).toBe("declared");
+    expect(entries.currentIfUnchanged("first", stamp)).toBeUndefined();
   });
 });

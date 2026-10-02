@@ -139,7 +139,7 @@ function comparedStatesOf(card: DiffInlineCardProps): ComparedStates | undefined
   return { baseRef, headRef };
 }
 
-/** What the absence says about a comparison the row named but nothing has read. */
+/** What the empty state says about a comparison the row named but nothing has read. */
 function unreadDiffDetail(comparedStates: ComparedStates | undefined): string {
   if (comparedStates === undefined) {
     return "The diff is named on the turn that produced it, and its lines have not been read.";

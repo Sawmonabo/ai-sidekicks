@@ -27,7 +27,6 @@ import { AppProviders } from "@renderer/app/AppProviders.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { formatRoute } from "@renderer/routing/routes.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
-import { EMPTY_TRANSCRIPT_WORDS } from "@renderer/features/transcript/viewport/empty-transcript-words.js";
 import {
   EMPTY_SESSION_SCENARIO,
   EMPTY_SESSION_SCENARIO_ID,
@@ -55,7 +54,7 @@ interface TranscriptMount {
  * assigned before the render, because `AppProviders`'s frame store is born on the hash the window
  * opened with; a store that started on the default route would publish it back over the address
  * on its first pass. The wait names the transcript's scroll container, not the frame: the frame
- * is permanent chrome present from the first commit, so waiting on it returns an app whose
+ * is permanent chrome present from the first commit, so waiting on it returns a console whose
  * session route has not resolved. It observes the mount rather than the arrival of content,
  * which the empty-state capture needs.
  */
@@ -134,7 +133,7 @@ describe("screenshot — the transcript's empty state", () => {
 
     // The same walk over a script that plays nothing. The window's first read is armed on this
     // frozen clock, and an unwalked mount photographs skeleton rows: a session whose emptiness
-    // the app has not been told yet.
+    // the console has not been told yet.
     const deliveredBeatCount = await walkScenarioToFrozenTick(
       EMPTY_SESSION_SCENARIO.beats.at(-1)?.atMs ?? 0,
     );
@@ -149,7 +148,7 @@ describe("screenshot — the transcript's empty state", () => {
     // handed over the wrong session. Asked of the captured element, not the whole mount, since
     // the claim is that the sentence is in the box being photographed.
     expect(transcriptBody.querySelectorAll(".meridian-transcript-row-layout")).toHaveLength(0);
-    expect(transcriptBody.textContent).toContain(EMPTY_TRANSCRIPT_WORDS.title);
+    expect(transcriptBody.textContent).toContain("No messages yet. Say what you are after.");
 
     await captureSettled(transcriptBody, "empty-session-light");
   });

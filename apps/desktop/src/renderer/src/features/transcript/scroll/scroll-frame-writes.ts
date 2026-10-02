@@ -54,16 +54,6 @@ export class ScrollFrameWrites {
     this.#frameCoordinator = frameCoordinator;
   }
 
-  /** Whether a frame has been adopted; `request` refuses without one. */
-  public get hasFrame(): boolean {
-    return this.#frameCoordinator !== undefined;
-  }
-
-  /** Requests still waiting for phase one. */
-  public get pendingCount(): number {
-    return this.#pendingByCaller.size;
-  }
-
   /**
    * Ask for a write in the next frame's phase one. Returns whether the request was taken,
    * so a caller can tell "queued" from "this controller is in no frame".

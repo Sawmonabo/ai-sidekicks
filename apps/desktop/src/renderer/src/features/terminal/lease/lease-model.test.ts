@@ -141,7 +141,6 @@ describe("an unread transition — ignorance about a write lease is not the old 
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holder).toBe("unrecognized-transition");
-    expect(state.unreadTransition?.reason).toBe("seized");
   });
 });
 

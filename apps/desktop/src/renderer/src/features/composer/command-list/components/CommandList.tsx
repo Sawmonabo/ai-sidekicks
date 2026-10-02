@@ -32,8 +32,8 @@ export type CommandListProps = ComposerProps & {
 /** Renders the discovery popover while the line starts with a slash, otherwise nothing. */
 export function CommandList(props: CommandListProps): React.JSX.Element | null {
   const { region, bridge, route, commandEnumeration, draftStore } = props;
-  // Resolved here, as the chip rail and the send bar do, rather than handed down.
-  const { target } = useComposerAddress(props.sessionStore, props.focusedPane);
+  // Resolved here, as the toolbar and Send do, rather than handed down.
+  const target = useComposerAddress(props.sessionStore, props.focusedPane);
   const draftKey = composerDraftKey(target);
   // The same store and key the send bar reads its line from, so both see one reading.
   const discovery = useCommandListTrigger(region, { draftStore, draftKey });

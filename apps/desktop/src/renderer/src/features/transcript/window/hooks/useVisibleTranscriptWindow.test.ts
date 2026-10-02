@@ -71,7 +71,7 @@ describe("the clip the window states", () => {
     const transcriptWindow = loadedWindow();
     const retained = transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const { result } = renderHook(() => useVisibleTranscriptWindow(transcriptWindow, retained));
-    expect(result.current.hasEarlierRows).toBe(true);
+    expect(result.current.prunedAwayRows.length).toBeGreaterThan(0);
   });
 
   it("a window holding its whole log claims nothing before it", () => {
@@ -82,6 +82,5 @@ describe("the clip the window states", () => {
       useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),
     );
     expect(result.current.prunedAwayRows).toHaveLength(0);
-    expect(result.current.hasEarlierRows).toBe(false);
   });
 });

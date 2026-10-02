@@ -23,18 +23,6 @@ export interface ScrollWrite {
   readonly wasSkipped: boolean;
 }
 
-/**
- * The scrolling element the controller drives.
- * Structural so a unit test can drive a stand-in that counts property reads.
- */
-export interface ScrollContainer {
-  scrollTop: number;
-  readonly clientHeight: number;
-  readonly scrollHeight: number;
-  addEventListener(type: string, listener: () => void, options?: AddEventListenerOptions): void;
-  removeEventListener(type: string, listener: () => void): void;
-}
-
 /** Called once per batched overflow pass, with the geometry it was measured at. */
 export type OverflowMeasurementSink = (geometry: ScrollGeometry) => void;
 
@@ -54,7 +42,7 @@ export class ScrollController {
   /** Reactive writes run in phase one of the frame, ahead of reveal work. */
   readonly #frameWrites: ScrollFrameWrites;
 
-  #scrollContainer: ScrollContainer | undefined;
+  #scrollContainer: HTMLElement | undefined;
   #onContainerScroll: (() => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
@@ -92,7 +80,7 @@ export class ScrollController {
    * Arms an overflow pass too: the detach canceled the pass the previous attachment armed,
    * and the new container would otherwise wait for its first resize.
    */
-  public attach(scrollContainer: ScrollContainer): void {
+  public attach(scrollContainer: HTMLElement): void {
     if (this.#disposed) {
       return;
     }
@@ -235,15 +223,7 @@ export class ScrollController {
     return this.#writeCountByCaller.get(caller) ?? 0;
   }
 
-  /**
-   * Whether this display quantizes programmatic writes, or `undefined` while the
-   * question is still open. Skipping is gated on `true`, never on `undefined`.
-   */
-  public get quantizesToWholePixels(): boolean | undefined {
-    return this.#quantization.verdict;
-  }
-
-  #clampToContent(scrollContainer: ScrollContainer, targetScrollTop: number): number {
+  #clampToContent(scrollContainer: HTMLElement, targetScrollTop: number): number {
     const maximum = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     if (!Number.isFinite(targetScrollTop)) {
       // Fail closed: the platform silently turns `NaN` into zero, which would teleport the

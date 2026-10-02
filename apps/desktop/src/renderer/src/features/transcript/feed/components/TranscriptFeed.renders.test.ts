@@ -5,11 +5,11 @@ import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
-  LeasingRowBody,
+  RetainingRowBody,
   SHORT_LOG_EVENT_COUNT,
   renderFeed,
-  withLaidOutViewport,
 } from "./TranscriptFeed.test-support.js";
+import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
 import {
   SESSION_ID,
   transcriptFixtureEventId,
@@ -61,9 +61,9 @@ describe("the transcript feed — what one admitted event costs the rows", () =>
   });
 
   it("draws again exactly the row whose density the list changed", () => {
-    // The other half, separating this memo from one that never updates: the lease write moves the
-    // renderer's identity, so every mounted row is compared and only the row whose density moved
-    // is drawn.
+    // The other half, separating this memo from one that never updates: the retained-state write
+    // moves the renderer's identity, so every mounted row is compared and only the row whose
+    // density moved is drawn.
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();
     const feed = renderFeed(
@@ -71,12 +71,12 @@ describe("the transcript feed — what one admitted event costs the rows", () =>
       (mount) => {
         drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
       },
-      LeasingRowBody,
+      RetainingRowBody,
     );
     const drawsBeforeThePress = new Map(drawsByRowId);
-    const pressedRow = feed.querySelector<HTMLElement>(".leasing-row");
+    const pressedRow = feed.querySelector<HTMLElement>(".retaining-row");
     if (pressedRow === null) {
-      throw new Error("the feed drew no leasing row to press");
+      throw new Error("the feed drew no retaining row to press");
     }
 
     fireEvent.click(pressedRow);

@@ -34,6 +34,7 @@ export function preferencesAtDefaults(
   return {
     settings: MACHINE_SETTINGS_DEFAULTS,
     isPending: () => false,
+    refusalFor: () => undefined,
     choose,
   };
 }

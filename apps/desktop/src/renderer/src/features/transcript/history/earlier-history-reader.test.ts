@@ -135,12 +135,11 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
       canLoadEarlier: true,
       isReading: false,
       refusal: undefined,
-      admittedRowCount: 3,
     });
 
     await reader.loadEarlier(read, store);
     expect(sequencesOf(store)).toStrictEqual([30, 31, 35, 36, 37, 40, 41]);
-    expect(reader.state(store)).toMatchObject({ canLoadEarlier: false, admittedRowCount: 5 });
+    expect(reader.state(store).canLoadEarlier).toBe(false);
 
     // The third press: nothing is asked and nothing lands (guards a walk that read `hasMore`
     // and kept going).
@@ -174,7 +173,6 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
 
     expect(calls()).toBe(1);
     expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 40, 41]);
-    expect(reader.state(store).admittedRowCount).toBe(3);
   });
 
   it("carries the refusal a rejected read answered with, and offers the press again", async () => {
@@ -196,7 +194,7 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
     const reader = new EarlierHistoryReader();
     await reader.loadEarlier(read, store);
-    expect(reader.state(store).admittedRowCount).toBe(3);
+    expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 40, 41]);
 
     // The same head cursor, so comparing positions would notice nothing; the store's window
     // generation, re-taken by any completed read, does. The cursor is ahead of the store's,
@@ -208,7 +206,6 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
       readFromCursor: WINDOW_HEAD_CURSOR,
     });
 
-    expect(reader.state(store).admittedRowCount).toBe(0);
     await reader.loadEarlier(read, store);
     expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 44, 45]);
   });
@@ -244,7 +241,6 @@ describe("EarlierHistoryReader — a refresh lands while a page is in flight", (
       canLoadEarlier: true,
       isReading: false,
       refusal: undefined,
-      admittedRowCount: 0,
     });
 
     // And the interval is reachable: the next press asks from the head the store now has.
@@ -253,7 +249,6 @@ describe("EarlierHistoryReader — a refresh lands while a page is in flight", (
     await nextPage;
 
     expect(sequencesOf(store)).toStrictEqual([55, 56, 60, 61]);
-    expect(reader.state(store).admittedRowCount).toBe(2);
   });
 
   it("lands the same held page when nothing moved the window under it", async () => {
@@ -268,7 +263,6 @@ describe("EarlierHistoryReader — a refresh lands while a page is in flight", (
     await heldPage;
 
     expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 40, 41]);
-    expect(reader.state(store).admittedRowCount).toBe(3);
   });
 });
 
@@ -293,7 +287,6 @@ describe("EarlierHistoryReader — the pane leaves while a page is in flight", (
     expect(reader.state(store)).toMatchObject({
       isReading: false,
       refusal: undefined,
-      admittedRowCount: 0,
     });
   });
 });

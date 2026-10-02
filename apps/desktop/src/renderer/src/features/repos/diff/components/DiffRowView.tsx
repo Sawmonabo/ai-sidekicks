@@ -93,12 +93,6 @@ export const DiffRowView: React.MemoExoticComponent<
   }
 
   const line = index.lineFor(row);
-  if (line === undefined) {
-    // Unreachable while index and model agree. Rendered blank at a stable height rather than
-    // thrown, so the rest of the diff stays readable.
-    return <div {...rowProps} className="meridian-diff__row meridian-diff__row--line" />;
-  }
-
   const reading = props.intraline.readingFor(row, row.lineIndex);
   if (props.viewMode === "split") {
     // The flattening paired the row: a deletion fills the base side and carries its paired

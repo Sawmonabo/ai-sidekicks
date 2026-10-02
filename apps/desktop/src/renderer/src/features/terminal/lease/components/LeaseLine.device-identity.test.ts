@@ -1,7 +1,7 @@
 // The take control is gated on knowing which device this is. The control acts on this device's
-// behalf and the fold names holders by user id, so until the identity has been read there is no
-// control and no sentence where it would be: offered without it, the daemon would honor a take
-// that the line then reports as a hold from elsewhere.
+// behalf and the fold names holders by device id, so until the identity has been read there is
+// no control and no sentence where it would be: offered without it, the daemon would honor a
+// take that the line then reports as a hold from elsewhere.
 
 import { describe, expect, it } from "vitest";
 

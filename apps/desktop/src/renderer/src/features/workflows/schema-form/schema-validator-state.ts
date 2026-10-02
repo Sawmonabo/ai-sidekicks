@@ -1,10 +1,6 @@
-// Where a form stands with the schema compiler, and the arm a person answers in. The compiler
-// arrives on its own chunk, so a form has four states: `compiling` (no verdict, no report, and
-// `SchemaFormAnswer` disables its act), `compiled`, `uncompilable`, and `checker-unavailable` (the
-// chunk fetch failed). The last is not `uncompilable`, whose reason would wrongly blame a good
-// definition; both open the raw editor. The arm is chosen here from both the plan and the
-// verdict. Each raw arm's fallback sentence is held once so a render hands the form the same
-// plan.
+// Where a form stands with the schema compiler, and the arm a person answers in. A failed chunk
+// fetch is `checker-unavailable`, never `uncompilable`, whose reason would blame a good
+// definition; both open the raw editor.
 
 import type { SchemaFallback, SchemaFormPlan } from "./plan/schema-fields.js";
 import type { SchemaValidator } from "./json-schema-validator.js";

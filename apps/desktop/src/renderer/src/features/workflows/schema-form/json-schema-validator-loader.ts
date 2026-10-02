@@ -11,17 +11,9 @@ import type { SchemaValidator } from "./json-schema-validator.js";
  */
 export type SchemaValidatorCompiler = (inputSchema: unknown) => SchemaValidator;
 
-/** How the chunk is reached; injected so a test can reach the failing arm. */
-export type SchemaValidatorCompilerFetch = () => Promise<SchemaValidatorCompiler>;
-
-/** The compiler's chunk, fetched once per instance however many forms ask. */
-export class SchemaValidatorCompilerChunk {
-  readonly #fetchCompiler: SchemaValidatorCompilerFetch;
+/** The compiler's chunk, fetched once however many forms ask. */
+class SchemaValidatorCompilerChunk {
   #compilerPromise: Promise<SchemaValidatorCompiler> | undefined;
-
-  public constructor(fetchCompiler: SchemaValidatorCompilerFetch = importSchemaValidatorCompiler) {
-    this.#fetchCompiler = fetchCompiler;
-  }
 
   /**
    * The compiler, fetched once; every later call gets the same promise. A rejection drops
@@ -34,7 +26,7 @@ export class SchemaValidatorCompilerChunk {
 
   async #loadOnce(): Promise<SchemaValidatorCompiler> {
     try {
-      return await this.#fetchCompiler();
+      return await importSchemaValidatorCompiler();
     } catch (loadError) {
       // The fetch may fail transiently, so the rejection is not cached: a form opened again
       // must re-ask. `useSchemaForm.ts` settles this rejection as `checker-unavailable`.
@@ -50,7 +42,7 @@ async function importSchemaValidatorCompiler(): Promise<SchemaValidatorCompiler>
   return compileSchemaValidator;
 }
 
-/** The renderer's loader; a test builds its own instance. */
+/** The renderer's one loader. */
 const schemaValidatorCompilerChunk: SchemaValidatorCompilerChunk =
   new SchemaValidatorCompilerChunk();
 

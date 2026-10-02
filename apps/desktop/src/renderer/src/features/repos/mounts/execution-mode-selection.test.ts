@@ -151,8 +151,14 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     await crossMacrotaskBoundary();
 
     expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBeUndefined();
-    expect(reader.inFlightSelectionCount).toBe(0);
     expect(reader.performCount).toBe(readsBefore);
+    // The key is free: the next press reaches the wire.
+    const pressedAgain = reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
+    const secondOutcome = expect(pressedAgain).rejects.toThrow("The daemon could not be reached.");
+    await crossMacrotaskBoundary();
+    expect(port.selectCallCount()).toBe(2);
+    port.release();
+    await secondOutcome;
   });
 
   it("keeps the picker held when a read lands while the switch is on the wire", async () => {

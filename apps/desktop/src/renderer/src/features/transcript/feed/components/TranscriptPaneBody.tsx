@@ -29,8 +29,11 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       />
     );
   }
+  // Keyed on the session, so a navigation to another session mints a fresh viewport: the reading
+  // mode, the anchor and the measured rows belong to the session they were taken in.
   return (
     <TranscriptFeed
+      key={props.sessionStore.sessionId}
       sessionStore={props.sessionStore}
       renderTranscriptRow={props.renderTranscriptRow}
       feedLabel="Transcript"

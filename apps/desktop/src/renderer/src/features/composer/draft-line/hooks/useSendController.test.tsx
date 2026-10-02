@@ -5,7 +5,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+import { inertBridge } from "../../composer.test-support.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
@@ -31,7 +31,7 @@ const UNREACHABLE_CALLS = sendCallsAnswering(async () => {
 });
 
 /** The transport the controller's held state belongs to; nothing calls through it. */
-const BRIDGE = bridgeAnswering(async () => undefined).bridge;
+const BRIDGE = inertBridge();
 
 /** Reports the controller out of the tree, so a case drives the real hook. */
 function ControllerProbe(props: {
@@ -89,9 +89,7 @@ describe("useSendController — an intercepted command awaits its executor", () 
     const runCommand = vi.fn<CommandExecutor>(async () => ({ status: "applied" }));
     const driven = driveController(runCommand);
 
-    act(() => {
-      driven.latest().changeText("/clear the history");
-    });
+    driven.draftStore.write(driven.draftKey, "/clear the history");
     await act(async () => {
       await driven.latest().send();
     });
@@ -105,9 +103,7 @@ describe("useSendController — an intercepted command awaits its executor", () 
     const refusal = refuse("commands", "not-here", "That command needs an open repo.");
     const driven = driveController(async () => ({ status: "refused", refusal }));
 
-    act(() => {
-      driven.latest().changeText("/clear the history");
-    });
+    driven.draftStore.write(driven.draftKey, "/clear the history");
     await act(async () => {
       await driven.latest().send();
     });

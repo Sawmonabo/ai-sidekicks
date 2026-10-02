@@ -1,9 +1,12 @@
 // Sends one worktree removal. The settlement goes to a recorder (the confirmation that asked)
 // rather than a published snapshot: it records one act, never goes stale, and no refresh would
-// re-send it. A rejected call is not caught here: the in-flight guard is released and the
-// rejection propagates to the caller.
+// re-send it. A rejected call is recorded as the service's refusal, so the confirmation says
+// why and its control is usable again.
 
 import type { WorktreeId, WorktreeRetireResponse } from "@ai-sidekicks/contracts";
+
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 import type { RepoOperations } from "../../repo-operations.js";
 
@@ -14,7 +17,11 @@ export type RootRemovalOperations = Pick<RepoOperations, "retireWorktree">;
 export type RootRemovalReading =
   | { readonly status: "idle" }
   | { readonly status: "sending" }
+  | { readonly status: "refused"; readonly refusal: Refusal }
   | { readonly status: "settled"; readonly state: WorktreeRetireResponse["state"] };
+
+/** The subsystem a refused removal names. */
+const ROOT_REMOVAL_REFUSAL_ORIGIN = "worktree-removal";
 
 /** Where a settlement lands: the confirmation that asked for the removal. */
 export interface RootRemovalRecorder {
@@ -75,6 +82,17 @@ export class RootRemovalController {
       }
       // The reply carries `state` and no cleanup instant; that lands on the status read later.
       this.#recorder.recordRemoval({ status: "settled", state: reply.state });
+    } catch (rejection) {
+      if (!this.#disposed) {
+        this.#recorder.recordRemoval({
+          status: "refused",
+          refusal: coerceToRefusal(
+            rejection,
+            ROOT_REMOVAL_REFUSAL_ORIGIN,
+            `${ROOT_REMOVAL_REFUSAL_ORIGIN}-call-failed`,
+          ),
+        });
+      }
     } finally {
       // Released on every exit: a guard that survived a failed send would refuse every retry.
       this.#inFlight = false;

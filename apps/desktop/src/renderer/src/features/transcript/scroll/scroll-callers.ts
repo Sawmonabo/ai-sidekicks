@@ -3,7 +3,6 @@
 // union declared in either would close an import cycle.
 
 /**
-/**
  * Every subsystem allowed to move the transcript. Closed.
  *
  * A caller not on this list has not decided how it arbitrates against the ones that are.
@@ -16,7 +15,6 @@ export const SCROLL_CALLERS = [
   "follow-tail",
   "jump-to-tail",
   "hold-reading-position",
-  "deep-link",
   "find-match",
   "prune-compensation",
   "measurement-compensation",

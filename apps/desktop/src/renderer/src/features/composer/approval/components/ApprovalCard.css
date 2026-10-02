@@ -30,7 +30,7 @@
   font-weight: 500;
 }
 
-/* Category, actor, scope and expiry read on one screen; the descriptor and audit metadata sit
+/* Who asked, from which run, the scope and when read on one screen; what was asked for sits
    behind a disclosure. */
 .meridian-approval-card__facts {
   display: grid;

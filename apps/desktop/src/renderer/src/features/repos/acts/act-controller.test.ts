@@ -5,8 +5,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { ActController, PrerequisiteReader } from "./act-controller.js";
+import { flush, runScheduledRead } from "./act-controller.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /** The frames this reading would re-read on. Never fired here; declared to be read. */
@@ -33,12 +33,6 @@ function heldAnswer<TValue>(): HeldAnswer<TValue> {
       settle(value);
     },
   };
-}
-
-async function flush(): Promise<void> {
-  for (let turn = 0; turn < 20; turn += 1) {
-    await Promise.resolve();
-  }
 }
 
 interface OpenedReader {
@@ -69,12 +63,6 @@ function openReader(): OpenedReader {
 
 function openActs(): ActController<TestSettlement> {
   return new ActController<TestSettlement>({ label: "act controller test reading" });
-}
-
-async function runScheduledRead(clock: ManualClock): Promise<void> {
-  await flush();
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  await flush();
 }
 
 describe("PrerequisiteReader — the question an act is issued against", () => {
@@ -130,14 +118,15 @@ describe("ActController — the act", () => {
     expect(settled.status === "done" && settled.value).toBe("minted");
   });
 
-  it("a rejected send goes back to idle and the rejection reaches the sender", async () => {
+  it("a rejected send publishes the refusal with the service's own message", async () => {
     const controller = openActs();
-    const act = controller.act(
+    await controller.act(
       async () => await Promise.reject(new Error("the wire failed")),
       (value: string) => ({ status: "done" as const, value }),
     );
-    await expect(act).rejects.toThrow("the wire failed");
-    expect(controller.snapshot.status).toBe("idle");
+    const refused = controller.snapshot;
+    expect(refused.status).toBe("refused");
+    expect(refused.status === "refused" && refused.refusal.detail).toBe("the wire failed");
   });
 
   it("sends nothing for a second act in the same tick", async () => {

@@ -1,4 +1,4 @@
-// Shared mounts and queries for the browser-pane suites: the pane context, the refusal banner,
+// Shared mounts and queries for the Preview pane suites: the pane context, the refusal banner,
 // the address field and the fixture bridge the geometry suites share.
 
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
@@ -16,7 +16,7 @@ import { RecordingPageHost } from "./geometry/geometry-publisher.test-support.js
 import type { PageHost } from "./geometry/page-host.js";
 import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
-import { PreviewPaneContent, type BrowserChromeActs } from "./components/PreviewPaneContent.js";
+import { PreviewPaneContent, type PreviewChromeActs } from "./components/PreviewPaneContent.js";
 
 /** The context the pane is handed, and the fixture whose window it is mounted in. */
 export interface PreviewPaneSubject {
@@ -45,9 +45,9 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
   });
 }
 
-/** The fixture bridge every browser-pane suite mounts in, so they share one window. */
-export function fixtureBrowserBridge(): FixtureBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") });
+/** The fixture bridge every Preview pane suite mounts in, so they share one window. */
+export function fixturePreviewBridge(): FixtureBridge {
+  return createFixtureBridge({ scenario: unscriptedScenario("preview-pane-test") });
 }
 
 /**
@@ -55,7 +55,7 @@ export function fixtureBrowserBridge(): FixtureBridge {
  * suites that mount the pane themselves (the double-mount case needs `StrictMode`).
  */
 export function previewPaneContext(
-  fixture: FixtureBridge = fixtureBrowserBridge(),
+  fixture: FixtureBridge = fixturePreviewBridge(),
   paneId: string = DEFAULT_TEST_PANE_ID,
 ): PreviewPaneSubject {
   return {
@@ -68,7 +68,7 @@ export function previewPaneContext(
 }
 
 /** Acts that record the destinations they were asked to navigate to and do nothing else. */
-export function recordingActs(navigations: string[] = []): BrowserChromeActs {
+export function recordingActs(navigations: string[] = []): PreviewChromeActs {
   const nothing = (): void => undefined;
   return {
     navigate: (url) => {
@@ -87,7 +87,7 @@ export function recordingActs(navigations: string[] = []): BrowserChromeActs {
 /** The chrome with no reported location or pages, over the given acts and page host. */
 export function chromeFor(
   subject: PreviewPaneSubject,
-  acts: BrowserChromeActs,
+  acts: PreviewChromeActs,
   pageHost: PageHost,
 ): React.JSX.Element {
   return (
@@ -106,6 +106,9 @@ export function chromeFor(
 /** The pane a suite mounts when it is not about which pane this is. */
 export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
+/** A second pane, for the suites about which pane a thing belongs to. */
+export const SECOND_TEST_PANE_ID = "pane-browser-2";
+
 /**
  * Re-renders a mounted pane for another pane id, as a pane slot changing subject does; a fresh
  * mount could not reach the stale-subject case.
@@ -122,7 +125,7 @@ export async function mountPreviewPaneForSubject(
   fixture: FixtureBridge,
   paneId: string,
   ProbeComponent?: React.ComponentType,
-  acts: BrowserChromeActs = recordingActs(),
+  acts: PreviewChromeActs = recordingActs(),
 ): Promise<PreviewPaneSubjectMount> {
   const built = previewPaneContext(fixture, paneId);
   // One page host for the whole mount: a new one per render would re-mint the publisher.
@@ -141,7 +144,7 @@ export async function mountPreviewPaneForSubject(
   });
   const rendered = mounted;
   if (rendered === undefined) {
-    throw new Error("the browser pane did not mount");
+    throw new Error("the Preview pane did not mount");
   }
   const rebindTo = async (nextPaneId: string): Promise<void> => {
     const rebound = previewPaneContext(fixture, nextPaneId);
@@ -166,7 +169,7 @@ export function previewPaneRegion(): HTMLElement {
 /** Mounts the pane's chrome and lets its first effects settle. */
 export async function renderPreviewPane(
   fixture?: FixtureBridge,
-  acts: BrowserChromeActs = recordingActs(),
+  acts: PreviewChromeActs = recordingActs(),
 ): Promise<{
   readonly region: HTMLElement;
   readonly fixture: FixtureBridge;

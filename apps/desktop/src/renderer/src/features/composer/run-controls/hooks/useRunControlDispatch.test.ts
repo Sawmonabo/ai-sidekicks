@@ -9,8 +9,6 @@
 import type { RunControlAck } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import {
   RunControlDispatcher,
   type RunControlCalls,
@@ -18,16 +16,13 @@ import {
 } from "../services/run-control-dispatch.js";
 import { useRunControlDispatch, type RunControlAdmission } from "./useRunControlDispatch.js";
 import { inFlightKeyFor } from "../run-control-keys.js";
+import { inertBridge } from "../../composer.test-support.js";
 import {
   OTHER_RUN_ID,
   RUN_ID,
   STUB_ACK,
   appliedIntervention,
 } from "../run-control-commands.test-support.js";
-
-function answeringNothing(): PlatformBridge {
-  return bridgeAnswering(async () => undefined).bridge;
-}
 
 /** Calls no latch case reaches: each hands `dispatch` its own `perform`. */
 const UNUSED_CALLS: RunControlCalls = {
@@ -54,7 +49,7 @@ describe("one control per run is in flight at a time", () => {
         return Promise.resolve(appliedIntervention("interrupt", 5));
       },
     };
-    const bridge = answeringNothing();
+    const bridge = inertBridge();
     const { result } = renderHook(() => useRunControlDispatch(bridge, calls, mintIdempotencyKey));
 
     await act(async () => {
@@ -72,7 +67,7 @@ describe("one control per run is in flight at a time", () => {
     // Scope control: being inside one tick suppresses nothing, and a run's other controls are
     // not held behind the one that is going.
     const perform = vi.fn(async () => ACKNOWLEDGED);
-    const bridge = answeringNothing();
+    const bridge = inertBridge();
     const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     await act(async () => {
@@ -89,7 +84,7 @@ describe("one control per run is in flight at a time", () => {
     // rejection reaches nobody.
     const rejection = { code: "run.not_found", message: "no such run" };
     const perform = vi.fn((): Promise<RunControlOutcome> => Promise.reject(rejection));
-    const bridge = answeringNothing();
+    const bridge = inertBridge();
     const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     await act(async () => {
@@ -121,14 +116,14 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
     const { result, rerender } = renderHook(
       ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
       {
-        initialProps: { bridge: answeringNothing() },
+        initialProps: { bridge: inertBridge() },
       },
     );
 
     act(() => {
       result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
     });
-    rerender({ bridge: answeringNothing() });
+    rerender({ bridge: inertBridge() });
 
     let admission: RunControlAdmission | undefined;
     await act(async () => {

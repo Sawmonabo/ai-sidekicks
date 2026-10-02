@@ -1,12 +1,15 @@
-// The machine settings as a window holds them: the service's last answer and the members a
-// write is in flight for. Pure values; `machine-settings-store.ts` folds answers into them and
-// `machine-settings-holder.ts` owns a store's lifetime.
+// The machine settings as a window holds them: the service's last answer, the members a write
+// is in flight for, and the members whose last write was refused. Pure values;
+// `machine-settings-store.ts` folds answers into them and `machine-settings-holder.ts` owns a
+// store's lifetime.
 
 import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts";
+
+import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** One member of the settings file, which is what one write changes. */
 export type MachineSettingsMember = keyof MachineSettings;
@@ -17,8 +20,8 @@ export interface MachineSettingsSnapshot {
   readonly reading: MachineSettingsReading | undefined;
   /** Every member whose write is in flight; a set, since two quick writes are independent. */
   readonly pendingMembers: ReadonlySet<MachineSettingsMember>;
-  /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
-  readonly revision: number;
+  /** The refusal each member's last write was answered with, dropped when it is written again. */
+  readonly refusalByMember: ReadonlyMap<MachineSettingsMember, Refusal>;
 }
 
 /**
@@ -28,7 +31,7 @@ export interface MachineSettingsSnapshot {
 export const NOTHING_CHOSEN: MachineSettingsSnapshot = {
   reading: undefined,
   pendingMembers: new Set(),
-  revision: 0,
+  refusalByMember: new Map(),
 };
 
 /** The settings a row shows: the service's answer, or the defaults before it answered. */

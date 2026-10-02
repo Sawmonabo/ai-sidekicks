@@ -1,4 +1,5 @@
-// The builder pane's body: the canvas's mount points, or the refusal or absence an address earns.
+// The builder pane's body: the canvas's mount points, or the refusal or empty state an address
+// earns.
 // The frame is the same on every arm, so a pane that refused its address is still closable.
 // An address is checked before use: a run id addressed here is refused, never read as a
 // definition id. Canvas geometry is client-local and is never persisted into the definition.
@@ -36,7 +37,8 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
   // One frame on every arm, so the address the trail reads is decided once.
   function renderBody(): React.JSX.Element {
     if (entity === undefined) {
-      // The strip's `empty` arm renders the absence, not the children, so no mount point mounts.
+      // The strip's `empty` arm renders the empty state, not the children, so no mount point
+      // mounts.
       return <WorkflowStateStrip summary={SUMMARY} state={unaddressedBuilderPane()} />;
     }
 
@@ -53,8 +55,8 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
 
     return (
       <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
-        <NodeGraphMountPoint workflowDefinitionId={definition.id} uiStateStore={uiStateStore} />
-        <DraftsMountPoint workflowDefinitionId={definition.id} draftStore={draftStore} />
+        <NodeGraphMountPoint definitionId={definition.id} uiStateStore={uiStateStore} />
+        <DraftsMountPoint definitionId={definition.id} draftStore={draftStore} />
       </WorkflowStateStrip>
     );
   }

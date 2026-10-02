@@ -1,5 +1,5 @@
-// The round the run pane re-reads on when the person did nothing: the engine advancing a
-// phase, a park arming a resume, another window's cancel. Counting the round is the instrument: a
+// The refresh the run pane re-reads on when the person did nothing: the engine advancing a
+// phase, a park arming a resume, another window's cancel. Counting the refresh is the instrument: a
 // re-read and a re-render look the same on screen.
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,7 +45,7 @@ async function settle(clock: ManualClock): Promise<void> {
   await Promise.resolve();
 }
 
-describe("WorkflowRunLiveRefresh — what advances the round", () => {
+describe("WorkflowRunLiveRefresh — what advances the refresh", () => {
   it("advances on a `workflow.*` frame the session's own store admitted", async () => {
     const clock = new ManualClock();
     const sessionStore = initializedStore();

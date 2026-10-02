@@ -33,15 +33,6 @@
   white-space: nowrap;
 }
 
-.meridian-root-card__meaning {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
 .meridian-root-card__summary,
 .meridian-root-card__detail-list {
   display: grid;

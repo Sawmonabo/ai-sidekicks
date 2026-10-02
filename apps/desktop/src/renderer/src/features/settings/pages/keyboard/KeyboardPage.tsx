@@ -1,13 +1,13 @@
 // The keyboard page: every chord this window installs, what the service says about them, and
 // the one place a person changes one.
 //
-// One row per command with its chord, command id and scoping when-expression; conflict
-// detection names the command that holds a chord. The map is renderer-local and never written to
+// One row per command with its name and chord; conflict detection names the command that holds
+// a chord, by its name. The map is renderer-local and never written to
 // a wire. The page reads and writes the override store (`registries/keybindings/`), the same
 // accessor the frame's key dispatch reads, so a recorded chord is the installed chord. Overrides
 // live in main's keyboard map, one file on this machine; a map main could not use is read as
 // the shipped chords and written out again, and the page says so. The recorder suspends the
-// console keyboard, since the frame's capture-phase table would otherwise navigate on `$mod+1`.
+// app keyboard, since the frame's capture-phase table would otherwise navigate on `$mod+1`.
 
 import "./keyboard.css";
 
@@ -40,6 +40,9 @@ import {
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
 
+/** The code a chord the table could not install is drawn under. */
+const CHORD_NOT_INSTALLED_CODE = "keybinding-not-installed";
+
 /** The keyboard settings page: the chord map, the rebinding recorder, and the audit. */
 export function KeyboardPage(): ReactNode {
   const [query, setQuery] = useState("");
@@ -47,7 +50,7 @@ export function KeyboardPage(): ReactNode {
   const [report, setReport] = useState<KeyboardActReport | undefined>(undefined);
   const announce = useAnnounce();
 
-  // The effective table and whether the console keyboard is suspended, read through the same
+  // The effective table and whether the app keyboard is suspended, read through the same
   // accessor as the frame so the page cannot draw a different keyboard.
   const keybindingSnapshot = useKeybindingSnapshot(keybindingOverrides);
 
@@ -68,8 +71,11 @@ export function KeyboardPage(): ReactNode {
   const audit = useMemo(() => auditKeybindings(keybindingSnapshot.bindings), [keybindingSnapshot]);
   const visibleRows = matchKeybindingRows(rows, query);
   const changedRows = rows.filter((row) => row.overridden);
+  // What a person reads for a command: its name, never its id.
+  const titleOf = (commandId: string): string =>
+    rows.find((row) => row.commandId === commandId)?.title ?? "another command";
 
-  // A recorder still armed when the page goes away would leave the console keyboard suspended.
+  // A recorder still armed when the page goes away would leave the app keyboard suspended.
   useEffect(() => () => keybindingOverrides.endRecording(), []);
 
   const stopRecording = useCallback(() => {
@@ -106,8 +112,8 @@ export function KeyboardPage(): ReactNode {
       setReport(undefined);
       announce(
         unsaved === undefined
-          ? `${row.title} is back to the chord the console ships.`
-          : `${row.title} is back to the chord the console ships for this window only. ${unsaved.detail}`,
+          ? `${row.title} is back to the chord the app ships.`
+          : `${row.title} is back to the chord the app ships for this window only. ${unsaved.detail}`,
       );
     },
     [announce],
@@ -118,24 +124,22 @@ export function KeyboardPage(): ReactNode {
     setReport(undefined);
     announce(
       unsaved === undefined
-        ? "Every chord is back to the one the console ships."
-        : `Every chord is back to the one the console ships, for this window only. ${unsaved.detail}`,
+        ? "Every chord is back to the one the app ships."
+        : `Every chord is back to the one the app ships, for this window only. ${unsaved.detail}`,
     );
   }, [announce]);
 
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
-        Every chord this window installs, the command it runs, and the scope it runs in. Chords you
-        change are kept on this machine in a file of their own — the map travels nowhere, and no
-        other machine and no other person is told which keys you press.
+        Every key the app answers to. Change any of them.
       </p>
 
       <section className="meridian-settings-page__block" aria-label="Chords">
         <h3 className="meridian-settings-page__block-title">Chords</h3>
         <div className="meridian-keymap__filter">
           <label className="meridian-keymap__filter-label" htmlFor={FILTER_FIELD_ID}>
-            Filter by command, chord, or scope
+            Search shortcuts
           </label>
           <input
             id={FILTER_FIELD_ID}
@@ -144,19 +148,14 @@ export function KeyboardPage(): ReactNode {
             value={query}
             spellCheck={false}
             autoComplete="off"
-            placeholder="Go to settings, $mod+K, session"
+            placeholder="Search shortcuts"
             onChange={(event) => {
               setQuery(event.target.value);
             }}
           />
         </div>
         {rows.length > 0 && visibleRows.length === 0 ? (
-          <Nothing
-            kind="empty"
-            placement="block"
-            title={`No command matches "${query.trim()}".`}
-            detail="The filter matches a command's name, its id, its category, the chord it runs on, and the scope that chord is live in. Clearing the field brings every command back."
-          />
+          <Nothing kind="empty" placement="block" title="No shortcut matches that." />
         ) : (
           <ul className="meridian-keymap">
             {visibleRows.map((row) => (
@@ -190,7 +189,7 @@ export function KeyboardPage(): ReactNode {
           <p>
             Press <strong>Rebind</strong> on a row and then the chord you want. Escape leaves the
             chord alone, and Backspace or Delete leaves that command with no chord at all. The rest
-            of the keyboard stops answering while a chord is being recorded, so a chord the console
+            of the keyboard stops answering while a chord is being recorded, so a chord the app
             already uses can still be pressed. A chord another command answers to is refused on the
             row, naming the command that holds it; Reset puts a row back to the shipped chord.
           </p>
@@ -218,7 +217,7 @@ export function KeyboardPage(): ReactNode {
               <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
                 <InlineRefusal
                   code={conflict.reason}
-                  detail={`${conflict.chord} is claimed by both ${conflict.commandIds[0]} and ${conflict.commandIds[1]}. ${conflict.detail}`}
+                  detail={`${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} is claimed by both ${titleOf(conflict.commandIds[0])} and ${titleOf(conflict.commandIds[1])}. ${conflict.detail}`}
                 />
               </li>
             ))}
@@ -229,8 +228,8 @@ export function KeyboardPage(): ReactNode {
             {audit.dropped.map((dropped) => (
               <li key={`${dropped.chord}:${dropped.commandId}`}>
                 <InlineRefusal
-                  code={dropped.commandId}
-                  detail={`The chord ${dropped.chord} was not installed. ${dropped.reason}`}
+                  code={CHORD_NOT_INSTALLED_CODE}
+                  detail={`${titleOf(dropped.commandId)}'s chord ${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} was not installed. ${dropped.reason}`}
                 />
               </li>
             ))}
@@ -255,7 +254,7 @@ export function KeyboardPage(): ReactNode {
               <li key={declined.commandId}>
                 <InlineRefusal
                   code={declined.refusal.code}
-                  detail={`A chord kept for ${declined.commandId} was not installed this time. ${declined.refusal.detail}`}
+                  detail={`A chord kept for ${titleOf(declined.commandId)} was not installed this time. ${declined.refusal.detail}`}
                 />
               </li>
             ))}

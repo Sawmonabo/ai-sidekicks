@@ -3,11 +3,12 @@
 // it builds on `ActController` alone; `act-controller-base.ts` composes both.
 //
 // Only the prerequisite read is scheduled. An act is never re-sent on a refresh: that would
-// put a second durable record on the wire for one press. A rejected act returns its half to
-// idle and rethrows to the sender; a rejected read leaves the prerequisite where it was and
-// the scheduler rethrows it. Each call is a closure the owner passes in, so nothing here
+// put a second durable record on the wire for one press. A rejected act publishes its refusal,
+// with the service's own message, and frees the control for another press; a rejected read
+// leaves the prerequisite where it was and the scheduler rethrows it. Each call is a closure the owner passes in, so nothing here
 // touches the bridge.
 
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import {
@@ -54,6 +55,9 @@ export interface PrerequisiteReaderOptions<TValue> {
 
 /** The single-flight key the act half holds. One act at a time, per controller. */
 const ACT_KEY = "act";
+
+/** The subsystem a refused repo act names, so a refusal says which part of the app sent it. */
+const REPO_ACT_REFUSAL_ORIGIN = "repo-act";
 
 /**
  * One act, published as the settlement a dialog reads. Owns the single-flight guard, the
@@ -103,9 +107,15 @@ export class ActController<TSettlement extends ActSettlementArm> {
         this.#publish(settle(value));
       });
     } catch (rejection) {
-      // Nothing is on the wire any more, so the dialog stops saying it is sending.
-      this.#publish(ACT_IDLE);
-      throw rejection;
+      // Nothing is on the wire any more, so the dialog stops saying it is sending and says why.
+      this.#publish({
+        status: "refused",
+        refusal: coerceToRefusal(
+          rejection,
+          REPO_ACT_REFUSAL_ORIGIN,
+          `${REPO_ACT_REFUSAL_ORIGIN}-call-failed`,
+        ),
+      });
     } finally {
       round.release();
     }

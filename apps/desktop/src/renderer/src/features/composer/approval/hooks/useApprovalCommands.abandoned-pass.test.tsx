@@ -33,7 +33,7 @@ function inputResolvingThrough(
  * The hook under a tree that can re-address and suspend in one transition. The dispatchers are
  * props so the assertion can tell which one the registered row reached.
  */
-function ApprovalCommandsHost(props: {
+function ApprovalCommandsHarness(props: {
   readonly committedResolve: (request: ApprovalResolveRequest) => void;
   readonly abandonedResolve: (request: ApprovalResolveRequest) => void;
   readonly readdress: { current: (() => void) | undefined };
@@ -59,7 +59,7 @@ describe("the approvals palette rows answer through the committed render", () =>
     const abandonedResolve = vi.fn();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
-      <ApprovalCommandsHost
+      <ApprovalCommandsHarness
         committedResolve={committedResolve}
         abandonedResolve={abandonedResolve}
         readdress={readdress}
@@ -88,7 +88,7 @@ describe("the approvals palette rows answer through the committed render", () =>
     const laterResolve = vi.fn();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     const { rerender } = render(
-      <ApprovalCommandsHost
+      <ApprovalCommandsHarness
         committedResolve={committedResolve}
         abandonedResolve={laterResolve}
         readdress={readdress}
@@ -97,7 +97,7 @@ describe("the approvals palette rows answer through the committed render", () =>
 
     // The same re-address, committed rather than abandoned.
     rerender(
-      <ApprovalCommandsHost
+      <ApprovalCommandsHarness
         committedResolve={laterResolve}
         abandonedResolve={laterResolve}
         readdress={readdress}

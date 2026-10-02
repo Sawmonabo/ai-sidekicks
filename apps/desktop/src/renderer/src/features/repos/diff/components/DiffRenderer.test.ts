@@ -60,7 +60,8 @@ describe("diff renderer — the rows", () => {
   });
 
   it("renders only a window of a five-thousand-line change set", () => {
-    // A renderer that drew every row would cost about 6,600 DOM rows here. The ceiling is derived from the bounds against a real viewport, not a round number.
+    // A renderer that drew every row would cost about 6,600 DOM rows here. The ceiling is
+    // derived from the bounds against a real viewport, not a round number.
     const bigDiff = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
     const container = renderDiff({ model: bigDiff });
     const renderedRowCount = container.querySelectorAll(".meridian-diff__row").length;
@@ -263,21 +264,21 @@ describe("diff renderer — the file header carries what the extended headers sa
     expect(headerText).toContain(`renamed from ${renamed.from}`);
   });
 
-  it("tells a copy from a rename, because the source still exists", () => {
+  it("reads a copy as added, because the source stays where it was", () => {
     const { copied } = EXTENDED_HEADER_FIXTURE_FILES;
-    expect(fileHeaderTextFor(copied.to)).toContain(`copied from ${copied.from}`);
+    const headerText = fileHeaderTextFor(copied.to);
+    expect(headerText).toContain("added");
+    expect(headerText).not.toContain(copied.from);
   });
 
-  it("renders a mode change as both modes, so which direction is legible", () => {
+  it("says a mode change happened", () => {
     const { modeChanged } = EXTENDED_HEADER_FIXTURE_FILES;
-    expect(fileHeaderTextFor(modeChanged.path)).toContain(
-      `mode ${modeChanged.from} → ${modeChanged.to}`,
-    );
+    expect(fileHeaderTextFor(modeChanged.path)).toContain("mode changed");
   });
 
   it("marks a binary file, whose change no unified patch can show", () => {
     expect(fileHeaderTextFor(EXTENDED_HEADER_FIXTURE_FILES.binary.path)).toContain(
-      "binary file changed",
+      "binary — contents not shown",
     );
   });
 });

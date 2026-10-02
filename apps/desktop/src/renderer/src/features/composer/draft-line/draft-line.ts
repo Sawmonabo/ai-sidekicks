@@ -10,9 +10,7 @@ export interface DraftCaret {
 }
 
 /** The placeholder the line shows; the same for every send, since Send has no mode. */
-export function composeDraftPlaceholder(): string {
-  return "Message this session";
-}
+export const DRAFT_PLACEHOLDER = "Message this session";
 
 /** True when the caret is collapsed at the very start of the text. */
 export function caretAtStart(caret: DraftCaret): boolean {

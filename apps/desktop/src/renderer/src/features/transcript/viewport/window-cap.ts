@@ -7,9 +7,10 @@
 // `parentKey` names no row the window holds is top-level here: reading "has a parent key" as
 // "is a child" let a run-only log grow without bound. Prune is a request that can be refused
 // for a named reason, drops a parent's subtree with it, never drops held rows or those from
-// the reader's row down, and parks (never loses) the lease of a dropped row.
+// the reader's row down, and parks (never loses) the retained state of a dropped row.
 
 import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-state-table.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "./viewport-constants.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {
@@ -78,7 +79,7 @@ export interface PruneOutcome {
 /** Caps for a `TranscriptWindow`; each defaults to the shared transcript constant. */
 export interface TranscriptWindowOptions {
   readonly topLevelCap?: number;
-  readonly parkedLeaseCap?: number;
+  readonly parkedStateCap?: number;
 }
 
 /** The retained transcript rows, capped by top-level count and pruned only when allowed. */
@@ -87,7 +88,7 @@ export class TranscriptWindow {
   readonly #childKeysByParentKey = new Map<string, string[]>();
   /** Every retained row key, so "is this row's parent here?" costs no scan. */
   readonly #presentRowKeys = new Set<string>();
-  readonly #leaseTable: RetainedRowStateTable;
+  readonly #retainedStates: RetainedRowStateTable;
 
   /**
    * The adopted log, oldest first, which is also prune order. An array rather than a map so a
@@ -97,15 +98,15 @@ export class TranscriptWindow {
 
   public constructor(options: TranscriptWindowOptions = {}) {
     this.#topLevelCap = options.topLevelCap ?? TRANSCRIPT_WINDOW_ROW_CAP;
-    this.#leaseTable = new RetainedRowStateTable(options.parkedLeaseCap);
+    this.#retainedStates = new RetainedRowStateTable(options.parkedStateCap);
   }
 
   /**
    * Adopt the projected log, oldest first, replacing what the window held.
    *
    * The window is a view over the projection, never a second copy: a row the projection no
-   * longer carries is forgotten. A row that arrives twice collapses to its first position, so a
-   * projection defect cannot double a run group.
+   * longer carries is forgotten, and its retained state parked. A row that arrives twice collapses
+   * to its first position, so a projection defect cannot double a run group.
    */
   public ingest(rows: readonly WindowRow[]): void {
     this.#rows = [...rows];
@@ -114,6 +115,7 @@ export class TranscriptWindow {
     for (const row of this.#rows) {
       this.#presentRowKeys.add(row.key);
     }
+    this.#retainedStates.parkAllExcept(this.#presentRowKeys);
     for (const row of this.#rows) {
       if (row.parentKey === undefined) {
         continue;
@@ -146,25 +148,27 @@ export class TranscriptWindow {
     return topLevelKeys;
   }
 
+  /** How many rows the window holds. */
   public get size(): number {
     return this.#rows.length;
   }
 
-  /** A row body's leased state, live or parked. */
-  public lease(rowKey: string): RetainedRowState | undefined {
-    return this.#leaseTable.lease(rowKey);
+  /** A row body's retained state, live or parked. */
+  public retainedState(rowKey: string): RetainedRowState | undefined {
+    return this.#retainedStates.retainedState(rowKey);
   }
 
-  public setLease(rowKey: string, lease: RetainedRowState): void {
-    this.#leaseTable.setLease(rowKey, lease);
+  /** Record what a row body retains while the window holds its row. */
+  public setRetainedState(rowKey: string, state: RetainedRowState): void {
+    this.#retainedStates.setRetainedState(rowKey, state);
   }
 
   /**
-   * Drop every parked lease and return how many went. Delegated so the idle trim asks the
-   * window, which knows which rows are still held, instead of holding the table itself.
+   * Drop every parked state. Delegated so the idle trim asks the window, which knows which rows
+   * are still held, instead of holding the table itself.
    */
-  public releaseParkedLeases(): number {
-    return this.#leaseTable.releaseParkedLeases();
+  public releaseParkedStates(): void {
+    this.#retainedStates.releaseParkedStates();
   }
 
   /**
@@ -212,7 +216,7 @@ export class TranscriptWindow {
           continue;
         }
         removedKeys.add(closedKey);
-        this.#leaseTable.park(closedKey);
+        this.#retainedStates.park(closedKey);
         prunedKeys.push(closedKey);
       }
       remainingToDrop -= 1;
@@ -244,14 +248,6 @@ export class TranscriptWindow {
       prunedKeys,
       topLevelRetained: this.topLevelRowKeys().length,
     };
-  }
-
-  /** The cursor the window is cut at — the pin's, or the oldest retained row's. */
-  public cutAtRootCursor(pinnedRootCursor: string | undefined): string | undefined {
-    if (pinnedRootCursor !== undefined) {
-      return pinnedRootCursor;
-    }
-    return this.#rows[0]?.rootCursor;
   }
 
   #deferralFor(conditions: PruneConditions): PruneDeferralReason | undefined {
@@ -311,4 +307,3 @@ export class TranscriptWindow {
     return keysFromFloor;
   }
 }
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";

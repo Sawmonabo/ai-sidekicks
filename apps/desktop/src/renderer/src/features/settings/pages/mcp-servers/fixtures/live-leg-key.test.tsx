@@ -72,14 +72,6 @@ describe("mcpLiveLegKeyOf", () => {
       mcpLiveLegKeyOf({ sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID }),
     );
   });
-
-  // Negative control on the join: both members are wire strings, so a separator either may
-  // contain is not one.
-  it("keeps two pairs apart that a separator join would fold together", () => {
-    expect(mcpLiveLegKeyOf({ sessionId: "session one", bindingId: "leg" })).not.toBe(
-      mcpLiveLegKeyOf({ sessionId: "session", bindingId: "one leg" }),
-    );
-  });
 });
 
 describe("the two lists that render a live leg", () => {

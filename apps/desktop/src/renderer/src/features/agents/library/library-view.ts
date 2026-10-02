@@ -1,11 +1,12 @@
 // What the agent library holds: the registry read, the delete in flight, and which record the
 // editor is open on. One class because the three move together: an applied delete clears the
-// row, re-reads, and closes an editor open on that record. A rejected call is not caught here;
-// it reaches the caller, and the delete gives its lock back on the way out.
+// row, re-reads, and closes an editor open on that record. A delete the daemon rejects gives its
+// lock back and leaves the row in place with the daemon's refusal drawn on it.
 
 import { type Clock } from "@renderer/lib/clock.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -154,7 +155,8 @@ export class AgentLibraryView implements ReadTriggerTarget {
   /**
    * Delete one record, then re-read rather than dropping a local copy, so the screen shows
    * the registry's answer. A second press while one delete runs gets a refusal on its row
-   * instead of silence, since the page already disables the controls.
+   * instead of silence, since the page already disables the controls. A rejected delete
+   * settles to the daemon's refusal on that row, so the returned promise never rejects.
    */
   public async confirmDeletion(definitionId: string): Promise<void> {
     const runningDefinitionId = this.#snapshot.deletingId;
@@ -178,9 +180,15 @@ export class AgentLibraryView implements ReadTriggerTarget {
       await this.#calls.deleteDefinition({ definitionId });
     } catch (error) {
       if (!this.#isDisposed && this.#snapshot.deletingId === definitionId) {
-        this.#publish({ deletingId: undefined });
+        this.#publish({
+          deletingId: undefined,
+          refusalByDefinitionId: this.#refusalsWith(
+            definitionId,
+            normalizeWireRejection(AGENT_LIBRARY_REFUSAL_ORIGIN, error),
+          ),
+        });
       }
-      throw error;
+      return;
     }
     // Once the lock moved or the view was disposed, this settlement is not the page's to fold in.
     if (this.#isDisposed || this.#snapshot.deletingId !== definitionId) {

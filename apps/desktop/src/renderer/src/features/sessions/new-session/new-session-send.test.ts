@@ -5,20 +5,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RepoMountId } from "@ai-sidekicks/contracts";
 import {
   countedDraftFor,
   draftFor,
-  sentMethod,
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
+  PROJECT_REPO_MOUNT,
 } from "./new-session-draft.test-support.js";
-import {
-  NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
-  refuseSendThatRejected,
-} from "./new-session-settlement.js";
-
-const PROJECT_MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002" as RepoMountId;
 
 describe("NewSessionDraft — the send", () => {
   it("refuses an empty draft without touching the wire", async () => {
@@ -39,7 +32,7 @@ describe("NewSessionDraft — the send", () => {
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
     expect(result.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
     expect(result.refusal).toBeUndefined();
-    expect(counted.calls.map(sentMethod)).toStrictEqual(["session.create"]);
+    expect(counted.calls.map((call) => call.method)).toStrictEqual(["session.create"]);
     expect(counted.firstTurns).toStrictEqual([
       { sessionId: CREATED_SESSION_ID, content: "Start on the parser." },
     ]);
@@ -55,16 +48,13 @@ describe("NewSessionDraft — the send", () => {
     });
 
     const project = countedDraftFor({ scriptsCreate: true });
-    project.draft.setRepoMount({
-      repoMountId: PROJECT_MOUNT_ID,
-      executionMode: "provisioned-worktree",
-    });
+    project.draft.setRepoMount(PROJECT_REPO_MOUNT);
     await project.draft.send();
     expect(project.calls[0]?.params).toMatchObject({
       binding: {
         kind: "project",
-        repoMountId: PROJECT_MOUNT_ID,
-        executionMode: "provisioned-worktree",
+        repoMountId: PROJECT_REPO_MOUNT.repoMountId,
+        executionMode: PROJECT_REPO_MOUNT.executionMode,
       },
       lead: NEW_SESSION_LEAD,
     });
@@ -88,7 +78,7 @@ describe("NewSessionDraft — the send", () => {
     expect((await onlyBlank.send()).refusal?.code).toBe("draft-empty");
 
     const draft = draftFor({ scriptsCreate: true, scriptsFirstTurn: true });
-    draft.setPosture("trusted");
+    draft.setRepoMount(PROJECT_REPO_MOUNT);
     draft.setFirstTurn("   \n  ");
     const blank = await draft.send();
     expect(blank.refusal?.code).toBe("first-turn-missing");
@@ -104,7 +94,7 @@ describe("NewSessionDraft — the send", () => {
 
   it("keeps the draft when the create itself fails, and names no completed call", async () => {
     const draft = draftFor({ scriptsCreate: false });
-    draft.setPosture("readonly-sandboxed");
+    draft.setRepoMount(PROJECT_REPO_MOUNT);
     const result = await draft.send();
 
     expect(result.outcome).toBe("refused");
@@ -118,28 +108,9 @@ describe("NewSessionDraft — the send", () => {
   it("negative control: the daemon's own message never reaches the person", async () => {
     // Without this, the case above would pass over a refusal that pasted an IPC stack.
     const draft = draftFor({ scriptsCreate: false });
-    draft.setPosture("trusted");
+    draft.setRepoMount(PROJECT_REPO_MOUNT);
     const result = await draft.send();
     expect(result.refusal?.detail).not.toContain("scenario");
     expect(result.refusal?.detail).not.toContain("reply-unscripted");
-  });
-});
-
-describe("NewSessionDraft — what a send that REJECTED reports", () => {
-  // Unreachable through the bridge in this build: `callDaemon` returns a typed reply for a
-  // rejected call, an unsendable request and a schema failure alike. An `undefined` in its
-  // place would clear the result and leave Send doing nothing, so the sentence is asserted
-  // where it is built.
-
-  it("carries a code of the draft's own vocabulary and claims nothing was created", () => {
-    const reported = refuseSendThatRejected();
-
-    expect(reported.outcome).toBe("refused");
-    expect(reported.refusal?.code).toBe("send-failed");
-    expect(reported.refusal?.origin).toBe(NEW_SESSION_DRAFT_REFUSAL_ORIGIN);
-    // A report still carrying a session id would tell a person to retry a create that may
-    // have landed.
-    expect(reported.sessionId).toBeUndefined();
-    expect(reported.completedCalls).toStrictEqual([]);
   });
 });

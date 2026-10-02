@@ -7,7 +7,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 // The schema form opens in two steps; a press straight after `render` would hit a control it
 // has not armed yet.
 import { resolveSchemaFormChunks } from "../schema-form/hooks/useSchemaForm.test-support.js";
-import { PARKED_RUN, settle } from "../workflows-probe.test-support.js";
+import { PARKED_RUN } from "../workflows-probe.test-support.js";
+import { settle } from "@test/helpers/settle.js";
 import { humanFormPhaseFor } from "./human-form-phase.js";
 import type { WorkflowHumanFormSubmitCall } from "./human-form-submit.js";
 import { HumanFormMountPoint } from "./components/HumanFormMountPoint.js";

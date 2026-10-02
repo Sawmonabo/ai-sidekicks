@@ -19,6 +19,7 @@ import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
@@ -30,12 +31,17 @@ import { mcpBindingKeyOf } from "../mcp-binding-key.js";
 import {
   IDLE_MCP_MUTATION,
   mintIdempotencyKey,
-  setBindingEnabled,
   type IdempotencyKeyMinter,
   type McpMutationOutcome,
   type SendMcpEnabled,
 } from "./mcp-mutation.js";
 import { ServerRow } from "./components/ServerRow.js";
+
+/** The subsystem a refused enablement change names as its author. */
+const MCP_MUTATION_ORIGIN = "mcp-mutation";
+
+/** The code a rejected enablement change that carried none of its own is reported under. */
+const MCP_MUTATION_FAILED = "mcp-mutation-failed";
 
 /** The daemon verbs the fixture body drives. */
 export interface McpServerOperations {
@@ -104,19 +110,27 @@ export function McpFixtureBody(props: {
     publishOutcomes((held) => new Map(held).set(key, outcome));
   };
   // A settled mutation answers with the row as it now stands; this asks the daemon again rather
-  // than patching one row into a list whose fold this page does not own.
-  const dispatch = (
-    binding: McpServerBindingRef,
-    send: (idempotencyKey: string) => Promise<McpMutationOutcome>,
-  ): void => {
+  // than patching one row into a list whose fold this page does not own. The binding travels on
+  // the outcome so each row renders its own; a refused send settles the row with the service's
+  // words, so its control comes back.
+  const setEnabled = (binding: McpServerBindingRef, enabled: boolean): void => {
     const key = mcpBindingKeyOf(binding);
     recordOutcome(key, { kind: "sending", binding });
-    void send(mintKey()).then((settled) => {
-      recordOutcome(key, settled);
-      // No guard needed: a superseded read is already disposed, and a disposed read refreshes
-      // nothing.
-      inventoryRead.refresh("terminal-event");
-    });
+    operations.sendEnabled({ ...binding, enabled, clientIdempotencyKey: mintKey() }).then(
+      (result) => {
+        recordOutcome(key, { kind: "settled", binding, result });
+        // No guard needed: a superseded read is already disposed, and a disposed read
+        // refreshes nothing.
+        inventoryRead.refresh("terminal-event");
+      },
+      (error: unknown) => {
+        recordOutcome(key, {
+          kind: "refused",
+          binding,
+          refusal: coerceToRefusal(error, MCP_MUTATION_ORIGIN, MCP_MUTATION_FAILED),
+        });
+      },
+    );
   };
 
   const state = usePushDrivenRead(inventoryRead);
@@ -168,16 +182,7 @@ export function McpFixtureBody(props: {
             entry={entry}
             outcome={outcome}
             pending={outcome.kind === "sending"}
-            onSetEnabled={(binding, enabled) => {
-              dispatch(binding, (idempotencyKey) =>
-                setBindingEnabled({
-                  send: operations.sendEnabled,
-                  binding,
-                  enabled,
-                  idempotencyKey,
-                }),
-              );
-            }}
+            onSetEnabled={setEnabled}
           />
         );
       })}

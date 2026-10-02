@@ -39,8 +39,6 @@ export interface SessionPaneSlotProps {
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
-  readonly trackElement: (paneId: string, element: Element) => void;
-  readonly untrackElement: (paneId: string) => void;
 }
 
 /**
@@ -50,11 +48,10 @@ export interface SessionPaneSlotProps {
  */
 export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(
   function SessionPaneSlotBody(props: SessionPaneSlotProps): React.JSX.Element {
-    const { dragCoordinator, pane, onClose, onFocus, trackElement, untrackElement } = props;
+    const { dragCoordinator, pane, onClose, onFocus } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
 
-    // The panel's own root element, which the library sizes. The rect discipline measures it
-    // and a drop is aimed at it, so both hold the same node.
+    // The panel's own root element, which the library sizes and a drop is aimed at.
     const [panelElement, setPanelElement] = useState<HTMLDivElement | null>(null);
     const registerDragHandle = usePaneDragSource(dragCoordinator, pane.paneId);
     usePaneDropTarget(dragCoordinator, pane.paneId, panelElement);
@@ -72,18 +69,6 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     const onFocusCapture = useCallback(() => {
       onFocus(pane.paneId);
     }, [onFocus, pane.paneId]);
-
-    const attachElement = useCallback(
-      (element: HTMLDivElement | null) => {
-        setPanelElement(element);
-        if (element === null) {
-          untrackElement(pane.paneId);
-          return;
-        }
-        trackElement(pane.paneId, element);
-      },
-      [pane.paneId, trackElement, untrackElement],
-    );
 
     // A kind with no registered body is a composition defect, not something to draw around.
     if (descriptor === undefined) {
@@ -103,7 +88,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
       <Panel
         id={pane.paneId}
         className={paneClassName}
-        elementRef={attachElement}
+        elementRef={setPanelElement}
         minSize={minimumPaneWidthPx(props.density)}
         defaultSize={`${String(pane.sizePermille / PERMILLE_PER_PERCENT)}%`}
         onFocusCapture={onFocusCapture}

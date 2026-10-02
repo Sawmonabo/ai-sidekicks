@@ -1,4 +1,4 @@
-// The seams the virtualizer is constructed with, driven one at a time. Each must reach
+// The options the virtualizer is constructed with, driven one at a time. Each must reach
 // machinery this frame owns rather than the platform (an unnamed `scrollTo`, a second scroll
 // listener, a second `ResizeObserver` on the same box).
 
@@ -8,26 +8,20 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import type { TranscriptRowVirtualizer } from "./virtualizer-options.js";
+import { attachedController } from "./viewport-controller.test-support.js";
 
 /**
- * The instance argument the two observer seams ignore; both read the chokepoint, so it is typed
+ * The instance argument the two observer options ignore; both read the chokepoint, so it is typed
  * rather than constructed.
  */
 const UNUSED_VIRTUALIZER = undefined as unknown as TranscriptRowVirtualizer;
 
-/** A controller holding a real detached element, the way a mounted pane does. */
-function attachedController(): { controller: ViewportController } {
-  const controller = new ViewportController({ clock: new ManualClock() });
-  controller.attach(document.createElement("div"));
-  return { controller };
-}
-
-describe("the virtualizer seams — what the library is allowed to reach", () => {
+describe("the virtualizer options — what the library is allowed to reach", () => {
   it("routes the library's own scroll write through the chokepoint, named", () => {
     // The default `scrollToFn` calls `scrollElement.scrollTo`, which names neither a caller nor
     // an amount: the write the chokepoint exists to prevent.
     const { controller } = attachedController();
-    controller.seams.scrollToFn(120, { adjustments: 30 });
+    controller.virtualizerOptions.scrollToFn(120, { adjustments: 30 });
     expect(controller.scroll.writeCount("measurement-compensation")).toBe(1);
   });
 
@@ -39,9 +33,13 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     controller.attach(scrollContainer);
     const offsets: number[] = [];
     const heights: number[] = [];
-    controller.seams.observeElementOffset(UNUSED_VIRTUALIZER, (offset) => offsets.push(offset));
-    controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
-    expect(scrollContainer.scrollListenerCount).toBe(1);
+    controller.virtualizerOptions.observeElementOffset(UNUSED_VIRTUALIZER, (offset) =>
+      offsets.push(offset),
+    );
+    controller.virtualizerOptions.observeElementRect(UNUSED_VIRTUALIZER, (rect) =>
+      heights.push(rect.height),
+    );
+    expect(scrollContainer.scrollListenerCount()).toBe(1);
     // Replayed on subscribe, so a pane mounted mid-stream knows where it is.
     expect(offsets).toStrictEqual([40]);
     expect(heights).toStrictEqual([300]);
@@ -55,7 +53,9 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     const controller = new ViewportController({ clock });
     controller.attach(scrollContainer);
     const heights: number[] = [];
-    controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
+    controller.virtualizerOptions.observeElementRect(UNUSED_VIRTUALIZER, (rect) =>
+      heights.push(rect.height),
+    );
 
     scrollContainer.resizeTo(260, 4000);
     controller.scroll.requestOverflowMeasurement();
@@ -72,7 +72,9 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     const controller = new ViewportController({ clock });
     controller.attach(scrollContainer);
     const heights: number[] = [];
-    controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
+    controller.virtualizerOptions.observeElementRect(UNUSED_VIRTUALIZER, (rect) =>
+      heights.push(rect.height),
+    );
 
     controller.scroll.requestOverflowMeasurement();
     clock.runFrame();

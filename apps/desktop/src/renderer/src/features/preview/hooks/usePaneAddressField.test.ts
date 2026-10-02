@@ -8,12 +8,12 @@ import { describe, expect, it } from "vitest";
 import {
   addressField,
   DEFAULT_TEST_PANE_ID,
-  fixtureBrowserBridge,
+  fixturePreviewBridge,
   mountPreviewPaneForSubject,
   recordingActs,
+  SECOND_TEST_PANE_ID,
 } from "../PreviewPane.test-support.js";
 
-const SECOND_PANE_ID = "pane-browser-2";
 const DRAFT = "example.invalid/typed-into-the-first-pane";
 
 /** Mount the chrome over acts that record every destination it navigates to. */
@@ -23,7 +23,7 @@ async function mountRecording(): Promise<{
 }> {
   const dispatched: string[] = [];
   const { rebindTo } = await mountPreviewPaneForSubject(
-    fixtureBrowserBridge(),
+    fixturePreviewBridge(),
     DEFAULT_TEST_PANE_ID,
     undefined,
     recordingActs(dispatched),
@@ -40,7 +40,7 @@ describe("the address draft belongs to the pane it was typed for", () => {
     const { rebindTo, dispatched } = await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
 
-    await rebindTo(SECOND_PANE_ID);
+    await rebindTo(SECOND_TEST_PANE_ID);
     submitAddress();
 
     expect(dispatched).not.toContain(DRAFT);

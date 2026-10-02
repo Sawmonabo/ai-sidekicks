@@ -31,7 +31,6 @@ export function readInterventionFormSettlement(
     return { kind: "landed" };
   }
   const { response } = outcome;
-  // Switched on a local so the exhaustive tail still has a readable value to pass on.
   const settledState = response.state;
   switch (settledState) {
     case "applied":
@@ -65,8 +64,6 @@ export function readInterventionFormSettlement(
           "The background service recorded this intervention and has not applied it yet. Your text is on that record; confirming again would raise a second one, so this control stays latched until you close it.",
         ),
       };
-    default:
-      return unreadableSettlement(settledState);
   }
 }
 
@@ -78,19 +75,6 @@ export function admissionRefusal(reason: RunControlAdmissionRefusal): Refusal {
 /** What the form says beside a rejected settlement; the wire cause is the refusal's code. */
 const REJECTED_DETAIL =
   "The background service did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
-
-/** The exhaustive tail: a new intervention state fails to compile here. */
-function unreadableSettlement(state: never): InterventionFormSettlement {
-  const unreadable = state satisfies never;
-  return {
-    kind: "refused",
-    notice: refuse(
-      RUN_INTERVENTION_REFUSAL_ORIGIN,
-      String(unreadable),
-      "The background service answered with a state this console has no reading for, so nothing here claims the intervention landed. What you typed is still here.",
-    ),
-  };
-}
 
 const ADMISSION_REFUSAL_DETAIL: Readonly<Record<RunControlAdmissionRefusal, string>> = {
   "in-flight":

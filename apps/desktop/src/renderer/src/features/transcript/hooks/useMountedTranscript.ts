@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import {
+  forwardActs,
   mountedTranscript,
   type TranscriptActs,
   type MountedTranscript,
@@ -18,27 +19,12 @@ export function useMountedTranscript(
 ): void {
   const actsRef = useRef(acts);
   actsRef.current = acts;
-  const forwarding = useMemo(() => forwardingActs(() => actsRef.current), []);
+  const forwarding = useMemo(
+    () =>
+      forwardActs((act) => {
+        actsRef.current[act]();
+      }),
+    [],
+  );
   useEffect(() => transcript.adopt(forwarding), [transcript, forwarding]);
-}
-
-/** An act set that reads the live one on every call and holds none of it. */
-function forwardingActs(read: () => TranscriptActs): TranscriptActs {
-  return {
-    openFind: () => {
-      read().openFind();
-    },
-    stepFindNext: () => {
-      read().stepFindNext();
-    },
-    stepFindPrevious: () => {
-      read().stepFindPrevious();
-    },
-    jumpToLatest: () => {
-      read().jumpToLatest();
-    },
-    foldEveryRun: () => {
-      read().foldEveryRun();
-    },
-  };
 }

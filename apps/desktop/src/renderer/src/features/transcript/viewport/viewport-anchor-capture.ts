@@ -45,7 +45,8 @@ export class ViewportAnchorCapture {
     if (offsetForIndex !== undefined) {
       return offsetForIndex[0];
     }
-    // Before the virtualizer mounts there are no measurements, so the ledger's priors answer.
+    // Before the virtualizer mounts there are no measurements, so the measurement table's priors
+    // answer.
     const rowKeys = this.#rowKeys();
     let offset = 0;
     for (let cursor = 0; cursor < index; cursor += 1) {

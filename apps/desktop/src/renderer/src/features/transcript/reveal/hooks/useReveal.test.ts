@@ -13,7 +13,9 @@ import { useReveal, type RevealBinding } from "./useReveal.js";
 const LANE_ID = "session-1:41";
 
 function mountBinding(clock: ManualClock): ReturnType<typeof renderHook<RevealBinding, void>> {
-  return renderHook(() => useReveal({ frameCoordinator: useAnimationFrameCoordinator(clock) }));
+  return renderHook(() =>
+    useReveal({ frameCoordinator: useAnimationFrameCoordinator(clock), clock }),
+  );
 }
 
 describe("the reveal binding — what the viewport is told", () => {

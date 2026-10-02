@@ -76,11 +76,11 @@ export function useHumanFormSubmit(
         // The daemon decides whether it is still current; a stale one is refused, not re-stamped.
         expectedRevision: attempt.composedAgainstRevision,
       });
-      // The holder's publish carries its own addressing and `settle` checks the round is still
+      // The holder's publish carries its own addressing and `settle` checks the refresh is still
       // live, so an answer arriving after a retarget or an unmount settles nothing.
       claim.settle(() => {
         publishOutcome(submittedOutcome(reply));
-        // Inside the same guard: a retired round re-arms no read.
+        // Inside the same guard: a retired refresh re-arms no read.
         recordServedRunAct?.();
       });
     } finally {

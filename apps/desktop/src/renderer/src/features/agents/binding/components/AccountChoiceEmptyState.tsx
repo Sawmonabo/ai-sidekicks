@@ -1,5 +1,5 @@
 // Why there is no account picker, in the words of whichever answer produced it. Five
-// absences, only one of which is "the registry holds none"; an empty picker would report an
+// empty states, only one of which is "the registry holds none"; an empty picker would report an
 // unanswered registry as an answer of nothing. A refusal renders verbatim with a way to retry.
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
@@ -9,7 +9,7 @@ import type { AccountAxisReading } from "../account-axis.js";
 /** What the empty state shows, and how it asks for a fresh read. */
 export interface AccountChoiceEmptyStateProps {
   readonly reading: AccountAxisReading;
-  /** Ask the node's one account-plane reading for a fresh read. */
+  /** Ask the window's one account registry reading for a fresh read. */
   readonly onReopen: () => void;
 }
 

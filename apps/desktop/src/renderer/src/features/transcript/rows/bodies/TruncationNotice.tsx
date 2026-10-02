@@ -1,15 +1,9 @@
 // The notice a truncated body's prefix carries: "truncated at N of M bytes" and what is known of
 // the rest. A prefix alone would read as a complete short answer.
 
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
-
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
-
-/** The loss this console names for a prefix; typed so a renamed contract member fails here. */
-const TRUNCATED_LOSS_KIND: DeclaredLossKind = "turn_content_truncated";
 
 /**
  * What is known about the part of the body that is not here: whether the payload recorded a
@@ -61,7 +55,6 @@ export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Elemen
       kind="empty"
       placement="inline"
       title={`${measurement} ${remainderSentence(remainder)}`}
-      action={<WireFigure value={TRUNCATED_LOSS_KIND} title="Declared loss" />}
     />
   );
 }

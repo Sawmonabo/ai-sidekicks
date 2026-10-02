@@ -1,10 +1,16 @@
 // The React binding for the reveal engine: one per feed, disposed on unmount and re-minted on a
 // remount, since a disposed engine ingests nothing. A drained frame or an ingest bumps a
 // revision so the feed renders; each row reads its own lane through the channel and React's
-// snapshot comparison decides which rows repaint.
+// snapshot comparison decides which rows repaint. What the engine reports (a quarantined lane, a
+// retracted source) goes to the window's diagnostic capture.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { type Clock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { type AnimationFrameCoordinator } from "../../animation-frame-coordinator.js";
 import { RevealEngine } from "../reveal-engine.js";
 import { type RowRevealContextValue } from "../components/RowRevealProvider.js";
@@ -19,11 +25,7 @@ export interface RevealBinding {
   readonly channel: RowRevealContextValue;
   /** True while a frame is armed. The viewport defers prune on it. */
   readonly isDraining: boolean;
-  /**
-   * Take one lane's delta. Nothing calls it yet: event payloads carry only a media type and byte
-   * length, and the body sits behind a daemon read no bridge namespace serves; that read will
-   * feed this.
-   */
+  /** Take one lane's delta and arm a frame to reveal it. */
   readonly ingest: (delta: RevealDelta) => void;
   /**
    * Drop every lane the predicate names. Asked of the engine's own lanes (at most one per
@@ -41,15 +43,17 @@ export interface UseRevealOptions {
    * nothing arms.
    */
   readonly frameCoordinator: AnimationFrameCoordinator;
+  /** The clock a diagnostic is stamped with. */
+  readonly clock: Clock;
 }
 
 /** Mint one reveal engine for a feed, and bind it to the tree. */
 export function useReveal(options: UseRevealOptions): RevealBinding {
-  const { frameCoordinator } = options;
+  const { frameCoordinator, clock } = options;
   const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameCoordinator }));
-  // The engine is not React state; the revision is how the tree learns it moved. Nothing
-  // renders the number.
-  const [frameRevision, setFrameRevision] = useState(0);
+  // The engine is not React state; bumping the revision is how the tree learns it moved, so the
+  // drain state read below is current. Nothing reads the number itself.
+  const [, setFrameRevision] = useState(0);
 
   useEffect(() => {
     if (engine.isDisposed) {
@@ -69,6 +73,20 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     [engine],
   );
 
+  useEffect(
+    () =>
+      engine.subscribeToDiagnostics((diagnostic) => {
+        windowDiagnosticCapture.record({
+          at: diagnosticStampAt(clock),
+          severity: diagnostic.kind === "transition-failed" ? "error" : "warning",
+          source: "features/transcript",
+          kind: `reveal-${diagnostic.kind}`,
+          detail: `lane ${diagnostic.laneId}: ${diagnostic.detail}`,
+        });
+      }),
+    [engine, clock],
+  );
+
   const channel = useMemo<RowRevealContextValue>(
     () => ({
       publishedTextFor: (laneId: string) => {
@@ -82,10 +100,6 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     }),
     [engine],
   );
-
-  // Read here rather than ignored: this render happened because a frame drained or a
-  // delta armed one, and the drain state below is what that render is for.
-  void frameRevision;
 
   return {
     channel,

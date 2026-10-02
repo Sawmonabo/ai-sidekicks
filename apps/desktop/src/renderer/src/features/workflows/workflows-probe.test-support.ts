@@ -1,13 +1,13 @@
-// Shared by the workflows suites: the identities, a definition-row factory, one `settle` boundary
-// and the runs the suites read. `settle` awaits a macrotask boundary rather than counting
-// microtasks, so no suite asserts a count of turns nobody chose.
+// Shared by the workflows suites: the identities, a definition-row factory and the runs the
+// suites read.
 
-import type { WorkflowDefinitionId, WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
-import { act } from "@testing-library/react";
+import type {
+  WorkflowDefinitionId,
+  WorkflowDefinitionSummary,
+  WorkflowVersionChainEntry,
+} from "@ai-sidekicks/contracts";
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
 /** The session every workflows suite addresses. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
@@ -16,7 +16,9 @@ export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 export const SECOND_PAGE_CURSOR = "definitions-page-2";
 
 /** One definition, as the enumeration carries it. Override only what a case asserts on. */
-export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDefinitionRow {
+export function definition(
+  overrides: Partial<WorkflowDefinitionSummary> = {},
+): WorkflowDefinitionSummary {
   return {
     id: "release-checklist" as WorkflowDefinitionId,
     name: "Release checklist",
@@ -48,13 +50,6 @@ export function versionChainEntry(
     createdAt: "2026-01-01T10:00:00.000Z",
     savedBy: { kind: "user" },
   };
-}
-
-/** Let every read the rendered tree put settle, so an assertion is about answers. */
-export async function settle(): Promise<void> {
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
 }
 
 /** The first phase of every fixture run: drafting. */

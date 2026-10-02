@@ -6,11 +6,9 @@
 // `directDomUpdates`, so no style here sets them; `role="feed"` is declared on the scroll
 // container and its article children by `VirtualRow`, so the relationship does not rest on
 // whatever a registered row renderer draws; the sizer is `role="presentation"`. Attention is
-// steered by luminance, never motion; nothing here animates.
+// steered by luminance, never motion: the only transition is the pill's hover color.
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
-import { type TranscriptErrorEntry } from "../transcript-errors.js";
-import { TranscriptErrors } from "./TranscriptErrors.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
@@ -40,10 +38,7 @@ export interface TranscriptViewportProps {
    * has a read to give it. Absent, nothing renders at the head.
    */
   readonly earlierHistoryControl?: React.ReactNode;
-  readonly errorEntries?: readonly TranscriptErrorEntry[];
 }
-
-const NO_ERROR_ENTRIES: readonly TranscriptErrorEntry[] = [];
 
 /** The scrolling window over one transcript's rows, with its head and tail affordances. */
 export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
@@ -52,7 +47,6 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
 
   return (
     <div className="meridian-transcript-viewport">
-      <TranscriptErrors entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
       {/*
        * Floats over the top of the scroll container as the tail affordance floats over the
        * bottom; both sit outside the scroll box because a control in the flow changes the

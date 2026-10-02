@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
@@ -32,6 +33,9 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
         title="Asking the background service to apply this."
       />
     );
+  }
+  if (outcome.kind === "refused") {
+    return <InlineRefusal code={outcome.refusal.code} detail={outcome.refusal.detail} />;
   }
   const { result } = outcome;
   return (

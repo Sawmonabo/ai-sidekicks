@@ -1,22 +1,29 @@
-// Reaches the rows before the window this console was given. A resumed stream replays from
+// Reaches the rows before the window this transcript was given. A resumed stream replays from
 // the last acknowledged position, so the window's head can sit mid-log, and only a backward
 // `beforeCursor` page moves it. This holds a position and a verdict, not rows: pages go
 // into the session store through `prependEarlierEvents`.
 
-import {
-  type EventCursor,
-  type SessionId,
-  type TimelineReadRequest,
-  type TimelineReadResponse,
-} from "@ai-sidekicks/contracts";
+import { type TimelineReadRequest, type TimelineReadResponse } from "@ai-sidekicks/contracts";
 
-import { TRANSCRIPT_EARLIER_PAGE_ROWS } from "../frame/frame-caps.js";
+import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
 import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { type CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
+
+/**
+ * Rows one backward read of a session's log asks the daemon for.
+ *
+ * Well under the contract's `TIMELINE_READ_LIMIT_MAX` (256 rows): that is the most a producer
+ * may answer with, this is what one press should land in a viewport retaining
+ * `TRANSCRIPT_WINDOW_ROW_CAP`. The wire ceiling would fill most of a press with rows the
+ * reader scrolls past, and three presses would exceed the retention with the prune suppressed.
+ * Fifty is about a screenful and a half.
+ */
+const TRANSCRIPT_EARLIER_PAGE_ROWS = 50;
 
 /** What the transcript renders about the rows before this window. */
 export interface EarlierHistoryState {
@@ -32,8 +39,6 @@ export interface EarlierHistoryState {
   readonly isReading: boolean;
   /** Why the last attempt did not land, until the next one is made. */
   readonly refusal: Refusal | undefined;
-  /** Rows this walk has admitted at the head, across every page it has read. */
-  readonly admittedRowCount: number;
 }
 
 /**
@@ -75,7 +80,9 @@ export class EarlierHistoryReader {
   #exhausted = true;
   #isReading = false;
   #refusal: Refusal | undefined;
-  #admittedRowCount = 0;
+  /** The state last read, held so a reader re-asking with nothing changed gets the same value. */
+  #state: EarlierHistoryState | undefined;
+  readonly #changes = new Emitter<void>("earlier history state");
 
   /** Whether this walk's read line is over. True once and never false again. */
   public get isAbandoned(): boolean {
@@ -94,16 +101,24 @@ export class EarlierHistoryReader {
 
   /**
    * What the transcript should render, read against the store as it stands. The store is
-   * passed in, not held, because the walk's base is the store's fact.
+   * passed in, not held, because the walk's base is the store's fact. The same value until
+   * the walk or the store's window moves, so it can serve as an external store's snapshot.
    */
   public state(sessionStore: SessionStore): EarlierHistoryState {
     this.#rebaseIfWindowMoved(sessionStore);
-    return {
+    this.#state ??= {
       canLoadEarlier: !this.#exhausted && !this.#isReading && this.#nextBeforeCursor !== undefined,
       isReading: this.#isReading,
       refusal: this.#refusal,
-      admittedRowCount: this.#admittedRowCount,
     };
+    return this.#state;
+  }
+
+  /** Hears every change the walk itself makes; a move of the store's window is the store's. */
+  public subscribe(onChange: () => void): Unsubscribe {
+    return this.#changes.subscribe(() => {
+      onChange();
+    });
   }
 
   /**
@@ -123,14 +138,13 @@ export class EarlierHistoryReader {
     }
     this.#isReading = true;
     this.#refusal = undefined;
+    this.#announceChange();
     const round = this.#readLine.openRound();
     try {
       const reply = await readEarlierPage(
         {
-          // `SessionId` and `EventCursor` are markers over wire strings that both came off the
-          // wire; the casts stay local because a feature may import no other feature.
-          sessionId: sessionStore.sessionId as SessionId,
-          beforeCursor: beforeCursor as EventCursor,
+          sessionId: heldIdAsWireId(sessionStore.sessionId),
+          beforeCursor: heldIdAsWireId(beforeCursor),
           limit: TRANSCRIPT_EARLIER_PAGE_ROWS,
         },
         { signal: round.signal },
@@ -149,18 +163,23 @@ export class EarlierHistoryReader {
         return;
       }
       const page = readEarlierTimelinePage(reply.value);
-      // The rows go to the store and the position stays here; the admitted count shows a page
-      // the log already held as one that added nothing. Both install only while this page's
+      // The rows go to the store and the position stays here. Both install only while this page's
       // window is still the store's, or the walk would keep asking from a cursor naming the
       // old head.
       baseWindowGeneration.settle(() => {
-        this.#admittedRowCount += sessionStore.prependEarlierEvents(page.events).admitted;
+        sessionStore.prependEarlierEvents(page.events);
         this.#nextBeforeCursor = page.nextBeforeCursor;
         this.#exhausted = !page.hasEarlierRows || page.nextBeforeCursor === undefined;
       });
     } finally {
       this.#isReading = false;
+      this.#announceChange();
     }
+  }
+
+  #announceChange(): void {
+    this.#state = undefined;
+    this.#changes.emit(undefined);
   }
 
   /**
@@ -184,7 +203,9 @@ export class EarlierHistoryReader {
     // refusal.
     this.#exhausted = windowHeadCursor === undefined;
     this.#refusal = undefined;
-    this.#admittedRowCount = 0;
+    // Not announced: a rebase runs inside a read of the state, after the store already told
+    // its subscribers the window moved.
+    this.#state = undefined;
     return windowGeneration;
   }
 }

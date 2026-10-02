@@ -35,6 +35,9 @@ export const CONTROL_CAPABILITY_GATE: Readonly<
   interrupt: undefined,
 };
 
+/** The capability-gated half. `pause`, `resume` and `interrupt` are never gated, so not here. */
+const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer"];
+
 /** What is offered for one run: the orchestration controls, and the capability-gated one. */
 export interface OfferedRunControls {
   /** Never driver-gated: pause or resume, whichever the state admits, and stop. */
@@ -80,6 +83,3 @@ export function offeredRunControls(
     overflow: OVERFLOW_CONTROLS.filter((control) => isControlOffered(control, readout, run.runId)),
   };
 }
-
-/** The capability-gated half. `pause`, `resume` and `interrupt` are never gated, so not here. */
-const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer"];

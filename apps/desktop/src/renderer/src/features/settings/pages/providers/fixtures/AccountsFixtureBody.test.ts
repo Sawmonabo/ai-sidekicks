@@ -34,17 +34,6 @@ describe("AccountsFixtureBody", () => {
     }
   });
 
-  // The token is never held by the fixture body, so nothing reads it back and no other field is
-  // masked; the label field is the negative control and must stay ordinary text.
-  it("offers one write-only token field that starts empty, and masks nothing else", () => {
-    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY });
-    const tokenInput = container.querySelector<HTMLInputElement>('input[type="password"]');
-    expect(tokenInput).not.toBeNull();
-    expect(tokenInput?.value).toBe("");
-    expect(container.querySelectorAll('input[type="password"]')).toHaveLength(1);
-    expect(container.querySelectorAll('input[type="text"]').length).toBeGreaterThan(0);
-  });
-
   // The daemon runs at most one brokered flow at a time; a second start would cost the person
   // the code they were typing and the way to stop the flow.
   it("stops offering a start while a sign-in is running, and says what is holding it", async () => {

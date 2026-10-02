@@ -21,11 +21,6 @@ export type TerminalEmulatorModule = Pick<
 export class TerminalEmulatorLoader {
   #modulePromise: Promise<TerminalEmulatorModule> | undefined;
 
-  /** Whether the chunk has been requested yet. */
-  public get isLoadStarted(): boolean {
-    return this.#modulePromise !== undefined;
-  }
-
   /**
    * The emulator chunk, fetched once; every later call gets the same promise, so panes
    * mounting together share one fetch.

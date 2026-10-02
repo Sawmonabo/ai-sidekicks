@@ -1,5 +1,4 @@
-/* The new-session draft. The buttons take the `.meridian-sessions__start` shape (padding,
-   edge, radius, `cursor: default`) because they sit beside it in one row. */
+/* The new-session draft and its buttons. */
 
 .meridian-new-session__open,
 .meridian-new-session__discard,

@@ -38,7 +38,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   return (
     <>
       {agentListState.kind === "not-loaded" ? (
-        <Nothing kind="not-loaded" title="Reading this session's agents" />
+        <Nothing kind="not-loaded" title="Reading this session's sidekicks" />
       ) : null}
       {agentListState.kind === "failed" ? (
         <RefusalCard

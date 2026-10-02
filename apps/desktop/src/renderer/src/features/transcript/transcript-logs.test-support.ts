@@ -2,6 +2,7 @@
 // `SessionStore` with a real batch applied) with no DOM. The harness that mounts a feed is
 // `feed/components/TranscriptFeed.test-support.tsx`.
 // Every event carries a real row id, because the hydrated-event read is keyed by it.
+
 import { EVENT_ID_STEM } from "../../../../../fixtures/scenarios/transcript-states.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
@@ -25,6 +26,12 @@ export function transcriptFixtureEventId(sequence: number): string {
   return `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`;
 }
 
+/** A run that has ENDED, so a case can name the run group it expects a header for. */
+export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
+
+/** A run still going, so a case can tell an open run group from a closed one. */
+export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
+
 /** A real store holding a log of `count` run events, oldest first. */
 export function openSessionStoreWithFeedLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
@@ -36,21 +43,15 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
       sequence: index,
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(index),
-      payload: { sessionId: SESSION_ID, runId: "019b793b-7b60-740e-8110-d1a4c1150111" },
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     })),
   );
   return sessionStore;
 }
 
-/** A run that has ENDED, so a case can name the run group it expects a header for. */
-export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
-
-/** A run still going, so a case can tell an open run group from a closed one. */
-export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
-
 /**
  * A live run whose rows are tool rows, the only cards that carry a disclosure, so a case can
- * press a reader's expansion and watch the lease round trip out of the row and back.
+ * press a reader's expansion and watch the retained-state round trip out of the row and back.
  */
 export function openSessionStoreWithToolRows(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });

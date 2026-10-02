@@ -80,13 +80,6 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
           </>
         )}
       </span>
-      {runGroup.hasIncompleteChildExpand ? (
-        <Nothing
-          kind="not-loaded"
-          placement="inline"
-          title="A child run in this run group is not fully expanded."
-        />
-      ) : null}
       {/* Only while open: a folded run group draws its header and receipt and nothing else. */}
       {props.isOpen ? <RunGroupBody runGroup={runGroup} /> : null}
     </div>

@@ -4,13 +4,17 @@
 // Nothing downloads or restarts without a press: the download control exists only on the
 // `available` arm and the restart control only on `ready`, the updater's word that the
 // download completed. The console never derives readiness from a percent, and only
-// `downloading` carries one and renders a bar. A call that throws or rejects is not caught
-// here. Under the read-out sits the switch for the machine setting `updatesAutomatic`.
+// `downloading` carries one and renders a bar. A control the updater refuses draws the
+// updater's own words under the controls, which stay drawn. Under the read-out sits the switch
+// for the machine setting `updatesAutomatic`, which draws a refused write the same way.
 
 import type { UpdateState } from "@shared/preload-api.js";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { PreferenceToggleRow } from "../../../components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "../../../machine-settings/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
@@ -34,11 +38,20 @@ const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>>
   error: "Update state read. The updater reported a failure.",
 };
 
+/** The subsystem a refused updater control names as its author. */
+const UPDATER_CONTROL_ORIGIN = "updater-control";
+
+/** The code a rejected updater control that carried none of its own is reported under. */
+const UPDATER_CONTROL_FAILED = "updater-control-failed";
+
 /** What the update block is handed. */
 export interface UpdatesBlockProps {
   readonly updater: UpdaterCalls;
   /** The machine settings the automatic-check switch reads and writes. */
-  readonly preferences: Pick<MachineSettingsBinding, "settings" | "isPending" | "choose">;
+  readonly preferences: Pick<
+    MachineSettingsBinding,
+    "settings" | "isPending" | "refusalFor" | "choose"
+  >;
 }
 
 /** The updater's state, the controls that ask it to move, and the automatic-check switch. */
@@ -48,6 +61,14 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   // Said once, when the updater read lands.
   useSettlementAnnouncement(updateSettlementSentence(reading));
   const status = reading.kind === "state" ? reading.state.status : undefined;
+  const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
+  const press = (request: () => Promise<void>): void => {
+    setControlRefusal(undefined);
+    request().catch((error: unknown) => {
+      setControlRefusal(coerceToRefusal(error, UPDATER_CONTROL_ORIGIN, UPDATER_CONTROL_FAILED));
+    });
+  };
+  const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">
@@ -60,7 +81,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
           type="button"
           className="meridian-settings-page__action meridian-action-button"
           onClick={() => {
-            void updater.requestCheck();
+            press(() => updater.requestCheck());
           }}
         >
           Check now
@@ -70,7 +91,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
             type="button"
             className="meridian-settings-page__action meridian-action-button"
             onClick={() => {
-              void updater.requestDownload();
+              press(() => updater.requestDownload());
             }}
           >
             Download
@@ -82,13 +103,16 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
             className="meridian-settings-page__action meridian-action-button"
             aria-label="Restart to apply the downloaded update"
             onClick={() => {
-              void updater.requestRestart();
+              press(() => updater.requestRestart());
             }}
           >
             Restart to apply
           </button>
         ) : null}
       </div>
+      {controlRefusal === undefined ? null : (
+        <InlineRefusal code={controlRefusal.code} detail={controlRefusal.detail} />
+      )}
 
       <PreferenceToggleRow
         label="Check for updates automatically"
@@ -98,17 +122,21 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
           preferences.choose("updatesAutomatic", checked);
         }}
       />
+      {preferenceRefusal === undefined ? null : (
+        <InlineRefusal code={preferenceRefusal.code} detail={preferenceRefusal.detail} />
+      )}
     </section>
   );
 }
 
 /**
- * The one sentence this block announces, or `undefined` while nothing has settled.
+ * The one sentence this block announces, or `undefined` while no state has settled; a refused
+ * read is drawn as a refusal, which speaks for itself.
  *
  * The `error` arm appends the updater's message so the announcement says what failed.
  */
 function updateSettlementSentence(reading: UpdateReading): string | undefined {
-  if (reading.kind === "not-read") {
+  if (reading.kind !== "state") {
     return undefined;
   }
   return reading.state.status === "error"

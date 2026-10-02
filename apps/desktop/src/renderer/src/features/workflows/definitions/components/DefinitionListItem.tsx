@@ -7,10 +7,11 @@ import { memo } from "react";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import type { OpenDefinition, WorkflowDefinitionRow } from "../definition-rows.js";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
+import type { OpenDefinition } from "../definition-rows.js";
 
 interface DefinitionListItemProps {
-  readonly definition: WorkflowDefinitionRow;
+  readonly definition: WorkflowDefinitionSummary;
   /** Required-and-nullable rather than optional: every construction site sets it. */
   readonly onOpenDefinition: OpenDefinition | undefined;
 }

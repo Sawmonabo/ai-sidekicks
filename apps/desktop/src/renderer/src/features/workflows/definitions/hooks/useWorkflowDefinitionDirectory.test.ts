@@ -4,7 +4,8 @@ import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
+import { PROBE_SESSION_ID } from "../../workflows-probe.test-support.js";
+import { settle } from "@test/helpers/settle.js";
 import type { WorkflowDefinitionDirectory } from "./useWorkflowDefinitionDirectory.js";
 import {
   definitionIds,

@@ -11,6 +11,7 @@ import type { ComposerSendCalls } from "../send-dispatch.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerRunTarget } from "../../composer-target.js";
+import { composerDraftKey } from "../draft-key.js";
 import type { SendController } from "../send-controller-contract.js";
 import { useSendController } from "./useSendController.js";
 import { RUN_TARGET } from "../send-router.test-support.js";
@@ -44,6 +45,7 @@ function AddressableProbe(props: {
 interface DrivenComposer {
   readonly calls: ParkedDaemonCalls;
   latest(): SendController;
+  draftAt(sessionId: string): string | undefined;
   beginSend(body: string): Promise<void>;
   reAddressTo(sessionId: string): void;
 }
@@ -65,6 +67,7 @@ function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenC
       }}
     />
   );
+  let currentSessionId = initialSessionId;
   const view = render(renderAt(initialSessionId));
   const latestController = (): SendController => {
     if (latest === undefined) {
@@ -87,13 +90,14 @@ function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenC
   return {
     calls,
     latest: latestController,
+    draftAt: (sessionId: string) =>
+      draftStore.read(composerDraftKey(sessionTarget(sessionId)))?.text,
     beginSend: (body: string) => {
-      act(() => {
-        latestController().changeText(body);
-      });
+      draftStore.write(composerDraftKey(sessionTarget(currentSessionId)), body);
       return begin(() => latestController().send());
     },
     reAddressTo: (sessionId: string) => {
+      currentSessionId = sessionId;
       act(() => {
         view.rerender(renderAt(sessionId));
       });
@@ -124,7 +128,7 @@ describe("useSendController — a settlement is keyed to the address it was sent
       await firstSend;
     });
 
-    expect(driven.latest().text).toBe("actually, hold on");
+    expect(driven.draftAt(SESSION_A)).toBe("actually, hold on");
     expect(driven.latest().refusal).toBeUndefined();
 
     await act(async () => {

@@ -1,7 +1,4 @@
 // A workspace's record: the durable side of a repo mount.
-//
-// The mount's health is deliberately not a facet: a record showing a health it never read
-// would draw a "not checked" absence as if it were a reading.
 
 import { EntityRecord } from "./EntityRecord.js";
 import {

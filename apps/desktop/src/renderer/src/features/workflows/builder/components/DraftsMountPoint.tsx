@@ -10,7 +10,7 @@ import type { DraftStore } from "@renderer/store/draft-store.js";
 /** What the builder pane hands the inspector's draft body. */
 export interface DraftsMount {
   /** The definition whose drafts these are. Opaque and wire-verbatim. */
-  readonly workflowDefinitionId: string;
+  readonly definitionId: string;
   /**
    * This window's in-memory draft store, never the durable one: unsent text does not survive a
    * restart. It also carries the notice for an evicted draft, which a body rendering drafts
@@ -27,7 +27,7 @@ export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 
 /** The drafts mount plus the body, once there is one. */
 export interface DraftsMountPointProps extends DraftsMount {
-  /** The body, once there is one. Absent in the product today, so the empty frame stands. */
+  /** The body; while it is absent the empty frame stands. */
   readonly body?: DraftsBody;
 }
 

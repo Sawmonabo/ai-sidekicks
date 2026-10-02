@@ -1,4 +1,5 @@
-// One row's box: its own error boundary and the element the window measures. The position
+// One row's box: its own error boundary and the element the window measures. A boundary per row
+// rather than per feed, so a single row that throws does not blank the log around it. The position
 // pair (`aria-posinset`, `aria-setsize`) and the index attribute the virtualizer resolves an
 // element through are written by `WindowedListRow`, whose fail-closed arm declares the set size
 // unknown when a painted row's index outlives a pruned row count, so a reader is never told
@@ -7,7 +8,7 @@
 import { memo, useCallback } from "react";
 
 import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { TranscriptRowGroup } from "./TranscriptRowGroup.js";
+import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
 
@@ -59,9 +60,7 @@ export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => R
         totalRowCount={props.totalRowCount}
         rowRef={attachRowElement}
       >
-        <TranscriptRowGroup groupLabel="This entry">
-          {props.renderRow(props.row)}
-        </TranscriptRowGroup>
+        <ErrorBoundary regionName="This entry">{props.renderRow(props.row)}</ErrorBoundary>
       </WindowedListRow>
     );
   });

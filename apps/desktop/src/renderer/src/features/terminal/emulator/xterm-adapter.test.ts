@@ -1,4 +1,4 @@
-// The emulator wrapper: scrollback kept across a move and capped, the buffer released on
+// The emulator wrapper: scrollback kept across a move, the buffer released on
 // teardown, the write gate on the library's own `disableStdin`, and printed links held to the
 // scheme allow-list. Sending a keystroke nobody was allowed to send is the expensive mistake on
 // a shared shell, so the gate is also shut while the emulator has no mount element.
@@ -15,7 +15,6 @@ import {
   emulatorElementsIn,
   mountedAdapter,
   trackAdapter,
-  writeLines,
   writeText,
 } from "./xterm-adapter.test-support.js";
 
@@ -37,15 +36,6 @@ describe("the emulator wrapper", () => {
     expect(emulatorElementsIn(nextMountElement)).toHaveLength(1);
     expect(adapter.serialize()).toContain("printed before the move");
     expect(adapter.isEmulatorLive).toBe(true);
-  });
-
-  it("caps the buffer at its scrollback rather than growing with the output", async () => {
-    const { adapter } = mountedAdapter({ scrollbackLines: 200 });
-    await writeLines(adapter, 2_000);
-    // The ceiling is scrollback plus the visible grid; the grid height is the environment's,
-    // so the claim is the bound.
-    expect(adapter.bufferLineCount).toBeGreaterThan(200);
-    expect(adapter.bufferLineCount).toBeLessThanOrEqual(200 + 100);
   });
 });
 

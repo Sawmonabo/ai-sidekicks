@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AGENT_LIBRARY_REFUSAL_ORIGIN, AgentLibraryView } from "./library-view.js";
-import { RegistryStub, definition, settle } from "./agent-library.test-support.js";
+import { RegistryStub, definition } from "./agent-library.test-support.js";
 
 const REVIEWER = definition();
 const AUDITOR = definition({ definitionId: "definition-2", name: "Auditor" });
@@ -25,10 +25,10 @@ describe("the agent registry view — one delete at a time", () => {
   it("asks the registry once, and tells the second row what is in the way", async () => {
     const { view, stub } = viewOverHeldDeletes();
     view.start();
-    await settle();
+    await stub.settle();
 
     void view.confirmDeletion(REVIEWER.definitionId);
-    await settle();
+    await stub.settle();
     await view.confirmDeletion(AUDITOR.definitionId);
 
     expect(stub.deletedIds).toStrictEqual([REVIEWER.definitionId]);
@@ -45,10 +45,10 @@ describe("the agent registry view — one delete at a time", () => {
     // removed record would stay on screen.
     const { view, stub } = viewOverHeldDeletes();
     view.start();
-    await settle();
+    await stub.settle();
 
     void view.confirmDeletion(REVIEWER.definitionId);
-    await settle();
+    await stub.settle();
     await view.confirmDeletion(AUDITOR.definitionId);
     await stub.releaseDeletes();
 
@@ -68,12 +68,12 @@ describe("the agent registry view — one delete at a time", () => {
     });
     const view = new AgentLibraryView(stub.clock, stub.calls);
     view.start();
-    await settle();
+    await stub.settle();
 
     await view.confirmDeletion(REVIEWER.definitionId);
-    await settle();
+    await stub.settle();
     await view.confirmDeletion(AUDITOR.definitionId);
-    await settle();
+    await stub.settle();
 
     expect(stub.deletedIds).toStrictEqual([REVIEWER.definitionId, AUDITOR.definitionId]);
     expect(view.snapshot().refusalByDefinitionId.size).toBe(0);
@@ -81,8 +81,8 @@ describe("the agent registry view — one delete at a time", () => {
 });
 
 describe("the agent registry view — a delete the daemon rejects", () => {
-  it("surfaces the rejection and gives the lock back so the next delete is performed", async () => {
-    // A held lock would disable every delete control; a caught rejection would hide the failure.
+  it("draws the daemon's refusal on the row and gives the lock back", async () => {
+    // A held lock would disable every delete control; an escaped rejection would show nothing.
     const stub = new RegistryStub({ lists: [[REVIEWER, AUDITOR]] });
     const attempts: string[] = [];
     const view = new AgentLibraryView(stub.clock, {
@@ -93,17 +93,21 @@ describe("the agent registry view — a delete the daemon rejects", () => {
       },
     });
     view.start();
-    await settle();
+    await stub.settle();
 
-    await expect(view.confirmDeletion(REVIEWER.definitionId)).rejects.toThrow(
-      "the daemon refused the delete",
-    );
+    await view.confirmDeletion(REVIEWER.definitionId);
 
     expect(view.snapshot().deletingId).toBeUndefined();
-    await expect(view.confirmDeletion(AUDITOR.definitionId)).rejects.toThrow(
+    expect(view.snapshot().refusalByDefinitionId.get(REVIEWER.definitionId)?.detail).toBe(
       "the daemon refused the delete",
     );
+    await view.confirmDeletion(AUDITOR.definitionId);
     expect(attempts).toStrictEqual([REVIEWER.definitionId, AUDITOR.definitionId]);
-    expect(view.snapshot().refusalByDefinitionId.size).toBe(0);
+    expect(view.snapshot().reading).toStrictEqual({
+      kind: "rows",
+      rows: expect.arrayContaining([
+        expect.objectContaining({ definitionId: REVIEWER.definitionId }),
+      ]),
+    });
   });
 });

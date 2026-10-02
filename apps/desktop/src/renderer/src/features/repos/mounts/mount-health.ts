@@ -13,7 +13,6 @@ import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 /**
-/**
  * One axis reading as a card renders it. `label` is the wire word, rendered verbatim so it can
  * be searched in the daemon's vocabulary; `sentence` is the console's prose for the next move.
  */
@@ -72,8 +71,8 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisPresentation>
  * so a control is never disabled without a reason.
  */
 export type BindControlAvailability =
-  | { readonly offered: true }
-  | { readonly offered: false; readonly withheldBecause: string };
+  | { readonly available: true }
+  | { readonly available: false; readonly unavailableBecause: string };
 
 /** How this mount's health reads. */
 export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
@@ -85,7 +84,7 @@ export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
   return { ...LIFECYCLE_READINGS[state], label: state };
 }
 
-const BIND_CONTROLS_OFFERED: BindControlAvailability = { offered: true };
+const BIND_CONTROLS_AVAILABLE: BindControlAvailability = { available: true };
 
 /**
  * Whether one workspace's binding controls are live, and what holds them. The held arm carries
@@ -93,7 +92,7 @@ const BIND_CONTROLS_OFFERED: BindControlAvailability = { offered: true };
  */
 export type WorkspaceControlAvailability =
   | { readonly live: true }
-  | { readonly live: false; readonly heldBecause: string };
+  | { readonly live: false; readonly unavailableBecause: string };
 
 /**
  * A fail-closed projection of daemon-reported state, not an eligibility rule: the daemon alone
@@ -103,17 +102,17 @@ export type WorkspaceControlAvailability =
 export function readBindControlAvailability(mount: RepoMountReadResponse): BindControlAvailability {
   if (mount.state !== "attached") {
     return {
-      offered: false,
-      withheldBecause: LIFECYCLE_READINGS[mount.state].sentence,
+      available: false,
+      unavailableBecause: LIFECYCLE_READINGS[mount.state].sentence,
     };
   }
   if (mount.health.status !== "healthy") {
     return {
-      offered: false,
-      withheldBecause: HEALTH_READINGS[mount.health.status].sentence,
+      available: false,
+      unavailableBecause: HEALTH_READINGS[mount.health.status].sentence,
     };
   }
-  return BIND_CONTROLS_OFFERED;
+  return BIND_CONTROLS_AVAILABLE;
 }
 
 const WORKSPACE_CONTROLS_LIVE: WorkspaceControlAvailability = { live: true };
@@ -127,17 +126,19 @@ export function readWorkspaceControlAvailability(
   bindControls: BindControlAvailability,
   pendingMode: ExecutionMode | undefined,
 ): WorkspaceControlAvailability {
-  if (!bindControls.offered) {
-    return { live: false, heldBecause: bindControls.withheldBecause };
+  if (!bindControls.available) {
+    return { live: false, unavailableBecause: bindControls.unavailableBecause };
   }
   if (pendingMode !== undefined) {
     // One in-flight switch, one wording, wherever the user meets it.
-    return { live: false, heldBecause: selectionInFlightCopy(pendingMode) };
+    return { live: false, unavailableBecause: selectionInFlightCopy(pendingMode) };
   }
   return WORKSPACE_CONTROLS_LIVE;
 }
 
 /** The sentence a workspace's binding controls are closed with, or `undefined` while open. */
-export function controlHoldSentence(posture: WorkspaceControlAvailability): string | undefined {
-  return posture.live ? undefined : posture.heldBecause;
+export function controlHoldSentence(
+  availability: WorkspaceControlAvailability,
+): string | undefined {
+  return availability.live ? undefined : availability.unavailableBecause;
 }

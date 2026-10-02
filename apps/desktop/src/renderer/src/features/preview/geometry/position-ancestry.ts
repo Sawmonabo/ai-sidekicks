@@ -9,7 +9,7 @@ import { observeElementResize } from "@renderer/lib/element-resize.js";
 
 /** Every ancestor whose relayout can move this element, innermost first, up to the body. */
 export function readPositionAncestry(element: Element): readonly Element[] {
-  const boundary = typeof document === "undefined" ? null : document.body;
+  const boundary = document.body;
   const ancestors: Element[] = [];
   for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
     ancestors.push(ancestor);
@@ -25,7 +25,7 @@ export function observeAncestorReorder(
   ancestors: readonly Element[],
   onReorder: () => void,
 ): Unsubscribe {
-  if (typeof MutationObserver === "undefined" || ancestors.length === 0) {
+  if (ancestors.length === 0) {
     return () => undefined;
   }
   const observer = new MutationObserver(() => {
@@ -75,11 +75,6 @@ export class SiblingSizeObservers {
     }
   }
 
-  /** How many boxes are armed; zero after `dispose`. */
-  public get watchedCount(): number {
-    return this.#detachersByElement.size;
-  }
-
   public dispose(): void {
     this.watch([]);
   }
@@ -97,7 +92,7 @@ export function observeLayoutAttributes(
   onLayoutAttributeChange: () => void,
 ): Unsubscribe {
   const outermostAncestor = ancestors.at(-1);
-  if (typeof MutationObserver === "undefined" || outermostAncestor === undefined) {
+  if (outermostAncestor === undefined) {
     return () => undefined;
   }
   const observer = new MutationObserver(() => {

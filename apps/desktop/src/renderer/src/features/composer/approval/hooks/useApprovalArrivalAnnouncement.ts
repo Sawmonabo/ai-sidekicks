@@ -39,16 +39,14 @@ export function useApprovalArrivalAnnouncement(
         ? `A decision is waiting: ${first.category} requested by ${first.requestedBy}.`
         : `${String(arrived.length)} decisions are waiting.`,
     );
-    if (typeof document === "undefined") {
-      return;
-    }
     const focused = document.activeElement;
     if (!(focused instanceof HTMLElement) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
       return;
     }
-    // Scoped to this pane, since a pane layout may hold a second one.
+    // Scoped to this pane, since a pane layout may hold a second one. The focus move never
+    // scrolls the conversation.
     const action = findApprovalCardAction(cardRootRef.current ?? document, first.id);
-    action?.focus();
+    action?.focus({ preventScroll: true });
   }, [pending, cardRootRef]);
 
   return announcement;

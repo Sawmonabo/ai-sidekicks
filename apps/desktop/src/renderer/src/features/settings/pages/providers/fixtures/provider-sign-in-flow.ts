@@ -6,8 +6,6 @@
 // A token exists here only for the length of one registration call, never in a state.
 
 import {
-  BILLING_MODES,
-  PROVIDER_NAMES,
   type BillingMode,
   type ProviderAccountId,
   type ProviderAccountLoginCancelResponse,
@@ -17,6 +15,7 @@ import {
   type ProviderName,
 } from "@ai-sidekicks/contracts";
 
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /**
@@ -162,6 +161,9 @@ export const IDLE_TOKEN_REGISTRATION: TokenRegistrationOutcome = { kind: "idle" 
 /** The subsystem name the refusals the form raises on its own carry. */
 export const TOKEN_REGISTRATION_REFUSAL_ORIGIN = "provider-account-registration";
 
+/** The code a rejected registration that carried none of its own is reported under. */
+const REGISTRATION_FAILED_CODE = "registration-failed";
+
 /** The three fields a registration needs beside the write-only token. */
 export interface AdmittedRegistrationFields {
   readonly provider: ProviderName;
@@ -179,32 +181,23 @@ export type RegistrationFieldReading =
  *
  * Runs before the token exists in the submit handler, so a refused label cannot discard a
  * typed credential; a label of only spaces passes the browser's `required` check and is
- * refused here. Every arm answers with a refusal rather than going quiet, and a refusal
- * never echoes the label, which is user content.
+ * refused here. The refusal never echoes the label, which is user content.
  */
 export function readRegistrationFields(typed: {
   readonly displayLabel: string;
-  readonly provider: string;
-  readonly billingMode: string;
+  readonly provider: ProviderName;
+  readonly billingMode: BillingMode;
 }): RegistrationFieldReading {
   const displayLabel = typed.displayLabel.trim();
   if (displayLabel === "") {
-    return registrationRefusal(
-      "registration-label-blank",
-      "Give the account a label with at least one visible character — spaces alone are not a name anything can be found by. Nothing was sent, and the token field still holds what you typed.",
-    );
-  }
-  if (!isProviderName(typed.provider)) {
-    return registrationRefusal(
-      "registration-provider-unadmitted",
-      "This window offers a provider the wire does not publish. Nothing was sent; pick one of the listed providers.",
-    );
-  }
-  if (!isBillingMode(typed.billingMode)) {
-    return registrationRefusal(
-      "registration-billing-mode-unadmitted",
-      "This window offers a billing mode the wire does not publish. Nothing was sent; pick one of the listed modes.",
-    );
+    return {
+      kind: "refused",
+      refusal: refuse(
+        TOKEN_REGISTRATION_REFUSAL_ORIGIN,
+        "registration-label-blank",
+        "Give the account a label with at least one visible character — spaces alone are not a name anything can be found by. Nothing was sent, and the token field still holds what you typed.",
+      ),
+    };
   }
   return {
     kind: "admitted",
@@ -216,26 +209,19 @@ export function readRegistrationFields(typed: {
  * Submit a registration, optionally carrying the one write-only token member.
  *
  * The caller composes the whole request, which keeps the token's lifetime inside its submit
- * handler; the outcome carries the account only, as the reply does.
+ * handler; the outcome carries the account only, as the reply does. A rejected call answers
+ * `refused` with the service's own words, so the form's control comes back.
  */
 export async function submitTokenRegistration(
   register: ProviderAccountRegisterCall,
   request: ProviderAccountRegisterRequest,
 ): Promise<TokenRegistrationOutcome> {
-  return { kind: "registered", account: (await register(request)).account };
-}
-
-/** One refusal of the form's own, so the origin is written once. */
-function registrationRefusal(code: string, detail: string): RegistrationFieldReading {
-  return { kind: "refused", refusal: refuse(TOKEN_REGISTRATION_REFUSAL_ORIGIN, code, detail) };
-}
-
-/** Narrow a select's string back to the closed provider set the wire admits. */
-function isProviderName(value: string): value is ProviderName {
-  return PROVIDER_NAMES.some((provider) => provider === value);
-}
-
-/** Narrow a select's string back to the closed billing vocabulary the wire admits. */
-function isBillingMode(value: string): value is BillingMode {
-  return BILLING_MODES.some((mode) => mode === value);
+  try {
+    return { kind: "registered", account: (await register(request)).account };
+  } catch (error) {
+    return {
+      kind: "refused",
+      refusal: coerceToRefusal(error, TOKEN_REGISTRATION_REFUSAL_ORIGIN, REGISTRATION_FAILED_CODE),
+    };
+  }
 }

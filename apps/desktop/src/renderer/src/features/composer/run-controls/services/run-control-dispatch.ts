@@ -18,6 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
+import { AnsweredRunVersions } from "../../answered-run-versions.js";
 
 /** The three daemon methods the controls reach, each taking the contract's request. */
 export interface RunControlCalls {
@@ -66,7 +67,7 @@ export interface RunControlTarget {
 export class RunControlDispatcher {
   readonly #calls: RunControlCalls;
   readonly #mintIdempotencyKey: () => string;
-  readonly #freshComparandByRunId = new Map<string, number>();
+  readonly #answeredRunVersions = new AnsweredRunVersions();
 
   public constructor(
     calls: RunControlCalls,
@@ -78,14 +79,6 @@ export class RunControlDispatcher {
   }
 
   /**
-   * The comparand read off the daemon's own answers, one of the two readings
-   * `comparandFor` merges.
-   */
-  public freshComparandFor(runId: string): number | undefined {
-    return this.#freshComparandByRunId.get(runId);
-  }
-
-  /**
    * The comparand to send for a run: the newer of the daemon's last answer and the state
    * stream's reading. Both are monotonic per run. Preferring the cached one would pin every
    * later control to a stale version, and a refusal carries no `runVersion` to refresh it.
@@ -94,14 +87,7 @@ export class RunControlDispatcher {
   public comparandFor(runId: string, streamReading: number): number;
   public comparandFor(runId: string, streamReading: number | undefined): number | undefined;
   public comparandFor(runId: string, streamReading: number | undefined): number | undefined {
-    const cached = this.#freshComparandByRunId.get(runId);
-    if (cached === undefined) {
-      return streamReading;
-    }
-    if (streamReading === undefined) {
-      return cached;
-    }
-    return Math.max(cached, streamReading);
+    return this.#answeredRunVersions.comparandFor(runId, streamReading);
   }
 
   /** Pause via `run.pause`; the intervention union has no pause arm. */
@@ -159,7 +145,7 @@ export class RunControlDispatcher {
     target: RunControlTarget,
     ack: RunControlAck,
   ): RunControlOutcome {
-    this.#freshComparandByRunId.set(target.runId, ack.runVersion);
+    this.#answeredRunVersions.record(target.runId, ack.runVersion);
     return { kind: "acknowledged", control, ack };
   }
 
@@ -169,7 +155,7 @@ export class RunControlDispatcher {
     request: InterventionRequestPayload,
   ): Promise<RunControlOutcome> {
     const response = await this.#calls.intervene(request);
-    this.#freshComparandByRunId.set(target.runId, response.runVersion);
+    this.#answeredRunVersions.record(target.runId, response.runVersion);
     return { kind: "settled", control, response };
   }
 }

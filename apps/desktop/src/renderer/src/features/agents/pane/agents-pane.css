@@ -19,7 +19,7 @@
   align-items: start;
 }
 
-@container (min-width: 720px) {
+@container (min-width: 45rem) {
   .meridian-agents__columns {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }

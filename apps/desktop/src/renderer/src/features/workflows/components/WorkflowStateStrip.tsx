@@ -1,8 +1,8 @@
-// What every workflows body leads with: one line saying what it is for, and whichever absence
+// What every workflows body leads with: one line saying what it is for, and whichever empty state
 // or refusal the current state calls for. It draws no heading and no frame: the pane frame's
 // crumb trail is the pane's accessible name, so a second heading would name it twice.
-// A refusal is not an absence: it keeps the daemon's code in mono and message verbatim, and
-// folding it into an absence would drop the code a person pastes into a search.
+// A refusal is not an empty state: it keeps the daemon's code in mono and message verbatim, and
+// folding it into an empty state would drop the code a person pastes into a search.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";

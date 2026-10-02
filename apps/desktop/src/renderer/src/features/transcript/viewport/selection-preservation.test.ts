@@ -1,4 +1,4 @@
-// The row selection guard over a real jsdom document. A migration is simulated by replacing the
+// The row selection guard over a real happy-dom document. A migration is simulated by replacing the
 // row's inner HTML with markup holding the same characters, which is what a settled block
 // becoming a static subtree does to the nodes a selection was anchored in.
 
@@ -70,8 +70,8 @@ describe("RowSelectionGuard", () => {
     expect(selectedText()).toBe("first");
 
     migrateBlocks(row);
-    // The condition a migration produces: the selection's nodes are off the document. A browser
-    // collapses here while jsdom keeps the detached range, so the guard reads the anchor's
+    // The condition a migration produces: the selection's nodes are off the document. An engine
+    // may keep the detached range rather than collapse it, so the guard reads the anchor's
     // connectedness.
     expect(window.getSelection()?.anchorNode?.isConnected).toBe(false);
 

@@ -94,7 +94,7 @@ describe("ingest client — the payload reaches the daemon", () => {
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
-  it("replaces the declaration with the derived truth, and never the other way round", async () => {
+  it("replaces the declaration with the derived values, and never the other way round", async () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
@@ -109,11 +109,10 @@ describe("ingest client — the payload reaches the daemon", () => {
     });
     // The declaration survives as the caller gave it, never overwritten in place.
     expect(entry?.declared.declaredName).toBe("notes.md");
-    expect(client.attachmentArtifactIds()).toStrictEqual(["artifact-9"]);
   });
 });
 
-describe("ingest client — the ledger advances on what the daemon acknowledged", () => {
+describe("ingest client — the record advances on what the daemon acknowledged", () => {
   it("refuses an acknowledgement that names another stream", async () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
@@ -129,7 +128,7 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
   });
 
   it("refuses a total that did not advance rather than re-slicing forever", async () => {
-    // The offset is the ledger's, so a client accepting a standing total would resend the same
+    // The offset is the record's, so a client accepting a standing total would resend the same
     // chunk forever; the refusal ends the loop and the call count proves it.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
@@ -215,7 +214,7 @@ describe("ingest client — abandonment, including mid-call", () => {
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
 
-    // Abandoned before the daemon answered: no stream is named in the ledger yet.
+    // Abandoned before the daemon answered: no stream is named in the record yet.
     client.abandon("attachment-1");
     expect(port.abortedIngestIds).toStrictEqual([]);
     gate.open();
@@ -241,7 +240,7 @@ describe("ingest client — abandonment, including mid-call", () => {
     await crossMacrotaskBoundary();
 
     // One chunk in flight, one abandonment, no second chunk. The abort rode the abandonment,
-    // because the stream identity was already in the ledger.
+    // because the stream identity was already in the record.
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("abandoned");
     expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
@@ -269,7 +268,7 @@ describe("ingest client — disposal gives every open spool back", () => {
   }
 
   it("aborts every open stream and leaves the completed one alone", async () => {
-    // Ingest ids live only in the ledger, so disposing it first left these spools and their
+    // Ingest ids live only in the record, so disposing it first left these spools and their
     // capacity reservations standing until the reaper ran.
     const { port, client } = await stagedWithTwoOpenAndOneComplete();
 
@@ -294,7 +293,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // The artifact is minted, so nothing is left to send. The member is absent, not emptied.
     expect(holdsPayload(entry)).toBe(false);
     expect(entry?.payload).toBeUndefined();
-    // Everything a card reads survives: the name, the declared size and the derived truth.
+    // Everything a card reads survives: the name, the declared size and the derived values.
     expect(entry?.declared.declaredName).toBe("notes.md");
     expect(entry?.declared.byteLength).toBe(300);
     expect(entry?.derived?.artifactId).toBe("artifact-9");

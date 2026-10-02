@@ -1,4 +1,4 @@
-// The page-wide WebGL context ledger and the page's one instance of it.
+// The page-wide WebGL context pool and the page's one instance of it.
 //
 // `@xterm/addon-webgl@0.19.0` never calls `loseContext()`, so a disposed addon's context
 // lives until its canvas is collected, while Chromium drops the oldest live context when a
@@ -19,8 +19,8 @@
 import { TERMINAL_WEBGL_POOL_CAP } from "../terminal-caps.js";
 
 /**
- * One created context's standing in the ledger, minted by `acquire` and handed back to
- * `release` or `reclaim`. Compared by identity: a lease this ledger did not mint is refused.
+ * One created context's standing in the pool, minted by `acquire` and handed back to
+ * `release` or `reclaim`. Compared by identity: a lease this pool did not mint is refused.
  */
 export interface TerminalContextLease {
   /** The terminal the context was taken for. Read by the groupings, never matched on. */
@@ -28,7 +28,7 @@ export interface TerminalContextLease {
 }
 
 /**
- * The WebGL context ledger. A class because the contexts created and the contexts drawn on now
+ * The WebGL context pool. A class because the contexts created and the contexts drawn on now
  * are separate counts, and a hand-back names its own context so one pane's teardown cannot
  * retire a sibling pane's renderer.
  */
@@ -37,6 +37,7 @@ export class TerminalRendererPool {
   readonly #heldLeases = new Set<TerminalContextLease>();
   #createdContextCount = 0;
 
+  /** A pool that grants at most `cap` contexts over the page's life. */
   public constructor(cap: number = TERMINAL_WEBGL_POOL_CAP) {
     this.#cap = cap;
   }
@@ -52,10 +53,6 @@ export class TerminalRendererPool {
    */
   public get createdContextCount(): number {
     return this.#createdContextCount;
-  }
-
-  public get cap(): number {
-    return this.#cap;
   }
 
   /** Whether the page has spent its whole allowance. Every later terminal is DOM. */
@@ -96,7 +93,7 @@ export class TerminalRendererPool {
 
   /**
    * Stop drawing on this context and leave it counted, which is what a teardown does.
-   * Idempotent; a lease this ledger did not mint is ignored.
+   * Idempotent; a lease this pool did not mint is ignored.
    */
   public release(lease: TerminalContextLease): void {
     this.#heldLeases.delete(lease);
@@ -105,7 +102,7 @@ export class TerminalRendererPool {
   /**
    * Give the allowance back for a context that does not exist: the host has no WebGL2 and
    * the addon threw before making one, or the host lost the context and it was not restored.
-   * Idempotent, and ignores a lease the ledger is not holding so a stale token cannot spend
+   * Idempotent, and ignores a lease the pool is not holding so a stale token cannot spend
    * the allowance of a context still on screen.
    */
   public reclaim(lease: TerminalContextLease): void {
@@ -116,7 +113,7 @@ export class TerminalRendererPool {
 
   /**
    * Reclaim every context this terminal holds, for a caller with no lease, such as a suite
-   * clearing the page ledger. A pane's own teardown must not call this: it would reclaim a
+   * clearing the page pool. A pane's own teardown must not call this: it would reclaim a
    * sibling pane's live context too.
    */
   public reclaimEveryContextFor(terminalId: string): void {
@@ -128,5 +125,5 @@ export class TerminalRendererPool {
   }
 }
 
-/** The page's ledger. A test builds its own; nothing else does. */
+/** The page's pool. A test builds its own; nothing else does. */
 export const terminalRendererPool: TerminalRendererPool = new TerminalRendererPool();

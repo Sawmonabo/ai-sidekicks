@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts";
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { PageTabIcon } from "./PageTabIcon.js";
 import { activePageOf, pagesOf, type PageListReading } from "../page-list-reading.js";
 import {
@@ -108,7 +109,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
                 onClose(page.pageId);
               }}
             >
-              <Glyph name="close" size={11} />
+              <Glyph name="close" size={GLYPH_SIZE_ROW} />
             </button>
           </li>
         ))}

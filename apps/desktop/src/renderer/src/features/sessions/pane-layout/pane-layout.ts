@@ -47,10 +47,10 @@ const ADDRESS_KEY_SEPARATOR = "\u001f";
 /**
  * One pane address as a string that is equal to another exactly when both name the same pane.
  *
- * Kind plus entity, because the same run legitimately appears in a `runs` pane and an
- * `inspector`. A key rather than a predicate so the snapshot decoder can test "already
- * adopted" in a set instead of quadratically. Takes only the two members an address is made
- * of, so a `SessionPane` and an opened address are keyed by the same call.
+ * Kind plus entity, because one entity can be open in two panes of different kinds. A key
+ * rather than a predicate so the snapshot decoder can test "already adopted" in a set instead
+ * of quadratically. Takes only the two members an address is made of, so a `SessionPane` and
+ * an opened address are keyed by the same call.
  */
 export function paneAddressKey(address: Pick<SessionPane, "kind" | "entity">): string {
   const { entity } = address;

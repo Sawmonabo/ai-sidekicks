@@ -15,7 +15,7 @@ import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
-import { WORKTREE_STATE_PRESENTATION } from "../execution-root-model.js";
+import { WORKTREE_STATE_TONES } from "../execution-root-model.js";
 import {
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
@@ -36,7 +36,6 @@ export interface WorktreeCardProps {
 export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   const { record, nowMilliseconds } = props;
   const headingId = useId();
-  const statePresentation = WORKTREE_STATE_PRESENTATION[record.state];
 
   return (
     <article className="meridian-root-card" aria-labelledby={headingId}>
@@ -48,14 +47,12 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
           <WireFigure value={record.branchName} />
         </h4>
         <Chip
-          tone={statePresentation.tone}
+          tone={WORKTREE_STATE_TONES[record.state]}
           label={record.state}
           mono
           glyph={record.state === "failed" ? "alert" : "dot"}
         />
       </header>
-
-      <p className="meridian-root-card__meaning">{statePresentation.meaning}</p>
 
       <dl className="meridian-root-card__summary">
         {WORKTREE_SUMMARY_COLUMNS.map((column) => (

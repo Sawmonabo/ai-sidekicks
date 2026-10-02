@@ -1,4 +1,5 @@
-// Counts the moves of the run a pane shows, as a round number the pane's snapshot read is keyed on.
+// Counts the moves of the run a pane shows, as a refresh count the pane's snapshot read is keyed
+// on.
 // Event-driven, no timer: `SessionRefreshTriggers` watches the session store's own transitions
 // (no second subscription) and `RefreshScheduler` coalesces them. A new key supersedes the read
 // itself, so nothing here supersedes an in-flight answer. Frames are scoped to one run.
@@ -13,7 +14,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
-/** What one live-round reading is opened against. */
+/** What one live-refresh reading is opened against. */
 export interface WorkflowRunLiveRefreshOptions {
   /** The window's clock, which the coalescing window is measured on. */
   readonly clock: Clock;
@@ -37,9 +38,9 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   readonly #triggers: SessionRefreshTriggers | undefined;
   readonly #sessionStore: SessionStore | undefined;
   readonly #workflowRunId: string | undefined;
-  readonly #changes = new Emitter<number>("workflow run live round");
+  readonly #changes = new Emitter<number>("workflow run live refresh");
 
-  #round = 0;
+  #refreshCount = 0;
   #started = false;
   #disposed = false;
 
@@ -49,7 +50,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
       // A burst of frames (a fan-out completing four phases) collapses into one advance. The
-      // performer's `ReadRound` goes unused: nothing goes on the wire, and the read this round
+      // performer's `ReadRound` goes unused: nothing goes on the wire, and the read this refresh
       // drives is superseded by its own subject key. No `onError`: a rejection can only be a
       // subscriber throwing, a renderer defect that must surface.
       perform: () => {
@@ -63,9 +64,9 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
         : new SessionRefreshTriggers({ target: this, sessionStore: options.sessionStore });
   }
 
-  /** The round the caller keys its read on. Starts at zero and only ever rises. */
+  /** The refresh the caller keys its read on. Starts at zero and only ever rises. */
   public get snapshot(): number {
-    return this.#round;
+    return this.#refreshCount;
   }
 
   /** Whether this reading has ended. */
@@ -75,7 +76,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
 
   /**
    * Whether this reading watches `sessionStore`. A store rebuilt for the same session across a
-   * reconnect keeps its key but is a different object; without this check the round would stop
+   * reconnect keeps its key but is a different object; without this check the refresh would stop
    * advancing silently.
    */
   public isReadingFor(sessionStore: SessionStore | undefined): boolean {
@@ -101,16 +102,16 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     this.#triggers?.start();
   }
 
-  public subscribe(sink: (round: number) => void): Unsubscribe {
+  public subscribe(sink: (refresh: number) => void): Unsubscribe {
     return this.#changes.subscribe(sink);
   }
 
-  /** Ask for the round to advance. The scheduler decides what a burst costs. */
+  /** Ask for the refresh to advance. The scheduler decides what a burst costs. */
   public requestRead(reason: RefreshReason): void {
     this.#scheduler.request(reason);
   }
 
-  /** Terminal: no later frame or focus advances a round, and no timer outlives the pane. */
+  /** Terminal: no later frame or focus advances a refresh, and no timer outlives the pane. */
   public dispose(): void {
     this.#disposed = true;
     this.#triggers?.dispose();
@@ -121,8 +122,8 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     if (this.#disposed) {
       return;
     }
-    this.#round += 1;
-    this.#changes.emit(this.#round);
+    this.#refreshCount += 1;
+    this.#changes.emit(this.#refreshCount);
   }
 }
 

@@ -1,7 +1,7 @@
 // The staged list's user-facing acts: attach, retry, abandon, remove and dispose. The record
 // itself is `attachment-ingest-entries.ts`; the wire legs are in `services/`. Every act is
-// synchronous: a press moves the ledger and returns, and the stream driver's promise is
-// deliberately discarded. There is no timer, backoff or automatic re-drive.
+// synchronous: a press moves the record and returns, and the stream driver's promise, which
+// never rejects, is not awaited. There is no timer, backoff or automatic re-drive.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
@@ -22,7 +22,7 @@ export interface AttachmentIngestClientOptions {
 
 /** Every attachment a user has handed this staged list, in the order they chose. */
 export class AttachmentIngestClient {
-  readonly #ledger = new AttachmentIngestEntries();
+  readonly #entries = new AttachmentIngestEntries();
   readonly #reclaimer: AttachmentSpoolReclaimer;
   readonly #streams: AttachmentIngestStreamDriver;
 
@@ -34,19 +34,19 @@ export class AttachmentIngestClient {
       port: options.port,
       sessionId: options.sessionId,
       clock: options.clock ?? new RealClock(),
-      ledger: this.#ledger,
+      entries: this.#entries,
       reclaimer: this.#reclaimer,
     });
   }
 
   /** The staged list, in declared order. Stable identity between publishes. */
   public get snapshot(): readonly AttachmentIngestEntry[] {
-    return this.#ledger.snapshot;
+    return this.#entries.snapshot;
   }
 
   /** Subscribes to each publish of the staged list; returns the unsubscribe. */
   public subscribe(sink: (entries: readonly AttachmentIngestEntry[]) => void): Unsubscribe {
-    return this.#ledger.subscribe(sink);
+    return this.#entries.subscribe(sink);
   }
 
   /**
@@ -55,10 +55,10 @@ export class AttachmentIngestClient {
    */
   public attach(source: AttachmentSource): void {
     const localId = source.declared.localId;
-    if (this.#disposed || this.#ledger.holds(localId)) {
+    if (this.#disposed || this.#entries.holds(localId)) {
       return;
     }
-    this.#ledger.declare(source);
+    this.#entries.declare(source);
     void this.#streams.drive(localId);
   }
 
@@ -68,12 +68,12 @@ export class AttachmentIngestClient {
    * chunk. Only from `refused`, the last state that still holds the payload.
    */
   public retry(localId: string): void {
-    const entry = this.#ledger.current(localId);
+    const entry = this.#entries.current(localId);
     if (entry === undefined || entry.state !== "refused" || this.#streams.isRunning(localId)) {
       return;
     }
     const restarting = entry.disposition === "restart";
-    this.#ledger.write(localId, {
+    this.#entries.write(localId, {
       ...entry,
       state: "declared",
       refusal: undefined,
@@ -88,34 +88,29 @@ export class AttachmentIngestClient {
    * once; the abort call is best-effort, so the copy names the reaper.
    */
   public abandon(localId: string): void {
-    const entry = this.#ledger.current(localId);
+    const entry = this.#entries.current(localId);
     if (entry === undefined || entry.state === "complete") {
       return;
     }
-    this.#ledger.write(localId, { ...entry, state: "abandoned", disposition: undefined });
+    this.#entries.write(localId, { ...entry, state: "abandoned", disposition: undefined });
     this.#reclaimer.request(entry.ingestId);
   }
 
   /** Take one attachment out of the staged list entirely, position included. */
   public remove(localId: string): void {
-    if (!this.#ledger.holds(localId)) {
+    if (!this.#entries.holds(localId)) {
       return;
     }
     this.abandon(localId);
-    this.#ledger.remove(localId);
-  }
-
-  /** The reference a staged list would carry: artifact ids, ordered, and nothing else. */
-  public attachmentArtifactIds(): readonly string[] {
-    return this.#ledger.artifactIds();
+    this.#entries.remove(localId);
   }
 
   /**
    * Stops the staged list and gives back every spool still held. The aborts go first: an ingest
-   * id lives only in the ledger, so once it is disposed nothing can name an open stream, and its
+   * id lives only in the record, so once it is disposed nothing can name an open stream, and its
    * spool and capacity reservation would stand until the reaper claimed them. `abandoned` entries
    * were already asked for and `complete` ones hold nothing. Fired, not awaited. Idempotent: the
-   * ledger's snapshot outlives its disposal, and strict-mode React disposes twice.
+   * record's snapshot outlives its disposal, and strict-mode React disposes twice.
    */
   public dispose(): void {
     if (this.#disposed) {
@@ -123,11 +118,11 @@ export class AttachmentIngestClient {
     }
     this.#disposed = true;
     this.#streams.forget();
-    for (const entry of this.#ledger.snapshot) {
+    for (const entry of this.#entries.snapshot) {
       if (entry.state !== "complete" && entry.state !== "abandoned") {
         this.#reclaimer.request(entry.ingestId);
       }
     }
-    this.#ledger.dispose();
+    this.#entries.dispose();
   }
 }

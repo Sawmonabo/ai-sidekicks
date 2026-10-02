@@ -5,13 +5,12 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
-import { type RunGroup } from "../run-groups/run-groups.js";
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
+import { readRunGroupKey, type RunGroup } from "../run-groups/run-groups.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/run-group-body.js";
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 import { TranscriptRowRetention } from "../window/row-retention.js";
 import {
   NO_ROWS_REMOVED,
-  readRunGroupKey,
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../window/transcript-window.js";
@@ -91,7 +90,9 @@ export function foldRunGroupHeaders(
       viewportRows,
       rows,
       rowsByKey,
-      seamByRowId: new Map([...model.seamByRowId].filter(([rowId]) => rowsByKey.has(rowId))),
+      systemMessageByRowId: new Map(
+        [...model.systemMessageByRowId].filter(([rowId]) => rowsByKey.has(rowId)),
+      ),
     },
     removedRows,
   };

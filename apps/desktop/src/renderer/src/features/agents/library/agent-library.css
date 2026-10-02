@@ -1,4 +1,4 @@
-/* The agent library's sheet: all of `.meridian-agent-library`, plus the saved-row ledger.
+/* The agent library's sheet: all of `.meridian-agent-library`, plus the saved rows.
  * Meridian tokens only. */
 
 /* A standalone page carries its own measure and padding. The two columns collapse to one
@@ -32,7 +32,7 @@
   color: var(--meridian-text-muted);
 }
 
-/* The standing facts read as a ledger: a hairline between rows, no fill and no border box. */
+/* The standing facts read as a list: a hairline between rows, no fill and no border box. */
 
 .meridian-agent-library__rules {
   display: grid;
@@ -94,7 +94,7 @@
   color: var(--meridian-text-faint);
 }
 
-/* A ledger of records, not cards: one hairline-bounded block per row, no fill of its own. */
+/* A list of records, not cards: one hairline-bounded block per row, no fill of its own. */
 
 .meridian-agent-library__rows {
   display: flex;

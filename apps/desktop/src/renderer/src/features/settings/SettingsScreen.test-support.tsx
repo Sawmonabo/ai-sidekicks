@@ -3,6 +3,12 @@
 import { render } from "@testing-library/react";
 
 import { settle } from "@test/helpers/settle.js";
+import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { DraftStore } from "@renderer/store/draft-store.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
@@ -92,13 +98,17 @@ export function windowAt(
     frameStore,
     context: {
       route: frameStore.getState().route,
-      bridge: { source: "fixture" },
+      bridge: createFixtureBridge({ scenario: unscriptedScenario("settings-screen") }).bridge,
       frameStore,
+      sessionStore: undefined,
       // The real registry: a stub could assert a resolution the shipped one does not make.
       // No session is opened on it, the ordinary case for a settings window.
       sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+      paneRegistry: new PaneRegistry(),
+      uiStateStore: UiStateStore.opening(),
+      draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
       chooseScheme: () => undefined,
-    } as unknown as ScreenContext,
+    },
   };
 }
 

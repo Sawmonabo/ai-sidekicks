@@ -20,14 +20,7 @@ export function SavedDefinitions(props: {
     );
   }
   if (reading.kind === "empty") {
-    return (
-      <Nothing
-        kind="empty"
-        placement="block"
-        title={`${NO_SAVED_DEFINITIONS}.`}
-        detail="Tuning one in a session and saving it puts it here, ready for the next session to start from."
-      />
-    );
+    return <Nothing kind="empty" placement="block" title={NO_SAVED_DEFINITIONS} />;
   }
   return (
     <>

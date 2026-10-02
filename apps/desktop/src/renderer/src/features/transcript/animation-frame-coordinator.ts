@@ -46,9 +46,10 @@ export class AnimationFrameCoordinator {
   readonly #clock: Clock;
   readonly #diagnosticEmitter = new Emitter<AnimationFrameDiagnostic>("animation frame diagnostic");
   /** One insertion-ordered queue per phase; a key holds at most one task. */
-  readonly #queueByPhase = new Map<AnimationFramePhase, Map<string, () => void>>(
-    ANIMATION_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),
-  );
+  readonly #queueByPhase: Readonly<Record<AnimationFramePhase, Map<string, () => void>>> = {
+    "scroll-writes": new Map(),
+    "reveal-work": new Map(),
+  };
 
   /** Never resets, so two coordinators in one renderer process keep distinct identities. */
   static #nextCoordinatorOrdinal = 1;
@@ -109,11 +110,7 @@ export class AnimationFrameCoordinator {
     if (this.#disposed) {
       return;
     }
-    const queue = this.#queueByPhase.get(phase);
-    if (queue === undefined) {
-      return;
-    }
-    queue.set(taskKey, task);
+    this.#queueByPhase[phase].set(taskKey, task);
     this.#armFrame();
   }
 
@@ -132,7 +129,7 @@ export class AnimationFrameCoordinator {
    * pending task also releases the armed frame, so an idle coordinator holds no timer.
    */
   public cancel(phase: AnimationFramePhase, taskKey: string): void {
-    this.#queueByPhase.get(phase)?.delete(taskKey);
+    this.#queueByPhase[phase].delete(taskKey);
     if (this.#armedFrame !== undefined && this.pendingTaskCount === 0) {
       this.#clock.cancel(this.#armedFrame);
       this.#armedFrame = undefined;
@@ -147,7 +144,7 @@ export class AnimationFrameCoordinator {
   /** Tasks waiting across every phase. Zero is the idle-CPU budget's precondition. */
   public get pendingTaskCount(): number {
     let pending = 0;
-    for (const queue of this.#queueByPhase.values()) {
+    for (const queue of Object.values(this.#queueByPhase)) {
       pending += queue.size;
     }
     return pending;
@@ -170,7 +167,7 @@ export class AnimationFrameCoordinator {
       this.#clock.cancel(this.#armedFrame);
       this.#armedFrame = undefined;
     }
-    for (const queue of this.#queueByPhase.values()) {
+    for (const queue of Object.values(this.#queueByPhase)) {
       queue.clear();
     }
     this.#diagnosticEmitter.clear();
@@ -213,8 +210,8 @@ export class AnimationFrameCoordinator {
     // The meters are development-only: a built bundle reads `0` here and records nothing.
     const startedAt = readPerformanceMeterTime();
     for (const [phaseIndex, phase] of ANIMATION_FRAME_PHASES.entries()) {
-      const queue = this.#queueByPhase.get(phase);
-      if (queue === undefined || queue.size === 0) {
+      const queue = this.#queueByPhase[phase];
+      if (queue.size === 0) {
         continue;
       }
       this.#drainingPhaseIndex = phaseIndex;

@@ -11,6 +11,7 @@ import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekic
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
@@ -63,13 +64,6 @@ class CapabilitiesUnderTest {
   }
 }
 
-/** A store with a base state, which is what makes a later frame a frame and not history. */
-function initializedStore(): SessionStore {
-  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: 0, entities: [] });
-  return sessionStore;
-}
-
 /** Everything one case drives: the read it answers, the store it refreshes through. */
 interface OpenDialog {
   readonly capabilities: CapabilitiesUnderTest;
@@ -114,7 +108,7 @@ async function openDialog(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
 ): Promise<OpenDialog> {
   const served = new CapabilitiesUnderTest(capabilities);
-  const sessionStore = initializedStore();
+  const sessionStore = initializedStore(SESSION_ID);
   const { container } = render(
     <LiveAnnouncerProvider>
       <BindWorkspaceDialog

@@ -9,6 +9,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { RepoOperations } from "../../repo-operations.js";
@@ -35,7 +36,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
     props.operations,
   );
   const [form, setForm] = useState<AttachFormState>(EMPTY_ATTACH_FORM);
-  const { verdict } = resolveAttachForm(form);
+  const verdict = resolveAttachForm(form);
 
   const openChanged = useCallback(
     (isOpen: boolean) => {
@@ -135,6 +136,8 @@ function renderSettlement(reading: AttachRequestReading): React.JSX.Element | nu
       return null;
     case "sending":
       return <Nothing kind="computing" title="Attaching." />;
+    case "refused":
+      return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "attached":
       return (
         <div className="meridian-repo-attach__attached" role="status">

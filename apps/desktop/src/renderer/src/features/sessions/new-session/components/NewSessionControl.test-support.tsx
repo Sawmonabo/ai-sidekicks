@@ -1,39 +1,22 @@
-// What both new-session control suites mount: the fixture bridge the draft calls through, the
-// held and queued variants the ordering cases need, and the presses that drive them. One
-// module, so no file passes against a wire the other never scripts.
+// What both new-session control suites mount: the held and queued variants of the draft
+// suites' bridge that the ordering cases need, and the presses that drive them.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
-import type { Scenario } from "../../../../../../../fixtures/scenario.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { FirstTurnQueueCall } from "../new-session-control-contract.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-// The created session's id, from the module that declares it, so one reply has one spelling.
+// The bridge and the reply from the draft suites' module, so one reply has one spelling.
 import {
+  CREATE_REPLY,
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
+  bridgeFor,
   type QueuedFirstTurn,
 } from "../new-session-draft.test-support.js";
-
-/** The one call the suspended-bridge helpers below hold, and no other. */
-const SESSION_CREATE_CALL = "session.create";
-
-/**
- * The whole registered create response. The fixture bridge refuses a scripted reply that is
- * short of the method's shape, so a partial script would test a reply the daemon cannot send.
- */
-export const CREATE_REPLY: {
-  readonly sessionId: string;
-  readonly shape: string;
-  readonly state: string;
-} = {
-  sessionId: CREATED_SESSION_ID,
-  shape: "chat",
-  state: "active",
-};
+import { SESSION_CREATE_METHOD } from "../new-session-settlement.js";
 
 /** A first-turn call that rejects, so a send stops after the create and settles partial. */
 export const REJECTING_FIRST_TURN: FirstTurnQueueCall = () =>
@@ -70,24 +53,6 @@ export function completingFirstTurn(): {
     },
     requests,
   };
-}
-
-/**
- * A bridge whose `session.create` answers, or one whose does not. The fixture bridge rather
- * than a stub, since a stub of `bridge.daemon.call` would be a second implementation of the
- * call these suites already drive.
- */
-export function bridgeFor(options: { readonly scriptsCreate: boolean }): PlatformBridge {
-  const scenario: Scenario = {
-    id: "new-session-control",
-    label: "New session control",
-    purpose: "Drives the composed-draft control's create call.",
-    sessionId: "session-draft",
-    startedAtIso: "2026-01-01T09:00:00.000Z",
-    beats: [],
-    replies: options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : [],
-  };
-  return createFixtureBridge({ scenario }).bridge;
 }
 
 /**
@@ -149,7 +114,7 @@ export function bridgeHoldingCreate(): HeldCreate {
   const { bridge } = withDaemonCall(
     bridgeFor({ scriptsCreate: true }),
     async (call, passThrough) => {
-      if (call.method !== SESSION_CREATE_CALL) {
+      if (call.method !== SESSION_CREATE_METHOD) {
         return await passThrough();
       }
       await held;
@@ -170,7 +135,7 @@ export function bridgeQueueingCreates(): QueuedCreates {
   const { bridge } = withDaemonCall(
     bridgeFor({ scriptsCreate: true }),
     async (call, passThrough) => {
-      if (call.method !== SESSION_CREATE_CALL) {
+      if (call.method !== SESSION_CREATE_METHOD) {
         return await passThrough();
       }
       await new Promise<void>((resolve) => {

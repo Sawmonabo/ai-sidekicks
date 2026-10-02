@@ -18,8 +18,6 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "session-create-unreadable",
   "first-turn-missing",
   "first-turn-failed",
-  // Not raised by the wire: `send` settles every path, so this names a fault inside the send.
-  "send-failed",
 ] as const;
 
 /**
@@ -76,7 +74,7 @@ export interface NewSessionSendResult {
   readonly outcome: NewSessionSendOutcome;
   /**
    * Present once `session.create` answered readably, whatever happened after. Absent on
-   * `created-unreadable`, where a session may exist that this console cannot name.
+   * `created-unreadable`, where a session may exist that this app cannot name.
    */
   readonly sessionId: string | undefined;
   readonly completedCalls: readonly string[];
@@ -84,33 +82,14 @@ export interface NewSessionSendResult {
   /**
    * The draft revision this send read its composition from. It travels on the result because
    * the draft stays editable while the create runs, and a composition that moved on holds
-   * words this send did not carry. `undefined` where the send read no draft: a fault inside
-   * the send, or a press answered from what a previous one landed.
+   * words this send did not carry. `undefined` where the send read no draft: an empty draft,
+   * or a press answered from what a previous one landed.
    */
   readonly sentRevision: number | undefined;
 }
 
 /**
- * What a send that rejected reports instead of nothing. `new-session-send.ts` returns a
- * typed result on every path, so a rejection is a fault inside the new-session code. Built
- * here so a control cannot become a second source of the codes.
- */
-export function refuseSendThatRejected(): NewSessionSendResult {
-  return {
-    outcome: "refused",
-    sessionId: undefined,
-    completedCalls: [],
-    // A fault inside the send names no composition, and a refusal closes no draft.
-    sentRevision: undefined,
-    refusal: refuseNewSessionDraft(
-      "send-failed",
-      "The draft could not be sent, and nothing was created. It is still here, and Send can be pressed again.",
-    ),
-  };
-}
-
-/**
- * The settlement for a create this console cannot answer for. One home, because the send that
+ * The settlement for a create this app cannot answer for. One home, because the send that
  * first read the unreadable reply and the draft answering every later press both reach it,
  * and the instruction must stay "do not send again". The sentence names the ambiguity and
  * offers the safe act: the sessions list re-reads the directory, where a created session

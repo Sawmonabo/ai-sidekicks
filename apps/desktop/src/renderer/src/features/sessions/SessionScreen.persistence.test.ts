@@ -3,8 +3,9 @@
 // component and a queued arrangement can flush after the screen shows the other session.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -27,22 +28,39 @@ function panesInRecord(value: unknown): number {
 }
 
 describe("SessionScreen — the saved arrangement", () => {
-  it("renders what a restore refused inside the pane layout", async () => {
+  let detachForwarder: (() => void) | undefined;
+
+  afterEach(() => {
+    detachForwarder?.();
+    detachForwarder = undefined;
+  });
+
+  it("records what a restore refused in the window's diagnostics and draws none of it", async () => {
+    windowDiagnosticCapture.flush();
+    const batches: string[] = [];
+    detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    batches.length = 0;
     const store = memoryStore();
     await store.write(SESSION_ID, PANE_LAYOUT_RECORD_KEY, "layout", {
       $paneLayout: { version: 99, density: "standard" },
       "pane-1": { position: 0, kind: "transcript" },
     });
     const { container } = renderSessionScreen(store);
-    await waitFor(() => {
-      // Scoped to the refusal strip: the announcer's polite region also has `role="status"`.
-      expect(
-        container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
-      ).toContain("written by a different version");
-    });
     // Discarded whole: the pane layout falls back to the transcript instead of adopting the
     // pane the unknown record named.
-    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
+    });
+    windowDiagnosticCapture.flush();
+    const restoreRecords = batches
+      .flatMap((batch) => batch.split("\n"))
+      .map((line) => JSON.parse(line) as { kind: string; detail: string })
+      .filter((record) => record.kind === "pane-layout-not-restored")
+      .map((record) => record.detail);
+    expect(restoreRecords).toStrictEqual([`session ${SESSION_ID}: snapshot-version-unknown`]);
+    expect(container.textContent).not.toContain("written by a different version");
   });
 });
 
@@ -57,16 +75,16 @@ describe("SessionScreen — navigating between two sessions the window already h
   }
 
   it("files a queued arrangement under the session that made it, not the one now on screen", async () => {
-    // Navigating straight between sessions re-renders rather than remounts. With the writer's
-    // partition read at write time, the first session's queued arrangement was filed under
-    // the second's partition and overwrote its saved pane layout.
+    // Navigating straight between sessions re-renders rather than remounts, so the writer must
+    // take the partition with the request, not read it at write time, or the first session's
+    // queued arrangement would land in the second's partition over its saved pane layout.
     const adapter = new GatedPersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
     await saveLayout(store, SESSION_B_ID, ["transcript"]);
 
     const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
-    const { container, rerender } = render(workspaceFor(first, store, false));
+    const { container, rerender } = render(workspaceFor(first, store));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
@@ -81,7 +99,7 @@ describe("SessionScreen — navigating between two sessions the window already h
     await crossMacrotaskBoundary();
     const askedBeforeNavigation = adapter.asked.length;
 
-    rerender(workspaceFor(otherSession(), store, false));
+    rerender(workspaceFor(otherSession(), store));
     // The arriving session's restore is held open, so the queued arrangement flushes while the
     // screen shows the second session; the ordering is decided here.
     adapter.releaseWrites();

@@ -21,20 +21,6 @@
   border-radius: var(--meridian-radius-md);
 }
 
-.meridian-composer__toolbar-cluster {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-3);
-  align-items: center;
-  justify-content: space-between;
-}
-
-.meridian-composer__meters {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: center;
-}
-
 /* Grows to the row cap in `composer-bounds.ts`, then scrolls inside its own box. */
 .meridian-composer__line {
   width: 100%;

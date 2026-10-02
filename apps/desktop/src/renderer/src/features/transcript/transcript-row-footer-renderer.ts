@@ -40,11 +40,6 @@ export function registerTranscriptRowFooterRenderer(
   transcriptRowFooterRegistry.register({ owner, render });
 }
 
-/** Release the registered renderer. Test scaffolding: the registry is module-scope. */
-export function unregisterTranscriptRowFooterRenderer(): void {
-  transcriptRowFooterRegistry.unregister();
-}
-
 /** The footer body, or `undefined` while nothing is registered. */
 export function findTranscriptRowFooterRenderer(): TranscriptRowFooterRenderer | undefined {
   return transcriptRowFooterRegistry.renderer();

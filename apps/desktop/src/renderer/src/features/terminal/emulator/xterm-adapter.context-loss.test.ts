@@ -1,4 +1,4 @@
-// The renderer's hold on a GPU context. It is taken only when the page ledger grants one and
+// The renderer's hold on a GPU context. It is taken only when the page pool grants one and
 // given back by the pane that took it; when the GPU takes it away the adapter falls back to the
 // DOM renderer for good, or the grid goes blank. This environment has no WebGL2, so
 // `webgl-fallback.test-support.ts` stands one in.
@@ -61,7 +61,7 @@ describe("the adapter, when the context it was drawing on goes away", () => {
   });
 });
 
-describe("the page ledger's grant", () => {
+describe("the page pool's grant", () => {
   it("falls back to the DOM renderer while the pool refuses, and takes WebGL once it grants", () => {
     // Refused once, granted after, so the second attach starts with no addon and no loss.
     const adapter = trackAdapter(

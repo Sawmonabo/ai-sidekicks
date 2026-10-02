@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
-import { PROBE_RUNS, settle } from "./workflows-probe.test-support.js";
+import { PROBE_RUNS } from "./workflows-probe.test-support.js";
+import { settle } from "@test/helpers/settle.js";
 import {
   SERVED_DIRECTORY,
   composeWindow,

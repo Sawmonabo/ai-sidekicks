@@ -1,12 +1,12 @@
-// An off-by-one band dims the turn the person rewound to, and an epoch-blind band dims another
-// run's rows (re-execution reuses ordinals). Neither throws, so each band is asserted from
+// An off-by-one cutoff dims the turn the person rewound to, and an epoch-blind one dims another
+// run's rows (re-execution reuses ordinals). Neither throws, so each group is asserted from
 // both sides.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
-import { SupersededIndex, deriveSupersededTurns, supersededTurnsKey } from "./superseded-turns.js";
+import { SupersededIndex, deriveSupersededTurns } from "./superseded-turns.js";
 
 describe("superseded turns — the rewind floor is EXCEEDS and nothing else", () => {
   function rewoundWindow(): readonly TimelineRow[] {
@@ -77,7 +77,7 @@ describe("superseded turns — the rewind floor is EXCEEDS and nothing else", ()
 
   it("takes the LOWEST applicable cutoff when a row is reached by two", () => {
     // The first accepted rollback wins: a later, higher cutoff never displaces an earlier one.
-    const bands = deriveSupersededTurns([
+    const supersededTurns = deriveSupersededTurns([
       runRow({
         id: "a5",
         sequence: 1,
@@ -94,46 +94,7 @@ describe("superseded turns — the rewind floor is EXCEEDS and nothing else", ()
         targetPosition: 2,
       }),
     ]);
-    const bandForRow = bands.find((band) => band.rowIds.includes("a5"));
-    expect(bandForRow?.targetPosition).toBe(2);
-  });
-
-  it("answers which band each superseded row belongs to, and no other row", () => {
-    const index = new SupersededIndex(rewoundWindow());
-    const [band] = index.supersededTurns();
-    if (band === undefined) {
-      throw new Error("the rewound window derived no band");
-    }
-    expect(index.supersededTurnsKeyByRowId().get("a3")).toBe(supersededTurnsKey(band));
-    // The retained floor and earlier turns are in no band, so the fold never takes them.
-    expect(index.supersededTurnsKeyByRowId().has("a2")).toBe(false);
-    expect(index.supersededTurnsKeyByRowId().has("a1")).toBe(false);
-  });
-
-  it("keeps two rewinds of one epoch apart, and both apart from a bare run id", () => {
-    // The key shares one map with run group header keys (bare run ids); a collision would draw a
-    // rewind band where a run group belongs.
-    const index = new SupersededIndex([
-      runRow({ id: "a2", sequence: 1, type: "run.running", runId: "run-a", position: 2 }),
-      runRow({ id: "a4", sequence: 2, type: "run.running", runId: "run-a", position: 4 }),
-      rollbackBoundaryRow({
-        id: "rb-3",
-        sequence: 3,
-        runId: "run-a",
-        position: 5,
-        targetPosition: 3,
-      }),
-      rollbackBoundaryRow({
-        id: "rb-1",
-        sequence: 4,
-        runId: "run-a",
-        position: 6,
-        targetPosition: 1,
-      }),
-    ]);
-    const keys = [...index.supersededTurnsByHeaderKey().keys()];
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).not.toContain("run-a");
-    expect(keys.every((key) => key.startsWith("superseded "))).toBe(true);
+    const turnsWithRow = supersededTurns.find((turns) => turns.rowIds.includes("a5"));
+    expect(turnsWithRow?.targetPosition).toBe(2);
   });
 });

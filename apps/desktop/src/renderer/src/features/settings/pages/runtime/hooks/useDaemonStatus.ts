@@ -12,29 +12,30 @@
 
 import { useEffect } from "react";
 
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { DaemonConnection } from "@shared/daemon-status-topic.js";
-
-/** What the daemon says about itself, once it has been asked. */
-export interface DaemonStatus {
-  readonly state: string;
-  readonly version: string;
-}
 
 /**
  * The daemon verbs this page drives.
  */
 export interface DaemonOperations {
-  readonly readStatus: () => Promise<DaemonStatus>;
+  readonly readStatus: () => Promise<DaemonStatusReadResponse>;
   readonly stop: () => Promise<unknown>;
   readonly restart: () => Promise<unknown>;
 }
 
-/** The read's two phases. `reading` is the seed; `read` is the settlement. */
+/**
+ * The read's three phases. `reading` is the seed; `read` and `failed` are its settlements, the
+ * second carrying the refusal the read was answered with.
+ */
 export type DaemonStatusReading =
   | { readonly phase: "reading" }
-  | { readonly phase: "read"; readonly status: DaemonStatus };
+  | { readonly phase: "read"; readonly status: DaemonStatusReadResponse }
+  | { readonly phase: "failed"; readonly refusal: Refusal };
 
 /**
  * What makes the daemon's own answer stale.
@@ -50,6 +51,9 @@ export interface DaemonStatusFreshness {
 }
 
 const DAEMON_STATUS_KEY = "daemon-status";
+
+/** The subsystem a failed status read names as its author. */
+const DAEMON_STATUS_ORIGIN = "daemon-status";
 
 const READING_DAEMON_STATUS: DaemonStatusReading = { phase: "reading" };
 
@@ -71,9 +75,14 @@ export function useDaemonStatus(
     () => READING_DAEMON_STATUS,
   );
   useEffect(() => {
-    void operations.readStatus().then((status) => {
-      publish({ phase: "read", status });
-    });
+    void operations.readStatus().then(
+      (status) => {
+        publish({ phase: "read", status });
+      },
+      (error: unknown) => {
+        publish({ phase: "failed", refusal: coerceToRefusal(error, DAEMON_STATUS_ORIGIN) });
+      },
+    );
   }, [operations, publish]);
   return value;
 }

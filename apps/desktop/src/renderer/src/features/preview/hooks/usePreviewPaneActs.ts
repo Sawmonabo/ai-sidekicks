@@ -20,7 +20,7 @@ const PREVIEW_PANE_REFUSAL_ORIGIN = "preview-pane";
  * Which dispatched act is the newest. A monotonic counter behind two calls, so no call site
  * compares a bare number its own way.
  */
-class BrowserActSequence {
+class PreviewActSequence {
   #newestToken = 0;
 
   /** Take the token for an act being dispatched now. Every later act outranks it. */
@@ -48,7 +48,7 @@ class BrowserActSequence {
  * How the holder releases a sequence when the subject moves or the pane unmounts. A release, not
  * a terminal disposal: the object keeps working. Module-level for a stable identity.
  */
-const BROWSER_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<BrowserActSequence> = {
+const PREVIEW_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<PreviewActSequence> = {
   release: (retired) => {
     retired.supersedeOutstanding();
   },
@@ -82,8 +82,8 @@ export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): Prev
   const { value: sequence } = useSubjectScopedResource(
     bridge,
     paneId,
-    () => new BrowserActSequence(),
-    BROWSER_ACT_SEQUENCE_DISPOSAL,
+    () => new PreviewActSequence(),
+    PREVIEW_ACT_SEQUENCE_DISPOSAL,
   );
   const { value: refusal, publish } = useSubjectScopedState<Refusal | undefined>(
     bridge,

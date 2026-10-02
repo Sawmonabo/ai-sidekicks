@@ -13,14 +13,11 @@ import { type TranscriptWindowModel } from "../transcript-window.js";
 export interface VisibleTranscriptWindow {
   /** The projected rows the viewport holds, in log order. */
   readonly rows: readonly TimelineRow[];
-  /** Rows the log has and this window does not — what the cap took. */
-  readonly prunedAwayRows: readonly TimelineRow[];
   /**
-   * Whether the cap took rows from before this window's head: true exactly when `prunedAwayRows` is
-   * non-empty. It says the rows exist, not that they can be fetched; that is
-   * `earlier-history-reader.ts`.
+   * Rows the log has and this window does not — what the cap took. They exist, which says
+   * nothing about whether earlier rows can be fetched; that is `earlier-history-reader.ts`.
    */
-  readonly hasEarlierRows: boolean;
+  readonly prunedAwayRows: readonly TimelineRow[];
 }
 
 /**
@@ -44,10 +41,6 @@ export function useVisibleTranscriptWindow(
         prunedAwayRows.push(row);
       }
     }
-    return {
-      rows,
-      prunedAwayRows,
-      hasEarlierRows: prunedAwayRows.length > 0,
-    };
+    return { rows, prunedAwayRows };
   }, [transcriptWindow, viewportRows]);
 }

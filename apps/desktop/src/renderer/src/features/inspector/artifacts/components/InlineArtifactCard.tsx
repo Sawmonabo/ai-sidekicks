@@ -14,7 +14,7 @@ import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
-import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
+import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
 import type { ArtifactInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 
@@ -46,11 +46,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
         <div className="meridian-artifact-card__body">
           <div className="meridian-artifact-card__face">
             <Chip label={manifest.artifactType} mono />
-            <Chip
-              tone={ARTIFACT_STATE_PRESENTATION[manifest.state].tone}
-              label={manifest.state}
-              mono
-            />
+            <Chip tone={ARTIFACT_STATE_TONES[manifest.state]} label={manifest.state} mono />
             <WireFigure
               value={formatByteQuantity(manifest.size).text}
               title={String(manifest.size)}

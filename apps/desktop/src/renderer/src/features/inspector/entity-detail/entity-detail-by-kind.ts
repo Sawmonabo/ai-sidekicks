@@ -3,7 +3,6 @@
 // The keys are the kinds the inspector's address admits, so a kind added to it fails to compile
 // until it has a record body. Details never import this table; `EntityDetailProps` lives in
 // `entity-facets.ts` to keep that dependency one way.
-// which is why `EntityDetailProps` lives there rather than here.
 
 import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { WorkspaceEntityDetail } from "./components/WorkspaceEntityDetail.js";

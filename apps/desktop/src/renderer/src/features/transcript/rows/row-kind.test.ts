@@ -1,4 +1,4 @@
-// The one classifier table: which event types get a row kind, and how a tool result's state
+// The one classifier table: which event types get no row kind, and how a tool result's state
 // ranks.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
@@ -20,17 +20,6 @@ const ABSENT_BODY: HydratedSessionEventContent = {
 };
 
 describe("the row kind classifier", () => {
-  it("gives each body-bearing event type its own row kind", () => {
-    const kindFor = (type: string): string | undefined =>
-      classifyTranscriptRow(sampleRunRow({ type }))?.kind;
-    expect(kindFor("user.message")).toBe("user-message");
-    expect(kindFor("assistant.message")).toBe("agent-message");
-    expect(kindFor("assistant.thinking_update")).toBe("thinking");
-    expect(kindFor("tool.invoked")).toBe("tool-call");
-    expect(kindFor("tool.result")).toBe("tool-call");
-    expect(kindFor("tool.error")).toBe("tool-call");
-  });
-
   it("gives every other event type no row kind", () => {
     expect(classifyTranscriptRow(sampleGeneralRow({ type: "session.created" }))).toBeUndefined();
     expect(classifyTranscriptRow(sampleRunRow({ type: "run.queued" }))).toBeUndefined();

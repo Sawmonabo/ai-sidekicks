@@ -6,6 +6,13 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 /**
+ * Matches the find field ranks and offers next/previous over.
+ * A one-character query matches most of the loaded window; the cap keeps the next/previous walk
+ * terminating, and the true match count rides beside the capped denominator.
+ */
+export const FIND_MATCH_CAP = 500;
+
+/**
  * Which way a walk through the matches moves. Closed, so a third direction is a compile
  * error at every consumer.
  */
@@ -131,4 +138,3 @@ function steppedIndexFrom(
   // so stepping back from index 0 would land on -1 rather than on the last match.
   return (((currentIndex + step) % count) + count) % count;
 }
-import { FIND_MATCH_CAP } from "../structure/structure-caps.js";

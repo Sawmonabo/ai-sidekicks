@@ -96,18 +96,7 @@ export function useQueueFeed(
   );
   // Resolved at trigger time for the same reason, so the mount trigger fires once per pair
   // rather than once per render.
-  const readTrigger = useMemo<ReadTriggerTarget>(
-    () => ({
-      get triggeringEventKinds(): ReadonlySet<string> {
-        return sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls)
-          .triggeringEventKinds;
-      },
-      requestRead: (reason: RefreshReason): void => {
-        sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls).requestRead(reason);
-      },
-    }),
-    [bridge, clock, sessionId, forwardedCalls],
-  );
+  const readTrigger = useQueueReadTrigger(bridge, clock, sessionId, forwardedCalls);
   const feed = useSyncExternalStore(subscribe, readFeed, readFeed);
   // Wired after the subscription, and the order is load-bearing: the subscription opens the
   // reading and takes its first read, so an earlier wiring would ask an unopened reading for a
@@ -130,7 +119,21 @@ export function useQueueRepairRead(
   const { sessionId } = sessionStore;
   const clock = useBridgeClock();
   const forwardedCalls = useForwardedCalls(calls);
-  const readTrigger = useMemo<ReadTriggerTarget>(
+  const readTrigger = useQueueReadTrigger(bridge, clock, sessionId, forwardedCalls);
+  useSessionReadTriggers(readTrigger, sessionStore);
+}
+
+/**
+ * The read trigger for one session's queue reading, resolved through the registry at trigger
+ * time, so a reading retired before the trigger fires is never revived outside the registry.
+ */
+function useQueueReadTrigger(
+  bridge: PlatformBridge,
+  clock: Clock,
+  sessionId: string,
+  forwardedCalls: QueueCalls,
+): ReadTriggerTarget {
+  return useMemo<ReadTriggerTarget>(
     () => ({
       get triggeringEventKinds(): ReadonlySet<string> {
         return sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls)
@@ -142,7 +145,6 @@ export function useQueueRepairRead(
     }),
     [bridge, clock, sessionId, forwardedCalls],
   );
-  useSessionReadTriggers(readTrigger, sessionStore);
 }
 
 /**

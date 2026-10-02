@@ -1,12 +1,12 @@
-// A scroll container a test can drive at real geometry: `happy-dom` reports zero for
-// `clientHeight`, `scrollHeight` and `scrollTop`.
-// The offset lives behind an accessor pair so the fixture is not a second `scrollTop` writer.
+// A scroll container a test can drive at real geometry: a real element, because the controller
+// takes one, with its three geometry reads defined onto it, because `happy-dom` reports zero for
+// `clientHeight`, `scrollHeight` and `scrollTop`. The offset lives behind an accessor pair so the
+// fixture is not a second `scrollTop` writer.
 
-import { type ScrollContainer } from "./scroll-chokepoint.js";
-
-/** A `ScrollContainer` with settable geometry that counts scroll listeners. */
-export interface CountingScrollContainer extends ScrollContainer {
-  readonly scrollListenerCount: number;
+/** A scroll container with settable geometry that counts scroll listeners. */
+export interface CountingScrollContainer extends HTMLElement {
+  /** How many scroll listeners are attached now. */
+  scrollListenerCount(): number;
   /** Move the offset the way a reader does, and notify the scroll listeners. */
   moveTo(offset: number): void;
   /**
@@ -31,44 +31,56 @@ const DEFAULT_SCROLL_HEIGHT_PX = 4000;
 export function createCountingScrollContainer(
   options: CountingScrollContainerOptions = {},
 ): CountingScrollContainer {
-  const scrollListeners: (() => void)[] = [];
+  const element = document.createElement("div");
+  const scrollListeners = new Set<EventListenerOrEventListenerObject>();
   let scrollOffsetPx = options.initialScrollTop ?? DEFAULT_INITIAL_SCROLL_TOP_PX;
   let viewportHeightPx = options.clientHeight ?? DEFAULT_CLIENT_HEIGHT_PX;
   let contentHeightPx = options.scrollHeight ?? DEFAULT_SCROLL_HEIGHT_PX;
-  return {
-    get scrollTop(): number {
-      return scrollOffsetPx;
+  Object.defineProperties(element, {
+    scrollTop: {
+      get: () => scrollOffsetPx,
+      set: (next: number) => {
+        scrollOffsetPx = next;
+      },
     },
-    set scrollTop(next: number) {
-      scrollOffsetPx = next;
+    clientHeight: { get: () => viewportHeightPx },
+    scrollHeight: { get: () => contentHeightPx },
+  });
+  Object.defineProperties(element, {
+    addEventListener: {
+      value: (
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        listenerOptions?: AddEventListenerOptions | boolean,
+      ): void => {
+        if (type === "scroll") {
+          scrollListeners.add(listener);
+        }
+        HTMLElement.prototype.addEventListener.call(element, type, listener, listenerOptions);
+      },
     },
-    get clientHeight(): number {
-      return viewportHeightPx;
+    removeEventListener: {
+      value: (
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        listenerOptions?: EventListenerOptions | boolean,
+      ): void => {
+        if (type === "scroll") {
+          scrollListeners.delete(listener);
+        }
+        HTMLElement.prototype.removeEventListener.call(element, type, listener, listenerOptions);
+      },
     },
-    get scrollHeight(): number {
-      return contentHeightPx;
-    },
-    get scrollListenerCount(): number {
-      return scrollListeners.length;
-    },
-    moveTo(offset: number): void {
+  });
+  return Object.assign(element, {
+    scrollListenerCount: (): number => scrollListeners.size,
+    moveTo: (offset: number): void => {
       scrollOffsetPx = offset;
-      for (const listener of [...scrollListeners]) {
-        listener();
-      }
+      element.dispatchEvent(new Event("scroll"));
     },
-    resizeTo(clientHeight: number, scrollHeight: number): void {
+    resizeTo: (clientHeight: number, scrollHeight: number): void => {
       viewportHeightPx = clientHeight;
       contentHeightPx = scrollHeight;
     },
-    addEventListener(_type: string, listener: () => void): void {
-      scrollListeners.push(listener);
-    },
-    removeEventListener(_type: string, listener: () => void): void {
-      const listenerIndex = scrollListeners.indexOf(listener);
-      if (listenerIndex >= 0) {
-        scrollListeners.splice(listenerIndex, 1);
-      }
-    },
-  };
+  });
 }

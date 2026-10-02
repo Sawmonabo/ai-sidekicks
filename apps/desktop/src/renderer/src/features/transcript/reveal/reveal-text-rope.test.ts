@@ -1,6 +1,5 @@
-// The rope's two claims: the cursor only moves forward, and no growing string is ever indexed.
-// The second is structural, so `isPrefixOf` and `lookahead` are driven against a source of many
-// small appends; the cases that matter are the ones about the cursor.
+// The rope's claim that matters: the cursor only moves forward, across part boundaries and never
+// past the source.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,20 +14,6 @@ function fedWith(parts: readonly string[]): RevealTextRope {
 }
 
 describe("the reveal text rope", () => {
-  it("mints a token per append, monotonic, carrying the source length after it", () => {
-    const rope = new RevealTextRope("lane-1");
-    expect(rope.append("hello ")).toStrictEqual({
-      laneId: "lane-1",
-      sequence: 1,
-      sourceLength: 6,
-    });
-    expect(rope.append("world")).toStrictEqual({
-      laneId: "lane-1",
-      sequence: 2,
-      sourceLength: 11,
-    });
-  });
-
   it("reveals across part boundaries and never past the source", () => {
     const rope = fedWith(["abc", "de", "fghi"]);
     expect(rope.advance(4)).toBe(4);

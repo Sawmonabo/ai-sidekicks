@@ -8,12 +8,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import type { ComposerTarget } from "../../composer-target.js";
 import type { CommandExecutor } from "../../types.js";
 import { useCommandHandling } from "./useCommandHandling.js";
-import { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 import type { WorkflowStartOperations } from "../workflow-command/start-workflow-from-line.js";
 import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowStartHandlers.js";
+import { WORKFLOW_START_COMMAND_GROUP } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_COMMAND_PREFILL,
@@ -25,12 +24,7 @@ import {
   type WorkflowCalls,
 } from "../workflow-command/workflow-command.test-support.js";
 
-const SESSION_TARGET: ComposerTarget = {
-  path: "session-message",
-  sessionId: WORKFLOW_TEST_SESSION_ID,
-};
-
-/** Stub calls recording which session each definition read named; enumeration starts empty. */
+/** Stub calls recording which session each definition read named. */
 function operationsRecording(calls: WorkflowCalls): WorkflowStartOperations {
   return fixtureWorkflowStartOperations({ calls });
 }
@@ -39,16 +33,13 @@ function readSessionIds(calls: WorkflowCalls): (string | undefined)[] {
   return calls.listed.map((request) => request.sessionId);
 }
 
-function ComposerCommandZoneHost(props: {
+function ComposerCommandZoneHarness(props: {
   readonly sessionId: string | undefined;
   readonly operations: WorkflowStartOperations;
-  readonly commandEnumeration: ProviderCommandEnumeration;
   readonly executor: { current: CommandExecutor | undefined };
 }): React.JSX.Element {
   const zone = useCommandHandling({
     route: DEFAULT_ROUTE,
-    commandEnumeration: props.commandEnumeration,
-    target: SESSION_TARGET,
     commandLineHandlers: useWorkflowStartHandlers({
       operations: props.operations,
       sessionId: props.sessionId,
@@ -72,7 +63,7 @@ describe("the composer command zone reads the committed render's handlers", () =
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
       title: "Start a workflow",
-      group: "Workflows",
+      group: WORKFLOW_START_COMMAND_GROUP,
       run: () => {},
     });
   }
@@ -81,13 +72,11 @@ describe("the composer command zone reads the committed render's handlers", () =
     registerWorkflowRoot();
     const calls = recordedWorkflowCalls();
     const operations = operationsRecording(calls);
-    const commandEnumeration = new ProviderCommandEnumeration();
     const executor: { current: CommandExecutor | undefined } = { current: undefined };
     const { rerender } = render(
-      <ComposerCommandZoneHost
+      <ComposerCommandZoneHarness
         sessionId={undefined}
         operations={operations}
-        commandEnumeration={commandEnumeration}
         executor={executor}
       />,
     );
@@ -95,10 +84,9 @@ describe("the composer command zone reads the committed render's handlers", () =
     // its handlers close over.
     const builtInFirstRender = executor.current;
     rerender(
-      <ComposerCommandZoneHost
+      <ComposerCommandZoneHarness
         sessionId={WORKFLOW_TEST_SESSION_ID}
         operations={operations}
-        commandEnumeration={commandEnumeration}
         executor={executor}
       />,
     );

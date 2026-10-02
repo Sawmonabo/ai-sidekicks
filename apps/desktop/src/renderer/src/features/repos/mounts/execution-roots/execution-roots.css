@@ -1,6 +1,6 @@
 /*
  * Preparing an execution root, and removing one. The shared dialog shape is in
- * `../mount-controls.css`, imported before this sheet; here are the reuse verdict's toned
+ * `../mount-controls.css`, which must load before this sheet; here are the reuse verdict's toned
  * readings and the settled line a removal leaves. Imported by `PrepareExecutionRoot.tsx` and
  * `RootRemovalConfirmation.tsx`.
  */

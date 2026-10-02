@@ -1,4 +1,4 @@
-// Which console screen closes an account-plane refusal, and which action it offers.
+// Which app screen closes an account-plane refusal, and which action it offers.
 //
 // A refusal can arrive anywhere (a run refused at admission, a registry read refused on a
 // settings page, a quota reading that never landed). This router decides where and which of
@@ -7,10 +7,10 @@
 // to the settings section where the act lives; nothing runs a sign-in or re-derives admission.
 //
 // The table maps into the contract's `ProviderRemedy` union, so a new upstream arm is a compile
-// error here. A code with no remedy is a real answer: five of the twelve are refusals no console
-// act closes (a session asking for an account verb, a lost set-default race that retries, a
-// wrong-class token, a refused host custody ladder, a provider binary below the floor), so the
-// table's value type admits `null`.
+// error here. A code with no remedy is a real answer: five of the twelve are refusals no app act
+// closes (a session asking for an account verb, a lost set-default race that retries, a
+// wrong-class token, a token this machine's keychain refused to seal, a provider binary below
+// the floor), so the table's value type admits `null`.
 
 import type { ProviderRemedy } from "@ai-sidekicks/contracts";
 
@@ -52,7 +52,7 @@ export interface AccountPlaneHandoff {
  * A record rather than a switch, so a new code cannot land in the tuple without someone
  * deciding whether it routes anywhere.
  */
-export const ACCOUNT_PLANE_HANDOFFS: Readonly<
+const ACCOUNT_PLANE_HANDOFFS: Readonly<
   Record<AccountPlaneRefusalCode, AccountPlaneHandoff | null>
 > = {
   // Nothing is registered for the provider, so the act is registration.
@@ -73,10 +73,10 @@ export const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
   // readiness handoff discloses, display-only on the page that shows it.
   "provideraccount.signin_unsupported": { section: "providers", remedyKind: "sign_in" },
-  // No console act closes these five: only this machine's client or a linked device may call an
+  // No app act closes these five: only this machine's client or a linked device may call an
   // account verb, never a session; a lost set-default race is retried; a wrong-class token is
-  // answered only by submitting another; a host whose custody ladder refused needs the host
-  // fixed; and a provider binary below the floor needs upgrading outside this application.
+  // answered only by submitting another; a token the keychain refused to seal needs the
+  // keychain fixed; and a provider binary below the floor needs upgrading outside this application.
   // Routing any to a page would offer an act that changes nothing.
   "provideraccount.permission_denied": null,
   "provideraccount.default_conflict": null,

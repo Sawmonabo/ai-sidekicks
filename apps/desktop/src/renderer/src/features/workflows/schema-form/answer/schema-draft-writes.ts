@@ -28,7 +28,7 @@ import {
   seededGroupMembers,
 } from "./schema-answer.js";
 import { memberKeyOf, type SchemaFormPlan } from "../plan/schema-fields.js";
-import type { SchemaMemberPath } from "../schema-member-path.js";
+import { encodeMemberPointer, type SchemaMemberPath } from "../schema-member-path.js";
 
 /**
  * Write one leaf at its path, activating the group it sits in where that group is not yet. The one
@@ -43,7 +43,7 @@ export function withLeafDrafted(
 ): SchemaFormDraft {
   const [leading, ...rest] = memberPath;
   if (leading === undefined) {
-    return draft;
+    return undrawnMember(memberPath);
   }
   const head = String(leading);
   if (rest.length === 0) {
@@ -51,7 +51,7 @@ export function withLeafDrafted(
   }
   const group = groupDrawnUnder(plan, head);
   if (group === undefined) {
-    return draft;
+    return undrawnMember(memberPath);
   }
   const held = groupDraftAt(draft, head);
   const members = held?.state === "active" ? held.members : seededGroupMembers(group);
@@ -70,12 +70,9 @@ export function withGroupActivation(
   isActive: boolean,
 ): SchemaFormDraft {
   const groupKey = memberKeyOf(memberPath);
-  if (groupKey === undefined) {
-    return draft;
-  }
-  const group = groupDrawnUnder(plan, groupKey);
-  if (group === undefined) {
-    return draft;
+  const group = groupKey === undefined ? undefined : groupDrawnUnder(plan, groupKey);
+  if (groupKey === undefined || group === undefined) {
+    return undrawnMember(memberPath);
   }
   return withNodeAt(
     draft,
@@ -96,7 +93,7 @@ export function withListActivation(
 ): SchemaFormDraft {
   const list = listDrawnAt(plan, memberPath);
   if (list === undefined) {
-    return draft;
+    return undrawnMember(memberPath);
   }
   return withLeafDrafted(
     plan,
@@ -115,7 +112,7 @@ export function withListEntryAppended(
   const held = heldListDraft(plan, draft, memberPath);
   const added = newListEntryDraft(plan, memberPath);
   if (held === undefined || added === undefined) {
-    return draft;
+    return undrawnMember(memberPath);
   }
   return withLeafDrafted(plan, draft, memberPath, withEntryAppended(held, added));
 }
@@ -130,7 +127,7 @@ export function withListEntryDrafted(
 ): SchemaFormDraft {
   const held = heldListDraft(plan, draft, memberPath);
   return held === undefined
-    ? draft
+    ? undrawnMember(memberPath)
     : withLeafDrafted(plan, draft, memberPath, withEntryDrafted(held, index, entry));
 }
 
@@ -143,7 +140,7 @@ export function withListEntryRemoved(
 ): SchemaFormDraft {
   const held = heldListDraft(plan, draft, memberPath);
   return held === undefined
-    ? draft
+    ? undrawnMember(memberPath)
     : withLeafDrafted(plan, draft, memberPath, withEntryRemoved(held, index));
 }
 
@@ -159,4 +156,12 @@ function heldListDraft(plan: SchemaFormPlan, draft: SchemaFormDraft, memberPath:
   }
   const drawn = leafDrawnAt(plan, memberPath);
   return drawn?.form === "list" ? answeredListDraft(drawn.list) : undefined;
+}
+
+/**
+ * A write addressed at a member no control is drawn for. Every write comes from a drawn control,
+ * so reaching this is a defect in the form, raised rather than dropped as a silent no-op.
+ */
+function undrawnMember(memberPath: SchemaMemberPath): never {
+  throw new Error(`No control is drawn at "${encodeMemberPointer(memberPath)}".`);
 }

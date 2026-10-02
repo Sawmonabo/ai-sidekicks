@@ -68,24 +68,6 @@
   font-size: var(--meridian-text-sm);
 }
 
-/* The meta line carries a command id (a wire figure, rendered verbatim in mono with no break
-   opportunity) beside the scope sentence. At the 320 px reflow floor the column is narrower
-   than the id (measured: the meta box wanted 190 px of the 170 px available), so without a
-   rule here the whole settings pane scrolls sideways.
-
-   `anywhere`, not `break-word`, because only `anywhere` lowers the flex item's min-content
-   contribution. The rule sits on the line and is inherited by both children. It wraps rather
-   than truncating, since a command id is what a person types into a search or a bug report. */
-.meridian-keymap__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
-}
-
 .meridian-keymap__unavailable {
   margin: 0;
   color: var(--meridian-red-text);

@@ -15,15 +15,16 @@ import {
 } from "@renderer/store/session/entities/entities.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { ComposerToolbar } from "./ComposerToolbar.js";
+import { agentPane } from "../composer.test-support.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
-/** The rail's session, as a registered `SessionId`: a UUID, not a readable name. */
+/** The toolbar's session, as a registered `SessionId`: a UUID, not a readable name. */
 const SESSION_ID = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b";
 
 const TOOLBAR_SCENARIO: Scenario = {
-  id: "rail-unit",
+  id: "toolbar-unit",
   label: "Rail unit",
-  purpose: "A bridge for the rail's mount; the rail's own reads come from the store.",
+  purpose: "A bridge for the toolbar's mount; the toolbar's own reads come from the store.",
   sessionId: SESSION_ID,
   startedAtIso: "2026-01-01T00:00:00.000Z",
   beats: [],
@@ -52,24 +53,19 @@ const RUNNING_RUN: StoredEntity = {
   body: { agentId: AGENT_ID, runVersion: 4 },
 };
 
-const ON_THE_AGENT: PaneAddress = {
-  kind: "agents",
-  entity: { kind: "agent", id: AGENT_ID },
-};
-
-/** What a rail case seeds: the session's entities, the pane the composer is addressed to. */
+/** What a toolbar case seeds: the session's entities, the pane the composer is addressed to. */
 export interface ToolbarAddressing {
   readonly entities?: readonly StoredEntity[];
   readonly focusedPane?: PaneAddress | undefined;
 }
 
-/** A composer pointed at a run; usage folds are run-scoped, so an unaddressed rail is blank. */
+/** A composer pointed at a run; usage folds are run-scoped, so an unaddressed toolbar is blank. */
 export const ADDRESSED: ToolbarAddressing = {
   entities: [AGENT, RUNNING_RUN],
-  focusedPane: ON_THE_AGENT,
+  focusedPane: agentPane(AGENT_ID),
 };
 
-/** Mount the rail over a real session store with `events` applied; returns the container. */
+/** Mount the toolbar over a real session store with `events` applied; returns the container. */
 export function mountToolbar(
   events: readonly ProjectedSessionEvent[],
   addressing: ToolbarAddressing,

@@ -4,7 +4,7 @@
 // never sorts. Whether a group is open lives in `run-group-fold-state.ts`, so the live run group
 // never collapses. This module renders nothing; `RunGroupHeader.tsx` draws the model.
 
-import type { ChildRunCompleteness, TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { RunGroupBodyRowWindow, countClippedHeadRows } from "./run-group-body.js";
 import {
@@ -54,35 +54,11 @@ export interface RunGroup {
    * bounds has older rows than these.
    */
   readonly clippedHeadRows: readonly TimelineRow[];
-  /** Which terminal ended it, wire-verbatim, or `undefined` while live. */
-  readonly terminalEventType: RunTerminalEventType | undefined;
   /**
    * The row that ended it, or `undefined` while live. Carried as an id so a folded run group
    * renders its header and that row without scanning for its receipt.
    */
   readonly terminalRowId: string | undefined;
-  readonly firstSequence: number;
-  readonly lastSequence: number;
-  readonly firstTimestamp: string;
-  readonly lastTimestamp: string;
-  /**
-   * A child run this run group summarizes whose expansion is incomplete, read off
-   * `TimelineRow.childRunSummary`.
-   *
-   * Derived from the latest reading of each child, never accumulated: a child later summarized
-   * as complete is one child observed twice, and the second reading is current.
-   */
-  readonly hasIncompleteChildExpand: boolean;
-}
-
-/** What a fold produced: the run groups, and the rows that belong to none. */
-export interface RunGroupFold {
-  readonly runGroups: readonly RunGroup[];
-  /**
-   * Rows carrying no run attribution (the `general` arm). Not folded into a run group: a
-   * session-scoped row inside a run's group would attribute it to that run.
-   */
-  readonly ungroupedRowIds: readonly string[];
 }
 
 /**
@@ -94,8 +70,7 @@ export interface RunGroupFold {
 export class RunGroupIndex {
   readonly #rows: readonly TimelineRow[];
   /** The lazy fold. Undefined until the first read. */
-  #fold: RunGroupFold | undefined;
-  #runGroupByRunId: ReadonlyMap<string, RunGroup> | undefined;
+  #runGroups: readonly RunGroup[] | undefined;
 
   public constructor(rows: readonly TimelineRow[]) {
     this.#rows = rows;
@@ -103,39 +78,23 @@ export class RunGroupIndex {
 
   /** Every run group, in the order each run's first row arrived. */
   public runGroups(): readonly RunGroup[] {
-    return this.#foldOnce().runGroups;
-  }
-
-  /** Rows carrying no run attribution, in log order. */
-  public ungroupedRowIds(): readonly string[] {
-    return this.#foldOnce().ungroupedRowIds;
-  }
-
-  /** One run group by run, or `undefined` when the window holds none of that run. */
-  public runGroupFor(runId: string): RunGroup | undefined {
-    this.#runGroupByRunId ??= new Map(
-      this.#foldOnce().runGroups.map((runGroup) => [runGroup.runId, runGroup]),
-    );
-    return this.#runGroupByRunId.get(runId);
+    this.#runGroups ??= groupRowsByRun(this.#rows);
+    return this.#runGroups;
   }
 
   /** Run groups that have ended. The input to "collapse all terminal run groups". */
   public terminalRunGroups(): readonly RunGroup[] {
-    return this.#foldOnce().runGroups.filter((runGroup) => runGroup.lifecycle === "terminal");
-  }
-
-  #foldOnce(): RunGroupFold {
-    this.#fold ??= groupRowsByRun(this.#rows);
-    return this.#fold;
+    return this.runGroups().filter((runGroup) => runGroup.lifecycle === "terminal");
   }
 }
 
 /**
- * The run a row belongs to, or `undefined` for a row that belongs to none.
+ * The run group a row hangs from, or `undefined` for a row that belongs to none: a
+ * session-scoped row inside a run's group would attribute it to that run.
  *
  * Narrowed on `kind`: `runId` is required on three arms and absent from `general`.
  */
-export function readRunIdOfGroupedRow(row: TimelineRow): string | undefined {
+export function readRunGroupKey(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
 }
 
@@ -144,28 +103,23 @@ export function readRunIdOfGroupedRow(row: TimelineRow): string | undefined {
  *
  * Exported beside the class so a test or bench can drive the fold without an index.
  */
-export function groupRowsByRun(rows: readonly TimelineRow[]): RunGroupFold {
+export function groupRowsByRun(rows: readonly TimelineRow[]): readonly RunGroup[] {
   const accumulatorsByRunId = new Map<string, RunGroupAccumulator>();
-  const ungroupedRowIds: string[] = [];
 
   for (const row of rows) {
-    const runId = readRunIdOfGroupedRow(row);
+    const runId = readRunGroupKey(row);
     if (runId === undefined) {
-      ungroupedRowIds.push(row.id);
       continue;
     }
     const existing = accumulatorsByRunId.get(runId);
-    const accumulator = existing ?? newAccumulator(runId, row);
+    const accumulator = existing ?? newAccumulator(runId);
     if (existing === undefined) {
       accumulatorsByRunId.set(runId, accumulator);
     }
     absorbRow(accumulator, row);
   }
 
-  return {
-    runGroups: [...accumulatorsByRunId.values()].map(sealRunGroup),
-    ungroupedRowIds,
-  };
+  return [...accumulatorsByRunId.values()].map(sealRunGroup);
 }
 
 /** A run group under construction. Mutable only inside the fold. */
@@ -179,20 +133,9 @@ interface RunGroupAccumulator {
   payingAccountId: string | undefined;
   /** The bounded head this run group's body will draw. Fed one row at a time. */
   readonly bodyRows: RunGroupBodyRowWindow;
-  firstSequence: number;
-  lastSequence: number;
-  firstTimestamp: string;
-  lastTimestamp: string;
-  /**
-   * The latest completeness this run group's rows reported for each child run, replaced in row
-   * order rather than folded into a boolean: the header asks about current readings. Keyed by
-   * the child's run id, as `dispatches/child-run-entries.ts` re-summarizes, so header and card
-   * agree on which observation is current.
-   */
-  readonly childExpandCompletenessByChildRunId: Map<string, ChildRunCompleteness["state"]>;
 }
 
-function newAccumulator(runId: string, row: TimelineRow): RunGroupAccumulator {
+function newAccumulator(runId: string): RunGroupAccumulator {
   return {
     runId,
     rowIds: [],
@@ -202,11 +145,6 @@ function newAccumulator(runId: string, row: TimelineRow): RunGroupAccumulator {
     runStateEventType: undefined,
     payingAccountId: undefined,
     bodyRows: new RunGroupBodyRowWindow(),
-    firstSequence: row.sequence,
-    lastSequence: row.sequence,
-    firstTimestamp: row.timestamp,
-    lastTimestamp: row.timestamp,
-    childExpandCompletenessByChildRunId: new Map(),
   };
 }
 
@@ -235,21 +173,6 @@ function absorbRow(accumulator: RunGroupAccumulator, row: TimelineRow): void {
     accumulator.terminalEventType = undefined;
     accumulator.terminalRowId = undefined;
   }
-  if (row.childRunSummary !== undefined) {
-    // Latest wins per child: a later `complete` replaces an earlier `incomplete`.
-    accumulator.childExpandCompletenessByChildRunId.set(
-      row.childRunSummary.runId,
-      row.childRunSummary.completeness.state,
-    );
-  }
-  if (row.sequence < accumulator.firstSequence) {
-    accumulator.firstSequence = row.sequence;
-    accumulator.firstTimestamp = row.timestamp;
-  }
-  if (row.sequence > accumulator.lastSequence) {
-    accumulator.lastSequence = row.sequence;
-    accumulator.lastTimestamp = row.timestamp;
-  }
 }
 
 function sealRunGroup(accumulator: RunGroupAccumulator): RunGroup {
@@ -264,15 +187,6 @@ function sealRunGroup(accumulator: RunGroupAccumulator): RunGroup {
     runStateEventType: accumulator.runStateEventType,
     payingAccountId: accumulator.payingAccountId,
     clippedHeadRows: accumulator.bodyRows.headRows,
-    terminalEventType: accumulator.terminalEventType,
     terminalRowId: accumulator.terminalRowId,
-    firstSequence: accumulator.firstSequence,
-    lastSequence: accumulator.lastSequence,
-    firstTimestamp: accumulator.firstTimestamp,
-    lastTimestamp: accumulator.lastTimestamp,
-    // Derived from the map the fold advanced, not a second walk over the rows.
-    hasIncompleteChildExpand: [...accumulator.childExpandCompletenessByChildRunId.values()].some(
-      (state) => state === "incomplete",
-    ),
   };
 }

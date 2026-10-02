@@ -1,10 +1,10 @@
 // The window cap: what it drops, what it refuses to drop, and what it leaves owed. Logs and the
-// all-clear conditions come from `window-cap.test-support.ts`; the lease-table seam and the
-// counting rules are `window-cap.retained-row-state.test.ts`'s.
+// all-clear conditions come from `window-cap.test-support.ts`; the retained-state-table seam and
+// the counting rules are `window-cap.retained-row-state.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "./viewport-constants.js";
 import { TranscriptWindow, type PruneConditions } from "./window-cap.js";
 import {
   CHILDREN_PER_RUN_GROUP,

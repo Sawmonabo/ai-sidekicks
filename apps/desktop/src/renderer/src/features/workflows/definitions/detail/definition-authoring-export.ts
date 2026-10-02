@@ -25,7 +25,7 @@ export async function exportDefinitionFile(runtime: AuthoringRuntime): Promise<v
   const versionLabel = `Version ${String(body.versionNumber)} of ${body.name}`;
   const claim = runtime.latch.supersedeAndClaim(
     runtime.createDefinition,
-    actKey("export", runtime.workflowDefinitionId),
+    actKey("export", runtime.definitionId),
   );
   try {
     const file = await serializeFile(runtime, claim, body);

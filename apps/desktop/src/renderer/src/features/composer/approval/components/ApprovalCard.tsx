@@ -12,6 +12,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
 import { Chip } from "@renderer/components/Chip/Chip.js";
+import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
@@ -116,7 +117,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       0,
     );
     // The walk stops at each end rather than wrapping around.
-    const next = buttons[Math.min(Math.max(focusedAt + step, 0), buttons.length - 1)];
+    const next = buttons[clampedRowIndex(focusedAt + step, buttons.length)];
     next?.focus();
   }, []);
 

@@ -164,7 +164,7 @@ export function declaredEdges(
  * behind them. Named rather than counted, so a person can find the loop. Every dependency
  * is already known to be a declared phase.
  */
-export function phasesNeverEligible(topology: PhaseTopology): readonly string[] {
+function phasesNeverEligible(topology: PhaseTopology): readonly string[] {
   const unsatisfied = new Map<string, Set<string>>(
     topology.map((declaration) => [declaration.phaseId, new Set(declaration.dependsOn ?? [])]),
   );

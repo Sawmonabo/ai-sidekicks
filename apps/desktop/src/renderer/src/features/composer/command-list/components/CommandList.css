@@ -77,14 +77,6 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* The provider cut its enumeration at the registered cap. Muted: it qualifies what is on
-   screen rather than reporting a failure of the read, which succeeded. */
-.meridian-command-discovery__truncated {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
 /* An entry the provider declared disabled. Dimmed rather than hidden, because the driver
    returns it so a disabled command is distinguishable from one that does not exist. The
    declared state keeps the secondary weight; dimming it would hide what this row adds. */

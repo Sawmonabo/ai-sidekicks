@@ -53,14 +53,19 @@ function restoredWords(target: RestoreTarget, restored: SessionRestoreScope): st
 /**
  * Words as they read mid-sentence: the first letter lowercased, so a snapshot named `Before
  * the refactor` reads `Restored to before the refactor`. Words that open on an acronym
- * (`API cleanup`) keep it.
+ * (`API cleanup`) or on the pronoun `I` (`I broke it`) keep it.
  */
 function midSentence(words: string): string {
   const [first = "", second = ""] = words;
-  if (second !== second.toLocaleLowerCase()) {
+  if (second !== second.toLocaleLowerCase() || opensOnPronounI(first, second)) {
     return words;
   }
   return `${first.toLocaleLowerCase()}${words.slice(first.length)}`;
+}
+
+/** Whether the words open on the pronoun `I`, standing alone or before an apostrophe. */
+function opensOnPronounI(first: string, second: string): boolean {
+  return first === "I" && (second === "" || second === " " || second === "'" || second === "’");
 }
 
 function partsOf(scope: SessionRestoreScope): readonly SessionRestorePart[] {

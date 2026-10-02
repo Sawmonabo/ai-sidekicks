@@ -1,5 +1,5 @@
 // The phase graph's mount point: places the caller's phases, decides whether the sequence can
-// be drawn, fetches the renderer's chunk and stands an absence in the box until it lands. The
+// be drawn, fetches the renderer's chunk and stands an empty state in the box until it lands. The
 // drawing is `RunGraphCanvas.tsx`'s, behind an `import()`, so the graph library stays out of
 // the initial bundle.
 
@@ -12,7 +12,7 @@ import { useRunGraphModule, type RunGraphModuleState } from "./hooks/useRunGraph
 
 /** The phases to draw, the pinned definition's topology where held, and the region's name. */
 export interface RunGraphProps {
-  /** The run's phases in sequence order. Empty renders a no-phases absence, not a canvas. */
+  /** The run's phases in sequence order. Empty renders a no-phases empty state, not a canvas. */
   readonly phases: readonly RunGraphNode[];
   /**
    * The pinned definition's phases, where the caller holds one.
@@ -109,7 +109,7 @@ function repeatedPhaseDetail(repeatedPhaseIds: readonly string[]): string {
 /**
  * What stands in the canvas box while the renderer's code is not there.
  *
- * A chunk in flight is a `not-loaded` absence; a refused chunk is a refusal with a retry
+ * A chunk in flight is a `not-loaded` empty state; a refused chunk is a refusal with a retry
  * action. Both use only styles that load with the page, since one from the graph chunk would
  * be missing exactly when the chunk failed.
  */

@@ -12,7 +12,7 @@
 // projection is safe to hold for the life of a window. It also folds the degradation cause
 // over the stores it already subscribes to, by `store/session-degradation.ts`'s rule (the
 // worst standing cause wins). It projects and does not merge: `session-directory-rows.ts`
-// merges with the node's directory, and an empty array here claims nothing about the node.
+// merges with the daemon's directory, and an empty array here claims nothing about the daemon.
 
 import { useRef, useSyncExternalStore } from "react";
 

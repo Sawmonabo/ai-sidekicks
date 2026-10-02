@@ -18,7 +18,7 @@ function mintSessionPinStore(store: UiStateStore): SessionPinStore {
  * build a second store over the one database, two writers each spreading its own copy over the
  * other's writes. A `const` holding an encapsulated object, not a module-level `let` or `Map`.
  */
-const consoleSessionPins = new DurableViewBindingHolder(mintSessionPinStore);
+const sessionPinsHolder = new DurableViewBindingHolder(mintSessionPinStore);
 
 /**
  * Bind the pin map into a component. Keyed on the store's identity through this window's one
@@ -26,7 +26,7 @@ const consoleSessionPins = new DurableViewBindingHolder(mintSessionPinStore);
  * hydrate rides the holder's effect, so a discarded render performs no durable read.
  */
 export function useSessionPins(store: UiStateStore): SessionPinBinding {
-  const { binding, acquire } = useDurableViewBinding(consoleSessionPins, store);
+  const { binding, acquire } = useDurableViewBinding(sessionPinsHolder, store);
   const subscribe = useCallback(
     (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
     [binding],

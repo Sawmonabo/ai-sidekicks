@@ -18,7 +18,6 @@ function composePages(loadedSections: string[]): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
     section: "notifications",
-    owner: "settings-warm-test",
     label: "Notifications",
     keywords: [],
     body: () => {
@@ -30,7 +29,6 @@ function composePages(loadedSections: string[]): SettingsPageRegistry {
   });
   pages.register({
     section: "keyboard",
-    owner: "settings-warm-test",
     label: "Keyboard",
     keywords: [],
     render: () => null,

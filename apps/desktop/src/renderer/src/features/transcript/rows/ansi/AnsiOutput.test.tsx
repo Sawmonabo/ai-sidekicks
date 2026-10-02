@@ -3,7 +3,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ANSI_SPAN_RENDER_CAP } from "../../cards/card-caps.js";
+import { ANSI_SPAN_RENDER_CAP } from "./ansi-spans.js";
 import { AnsiOutput } from "./AnsiOutput.js";
 
 const ESCAPE = String.fromCodePoint(0x1b);

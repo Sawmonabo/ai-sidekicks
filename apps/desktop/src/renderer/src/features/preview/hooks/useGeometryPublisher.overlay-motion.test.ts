@@ -13,10 +13,8 @@ import {
   chromeFor,
   DEFAULT_TEST_PANE_ID,
   recordingActs,
+  SECOND_TEST_PANE_ID,
 } from "../PreviewPane.test-support.js";
-
-/** The second pane, since the count is per pane. */
-const SECOND_TEST_PANE_ID = "pane-browser-2";
 
 type AirspaceOverlayRegistration = ReturnType<AirspaceRegistry["register"]>;
 

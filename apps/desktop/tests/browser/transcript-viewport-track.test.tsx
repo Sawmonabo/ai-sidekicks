@@ -1,19 +1,13 @@
-// Which grid track the transcript's scroll container lands in, and whether that depends on how
-// many of its siblings are rendering.
-//
-// `transcript-viewport.css` gives `.meridian-transcript-viewport` two tracks, `auto minmax(0,
-// 1fr)`, written for an error region above a scroll container. `TranscriptErrors` returns `null`
-// with no entries and the head and tail affordances are `position: absolute`, so ordinarily the
-// scroll container is the only in-flow child and would auto-place into the `auto` track, leaving
-// the `1fr` track empty and the container sized by its content instead of its box.
+// Which grid track the transcript's scroll container lands in. `transcript-viewport.css` gives
+// `.meridian-transcript-viewport` one track, `minmax(0, 1fr)`, and the head and tail affordances
+// are `position: absolute`, so the scroll container is the only in-flow child.
 //
 // That matters because the scroll container is what the virtualizer ranges against: a
 // content-sized one gives the window a height unrelated to the pane, and with no rows the
 // content height is zero, `calculateRange` returns `null` for `outerSize === 0`, and nothing
 // ever mounts to grow it back.
 //
-// This asserts the sheet, not a composition: the two class names under the real stylesheet, with
-// the scroll container as the only in-flow child.
+// The case asserts the sheet, not a composition: the two class names under the real stylesheet.
 
 import { describe, expect, it } from "vitest";
 
@@ -45,7 +39,7 @@ async function mountViewportScrollContainer(): Promise<HTMLElement> {
 }
 
 describe("browser — the transcript's scroll container takes the viewport's height", () => {
-  it("fills the box when it is the only child in flow, which is the ordinary case", async () => {
+  it("fills the box as the only child in flow", async () => {
     const scrollContainer = await mountViewportScrollContainer();
 
     expect(

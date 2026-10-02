@@ -35,8 +35,8 @@ describe("useReasoningRead — a refusal is retryable and an answer is not", () 
   });
 
   it("issues a second read when a refused one is asked again", async () => {
-    // The guard once admitted only `not-asked`, so a read refused by a briefly down transport
-    // could never be retried, and the control was hidden in that state too.
+    // A read refused by a briefly down transport can be asked again, so the guard admits a
+    // refused reading as well as one never asked.
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
       wrapper: inBridge(held),

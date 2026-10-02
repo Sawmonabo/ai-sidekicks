@@ -59,17 +59,6 @@ class OverlayMotionObservation {
     };
   }
 
-  /** How many elements have a frame armed; zero at rest. */
-  public get samplingElementCount(): number {
-    let sampling = 0;
-    for (const sampler of this.#samplersByElement.values()) {
-      if (sampler.isSampling) {
-        sampling += 1;
-      }
-    }
-    return sampling;
-  }
-
   #armMotionStarts(): void {
     if (this.#detachMotionStarts !== undefined) {
       return;

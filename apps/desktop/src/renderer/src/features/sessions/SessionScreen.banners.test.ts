@@ -87,11 +87,11 @@ function renderRoutableSession(store: UiStateStore): {
 } {
   const fixture = createFixtureBridge({ scenario: SCENARIO });
   const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
-  const { container, rerender } = render(workspaceFor(first, store, false, fixture));
+  const { container, rerender } = render(workspaceFor(first, store, fixture));
   return {
     container,
     routeTo: (session) => {
-      rerender(workspaceFor(session, store, false, fixture));
+      rerender(workspaceFor(session, store, fixture));
     },
   };
 }
@@ -131,7 +131,7 @@ describe("SessionScreen — the pane layout's save failure", () => {
   it("draws one plain banner under the header and sends each failure's code to the capture", async () => {
     const { store, adapter } = await storeWithSavedLayouts();
     const { container } = render(
-      workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
+      workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store),
     );
     await awaitRestoredPaneLayout(container);
     const readSaveFailures = captureSaveFailures();
@@ -160,9 +160,8 @@ describe("SessionScreen — the pane layout's save failure", () => {
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {
   it("stops showing one session's banners once the session screen routes to another", async () => {
-    // A mount-lifetime list: the screen is not remounted between two open sessions, so a
-    // banner raised in the first once stood over the second's pane layout, about an act nobody
-    // performed in the session on screen.
+    // The screen is not remounted between two open sessions, so a banner held for the mount's
+    // lifetime would stand over the second's pane layout, about an act nobody performed there.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);

@@ -20,8 +20,8 @@ const TARGET: WorkflowDefinitionImportTarget = {
 
 /**
  * One served body, with only what a case varies overridden. It carries a tool binding and a
- * phase config because a reader once wrote those and never read them back, so a round trip
- * without them would pass while an import removed every tool call.
+ * phase config so a round trip proves both are written and read back; without them a round
+ * trip would pass while an import removed every tool call.
  */
 function versionBody(overrides: Partial<WorkflowVersionBody> = {}): WorkflowVersionBody {
   return {

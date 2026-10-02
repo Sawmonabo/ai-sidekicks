@@ -1,11 +1,11 @@
 // The run group body, held to what it undoes: rows that were counted and unreachable. Every case
-// reads the rendered body, since a case over the fold alone would pass against a console that
+// reads the rendered body, since a case over the fold alone would pass against a transcript that
 // drew no body at all.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../../structure/structure-caps.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-group-body.js";
 import { RunGroupBody } from "./RunGroupBody.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";
@@ -31,7 +31,7 @@ function renderBody(
   rows: readonly TimelineRow[],
   narrowedRowIds?: readonly string[],
 ): HTMLElement | null {
-  const sealed = findRunGroup(groupRowsByRun(rows).runGroups, RUN_ID);
+  const sealed = findRunGroup(groupRowsByRun(rows), RUN_ID);
   const runGroup =
     narrowedRowIds === undefined
       ? sealed
@@ -43,7 +43,7 @@ function renderBody(
 }
 
 describe("the run group body — the head the outer list left out", () => {
-  it("draws the clipped rows, which were previously a figure and nothing else", () => {
+  it("draws the clipped rows, not only their count", () => {
     const body = renderBody(longRun(2));
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");

@@ -1,7 +1,7 @@
 // One run, as the pane can honestly know it: nothing asked, a read in flight, or a snapshot
 // served. The call is the caller's and a rejected call is not caught here. The run is re-read
-// once per round, never on a timer: the round rises when a served act or a live frame says
-// the run moved, and it joins the subject key so no frame shows the last round as current.
+// once per refresh, never on a timer: the refresh rises when a served act or a live frame says
+// the run moved, and it joins the subject key so no frame shows the last refresh as current.
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
 import { subjectReadStart, type SubjectRead } from "../../subject-read-start.js";
@@ -32,11 +32,11 @@ export type WorkflowRunSnapshotState = SubjectRead<{
 export function useWorkflowRunSnapshot(
   readRun: WorkflowRunReadCall,
   workflowRunId: string | undefined,
-  readRound: number,
+  refreshCount: number,
 ): WorkflowRunSnapshotState {
   return useSubjectRead<WorkflowRunSnapshot, WorkflowRunSnapshotState>(
     readRun,
-    readSubjectKey(workflowRunId, readRound),
+    readSubjectKey(workflowRunId, refreshCount),
     () => (workflowRunId === undefined ? undefined : readRun({ workflowRunId })),
     {
       unsettled: subjectReadStart,
@@ -46,11 +46,14 @@ export function useWorkflowRunSnapshot(
 }
 
 /**
- * The subject this read is held at: the run, and which round of it is being asked.
+ * The subject this read is held at: the run, and which refresh of it is being asked.
  *
  * A derived string, compared by value. `undefined` where no run is named, so the seed rule
  * answers `unasked` rather than `reading`.
  */
-function readSubjectKey(workflowRunId: string | undefined, readRound: number): string | undefined {
-  return workflowRunId === undefined ? undefined : `${workflowRunId}#${String(readRound)}`;
+function readSubjectKey(
+  workflowRunId: string | undefined,
+  refreshCount: number,
+): string | undefined {
+  return workflowRunId === undefined ? undefined : `${workflowRunId}#${String(refreshCount)}`;
 }

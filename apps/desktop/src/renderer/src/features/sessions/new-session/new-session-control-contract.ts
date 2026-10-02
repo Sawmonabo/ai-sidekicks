@@ -1,9 +1,9 @@
 // The props the composed new-session draft control takes, and what it hands back.
 //
-// The callback carries a session id and nothing else. What the console does with a session it
-// just started (open its store, stamp its origin, declare the node's directory stale,
-// navigate) is `features/sessions/start/session-start.ts`, because each step names a store or
-// a route the draft does not hold.
+// The callback carries a session id and nothing else. What the app does with a session it just
+// started (open its store, declare the session directory stale, navigate) is
+// `features/sessions/start/session-start.ts`, because each step names a store or a route the
+// draft does not hold.
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -34,7 +34,6 @@ export interface NewSessionControlProps {
    */
   readonly lead: AgentProviderBinding;
   /**
-  /**
    * The session a completed send produced, told once when it completed. Not called for a
    * partial send: the draft stays for it, and navigating away would hide the refusal that
    * says what to do next. Needs no stable identity; the control reads the committed callback
@@ -42,7 +41,7 @@ export interface NewSessionControlProps {
    */
   readonly onSessionCreated: (sessionId: string) => void;
   /**
-   * Ask the destination to re-read the node's session directory. It is the one act left
+   * Ask the destination to re-read the session directory. It is the one act left
    * after a create whose reply this build could not read, and the destination's because the
    * directory is not held by the draft. Needs no stable identity, since a press reads it.
    */

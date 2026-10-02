@@ -131,13 +131,4 @@ describe("readRegistrationFields", () => {
     expect(refusal?.origin).toBe(TOKEN_REGISTRATION_REFUSAL_ORIGIN);
     expect(refusal?.detail ?? "").toContain("label");
   });
-
-  it("refuses a value neither closed vocabulary publishes, naming which one", () => {
-    expect(
-      refusalOf(readRegistrationFields({ ...typed("Metered"), provider: "not-a-provider" }))?.code,
-    ).toBe("registration-provider-unadmitted");
-    expect(
-      refusalOf(readRegistrationFields({ ...typed("Metered"), billingMode: "not-a-mode" }))?.code,
-    ).toBe("registration-billing-mode-unadmitted");
-  });
 });

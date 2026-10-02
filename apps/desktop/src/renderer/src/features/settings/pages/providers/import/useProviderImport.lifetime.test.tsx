@@ -104,7 +104,7 @@ function callsReading(stream: DrivenProgressStream): ImportCalls {
  * The calls are props and the case passes the same ones every render, because the begin call
  * is what the import is addressed by; fresh calls would re-mint the act.
  */
-function ImportHost(props: {
+function ImportHarness(props: {
   readonly calls: ImportCalls;
   readonly isPanelMounted: boolean;
 }): React.JSX.Element {
@@ -128,7 +128,7 @@ async function startAnImport(container: HTMLElement): Promise<void> {
 
 /** The panel's own submit control, or `undefined` while no panel is mounted. */
 function submitControl(container: HTMLElement): HTMLButtonElement | undefined {
-  const button = container.querySelector("button.meridian-session-import__submit");
+  const button = container.querySelector("button.meridian-provider-import__submit");
   return button instanceof HTMLButtonElement ? button : undefined;
 }
 
@@ -136,7 +136,7 @@ describe("an import whose panel goes away", () => {
   it("keeps reading, and comes back to the same import rather than a fresh one", async () => {
     const stream = new DrivenProgressStream();
     const calls = callsReading(stream);
-    const view = render(<ImportHost calls={calls} isPanelMounted />);
+    const view = render(<ImportHarness calls={calls} isPanelMounted />);
 
     await startAnImport(view.container);
     await act(async () => {
@@ -146,7 +146,7 @@ describe("an import whose panel goes away", () => {
     expect(view.container.textContent).toContain("12");
 
     // The disclosure moving, as the panel experiences it.
-    view.rerender(<ImportHost calls={calls} isPanelMounted={false} />);
+    view.rerender(<ImportHarness calls={calls} isPanelMounted={false} />);
     await settle();
     expect(submitControl(view.container)).toBeUndefined();
     // A frame that arrives while nobody is looking; the subscription is still open, so it
@@ -156,7 +156,7 @@ describe("an import whose panel goes away", () => {
       await settle();
     });
 
-    view.rerender(<ImportHost calls={calls} isPanelMounted />);
+    view.rerender(<ImportHarness calls={calls} isPanelMounted />);
     await settle();
 
     // The same import, still being read and reporting what happened while the panel was

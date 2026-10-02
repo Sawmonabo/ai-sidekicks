@@ -203,11 +203,12 @@ describe("endurance — one pathological line inside a five-thousand-line patch"
     );
     expect(parseMilliseconds).toBeLessThan(PATHOLOGICAL_PARSE_BUDGET_MS);
 
-    // The row a reader scrolls to keeps its whole line and says the comparison was declined:
-    // the cost is not moved from parse into the row, it is not paid at all.
+    // The row a reader scrolls to keeps its whole line, unsplit: the cost is not moved from
+    // parse into the row, it is not paid at all.
     const cache = new IntralineSegmentCache(model);
-    expect(cache.readingFor(pathologicalBodyRow(0), 0).skipped).toBe(true);
-    expect(cache.computeCount).toBe(0);
+    expect(cache.readingFor(pathologicalBodyRow(0), 0).segments).toStrictEqual([
+      { text: diffLineText(lines[0] as DiffLine), changed: false },
+    ]);
   });
 });
 

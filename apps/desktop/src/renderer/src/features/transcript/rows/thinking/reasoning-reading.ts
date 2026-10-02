@@ -1,6 +1,6 @@
 // The reasoning row's model: the sentence for each availability arm, and how the tail is cut.
 // The copy table is total over the contract's `availability` union, so a new state fails to
-// compile here instead of rendering blank. There is no per-session toggle.
+// compile here instead of rendering blank.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ReasoningSurfaceReadResponse, RunId, TimelineRow } from "@ai-sidekicks/contracts";

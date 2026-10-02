@@ -1,16 +1,17 @@
 // The saved-definition registry projected into rows a page can render: no React, no bridge
 // call, no state. Each axis carries its source so the page shows a wire string verbatim in
-// mono and the console's own sentence (an inherit `null` rephrased) in the derived style.
+// mono and the app's own sentence (an inherit `null` rephrased) in the derived style.
 // Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts";
 import { formatCount } from "@renderer/lib/wire-figures.js";
+import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist.js";
 
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
- * mono; `console` is a sentence or count this module composed, which mono would misattribute.
+ * mono; `composed` is a sentence or count this module composed, which mono would misattribute.
  */
-export const AGENT_AXIS_SOURCES = ["wire", "console"] as const;
+export const AGENT_AXIS_SOURCES = ["wire", "composed"] as const;
 
 /** One axis's provenance. */
 export type AgentAxisSource = (typeof AGENT_AXIS_SOURCES)[number];
@@ -19,9 +20,9 @@ export type AgentAxisSource = (typeof AGENT_AXIS_SOURCES)[number];
 export interface AgentDefinitionAxis {
   /** Stable across renders and independent of the label's wording. */
   readonly key: string;
-  /** The console's word for the axis. Never a wire key. */
+  /** The app's word for the axis. Never a wire key. */
   readonly label: string;
-  /** The text shown. Verbatim on the `wire` source; ours on `console`. */
+  /** The text shown. Verbatim on the `wire` source; ours on `composed`. */
   readonly reading: string;
   readonly source: AgentAxisSource;
 }
@@ -56,7 +57,8 @@ export type SettledAgentDefinitionReading = Exclude<
 >;
 
 /** The empty registry's own sentence, so the page and its announcement agree. */
-export const NO_SAVED_DEFINITIONS = "You have saved no sidekicks on this node";
+export const NO_SAVED_DEFINITIONS =
+  "No sidekicks yet — a sidekick is a set of instructions and a model binding you tune once and reuse in every session and workflow on this machine.";
 
 /** Read the registry's rows into what the page renders. */
 export function readDefinitions(
@@ -94,7 +96,7 @@ export function projectDefinitionRows(
 /** What a settled read says out loud, once. */
 export function describeDefinitionSettlement(reading: SettledAgentDefinitionReading): string {
   if (reading.kind === "empty") {
-    return `${NO_SAVED_DEFINITIONS}.`;
+    return NO_SAVED_DEFINITIONS;
   }
   const count = reading.rows.length;
   return `Read ${formatCount(count)} saved ${count === 1 ? "sidekick" : "sidekicks"}.`;
@@ -117,9 +119,9 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
       wireAxis("model", "Model", binding.modelId),
       pinnedAxis("account", "Account", binding.providerAccountId, "The provider's default"),
       pinnedAxis("effort", "Effort", binding.effort, "The driver's default"),
-      consoleAxis("tools", "Tools", describeToolAllowlist(definition.toolAllowlist)),
-      consoleAxis("instructions", "Instructions", describeProsePresence(definition.instructions)),
-      consoleAxis("goal", "Goal", describeProsePresence(definition.goal)),
+      composedAxis("tools", "Tools", describeToolAllowlist(definition.toolAllowlist)),
+      composedAxis("instructions", "Instructions", describeProsePresence(definition.instructions)),
+      composedAxis("goal", "Goal", describeProsePresence(definition.goal)),
       wireAxis("created", "Created", definition.createdAt),
       wireAxis("updated", "Updated", definition.updatedAt),
     ],
@@ -130,13 +132,13 @@ function wireAxis(key: string, label: string, reading: string): AgentDefinitionA
   return { key, label, reading, source: "wire" };
 }
 
-function consoleAxis(key: string, label: string, reading: string): AgentDefinitionAxis {
-  return { key, label, reading, source: "console" };
+function composedAxis(key: string, label: string, reading: string): AgentDefinitionAxis {
+  return { key, label, reading, source: "composed" };
 }
 
 /**
  * An axis either pinned to a wire value or left at the inherit state. The inherit sentence is
- * ours, so it carries the `console` source; rendering it in mono would attribute it to the daemon.
+ * ours, so it carries the `composed` source; rendering it in mono would attribute it to the daemon.
  */
 function pinnedAxis(
   key: string,
@@ -144,19 +146,19 @@ function pinnedAxis(
   pinned: string | null,
   inheritReading: string,
 ): AgentDefinitionAxis {
-  return pinned === null ? consoleAxis(key, label, inheritReading) : wireAxis(key, label, pinned);
+  return pinned === null ? composedAxis(key, label, inheritReading) : wireAxis(key, label, pinned);
 }
 
 /**
- * The allowlist's three states: `null` is the driver's defaults, `[]` is no tools, a list is
- * exactly those. The first two must never render as each other.
+ * The allowlist's three states: `null` is the provider's default set, `[]` is no tools, a list
+ * is exactly those. The first two must never render as each other, and read as the pane does.
  */
 function describeToolAllowlist(allowlist: readonly string[] | null): string {
   if (allowlist === null) {
-    return "The driver's defaults";
+    return NAMELESS_TOOL_ALLOWLIST_WORDING["driver-default"].reading;
   }
   if (allowlist.length === 0) {
-    return "No tools";
+    return NAMELESS_TOOL_ALLOWLIST_WORDING["no-tools"].reading;
   }
   return `${formatCount(allowlist.length)} ${allowlist.length === 1 ? "tool" : "tools"}`;
 }

@@ -229,9 +229,6 @@ export class PaneGeometryPublisher {
   }
 
   #armViewportListeners(): void {
-    if (typeof window === "undefined") {
-      return;
-    }
     const onResize = (): void => {
       this.invalidate("window-resize");
     };
@@ -247,9 +244,6 @@ export class PaneGeometryPublisher {
   }
 
   #armThemeObserver(): void {
-    if (typeof MutationObserver === "undefined" || typeof document === "undefined") {
-      return;
-    }
     const observer = new MutationObserver(() => {
       this.invalidate("theme-change");
     });
@@ -269,8 +263,7 @@ function readElementRect(element: Element): PaneRect {
 
 /**
  * Every clipping ancestor's box, outermost first (the order `PaneGeometryInput` declares).
- * Which ancestors clip is `lib/clipping-ancestors.ts`'s answer, shared with `pane-rect-geometry.ts`
- * in the session pane layout.
+ * Which ancestors clip is `lib/clipping-ancestors.ts`'s answer.
  */
 function readClippingAncestorRects(element: HTMLElement): readonly PaneRect[] {
   return [...clippingAncestorsOf(element)].reverse().map(readElementRect);

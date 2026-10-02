@@ -1,6 +1,6 @@
-// What the window hands to the lease table, and what it counts as one row: the seam that lets a
-// pruned row's arrangement survive its row, and the counting rule that makes a folded run group
-// one entry and bounds a run-only log. `window-cap.test.ts` covers the cap itself.
+// What the window hands to the retained state table, and what it counts as one row: the seam that
+// lets a pruned row's arrangement survive its row, and the counting rule that makes a folded run
+// group one entry and bounds a run-only log. `window-cap.test.ts` covers the cap itself.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,22 +12,22 @@ import {
   runOnlyLog,
 } from "./window-cap.test-support.js";
 
-describe("the transcript window — leases and cursors", () => {
+describe("the transcript window — retained state and cursors", () => {
   // The seam only: parking and its bound are `retained-row-state-table.test.ts`'s; this pins
   // that the prune reaches the table at all.
-  it("re-parks a pruned row's lease under a synthetic key, and hands it back", () => {
+  it("re-parks a pruned row's retained state under a synthetic key, and hands it back", () => {
     const window = loadedWindow();
-    window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
+    window.setRetainedState("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
     window.prune(PRUNABLE);
     expect(window.rows().some((row) => row.key === "run-group-0")).toBe(false);
-    expect(window.lease("run-group-0")).toStrictEqual({
+    expect(window.retainedState("run-group-0")).toStrictEqual({
       density: "expanded",
       innerScrollTopPx: 44,
     });
   });
 
   it("keeps a repeated key rather than collapsing an entry out of the log", () => {
-    // The window keeps a repeated key; the measurement ledger's key projection reports and
+    // The window keeps a repeated key; the measurement table's key projection reports and
     // draws it, which needs the row to reach it.
     const window = new TranscriptWindow();
     window.ingest([

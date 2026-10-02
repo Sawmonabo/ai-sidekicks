@@ -15,11 +15,6 @@ export type RunGraphModule = Pick<typeof import("./RunGraphCanvas.js"), "RunGrap
 export class RunGraphLoader {
   #modulePromise: Promise<RunGraphModule> | undefined;
 
-  /** Whether the chunk has been asked for yet. The memo, observable. */
-  public get isLoadStarted(): boolean {
-    return this.#modulePromise !== undefined;
-  }
-
   /**
    * The graph chunk, fetched once. Every later call gets the same promise, so two graphs
    * mounting together share one fetch.

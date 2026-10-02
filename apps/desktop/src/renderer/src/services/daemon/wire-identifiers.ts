@@ -5,12 +5,10 @@
 // unreadable id is a refusal, a dropped row or a skipped chip is the caller's decision.
 
 import {
-  QueueItemIdSchema,
   RunIdSchema,
   RunStateSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
-  type QueueItemId,
   type RunId,
   type RunState,
   type SessionId,
@@ -26,12 +24,6 @@ export function readSessionId(value: string): SessionId | undefined {
 /** The run identifier the wire admits, or `undefined` where it admits none. */
 export function readRunId(value: string): RunId | undefined {
   const parsed = RunIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
-
-/** The queue-item identifier the wire admits, or `undefined` where it admits none. */
-export function readQueueItemId(value: string): QueueItemId | undefined {
-  const parsed = QueueItemIdSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 

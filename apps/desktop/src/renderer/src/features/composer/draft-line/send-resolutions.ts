@@ -1,12 +1,11 @@
-// What Send can resolve to, and the two predicates the router takes from its host. Held beside
-// the router, not in it, so the controller, the command zone and the Send button read one
+// What Send can resolve to, and the predicate the router takes from its host. Held beside the
+// router, not in it, so the controller, the command zone and the Send button read one
 // declaration.
 
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ComposerSendPath } from "../composer-target.js";
-import type { ProviderCommandEntry } from "../command-list/command-list-entries.js";
 
 /** The new-turn arm: a message addressed to the session. */
 export interface ComposerNewTurnResolution {
@@ -54,15 +53,3 @@ export type ComposerSendOutcome =
  * intercepted.
  */
 export type ConsoleCommandPredicate = (commandName: string) => boolean;
-
-/** What the console knows about a provider-published name, narrowed from the catalog entry. */
-export type EnumeratedProviderCommand = Pick<ProviderCommandEntry, "name" | "kind" | "driverName">;
-
-/**
- * Whether a name is one the addressed agent's provider published, for discovery. A second
- * port because the outcome differs: a console command runs, a provider entry is refused by
- * name (only the compaction command has its own control). The default answers `undefined`.
- */
-export type ProviderCommandPredicate = (
-  commandName: string,
-) => EnumeratedProviderCommand | undefined;

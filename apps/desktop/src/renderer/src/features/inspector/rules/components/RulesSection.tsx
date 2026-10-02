@@ -10,7 +10,7 @@ import { type ReadPhase } from "@renderer/lib/read-phase.js";
 /**
  * One standing-permission list, rendered for the phase its read is in.
  *
- * @consumedBy the inspector's Rules section, which the inspector pane mounts
+ * @consumedBy the inspector's Rules section
  */
 export function RulesSection(props: RulesSectionProps): React.JSX.Element {
   if (props.phase.status === "loading") {

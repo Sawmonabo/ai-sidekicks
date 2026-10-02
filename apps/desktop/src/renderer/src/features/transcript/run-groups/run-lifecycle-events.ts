@@ -1,7 +1,7 @@
 // The wire vocabulary a run group is folded against: which run-lifecycle types end a run, which
 // say it is not ended, which report a state, and where the paying account is named. Each set is a
-// tuple with its predicate derived from it, so the two cannot drift; a type added to the event
-// census is an edit here and nowhere else.
+// tuple with its predicate derived from it, so the two cannot drift; a type added to the
+// registered event types is an edit here and nowhere else.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 

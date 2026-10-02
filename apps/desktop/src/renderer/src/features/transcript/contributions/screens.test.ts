@@ -50,18 +50,13 @@ function renderedElement(node: ReactNode): {
   return { type: node.type, key: node.key, props: node.props };
 }
 
-/**
- * The session screen body, picked out of the screen's children. The resume banner renders
- * `null` on every arm but the refused one, so the body is read from the end of the list.
- */
+/** The session screen body, the screen container's one child. */
 function sessionScreenBodyIn(screenContainer: { props: Record<string, unknown> }): {
   type: unknown;
   key: string | null;
   props: Record<string, unknown>;
 } {
-  const children = screenContainer.props["children"];
-  const mounted = Array.isArray(children) ? children : [children];
-  return renderedElement(mounted[mounted.length - 1] as ReactNode);
+  return renderedElement(screenContainer.props["children"] as ReactNode);
 }
 
 describe("the transcript — what decides the mounted subtree's lifetime", () => {

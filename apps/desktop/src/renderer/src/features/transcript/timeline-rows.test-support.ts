@@ -1,6 +1,6 @@
 // Timeline-row builders for this subtree's co-located tests. Every row is a real `TimelineRow`
 // under the contract's discriminated union, so a test never asserts against a shape the daemon
-// cannot send. The one cast is the `SessionId` brand, which has no runtime witness.
+// cannot send.
 
 import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
@@ -26,16 +26,6 @@ export function runRow(
     readonly position: number;
     readonly epoch?: number;
     readonly supersededTargetPosition?: number;
-    /**
-     * A child run this row summarizes, and how complete that reading is. Child-first because
-     * the fold keys per child: one child observed twice and two children observed once each
-     * cannot be written against a per-row flag. The child id defaults to one derived from the
-     * parent.
-     */
-    readonly childRun?: {
-      readonly childRunId?: string;
-      readonly completeness: "complete" | "incomplete";
-    };
   },
 ): TimelineRow {
   const base = {
@@ -50,28 +40,7 @@ export function runRow(
     input.supersededTargetPosition === undefined
       ? {}
       : { superseded: { targetPosition: input.supersededTargetPosition } };
-  const childRunSummary =
-    input.childRun === undefined
-      ? {}
-      : {
-          childRunSummary: {
-            runId: (input.childRun.childRunId ?? `${input.runId}-child`) as RunId,
-            parentRunId: input.runId as RunId,
-            state: "running",
-            eventCount: 1,
-            // The incomplete arm requires a cause and an observation time and the complete
-            // arm refuses both, so the two are built rather than spread.
-            completeness:
-              input.childRun.completeness === "complete"
-                ? { state: "complete" }
-                : {
-                    state: "incomplete",
-                    cause: "detail_fetch_failed",
-                    observedAt: fixtureTimestamp(input.sequence),
-                  },
-          },
-        };
-  return { ...base, ...superseded, ...childRunSummary } as TimelineRow;
+  return { ...base, ...superseded } as TimelineRow;
 }
 
 /** The `rollback_boundary` arm, whose payload is the typed `RunRolledBackEvent`. */

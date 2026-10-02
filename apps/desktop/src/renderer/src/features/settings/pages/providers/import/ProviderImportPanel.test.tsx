@@ -83,7 +83,7 @@ function steppedStream(): {
   };
 }
 
-function ImportHost(props: {
+function ImportHarness(props: {
   readonly begin: ProviderImportBeginCall;
   readonly subscribe: ImportProgressSubscribeCall;
 }): React.JSX.Element {
@@ -92,7 +92,7 @@ function ImportHost(props: {
 
 /** The panel's own submit control. */
 function submitControl(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector("button.meridian-session-import__submit");
+  const button = container.querySelector("button.meridian-provider-import__submit");
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error("the import panel rendered no submit control");
   }
@@ -101,7 +101,7 @@ function submitControl(container: HTMLElement): HTMLButtonElement {
 
 /** What the progress line says, or an empty string where it is absent. */
 function progressText(container: HTMLElement): string {
-  return container.querySelector(".meridian-session-import__progress")?.textContent ?? "";
+  return container.querySelector(".meridian-provider-import__progress")?.textContent ?? "";
 }
 
 describe("importing a provider's conversations", () => {
@@ -110,7 +110,7 @@ describe("importing a provider's conversations", () => {
     const subscribeRequests: unknown[] = [];
     const { stream, step } = steppedStream();
     const view = render(
-      <ImportHost
+      <ImportHarness
         begin={async (request) => {
           beginRequests.push(request);
           return await Promise.resolve({ importId: IMPORT_ID });

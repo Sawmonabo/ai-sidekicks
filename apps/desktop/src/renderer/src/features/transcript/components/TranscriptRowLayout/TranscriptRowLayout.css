@@ -9,7 +9,7 @@
   grid-template-areas:
     "edge gutter body"
     "edge gutter footer";
-  grid-template-columns: var(--meridian-leading-edge) minmax(0, 9.5rem) minmax(0, 1fr);
+  grid-template-columns: var(--meridian-leading-edge) minmax(0, 16ch) minmax(0, 1fr);
   column-gap: var(--meridian-space-3);
   padding-block: var(--meridian-space-2);
   padding-inline-end: var(--meridian-space-4);
@@ -26,7 +26,7 @@
   background: var(--meridian-row-hue);
 }
 
-/* No user owns this row, so the edge reads as a boundary: dimmed, never colored. */
+/* No agent owns this row, so the edge reads as a boundary: dimmed, never colored. */
 .meridian-transcript-row-layout--unattributed .meridian-transcript-row-layout__edge {
   opacity: 0.6;
 }
@@ -69,11 +69,6 @@
   align-items: center;
   gap: var(--meridian-space-2);
   margin-block-end: var(--meridian-space-1);
-}
-
-.meridian-transcript-row-layout__kind {
-  --meridian-figure-wire-color: var(--meridian-text-faint);
-  --meridian-figure-wire-size: var(--meridian-text-xs);
 }
 
 .meridian-transcript-row-layout__superseded-mark {

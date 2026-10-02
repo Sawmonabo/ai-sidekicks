@@ -1,8 +1,8 @@
 // One repo mount, with lifecycle and health as separate chips. `canonicalRoot` is shown
 // verbatim (the stylesheet truncates it; the title and copy control recover it) and never
 // resolved or compared here, because containment and symlink rules belong to the daemon.
-// The bind entry shows only where the posture admits it; re-attach only on `identity_mismatch`,
-// the permanent verdict, since `unreachable` is transient.
+// The bind entry shows only where the mount's availability admits it; re-attach only on
+// `identity_mismatch`, the permanent verdict, since `unreachable` is transient.
 
 import type {
   ExecutionMode,
@@ -61,12 +61,12 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
   // The lifecycle sentence reaches the screen through the withheld line.
   const lifecycle = mountLifecycleReading(mount.state);
   const health = mountHealthReading(mount.health);
-  const posture = readBindControlAvailability(mount);
+  const availability = readBindControlAvailability(mount);
 
   return (
     <article
       className={
-        posture.offered
+        availability.available
           ? "meridian-mount-card"
           : "meridian-mount-card meridian-mount-card--withheld"
       }
@@ -99,14 +99,14 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
 
       {/* One state sentence, never two: a withheld card's reason is one of the axis sentences
           (lifecycle before health), so rendering the axis sentence too would print it twice. */}
-      {posture.offered ? (
+      {availability.available ? (
         <p className="meridian-mount-card__sentence">{health.sentence}</p>
       ) : (
         <p className="meridian-mount-card__withheld" role="status">
-          {posture.withheldBecause}
+          {availability.unavailableBecause}
         </p>
       )}
-      {posture.offered ? (
+      {availability.available ? (
         <BindWorkspaceDialog
           bridge={props.bridge}
           repoMountId={mount.id}
@@ -154,7 +154,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 sessionStore={props.sessionStore}
                 operations={props.operations}
                 onRequestRead={props.onRequestRead}
-                bindControls={posture}
+                bindControls={availability}
                 onSelectExecutionMode={(executionMode) => {
                   props.onSelectExecutionMode(workspace.id, executionMode);
                 }}

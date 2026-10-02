@@ -3,8 +3,7 @@
 // It chooses through the window's scheme act and reads the scheme applied on the document
 // root, holding no scheme of its own, so it cannot disagree with what the window paints
 // (including after the palette's `Color scheme` row moves it). `"system"` is the attribute's
-// absence, as the window writes it. There is no theme editor or accent picker: every color
-// must clear the contrast check the token registry applies when the palette is generated.
+// absence, as the window writes it.
 
 import "./appearance.css";
 
@@ -44,8 +43,7 @@ const SCHEME_OPTIONS: readonly SchemeOption[] = [
   {
     preference: "dark",
     label: "Dark",
-    description:
-      "Holds the dark scheme, which is the one the palette was authored in — light is derived from the same tokens.",
+    description: "Holds the dark scheme whatever the operating system is doing.",
   },
 ];
 
@@ -66,9 +64,7 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
-        Dark is the scheme this console was drawn in, and light is derived from the same tokens
-        rather than hand-tuned beside them — so contrast holds in both without a second palette to
-        keep in step. The choice belongs to this machine and is remembered for the next start.
+        How the app looks on this machine. Kept for this install.
       </p>
 
       <section className="meridian-settings-page__block" aria-label="Color scheme">
@@ -99,23 +95,10 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
           <Nothing
             kind="error"
             placement="inline"
-            title="This window is carrying a scheme this console does not define."
+            title="This window is carrying a scheme this app does not define."
             detail="No option is shown as current, because none of them is. Choosing one below replaces it."
           />
         ) : null}
-      </section>
-
-      <section className="meridian-settings-page__block" aria-label="Themes">
-        <h3 className="meridian-settings-page__block-title">Themes</h3>
-        <div className="meridian-settings-page__prose">
-          <p>
-            There is no theme editor here, and that is a decision rather than an omission. Every
-            color this console paints is checked for contrast when the palette is generated, and a
-            color typed in by hand would either bypass that check or need it re-run on every
-            keystroke — so the release ships the two schemes that pass it and nothing that could
-            fail it.
-          </p>
-        </div>
       </section>
     </div>
   );
@@ -128,9 +111,6 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
  * writes it.
  */
 function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
-  if (typeof document === "undefined") {
-    return () => undefined;
-  }
   const observer = new MutationObserver(onSchemeChange);
   observer.observe(document.documentElement, {
     attributes: true,
@@ -142,16 +122,13 @@ function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
 }
 
 /**
- * What the document is carrying, or `undefined` for a scheme this console does not define.
+ * What the document is carrying, or `undefined` for a scheme this app does not define.
  *
  * The absent attribute is `"system"`, the frame's own encoding in `app/token-installation.ts`.
  * An unrecognized value is neither a preference nor the system choice, so the page says so
  * instead of lighting up an option nobody chose.
  */
 function readAppliedScheme(): SchemePreference | undefined {
-  if (typeof document === "undefined") {
-    return SYSTEM_SCHEME_PREFERENCE;
-  }
   const applied = document.documentElement.getAttribute(SCHEME_ATTRIBUTE);
   if (applied === null) {
     return SYSTEM_SCHEME_PREFERENCE;

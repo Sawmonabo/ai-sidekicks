@@ -19,9 +19,8 @@ export const TOOL_KINDS = [
 export type ToolKind = (typeof TOOL_KINDS)[number];
 
 /**
- * The payload member that would declare a row's tool kind.
- *
- * No registered payload carries it, so the reader answers `undefined` for every row today.
+ * The payload member that would declare a row's tool kind. No registered payload carries it, so
+ * the reader answers `undefined` for a row of any registered payload.
  */
 export const TOOL_KIND_PAYLOAD_KEY = "toolKind";
 
@@ -46,14 +45,6 @@ export type ToolKindReading =
       /** Wire-verbatim, so the badge can print what the daemon actually sent. */
       readonly declared: string;
     };
-
-/** What a tool kind renderer is handed. */
-export interface ToolKindRendererProps {
-  readonly reading: ToolKindReading;
-}
-
-/** The tool kind treatment. Returns `React.ReactNode` so the card renders it directly. */
-export type ToolKindRenderer = (props: ToolKindRendererProps) => React.ReactNode;
 
 /**
  * What one row declares about its treatment, or `undefined` for a row declaring none.

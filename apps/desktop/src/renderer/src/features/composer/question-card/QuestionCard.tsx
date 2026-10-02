@@ -3,7 +3,7 @@
 // Draws every question of the record in order, each with its option rows and a typed field
 // (both providers always take typed text); a secret question draws one masked field instead.
 // `Answer` stays closed until every question has an answer, then sends one per question in
-// one call. The card never settles the question itself; a mount may supply `body` instead.
+// one call. The card never settles the question itself.
 
 import type { QuestionAnswer, QuestionAskedPersonalData } from "@ai-sidekicks/contracts";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
@@ -18,22 +18,8 @@ import type {
 
 import "./question-card.css";
 
-/** What the card hands a supplied body. */
-export interface QuestionCardBodyProps {
-  readonly question: QuestionReading;
-  readonly questions: QuestionAskedPersonalData["questions"];
-  /** Where the answer this card last dispatched has got to. */
-  readonly delivery: AnswerDelivery;
-  readonly onAnswer: (answers: QuestionAnswer[]) => void;
-}
-
 /** What a mount hands the question card. */
 export interface QuestionCardProps {
-  /**
-   * A body that replaces the built-in card, or `undefined` while the card draws itself.
-   * Required rather than optional, so a mount that forgot it fails to compile.
-   */
-  readonly body: ((props: QuestionCardBodyProps) => React.ReactNode) | undefined;
   readonly question: QuestionReading;
   /** Every question of the record, in its own order. */
   readonly questions: QuestionAskedPersonalData["questions"];
@@ -43,7 +29,7 @@ export interface QuestionCardProps {
   readonly onAnswer: (answers: QuestionAnswer[]) => void;
 }
 
-/** The question card: the built-in one, or the supplied `body` when the mount passes one. */
+/** The question card: every question with its fields, and `Answer`. */
 export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
   const deliveryStatus = props.delivery.status;
   const questionDrafts = useQuestionDrafts(
@@ -51,18 +37,6 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
     props.questions,
     deliveryStatus,
   );
-  if (props.body !== undefined) {
-    return (
-      <div className="meridian-input-ask">
-        {props.body({
-          question: props.question,
-          questions: props.questions,
-          delivery: props.delivery,
-          onAnswer: props.onAnswer,
-        })}
-      </div>
-    );
-  }
   // No further answer while one is on the wire or taken; a refusal leaves the controls live.
   const isSettling = deliveryStatus === "delivering" || deliveryStatus === "accepted";
   const { answers, drafts } = questionDrafts;
@@ -113,7 +87,7 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
                           questionDrafts.pickOption(index, option.label);
                         }}
                       >
-                        <span className="meridian-input-ask__option-label">{option.label}</span>
+                        <span>{option.label}</span>
                         {option.description === undefined ? null : (
                           <span className="meridian-input-ask__option-description">
                             {option.description}

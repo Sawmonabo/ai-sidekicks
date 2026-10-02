@@ -8,15 +8,6 @@
 
 import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
-export {
-  /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
-  ChordMirrorPublication,
-  /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
-  composeChordMirrorKey,
-  /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */
-  readChordMirrorKey,
-} from "../handback/chord-mirror.js";
-
 /**
  * Registers the preview pane's kind. Takes the registry rather than a module-scope singleton so
  * a test composes into its own.

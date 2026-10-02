@@ -13,7 +13,7 @@ import { DiffRowIndex } from "./diff-row-index.js";
 const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
 describe("hunk virtualization — gap expansion with predecessor retention", () => {
-  it("reveals one band, and the gap row survives while anything is hidden", () => {
+  it("reveals a gap narrower than one band in one press, and the gap row goes", () => {
     const expansion = expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk);
     const index = new DiffRowIndex(SMALL_DIFF, expansion);
     // The fixture's gap is smaller than one expansion band, so one activation reveals all of

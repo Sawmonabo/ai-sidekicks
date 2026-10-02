@@ -1,4 +1,4 @@
-// The app at its narrowest supported viewport.
+// The console at its narrowest supported viewport.
 //
 // WCAG 2.2 SC 1.4.10 (Reflow) is the one criterion no axe rule in this directory reaches,
 // because reflow is a property of a layout at a width, not of a node. This file narrows the
@@ -7,11 +7,12 @@
 //
 // The rail destinations are derived from `RAIL_DESTINATIONS`, so a new destination is audited
 // the day it is declared. The concurrent-streaming scenario is used rather than the first-run
-// one because an empty app reflows trivially; real sessions, runs and wire identifiers
+// one because an empty console reflows trivially; real sessions, runs and wire identifiers
 // decide whether a 320 px column holds.
 //
-// A clean result is guarded by the narrowing, which throws if the viewport did not move (see
-// `reflow.ts`).
+// A clean result is guarded twice: the narrowing throws if the viewport did not move (see
+// `reflow.ts`), and the planted box below is wider than the floor but narrower than the
+// tier's 1440 px window, so it goes unreported exactly when the narrowing failed.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -32,10 +33,9 @@ import { formatRoute } from "@renderer/routing/routes.js";
 // the row case below measures.
 import "@renderer/features/sessions/contributions/screens.js";
 import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js";
-// Imported for its side effect: the lazily-loaded settings chunk root imports the keyboard
-// stylesheet the meta-line case below measures.
+// Imported for its side effect: the lazily-loaded settings chunk root imports the settings
+// stylesheets the settings-page cases measure.
 import "@renderer/features/settings/settings-screen-body.js";
-import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
 import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
 import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";
 
@@ -45,14 +45,6 @@ import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";
  * unless the box wraps whatever the wire sent.
  */
 const UNBREAKABLE_SESSION_ID = "b3a7c1d95e2f48a06b1c3d5e7f9012345678abcdef0123456789abcdef012345";
-
-/**
- * A command id no column at the floor holds on one line. The meta line renders a wire figure
- * verbatim in mono and never truncates it, and the id's longest dotted segment is still wider
- * than the column, so the row has to wrap inside a segment.
- */
-const UNBREAKABLE_COMMAND_ID =
-  "console.example.group.command.aVeryLongIdentifierWithNoBreakOpportunityInsideItAtAll";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -64,7 +56,7 @@ afterEach(() => {
   restoreTesterViewport();
 });
 
-describe("reflow — the app at 320 CSS px", () => {
+describe("reflow — the console at 320 CSS px", () => {
   for (const destination of RAIL_DESTINATIONS) {
     it(`needs no horizontal scroll at the ${destination} destination`, async () => {
       document.location.hash = formatRoute(routeForDestination(destination));
@@ -112,7 +104,7 @@ describe("reflow — the app at 320 CSS px", () => {
     expect(frame?.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
   });
 
-  // The session row on its own, at the floor, carrying an identifier the app did not choose
+  // The session row on its own, at the floor, carrying an identifier the console did not choose
   // the width of. The destination cases measure the scenario's own ids in whatever face the host
   // resolves, so they answer "these ids fit here today"; the row owes that its identity column
   // wraps whatever the wire sent, which one row can be asked directly with an identifier no font
@@ -132,36 +124,6 @@ describe("reflow — the app at 320 CSS px", () => {
 
     // The harness sizes its container to the viewport, which `beforeEach` narrowed to the floor,
     // so the row is laid out in exactly the width 1.4.10 asks about.
-    expect(container.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
-    expect(describeHorizontalOverflow(container)).toStrictEqual([]);
-  });
-
-  // The keyboard row on its own, at the floor, carrying a command id the app did not choose
-  // the width of. The page cases measure the ids the command table holds today, so they answer
-  // "these ids fit here"; the meta line owes that it wraps whatever the wire named. The id below
-  // is wider than the floor in any face, leaving only whether the line may break inside a
-  // segment.
-  it("wraps a command id the meta line has no room for", async () => {
-    const { container } = await renderSettled(
-      <KeybindingRowBody
-        row={{
-          commandId: UNBREAKABLE_COMMAND_ID,
-          title: "A command with a long identifier",
-          group: "Workspace",
-          chord: "⌘⇧L",
-          whenExpression: undefined,
-          unavailableReason: undefined,
-          shippedChord: "⌘⇧L",
-          overridden: false,
-        }}
-        recording={false}
-        refusal={undefined}
-        onStartRecording={() => undefined}
-        onRecorded={() => undefined}
-        onReset={() => undefined}
-      />,
-    );
-
     expect(container.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
     expect(describeHorizontalOverflow(container)).toStrictEqual([]);
   });

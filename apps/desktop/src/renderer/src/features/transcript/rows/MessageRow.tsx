@@ -5,9 +5,11 @@
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { TranscriptRowLayout } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
+import {
+  TranscriptRowLayout,
+  hueStepOf,
+} from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { type InlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { TranscriptRowGroup } from "../viewport/components/TranscriptRowGroup.js";
 import { type RowKindDescriptor } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";
@@ -63,47 +65,44 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
     );
 
   return (
-    <TranscriptRowGroup groupLabel="a message row">
-      <TranscriptRowLayout
-        agentHueStep={props.agentHue?.step ?? -1}
-        occurredAtIso={props.row.timestamp}
-        authorLabel={props.row.actor ?? rowKind.label}
-        kindLabel={props.row.type}
-        isSuperseded={props.isSuperseded}
-        footer={footer}
-      >
-        <div className={`meridian-message-card meridian-message-card--${rowKind.kind}`}>
-          <span className="meridian-message-card__kind-label">
-            {rowKind.glyph === undefined ? null : (
-              <Glyph name={rowKind.glyph} title={rowKind.label} />
-            )}
-            {rowKind.label}
-          </span>
-          {isUser ? (
-            <UserBody row={props.row} footnotes={props.footnotes} />
-          ) : rowKind.kind === "thinking" ? (
-            props.thinkingRow
-          ) : (
-            <MessageContent
-              content={props.content}
-              {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-              // The media type is the producer-set `contentType` on the payload, and the same
-              // reading feeds the receipt below, so the renderer and the printed type agree.
-              {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
-              sourceId={props.row.id}
-              footnotes={props.footnotes}
-              label={rowKind.label}
-            />
+    <TranscriptRowLayout
+      agentHueStep={hueStepOf(props.agentHue)}
+      occurredAtIso={props.row.timestamp}
+      authorLabel={props.row.actor ?? rowKind.label}
+      isSuperseded={props.isSuperseded}
+      footer={footer}
+    >
+      <div className={`meridian-message-card meridian-message-card--${rowKind.kind}`}>
+        <span className="meridian-message-card__kind-label">
+          {rowKind.glyph === undefined ? null : (
+            <Glyph name={rowKind.glyph} title={rowKind.label} />
           )}
-          <InlineCards cards={props.inlineCards ?? []} />
-          {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
-            <RecordedBodyLine
-              contentType={assistantMediaType}
-              contentLength={readWireCount(payload, "contentLength")}
-            />
-          )}
-        </div>
-      </TranscriptRowLayout>
-    </TranscriptRowGroup>
+          {rowKind.label}
+        </span>
+        {isUser ? (
+          <UserBody row={props.row} footnotes={props.footnotes} />
+        ) : rowKind.kind === "thinking" ? (
+          props.thinkingRow
+        ) : (
+          <MessageContent
+            content={props.content}
+            {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
+            // The media type is the producer-set `contentType` on the payload, and the same
+            // reading feeds the receipt below, so the renderer and the printed type agree.
+            {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
+            sourceId={props.row.id}
+            footnotes={props.footnotes}
+            label={rowKind.label}
+          />
+        )}
+        <InlineCards cards={props.inlineCards ?? []} />
+        {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
+          <RecordedBodyLine
+            contentType={assistantMediaType}
+            contentLength={readWireCount(payload, "contentLength")}
+          />
+        )}
+      </div>
+    </TranscriptRowLayout>
   );
 }

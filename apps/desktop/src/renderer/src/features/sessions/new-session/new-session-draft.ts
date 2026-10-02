@@ -1,34 +1,11 @@
-// The new-session draft: a session that does not exist yet. "+ New" creates a placeholder
-// with no daemon row, the first send coalesces `session.create` and `run.queueCreate`, and a
-// draft closed empty leaves no row. This file owns what a person chose and the coalescing
-// that keeps one draft to one session; `new-session-send.ts` owns what the choices become on
-// the wire.
-//
-// Every selection lives in this object's memory: a draft is user-authored content, which has
-// no durable home in the renderer (`store/persistence/persisted-value-classes.ts`), so this
-// module never reaches the persistence store. A partial send is reported, never rolled back,
-// because a renderer cannot undo a `session.create` the daemon accepted, and the draft stays
-// editable.
-//
-// One draft object mints at most one session, and each call at most once. Send stays pressable
-// after a partial send, so without a per-leg memory a double-click would mint two sessions and
-// a retry would queue the words twice. A send while one is in flight yields that send (as
-// `coalescing-layout-writer.ts` does), and a later send resumes at the first call not yet
-// made. Closing the draft drops it, which is what makes the next "+ New" a new session.
-//
-// Every create carries the draft's one idempotency key, minted with the draft, so a create
-// that reached the daemon and is sent again names the session already made.
-//
-// A create answered with a reply this build cannot read may have made a session and names
-// none, so there is nothing to resume against and a repeat would return the same reply. The
-// draft remembers that and answers every later send from memory with nothing on the wire; the
-// sentence tells the person to look at the sessions list.
-//
-// The first turn is the draft's, because `run.queueCreate` takes the turn's body. A blank
-// first turn is the one refusal that is a choice rather than a fact about the build: the
-// session exists and nothing has been said.
+// The new-session draft: a session that does not exist yet, held in memory only (a draft has no
+// durable home in the renderer). One draft object mints at most one session and makes each call
+// at most once: a send while one runs joins it, a later send resumes at the first call not yet
+// made, and every create carries the draft's one idempotency key. A create whose reply could not
+// be read may have made a session it cannot name, so every later send answers from memory with
+// nothing on the wire. `new-session-send.ts` owns what the choices become on the wire.
 
-import type { AgentProviderBinding, ExecutionPosture } from "@ai-sidekicks/contracts";
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
@@ -39,16 +16,9 @@ import {
   type NewSessionSendResult,
 } from "./new-session-settlement.js";
 
-/**
- * The posture axis a person picks, taken off the wire type. The picker chooses only its
- * `mode`; the rest of `ExecutionPosture` is composed where the run is admitted.
- */
-export type DraftPostureMode = ExecutionPosture["mode"];
-
 /** What the draft control renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {
   readonly repoMount: DraftRepoMount | undefined;
-  readonly posture: DraftPostureMode | undefined;
   /** The session's first message, verbatim. Never trimmed; only tested for blankness. */
   readonly firstTurn: string;
   /** True while nothing has been chosen — the arm that reverts to nothing. */
@@ -83,7 +53,6 @@ export class NewSessionDraft {
   };
   #state: NewSessionDraftState = {
     repoMount: undefined,
-    posture: undefined,
     firstTurn: "",
     isEmpty: true,
     revision: 0,
@@ -100,21 +69,19 @@ export class NewSessionDraft {
     this.#lead = options.lead;
   }
 
+  /** The draft as it stands now; a fresh object after every change. */
   public snapshot(): NewSessionDraftState {
     return this.#state;
   }
 
+  /** Be told each new state the draft commits. */
   public subscribe(listener: (state: NewSessionDraftState) => void): Unsubscribe {
     return this.#changes.subscribe(listener);
   }
 
+  /** The project the session works in; `undefined` makes it a chat. */
   public setRepoMount(repoMount: DraftRepoMount | undefined): void {
     this.#commit({ repoMount });
-  }
-
-  /** The posture this session works under. Held but not sent: neither call has a member for it. */
-  public setPosture(posture: DraftPostureMode | undefined): void {
-    this.#commit({ posture });
   }
 
   /**
@@ -127,7 +94,7 @@ export class NewSessionDraft {
 
   /** Throw the draft away. Local only: a draft has no daemon row, so nothing is deleted. */
   public discard(): void {
-    this.#commit({ repoMount: undefined, posture: undefined, firstTurn: "" });
+    this.#commit({ repoMount: undefined, firstTurn: "" });
   }
 
   /**
@@ -196,10 +163,7 @@ export class NewSessionDraft {
     const next = { ...this.#state, ...change };
     this.#state = {
       ...next,
-      isEmpty:
-        next.repoMount === undefined &&
-        next.posture === undefined &&
-        next.firstTurn.trim().length === 0,
+      isEmpty: next.repoMount === undefined && next.firstTurn.trim().length === 0,
       revision: this.#state.revision + 1,
     };
     this.#changes.emit(this.#state);

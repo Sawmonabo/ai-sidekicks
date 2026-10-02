@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import type { MachineSettings } from "@ai-sidekicks/contracts";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { MachineSettingsStore } from "../machine-settings-store.js";
@@ -20,6 +21,8 @@ export interface MachineSettingsBinding {
   /** The effective settings: what the service answered, or the defaults. */
   readonly settings: MachineSettings;
   readonly isPending: (member: MachineSettingsMember) => boolean;
+  /** The refusal the member's last write was answered with, or `undefined` where none was. */
+  readonly refusalFor: (member: MachineSettingsMember) => Refusal | undefined;
   readonly choose: <Member extends MachineSettingsMember>(
     member: Member,
     value: MachineSettings[Member],
@@ -62,9 +65,11 @@ export function useMachineSettings(bridge: PlatformBridge): MachineSettingsBindi
     snapshot,
     settings: effectiveSettings(snapshot),
     isPending: (member) => snapshot.pendingMembers.has(member),
+    refusalFor: (member) => snapshot.refusalByMember.get(member),
     choose: (member, value) => {
       // Acquire rather than read: a press must move a store, and an event handler runs after
-      // the passive effect that acquired it.
+      // the passive effect that acquired it. The write never rejects: a refusal lands in the
+      // snapshot.
       void machineSettingsHolder.acquire(bridge).choose(member, value);
     },
   };

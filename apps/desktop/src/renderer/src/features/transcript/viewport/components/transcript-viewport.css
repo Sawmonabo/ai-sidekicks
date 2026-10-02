@@ -1,11 +1,12 @@
-/* The viewport's styles: the virtualized feed, its reading-anchor affordances and the error
- * strip. One sheet for `viewport/components/` and the head control in `history/`. The retry
- * control the failed row wears is `transcript.css`'s, because the ANSI output wears it too.
+/* The viewport's styles: the virtualized feed and its reading-anchor affordances. One sheet for
+ * `viewport/components/` and the head control in `history/`.
  */
 
+/* One track: the head and tail affordances are out of flow, so the scroll container is the only
+   child in flow and takes the viewport's whole height, which the virtualizer ranges against. */
 .meridian-transcript-viewport {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -17,11 +18,6 @@
  * scrolling the window behind it, which reads as the transcript moving on its own.
  */
 .meridian-transcript-viewport__scroll-container {
-  /* Placed explicitly. With no error entries `TranscriptErrors.tsx` returns null and both
-     affordances are out of flow, so an auto-placed scroll container would land in the `auto`
-     track and size to its content, measured at zero height inside a 600px viewport; the
-     virtualizer then ranges against zero and no row ever mounts to grow it back. */
-  grid-row: 2;
   position: relative;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -50,7 +46,7 @@
 }
 
 /*
- * The tail strip: the pin's notice and the "N new" pill. Floats over the feed because a control
+ * The tail strip: the "N new" pill. Floats over the feed because a control
  * in the flow would change the content height and move the reading position it protects.
  */
 .meridian-transcript-viewport__tail {
@@ -95,14 +91,6 @@
   color: var(--meridian-text-faint);
 }
 
-.meridian-transcript-viewport__pin {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
 /* The one primary act the viewport offers, and the only filled control in the transcript. */
 .meridian-transcript-viewport__pill {
   display: inline-flex;
@@ -121,19 +109,4 @@
 
 .meridian-transcript-viewport__pill:hover {
   background: var(--meridian-surface);
-}
-
-/* Ranked error entries: the highest is a card, the rest sit under it as one quiet row. */
-.meridian-transcript-errors {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3) var(--meridian-space-3) 0;
-}
-
-/* A row that failed to project, red and named in its own place so it is not read as a gap. */
-.meridian-transcript-row-failure {
-  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-red-mark);
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  background: var(--meridian-red-ground);
 }

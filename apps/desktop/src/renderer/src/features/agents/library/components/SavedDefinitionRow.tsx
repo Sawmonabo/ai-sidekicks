@@ -12,7 +12,7 @@ export function SavedDefinitionRow(props: {
   readonly isDeleting: boolean;
   /**
    * Whether any row's delete is running, this one's included. Delete has no undo and the
-   * carrier admits one at a time, so every row's delete stops taking presses while one is in
+   * view admits one at a time, so every row's delete stops taking presses while one is in
    * flight; `isDeleting` still marks which record is going.
    */
   readonly isAnyDeleteInFlight: boolean;

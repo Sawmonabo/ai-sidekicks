@@ -14,7 +14,7 @@ import {
   observeControls,
   rejectingCancelCalls,
 } from "./useRunControlDispatch.test-support.js";
-import { settle } from "../../workflows-probe.test-support.js";
+import { settle } from "@test/helpers/settle.js";
 
 afterEach(() => {
   cleanup();
@@ -65,7 +65,7 @@ describe("one act per run and action is in flight, and a second press is told so
     expect(outcome.refusal.code).toBe("act-already-in-flight");
   });
 
-  it("gives the key back when the call rejects, and advances no round", async () => {
+  it("gives the key back when the call rejects, and advances no refresh", async () => {
     // No reply was served, so no read is owed; the key must go back or every later press
     // would be refused as a duplicate.
     const failing = rejectingCancelCalls();

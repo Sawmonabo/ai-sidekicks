@@ -2,12 +2,23 @@
 // the empty case. The states a row may be canceled from are a closed set kept beside the
 // control they gate, so the two cannot drift; the tone table sits with it for the same reason.
 
+import { useState } from "react";
+
 import { Chip } from "@renderer/components/Chip/Chip.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
+/** The origin a refused cancel is reported under. */
+const QUEUE_CANCEL_ORIGIN = "queue-cancel";
+
+/** The code a rejected cancel carries when the rejection named none of its own. */
+const QUEUE_CANCEL_FAILED = "queue-cancel-failed";
+
 /** The one state a queue item can still be taken back from. */
-const CANCELABLE_STATE = "queued";
+const CANCELABLE_STATE: QueueItemSummary["state"] = "queued";
 
 /**
  * The tone each of the five states takes. Total over the closed set, so a sixth
@@ -23,13 +34,17 @@ const QUEUE_STATE_TONES: Readonly<
   not_delivered: "attention",
 };
 
-/** One queued item: its state, its figures, and cancel where cancel applies. */
+/**
+ * One queued item: its state, its figures, and cancel where cancel applies. A refused cancel is
+ * drawn beside the control in the daemon's own words, and the control stays to be pressed again.
+ */
 export function QueueRow(props: {
   readonly item: QueueItemSummary;
   readonly isCancelPending: boolean;
   readonly onCancel: (queueItemId: string) => Promise<void>;
 }): React.JSX.Element {
   const { item } = props;
+  const [cancelRefusal, setCancelRefusal] = useState<Refusal | undefined>(undefined);
   return (
     <li className="meridian-queue__row">
       <div className="meridian-queue__identity">
@@ -63,12 +78,20 @@ export function QueueRow(props: {
           disabled={props.isCancelPending}
           aria-busy={props.isCancelPending}
           onClick={() => {
-            void props.onCancel(item.id);
+            setCancelRefusal(undefined);
+            props.onCancel(item.id).catch((rejection: unknown) => {
+              setCancelRefusal(
+                coerceToRefusal(rejection, QUEUE_CANCEL_ORIGIN, QUEUE_CANCEL_FAILED),
+              );
+            });
           }}
         >
           Cancel
         </button>
       ) : null}
+      {cancelRefusal === undefined ? null : (
+        <InlineRefusal code={cancelRefusal.code} detail={cancelRefusal.detail} />
+      )}
     </li>
   );
 }

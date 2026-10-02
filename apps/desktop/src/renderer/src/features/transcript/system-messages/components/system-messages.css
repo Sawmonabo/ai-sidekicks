@@ -2,13 +2,7 @@
  * rollback.
  */
 
-/* --- Structure: the system message row --------------------------------------------- */
-
-/*
- * One line: a glyph, a label and the kind's wire members. `flex-wrap` reflows the parts onto a
- * second line on a narrow pane, so no member is clipped away.
- */
-
+/* One line: a glyph and the act's name. */
 .meridian-system-message {
   display: flex;
   flex-wrap: wrap;
@@ -23,30 +17,6 @@
 }
 
 /* The failed provider switch is the only caution binding. */
-
 .meridian-system-message--caution .meridian-system-message__label {
   color: var(--meridian-red-text);
-}
-
-/* Wire-sourced parts in mono, so a value the daemon sent reads differently from console words. */
-
-.meridian-system-message__figure {
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-}
-
-.meridian-system-message__boundary,
-.meridian-system-message__continuity {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--meridian-space-1);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-system-message__losses {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--meridian-space-1);
 }

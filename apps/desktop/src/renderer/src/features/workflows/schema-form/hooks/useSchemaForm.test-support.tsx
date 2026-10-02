@@ -14,15 +14,6 @@ import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js"
 import { type SchemaMemberPath } from "../schema-member-path.js";
 
 /**
- * Resolve the schema compiler's chunk, so a form mounted after this opens in one step. The
- * one copy of that wait for every mount that needs it, at the lowest module that owns the
- * concern; the registry memoizes, so a later caller awaits a settled promise.
- */
-export async function resolveSchemaValidatorCompiler(): Promise<void> {
-  await loadSchemaValidatorCompiler();
-}
-
-/**
  * Resolve both chunks the form loads, so a form mounted after this opens armed: the compiler
  * and the kit's answer body. Warming only one either suspends on the body or leaves the submit
  * act disabled while the validator reads `compiling`, so a case that warms only the kit races
@@ -30,14 +21,14 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
  * because the loader-backed body holds a second memo.
  */
 export async function resolveSchemaFormChunks(): Promise<void> {
-  await resolveSchemaValidatorCompiler();
+  await loadSchemaValidatorCompiler();
   await schemaFormAnswerBody.load();
 }
 
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */
 export async function mountForm(inputSchema: unknown): Promise<() => SchemaFormState> {
   // Warmed before the mount so the hook's own load resolves off the registry.
-  await resolveSchemaValidatorCompiler();
+  await loadSchemaValidatorCompiler();
   let latest: SchemaFormState | undefined;
   function Probe(props: { readonly inputSchema: unknown }): React.JSX.Element {
     latest = useSchemaForm(props.inputSchema);

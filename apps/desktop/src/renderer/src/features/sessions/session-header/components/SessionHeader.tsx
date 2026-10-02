@@ -1,7 +1,7 @@
 // The session header: which session this is. It renders the identity (short id and display
 // title where the session has one) and, while the session's store has not opened, a placeholder
-// that holds the header's height. The title is handed in as data; `hooks/useSessionIdentity.ts`
-// reads it.
+// that holds the header's height. The title is handed in as data; `hooks/useSessionHeaderRead.ts`
+// is the read that will supply it.
 //
 // The header is one line and every clause truncates in CSS, since truncating a wire-derived
 // string in JavaScript would transform it.

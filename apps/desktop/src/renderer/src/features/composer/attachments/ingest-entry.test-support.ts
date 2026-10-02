@@ -1,4 +1,4 @@
-// Ledger entries for the chip fold and the send-reference fold. Two factories, split on the
+// Staged entries for the chip fold and the send-reference fold. Two factories, split on the
 // union's send-capable arm, so a case cannot build an entry the staged list never publishes.
 
 import type { ArtifactId, SessionAttachmentSummary } from "@ai-sidekicks/contracts";

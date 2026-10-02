@@ -30,20 +30,6 @@ export interface TerminalLeaseTransition {
 }
 
 /**
- * A lease transition the console could not read, kept so the lease line can say so.
- *
- * Skipping it would leave the previous holder standing, which lets a person keep typing into
- * a shell the daemon has taken from them; the projection settles into the arm that writes
- * nothing instead.
- */
-export interface TerminalLeaseUnreadTransition {
-  /**
-   * The reason the wire sent, verbatim, when it was a non-empty string; otherwise `undefined`.
-   */
-  readonly reason: string | undefined;
-}
-
-/**
  * Read one transition off an event, or `undefined` when the payload is not one the
  * contract admits: a reason outside the closed set, a missing member, or a holder
  * shape that contradicts its reason.
@@ -71,14 +57,4 @@ export function readTerminalLeaseTransition(
  */
 export function readTerminalLeaseShell(event: ProjectedSessionEvent): string | undefined {
   return readWireString(event.payload?.["terminalId"]);
-}
-
-/**
- * Record an unreadable transition. The reason is carried verbatim only when the wire sent a
- * non-empty string; anything else names nothing, and stringifying it would invent a vocabulary.
- */
-export function readTerminalLeaseUnreadTransition(
-  event: ProjectedSessionEvent,
-): TerminalLeaseUnreadTransition {
-  return { reason: readWireString(event.payload?.["reason"]) };
 }

@@ -10,13 +10,13 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { settlePrerequisiteRead } from "../repo-mounts.test-support.js";
 import { BindWorkspaceController } from "./bind-controller.js";
 import { useBindController, type BindBinding } from "./hooks/useBindController.js";
 
@@ -72,20 +72,6 @@ function open(
   return { controller, clock };
 }
 
-/** Move past the debounce and let the read's promises land. */
-async function settleCapabilities(
-  controller: BindWorkspaceController,
-  clock: ManualClock,
-): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && controller.snapshot.prerequisite.status !== "read"; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
 afterEach(() => {
   while (controllers.length > 0) {
     controllers.pop()?.dispose();
@@ -97,14 +83,14 @@ describe("BindWorkspaceController — the pre-bind read", () => {
     // A session with six mounts must not put six pre-bind reads on the wire.
     const { controller, clock } = open(OPEN_MOUNT_ID);
     controller.requestRead("reconnect");
-    await settleCapabilities(controller, clock);
+    await settlePrerequisiteRead(controller, clock);
     expect(controller.snapshot.prerequisite.status).toBe("not-read");
   });
 
   it("reads what THIS MOUNT admits once the dialog opens", async () => {
     const { controller, clock } = open(OPEN_MOUNT_ID);
     controller.requestCapabilities();
-    await settleCapabilities(controller, clock);
+    await settlePrerequisiteRead(controller, clock);
     const { prerequisite } = controller.snapshot;
     expect(prerequisite.status).toBe("read");
     expect(prerequisite.status === "read" && prerequisite.value.availableModes).toStrictEqual([

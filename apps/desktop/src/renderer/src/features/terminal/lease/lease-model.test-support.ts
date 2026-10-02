@@ -45,7 +45,7 @@ export function leaseEventWithPayload(
   actorId: string | undefined = OTHER_DEVICE_ID,
 ): ProjectedSessionEvent {
   return {
-    // The console's one admitted-event builder, plus the actor a lease move is attributed to,
+    // The app's one admitted-event builder, plus the actor a lease move is attributed to,
     // which it does not take.
     ...eventOfKind(TERMINAL_LEASE_SCENARIO.sessionId, PTY_CONTROL_CHANGED_EVENT, sequence, payload),
     ...(actorId === undefined ? {} : { actorId }),

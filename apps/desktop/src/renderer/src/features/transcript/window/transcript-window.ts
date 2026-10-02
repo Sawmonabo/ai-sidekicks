@@ -12,8 +12,8 @@ import {
   type HandoffEntry,
 } from "../dispatches/child-run-entries.js";
 import { projectTranscriptRows } from "../projection/transcript-row-projection.js";
-import { RunGroupIndex, type RunGroup } from "../run-groups/run-groups.js";
-import { SupersededIndex, type SupersededTurns } from "../superseded/superseded-turns.js";
+import { RunGroupIndex, readRunGroupKey, type RunGroup } from "../run-groups/run-groups.js";
+import { SupersededIndex } from "../superseded/superseded-turns.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
@@ -45,13 +45,6 @@ export interface TranscriptWindowModel {
   readonly rowsByKey: ReadonlyMap<string, TimelineRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
-  /**
-   * The rewound band behind each band header row, keyed by the band key the header is. Every band
-   * has an entry, folded or open, since the control that folds it back is on its header.
-   */
-  readonly supersededTurnsByHeaderKey: ReadonlyMap<string, SupersededTurns>;
-  /** Which band each superseded row belongs to — the fold's per-row question. */
-  readonly supersededTurnsKeyByRowId: ReadonlyMap<string, string>;
   /** Which rows are collapsed, under the fold that closes every finished run group. */
   readonly collapsedRowIds: ReadonlySet<string>;
   /**
@@ -60,10 +53,10 @@ export interface TranscriptWindowModel {
    */
   readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
-   * The seam behind each row that is one, consulted by the feed's row renderer before the
-   * registered one. Only this map carries the classification; a second copy would go stale.
+   * The system message behind each row that is one, consulted by the feed's row renderer before
+   * the registered one. Only this map carries the classification; a second copy would go stale.
    */
-  readonly seamByRowId: ReadonlyMap<string, SystemMessageReading>;
+  readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
   /**
    * The child-run summary behind each row that carries one. A re-summarized child has one entry,
    * at the row that first named it, carrying the latest summary.
@@ -75,14 +68,6 @@ export interface TranscriptWindowModel {
   readonly rows: readonly TimelineRow[];
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
   readonly hasActiveTurn: boolean;
-}
-
-/**
- * The run group a row hangs from, or `undefined` for a top-level row. Read off `kind`: the `run`
- * and `rollback_boundary` arms carry `runId`, the `general` arm cannot.
- */
-export function readRunGroupKey(row: TimelineRow): string | undefined {
-  return row.kind === "general" ? undefined : row.runId;
 }
 
 /**
@@ -101,8 +86,7 @@ export function deriveTranscriptWindow(
   const supersededIndex = new SupersededIndex(rows);
   // One classifier reads the whole log; its pass is a local and reaches the model only as the map
   // below, so a narrowing and the feed share one classification.
-  const seamIndex = new SystemMessageClassifier();
-  const seams = seamIndex.seams(rows);
+  const systemMessages = new SystemMessageClassifier().systemMessages(rows);
   const childRunIndex = new ChildRunIndex(rows);
   const rowsByKey = new Map<string, TimelineRow>();
   const viewportRows: ViewportRow[] = [];
@@ -118,13 +102,13 @@ export function deriveTranscriptWindow(
     viewportRows,
     rowsByKey,
     supersededRowIds,
-    supersededTurnsByHeaderKey: supersededIndex.supersededTurnsByHeaderKey(),
-    supersededTurnsKeyByRowId: supersededIndex.supersededTurnsKeyByRowId(),
     collapsedRowIds: collapsedRowIdsOf(runGroupIndex),
     runGroupByHeaderKey: new Map(
       runGroupIndex.terminalRunGroups().map((runGroup) => [runGroup.runId, runGroup]),
     ),
-    seamByRowId: new Map(seams.map((seam) => [seam.rowId, seam])),
+    systemMessageByRowId: new Map(
+      systemMessages.map((systemMessage) => [systemMessage.rowId, systemMessage]),
+    ),
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
     rows,

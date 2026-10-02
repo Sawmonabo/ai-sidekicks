@@ -9,6 +9,7 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
+import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import {
   ALL_MODES_CAPABILITIES,
   CANONICAL_ROOT,
@@ -34,13 +35,6 @@ afterEach(disposeTrackedReaders);
  */
 function staleFrame(sessionId: string, sequence: number): ProjectedSessionEvent {
   return eventOfKind(sessionId, "workspace.stale", sequence);
-}
-
-/** A store with a base state, which is what makes a later frame a frame and not history. */
-function initializedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialize({ cursor: 0, entities: [] });
-  return sessionStore;
 }
 
 describe("RepoMountsReader — the read", () => {

@@ -10,6 +10,7 @@
 //   - Following resumes on arrival at the tail or through the pill, never on a timer.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 
 /**
@@ -60,6 +61,8 @@ export class ReadingAnchor {
   #newRowCount = 0;
   #pinnedRootCursor: string | undefined;
   #anchorPoint: ReadingAnchorPoint | undefined;
+  /** The last sample folded in, so a reader's scroll toward the head is told apart. */
+  #lastGeometry: ScrollGeometry | undefined;
 
   /** Watch the reading state, and receive the current one immediately. */
   public subscribe(sink: (state: ReadingAnchorState) => void): Unsubscribe {
@@ -68,6 +71,7 @@ export class ReadingAnchor {
     return unsubscribe;
   }
 
+  /** The reading state as it stands. */
   public get state(): ReadingAnchorState {
     return {
       mode: this.#mode,
@@ -86,12 +90,15 @@ export class ReadingAnchor {
    * tail keeps the last anchor point, since dropping it would leave a frame with nothing to
    * restore.
    *
-   * Arriving counts however the sample was produced, but leaving takes a `"scroll"` sample: a
-   * shrinking viewport raises the distance from the tail with no reader action, and it must not
-   * stop following on its own.
+   * Leaving takes a `"scroll"` sample: a shrinking viewport raises the distance from the tail with
+   * no reader action, and it must not stop following on its own. A scroll toward the head is a
+   * decision and releases the follow at once, however small, even inside the tail band; arriving
+   * back within the band re-engages it.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
-    if (geometry.isAtTail) {
+    const scrolledTowardHead = isReaderScrollTowardHead(this.#lastGeometry, geometry);
+    this.#lastGeometry = geometry;
+    if (geometry.isAtTail && !scrolledTowardHead) {
       // Through `unpin` so a sample that only releases a pin still notifies; the window's prune
       // refusal lifts on that field.
       this.unpin();
@@ -103,16 +110,13 @@ export class ReadingAnchor {
     }
   }
 
-  /** Record where the reader is, so a height change beneath them can be undone. */
+  /**
+   * Record where the reader is, so a height change beneath them can be undone. Silent: the point
+   * changes on every scrolled pixel, is read where a hold is computed, and is nothing a render
+   * draws.
+   */
   public capture(anchorPoint: ReadingAnchorPoint): void {
-    if (
-      this.#anchorPoint?.rowKey === anchorPoint.rowKey &&
-      this.#anchorPoint.offsetWithinViewportPx === anchorPoint.offsetWithinViewportPx
-    ) {
-      return;
-    }
     this.#anchorPoint = anchorPoint;
-    this.#emit();
   }
 
   /**
@@ -141,6 +145,7 @@ export class ReadingAnchor {
     this.#transition(this.#mode === "following" ? "reading" : this.#mode, this.#newRowCount);
   }
 
+  /** Let go of the pinned history, if any; the cap may trim again. */
   public unpin(): void {
     if (this.#pinnedRootCursor === undefined) {
       return;
@@ -170,12 +175,14 @@ export class ReadingAnchor {
     this.#emit();
   }
 
+  /** Stop holding a row; releasing a row not held changes nothing. */
   public release(rowKey: string): void {
     if (this.#holdReasonByRowKey.delete(rowKey)) {
       this.#emit();
     }
   }
 
+  /** Whether the reader holds this row. */
   public isHeld(rowKey: string): boolean {
     return this.#holdReasonByRowKey.has(rowKey);
   }
@@ -185,6 +192,7 @@ export class ReadingAnchor {
     return [...this.#holdReasonByRowKey.keys()];
   }
 
+  /** Why the reader holds this row, or `undefined` when it is not held. */
   public holdReason(rowKey: string): ReadingHoldReason | undefined {
     return this.#holdReasonByRowKey.get(rowKey);
   }
@@ -212,4 +220,22 @@ export class ReadingAnchor {
   #emit(): void {
     this.#stateEmitter.emit(this.state);
   }
+}
+
+/**
+ * Whether a sample is the reader moving toward the head: the offset fell while the box and the
+ * content kept their sizes. A shrinking log clamps the offset too, and a measurement correction
+ * moves it with the content, so a change in either size is not a reader's scroll.
+ */
+function isReaderScrollTowardHead(
+  previous: ScrollGeometry | undefined,
+  next: ScrollGeometry,
+): boolean {
+  return (
+    next.cause === "scroll" &&
+    previous !== undefined &&
+    next.scrollTop < previous.scrollTop - TRANSCRIPT_GEOMETRY_EPSILON_PX &&
+    Math.abs(next.contentHeight - previous.contentHeight) < TRANSCRIPT_GEOMETRY_EPSILON_PX &&
+    Math.abs(next.viewportHeight - previous.viewportHeight) < TRANSCRIPT_GEOMETRY_EPSILON_PX
+  );
 }

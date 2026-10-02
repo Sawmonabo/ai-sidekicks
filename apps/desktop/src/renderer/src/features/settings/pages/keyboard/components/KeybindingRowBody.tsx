@@ -1,7 +1,6 @@
-// One row of the keyboard map: what runs, on what keys, in what scope, and the two controls
-// that change it. The page composes rows, announces and owns the acts; this draws one row and
-// reads one keystroke, and `readChordFromEvent` decides the recorder's grammar as a pure
-// function.
+// One row of the keyboard map: what runs, on what keys, and the two controls that change it.
+// The page composes rows, announces and owns the acts; this draws one row and reads one
+// keystroke, and `readChordFromEvent` decides the recorder's grammar as a pure function.
 
 import { useState, type ReactNode } from "react";
 
@@ -9,7 +8,7 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { HOST_CHORD_PLATFORM, formatChordForPlatform } from "@renderer/lib/chord-format.js";
 import {
   readChordFromEvent,
   readHeldModifiersFromEvent,
@@ -28,16 +27,19 @@ export interface KeybindingRowBodyProps {
 }
 
 /**
- * What a reset control promises, in words, for one row.
+ * What a reset control promises, in words, for one row: the shipped chord as the platform
+ * prints it.
  *
  * Exported so the reset-all control makes the same promise in the same words.
  */
 export function describeShippedChord(shippedChord: string | undefined): string {
-  return shippedChord === undefined ? "no chord" : shippedChord;
+  return shippedChord === undefined
+    ? "no chord"
+    : formatChordForPlatform(shippedChord, HOST_CHORD_PLATFORM);
 }
 
 /**
- * One row: what runs, on what keys, in what scope, and how to change it.
+ * One row: what runs, on what keys, and how to change it.
  *
  * Both controls carry the command's name in their accessible label, since a list of buttons all
  * called "Rebind" cannot be navigated by screen reader; the visible word stays inside it.
@@ -57,14 +59,6 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
         ) : (
           <ChordHint chord={row.chord} />
         )}
-      </div>
-      <div className="meridian-keymap__meta">
-        <WireFigure value={row.commandId} />
-        <span className="meridian-keymap__scope">
-          {row.whenExpression === undefined
-            ? "Live everywhere in this window"
-            : `Live when ${row.whenExpression}`}
-        </span>
       </div>
       <div className="meridian-keymap__controls">
         <button
@@ -92,7 +86,7 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
             event.stopPropagation();
             const read = readChordFromEvent(event.nativeEvent);
             if (read.outcome === "incomplete") {
-              // A chord in progress is drawn, so a person sees the console received `⌘` before
+              // A chord in progress is drawn, so a person sees the app received `⌘` before
               // the completing key.
               setHeldModifiers(read.heldModifiers);
               return;
@@ -118,7 +112,7 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
           <button
             type="button"
             className="meridian-keymap__reset meridian-action-button"
-            aria-label={`Reset ${row.title} to ${describeShippedChord(row.shippedChord)}, the chord the console ships`}
+            aria-label={`Reset ${row.title} to ${describeShippedChord(row.shippedChord)}, the chord the app ships`}
             onClick={props.onReset}
           >
             {row.shippedChord === undefined ? (

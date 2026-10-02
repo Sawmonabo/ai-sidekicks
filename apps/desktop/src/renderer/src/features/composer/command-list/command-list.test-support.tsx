@@ -48,11 +48,6 @@ export function composerSessionStore(): SessionStore {
   return store;
 }
 
-/** The pane address of one agent. */
-export function agentPane(agentId: string): PaneAddress {
-  return { kind: "agents", entity: { kind: "agent", id: agentId } };
-}
-
 /** Mount the real composer over the given bridge and return the handles a case needs. */
 export async function mountComposer(options: {
   readonly bridge: PlatformBridge;

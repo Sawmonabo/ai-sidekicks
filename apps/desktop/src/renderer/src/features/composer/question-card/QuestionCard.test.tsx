@@ -58,7 +58,6 @@ const REFUSED_DELIVERY: AnswerDelivery = {
 function renderCard(onAnswer: (answers: QuestionAnswer[]) => void): HTMLElement {
   const { container } = render(
     <QuestionCard
-      body={undefined}
       question={OPEN_QUESTION}
       questions={QUESTIONS}
       delivery={UNSENT_ANSWER_DELIVERY}
@@ -107,7 +106,6 @@ function MountedWithDelivery(props: { readonly settled: AnswerDelivery }): React
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   return (
     <QuestionCard
-      body={undefined}
       question={OPEN_QUESTION}
       questions={QUESTIONS}
       delivery={delivery}
@@ -164,7 +162,6 @@ describe("a secret question", () => {
     const sent: QuestionAnswer[][] = [];
     const { container } = render(
       <QuestionCard
-        body={undefined}
         question={OPEN_QUESTION}
         questions={[TOKEN_QUESTION]}
         delivery={UNSENT_ANSWER_DELIVERY}
@@ -188,7 +185,6 @@ describe("another record", () => {
   it("starts another record's card from empty drafts", () => {
     const card = (question: QuestionReading): React.JSX.Element => (
       <QuestionCard
-        body={undefined}
         question={question}
         questions={QUESTIONS}
         delivery={UNSENT_ANSWER_DELIVERY}

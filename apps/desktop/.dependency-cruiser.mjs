@@ -90,6 +90,8 @@ export default {
           // Scripted diff patches kept as the fixtures' test data, read by no module until the
           // Review pane's diff read lands.
           "^fixtures/data/repos-diff-patches\\.ts$",
+          // The Preview pane's handback: which chords the page claims, told to the page host.
+          "^src/renderer/src/features/preview/handback/chord-mirror\\.ts$",
         ],
       },
       to: {},

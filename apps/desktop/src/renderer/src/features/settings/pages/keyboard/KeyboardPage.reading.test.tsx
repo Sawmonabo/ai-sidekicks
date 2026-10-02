@@ -51,7 +51,7 @@ describe("keyboard page — a command registered after the page first rendered",
       await crossMacrotaskBoundary();
     });
 
-    expect(rowOf(container, LATE_COMMAND.id)).toBeDefined();
+    expect(rowOf(container, LATE_COMMAND.title)).toBeDefined();
   });
 
   it("drops a row for a command that is unregistered while the page is open", async () => {
@@ -61,7 +61,7 @@ describe("keyboard page — a command registered after the page first rendered",
         <KeyboardPage />
       </LiveAnnouncerProvider>,
     );
-    expect(rowOf(container, "app.checkForUpdates")).toBeDefined();
+    expect(rowOf(container, "Check for updates")).toBeDefined();
 
     commandRegistry.unregister("app.checkForUpdates");
     await act(async () => {
@@ -73,6 +73,6 @@ describe("keyboard page — a command registered after the page first rendered",
       await crossMacrotaskBoundary();
     });
 
-    expect(() => rowOf(container, "app.checkForUpdates")).toThrow();
+    expect(() => rowOf(container, "Check for updates")).toThrow();
   });
 });

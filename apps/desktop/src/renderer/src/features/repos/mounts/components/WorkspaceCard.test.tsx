@@ -15,7 +15,7 @@ import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
 import { buildMount, workspaceRow as workspace } from "../repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 
-/** The posture a healthy, attached mount hands down, composed the way the card gets it. */
+/** The availability a healthy, attached mount hands down, composed the way the card gets it. */
 const HEALTHY_MOUNT_BIND_CONTROLS = readBindControlAvailability(buildMount());
 
 function renderRow(
@@ -43,7 +43,7 @@ function renderRow(
 /** A workspace whose row offers a root to prepare, in the mode that provisions one. */
 const WRITABLE_ROW: RepoWorkspaceRow = workspace({ executionMode: "provisioned-worktree" });
 
-/** A withholding mount's real posture, composed by the module the card reads it from. */
+/** A withholding mount's real availability, composed by the module the card reads it from. */
 const DETACHED_MOUNT_BIND_CONTROLS = readBindControlAvailability(buildMount({ state: "detached" }));
 
 describe("WorkspaceCard — the stale row", () => {
@@ -68,7 +68,7 @@ describe("WorkspaceCard — the row wears what the list gave it", () => {
   });
 });
 
-describe("WorkspaceCard — one posture for both binding controls", () => {
+describe("WorkspaceCard — one availability for both binding controls", () => {
   function branchInput(container: HTMLElement): HTMLInputElement | null {
     return container.querySelector<HTMLInputElement>(".meridian-prepare-root__branch-input");
   }

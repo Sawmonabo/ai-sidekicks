@@ -1,11 +1,12 @@
 // What a row is in the mounted feed: a run group header, a system message, or the row renderer's.
-// Every case drives the composed feed, because each pinned model (run group fold, seam metadata,
-// lease table) is derived on every pass and has to reach a component.
+// Every case drives the composed feed, because each pinned model (run group fold, system message
+// classification, retained row state) is derived on every pass and has to reach a component.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LeasingRowBody, renderFeed, withLaidOutViewport } from "./TranscriptFeed.test-support.js";
+import { RetainingRowBody, renderFeed } from "./TranscriptFeed.test-support.js";
+import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
 import { openSessionStoreWithToolRows } from "../../transcript-logs.test-support.js";
 import {
   openSessionStoreWithSystemMessage,
@@ -47,8 +48,8 @@ describe("the transcript feed — a finished run folds to a header and its recei
     const drawn = feed.textContent ?? "";
     // The terminal row survives the fold: "header and receipt" is what folded means.
     expect(drawn).toContain("run.completed");
-    // `run.paused` discriminates: it is a seam and a member of the folded run group, so a fold
-    // that only hid the renderer's rows would leak it.
+    // `run.paused` discriminates: it is a system message and a member of the folded run group, so
+    // a fold that only hid the renderer's rows would leak it.
     expect(drawn).not.toContain("run.paused");
     // The live run group is untouched: every row of it is still mounted.
     expect(feed.querySelectorAll(VIEWPORT_ROW).length).toBeGreaterThan(0);
@@ -65,35 +66,33 @@ describe("the transcript feed — a finished run folds to a header and its recei
   });
 });
 
-describe("the transcript feed — a seam is the transcript's own row", () => {
+describe("the transcript feed — a system message is the transcript's own row", () => {
   it("draws a compaction as a system message rather than delegating it to the row renderer", () => {
     withLaidOutViewport();
     const rendererRowTypes: string[] = [];
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
       rendererRowTypes.push(mount.row.type);
     });
-    const seamLine = feed.querySelector(".meridian-system-message");
-    expect(seamLine).not.toBeNull();
-    expect(seamLine?.textContent).toContain("Context compacted");
-    // The boundary is the row's run-scoped position, resolved by the projection.
-    expect(seamLine?.textContent).toContain("Boundary");
+    const systemMessageLine = feed.querySelector(".meridian-system-message");
+    expect(systemMessageLine).not.toBeNull();
+    expect(systemMessageLine?.textContent).toContain("Context compacted");
     expect(rendererRowTypes).not.toContain("usage.context_compacted");
   });
 });
 
 describe("the transcript feed — a row's disclosure leaves the row", () => {
-  it("takes a press into the list's lease and hands the answer back", () => {
+  it("takes a press into the list's retained state and hands the answer back", () => {
     // The virtualizer mounts only the visible range, so a choice kept in the row body would be
-    // lost on scroll. The write goes to the window's lease table, which the feed overlays on the
+    // lost on scroll. The write goes to the window's state table, which the feed overlays on the
     // list's density and a prune re-parks rather than drops.
     withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithToolRows(3), undefined, LeasingRowBody);
-    const rows = [...feed.querySelectorAll<HTMLElement>(".leasing-row")];
+    const feed = renderFeed(openSessionStoreWithToolRows(3), undefined, RetainingRowBody);
+    const rows = [...feed.querySelectorAll<HTMLElement>(".retaining-row")];
     expect(rows.length).toBeGreaterThan(1);
     expect(rows.every((row) => row.dataset["density"] === "expanded")).toBe(true);
 
     fireEvent.click(rows[0] as Element);
-    const densitiesAfter = [...feed.querySelectorAll<HTMLElement>(".leasing-row")].map(
+    const densitiesAfter = [...feed.querySelectorAll<HTMLElement>(".retaining-row")].map(
       (row) => row.dataset["density"],
     );
     // Exactly one row changed, because the list answered differently; the row body holds nothing.
@@ -102,7 +101,7 @@ describe("the transcript feed — a row's disclosure leaves the row", () => {
 
   it("a row nobody touched still shows the list's density", () => {
     // Without this the case above would pass over an overlay that collapsed every row once any
-    // lease existed.
+    // retained state existed.
     withLaidOutViewport();
     const densities = new Set<string>();
     renderFeed(openSessionStoreWithToolRows(3), (mount) => {

@@ -52,11 +52,6 @@ export function ContextRingReading(props: {
           <WireFigure value={formatCount(windowMaxTokens)} title={String(windowMaxTokens)} />
           <span className="meridian-context-ring__unit">tokens</span>
         </span>
-        {windowSource === undefined ? null : (
-          <span className="meridian-context-ring__source">
-            <WireFigure value={windowSource} />
-          </span>
-        )}
       </span>
       {sourceNote === undefined ? null : (
         <p className="meridian-context-ring__source-note">{sourceNote}</p>

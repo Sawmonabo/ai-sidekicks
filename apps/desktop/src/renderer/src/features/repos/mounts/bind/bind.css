@@ -1,6 +1,6 @@
 /*
- * The bind dialog's own rules. The shared dialog shape is in `../mount-controls.css`, imported
- * before this sheet; the `--out` cursor override below depends on that order.
+ * The bind dialog's own rules. The shared dialog shape is in `../mount-controls.css`, which
+ * must load before this sheet; the `--out` cursor override below depends on that order.
  */
 
 /* A row, not a column: the legend names one value, so the pair reads as a caption on the field. */

@@ -8,7 +8,7 @@
 // knows how many pixels it took; the controller decides when to pay it, after the row set is
 // rebuilt, so a glide's geometry sample never wakes a subscriber against stale keys.
 
-import { IdleMemoryTrim, type IdleTrimPass } from "./idle-trim.js";
+import { IdleMemoryTrim } from "./idle-trim.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type ScrollController } from "../scroll/scroll-chokepoint.js";
@@ -27,8 +27,6 @@ export interface ViewportPruneCycleOptions {
   readonly anchor: ReadingAnchor;
   readonly scroll: ScrollController;
   readonly clock: Clock;
-  /** Overridden by tests only; `viewport-constants.ts` owns the shipped dwell. */
-  readonly idleTrimDwellMs?: number;
 }
 
 /** What one pass took, and the floor it was told to stop at. */
@@ -72,13 +70,7 @@ export class ViewportPruneCycle {
       clock: options.clock,
       window: options.window,
       measurements: options.measurements,
-      ...(options.idleTrimDwellMs === undefined ? {} : { dwellMs: options.idleTrimDwellMs }),
     });
-  }
-
-  /** What the last idle trim returned, or `undefined` before one has taken anything. */
-  public get lastIdleTrimPass(): IdleTrimPass | undefined {
-    return this.#idleTrim.lastPass;
   }
 
   /** What the last pass produced, or `undefined` before the first one. */

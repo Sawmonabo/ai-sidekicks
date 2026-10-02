@@ -3,13 +3,13 @@
 
 /* Why the import cannot be put yet. Attention rather than failure: an import already
    running is a condition to know about, not a thing that broke. */
-.meridian-session-import__blocked {
+.meridian-provider-import__blocked {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-session-import {
+.meridian-provider-import {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -19,18 +19,18 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-session-import__field {
+.meridian-provider-import__field {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
 }
 
-.meridian-session-import__label {
+.meridian-provider-import__label {
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-session-import__input {
+.meridian-provider-import__input {
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
@@ -40,17 +40,17 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-session-import__submit {
+.meridian-provider-import__submit {
   align-self: flex-start;
 }
 
-.meridian-session-import__submit:disabled {
+.meridian-provider-import__submit:disabled {
   color: var(--meridian-text-muted);
   cursor: not-allowed;
 }
 
-.meridian-session-import__lede,
-.meridian-session-import__progress {
+.meridian-provider-import__lede,
+.meridian-provider-import__progress {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);

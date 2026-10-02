@@ -5,7 +5,8 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { PROBE_SESSION_ID, settle, versionChainEntry } from "../../workflows-probe.test-support.js";
+import { PROBE_SESSION_ID, versionChainEntry } from "../../workflows-probe.test-support.js";
+import { settle } from "@test/helpers/settle.js";
 import { DefinitionDetail } from "./DefinitionDetail.js";
 import {
   DEFINITION_ID,

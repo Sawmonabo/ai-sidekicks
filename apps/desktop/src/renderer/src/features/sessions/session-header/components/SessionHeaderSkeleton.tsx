@@ -10,7 +10,7 @@ export function SessionHeaderSkeleton(): React.JSX.Element {
   return (
     <>
       <span className="meridian-session-header__placeholder" aria-hidden="true" />
-      <Nothing kind="not-loaded" title="This session is opening." />
+      <Nothing kind="not-loaded" title="Loading…" />
     </>
   );
 }
