@@ -1552,10 +1552,26 @@ The attention service's entries carry the state its two deliveries beyond the ap
 - **Each attention entry** carries a nullable `digested_at`, the instant the entry went out in an email digest, so no entry is listed twice and the digest's one timer is restored from it at start; and a nullable `web_address_state` (`pending`, `delivered` or `undelivered`) with its attempt count, so a retry to the web address survives a restart. Both live as long as the entry.
 - **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.deliveryRead` returns it.
 - **The session row's `muted_at`** (§Session Directory) keeps a muted session's `Finished` and `Failed` moments out of both channels.
+- **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` (§Remote Control Tables).
+
+```sql
+-- Owner: Plan-016 (T3.6)
+-- One row per device a push went to, so a withdrawal reaches exactly the devices that got the entry.
+-- A row goes when its entry is withdrawn or 24 hours after it was sent.
+CREATE TABLE push_deliveries (
+  entry_id     TEXT NOT NULL,                     -- the attention entry the push announced
+  device_id    TEXT NOT NULL REFERENCES trusted_devices(device_id),
+  collapse_id  TEXT NOT NULL,                     -- the moment's stable id, sent as the push's collapse id, so a later push for the same moment replaces it in place
+  state        TEXT NOT NULL
+               CHECK(state IN ('sent', 'replaced')),  -- 'replaced' once a later push for the same moment took its place, which leaves nothing to withdraw
+  sent_at      TEXT NOT NULL,
+  PRIMARY KEY (entry_id, device_id)
+);
+```
 
 ## Remote Control Tables (Plan-025)
 
-Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, the pushes it has sent them, and the ports it shares with them ([Spec-027](../../specs/027-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
+Each machine keeps its own verified view of the account's devices, which the channel's handshake reads, and the ports it shares with them ([Spec-027](../../specs/027-remote-control.md)). Settings › Devices lists both. The account's trust is an append-only chain of signed statements, each naming the hash of the one before it. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again.
 
 ```sql
 -- Owner: Plan-025
@@ -1587,19 +1603,6 @@ CREATE TABLE trusted_devices (
   push_key                BLOB,                   -- the key a push notice to this device is sealed to
   web_push_keys           TEXT,                   -- JSON: the web client's subscription keys {p256dh, auth}; NULL on every other device
   CHECK(revoked_at IS NULL OR (notification_settings IS NULL AND push_key IS NULL AND web_push_keys IS NULL))  -- the switches and push keys are kept until the device is revoked
-);
-
--- Owner: Plan-016 (T3.6)
--- One row per device a push went to, so a withdrawal reaches exactly the devices that got the entry.
--- A row goes when its entry is withdrawn or 24 hours after it was sent.
-CREATE TABLE push_deliveries (
-  entry_id     TEXT NOT NULL,                     -- the attention entry the push announced
-  device_id    TEXT NOT NULL REFERENCES trusted_devices(device_id),
-  collapse_id  TEXT NOT NULL,                     -- the moment's stable id, sent as the push's collapse id, so a later push for the same moment replaces it in place
-  state        TEXT NOT NULL
-               CHECK(state IN ('sent', 'replaced')),  -- 'replaced' once a later push for the same moment took its place, which leaves nothing to withdraw
-  sent_at      TEXT NOT NULL,
-  PRIMARY KEY (entry_id, device_id)
 );
 
 -- Owner: Plan-025
