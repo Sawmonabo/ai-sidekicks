@@ -97,9 +97,6 @@ export interface CreateSessionParams {
   // usage-credits prompt to this session alone, never to the account's saved default; a provider
   // that takes the model per turn reads it there.
   model: string;
-  // Realizes the native-cap-escape admitted cap at spawn for providers that bind budget caps then
-  // (Claude `--max-budget-usd`), so a cap-admitted leg is never launched capless.
-  admittedCostCapUsdMicros?: number | undefined;
   // The legs below are spawn-bound: a leg that binds at process spawn and receives nothing here
   // launches without it. Per-run carriers are `StartRunParams`; `ResumeSessionParams` repeats
   // these because resume is a fresh spawn.
@@ -150,9 +147,6 @@ export interface ResumeSessionParams {
   // The session's current model, supplied by the caller rather than read from `spawn_config`: a
   // model switch after the spawn moves the session, so the spawn-time value would be stale.
   model: string;
-  // Re-threads the run.queued server-stamped admitted cap so the provider-side hard stop survives
-  // a daemon restart and session relaunch.
-  admittedCostCapUsdMicros?: number | undefined;
   // Resume is a fresh process spawn, so every spawn-bound member of `CreateSessionParams` must be
   // re-realized here or the resumed leg silently sheds it: a posture-less resume relaunches
   // unsandboxed, a schema-less one unconstrained. The data legs are rebuilt by the daemon from the
@@ -184,9 +178,6 @@ export interface ResumeSessionParams {
 export interface StartRunParams {
   runId: RunId;
   agentConfig: Record<string, unknown>;
-  // The run.queued server-stamped admitted family cap in whole micro-dollars, realized as the
-  // provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`).
-  admittedCostCapUsdMicros?: number | undefined;
   // Optionals are `?: T | undefined`, not bare `?: T`, under `exactOptionalPropertyTypes`: the
   // package idiom, which keeps an interface aligned with a schema's inferred type.
   conversationHistory?: unknown[] | undefined;

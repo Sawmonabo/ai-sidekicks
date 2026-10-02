@@ -45,7 +45,6 @@ export interface RuntimeBindingSpawnConfig {
   readonly callbackTools?: SessionCallbackTool[] | undefined;
   readonly subagentPolicy?: SubagentPolicy | undefined;
   readonly outputSchema?: Record<string, unknown> | undefined;
-  readonly admittedCostCapUsdMicros?: number | undefined;
   // Bound for the run's lifetime, so a resume never re-resolves to the current default account;
   // server-resolved, never client-supplied.
   readonly providerAccountId?: string | undefined;
@@ -170,8 +169,6 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
   callbackTools: (value) => Array.isArray(value),
   subagentPolicy: isPlainObject,
   outputSchema: isPlainObject,
-  // Whole micro-dollars; NaN and Infinity serialize to `null` in JSON, so they are refused too.
-  admittedCostCapUsdMicros: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
   outputSpeed: (value) => typeof value === "string",
@@ -199,7 +196,6 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   callbackTools: "resume-leg",
   subagentPolicy: "resume-leg",
   outputSchema: "resume-leg",
-  admittedCostCapUsdMicros: "resume-leg",
   // Handed to the driver, so a resume stays on the account it was admitted against.
   providerAccountId: "resume-leg",
   resolvedExecutablePath: "relaunch-input",
@@ -253,7 +249,6 @@ export function composeResumeSessionParams(
     callbackTools: spawnConfig.callbackTools,
     subagentPolicy: spawnConfig.subagentPolicy,
     outputSchema: spawnConfig.outputSchema,
-    admittedCostCapUsdMicros: spawnConfig.admittedCostCapUsdMicros,
     // Read back verbatim, never re-resolved.
     providerAccountId: spawnConfig.providerAccountId,
     outputSpeed: spawnConfig.outputSpeed,

@@ -67,7 +67,6 @@ export class ClaudeSpawnLegComposer {
     return {
       sessionId: params.sessionId,
       model: params.model,
-      admittedCostCapUsdMicros: params.admittedCostCapUsdMicros,
       executionPosture: posture,
       sandboxSettings: posture === undefined ? undefined : composeClaudeSandboxSettings(posture),
       // The registry offered is the one the descriptor serves, so a withholding sheds both.
@@ -155,7 +154,6 @@ export function buildClaudeSpawnBinding(
 ): ClaudeSpawnBinding {
   const outputSchema = params.outputSchema;
   return {
-    admittedCostCapUsdMicros: params.admittedCostCapUsdMicros,
     executionPosture: params.executionPosture,
     outputSchemaDigest: outputSchema === undefined ? undefined : digestOutputSchema(outputSchema),
   };

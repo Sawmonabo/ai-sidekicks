@@ -51,7 +51,6 @@ export interface ClaudeSessionRoutingBand {
 
 /** What a session's process was spawned with, kept so a later run can be checked against it. */
 export interface ClaudeSpawnBinding {
-  readonly admittedCostCapUsdMicros: number | undefined;
   // The complete posture, so every axis can be compared.
   readonly executionPosture: ExecutionPosture | undefined;
   readonly outputSchemaDigest: string | undefined;
