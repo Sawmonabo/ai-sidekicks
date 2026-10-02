@@ -15,7 +15,7 @@ Recover the person's own control plane and relay, on their Cloudflare account or
 
 ## Detection
 
-- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, and the reconnect count, each counted since the service started. With no relay configured the block is absent.
+- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, the reconnect count and the rejected-frame count, each counted since the service started. With no relay configured the block is absent.
 - Every device not connected, with an old last frame in, means the machine's own relay connection is down. One device that keeps reconnecting means its key is in two places.
 - `sidekicks devices` prints the account's machines and devices, as the Devices page's cards show them.
 - Read the relay's own logs: the Worker's logs in the person's Cloudflare account, or `docker compose logs` on the Compose server.

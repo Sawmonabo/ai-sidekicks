@@ -50,7 +50,7 @@ Per [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-m
 
 **Durable tier** (Plan-019 owns the SQLite side; Plan-015's `account.delete` removes the Postgres side, CP-019-3):
 
-| Table | Column | Owner Plan | Shred Path |
+| Table | Column | Owner Plan | Removal Path |
 | --- | --- | --- | --- |
 | `session_events` (SQLite) | `payload` | Plan-004 write path; the daemon's one schema | Session lifetime; at purge the session's rows are deleted with `secure_delete` on and a `TRUNCATE` checkpoint after commit (CP-019-2), so neither a freed page nor the write-ahead log keeps a readable copy; Path 1 — deleted with the store by `Erase all data` |
 | `interventions` (SQLite) | `payload` | Plan-002 (T1.4 CREATE; the [Spec-003](../specs/003-queue-steer-pause-resume.md) user-authored intervention body: a steer's text) | Session lifetime; deleted at purge in the same transaction as `session_events.payload`, and with the store by `Erase all data` |
@@ -61,7 +61,7 @@ Per [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-m
 
 **Bounded-retention diagnostic tier** (daemon-local SQLite tables and the engine record's files, non-canonical per [Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior); `Keep diagnostic logs for`, 7 days by default; Plan-017 ownership):
 
-| Table | Column | Owner Plan | Shred Path |
+| Table | Column | Owner Plan | Removal Path |
 | --- | --- | --- | --- |
 | `driver_raw_events` (SQLite, daemon-local) | `raw_payload` | Plan-017 | Path 3 — dropped past `Keep diagnostic logs for`; deleted with the store on erase |
 | `command_output` (SQLite, daemon-local) | `stdout`, `stderr` | Plan-017 | Path 3 — dropped past `Keep diagnostic logs for`; deleted with the store on erase |
