@@ -108,7 +108,7 @@ This spec covers:
 
 ## Interfaces And Contracts
 
-None of the operations below is built yet. The daemon verbs a Settings page calls are described with their shapes in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md); the command-line verbs, the control plane's account verbs and the provider-side steps are this spec's, each with the plan task that builds it.
+The daemon verbs a Settings page calls are described with their shapes in [API Payload Contracts](../architecture/contracts/api-payload-contracts.md); the command-line verbs, the control plane's account verbs and the provider-side steps are this spec's, each with the plan task that builds it.
 
 - `daemon.retentionRead` reads the retention bounds and, on the same reply, the counts `Delete old data` would remove; there is no separate preview verb. Built in [Plan-005](../plans/005-local-ipc-and-daemon-control.md) Phase R1.
 - `daemon.retentionUpdate` changes one bound. No bound covers a kept worktree. Built in Plan-005 Phase R1.

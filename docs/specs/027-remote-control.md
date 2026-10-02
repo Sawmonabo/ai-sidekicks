@@ -191,8 +191,6 @@ Described here, not schematized; the shapes belong to Plan-025 and the contracts
 - **The Devices page.** The registry rendered in Settings: the machine, device and passkey cards, linking on both sides and the shared-ports list (§Device registration and revocation, §Shared ports).
 - **The command line.** `sidekicks devices` with `link`, `rename`, `revoke` and `forget`; `sidekicks relay repin --force`; and the relay block of `sidekicks daemon status`, the `relay` field of `daemon.status.read`.
 
-None of these methods, events or screens is built yet.
-
 ## Fallback Behavior
 
 - A machine cannot be reached: the device reports it as not reachable, reads stay available from what the device already has, and writes refuse rather than queue.

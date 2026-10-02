@@ -96,7 +96,7 @@ This spec covers in-app attention state, the operating system's notification on 
 
 - A push to another device is the daemon's `push.send` to the control plane, carrying a notice the machine has already sealed to that device's push key ([Spec-027](027-remote-control.md) owns the senders).
 - A notification click reaches the renderer through the main process's navigation member, `window.subscribeToNavigationRequest`, the same path a `sidekicks://` link takes ([Spec-021](021-desktop-app-and-renderer.md) owns the member).
-- None of these operations is built yet; [Plan-016 §Implementation Phase Sequence](../plans/016-notifications-and-attention-model.md#implementation-phase-sequence) names the task that builds each.
+- [Plan-016 §Implementation Phase Sequence](../plans/016-notifications-and-attention-model.md#implementation-phase-sequence) names the task that builds each of these operations.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 

@@ -109,7 +109,7 @@ Each bullet below verifies a numbered invariant from §Invariants; the trailing 
 
 ## Implementation Phase Sequence
 
-Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the attention contracts and the kinds every later layer keys on; Phase 2 lands the replay-derived projection, the gate at entry write, the mute's withdrawal and the windowless start in the daemon; Phase 3 lands the delivery surfaces: the main process's notifications, the renderer's surfaces and settings page, the web address, the email digest and the per-device push. Each phase carries a `**Precondition:**` line. None of the work below is built yet.
+Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the attention contracts and the kinds every later layer keys on; Phase 2 lands the replay-derived projection, the gate at entry write, the mute's withdrawal and the windowless start in the daemon; Phase 3 lands the delivery surfaces: the main process's notifications, the renderer's surfaces and settings page, the web address, the email digest and the per-device push. Each phase carries a `**Precondition:**` line.
 
 ### Phase 1 — Attention Contracts And Kinds
 
