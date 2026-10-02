@@ -79,6 +79,11 @@ export interface DaemonStatusReadResponse {
   processor: DaemonProcessorReading;
   memory: DaemonMemoryReading;
   relay?: DaemonRelayStatus | undefined;
+  /**
+   * The file the service keeps its secrets in, readable only by the person: present only on
+   * Linux where no Secret Service answers.
+   */
+  secretsFile?: string | undefined;
 }
 
 /** Parses a {@link DaemonStatusReadResponse}. */
@@ -113,6 +118,7 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
       })
       .strict()
       .optional(),
+    secretsFile: StatusPathSchema.optional(),
   })
   .strict();
 
