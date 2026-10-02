@@ -131,17 +131,22 @@
 
     "test:main-unit": {
       "dependsOn": ["^build"],
+      // Every tree the project's `include` discovers tests in, and every file those tests read.
+      // `src/**` rather than its main, preload and shared folders, because the fixture-launch unit
+      // imports the scenario catalog in `fixtures/**`, whose scenarios import renderer modules, and
+      // the config's icon plugin imports the renderer's glyph constants. The budget registry is
+      // read, since the budget scripts' own tests evaluate its rows. The config also imports the
+      // root `vitest.shared.ts`.
       "inputs": [
-        "src/main/**",
-        "src/shared/**",
+        "src/**",
+        "fixtures/**",
         "build/**",
-        // The budget scripts rather than `scripts/**`, whose other files no test here reads. The
-        // registry is read, since the budget scripts' own tests evaluate its rows.
-        "scripts/budget/**",
+        "scripts/**",
         "tests/budget/budgets.json",
         "tests/helpers/**",
         "vitest.config.*",
         "vitest/**",
+        "$TURBO_ROOT$/vitest.shared.ts",
         "tsconfig*.json",
         "package.json"
       ],
