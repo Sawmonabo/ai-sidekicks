@@ -144,10 +144,15 @@ flowchart TD
  n026_5["Plan-026 Phase 5 — folder editor"]
  n026_6["Plan-026 Phase 6 — availability on screen and the composer's Skills group"]
  n026_7["Plan-026 Phase 7 — a plugin's skills"]
+ %% Plan-027
+ n027_1["Plan-027 Phase 1 — Windows"]
+ n027_2["Plan-027 Phase 2 — Linux"]
  subgraph phase10["Phase 10 — Other platforms"]
   n021_4
   n021_5
   n005_R4
+  n027_1
+  n027_2
  end
  subgraph phase11["Phase 11 — Release"]
   n020_6
@@ -392,6 +397,8 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 | Phase 10 | [Plan-021 Phase 4](../plans/021-rust-pty-sidecar.md) | CI cross-compile matrix of both Rust crates for x64 and arm64; its signing stages are Phase 11's. | — |
 |  | [Plan-021 Phase 5](../plans/021-rust-pty-sidecar.md) | publish and Windows default-flip. | Plan-021 Phase 3B, Plan-021 Phase 4 |
 |  | [Plan-005 Phase R4](../plans/005-local-ipc-and-daemon-control.md) | the service on WSL 2. | Plan-005 Phase R1, Plan-005 Phase R3, Plan-021 Phase 4 |
+|  | [Plan-027 Phase 1](../plans/027-windows-and-linux.md) | Windows: every Windows implementation of an interface the numbered groups build on macOS that the Windows half does not hold. | — |
+|  | [Plan-027 Phase 2](../plans/027-windows-and-linux.md) | Linux: every Linux implementation of an interface the numbered groups build on macOS. | — |
 | Phase 11 | [Plan-020 Phase 6](../plans/020-desktop-app-and-renderer.md) | build pipeline and release signing. | Plan-020 Phase 5 |
 
 ## Console build order
