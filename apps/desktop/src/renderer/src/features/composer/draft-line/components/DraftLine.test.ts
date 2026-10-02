@@ -11,7 +11,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send-router.test-support.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  workflowStartLineFor,
+  WORKFLOW_START_COMMAND_PREFILL,
 } from "../../command-list/workflow-command/workflow-command-grammar.js";
 import {
   fixtureWorkflowStartOperations,
@@ -217,7 +217,9 @@ describe("DraftLine — Send runs a line-reading command", () => {
       }),
     });
 
-    fireEvent.change(line, { target: { value: workflowStartLineFor("nightly-review") } });
+    fireEvent.change(line, {
+      target: { value: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review` },
+    });
     await act(async () => {
       pressSend(result.container);
     });
