@@ -1,7 +1,6 @@
 // The resume position is submitted on the read, and a position the daemon refuses is given up for
-// a re-read from the window's beginning. The registry forwards only the decision, so recording
-// the reader's third argument is the one assertion that fails if the console decides a position
-// and submits it nowhere.
+// a re-read from the window's beginning. Recording the reader's third argument is the one
+// assertion that fails if the app decides a position and submits it nowhere.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,15 +19,10 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   /** What a scripted read does when the entry performs it. */
   type ScriptedRead = SessionBaseState | { readonly rejectWith: unknown };
 
-  /**
-   * An entry whose successive reads follow a script, recording what each was handed. The record
-   * is the assertion: reading the decision back off the entry would pass while the position is
-   * decided but never submitted.
-   */
+  /** An entry whose successive reads follow a script, recording what each was handed. */
   function entryReadingInTurn(
     clock: ManualClock,
     script: readonly ScriptedRead[],
-    onTimelineResumeSettled?: () => void,
   ): { readonly entry: OpenSessionEntry; readonly reads: RecordedRead[] } {
     const reads: RecordedRead[] = [];
     let readIndex = 0;
@@ -45,7 +39,6 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
-      ...(onTimelineResumeSettled === undefined ? {} : { onTimelineResumeSettled }),
     });
     return { entry, reads };
   }
@@ -94,17 +87,15 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
       { resumeFromCursor: undefined },
       { resumeFromCursor: "7_1723291480000000000" },
     ]);
-    expect(entry.timelineResume?.outcome).toBe("resume");
   });
 
-  it("re-reads from the beginning and records the refusal when the position is refused", async () => {
+  it("re-reads from the beginning when the position is refused", async () => {
     const clock = new ManualClock(0);
-    const settlements: number[] = [];
-    const { entry, reads } = entryReadingInTurn(
-      clock,
-      [snapshotAt(7, "7_1723291480000000000"), CURSOR_REFUSAL, snapshotAt(0)],
-      () => settlements.push(1),
-    );
+    const { entry, reads } = entryReadingInTurn(clock, [
+      snapshotAt(7, "7_1723291480000000000"),
+      CURSOR_REFUSAL,
+      snapshotAt(0),
+    ]);
 
     await refresh(clock, entry);
     await refresh(clock, entry);
@@ -116,12 +107,8 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
       { resumeFromCursor: "7_1723291480000000000" },
       { resumeFromCursor: undefined },
     ]);
-    // The refusal stands as the decision; overwriting it would hide a position given up.
-    expect(entry.timelineResume?.outcome).toBe("refused");
     // The store keeps its projection: the recovery answered behind the cursor, which
-    // `admitsSnapshotAt` refuses, so the settlement is reported rather than left to a store
-    // transition that does not happen.
+    // `admitsSnapshotAt` refuses.
     expect(entry.store.snapshot().cursor).toBe(7);
-    expect(settlements.length).toBeGreaterThanOrEqual(2);
   });
 });

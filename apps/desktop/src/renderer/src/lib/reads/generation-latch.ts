@@ -113,11 +113,6 @@ export class GenerationLatch {
     return this.#serialsBySubject.get(subject)?.has(key) ?? false;
   }
 
-  /** How many keys this subject currently holds; read by tests, never on a render path. */
-  public heldKeyCount(subject: object): number {
-    return this.#serialsBySubject.get(subject)?.size ?? 0;
-  }
-
   // The one place a key is taken. Writing over a serial retires whatever held it.
   #nextSerialFor(subject: object, key: string): number {
     this.#issuedClaims += 1;

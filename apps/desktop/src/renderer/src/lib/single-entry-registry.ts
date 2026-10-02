@@ -39,11 +39,6 @@ export class SingleEntryRegistry<TRenderer> {
     this.#descriptorsByName.register(this.#registryName, descriptor);
   }
 
-  /** Releases the entry. */
-  public unregister(): void {
-    this.#descriptorsByName.unregister(this.#registryName);
-  }
-
   /** The registered descriptor, or `undefined` while the registry is empty. */
   public descriptor(): SingleEntryDescriptor<TRenderer> | undefined {
     return this.#descriptorsByName.get(this.#registryName);

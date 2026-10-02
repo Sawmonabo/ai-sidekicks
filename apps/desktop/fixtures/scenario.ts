@@ -29,16 +29,6 @@ export interface Scenario {
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**
-   * Whether this scenario's daemon refuses a resume position the app submits.
-   *
-   * A flag rather than the cursor, which the scenario's `session.read` reply already
-   * carries. It is not a `replies` row because a row answers a call with one fixed value,
-   * while this refuses only the read that carries a position and serves the same call
-   * without one, so the app's recovery is observable. Absent means the daemon resolves
-   * what it acknowledged.
-   */
-  readonly refusesSubmittedResumeCursor?: boolean;
-  /**
    * What the main process's updater reports, when the scenario states one.
    *
    * The default is a bare `idle` with no `lastCheckedAt`, the state of a fresh install. It

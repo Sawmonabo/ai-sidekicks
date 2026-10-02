@@ -97,7 +97,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     expect(started?.isCurrent).toBe(true);
     expect(joined.isCurrent).toBe(true);
     expect(joined.settle(() => undefined)).toBe(true);
-    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
+    expect(latch.isHeld(SUBJECT_ONE, "preferences")).toBe(true);
   });
 
   it("goes stale with the round it joined, and not on its own", () => {
@@ -130,7 +130,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
     expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
     expect(minted.settle(() => undefined)).toBe(true);
-    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(0);
+    expect(latch.isHeld(SUBJECT_ONE, "preferences")).toBe(false);
     expect(latch.claim(SUBJECT_ONE, "preferences")).toBeDefined();
   });
 
@@ -142,6 +142,6 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
         throw new Error("the fold this reader was doing failed");
       });
     }).toThrow(/the fold this reader was doing failed/);
-    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(0);
+    expect(latch.isHeld(SUBJECT_ONE, "preferences")).toBe(false);
   });
 });

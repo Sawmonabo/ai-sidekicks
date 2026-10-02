@@ -480,9 +480,4 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
       },
     },
   ],
-  // This scenario reaches every state the transcript renders, including the resume-refusal
-  // banner, which needs a submitted position the daemon cannot resolve. Screenshot captures are
-  // unaffected: the refusal needs a second read, and a settled render performs one only on a
-  // focus, a reconnect or a named frame.
-  refusesSubmittedResumeCursor: true,
 };
