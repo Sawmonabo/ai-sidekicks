@@ -59,9 +59,7 @@ export interface ProviderAccountDeliverySink {
  * One provider-account tail: the frames it carries and the order they reach the fold in. The hold,
  * the unreadable count and the once-only high-water diagnostic move only on a delivery, so a
  * reading cannot apply a held frame twice. The fold is a constructor parameter because the reading
- * also loads the registry snapshot into it and composes its readout from it.
- *
- * @consumedBy the provider account service, which folds quota frames
+ * also loads the registry snapshot into it and draws its accounts and readings from it.
  */
 export class ProviderAccountDeliveries {
   readonly #fold: ProviderAccountFold;
@@ -183,13 +181,4 @@ export class ProviderAccountDeliveries {
         return true;
     }
   }
-}
-
-/**
- * The finished sign-in one tail frame reports, or `undefined` for a frame of another kind or one
- * the registered union does not admit. For a reader that keeps no fold over the tail.
- */
-export function loginCompletionIn(frame: unknown): ProviderLoginCompletion | undefined {
-  const parsed = ProviderAccountNotificationSchema.safeParse(frame);
-  return parsed.success && parsed.data.kind === "login_completed" ? parsed.data : undefined;
 }
