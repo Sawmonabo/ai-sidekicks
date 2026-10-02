@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { RunGroupFoldState } from "../../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
@@ -14,8 +14,8 @@ import { type RunGroupDisclosure } from "../run-group-fold.js";
  */
 export function useRunGroupDisclosure(sessionId: string): RunGroupDisclosure {
   const bridge = usePlatformBridge();
-  const collapse = useSessionScopedState(bridge, sessionId, () => new RunGroupFoldState());
-  const opened = useSessionScopedState<ReadonlySet<string>>(
+  const collapse = useSubjectScopedState(bridge, sessionId, () => new RunGroupFoldState());
+  const opened = useSubjectScopedState<ReadonlySet<string>>(
     bridge,
     sessionId,
     () => new Set<string>(),

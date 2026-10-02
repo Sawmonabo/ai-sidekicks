@@ -7,7 +7,7 @@
 // publication, deferred holds, head insertion and anchor capture live in `viewport-*.ts`.
 
 import { type Clock } from "@renderer/lib/clock.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "../scroll/scroll-chokepoint.js";

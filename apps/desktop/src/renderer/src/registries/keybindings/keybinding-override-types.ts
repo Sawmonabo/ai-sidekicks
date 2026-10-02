@@ -4,7 +4,7 @@
 // through the bridge's `keyboardMap`.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ChordPlatform } from "@renderer/lib/chord-format.js";
 import type { Keybinding } from "../commands/command-types.js";
 import type { KeybindingOverride, KeybindingOverrideRefusal } from "./keybinding-overrides.js";

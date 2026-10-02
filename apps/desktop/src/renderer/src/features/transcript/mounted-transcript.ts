@@ -4,7 +4,7 @@
 // mount or route change cannot leave a gone feed adopted. Module scope is one window.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 /**
  * The acts a mounted transcript offers, one function per command, named for the act rather

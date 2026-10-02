@@ -7,7 +7,8 @@
 // until empty lets one lane's re-arm hold the frame open; a throw is contained so delivery does
 // not depend on submission order.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import {
   readPerformanceMeterTime,

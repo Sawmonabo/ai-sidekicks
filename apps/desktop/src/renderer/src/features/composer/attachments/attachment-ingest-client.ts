@@ -5,7 +5,7 @@
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";

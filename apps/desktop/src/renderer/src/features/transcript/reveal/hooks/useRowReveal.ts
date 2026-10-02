@@ -1,6 +1,6 @@
 import { useCallback, useContext, useSyncExternalStore } from "react";
 
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { RowRevealContext } from "../components/RowRevealProvider.js";
 
 /** Nothing to unsubscribe from. Module-scope, so the subscribe callback stays stable. */

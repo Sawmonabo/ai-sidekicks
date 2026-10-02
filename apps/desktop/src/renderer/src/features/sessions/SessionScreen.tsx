@@ -40,7 +40,7 @@ import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersi
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import { findComposerRenderer } from "@renderer/registries/composer/composer-registry.js";
 import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
-import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import {
@@ -82,7 +82,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const clock = useClock();
   // The bridge is the subject and the session the key: every refusal here came through that
   // transport, so replacing it retires their banners with them.
-  const { value: banners, settle: settleBanners } = useSessionScopedState<readonly SessionBanner[]>(
+  const { value: banners, settle: settleBanners } = useSubjectScopedState<readonly SessionBanner[]>(
     props.bridge,
     sessionId,
     () => NO_SESSION_BANNERS,

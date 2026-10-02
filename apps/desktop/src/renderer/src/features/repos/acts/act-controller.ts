@@ -9,7 +9,8 @@
 // touches the bridge.
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import {
   ACT_IDLE,

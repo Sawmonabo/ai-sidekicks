@@ -7,7 +7,8 @@
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
 import { sendNewSessionDraft, type DraftRepoMount } from "./new-session-send.js";
 import {

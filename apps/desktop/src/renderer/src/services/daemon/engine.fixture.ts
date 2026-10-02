@@ -10,7 +10,7 @@
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {

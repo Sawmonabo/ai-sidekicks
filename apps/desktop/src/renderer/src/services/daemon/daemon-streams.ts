@@ -6,7 +6,7 @@
 
 import type { DaemonSubscribeParams } from "@ai-sidekicks/contracts";
 
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "./session-event-streams.js";

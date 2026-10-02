@@ -23,7 +23,7 @@ import type {
 import { RefusalError } from "@renderer/lib/refusal.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./mount-inventory-caps.js";
 import { type Clock } from "@renderer/lib/clock.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
 import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";

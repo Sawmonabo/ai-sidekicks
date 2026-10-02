@@ -3,10 +3,10 @@
 // Every window trigger re-reads it, since the person grants the permission outside this
 // application; the scheduler serializes probes and the latch drops a reply from a superseded
 // round.
-import type { NotificationPermission } from "@shared/preload-api.js";
+import type { NotificationPermission, Unsubscribe } from "@shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {

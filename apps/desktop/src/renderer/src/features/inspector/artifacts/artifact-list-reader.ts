@@ -6,7 +6,8 @@
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { ArtifactRowActions } from "./artifact-row-actions.js";
 import { type ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";

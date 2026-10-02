@@ -11,7 +11,8 @@
 // `PaneLayoutState` that React reads through `useSyncExternalStore`, so `useState` never
 // becomes a second source of truth. Value shapes and width arithmetic are in `pane-layout.ts`.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
 import { isEphemeralPaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneAddress, PaneLink } from "@renderer/routing/panes/pane-address.js";

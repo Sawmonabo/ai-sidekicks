@@ -9,7 +9,8 @@
 //     are never pruned; the held set lives here because engagement is a reading fact.
 //   - Following resumes on arrival at the tail or through the pill, never on a timer.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 

@@ -9,7 +9,7 @@
 // It is one edge (the wire was away and is back), not a connection state: a view that could read
 // state would render "connected", a fact the renderer only observes indirectly.
 
-import type { Unsubscribe } from "./emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 /** The transport-reconnect signal as a consumer sees it. The sink takes no payload. */
 export interface TransportReconnectObservable {

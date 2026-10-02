@@ -17,7 +17,8 @@
 // at once; a release build records and reports without crashing the session. Both arms record.
 
 import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
-import { Emitter, type Unsubscribe } from "./emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "./emitter.js";
 
 /**
  * Every runtime tripwire. Closed: adding one is a deliberate edit to this tuple, from which

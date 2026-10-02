@@ -9,7 +9,8 @@
 // The indicator lives in a class, not `useState`, because the library sets it from callbacks
 // outside React, which is what `useSyncExternalStore` is for.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import {
   type Announce,
   type AnnouncementPoliteness,

@@ -4,7 +4,8 @@
 // replay, so a late mount never pulls focus from what the person moved on to. It is an event, not
 // a store, so nothing re-renders on an ask.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 
 /** The one thing the ask carries: that somebody asked. */
 export type ComposerFocusRequest = Readonly<Record<string, never>>;

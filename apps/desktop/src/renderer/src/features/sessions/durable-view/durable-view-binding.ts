@@ -5,7 +5,7 @@
 // `bindingIfCurrent` mutates nothing and is what a render calls; only an effect or an event
 // handler calls `acquire`, so a discarded render cannot dispose the committed tree's binding.
 
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
 /**

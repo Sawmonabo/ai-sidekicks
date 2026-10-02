@@ -2,7 +2,7 @@
 // composition time, so they cannot close over the window's banner; the mounted window
 // publishes its banner sink here.
 
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { RefusalError, type Refusal } from "@renderer/lib/refusal.js";
 
 /** Publishes this window's refusal rendering; only the window calls it. */

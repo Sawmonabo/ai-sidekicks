@@ -4,7 +4,8 @@
 // lock back and leaves the row in place with the daemon's refusal drawn on it.
 
 import { type Clock } from "@renderer/lib/clock.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";

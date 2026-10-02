@@ -8,7 +8,7 @@
 
 import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "../scroll/scroll-chokepoint.js";

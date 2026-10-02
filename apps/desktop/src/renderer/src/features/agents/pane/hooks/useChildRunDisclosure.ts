@@ -3,7 +3,7 @@ import { useCallback, useMemo } from "react";
 import { type RunId } from "@ai-sidekicks/contracts";
 
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import {
@@ -39,7 +39,7 @@ export function useChildRunDisclosure(sessionId: string): ChildRunDisclosure {
     () => new ChildRunExpansionState(),
     CHILD_RUN_EXPANSION_DISPOSAL,
   );
-  const mirror = useSessionScopedState<ReadonlyMap<RunId, ChildRunExpansion>>(
+  const mirror = useSubjectScopedState<ReadonlyMap<RunId, ChildRunExpansion>>(
     bridge,
     sessionId,
     () => new Map<RunId, ChildRunExpansion>(),

@@ -4,7 +4,7 @@
 // `animationstart` bubble upward and an ancestor's motion would go unheard on the element.
 
 import type { Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { observeElementResize } from "@renderer/lib/element-resize.js";
 import { couldAnimationMove } from "./animation-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";

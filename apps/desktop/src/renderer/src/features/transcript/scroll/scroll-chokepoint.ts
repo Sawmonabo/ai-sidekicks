@@ -5,7 +5,7 @@
 // to round offsets.
 
 import { type Clock } from "@renderer/lib/clock.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { type AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { OverflowMeasurementBatch } from "../viewport/overflow-measurement-batch.js";
 import { type ScrollGeometry, type GeometryChangeCause } from "./geometry-sample.js";

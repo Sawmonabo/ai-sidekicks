@@ -5,7 +5,8 @@
 // newer local act. Writes are serialized, one at the store at a time, with a later act replacing
 // the waiting snapshot, so the store sees the issued snapshots in order, ending on the newest.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";

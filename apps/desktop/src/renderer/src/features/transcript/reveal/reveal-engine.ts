@@ -3,7 +3,8 @@
 // of it is safe to show; turning text into blocks belongs to the card layer. The engine's
 // published types live in `reveal-model.ts`.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
 import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";

@@ -5,7 +5,8 @@
 
 import { type TimelineReadRequest, type TimelineReadResponse } from "@ai-sidekicks/contracts";
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";

@@ -19,9 +19,9 @@
 // listens in the capture phase, so it would swallow `$mod+1` before the recorder saw it; the frame
 // installs nothing while a chord is being recorded.
 
-import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
+import type { KeyboardMap, KeyboardMapReading, Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   contributedKeybindings,
