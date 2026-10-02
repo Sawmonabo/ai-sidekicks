@@ -1990,8 +1990,8 @@ type ProviderUsageLimitCause = "plan-allowance-exhausted";
 // consumer can tell the two apart. Primary sources, per the AGENTS.md citation standard: the
 // Codex leg stamps provider-stated off the published rate-limit shapes — the
 // `account/rateLimits/read` pull + `account/rateLimits/updated` push pair the provider-wire
-// reference family's codex file records (Generated schema, Verified at the codex-cli 0.150.1
-// pin), consumed by the shipped codex event-normalizer's push row. The Claude leg stamps
+// reference family's codex file records (Generated schema, Verified at the version that file
+// names), consumed by the shipped codex event-normalizer's push row. The Claude leg stamps
 // runtime-derived because no Claude surface states a reset instant: the arithmetic is
 // observation time plus the `api_retry` frame's own `retry_delay_ms`, emitted only on the
 // final announced retry beside the typed `rate_limit` error member — the mid-session retry
