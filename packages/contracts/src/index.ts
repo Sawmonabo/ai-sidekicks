@@ -429,7 +429,6 @@ export {
   BackupIdSchema,
   BackupManifestSchema,
   BackupReadResponseSchema,
-  BackupRestoreAccessSchema,
   BackupRestoredPayloadSchema,
   DAEMON_BACKUP_METHOD_DESCRIPTORS,
 } from "./daemon-backup.js";
@@ -441,7 +440,6 @@ export type {
   BackupListEntry,
   BackupManifest,
   BackupReadResponse,
-  BackupRestoreAccess,
   BackupRestoredPayload,
   DaemonBackupMethodDescriptors,
 } from "./daemon-backup.js";
@@ -473,35 +471,22 @@ export type {
   WorkflowChainAskAfterRuns,
 } from "./daemon-config.js";
 export {
-  BackupKeySyncStateSchema,
-  BackupKeySyncUpdateRequestSchema,
   DAEMON_DATA_METHOD_DESCRIPTORS,
-  DAEMON_PASSPHRASE_MAX_LEN,
   DaemonEmptyPayloadSchema,
-  DaemonUnlockRequestSchema,
   DataExportJobIdSchema,
   DataExportProgressSchema,
   DataExportRequestSchema,
   DataExportResponseSchema,
   DataExportSubscribeRequestSchema,
-  KeyRotateRequestSchema,
-  MasterKeyIdSchema,
-  RecoveryPassphraseSetRequestSchema,
 } from "./daemon-data.js";
 export type {
-  BackupKeySyncState,
-  BackupKeySyncUpdateRequest,
   DaemonDataMethodDescriptors,
   DaemonEmptyPayload,
-  DaemonUnlockRequest,
   DataExportJobId,
   DataExportProgress,
   DataExportRequest,
   DataExportResponse,
   DataExportSubscribeRequest,
-  KeyRotateRequest,
-  MasterKeyId,
-  RecoveryPassphraseSetRequest,
 } from "./daemon-data.js";
 export {
   DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS,

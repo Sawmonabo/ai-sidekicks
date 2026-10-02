@@ -1,36 +1,16 @@
-// The service's acts on everything it keeps for the person and on the keys that read it:
-// export, erase, unlock, key rotation, the recovery passphrase, and iCloud Keychain key sync.
-// Settings › Runtime and the command line send the same verbs.
-//
-// Every passphrase member is write-only: it is on no response, event or log, and the service
-// keeps none of them.
+// The service's acts on everything it keeps for the person: export and erase. Settings ›
+// Runtime and the command line send the same verbs.
 import { z } from "zod";
 
 import { ERROR_MESSAGE_MAX_LEN } from "./error.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
-
-/** The longest passphrase accepted on the wire. */
-export const DAEMON_PASSPHRASE_MAX_LEN = 1024;
-
-const passphrase = (fieldLabel: string): z.ZodString =>
-  wireFreeFormString(DAEMON_PASSPHRASE_MAX_LEN, fieldLabel);
-
-/**
- * The id of a master key: 16 random bytes, written as 32 lowercase hex digits.
- * A backup's manifest names the key it was sealed with by this id, never the key.
- */
-export type MasterKeyId = string & { readonly __brand: "MasterKeyId" };
-/** Parses a {@link MasterKeyId}. */
-export const MasterKeyIdSchema: z.ZodType<MasterKeyId, MasterKeyId> = z
-  .string()
-  .regex(/^[0-9a-f]{32}$/u, { message: "A master key id is 32 lowercase hex digits." })
-  .brand<"MasterKeyId">() as unknown as z.ZodType<MasterKeyId, MasterKeyId>;
 
 /** A request or result with no members. */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -121,81 +101,9 @@ export const DataExportProgressSchema: z.ZodType<DataExportProgress> = z.discrim
   ],
 );
 
-// Keys
-
-/** The passphrase that opens the master key on a machine with no security chip and no keychain. */
-export interface DaemonUnlockRequest {
-  passphrase: string;
-}
-/** Parses a {@link DaemonUnlockRequest}. */
-export const DaemonUnlockRequestSchema: z.ZodType<DaemonUnlockRequest, DaemonUnlockRequest> = z
-  .object({ passphrase: passphrase("DaemonUnlockRequest.passphrase") })
-  .strict();
-
-/**
- * Replaces the master key. `passphrase` is the machine's passphrase, sent only
- * where the master key opens with one; `recoveryPassphrase` is the recovery
- * passphrase, sent only where one is set, so the new key's recovery envelope
- * can be written.
- */
-export interface KeyRotateRequest {
-  passphrase?: string | undefined;
-  recoveryPassphrase?: string | undefined;
-}
-/** Parses a {@link KeyRotateRequest}. */
-export const KeyRotateRequestSchema: z.ZodType<KeyRotateRequest, KeyRotateRequest> = z
-  .object({
-    passphrase: passphrase("KeyRotateRequest.passphrase").optional(),
-    recoveryPassphrase: passphrase("KeyRotateRequest.recoveryPassphrase").optional(),
-  })
-  .strict();
-
-/** Sets or changes the recovery passphrase every later backup's key envelope is wrapped under. */
-export interface RecoveryPassphraseSetRequest {
-  passphrase: string;
-}
-/** Parses a {@link RecoveryPassphraseSetRequest}. */
-export const RecoveryPassphraseSetRequestSchema: z.ZodType<
-  RecoveryPassphraseSetRequest,
-  RecoveryPassphraseSetRequest
-> = z.object({ passphrase: passphrase("RecoveryPassphraseSetRequest.passphrase") }).strict();
-
-/** Turns keeping the backups' key in the person's iCloud Keychain on or off (a Mac only). */
-export interface BackupKeySyncUpdateRequest {
-  enabled: boolean;
-}
-/** Parses a {@link BackupKeySyncUpdateRequest}. */
-export const BackupKeySyncUpdateRequestSchema: z.ZodType<
-  BackupKeySyncUpdateRequest,
-  BackupKeySyncUpdateRequest
-> = z.object({ enabled: z.boolean() }).strict();
-
-/**
- * Whether the backups' key is kept in iCloud Keychain. `refused` is a switch the
- * service could not turn on, with its own words for why.
- */
-export type BackupKeySyncState =
-  | { state: "on" }
-  | { state: "off" }
-  | { state: "refused"; reason: string };
-/** Parses a {@link BackupKeySyncState}. */
-export const BackupKeySyncStateSchema: z.ZodType<BackupKeySyncState> = z.discriminatedUnion(
-  "state",
-  [
-    z.object({ state: z.literal("on") }).strict(),
-    z.object({ state: z.literal("off") }).strict(),
-    z
-      .object({
-        state: z.literal("refused"),
-        reason: wireFreeFormString(ERROR_MESSAGE_MAX_LEN, "BackupKeySyncState.reason"),
-      })
-      .strict(),
-  ],
-);
-
 // The methods
 
-/** The data and key methods, keyed by method name. */
+/** The data methods, keyed by method name. */
 export interface DaemonDataMethodDescriptors {
   readonly "daemon.dataExport": MethodDescriptor<
     "daemon.dataExport",
@@ -205,7 +113,7 @@ export interface DaemonDataMethodDescriptors {
   readonly "daemon.dataExportSubscribe": SubscriptionMethodDescriptor<
     "daemon.dataExportSubscribe",
     DataExportSubscribeRequest,
-    DataExportProgress,
+    SubscribeAckResponse,
     DataExportProgress
   >;
   readonly "daemon.dataErase": MethodDescriptor<
@@ -213,32 +121,11 @@ export interface DaemonDataMethodDescriptors {
     DaemonEmptyPayload,
     DaemonEmptyPayload
   >;
-  readonly "daemon.unlock": MethodDescriptor<
-    "daemon.unlock",
-    DaemonUnlockRequest,
-    DaemonEmptyPayload
-  >;
-  readonly "daemon.keyRotate": MethodDescriptor<
-    "daemon.keyRotate",
-    KeyRotateRequest,
-    DaemonEmptyPayload
-  >;
-  readonly "daemon.recoveryPassphraseSet": MethodDescriptor<
-    "daemon.recoveryPassphraseSet",
-    RecoveryPassphraseSetRequest,
-    DaemonEmptyPayload
-  >;
-  readonly "daemon.backupKeySyncUpdate": MethodDescriptor<
-    "daemon.backupKeySyncUpdate",
-    BackupKeySyncUpdateRequest,
-    BackupKeySyncState
-  >;
 }
 
 /**
- * The data and key methods. The export stream's acknowledgement is the job's
- * progress as it stands when the subscription opens, and each emission after
- * it is the next change.
+ * The data methods. The export stream's acknowledgement is the subscription,
+ * and each emission is the job's progress as it changes.
  */
 export const DAEMON_DATA_METHOD_DESCRIPTORS: DaemonDataMethodDescriptors = defineMethodDescriptors({
   "daemon.dataExport": {
@@ -253,7 +140,7 @@ export const DAEMON_DATA_METHOD_DESCRIPTORS: DaemonDataMethodDescriptors = defin
     procedureType: "subscription",
     mutating: false,
     requestSchema: DataExportSubscribeRequestSchema,
-    responseSchema: DataExportProgressSchema,
+    responseSchema: SubscribeAckResponseSchema,
     emissionSchema: DataExportProgressSchema,
   },
   "daemon.dataErase": {
@@ -262,33 +149,5 @@ export const DAEMON_DATA_METHOD_DESCRIPTORS: DaemonDataMethodDescriptors = defin
     mutating: true,
     requestSchema: DaemonEmptyPayloadSchema,
     responseSchema: DaemonEmptyPayloadSchema,
-  },
-  "daemon.unlock": {
-    method: "daemon.unlock",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: DaemonUnlockRequestSchema,
-    responseSchema: DaemonEmptyPayloadSchema,
-  },
-  "daemon.keyRotate": {
-    method: "daemon.keyRotate",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: KeyRotateRequestSchema,
-    responseSchema: DaemonEmptyPayloadSchema,
-  },
-  "daemon.recoveryPassphraseSet": {
-    method: "daemon.recoveryPassphraseSet",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: RecoveryPassphraseSetRequestSchema,
-    responseSchema: DaemonEmptyPayloadSchema,
-  },
-  "daemon.backupKeySyncUpdate": {
-    method: "daemon.backupKeySyncUpdate",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: BackupKeySyncUpdateRequestSchema,
-    responseSchema: BackupKeySyncStateSchema,
   },
 });

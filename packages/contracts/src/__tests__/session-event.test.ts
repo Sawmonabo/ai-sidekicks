@@ -254,7 +254,6 @@ describe("SESSION_EVENT_CATEGORY_BY_TYPE — the category registry", () => {
   it.each([
     // The namespace prefix of these rows does not name their category. The registry, not the
     // prefix, is the category authority, so a cleanup by namespace heuristic must fail loudly.
-    ["daemon.master_key_source", "security_events"],
     ["relay.pin_refused", "security_events"],
     ["moderation.review_flagged", "approval_flow"],
     ["plan.proposed", "approval_flow"],

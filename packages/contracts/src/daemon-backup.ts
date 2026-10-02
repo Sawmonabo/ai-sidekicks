@@ -3,21 +3,12 @@
 //
 // A restore replaces the service's own store, so it runs with the service stopped and reads
 // each manifest straight from the folder; that is why the manifest's shape is a contract.
-// A backup is sealed with the master key its manifest names: in custody on the machine that
-// wrote it, elsewhere found in iCloud Keychain on a Mac or opened with the recovery
-// passphrase from a key envelope in the folder. Otherwise it cannot be restored here.
+// A backup is a plain copy that holds no key, so any computer can restore it.
 //
 // This file imports nothing from the event registry, which imports it.
 import { z } from "zod";
 
-import {
-  BackupKeySyncStateSchema,
-  DaemonEmptyPayloadSchema,
-  MasterKeyIdSchema,
-  type BackupKeySyncState,
-  type DaemonEmptyPayload,
-  type MasterKeyId,
-} from "./daemon-data.js";
+import { DaemonEmptyPayloadSchema, type DaemonEmptyPayload } from "./daemon-data.js";
 import { ERROR_MESSAGE_MAX_LEN } from "./error.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ReleaseVersionSchema } from "./release-manifest.js";
@@ -42,10 +33,9 @@ export const BackupIdSchema: z.ZodType<BackupId, BackupId> = wireFreeFormString(
 
 /**
  * What a backup records about itself: when it was taken, the app and service
- * versions that wrote it, its size, the computer that wrote it and the id of the
- * master key it was sealed with. On a Windows computer it also names the side
- * that wrote it, Windows or a WSL distribution, so a restore on the other side
- * rewrites its stored paths into that side's form.
+ * versions that wrote it, its size and the computer that wrote it. On a Windows
+ * computer it also names the side that wrote it, Windows or a WSL distribution,
+ * so a restore on the other side rewrites its stored paths into that side's form.
  */
 export interface BackupManifest {
   backupId: BackupId;
@@ -54,7 +44,6 @@ export interface BackupManifest {
   serviceVersion: string;
   totalBytes: number;
   computerName: string;
-  masterKeyId: MasterKeyId;
   place?: ServicePlaceLocation | undefined;
 }
 /** Parses a {@link BackupManifest}. */
@@ -66,26 +55,11 @@ export const BackupManifestSchema: z.ZodType<BackupManifest> = z
     serviceVersion: ReleaseVersionSchema,
     totalBytes: z.number().int().nonnegative(),
     computerName: wireFreeFormString(BACKUP_LABEL_MAX_LEN, "BackupManifest.computerName"),
-    masterKeyId: MasterKeyIdSchema,
     place: ServicePlaceLocationSchema.optional(),
   })
   .strict();
 
 // daemon.backupRead
-
-/**
- * Whether this computer can restore a backup: `ready` when the key it was sealed
- * with is here, `needsRecoveryPassphrase` when only a key envelope in the folder
- * opens it, and `unavailable` when neither way reaches the key, so only the
- * computer that wrote it can open it.
- */
-export type BackupRestoreAccess = "ready" | "needsRecoveryPassphrase" | "unavailable";
-/** Parses a {@link BackupRestoreAccess}. */
-export const BackupRestoreAccessSchema: z.ZodType<BackupRestoreAccess> = z.enum([
-  "ready",
-  "needsRecoveryPassphrase",
-  "unavailable",
-]);
 
 /** One backup in the folder, as `Restore…` lists it. */
 export interface BackupListEntry {
@@ -94,7 +68,6 @@ export interface BackupListEntry {
   totalBytes: number;
   appVersion: string;
   computerName: string;
-  restoreAccess: BackupRestoreAccess;
 }
 const BackupListEntrySchema: z.ZodType<BackupListEntry> = z
   .object({
@@ -103,7 +76,6 @@ const BackupListEntrySchema: z.ZodType<BackupListEntry> = z
     totalBytes: z.number().int().nonnegative(),
     appVersion: ReleaseVersionSchema,
     computerName: wireFreeFormString(BACKUP_LABEL_MAX_LEN, "BackupListEntry.computerName"),
-    restoreAccess: BackupRestoreAccessSchema,
   })
   .strict();
 
@@ -129,9 +101,8 @@ const BackupLastRunSchema: z.ZodType<BackupLastRun> = z.discriminatedUnion("outc
 
 /**
  * Where the backups stand: the folder and whether it sits on the service's own
- * disk, the folder's total size, the last run (`null` before the first), every
- * backup in the folder, whether a recovery passphrase is set, and, on a Mac
- * only, whether the backups' key is kept in iCloud Keychain.
+ * disk, the folder's total size, the last run (`null` before the first) and
+ * every backup in the folder.
  */
 export interface BackupReadResponse {
   folder: string;
@@ -139,8 +110,6 @@ export interface BackupReadResponse {
   totalBytes: number;
   lastRun: BackupLastRun | null;
   backups: BackupListEntry[];
-  recoveryPassphrase: "set" | "notSet";
-  keySync?: BackupKeySyncState | undefined;
 }
 /** Parses a {@link BackupReadResponse}. */
 export const BackupReadResponseSchema: z.ZodType<BackupReadResponse> = z
@@ -150,8 +119,6 @@ export const BackupReadResponseSchema: z.ZodType<BackupReadResponse> = z
     totalBytes: z.number().int().nonnegative(),
     lastRun: BackupLastRunSchema.nullable(),
     backups: z.array(BackupListEntrySchema),
-    recoveryPassphrase: z.enum(["set", "notSet"]),
-    keySync: BackupKeySyncStateSchema.optional(),
   })
   .strict();
 
