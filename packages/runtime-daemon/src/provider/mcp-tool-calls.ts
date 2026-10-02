@@ -11,7 +11,11 @@ import type { IdempotencyClass } from "@ai-sidekicks/contracts";
 /** The class of every MCP-discovered tool: equal to a driver's default in value but not in rule. */
 const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
-/** Classifies an MCP-discovered tool: always the floor, whatever its annotations claim. */
+/**
+ * Classifies an MCP-discovered tool: always the floor, whatever its annotations claim.
+ *
+ * @consumedBy the drivers' MCP tool surfacing, when a driver reports the tools a server offers
+ */
 export function classifyMcpDiscoveredTool(): IdempotencyClass {
   return MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS;
 }

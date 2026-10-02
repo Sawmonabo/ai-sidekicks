@@ -238,7 +238,7 @@ export interface ProviderSessionHandle {
  * Max length of `DriverAuthProbeResult.detail`, a short account or plan descriptor; a rejection
  * loses only descriptive text, never the probe `status` that carries the admission decision.
  */
-export const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
+const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
 /** Max length of `CallbackToolInvocation.toolCallId`, an opaque provider correlation id. */
 export const DRIVER_TOOL_CALL_ID_MAX_LEN = 256;
 
@@ -521,16 +521,15 @@ export interface DriverAuthProbeResult {
   detail?: string | undefined;
 }
 /** Validates a {@link DriverAuthProbeResult}; strict. */
-export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, DriverAuthProbeResult> =
-  z
-    .object({
-      status: z.enum(["authenticated", "unauthenticated", "indeterminate"]),
-      detail: wireFreeFormString(
-        DRIVER_AUTH_DETAIL_MAX_LEN,
-        "DriverAuthProbeResult.detail",
-      ).optional(),
-    })
-    .strict();
+const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, DriverAuthProbeResult> = z
+  .object({
+    status: z.enum(["authenticated", "unauthenticated", "indeterminate"]),
+    detail: wireFreeFormString(
+      DRIVER_AUTH_DETAIL_MAX_LEN,
+      "DriverAuthProbeResult.detail",
+    ).optional(),
+  })
+  .strict();
 
 /**
  * Builds a probe result without throwing. `detail` is bounded to the auth cap and dropped if the

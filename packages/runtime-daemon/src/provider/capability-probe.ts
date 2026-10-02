@@ -18,7 +18,7 @@ import type { CapabilityDetectionSource } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 
 /** The three conjuncts an admissible probe must satisfy; a `static` entry names those that fail. */
-export type ProbeAdmissibilityConjunct =
+type ProbeAdmissibilityConjunct =
   | "zero-turn"
   | "non-mutating"
   | "decisive-at-consumption-granularity";

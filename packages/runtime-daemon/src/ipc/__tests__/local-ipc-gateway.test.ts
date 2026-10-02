@@ -17,18 +17,15 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
 } from "@ai-sidekicks/contracts";
-import {
-  JSON_RPC_ID_MAX_BYTES,
-  JSONRPC_VERSION,
-  JsonRpcErrorCode,
-  MAX_MESSAGE_BYTES,
-} from "@ai-sidekicks/contracts";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { bootstrap } from "../../bootstrap/index.js";
 import { FramingError, parseFrame } from "../content-length-framing.js";
 import {
   encodeFrame,
+  JSON_RPC_ID_MAX_BYTES,
   LocalIpcGateway,
+  MAX_MESSAGE_BYTES,
   sanitizeErrorMessage,
   SANITIZED_MESSAGE_MAX_LEN,
   type SupervisionHooks,

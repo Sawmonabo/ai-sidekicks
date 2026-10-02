@@ -21,7 +21,7 @@ export const RESUME_HANDLE_MAX_LEN = 4096;
  * Maximum length of `DriverCliVersionReport.raw`; equals the SQL CHECK bound. SQLite counts
  * characters and Zod counts UTF-16 code units, which is safe because Zod is the stricter layer.
  */
-export const CLI_VERSION_RAW_MAX_LEN = 128;
+const CLI_VERSION_RAW_MAX_LEN = 128;
 
 /** Maximum length of `DriverCliVersionReport.semver`; equals the SQL CHECK bound. */
 const CLI_VERSION_SEMVER_MAX_LEN = 64;

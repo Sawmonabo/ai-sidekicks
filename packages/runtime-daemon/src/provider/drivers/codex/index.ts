@@ -88,7 +88,6 @@ export { type CodexCredentialEnvPolicyResolver } from "./session-state.js";
 export {
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
-  type CodexScheduleTimeout,
   type CodexTransportDiagnostic,
 } from "./transport-diagnostics.js";
 

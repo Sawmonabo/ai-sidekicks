@@ -211,7 +211,7 @@ export class InMemoryDriverDiagnosticCounterSink implements DriverDiagnosticCoun
  */
 export class DriverDiagnosticsEmitter {
   /** Records retained for in-process queries when the caller declares no capacity. */
-  static readonly DEFAULT_RECENT_RECORD_CAPACITY = 256;
+  static readonly #DEFAULT_RECENT_RECORD_CAPACITY = 256;
 
   readonly #logSink: DriverDiagnosticLogSink;
   readonly #counterSink: DriverDiagnosticCounterSink;
@@ -227,7 +227,7 @@ export class DriverDiagnosticsEmitter {
     this.#logSink = options?.logSink ?? new ConsoleDriverDiagnosticLogSink();
     this.#counterSink = options?.counterSink ?? new InMemoryDriverDiagnosticCounterSink();
     this.#recentRecordCapacity =
-      options?.recentRecordCapacity ?? DriverDiagnosticsEmitter.DEFAULT_RECENT_RECORD_CAPACITY;
+      options?.recentRecordCapacity ?? DriverDiagnosticsEmitter.#DEFAULT_RECENT_RECORD_CAPACITY;
   }
 
   /** Emits one record; a throwing sink is contained and never reaches the caller. */
