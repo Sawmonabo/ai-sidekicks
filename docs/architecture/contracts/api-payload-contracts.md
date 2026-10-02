@@ -6328,7 +6328,7 @@ Order, fan-out and join are the document's own edges ([Spec-015 §Graph model �
 type WorkflowDefinitionScope = "session" | "project" | "shared";
 
 // Scope identity, in the shape Spec-024 already uses for scope-qualified bindings:
-// non-empty for `session` (the authoring session id) and `project` (the project record's id); the empty string for `shared`, which is
+// non-empty for `session` (the session's id) and `project` (the project record's id); the empty string for `shared`, which is
 // daemon-wide and refers to nothing narrower. Enforced at the schema layer as a typed
 // validation error, with the DDL CHECK mirroring it as defense in depth — without it,
 // `project` names no project and definition dedupe cannot converge.
