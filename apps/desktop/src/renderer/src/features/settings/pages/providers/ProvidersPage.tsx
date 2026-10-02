@@ -1,10 +1,12 @@
-// The Providers page: an empty frame under the page heading. The account list and the sign-in
-// flow are `fixtures/AccountsFixtureBody.tsx`, which takes its calls as arguments and is not
-// mounted until a composition has calls to give.
+// The Providers page: the frame, and the body a composition registered for it. A fixture launch
+// registers `fixtures/AccountsFixtureMount.tsx`; with nothing registered the frame stays empty.
 
 import type { ReactNode } from "react";
 
-/** The Providers page: an empty frame under the page heading. */
+import { findSettingsPageBody } from "../page-body-registry.js";
+
+/** The Providers page: the registered body under the page heading. */
 export function ProvidersPage(): ReactNode {
-  return <div className="meridian-settings-page" />;
+  const Body = findSettingsPageBody("providers");
+  return <div className="meridian-settings-page">{Body === undefined ? null : <Body />}</div>;
 }
