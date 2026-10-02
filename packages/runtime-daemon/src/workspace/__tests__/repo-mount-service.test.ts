@@ -402,9 +402,9 @@ describe("RepoMountService.detach", () => {
     expect(readLifecycleEventTypes(harness.db, OTHER_SESSION_ID)).toEqual(busyEventsBeforeRefusal);
   });
 
-  it("refuses while an agent still runs in a dependent that went stale mid-run", async () => {
-    // Going stale drops the busy hold while the run goes on, so only the run's unreleased
-    // execution root says an agent is still running in the project.
+  it("refuses while a run's execution root is unreleased after its workspace hold is", async () => {
+    // A run releases its workspace hold and its execution root separately, so once the hold is
+    // gone only the run's unreleased execution root says an agent is still running there.
     const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
     const workspaceId = await bindReadyWorkspace(
       harness.workspaces,
@@ -436,8 +436,8 @@ describe("RepoMountService.detach", () => {
         join(gitFixtures.repositoryRoot, ".git"),
         branchContextId,
       );
-    await harness.workspaces.markStale(workspaceId);
-    expect(requireWorkspaceRow(harness.db, workspaceId).state).toBe("stale");
+    expect(harness.workspaces.releaseBusy(workspaceId)).toBe(true);
+    expect(requireWorkspaceRow(harness.db, workspaceId).state).toBe("ready");
 
     const error = await captureRejection(() =>
       harness.service.detach({ repoMountId: attached.repoMountId }),
@@ -446,7 +446,7 @@ describe("RepoMountService.detach", () => {
     expect(error).toBeInstanceOf(RepoDetachConflictError);
     expect((error as RepoDetachConflictError).runningSessionId).toBe(SESSION_ID);
     expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("attached");
-    expect(requireWorkspaceRow(harness.db, workspaceId).state).toBe("stale");
+    expect(requireWorkspaceRow(harness.db, workspaceId).state).toBe("ready");
   });
 
   it("emits no second workspace.archived for an already-archived dependent", async () => {

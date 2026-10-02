@@ -559,7 +559,7 @@ describe("assertWritable", () => {
 });
 
 // ----------------------------------------------------------------------------
-// markBusy / releaseBusy / markStale — and the busy -> stale decision
+// markBusy / releaseBusy / markStale — and a held workspace that keeps its hold
 // ----------------------------------------------------------------------------
 
 describe("run holds", () => {
@@ -590,30 +590,25 @@ describe("run holds", () => {
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
   });
 
-  it("stales a HELD workspace whose root vanished mid-run", async () => {
+  it("keeps a run's hold while its root is gone, and stales the row once the run releases it", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
 
-    const response = await harness.service.list({ sessionId: SESSION_ID });
+    const whileHeld = await harness.service.list({ sessionId: SESSION_ID });
 
-    // Refusing this transition would hide exactly the rows doing damage: a live run writing
-    // into a root that no longer exists.
-    expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
-    // A stale workspace is held by nobody; a lingering id would let a later refusal name a
-    // run that is long gone.
-    expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBeUndefined();
-  });
+    // The read reports the vanished root, and the run keeps the workspace it holds: no other run
+    // can take it, and the hold still names the run that has it.
+    expect(whileHeld.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("busy" satisfies WorkspaceState);
+    expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
 
-  it("does not let a release auto-heal a workspace that went stale mid-run", async () => {
-    await harness.service.markBusy(workspaceId, RUN_ID);
-    rmSync(harness.gitMountRoot, { recursive: true, force: true });
+    expect(harness.service.releaseBusy(workspaceId)).toBe(true);
     await harness.service.list({ sessionId: SESSION_ID });
 
-    // Releasing is not a health verdict.
-    expect(harness.service.releaseBusy(workspaceId)).toBe(false);
+    // The first read after the release stales it, so no new run starts on the missing root.
     expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("appends exactly ONE workspace.stale when a second reader wins the race", async () => {

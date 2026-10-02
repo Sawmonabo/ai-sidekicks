@@ -166,9 +166,9 @@ export class WorkspaceServiceInvariantError extends Error {
 export class StaleTransitionRaceError extends Error {
   constructor(workspaceId: string) {
     super(
-      `WorkspaceService.markStale: workspace ${workspaceId} was staled by another reader ` +
-        `between the read and the write transaction; aborting so no second ` +
-        `workspace.stale event is appended for one transition.`,
+      `WorkspaceService.markStale: workspace ${workspaceId} was staled by another reader, or ` +
+        `held by a run, between the read and the write transaction; aborting so no ` +
+        `workspace.stale event is appended for a transition that did not happen.`,
     );
     this.name = "StaleTransitionRaceError";
   }

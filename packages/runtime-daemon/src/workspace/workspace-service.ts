@@ -227,14 +227,13 @@ export class WorkspaceService {
         WHERE id = @workspace_id AND state = 'preparing'`,
     );
 
-    // `stale` is absent (re-staling is a no-op) and so is terminal `archived`. The hold is released
-    // in the same statement so `workspace.busy` never names a long-gone run.
+    // `stale` is absent (re-staling is a no-op) and so is terminal `archived`. So is `busy`: a run
+    // keeps its hold to the end, and the first read after the release stales the row.
     this.#markStaleStmt = database.prepare(
       `UPDATE workspaces
           SET state = 'stale',
-              metadata = json_remove(metadata, '${HOLDING_RUN_ID_METADATA_PATH}'),
               updated_at = @now
-        WHERE id = @workspace_id AND state IN ('preparing', 'ready', 'busy')`,
+        WHERE id = @workspace_id AND state IN ('preparing', 'ready')`,
     );
 
     // The compare-and-swap is the mutual exclusion: concurrent runs reading `ready` produce exactly
@@ -247,7 +246,7 @@ export class WorkspaceService {
         WHERE id = @workspace_id AND state = 'ready'`,
     );
 
-    // `state = 'busy'` is the never-auto-heal rule: a workspace staled mid-run stays stale.
+    // Only a held row is released; the release is no health verdict, so the next read probes it.
     this.#releaseBusyStmt = database.prepare(
       `UPDATE workspaces
           SET state = 'ready',
@@ -519,8 +518,9 @@ export class WorkspaceService {
 
   /**
    * Persist the stale transition the health projection derives, and announce it. Returns `false`
-   * when the row is already `stale` or `archived`, vanished, or was staled by a concurrent reader
-   * (every read path calls this, so it is idempotent). `busy -> stale` is written.
+   * when the row is already `stale` or `archived`, vanished, was staled by a concurrent reader
+   * (every read path calls this, so it is idempotent), or is `busy`: a held workspace keeps its
+   * run's hold until the run releases it, and the read after the release stales it.
    */
   async markStale(
     workspaceId: string,
@@ -530,7 +530,8 @@ export class WorkspaceService {
     if (
       row === undefined ||
       row.state === ("stale" satisfies WorkspaceState) ||
-      row.state === ("archived" satisfies WorkspaceState)
+      row.state === ("archived" satisfies WorkspaceState) ||
+      row.state === ("busy" satisfies WorkspaceState)
     ) {
       return false;
     }
@@ -543,7 +544,8 @@ export class WorkspaceService {
         actor: options.actor ?? null,
         transactionalPrelude: () => {
           // Aborting is the only way to decline the event: the append path inserts the event row
-          // after the prelude regardless. A concurrent reader winning is an expected race.
+          // after the prelude regardless. A concurrent reader staling the row, or a run taking its
+          // hold, since the read is an expected race.
           const result = this.#markStaleStmt.run({ workspace_id: workspaceId, now });
           if (result.changes !== 1) {
             throw new StaleTransitionRaceError(workspaceId);
@@ -617,7 +619,7 @@ export class WorkspaceService {
   /**
    * Release the run hold, `busy -> ready`, emitting no event; returns `true` when a hold was
    * released. A non-`busy` row is a no-op: this runs in a `finally` where a throw would mask the
-   * run's real failure, and a workspace that went stale mid-run stays stale.
+   * run's real failure. A root that vanished mid-run is staled by the next read's probe.
    */
   releaseBusy(workspaceId: string): boolean {
     return this.#releaseBusyStmt.run({ workspace_id: workspaceId, now: this.#now() }).changes === 1;

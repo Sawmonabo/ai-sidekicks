@@ -159,7 +159,7 @@ export function computeWorkspaceHealth(
   return {
     observedState,
     checkedAt: probe.checkedAt,
-    // Whether it is legal to persist (notably `busy -> stale`) is the workspace service's call.
+    // Whether to persist it (a held `busy` row is not staled) is the workspace service's call.
     staleTransitionRequired: observedState !== workspaceRow.state,
   };
 }
