@@ -113,17 +113,6 @@ CREATE TABLE session_drafts (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
--- Key custody.
--- ---------------------------------------------------------------------------
-CREATE TABLE user_keys (
-  user_id             TEXT NOT NULL PRIMARY KEY,
-  encrypted_key_blob  BLOB NOT NULL,            -- AES-256-GCM key, encrypted at rest
-  key_version         INTEGER NOT NULL DEFAULT 1,
-  created_at          TEXT NOT NULL,
-  rotated_at          TEXT
-) STRICT;
-
--- ---------------------------------------------------------------------------
 -- This machine's registration: one row per machine and owning user.
 -- ---------------------------------------------------------------------------
 CREATE TABLE node_trust_state (
