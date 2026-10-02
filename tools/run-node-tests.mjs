@@ -1,5 +1,5 @@
 // Fail-closed wrapper around `node --test`, which exits 0 having run nothing when a glob matches no
-// file or when a named path is missing beside real ones (measured on Node 22.12.0 and 26.10.0). A
+// file or when a named path is missing beside real ones (measured on Node 24.18.0 and 26.10.0). A
 // lone missing path exits 1. CI gates that rest on a `node --test` glob would stay green after a
 // directory rename, so this tool resolves the patterns itself, refuses to spawn when any pattern
 // matches nothing, and prints the resolved count. `--min-files` turns that count into a floor.
@@ -9,9 +9,8 @@
 // An argument starting with `-` other than `--min-files` is forwarded to node ahead of `--test`.
 // A pattern is a file path, a directory (its `*.test.mjs` files, recursively) or a glob.
 
-import { globSync, realpathSync, statSync } from "node:fs";
+import { globSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const GLOB_METACHARACTERS = /[*?]/;
@@ -27,8 +26,9 @@ function resolvePattern(pattern) {
     let stats;
     try {
       stats = statSync(pattern);
-    } catch {
+    } catch (error) {
       // A missing path resolves to zero files; the caller turns zero into the failing exit.
+      if (error.code !== "ENOENT") throw error;
       return [];
     }
     if (stats.isFile()) return [pattern];
@@ -134,7 +134,8 @@ function main(argv) {
   }
 
   // Under `node --test`, NODE_TEST_CONTEXT makes a nested run report as a child of the outer one
-  // and stop propagating its exit code (seen on Node 22.12.0), so a failing suite exits 0.
+  // and stop propagating its exit code (measured on Node 24.18.0 and 26.10.0), so a failing suite
+  // exits 0.
   const childEnvironment = { ...process.env };
   delete childEnvironment.NODE_TEST_CONTEXT;
 
@@ -156,23 +157,6 @@ function main(argv) {
   return spawned.status;
 }
 
-/**
- * Whether this module is the process entry point, so the helpers stay importable by tests.
- * Comparing `import.meta.url` to `file://${process.argv[1]}` fails for a path with a space, `#`,
- * `?` or non-ASCII (encoded URL against a raw path) and the CLI would exit 0 having run nothing;
- * `realpathSync` on both sides also survives a symlinked invocation such as macOS `/tmp`.
- */
-function isDirectlyInvoked() {
-  const invokedPath = process.argv[1];
-  if (typeof invokedPath !== "string") return false;
-  try {
-    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    // A path that does not resolve was not this module's entry point.
-    return false;
-  }
-}
-
-if (isDirectlyInvoked()) {
+if (import.meta.main) {
   process.exitCode = main(process.argv.slice(2));
 }
