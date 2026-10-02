@@ -764,17 +764,3 @@ export interface SubagentDefinition {
   effort?: string | undefined;
   maxTurns?: number | undefined;
 }
-
-// ---- Driver transport configuration ----
-
-/**
- * How the daemon reaches a driver process; a daemon driver-registry setting, not an RPC payload or
- * a `ProviderDriver` member. Only the Codex leg uses it (`app-server --listen unix://|ws://`,
- * config-gated, off by default); the Claude CLI exposes no local listener. `bearerTokenRef`
- * references the ws bearer credential in daemon config, never the secret value, and is required on
- * the websocket arm so an unauthenticated ws listener is unrepresentable.
- */
-export type DriverTransportConfig =
-  | { transport: "stdio" }
-  | { transport: "unix-socket"; endpoint: string }
-  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };

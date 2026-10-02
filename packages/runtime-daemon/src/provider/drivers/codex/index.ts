@@ -33,6 +33,7 @@ import { CodexLifecycleManager } from "./lifecycle.js";
 import {
   resolveCodexTransportSelection,
   type CodexTransportSelection,
+  type DriverTransportConfig,
 } from "./transport-selection.js";
 import { type CodexLifecycleOptions } from "./session-state.js";
 import type {
@@ -43,7 +44,6 @@ import type {
   DriverAuthProbeResult,
   DriverResumeResult,
   ForkConversationResult,
-  DriverTransportConfig,
   ListProviderCommandsParams,
   ProviderDriver,
   ProviderSessionHandle,

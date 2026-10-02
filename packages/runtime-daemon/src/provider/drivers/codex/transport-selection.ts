@@ -5,12 +5,22 @@
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts";
 import { CodexDriverConfigError } from "./session-errors.js";
-import type { DriverTransportConfig } from "../../provider-driver.js";
 
 /**
  * Line the prelude emits once the tty is configured; nothing is written before it, because early
  * writes are echoed.
  */
+/**
+ * How the daemon reaches the Codex app server; a daemon driver-registry setting, not an RPC payload
+ * or a `ProviderDriver` member (`app-server --listen unix://|ws://`, config-gated, off by default).
+ * `bearerTokenRef` references the ws bearer credential in daemon config, never the secret value,
+ * and is required on the websocket arm so an unauthenticated ws listener is unrepresentable.
+ */
+export type DriverTransportConfig =
+  | { transport: "stdio" }
+  | { transport: "unix-socket"; endpoint: string }
+  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
+
 export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready__";
 
 /**
