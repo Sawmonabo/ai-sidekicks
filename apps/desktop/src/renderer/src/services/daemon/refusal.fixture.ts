@@ -10,8 +10,8 @@ import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 /**
  * The codes a scripted reply that never arrived refuses with. Each is a distinct remedy:
  * `reply-abandoned` means the engine was torn down before the frozen clock reached the reply
- * (advance it before disposing), and `reply-backlog-full` means more delayed replies were parked
- * than the cap admits without the clock moving.
+ * (advance it before disposing), and `reply-backlog-full` means more delayed replies, or notices
+ * those replies push, were parked than the cap admits without the clock moving.
  */
 const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-full"] as const;
 
@@ -25,8 +25,10 @@ export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[num
  * `beat-unprojectable` is an authoring error: the beat names a kind a narrowed stream carries but
  * cannot supply the required payload, and it refuses rather than deliver a half-built projection.
  * `reply-off-contract` is the same on the call seam: a scripted reply does not match the shape
- * `daemon-reply-registry.ts` binds to its method, and resolving it would teach a view to render a
- * frame production never produces. The last two name a reply the frozen clock never released.
+ * `daemon-reply-registry.ts` binds to its method, or a notice it pushes does not match the shape
+ * its stream registers, and delivering either would teach a view to render a frame production
+ * never produces. The last two name a reply the frozen clock never released, or a notice it could
+ * not park.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",

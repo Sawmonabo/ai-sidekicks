@@ -175,10 +175,11 @@ export class SettingsPageRegistry {
   }
 }
 
-// There is no module-scope page registry: the screen is handed the one its registrar
-// composed. A singleton would make the pane's contents depend on a side effect of the screen
-// registration, so a test rendering the screen directly would get an empty pane and a second
-// settings window could not compose a different subset.
+// There is no module-scope registry of page descriptors: the screen is handed the one its
+// registrar composed, so a test rendering the screen directly composes its own set and a second
+// settings window could compose a different subset. A page's body is the exception, held at
+// module scope in `pages/page-body-registry.ts` as the composer is in the composer registry: a
+// composition fills it before any screen mounts, and the page that draws it imports no body.
 
 /**
  * Rank settings entries against a query.

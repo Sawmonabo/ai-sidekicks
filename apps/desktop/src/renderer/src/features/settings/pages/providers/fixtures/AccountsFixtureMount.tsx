@@ -3,8 +3,9 @@
 // against the method's registered shape, and the registry's tail, opened before the first read,
 // is the signal to read it again.
 //
-// The tail's frames are a signal only: nothing here folds them, so the body is handed no
-// finished sign-in and a flow the service ends on its own stays on screen until it is canceled.
+// Every frame asks for a fresh read; the one frame folded here is a finished sign-in, kept as
+// the newest so the body can end a flow the service finished on its own. The registry's own
+// fold over the tail belongs to the provider account service, which this page does not use yet.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -12,6 +13,11 @@ import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
+import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "@renderer/services/daemon/session-event-streams.js";
+import {
+  loginCompletionIn,
+  type ProviderLoginCompletion,
+} from "@renderer/services/provider-accounts/provider-account-deliveries.js";
 import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
@@ -43,10 +49,13 @@ export function AccountsFixtureMount(): ReactNode {
   // The scenario's frozen clock under the fixture, the real one otherwise.
   const clock = useClock();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
+  const [newestLoginCompletion, setNewestLoginCompletion] = useState<
+    ProviderLoginCompletion | undefined
+  >(undefined);
   // The bridge is a dependency because the clock forwards to the current bridge, and the ordinal
   // because a person asking again after a refused read opens a fresh one.
   const registryRead = useMemo(
-    () => createAccountRegistryRead(bridge, clock),
+    () => createAccountRegistryRead(bridge, clock, setNewestLoginCompletion),
     [bridge, clock, openingOrdinal],
   );
   useEffect(() => {
@@ -85,7 +94,7 @@ export function AccountsFixtureMount(): ReactNode {
   const registry: AccountListReading =
     state.kind === "not-loaded"
       ? UNREAD_REGISTRY
-      : { phase: "read", ...state.value, newestLoginCompletion: undefined };
+      : { phase: "read", ...state.value, newestLoginCompletion };
   return (
     <AccountsFixtureBody
       registry={registry}
@@ -95,10 +104,15 @@ export function AccountsFixtureMount(): ReactNode {
   );
 }
 
-/** The registry read, constructed by the mount that owns its lifetime and disposed with it. */
+/**
+ * The registry read, constructed by the mount that owns its lifetime and disposed with it. A
+ * frame the registered union does not admit still asks for a read, as the read is what the page
+ * draws; it folds nothing.
+ */
 function createAccountRegistryRead(
   bridge: PlatformBridge,
   clock: Clock,
+  onLoginCompleted: (completion: ProviderLoginCompletion) => void,
 ): PushDrivenRead<ProviderAccountListResponse> {
   return new PushDrivenRead<ProviderAccountListResponse>({
     clock,
@@ -107,7 +121,11 @@ function createAccountRegistryRead(
       unwrapDaemonReply(await callDaemon(bridge, "providerAccount.list", {}, { signal })),
     subscribe: (onChange) =>
       openObservedSubscription(bridge.transportReconnect, () =>
-        bridge.daemon.subscribe("providerAccount.subscribe", {}, () => {
+        bridge.daemon.subscribe(PROVIDER_ACCOUNT_NOTICE_STREAM, {}, (frame) => {
+          const completion = loginCompletionIn(frame);
+          if (completion !== undefined) {
+            onLoginCompleted(completion);
+          }
           onChange();
         }),
       ),

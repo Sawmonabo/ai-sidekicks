@@ -28,7 +28,8 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * teach subscribers a frame the live bridge cannot send. A beat the projection cannot build throws,
  * and `lib/emitter.ts` re-raises after every sink has run, so the authoring error reaches whoever
  * advanced the clock without silencing other subscribers. The presence subscription is not an
- * event feed: the fixture scripts no device, so it is accepted and never delivers.
+ * event feed: the fixture scripts no device, so it is accepted and never delivers. The machine's
+ * notice streams deliver the notices the scenario's settled replies push, live, with no replay.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -40,6 +41,9 @@ export function subscribeToScenario(
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream?.scope === "machine-presence") {
     return () => undefined;
+  }
+  if (stream?.scope === "machine-notices") {
+    return engine.subscribeToNotices(subscriptionName, deliver);
   }
   if (stream?.scope === "whole-session") {
     return engine.subscribe(

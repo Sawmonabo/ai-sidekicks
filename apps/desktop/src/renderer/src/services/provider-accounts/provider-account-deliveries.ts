@@ -18,16 +18,6 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts";
-
-/**
- * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the
- * registered notification union so its members are the wire's own.
- */
-export type ProviderLoginCompletion = Extract<
-  ProviderAccountNotification,
-  { kind: "login_completed" }
->;
-
 import { RealClock } from "@renderer/lib/clock.js";
 import {
   diagnosticStampAt,
@@ -43,6 +33,15 @@ import {
   type UnreadableDeliveryReading,
 } from "../wire-reads/unreadable-deliveries.js";
 import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+
+/**
+ * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the
+ * registered notification union so its members are the wire's own.
+ */
+export type ProviderLoginCompletion = Extract<
+  ProviderAccountNotification,
+  { kind: "login_completed" }
+>;
 
 /** What the reading hands over so a frame can reach a view without this module publishing. */
 export interface ProviderAccountDeliverySink {
@@ -184,4 +183,13 @@ export class ProviderAccountDeliveries {
         return true;
     }
   }
+}
+
+/**
+ * The finished sign-in one tail frame reports, or `undefined` for a frame of another kind or one
+ * the registered union does not admit. For a reader that keeps no fold over the tail.
+ */
+export function loginCompletionIn(frame: unknown): ProviderLoginCompletion | undefined {
+  const parsed = ProviderAccountNotificationSchema.safeParse(frame);
+  return parsed.success && parsed.data.kind === "login_completed" ? parsed.data : undefined;
 }
