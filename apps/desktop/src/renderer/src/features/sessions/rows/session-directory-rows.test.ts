@@ -1,4 +1,4 @@
-// The merge and the absence, driven directly. The absence is where the destination could
+// The merge and the empty state, driven directly. The empty state is where the destination could
 // overclaim "there are none" for a question nobody put, so it is asserted over every read
 // state, with the row count deliberately absent from the input.
 

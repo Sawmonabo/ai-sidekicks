@@ -11,8 +11,8 @@ import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 
 /**
  * The diff pane's body at an address the pane layout resolved to this kind. Named `Body`
- * because a loader module publishes that export name. A kind mismatch is a rendered refusal
- * from `paneBodyForKind`, so one bad layout row loses that row and not the whole layout.
+ * because a loader module publishes that export name. `paneBodyForKind` narrows the context to
+ * this kind and throws on another, which only a body registered under the wrong kind receives.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind("diff", (context) =>
   createElement(DiffPane, { context }),

@@ -3,7 +3,8 @@
 // The halves are held, not inherited, so a dialog cannot reach past the subclass's own
 // members and name its own question.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { ActController, PrerequisiteReader } from "./act-controller.js";
 import {

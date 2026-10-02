@@ -67,7 +67,7 @@
 
       // The renderer's compile-time icon resolver is declared in `vitest/icon-compilation.ts` and
       // installed by both `vitest.config.ts` and `electron.vite.config.ts`, which are knip entries.
-      // Without `vitest/**` in the universe those entries reach a file knip does not analyse, so
+      // Without `vitest/**` in the universe those entries reach a file knip does not analyze, so
       // `unplugin-icons` and `@svgr/core`, imported there and nowhere else, reported as unused
       // dependencies. Measured: adding this glob cleared both and moved no other file into any
       // report.
@@ -178,9 +178,6 @@
         // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
         // for the run controls and the queue rows.
         "src/renderer/src/services/daemon/daemon-streams.ts",
-        // The fixture bridge's session read, which plays the transcript-states scenario's refused
-        // resume position for the resume refusal banner.
-        "src/renderer/src/services/daemon/session-answers.fixture.ts",
         // Which provider each agent runs on, for the run controls' Interrupt and Interrupt
         // everything.
         "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",

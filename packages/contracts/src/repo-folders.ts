@@ -305,7 +305,8 @@ export const RepoDetachRequestSchema: z.ZodType<RepoDetachRequest, RepoDetachReq
  * the project's sessions are archived and stay readable. Nothing on disk is touched.
  *
  * `forgottenProjectId` names the project this call forgot, and is null when the mount was already
- * detached. The call is refused with `repo.detach_conflict` while a dependent workspace is busy.
+ * detached. The call is refused with `repo.detach_conflict`, whose `runningSessionId` names the
+ * session running there, while a dependent workspace is busy.
  */
 export interface RepoDetachResponse {
   repoMountId: RepoMountId;

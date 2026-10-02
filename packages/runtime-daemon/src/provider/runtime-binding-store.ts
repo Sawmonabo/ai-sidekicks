@@ -63,7 +63,8 @@ export interface RuntimeBinding {
   readonly runId: string;
   readonly driverName: ProviderName;
   readonly contractVersion: string;
-  // `null` when no version was recorded; `semver` is absent when the printed version did not parse.
+  // `null` when no version was recorded; `parsedVersion` is absent when the printed version did not
+  // parse.
   readonly cliVersion: DriverCliVersionReport | null;
   readonly resumeHandle: string | null;
   readonly spawnConfig: RuntimeBindingSpawnConfig;
@@ -409,8 +410,8 @@ export class RuntimeBindingStore {
       run_id: input.runId,
       driver_name: input.driverName,
       contract_version: input.contractVersion,
-      cli_version_raw: cliVersion === null ? null : cliVersion.raw,
-      cli_version_semver: cliVersion?.semver ?? null,
+      cli_version_raw: cliVersion === null ? null : cliVersion.rawVersion,
+      cli_version_semver: cliVersion?.parsedVersion ?? null,
       resume_handle: resumeHandle,
       spawn_config: spawnConfigJson,
       runtime_metadata: runtimeMetadataJson,

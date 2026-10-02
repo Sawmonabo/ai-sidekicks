@@ -1,8 +1,8 @@
-// Decodes one `session.subscribe` frame into console events plus the daemon's drop mark, or
+// Decodes one `session.subscribe` frame into app events plus the daemon's drop mark, or
 // refuses it. This is the only place that reads fields off the `unknown` the bridge delivers.
 //
 // The frame is parsed once here with the contract's frame builder over the tolerant
-// `EventEnvelope`, so a higher-minor event type still reaches the console. The tolerant layer does
+// `EventEnvelope`, so a higher-minor event type still reaches the app. The tolerant layer does
 // not check that an event's category matches its type, and every projector routes on `kind` alone,
 // so `projectSessionEvent` checks the pairing against the contracts census.
 
@@ -16,9 +16,9 @@ import {
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
-/** What one readable frame tells the console. */
+/** What one readable frame tells the app. */
 export interface SessionStreamFrameReading {
-  /** The frame's events the console can hold, in stream order. */
+  /** The frame's events the app can hold, in stream order. */
   readonly events: readonly ProjectedSessionEvent[];
   /** The frame's events whose type the census pairs with another category. */
   readonly unreadableEventCount: number;
@@ -30,7 +30,7 @@ export interface SessionStreamFrameReading {
 }
 
 /**
- * The `session.subscribe` frame over the tolerant envelope, so an event type this console does not
+ * The `session.subscribe` frame over the tolerant envelope, so an event type this app does not
  * know yet still parses.
  */
 const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);
@@ -61,7 +61,7 @@ export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameRe
 }
 
 /**
- * Narrows one parsed envelope into the console's event shape, or `undefined` when its category
+ * Narrows one parsed envelope into the app's event shape, or `undefined` when its category
  * disagrees with the census for its type.
  *
  * `type` becomes `kind` and `actor` becomes `actorId`; a `null` or absent actor is left unset

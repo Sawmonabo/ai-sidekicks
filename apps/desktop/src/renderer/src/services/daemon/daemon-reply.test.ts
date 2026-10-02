@@ -76,7 +76,7 @@ describe("callDaemon — a served reply is a parsed reply", () => {
 });
 
 describe("callDaemon — a reply the contract does not admit is a refusal", () => {
-  it("refuses an entirely wrong reply under the console's own code and origin", async () => {
+  it("refuses an entirely wrong reply under the app's own code and origin", async () => {
     const { bridge } = bridgeAnswering(async () => ({ rows: [] }));
 
     let reply: Awaited<ReturnType<typeof callDaemon>> | undefined;
@@ -137,7 +137,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   it("keeps the daemon's own dotted code off a JSON-RPC rejection", async () => {
     // `JsonRpcRemoteError` carries the JSON-RPC numeric as `code` and the dotted code at
     // `data.type`, so a caller guarding on `{ code: string }` would render every daemon
-    // refusal as one generic console code.
+    // refusal as one generic app code.
     const remote = Object.assign(new Error("no such session on this node"), {
       code: -32603,
       data: { type: "session.not_found" },
@@ -150,7 +150,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
 
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("no such session on this node");
-    // A `{ code: string }` guard would land on the generic console code.
+    // A `{ code: string }` guard would land on the generic app code.
     expect(refusal.code).not.toBe("call-rejected");
   });
 

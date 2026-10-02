@@ -6,7 +6,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
 import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
-import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
+import { paneContext } from "@test/helpers/pane-context.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**

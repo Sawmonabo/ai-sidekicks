@@ -1,9 +1,9 @@
-// Reads a session's events back in `sequence ASC` order and replays them to a snapshot. Replay
+// Reads a session's events back in `sequence ASC` order and replays them to a record. Replay
 // does not persist snapshots; it rebuilds state from the event log each time.
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { DaemonSessionSnapshot, StoredEvent } from "./types.js";
+import type { DaemonSessionRecord, StoredEvent } from "./types.js";
 import { replay as projectReplay } from "./session-projector.js";
 
 // A row as better-sqlite3 returns it from the replay query. `safeIntegers` applies to every
@@ -25,7 +25,7 @@ interface SessionEventRow {
   readonly version: string;
 }
 
-/** Reads a session's events and replays them to a snapshot. */
+/** Reads a session's events and replays them to a record. */
 export class SessionService {
   // Only the statements are kept: each one references its database, which keeps the connection
   // alive.
@@ -53,8 +53,8 @@ export class SessionService {
     return rows.map((row) => hydrateRow(row));
   }
 
-  /** Replays a session to its snapshot, or `null` when it has no events. */
-  replay(sessionId: string): DaemonSessionSnapshot | null {
+  /** Replays a session to its record, or `null` when it has no events. */
+  replay(sessionId: string): DaemonSessionRecord | null {
     return projectReplay(this.readEvents(sessionId));
   }
 }

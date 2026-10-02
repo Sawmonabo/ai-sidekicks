@@ -28,7 +28,7 @@
 // (`session-diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
 import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { RealClock } from "@renderer/lib/clock.js";
 import {
   diagnosticStampAt,

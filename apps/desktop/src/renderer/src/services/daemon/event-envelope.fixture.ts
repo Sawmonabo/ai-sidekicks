@@ -3,7 +3,7 @@
 // `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical `EventEnvelope`
 // (`packages/contracts/src/event-envelope.ts`), whose event type is `type` and whose attribution
 // is `actor`.
-// A fixture that delivered the authoring shape would agree with the console's decode boundary and
+// A fixture that delivered the authoring shape would agree with the app's decode boundary and
 // with nothing the daemon sends, so this is the one place the first becomes the second.
 //
 // Composing is not judging: the result is a candidate that carries only what the beat states, so a

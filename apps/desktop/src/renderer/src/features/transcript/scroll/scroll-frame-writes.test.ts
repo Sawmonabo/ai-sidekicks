@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 import { type ScrollCaller } from "./scroll-callers.js";
 import { ScrollFrameWrites } from "./scroll-frame-writes.js";
@@ -23,13 +23,13 @@ interface RecordedWrite {
 
 const constructQueue = (): {
   clock: ManualClock;
-  coordinator: AnimationFrameCoordinator;
+  scheduler: AnimationFrameScheduler;
   frameWrites: ScrollFrameWrites;
   writes: RecordedWrite[];
   setGeometry: (geometry: ScrollGeometry | undefined) => void;
 } => {
   const clock = new ManualClock();
-  const coordinator = new AnimationFrameCoordinator({ clock });
+  const scheduler = new AnimationFrameScheduler({ clock });
   const writes: RecordedWrite[] = [];
   let lastGeometry: ScrollGeometry | undefined = geometryAt(100);
   const frameWrites = new ScrollFrameWrites({
@@ -42,7 +42,7 @@ const constructQueue = (): {
   });
   return {
     clock,
-    coordinator,
+    scheduler,
     frameWrites,
     writes,
     setGeometry: (geometry) => {
@@ -63,8 +63,8 @@ describe("ScrollFrameWrites", () => {
   });
 
   test("performs the write in phase one of the next frame", () => {
-    const { clock, coordinator, frameWrites, writes } = constructQueue();
-    frameWrites.adopt(coordinator);
+    const { clock, scheduler, frameWrites, writes } = constructQueue();
+    frameWrites.adopt(scheduler);
 
     expect(frameWrites.request("follow-tail", (geometry) => geometry.contentHeight - 100)).toBe(
       true,
@@ -77,8 +77,8 @@ describe("ScrollFrameWrites", () => {
   });
 
   test("coalesces per caller and keeps the last computation", () => {
-    const { clock, coordinator, frameWrites, writes } = constructQueue();
-    frameWrites.adopt(coordinator);
+    const { clock, scheduler, frameWrites, writes } = constructQueue();
+    frameWrites.adopt(scheduler);
 
     frameWrites.request("follow-tail", () => 500);
     frameWrites.request("follow-tail", () => 700);
@@ -89,8 +89,8 @@ describe("ScrollFrameWrites", () => {
   });
 
   test("two callers both get their turn, in submission order", () => {
-    const { clock, coordinator, frameWrites, writes } = constructQueue();
-    frameWrites.adopt(coordinator);
+    const { clock, scheduler, frameWrites, writes } = constructQueue();
+    frameWrites.adopt(scheduler);
 
     frameWrites.request("hold-reading-position", () => 300);
     frameWrites.request("prune-compensation", () => 320);
@@ -103,28 +103,28 @@ describe("ScrollFrameWrites", () => {
     ]);
   });
 
-  test("adopting the same coordinator twice is a no-op and a second one throws", () => {
-    const { clock, coordinator, frameWrites } = constructQueue();
-    frameWrites.adopt(coordinator);
+  test("adopting the same scheduler twice is a no-op and a second one throws", () => {
+    const { clock, scheduler, frameWrites } = constructQueue();
+    frameWrites.adopt(scheduler);
 
     expect(() => {
-      frameWrites.adopt(coordinator);
+      frameWrites.adopt(scheduler);
     }).not.toThrow();
     expect(() => {
-      frameWrites.adopt(new AnimationFrameCoordinator({ clock }));
+      frameWrites.adopt(new AnimationFrameScheduler({ clock }));
     }).toThrow(/one controller writes inside one frame/);
   });
 
   test("release cancels the submitted task, so a torn-down controller writes nothing", () => {
-    const { clock, coordinator, frameWrites, writes } = constructQueue();
-    frameWrites.adopt(coordinator);
+    const { clock, scheduler, frameWrites, writes } = constructQueue();
+    frameWrites.adopt(scheduler);
 
     frameWrites.request("follow-tail", () => 900);
     frameWrites.release();
     clock.runFrame();
 
     expect(writes).toEqual([]);
-    expect(coordinator.pendingTaskCount).toBe(0);
+    expect(scheduler.pendingTaskCount).toBe(0);
     expect(frameWrites.request("follow-tail", () => 900)).toBe(false);
   });
 });

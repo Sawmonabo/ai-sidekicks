@@ -50,6 +50,7 @@ function renderPicker(
       capabilities={capabilities}
       pendingMode={undefined}
       availability={CONTROLS_LIVE}
+      refusal={undefined}
       onSelect={() => undefined}
       {...overrides}
     />,

@@ -13,7 +13,7 @@
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { type WhenClauseKey } from "@renderer/registries/commands/window-command-registry.js";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
 import {
   mountedPaneLayouts,
@@ -25,12 +25,6 @@ import {
  * secondary match field and two spellings would split the rows across two categories.
  */
 export const PANE_LAYOUT_COMMAND_GROUP = "Panes";
-
-/**
- * The `when` clause every command carries. The palette answers `false` for a key the context
- * lacks, so a window with no session offers none of these.
- */
-const WHEN_SESSION_ACTIVE: WhenClauseKey = "sessionActive";
 
 /**
  * The owner string this contribution carries. The command registry is owner-scoped, so

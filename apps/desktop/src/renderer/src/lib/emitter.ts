@@ -8,9 +8,6 @@
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 
-/** The handle `subscribe` returns, the one the bridge's subscriptions return. */
-export type { Unsubscribe };
-
 /** A subscriber to an {@link Emitter}. */
 export type EmitterSink<Event> = (event: Event) => void;
 

@@ -74,7 +74,7 @@ export function buildColorSchemeCommand(
   return {
     id: "settings.cycleColorScheme",
     title: "Color scheme",
-    group: "Console",
+    group: "App",
     keywords: ["dark", "light", "system"],
     run: () => {
       chooseScheme(nextSchemePreference(readScheme()));

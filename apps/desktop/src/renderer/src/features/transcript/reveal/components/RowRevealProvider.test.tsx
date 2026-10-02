@@ -8,7 +8,7 @@ import { memo, useRef } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { useAnimationFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
 import { useReveal, type RevealBinding } from "../hooks/useReveal.js";
 import { useRowReveal } from "../hooks/useRowReveal.js";
@@ -46,7 +46,7 @@ function RevealHost(props: {
   readonly onBinding: (binding: RevealBinding) => void;
 }): React.JSX.Element {
   const reveal = useReveal({
-    frameCoordinator: useAnimationFrameCoordinator(props.clock),
+    frameScheduler: useAnimationFrameScheduler(props.clock),
     clock: props.clock,
   });
   props.onBinding(reveal);

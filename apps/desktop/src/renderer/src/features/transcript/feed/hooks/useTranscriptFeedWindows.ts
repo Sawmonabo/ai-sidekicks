@@ -7,7 +7,7 @@ import { useEffect } from "react";
 
 import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
 import { type Clock } from "@renderer/lib/clock.js";
-import { useAnimationFrameCoordinator } from "../../hooks/useAnimationFrameCoordinator.js";
+import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
 import { useReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
   useTranscriptViewport,
@@ -32,7 +32,7 @@ import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 /** What the window chain is derived from: the session's store and the frame's clock. */
 export interface TranscriptFeedWindowsInputs {
   readonly sessionStore: SessionStore;
-  /** The frame coordinator's clock, minted once by the mount that holds this chain. */
+  /** The frame scheduler's clock, minted once by the mount that holds this chain. */
   readonly clock: Clock;
 }
 
@@ -73,11 +73,11 @@ export function useTranscriptFeedWindows(
   );
   const transcriptWindow = runGroupFold.window;
   // The reveal engine is this feed's, minted once and disposed with it; its drain state reaches
-  // the viewport. The frame coordinator is minted above both holders so one object orders the
+  // the viewport. The frame scheduler is minted above both holders so one object orders the
   // paint: the reveal drain runs in its second phase, while the viewport writes `scrollTop` at
   // once and submits nothing to the first.
-  const frameCoordinator = useAnimationFrameCoordinator(inputs.clock);
-  const reveal = useReveal({ frameCoordinator, clock: inputs.clock });
+  const frameScheduler = useAnimationFrameScheduler(inputs.clock);
+  const reveal = useReveal({ frameScheduler, clock: inputs.clock });
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: transcriptWindow.viewportRows,

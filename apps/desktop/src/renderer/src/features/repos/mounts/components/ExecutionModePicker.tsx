@@ -5,10 +5,12 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { ExecutionModeRow } from "./ExecutionModeRow.js";
 import { executionModeRows } from "../execution-mode-rows.js";
 import { selectionInFlightCopy } from "../execution-mode-selection.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { WorkspaceControlAvailability } from "../mount-health.js";
 import { controlHoldSentence } from "../mount-health.js";
 
@@ -27,6 +29,8 @@ export interface ExecutionModePickerProps {
    * beside it because the announcement below names the mode, which an availability does not carry.
    */
   readonly availability: WorkspaceControlAvailability;
+  /** Why the newest switch on this workspace was refused, where it was. */
+  readonly refusal: Refusal | undefined;
   readonly onSelect: (executionMode: ExecutionMode) => void;
 }
 
@@ -86,6 +90,9 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
           service answers.
         </p>
       ) : null}
+      {props.refusal === undefined ? null : (
+        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+      )}
     </div>
   );
 }

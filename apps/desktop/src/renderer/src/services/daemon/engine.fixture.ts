@@ -10,7 +10,7 @@
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
@@ -70,7 +70,7 @@ export class ScenarioEngine {
     return this.#scenario;
   }
 
-  /** The frozen clock. Every console subsystem in fixture mode reads this one. */
+  /** The frozen clock. Every app subsystem in fixture mode reads this one. */
   public get clock(): Clock {
     return this.#clock;
   }
@@ -120,7 +120,7 @@ export class ScenarioEngine {
   public advance(deltaMs: number): void {
     if (this.#disposed) {
       reportTripwire(
-        "apply-chokepoint-bypass",
+        "tick-after-teardown",
         `ScenarioEngine(${this.#scenario.id})`,
         `a scenario tick of ${String(deltaMs)}ms arrived after teardown; the engine dropped it rather than delivering into a disposed store`,
       );

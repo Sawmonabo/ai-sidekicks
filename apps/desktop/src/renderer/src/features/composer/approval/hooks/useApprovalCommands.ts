@@ -7,8 +7,9 @@ import { useMemo } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { type WhenClauseKey } from "@renderer/registries/commands/window-command-registry.js";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
+import { APPROVAL_COMMAND_GROUP } from "@renderer/lib/approval-vocabulary.js";
 import {
   APPROVAL_COMMAND_OWNER,
   approvalCommandRows,
@@ -16,12 +17,6 @@ import {
   type ApprovalCommandInput,
   type ApprovalCommandRow,
 } from "../contributions/approval-commands.js";
-
-/** The palette category these sit under. */
-const APPROVAL_COMMAND_GROUP = "Approvals";
-
-/** The clause these commands are offered under, the same key the run controls use. */
-const APPROVAL_COMMAND_WHEN: WhenClauseKey = "sessionActive";
 
 /** Contribute the card's acts for as long as it is mounted. */
 export function useApprovalCommands(input: ApprovalCommandInput): void {
@@ -52,7 +47,7 @@ function buildApprovalCommand(
     id: `approvals.${row.kind}.${recordId}`,
     title: row.title,
     group: APPROVAL_COMMAND_GROUP,
-    when: APPROVAL_COMMAND_WHEN,
+    when: WHEN_SESSION_ACTIVE,
     keywords: [row.record.category, row.record.requestedBy, "approval"],
     run: () => {
       performApprovalCommand(row, inputRef.current);

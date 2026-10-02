@@ -1,10 +1,10 @@
 // Phase-one write queue: holds reactive scroll writes until the next frame and computes each
 // against that frame's single geometry sample.
 // Writes coalesce per caller (two callers both get a turn, in submission order), and a
-// request refuses when no frame coordinator is adopted rather than falling back to an
+// request refuses when no frame scheduler is adopted rather than falling back to an
 // unordered immediate write.
 
-import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import { type AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 import { type ScrollCaller } from "./scroll-callers.js";
 
@@ -31,7 +31,7 @@ export class ScrollFrameWrites {
   readonly #taskKeyByCaller = new Map<ScrollCaller, string>();
   readonly #pendingByCaller = new Map<ScrollCaller, ScrollTargetComputation>();
 
-  #frameCoordinator: AnimationFrameCoordinator | undefined;
+  #frameScheduler: AnimationFrameScheduler | undefined;
   #released = false;
 
   public constructor(writeTarget: ScrollWriteTarget) {
@@ -39,19 +39,19 @@ export class ScrollFrameWrites {
   }
 
   /**
-   * Join a frame. Idempotent; a second, different coordinator would put one controller's
+   * Join a frame. Idempotent; a second, different scheduler would put one controller's
    * writes in two frames, so it throws.
    */
-  public adopt(frameCoordinator: AnimationFrameCoordinator): void {
-    if (this.#released || this.#frameCoordinator === frameCoordinator) {
+  public adopt(frameScheduler: AnimationFrameScheduler): void {
+    if (this.#released || this.#frameScheduler === frameScheduler) {
       return;
     }
-    if (this.#frameCoordinator !== undefined) {
+    if (this.#frameScheduler !== undefined) {
       throw new Error(
-        "ScrollFrameWrites: a second frame coordinator was adopted; one controller writes inside one frame",
+        "ScrollFrameWrites: a second frame scheduler was adopted; one controller writes inside one frame",
       );
     }
-    this.#frameCoordinator = frameCoordinator;
+    this.#frameScheduler = frameScheduler;
   }
 
   /**
@@ -59,12 +59,12 @@ export class ScrollFrameWrites {
    * so a caller can tell "queued" from "this controller is in no frame".
    */
   public request(caller: ScrollCaller, computeTarget: ScrollTargetComputation): boolean {
-    const frameCoordinator = this.#frameCoordinator;
-    if (frameCoordinator === undefined || this.#released) {
+    const frameScheduler = this.#frameScheduler;
+    if (frameScheduler === undefined || this.#released) {
       return false;
     }
     this.#pendingByCaller.set(caller, computeTarget);
-    frameCoordinator.scheduleScrollWrite(this.#taskKeyFor(frameCoordinator, caller), () => {
+    frameScheduler.scheduleScrollWrite(this.#taskKeyFor(frameScheduler, caller), () => {
       this.#runPending(caller);
     });
     return true;
@@ -72,15 +72,15 @@ export class ScrollFrameWrites {
 
   /** Terminal. Cancels every submitted task and drops every pending computation. */
   public release(): void {
-    const frameCoordinator = this.#frameCoordinator;
-    if (frameCoordinator !== undefined) {
+    const frameScheduler = this.#frameScheduler;
+    if (frameScheduler !== undefined) {
       for (const taskKey of this.#taskKeyByCaller.values()) {
-        frameCoordinator.cancel("scroll-writes", taskKey);
+        frameScheduler.cancel("scroll-writes", taskKey);
       }
     }
     this.#taskKeyByCaller.clear();
     this.#pendingByCaller.clear();
-    this.#frameCoordinator = undefined;
+    this.#frameScheduler = undefined;
     this.#released = true;
   }
 
@@ -102,13 +102,13 @@ export class ScrollFrameWrites {
     this.#writeTarget.glide(caller, targetScrollTop);
   }
 
-  /** One key per caller per coordinator, so two callers never coalesce into one. */
-  #taskKeyFor(frameCoordinator: AnimationFrameCoordinator, caller: ScrollCaller): string {
+  /** One key per caller per scheduler, so two callers never coalesce into one. */
+  #taskKeyFor(frameScheduler: AnimationFrameScheduler, caller: ScrollCaller): string {
     const existing = this.#taskKeyByCaller.get(caller);
     if (existing !== undefined) {
       return existing;
     }
-    const taskKey = frameCoordinator.claimTaskKey(`transcript-scroll-${caller}`);
+    const taskKey = frameScheduler.claimTaskKey(`transcript-scroll-${caller}`);
     this.#taskKeyByCaller.set(caller, taskKey);
     return taskKey;
   }

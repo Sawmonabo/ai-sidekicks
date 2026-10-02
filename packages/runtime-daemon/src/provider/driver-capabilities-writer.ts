@@ -112,7 +112,7 @@ function cliVersionReportsEqual(
   if (left === undefined || right === undefined) {
     return left === right;
   }
-  return left.raw === right.raw && left.semver === right.semver;
+  return left.rawVersion === right.rawVersion && left.parsedVersion === right.parsedVersion;
 }
 
 /** The write seam a driver declares through: the writer narrowed to `declare`. */
@@ -299,8 +299,8 @@ export class DriverCapabilitiesWriter {
       if (cliVersionRefreshed) {
         this.#refreshCliVersionPairStmt.run({
           driver_name: driverName,
-          cli_version_raw: declaredCliVersion.raw,
-          cli_version_semver: declaredCliVersion.semver ?? null,
+          cli_version_raw: declaredCliVersion.rawVersion,
+          cli_version_semver: declaredCliVersion.parsedVersion ?? null,
           refreshed_at: this.#now(),
         });
       }
@@ -333,8 +333,8 @@ export class DriverCapabilitiesWriter {
     this.#upsertContractMetaStmt.run({
       driver_name: driverName,
       contract_version: newSnapshot.contractVersion,
-      cli_version_raw: declaredCliVersion.raw,
-      cli_version_semver: declaredCliVersion.semver ?? null,
+      cli_version_raw: declaredCliVersion.rawVersion,
+      cli_version_semver: declaredCliVersion.parsedVersion ?? null,
       refreshed_at: refreshedAt,
     });
 

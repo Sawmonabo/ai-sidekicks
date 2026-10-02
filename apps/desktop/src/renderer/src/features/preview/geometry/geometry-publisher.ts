@@ -3,7 +3,8 @@
 // inside resize-observer delivery drops the remaining notifications on at least one shipped
 // engine. Every source is armed, since a resize observer alone misses a pane that moves.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";

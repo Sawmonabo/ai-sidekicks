@@ -66,12 +66,11 @@ export interface PtyHost {
    * Invoked when the session's child exits. `signalCode` is the signal that terminated the child
    * (for example `15` for `SIGTERM`) and is omitted when the wire value is `null`.
    *
-   * The child's exit reaches it once for every session whose `spawn()` succeeded, even for a child
-   * that exits before the spawn response arrives: an out-of-process backend buffers such early
-   * exits by `sessionId` and replays them on a later turn, after the consumer's `await spawn()`
-   * continues. A `kill()` on a session whose child has already exited fires it again with the
-   * cached exit instead of signaling. It never fires after `close()` resolves for the same
-   * `sessionId`.
+   * It fires exactly once for every session whose `spawn()` succeeded, even for a child that exits
+   * before the spawn response arrives: an out-of-process backend buffers such early exits by
+   * `sessionId` and replays them on a later turn, after the consumer's `await spawn()` continues.
+   * A `kill()` on a session whose child has already exited sends nothing and does not fire it
+   * again. It never fires after `close()` resolves for the same `sessionId`.
    */
   onExit(sessionId: string, exitCode: number, signalCode?: number): void;
 }

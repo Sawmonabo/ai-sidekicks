@@ -1,11 +1,11 @@
 // The React binding for this window's machine-settings store.
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import type { MachineSettings } from "@ai-sidekicks/contracts";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { useKeyBoundValue } from "@renderer/hooks/useKeyBoundValue.js";
 import type { MachineSettingsStore } from "../machine-settings-store.js";
 import {
   NOTHING_CHOSEN,
@@ -38,26 +38,12 @@ export interface MachineSettingsBinding {
  * unanswered snapshot, never a disposed store.
  */
 export function useMachineSettings(bridge: PlatformBridge): MachineSettingsBinding {
-  // Held against the transport. The seed reads the pure lookup so a second page in the window
-  // opens on the store the first acquired, and a page carried across a scenario switch never
-  // reads the retired bridge's store.
-  const { value: acquiredStore, publish: publishAcquiredStore } = useSubjectScopedState<
-    MachineSettingsStore | undefined
-  >(bridge, undefined, () => machineSettingsHolder.storeIfCurrent(bridge));
-
-  useEffect(() => {
-    const store = machineSettingsHolder.acquire(bridge);
-    // Idempotent, so strict mode subscribes once.
-    store.start();
-    publishAcquiredStore(store);
-  }, [bridge, publishAcquiredStore]);
-
-  const liveStore = machineSettingsHolder.storeIfCurrent(bridge);
-  const store = acquiredStore === liveStore ? acquiredStore : undefined;
-
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => store?.subscribe(onStoreChange) ?? noSettingsSubscription,
-    [store],
+  // Held against the transport, so a second page in the window opens on the store the first
+  // acquired, and a page carried across a scenario switch never reads the retired bridge's store.
+  const { value: store, subscribe } = useKeyBoundValue(
+    machineSettingsHolder,
+    bridge,
+    startMachineSettingsStore,
   );
   const read = useCallback(() => store?.snapshot() ?? NOTHING_CHOSEN, [store]);
   const snapshot = useSyncExternalStore(subscribe, read, read);
@@ -75,7 +61,7 @@ export function useMachineSettings(bridge: PlatformBridge): MachineSettingsBindi
   };
 }
 
-/** The unsubscribe a mount whose effect has not acquired a store yet hands React. */
-function noSettingsSubscription(): void {
-  return undefined;
+/** Subscribe a store to the service's feed. Idempotent, so strict mode subscribes once. */
+function startMachineSettingsStore(store: MachineSettingsStore): void {
+  store.start();
 }

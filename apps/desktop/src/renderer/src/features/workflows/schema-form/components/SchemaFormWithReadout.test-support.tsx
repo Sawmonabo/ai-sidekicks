@@ -4,7 +4,7 @@
 import { render } from "@testing-library/react";
 
 import { SchemaForm } from "./SchemaForm.js";
-import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
+import { schemaValidatorCompilerLoader } from "../json-schema-validator-loader.js";
 import { settle } from "@test/helpers/settle.js";
 import { useSchemaForm } from "../hooks/useSchemaForm.js";
 
@@ -16,7 +16,7 @@ const COMPOSED_ANSWER_CLASS = "composed-answer";
  * The compiler is loaded first because a bare `settle` races the first `import()`.
  */
 export async function renderForm(inputSchema: unknown): Promise<HTMLElement> {
-  await loadSchemaValidatorCompiler();
+  await schemaValidatorCompilerLoader.load();
   const { container } = render(<SchemaFormWithReadout inputSchema={inputSchema} />);
   await settle();
   return container;

@@ -164,6 +164,8 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   readonly retiredWorktreeIds: string[] = [];
   /** When set, `create` rejects with it. */
   createFailure: Error | null = null;
+  /** When set, `retire` rejects with it. */
+  retireFailure: Error | null = null;
 
   create(input: CreateWorktreeInput): Promise<CreatedWorktree> {
     this.createInputs.push(input);
@@ -200,6 +202,9 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   }
 
   retire(worktreeId: string): Promise<unknown> {
+    if (this.retireFailure !== null) {
+      return Promise.reject(this.retireFailure);
+    }
     this.retiredWorktreeIds.push(worktreeId);
     return Promise.resolve({ worktreeId, state: "retired" });
   }
@@ -983,6 +988,27 @@ describe("compensation", () => {
     // Compared with the id this call minted, not a row count: a count would also pass if
     // compensation had retired someone else's root.
     expect(ctx.worktrees.retiredWorktreeIds).toEqual(ctx.worktrees.createdWorktreeIds);
+    expect(ctx.worktrees.createdWorktreeIds).toHaveLength(1);
+  });
+
+  it("attaches a failed retire to the completion failure, never dropping it", async () => {
+    // A dropped retire failure hides a live worktree with no pair row, whose `(mount, branch)`
+    // stays held and which nothing reclaims; the caller must learn of it.
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
+    const failure = new Error(COMPLETION_FAILURE_MESSAGE);
+    const retireFailure = new Error("retire could not reach the database");
+    ctx.worktrees.retireFailure = retireFailure;
+
+    const rejection = await captureRejection(() =>
+      makeService({ workspaces: primitivesFailingCompletion(failure) }).prepare({
+        workspaceId: WORKSPACE_ID,
+        branchName: FEATURE_BRANCH,
+      }),
+    );
+
+    // The completion failure is still what is thrown, so its code reaches the caller.
+    expect(rejection).toBe(failure);
+    expect(failure.cause).toBe(retireFailure);
     expect(ctx.worktrees.createdWorktreeIds).toHaveLength(1);
   });
 

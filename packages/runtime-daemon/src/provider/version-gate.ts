@@ -19,7 +19,11 @@ import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 import { assertValidCliVersionReport } from "./provider-output-validation.js";
-import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "./spawn-env.js";
+import {
+  buildProviderSpawnEnv,
+  hostEnvNameMatchForPlatform,
+  type SpawnEnvPair,
+} from "./spawn-env.js";
 
 /**
  * Thrown when the configured provider command names no runnable executable, or one whose real
@@ -222,8 +226,11 @@ export interface SpawnedProviderVersionReadRequest {
   readonly requestedCommand: string;
   /** The transport that spawns and performs the handshake; it has no default. */
   readonly handshake: ProviderVersionHandshake;
-  /** Defaults to this process's environment; the opt-out is applied over it. */
-  readonly baseEnvironment?: Readonly<Record<string, string | undefined>>;
+  /**
+   * The curated base the provider's session spawn uses, never the daemon's own `process.env`;
+   * the opt-out is applied over it.
+   */
+  readonly baseEnv: readonly SpawnEnvPair[];
   /** Defaults to {@link DEFAULT_PROVIDER_VERSION_CLIENT_NAME}. */
   readonly clientName?: string;
   readonly resolver?: Partial<ProviderExecutableResolverDependencies>;
@@ -244,13 +251,10 @@ export async function readSpawnedProviderVersion(
     request.resolver ?? {},
   );
   // The same builder as a session spawn, so the opt-out wins under the host's name matching.
-  const baseEnvironment = request.baseEnvironment ?? process.env;
   const environment = Object.fromEntries(
     buildProviderSpawnEnv({
       driverName,
-      baseEnv: Object.entries(baseEnvironment).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
+      baseEnv: request.baseEnv,
       hostEnvNameMatch: hostEnvNameMatchForPlatform(request.resolver?.platform ?? process.platform),
     }),
   );
@@ -267,7 +271,7 @@ export async function readSpawnedProviderVersion(
   // version-shaped tokens may name something else, such as the caller's own client version.
   const report =
     "unreadableReply" in reading
-      ? { raw: reading.unreadableReply }
+      ? { rawVersion: reading.unreadableReply }
       : parseCliVersionReport(reading.version);
   // The one place the version enters the daemon, so the storage bounds are checked here too; an
   // empty reply has no printed version and is refused as invalid provider output.

@@ -15,7 +15,7 @@ import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { RecordingPageHost } from "./geometry/geometry-publisher.test-support.js";
 import type { PageHost } from "./geometry/page-host.js";
 import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
-import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
+import { paneContext } from "@test/helpers/pane-context.js";
 import { PreviewPaneContent, type PreviewChromeActs } from "./components/PreviewPaneContent.js";
 
 /** The context the pane is handed, and the fixture whose window it is mounted in. */

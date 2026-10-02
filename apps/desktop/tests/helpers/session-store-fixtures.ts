@@ -11,7 +11,7 @@ import type {
 } from "@renderer/store/session/entities/entities.js";
 import type { SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 import { eventOfKind } from "./session-events.js";
-import { SessionStore, type SessionSnapshot } from "@renderer/store/session/session-store.js";
+import { SessionStore, type SessionBaseState } from "@renderer/store/session/session-store.js";
 
 /** A reader that establishes nothing: the honest "no wire is registered" answer. */
 export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
@@ -37,7 +37,7 @@ export function runEventAt(sequence: number, runId: string): ProjectedSessionEve
 }
 
 /** A base state at `cursor` holding nothing, which the read answers with. */
-export function emptySnapshot(cursor: number): SessionSnapshot {
+export function emptySnapshot(cursor: number): SessionBaseState {
   return { cursor, entities: [] };
 }
 

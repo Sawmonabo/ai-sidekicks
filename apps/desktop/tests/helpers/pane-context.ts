@@ -1,12 +1,11 @@
-// One pane context builder for every suite in any feature that mounts a pane. No pane mounted
+// A pane context builder for the suites in several features that mount a pane. No pane mounted
 // through it reads `uiStateStore`, so the default is a never-settling adapter: a pane that grows
 // a UI-state read hangs and is found, where a settling stub would pass with an empty store. A suite
 // that needs an answering store passes one.
 //
 // The address is the parameter and is passed through as written, so the address union's shapes
 // (session-scoped kinds carry no `entity`, entity-keyed kinds require one) are enforced at the call
-// site. It lives in `registries/` because features may not import each other
-// (`feature-isolation` in the dependency-cruiser config).
+// site.
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -14,7 +13,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { type PaneAddressOf } from "@renderer/routing/panes/pane-address.js";
 import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { type PaneContext } from "./pane-context.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 

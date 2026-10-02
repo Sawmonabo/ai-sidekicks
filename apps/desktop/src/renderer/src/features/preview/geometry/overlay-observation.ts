@@ -8,7 +8,7 @@ import type {
   AirspaceOverlayElement,
 } from "@renderer/lib/airspace-registry.js";
 import type { Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./element-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";
 

@@ -18,12 +18,12 @@ import { isPlainObject } from "./record-readers.js";
 export const RESUME_HANDLE_MAX_LEN = 4096;
 
 /**
- * Maximum length of `DriverCliVersionReport.raw`; equals the SQL CHECK bound. SQLite counts
+ * Maximum length of `DriverCliVersionReport.rawVersion`; equals the SQL CHECK bound. SQLite counts
  * characters and Zod counts UTF-16 code units, which is safe because Zod is the stricter layer.
  */
 const CLI_VERSION_RAW_MAX_LEN = 128;
 
-/** Maximum length of `DriverCliVersionReport.semver`; equals the SQL CHECK bound. */
+/** Maximum length of `DriverCliVersionReport.parsedVersion`; equals the SQL CHECK bound. */
 const CLI_VERSION_SEMVER_MAX_LEN = 64;
 
 /**
@@ -103,14 +103,17 @@ export function assertValidCliVersionReport(
   driverName: ProviderName,
   report: DriverCliVersionReport,
 ): void {
-  if (!cliVersionRawSchema.safeParse(report.raw).success) {
+  if (!cliVersionRawSchema.safeParse(report.rawVersion).success) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cli_version_raw",
       reason: "must be a non-empty, non-whitespace, NUL-free string within length bounds",
     });
   }
-  if (report.semver !== undefined && !cliVersionSemverSchema.safeParse(report.semver).success) {
+  if (
+    report.parsedVersion !== undefined &&
+    !cliVersionSemverSchema.safeParse(report.parsedVersion).success
+  ) {
     throw new ProviderOutputValidationError("Invalid provider cli_version report.", {
       driverName,
       field: "cli_version_semver",

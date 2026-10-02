@@ -85,10 +85,10 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
 ]);
 
 /** Why a row's name is refused at save. */
-export type EnvironmentNameRefusalReason = "notAName" | "credentialShaped" | "setByApp";
+export type EnvironmentNameRefusalReason = "not_a_name" | "credential_shaped" | "set_by_app";
 /** Every {@link EnvironmentNameRefusalReason}, in the order the rule checks them. */
 export const ENVIRONMENT_NAME_REFUSAL_REASONS: readonly EnvironmentNameRefusalReason[] =
-  Object.freeze(["notAName", "credentialShaped", "setByApp"]);
+  Object.freeze(["not_a_name", "credential_shaped", "set_by_app"]);
 
 /**
  * The reason a row's name is refused, or `null` when the name may be saved.
@@ -97,14 +97,14 @@ export const ENVIRONMENT_NAME_REFUSAL_REASONS: readonly EnvironmentNameRefusalRe
  */
 export function environmentNameRefusal(name: string): EnvironmentNameRefusalReason | null {
   if (!ENVIRONMENT_NAME_PATTERN.test(name)) {
-    return "notAName";
+    return "not_a_name";
   }
   const upperName = name.toUpperCase();
   if (CREDENTIAL_NAME_SUFFIXES.some((suffix) => upperName.endsWith(suffix))) {
-    return "credentialShaped";
+    return "credential_shaped";
   }
   if (APP_SET_ENVIRONMENT_NAMES.includes(upperName)) {
-    return "setByApp";
+    return "set_by_app";
   }
   return null;
 }

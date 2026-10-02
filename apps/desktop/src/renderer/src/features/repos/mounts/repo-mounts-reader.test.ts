@@ -61,6 +61,20 @@ describe("RepoMountsReader — the read", () => {
     ]);
   });
 
+  it("returns to where it stood when a call is refused, rather than reading forever", async () => {
+    const clock = new ManualClock();
+    const reader = openReader(
+      sessionOperations({
+        listWorkspaces: () => Promise.reject(new Error("The background service is not answering.")),
+      }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    expect(reader.snapshot.status).toBe("not-read");
+  });
+
   it("reads each workspace's own execution-mode capabilities", async () => {
     // Each workspace answers a different default, so an answer filed under another workspace's
     // id shows.

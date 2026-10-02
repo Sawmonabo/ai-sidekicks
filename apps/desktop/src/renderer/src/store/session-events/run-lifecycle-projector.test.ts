@@ -15,7 +15,7 @@ import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js"
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { SessionStore } from "../session/session-store.js";
 import { type ProjectedSessionEvent } from "../session/entities/entities.js";
-import { type SessionSnapshot } from "../session/session-state.js";
+import { type SessionBaseState } from "../session/session-state.js";
 import {
   RUN_LIFECYCLE_EVENT_KINDS,
   RUN_LIFECYCLE_PROJECTORS,
@@ -23,7 +23,7 @@ import {
 } from "./run-lifecycle-projector.js";
 
 /** A base state current as of the beat before the scenario's first, so no gap is degraded. */
-function baseStateFor(scenario: Scenario): SessionSnapshot {
+function baseStateFor(scenario: Scenario): SessionBaseState {
   const sequences = scenario.beats.map((beat) => beat.event.sequence);
   return {
     cursor: Math.min(...sequences) - 1,

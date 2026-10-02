@@ -1,5 +1,5 @@
 // A scenario can script a call that refuses, in the wire's shape. Without this arm, no typed
-// daemon refusal the console renders is reachable through the fixture, and a fixture-scoped
+// daemon refusal the app renders is reachable through the fixture, and a fixture-scoped
 // wrapper would train renderings against a code no person reads. Drives the real fixture bridge
 // and engine.
 

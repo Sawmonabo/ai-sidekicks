@@ -2,7 +2,7 @@
 // session pane layout, the terminal and the overlay-registration hook. Features never import each
 // other, so `lib/` holds the one feature detection and teardown.
 
-import type { Unsubscribe } from "./emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 /**
  * Report every size change of one element until the returned disposer is called.

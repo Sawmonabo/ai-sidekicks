@@ -652,11 +652,9 @@ const backupRestoredVariantSchema = buildSessionEventVariantSchema(
   BackupRestoredPayloadSchema,
 );
 
-/**
- * Strict parser for {@link SessionEvent}: an unknown type or a category that does not match its
- * type fails to parse.
- */
-export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
+// One arm per registered payload variant. The parser and the type list below both read it, so
+// the two cannot disagree.
+const SESSION_EVENT_VARIANT_SCHEMAS = [
   buildSessionEventVariantSchema(
     "session.created",
     "session_lifecycle",
@@ -786,7 +784,21 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   backupCompletedVariantSchema,
   backupFailedVariantSchema,
   backupRestoredVariantSchema,
-]);
+] as const;
+
+/**
+ * Strict parser for {@link SessionEvent}: an unknown type or a category that does not match its
+ * type fails to parse.
+ */
+export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
+  "type",
+  SESSION_EVENT_VARIANT_SCHEMAS,
+);
+
+/** The event types with a payload variant registered in {@link SessionEventSchema}. */
+export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = Object.freeze(
+  SESSION_EVENT_VARIANT_SCHEMAS.map((variant) => variant.shape.type.value),
+);
 
 // Cross-file ID types (`SessionId`, `UserId`, ...) are not re-exported here: the package barrel
 // already exports them from session.ts, and a second export would conflict.

@@ -4,7 +4,7 @@
 // subsumes the other, so they are merged, directory first, and a row the local store can describe
 // in full replaces the thin directory row for the same session.
 //
-// The absence follows the read, never the row count: a read in flight is `not-loaded`, a read
+// The empty state follows the read, never the row count: a read in flight is `not-loaded`, a read
 // that returned no rows is `empty`. Deciding from `rows.length === 0` would conflate them.
 
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
@@ -24,9 +24,9 @@ export interface SessionRowSources {
 }
 
 /**
- * Which absence a directory state means. Total, so a new state fails to compile here.
+ * Which empty state a directory state means. Total, so a new state fails to compile here.
  *
- * @consumedBy the sessions list's absence line, which takes its kind from the directory read
+ * @consumedBy the sessions list's empty-state line, which takes its kind from the directory read
  */
 export function sessionListNothingKindFor(
   directory: SessionDirectoryState,

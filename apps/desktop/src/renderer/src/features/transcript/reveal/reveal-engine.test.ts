@@ -7,15 +7,15 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "./reveal-caps.js";
-import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-model.js";
 
 function engineOn(clock: ManualClock): RevealEngine {
-  // Every drain is submitted to the frame coordinator's second phase, so `clock.runFrame()` runs
-  // the coordinator's frame and the coordinator runs the drain.
-  return new RevealEngine({ frameCoordinator: new AnimationFrameCoordinator({ clock }) });
+  // Every drain is submitted to the frame scheduler's second phase, so `clock.runFrame()` runs
+  // the scheduler's frame and the scheduler runs the drain.
+  return new RevealEngine({ frameScheduler: new AnimationFrameScheduler({ clock }) });
 }
 
 describe("the reveal engine — the frame budget", () => {

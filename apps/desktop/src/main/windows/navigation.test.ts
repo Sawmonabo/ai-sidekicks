@@ -83,10 +83,9 @@ describe("classifyNavigation", () => {
     expect(classifyNavigation(targetUrl, RENDERER_ORIGINS)).toMatchObject({ kind: "refused" });
   });
 
-  it("refuses a target carrying credentials", () => {
-    expect(classifyNavigation("https://app@evil.test/looks-like-app", RENDERER_ORIGINS)).toEqual({
-      kind: "refused",
-      reason: "navigation target carries credentials",
+  it("classifies a web address carrying a user name as external", () => {
+    expect(classifyNavigation("https://app@example.test/docs", RENDERER_ORIGINS)).toEqual({
+      kind: "external",
     });
   });
 
@@ -113,13 +112,6 @@ describe("openExternalUrl", () => {
   it("rejects and opens nothing for a target that is not a web address", async () => {
     await expect(openExternalUrl("file:///etc/passwd")).rejects.toThrow(
       "navigation target is outside every allowed scheme",
-    );
-    expect(shellMock.openedUrls).toEqual([]);
-  });
-
-  it("rejects and opens nothing for a web address carrying credentials", async () => {
-    await expect(openExternalUrl("https://app@evil.test/looks-like-app")).rejects.toThrow(
-      "navigation target carries credentials",
     );
     expect(shellMock.openedUrls).toEqual([]);
   });

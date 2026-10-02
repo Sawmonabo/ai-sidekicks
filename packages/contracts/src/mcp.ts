@@ -146,8 +146,8 @@ export const McpSetEnabledRequestSchema: z.ZodType<McpSetEnabledRequest, McpSetE
 
 /**
  * The redacted read-back of a binding's declaration, by transport. The env map, header map and
- * URL query arrive as keys only, since their values are credentials; the URL is query-redacted at
- * the daemon and a client shows it verbatim.
+ * URL query arrive as keys only, since their values are credentials; the daemon strips the URL's
+ * query and any user name or password from it, and a client shows it verbatim.
  */
 export type McpServerConfigView =
   | {

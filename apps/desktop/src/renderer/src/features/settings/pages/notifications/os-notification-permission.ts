@@ -2,12 +2,18 @@
 //
 // Every window trigger re-reads it, since the person grants the permission outside this
 // application; the scheduler serializes probes and the latch drops a reply from a superseded
-// round.
-import type { NotificationPermission } from "@shared/preload-api.js";
+// round. A probe the machine fails to answer leaves the reading as it was and goes to the
+// window's diagnostic capture.
+import type { NotificationPermission, Unsubscribe } from "@shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { wireRejectionToError } from "@renderer/lib/wire-errors.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -60,6 +66,15 @@ export class OsNotificationPermissionRead implements ReadTriggerTarget {
       clock: options.clock,
       perform: async () => {
         await this.#probe();
+      },
+      onError: (error) => {
+        windowDiagnosticCapture.record({
+          at: diagnosticStampAt(options.clock),
+          severity: "warning",
+          source: "features/settings",
+          kind: "os-notification-permission-unread",
+          detail: wireRejectionToError(error).message,
+        });
       },
     });
   }

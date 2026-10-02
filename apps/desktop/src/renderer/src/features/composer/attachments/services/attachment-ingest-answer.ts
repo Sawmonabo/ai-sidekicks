@@ -1,7 +1,7 @@
 // The ingest port a client is handed, declared once because the stream, the chunk loop and the
 // reclaimer all call through it. A rejected `begin`, `writeChunk` or `complete` becomes the
-// entry's refusal in the stream driver; a rejected `abort` reaches the page as an unhandled
-// rejection.
+// entry's refusal in the stream driver; a rejected `abort` goes to the window's diagnostic
+// capture.
 
 import type {
   AttachmentIngestChunkRequest,

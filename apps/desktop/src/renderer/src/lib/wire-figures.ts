@@ -23,6 +23,9 @@ import {
   relativeTimeFormatFor,
 } from "./intl-formatter-cache.js";
 
+/** What a figure this module cannot stand behind renders as: an em dash, the same everywhere. */
+export const UNREADABLE_FIGURE = "—";
+
 /** The closed byte-unit set, ascending; the index is the power of 1024. */
 export const BYTE_UNIT_LABELS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
 
@@ -55,7 +58,7 @@ export interface WireDescriptorEntry {
  */
 export function formatByteQuantity(byteCount: number, locale?: string): FormattedByteQuantity {
   if (!Number.isFinite(byteCount) || byteCount < 0) {
-    return { value: "—", unit: "B", text: "—" };
+    return { value: UNREADABLE_FIGURE, unit: "B", text: UNREADABLE_FIGURE };
   }
   let scaled = byteCount;
   let unitIndex = 0;
@@ -105,7 +108,7 @@ const UNSET_DESCRIPTOR_MEMBER_TEXT = "(no value)";
 /** A count the app derived, grouped per locale, never abbreviated. Non-finite is an em dash. */
 export function formatCount(value: number, locale?: string): string {
   if (!Number.isFinite(value)) {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   return numberFormatFor("count", locale).format(value);
 }
@@ -117,7 +120,7 @@ export function formatCount(value: number, locale?: string): string {
  */
 export function formatDuration(milliseconds: number, locale?: string): string {
   if (!Number.isFinite(milliseconds) || milliseconds < 0) {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   if (milliseconds < 1000) {
     return `${numberFormatFor("wholeNumber", locale).format(milliseconds)} ms`;
@@ -146,7 +149,7 @@ export function formatDuration(milliseconds: number, locale?: string): string {
  */
 export function formatDayDuration(days: number, locale?: string): string {
   if (!Number.isFinite(days) || days < 0) {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   return numberFormatFor("dayDuration", locale).format(days);
 }
@@ -162,7 +165,7 @@ export function formatRelativeTime(
 ): string {
   const from = parseInstant(fromIso);
   if (from.kind === "malformed") {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   const deltaSeconds = (from.epochMilliseconds - nowMilliseconds) / 1000;
   const relativeTimeFormat = relativeTimeFormatFor(locale);
@@ -186,7 +189,7 @@ export function formatRelativeTime(
 export function formatClockTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   return dateTimeFormatFor("clockTime", locale).format(instant.epochMilliseconds);
 }
@@ -201,7 +204,7 @@ export function formatClockTime(iso: string, locale?: string): string {
 export function formatDateTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   return dateTimeFormatFor("dateTime", locale).format(instant.epochMilliseconds);
 }
@@ -210,7 +213,7 @@ export function formatDateTime(iso: string, locale?: string): string {
 export function formatDate(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   return dateTimeFormatFor("date", locale).format(instant.epochMilliseconds);
 }
@@ -222,7 +225,7 @@ export function formatDate(iso: string, locale?: string): string {
  */
 export function formatPercent(fraction: number, locale?: string): string {
   if (!Number.isFinite(fraction) || fraction < 0) {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   return numberFormatFor("percent", locale).format(fraction);
 }
@@ -237,7 +240,7 @@ const FOUR_DECIMAL_CEILING_DOLLARS = 0.5;
  */
 export function formatMoney(amount: number): string {
   if (!Number.isFinite(amount)) {
-    return "—";
+    return UNREADABLE_FIGURE;
   }
   const fractionDigits = amount === 0 || amount > FOUR_DECIMAL_CEILING_DOLLARS ? 2 : 4;
   return dollarFormatFor(fractionDigits).format(amount);

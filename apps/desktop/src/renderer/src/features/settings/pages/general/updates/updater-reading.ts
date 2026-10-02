@@ -9,10 +9,10 @@
 // updater rebuilds the opening, so an opening is a generation that `close()` invalidates and a
 // later `open()` restarts. The holder takes the updater namespace, not the whole bridge.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { UpdateState } from "@shared/preload-api.js";
+import type { Unsubscribe, UpdateState } from "@shared/preload-api.js";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 

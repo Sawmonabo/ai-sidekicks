@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -18,7 +18,7 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
   // One retention table per session, seeded during render so the first pass over a session already
   // uses that session's table and a navigation never carries the previous session's rows over.
   const bridge = usePlatformBridge();
-  const retention = useSessionScopedState(
+  const retention = useSubjectScopedState(
     bridge,
     sessionStore.sessionId,
     () => new TranscriptRowRetention(),

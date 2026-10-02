@@ -27,8 +27,8 @@ export function makeFlags(
  * the writer persists it for `hydrate()` but keeps it out of change detection.
  */
 export const CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "mock-provider-cli 2.1.234 (build 7)",
-  semver: "2.1.234",
+  rawVersion: "mock-provider-cli 2.1.234 (build 7)",
+  parsedVersion: "2.1.234",
 };
 
 /** A capability result with the default flags, no tools and {@link CLI_VERSION_REPORT}. */

@@ -156,7 +156,8 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           {unavailableBecause}
         </p>
       )}
-      {formVerdict.status === "incomplete" ? (
+      {/* A refused check draws its refusal above, which an unanswered line would contradict. */}
+      {formVerdict.status === "incomplete" && reading.prerequisite.status !== "refused" ? (
         <p className="meridian-prepare-root__blocked" role="status">
           {formVerdict.because}
         </p>
@@ -175,6 +176,8 @@ function summaryLineFor(reading: PrepareReading): string {
       return "name a branch";
     case "reading":
       return "checking for a live checkout";
+    case "refused":
+      return reading.prerequisite.refusal.detail;
     case "read":
       return reading.prerequisite.value.kind;
   }
@@ -190,6 +193,13 @@ function renderReuse(reading: PrepareReading): React.JSX.Element | null {
       return <Nothing kind="not-checked" title="No branch named yet." />;
     case "reading":
       return <Nothing kind="computing" title="Checking for a live checkout." />;
+    case "refused":
+      return (
+        <InlineRefusal
+          code={reading.prerequisite.refusal.code}
+          detail={reading.prerequisite.refusal.detail}
+        />
+      );
     case "read": {
       const verdict = reading.prerequisite.value;
       return (

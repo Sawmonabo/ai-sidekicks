@@ -3,6 +3,7 @@
 // error stays visible; a call that succeeded draws no chip, since success is shown by absence.
 // No tool kind is read from the tool's name; `ToolKindBadge` draws what a row declares.
 
+import { elideText } from "@renderer/lib/elide-text.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
@@ -19,8 +20,9 @@ import { readDeclaredToolKind } from "./tool-kinds/tool-kinds.js";
 import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
 
 /**
- * Characters of a tool row's one-clause summary before it is elided; at the transcript's
- * measure this is what fits beside the name and elapsed time without wrapping.
+ * Characters of a tool row's one-clause summary before it is elided at a word boundary; at the
+ * transcript's measure this is what fits beside the name and elapsed time without wrapping. The
+ * wire allows 4096 characters.
  */
 const TOOL_SUMMARY_MAX_CHARACTERS = 96;
 
@@ -78,7 +80,9 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
         {/* Before the summary: the badge qualifies which tool ran, the summary says what it did.
               Draws nothing for a row that declares no tool kind. */}
         <ToolKindBadge reading={readDeclaredToolKind(payload)} />
-        <span className="meridian-tool-card__summary">{clampSummary(props.row.summary)}</span>
+        <span className="meridian-tool-card__summary">
+          {elideText(props.row.summary, TOOL_SUMMARY_MAX_CHARACTERS, { atWordBoundary: true })}
+        </span>
         {durationMs === undefined ? null : (
           <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>
         )}
@@ -111,18 +115,4 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
       ) : null}
     </TranscriptRowLayout>
   );
-}
-
-/**
- * One clause of the row's own summary, elided with an ellipsis at a word boundary near the cap
- * (or at the cap), so the header never reflows past one line. The wire allows 4096 characters.
- */
-function clampSummary(summary: string): string {
-  if (summary.length <= TOOL_SUMMARY_MAX_CHARACTERS) {
-    return summary;
-  }
-  const head = summary.slice(0, TOOL_SUMMARY_MAX_CHARACTERS);
-  const lastSpace = head.lastIndexOf(" ");
-  const kept = lastSpace > TOOL_SUMMARY_MAX_CHARACTERS / 2 ? head.slice(0, lastSpace) : head;
-  return `${kept.trimEnd()}…`;
 }

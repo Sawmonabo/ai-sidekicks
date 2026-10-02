@@ -305,12 +305,11 @@ describe("resolveCostUpdateProvenance", () => {
 });
 
 describe("deriveWindowTelemetry", () => {
-  it("counts travel both-or-neither: a full pair emits both members", () => {
+  it("a full pair emits both members, the used count exactly as the provider reports it", () => {
     const telemetry = deriveWindowTelemetry({
       windowSource: "provider_reported",
-      rawUsedTokens: 50_000,
+      windowUsedTokens: 50_000,
       windowMaxTokens: 200_000,
-      sessionBaselineTokens: 0,
       exceededWhenCountsAbsent: false,
     });
     expect(telemetry).toEqual({
@@ -323,12 +322,11 @@ describe("deriveWindowTelemetry", () => {
 
   it("counts travel both-or-neither: a half pair emits neither count, provenance still travels", () => {
     for (const halfPair of [
-      { rawUsedTokens: 50_000, windowMaxTokens: null },
-      { rawUsedTokens: null, windowMaxTokens: 200_000 },
+      { windowUsedTokens: 50_000, windowMaxTokens: null },
+      { windowUsedTokens: null, windowMaxTokens: 200_000 },
     ]) {
       const telemetry = deriveWindowTelemetry({
         windowSource: "model_default",
-        sessionBaselineTokens: 0,
         exceededWhenCountsAbsent: false,
         ...halfPair,
       });
@@ -338,43 +336,21 @@ describe("deriveWindowTelemetry", () => {
     }
   });
 
-  it("the Codex leg subtracts the session baseline, never below zero", () => {
-    const telemetry = deriveWindowTelemetry({
-      windowSource: "provider_reported",
-      rawUsedTokens: 62_000,
-      windowMaxTokens: 200_000,
-      sessionBaselineTokens: 12_000,
-      exceededWhenCountsAbsent: false,
-    });
-    expect(telemetry.windowUsedTokens).toBe(50_000);
-
-    const belowBaseline = deriveWindowTelemetry({
-      windowSource: "provider_reported",
-      rawUsedTokens: 8_000,
-      windowMaxTokens: 200_000,
-      sessionBaselineTokens: 12_000,
-      exceededWhenCountsAbsent: false,
-    });
-    expect(belowBaseline.windowUsedTokens).toBe(0);
-  });
-
   it("the counts-absent arm carries the wire's own limit signal instead of asserting false", () => {
     // The half-pair arm cannot derive `exceeded`, which is why the counts do not travel;
     // hardcoding `false` would report a provider that signaled its limit as comfortably under it.
     const signaled = deriveWindowTelemetry({
       windowSource: "provider_reported",
-      rawUsedTokens: null,
+      windowUsedTokens: null,
       windowMaxTokens: null,
-      sessionBaselineTokens: 0,
       exceededWhenCountsAbsent: true,
     });
     expect(signaled).toEqual({ windowSource: "provider_reported", exceeded: true });
 
     const unsignaled = deriveWindowTelemetry({
       windowSource: "provider_reported",
-      rawUsedTokens: null,
+      windowUsedTokens: null,
       windowMaxTokens: null,
-      sessionBaselineTokens: 0,
       exceededWhenCountsAbsent: false,
     });
     expect(unsignaled).toEqual({ windowSource: "provider_reported", exceeded: false });
@@ -383,9 +359,8 @@ describe("deriveWindowTelemetry", () => {
   it("exceeded flips at the ceiling", () => {
     const telemetry = deriveWindowTelemetry({
       windowSource: "estimated",
-      rawUsedTokens: 200_000,
+      windowUsedTokens: 200_000,
       windowMaxTokens: 200_000,
-      sessionBaselineTokens: 0,
       exceededWhenCountsAbsent: false,
     });
     expect(telemetry.exceeded).toBe(true);

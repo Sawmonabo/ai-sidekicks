@@ -7,7 +7,8 @@
 
 import { useEffect, useState } from "react";
 
-import type { TerminalEmulatorLoader, TerminalEmulatorModule } from "../emulator-loader.js";
+import type { MemoizedLoad } from "@renderer/lib/memoized-load.js";
+import type { TerminalEmulatorModule } from "../emulator-loader.js";
 
 /** Where the emulator's code is: still coming, here, or failed with a way to ask again. */
 export type TerminalEmulatorState =
@@ -26,7 +27,9 @@ export const LOADING_EMULATOR: TerminalEmulatorState = { status: "loading" };
  * effect a discarded render pass must not start. A chunk arriving after an unmount sets state
  * React drops; the loader's memo means the next mount reuses that fetch.
  */
-export function useTerminalEmulator(loader: TerminalEmulatorLoader): TerminalEmulatorState {
+export function useTerminalEmulator(
+  loader: MemoizedLoad<TerminalEmulatorModule>,
+): TerminalEmulatorState {
   const [emulator, setEmulator] = useState<TerminalEmulatorState>(LOADING_EMULATOR);
   // Raised by a retry, so the effect below asks the loader again.
   const [loadAttempt, setLoadAttempt] = useState(0);

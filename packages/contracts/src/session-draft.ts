@@ -15,29 +15,6 @@ import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**
- * The largest file one staged attachment may be, in bytes, by default. Equal to the largest
- * artifact the relay carries, so every staged file can reach another device. The person may set
- * it between one megabyte and one gigabyte.
- */
-export const SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT: number = 100 * 1024 * 1024;
-
-/**
- * Why a file on a sent message can no longer be read where it sits. The message still goes, and
- * the mark stands in the file's own place on it.
- */
-export const SESSION_ATTACHMENT_UNRESOLVED_CAUSES = [
-  "deleted",
-  "local_only_remote",
-  "pending_replication",
-  "over_cap",
-  "quota_exceeded",
-  "expired",
-] as const;
-/** One of {@link SESSION_ATTACHMENT_UNRESOLVED_CAUSES}. */
-export type SessionAttachmentUnresolvedCause =
-  (typeof SESSION_ATTACHMENT_UNRESOLVED_CAUSES)[number];
-
-/**
  * Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
  * clears it, which is what Send does. The text has no length limit of its own: a message's limit
  * is the send's to state, so a draft the send would take is never refused here.
@@ -173,29 +150,11 @@ export const SESSION_ATTACHMENT_REFUSED_REASONS = [
 /** One of {@link SESSION_ATTACHMENT_REFUSED_REASONS}. */
 export type SessionAttachmentRefusedReason = (typeof SESSION_ATTACHMENT_REFUSED_REASONS)[number];
 
-/** The code for a picture refused before it was decoded, or because it would not decode. */
-export const ARTIFACT_PICTURE_REFUSED_CODE = "artifact.picture_refused" as const;
-/** The type of {@link ARTIFACT_PICTURE_REFUSED_CODE}. */
-export type ArtifactPictureRefusedCode = typeof ARTIFACT_PICTURE_REFUSED_CODE;
-
-/**
- * Why a picture was refused:
- *
- * - `pixel_limit`: its header claims more than {@link ARTIFACT_PICTURE_PIXEL_LIMIT} pixels
- *   across every frame, so nothing of it is decoded.
- * - `damaged`: it does not decode cleanly.
- */
-export const ARTIFACT_PICTURE_REFUSED_REASONS = ["pixel_limit", "damaged"] as const;
-/** One of {@link ARTIFACT_PICTURE_REFUSED_REASONS}. */
-export type ArtifactPictureRefusedReason = (typeof ARTIFACT_PICTURE_REFUSED_REASONS)[number];
-
-/** The most pixels, counted across every frame, a picture's header may claim. */
-export const ARTIFACT_PICTURE_PIXEL_LIMIT = 268_402_689;
-
 /** Why one item was not staged: the code and its reason. */
-export type SessionAttachmentRefusalCause =
-  | { code: SessionAttachmentRefusedCode; reason: SessionAttachmentRefusedReason }
-  | { code: ArtifactPictureRefusedCode; reason: ArtifactPictureRefusedReason };
+export interface SessionAttachmentRefusalCause {
+  code: SessionAttachmentRefusedCode;
+  reason: SessionAttachmentRefusedReason;
+}
 
 /** One item the daemon did not stage, by the name the refusal line shows. */
 export interface SessionAttachmentRefusal {
@@ -207,20 +166,12 @@ const SessionAttachmentRefusalSchema: z.ZodType<SessionAttachmentRefusal> = z
   .object({
     clientStagingId: z.uuid(),
     name: z.string().min(1),
-    cause: z.discriminatedUnion("code", [
-      z
-        .object({
-          code: z.literal(SESSION_ATTACHMENT_REFUSED_CODE),
-          reason: z.enum(SESSION_ATTACHMENT_REFUSED_REASONS),
-        })
-        .strict(),
-      z
-        .object({
-          code: z.literal(ARTIFACT_PICTURE_REFUSED_CODE),
-          reason: z.enum(ARTIFACT_PICTURE_REFUSED_REASONS),
-        })
-        .strict(),
-    ]),
+    cause: z
+      .object({
+        code: z.literal(SESSION_ATTACHMENT_REFUSED_CODE),
+        reason: z.enum(SESSION_ATTACHMENT_REFUSED_REASONS),
+      })
+      .strict(),
   })
   .strict();
 

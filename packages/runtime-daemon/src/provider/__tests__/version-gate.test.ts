@@ -1,12 +1,13 @@
 // Spawn-time binary resolution, the in-band version read and the floor gate: the version recorded
 // is the one the spawned build reported, a below-floor build is refused before any other use while
-// an unparseable one runs with its printed version, and every provider child carries its auto-update opt-out.
+// an unparseable one runs with its printed version, and every provider child carries its
+// auto-update opt-out.
 
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
 import {
@@ -81,7 +82,10 @@ describe("auto-update suppression in the spawned child", () => {
       driverName: "claude",
       requestedCommand: executable,
       handshake: handshake.run,
-      baseEnvironment: { PATH: "/usr/bin", DISABLE_AUTOUPDATER: "0" },
+      baseEnv: [
+        ["PATH", "/usr/bin"],
+        ["DISABLE_AUTOUPDATER", "0"],
+      ],
       resolver: {
         isExecutableFile: () => Promise.resolve(true),
         realpath: (candidate) => Promise.resolve(candidate),
@@ -94,6 +98,34 @@ describe("auto-update suppression in the spawned child", () => {
     expect(handshake.requests[0]?.environment["DISABLE_UPDATES"]).toBe("1");
     // Everything else passes through untouched.
     expect(handshake.requests[0]?.environment["PATH"]).toBe("/usr/bin");
+  });
+
+  it("builds the handshake's environment from the spawn's base alone, never the daemon's own", async () => {
+    // The daemon's environment can hold credentials and developer config a session spawn never
+    // passes on; the handshake child must not see them either.
+    vi.stubEnv("SIDEKICKS_DAEMON_ONLY_VARIABLE", "daemon-value");
+    try {
+      const executable = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
+      const handshake = new RecordingHandshake({ [executable]: { version: "2.1.245" } });
+      await readSpawnedProviderVersion({
+        driverName: "claude",
+        requestedCommand: executable,
+        handshake: handshake.run,
+        baseEnv: [["PATH", "/usr/bin"]],
+        resolver: {
+          isExecutableFile: () => Promise.resolve(true),
+          realpath: (candidate) => Promise.resolve(candidate),
+          platform: "darwin",
+        },
+      });
+
+      expect(handshake.requests[0]?.environment).toStrictEqual({
+        PATH: "/usr/bin",
+        ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -167,10 +199,10 @@ describe("provider executable resolution", () => {
         driverName: "claude",
         requestedCommand: launcherPath,
         handshake: handshake.run,
-        baseEnvironment: {},
+        baseEnv: [],
       });
 
-      expect(reading.report).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+      expect(reading.report).toStrictEqual({ rawVersion: "2.1.245", parsedVersion: "2.1.245" });
       expect(reading.resolvedExecutablePath).toBe(resolved.resolvedExecutablePath);
       expect(reading.resolvedExecutablePath).not.toBe(launcherPath);
       // The launcher was never spawned.
@@ -179,7 +211,10 @@ describe("provider executable resolution", () => {
       ]);
 
       const carriers = toBindingVersionCarriers(reading);
-      expect(carriers.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+      expect(carriers.cliVersion).toStrictEqual({
+        rawVersion: "2.1.245",
+        parsedVersion: "2.1.245",
+      });
       expect(carriers.resolvedExecutablePath).toBe(resolved.resolvedExecutablePath);
     });
   });
@@ -335,7 +370,7 @@ describe("the floor gate at the spawn", () => {
       driverName: CODEX_DRIVER_NAME,
       requestedCommand: CODEX_EXECUTABLE,
       handshake: handshake.run,
-      baseEnvironment: {},
+      baseEnv: [],
       resolver: passthroughResolver(),
     });
     return refreshCodexCapabilities(sink, {
@@ -361,7 +396,7 @@ describe("the floor gate at the spawn", () => {
     expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
     expect((thrown as DriverCliVersionBelowFloorError).fields).toStrictEqual({
       driverName: "codex",
-      reportedSemver: "0.140.0",
+      parsedVersion: "0.140.0",
       floor: PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
     });
     expect(handshake.requests).toHaveLength(1);
@@ -380,7 +415,7 @@ describe("the floor gate at the spawn", () => {
     const sink = new RecordingDeclarationSink();
     await attachCodex(sink, handshake);
     expect(sink.calls).toHaveLength(1);
-    expect(sink.calls[0]?.result.cliVersion.semver).toBe(
+    expect(sink.calls[0]?.result.cliVersion.parsedVersion).toBe(
       PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
     );
   });
@@ -393,7 +428,10 @@ describe("the floor gate at the spawn", () => {
     const sink = new RecordingDeclarationSink();
     await attachCodex(sink, handshake);
     expect(sink.calls).toHaveLength(1);
-    expect(sink.calls[0]?.result.cliVersion).toStrictEqual({ raw: "9.99.0", semver: "9.99.0" });
+    expect(sink.calls[0]?.result.cliVersion).toStrictEqual({
+      rawVersion: "9.99.0",
+      parsedVersion: "9.99.0",
+    });
   });
 
   it("runs an unparseable in-band report with its printed version and no parse", async () => {
@@ -403,7 +441,9 @@ describe("the floor gate at the spawn", () => {
     const sink = new RecordingDeclarationSink();
     await attachCodex(sink, handshake);
     expect(sink.calls).toHaveLength(1);
-    expect(sink.calls[0]?.result.cliVersion).toStrictEqual({ raw: "codex-cli (unknown build)" });
+    expect(sink.calls[0]?.result.cliVersion).toStrictEqual({
+      rawVersion: "codex-cli (unknown build)",
+    });
   });
 
   it("spawns the RESOLVED path and names the daemon's client on the request", async () => {
@@ -414,7 +454,7 @@ describe("the floor gate at the spawn", () => {
       driverName: CODEX_DRIVER_NAME,
       requestedCommand: CODEX_EXECUTABLE,
       handshake: handshake.run,
-      baseEnvironment: {},
+      baseEnv: [],
       resolver: passthroughResolver(),
     });
     const request = handshake.requests[0];
@@ -428,7 +468,7 @@ describe("the binding carriers come from one reading", () => {
   const READING: SpawnedProviderVersionReading = {
     driverName: "claude",
     resolvedExecutablePath: "/opt/homebrew/Cellar/claude/2.1.245/bin/claude",
-    report: { raw: "2.1.245", semver: "2.1.245" },
+    report: { rawVersion: "2.1.245", parsedVersion: "2.1.245" },
   };
 
   const BASE_INPUT: Omit<CreateRuntimeBindingInput, "cliVersion"> = {
@@ -442,7 +482,7 @@ describe("the binding carriers come from one reading", () => {
 
   it("fills both carriers from the reading and preserves the rest of spawn_config", () => {
     const input = withSpawnedVersionCarriers(BASE_INPUT, toBindingVersionCarriers(READING));
-    expect(input.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+    expect(input.cliVersion).toStrictEqual({ rawVersion: "2.1.245", parsedVersion: "2.1.245" });
     expect(input.spawnConfig.resolvedExecutablePath).toBe(READING.resolvedExecutablePath);
     expect(input.spawnConfig.executionPosture).toStrictEqual(
       BASE_INPUT.spawnConfig.executionPosture,
@@ -472,9 +512,9 @@ describe("the binding carriers come from one reading", () => {
     // the column pair. Runtime: a stray member on an untyped caller's object is overwritten.
     const smuggled = {
       ...BASE_INPUT,
-      cliVersion: { raw: "9.9.9", semver: "9.9.9" } satisfies DriverCliVersionReport,
+      cliVersion: { rawVersion: "9.9.9", parsedVersion: "9.9.9" } satisfies DriverCliVersionReport,
     } as Omit<CreateRuntimeBindingInput, "cliVersion">;
     const input = withSpawnedVersionCarriers(smuggled, toBindingVersionCarriers(READING));
-    expect(input.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+    expect(input.cliVersion).toStrictEqual({ rawVersion: "2.1.245", parsedVersion: "2.1.245" });
   });
 });

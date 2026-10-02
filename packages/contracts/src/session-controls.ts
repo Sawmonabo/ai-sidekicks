@@ -64,37 +64,37 @@ export const SessionAcknowledgementSchema: z.ZodType<SessionAcknowledgement> = z
   .object({ sessionId: SessionIdSchema })
   .strict();
 
-const EXECUTION_POSTURE_MODE_VALUES = ["readonly", "ask", "reviewed", "sandboxed", "yolo"] as const;
+const PERMISSION_LEVEL_VALUES = ["readonly", "ask", "reviewed", "sandboxed", "yolo"] as const;
 
 /**
  * The five permission levels, most careful first, the same five words on every provider. Only
  * the first three ever ask the person; at `sandboxed` and `yolo` the daemon answers every ask
  * itself. Plan is not a level: it is the session's mode.
  */
-export type ExecutionPostureMode = (typeof EXECUTION_POSTURE_MODE_VALUES)[number];
-/** Parses an {@link ExecutionPostureMode}. */
-export const ExecutionPostureModeSchema: z.ZodType<ExecutionPostureMode, ExecutionPostureMode> =
-  z.enum(EXECUTION_POSTURE_MODE_VALUES);
+export type PermissionLevel = (typeof PERMISSION_LEVEL_VALUES)[number];
+/** Parses a {@link PermissionLevel}. */
+export const PermissionLevelSchema: z.ZodType<PermissionLevel, PermissionLevel> =
+  z.enum(PERMISSION_LEVEL_VALUES);
 
 /** Moves the session to a level. Setting the level it already has changes nothing. */
 export interface SessionPermissionLevelUpdateRequest {
   sessionId: SessionId;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 /** Parses a {@link SessionPermissionLevelUpdateRequest}. */
 export const SessionPermissionLevelUpdateRequestSchema: z.ZodType<
   SessionPermissionLevelUpdateRequest,
   SessionPermissionLevelUpdateRequest
-> = z.object({ sessionId: SessionIdSchema, level: ExecutionPostureModeSchema }).strict();
+> = z.object({ sessionId: SessionIdSchema, level: PermissionLevelSchema }).strict();
 
 /** The level the session now stands at. */
 export interface SessionPermissionLevelUpdateResponse {
   sessionId: SessionId;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 /** Parses a {@link SessionPermissionLevelUpdateResponse}. */
 export const SessionPermissionLevelUpdateResponseSchema: z.ZodType<SessionPermissionLevelUpdateResponse> =
-  z.object({ sessionId: SessionIdSchema, level: ExecutionPostureModeSchema }).strict();
+  z.object({ sessionId: SessionIdSchema, level: PermissionLevelSchema }).strict();
 
 const SESSION_MODE_VALUES = ["build", "plan"] as const;
 

@@ -1,4 +1,4 @@
-// The one place a daemon reply enters the console. Every call goes through `callDaemon`, so a
+// The one place a daemon reply enters the app. Every call goes through `callDaemon`, so a
 // reply is parsed against the shape registered for its method before a view can act on it, and a
 // caller cannot hold an unparsed value. The request is parsed too, before it is sent.
 //
@@ -11,7 +11,7 @@
 // to the window's diagnostic capture, and the validator's message, which quotes received values,
 // goes nowhere.
 //
-// A rejection goes to `normalizeWireRejection` (`lib/wire-rejection.ts`), the console's only
+// A rejection goes to `normalizeWireRejection` (`lib/wire-rejection.ts`), the app's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
 // rejection with no machine-readable code; a private copy would misread a JSON-RPC rejection
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.not_found` into
@@ -19,13 +19,9 @@
 
 import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts";
 
-import { RealClock } from "@renderer/lib/clock.js";
-import {
-  diagnosticStampAt,
-  windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { refuse, refusedMemberPaths, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
@@ -34,11 +30,11 @@ import type { RegisteredDaemonMethod } from "./daemon-method-contract.js";
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
 
-/** How many failing member paths one diagnostic record names before it stops. */
-const NAMED_FAILING_PATH_CAP = 3;
+/** The subsystem every diagnostic record of a refused call names. */
+const DAEMON_REPLY_DIAGNOSTIC_SOURCE = "services/daemon";
 
 /**
- * Why the console refused a call on its own side of the wire. None overlaps a daemon code: a
+ * Why the app refused a call on its own side of the wire. None overlaps a daemon code: a
  * typed wire refusal keeps its own code verbatim.
  *
  *   • `request-unsendable`: the request does not satisfy the registered schema; nothing was sent.
@@ -55,7 +51,7 @@ export const DAEMON_REPLY_REFUSAL_CODES = [
   "read-abandoned",
 ] as const;
 
-/** One console-side call refusal code, derived from `DAEMON_REPLY_REFUSAL_CODES`. */
+/** One app-side call refusal code, derived from `DAEMON_REPLY_REFUSAL_CODES`. */
 export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number];
 
 /**
@@ -102,7 +98,7 @@ export function abandonedReadRefusal(): Refusal {
  * An abandoned read is checked at four points and parsed at none: before the send, racing the
  * call, after the race and before the parse, and on the rejection arm. That saves the
  * `safeParse` and the caller's projection, the most expensive main-thread work for a large diff.
- * Abandonment cancels the console's interest and not the daemon's work: the wire has no
+ * Abandonment cancels the app's interest and not the daemon's work: the wire has no
  * per-request cancellation, so the pending promise is dropped.
  */
 export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
@@ -120,7 +116,12 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 
   const sendable = binding.requestSchema.safeParse(request);
   if (!sendable.success) {
-    recordCallFailure("request-unsendable", method, sendable.error.issues);
+    recordRefusedMemberPaths({
+      source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
+      kind: "request-unsendable",
+      subject: method,
+      issues: sendable.error.issues,
+    });
     return {
       status: "refused",
       refusal: refuse(
@@ -153,7 +154,12 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       code: "call-rejected" satisfies DaemonReplyRefusalCode,
       detail: "The background service is not answering.",
     });
-    recordCallFailure(refusal.code, method, []);
+    recordRefusedMemberPaths({
+      source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
+      kind: refusal.code,
+      subject: method,
+      issues: [],
+    });
     return { status: "refused", refusal };
   }
 
@@ -167,7 +173,12 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 
   const readable = binding.responseSchema.safeParse(reply);
   if (!readable.success) {
-    recordCallFailure("reply-unreadable", method, readable.error.issues);
+    recordRefusedMemberPaths({
+      source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
+      kind: "reply-unreadable",
+      subject: method,
+      issues: readable.error.issues,
+    });
     return {
       status: "refused",
       refusal: refuse(
@@ -185,25 +196,4 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 /** The abandoned-read refusal as `callDaemon`'s own answer. */
 function abandonedRead(): DaemonReply<never> {
   return { status: "refused", refusal: abandonedReadRefusal() };
-}
-
-/**
- * Record a refused call where diagnostics read it: the method and the failing member paths, which
- * the screen never shows. Paths only, never values, which may be user content.
- */
-function recordCallFailure(
-  code: string,
-  method: string,
-  issues: readonly { readonly path: readonly PropertyKey[] }[],
-): void {
-  const paths = refusedMemberPaths(issues);
-  const named = paths.slice(0, NAMED_FAILING_PATH_CAP).join(", ");
-  const more = paths.length > NAMED_FAILING_PATH_CAP ? ", and more" : "";
-  windowDiagnosticCapture.record({
-    at: diagnosticStampAt(new RealClock()),
-    severity: "warning",
-    source: "services/daemon",
-    kind: code,
-    detail: paths.length === 0 ? method : `${method} at ${named}${more}`,
-  });
 }

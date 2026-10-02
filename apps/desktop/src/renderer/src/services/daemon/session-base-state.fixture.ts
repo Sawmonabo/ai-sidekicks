@@ -1,5 +1,5 @@
 // The base state the fixture's session read establishes: what one session already contains when a
-// store opens on it. `session-answers.fixture.ts` serves it.
+// store opens on it.
 //
 // It is cursor zero, no entities and the scripted timeline cursors. Zero rather than a position
 // derived from the beats, because a base state ahead of the stream would make the store discard
@@ -10,13 +10,13 @@
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
-import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
+import { BASE_STATE_CURSOR, type SessionBaseState } from "@renderer/store/session/session-state.js";
 
 /**
  * The base state one scenario establishes for one session. Another id reads as an empty session,
  * not a refusal: the read is answered and found nothing.
  */
-export function fixtureSessionSnapshot(scenario: Scenario, sessionId: string): SessionSnapshot {
+export function fixtureSessionBaseState(scenario: Scenario, sessionId: string): SessionBaseState {
   if (sessionId !== scenario.sessionId) {
     return { cursor: BASE_STATE_CURSOR, entities: [] };
   }

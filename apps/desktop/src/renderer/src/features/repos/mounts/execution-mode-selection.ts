@@ -3,12 +3,18 @@
 // reach the daemon decides, so a second press is not sent. The register is `GenerationLatch`:
 // `claim` refuses the second press, `settle` drops a reply landing after teardown, `release`
 // (guarded by serial) gives the key back, and `supersedeAll` on dispose ends every claim. A
-// rejected call is not caught here; the `finally` releases the key and the rejection propagates.
+// rejected switch publishes the service's refusal on its workspace, beside the picker, until that
+// workspace's next switch is sent.
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import type { RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
+
+/** The subsystem a refused mode switch names, so a refusal says which part of the app sent it. */
+const MODE_SWITCH_REFUSAL_ORIGIN = "repo-mode-switch";
 
 /** What an act needs from the half of the section that reads. */
 export interface RepoMountsReadingPublisher {
@@ -41,18 +47,31 @@ export class ExecutionModeSelections {
   /**
    * Record one explicit mode switch, then re-read. A press while this workspace's switch is
    * unanswered sends nothing. An accepted switch re-reads because the workspace transitions
-   * `ready -> preparing -> ready` on its existing id and the row has to follow.
+   * `ready -> preparing -> ready` on its existing id and the row has to follow. A refused switch
+   * re-reads nothing: the workspace stays bound as it was.
    */
   public async request(workspaceId: WorkspaceId, executionMode: ExecutionMode): Promise<void> {
     const claim = this.#inFlight.claim(this, workspaceId);
     if (claim === undefined) {
       return;
     }
-    this.#publishPending(workspaceId, executionMode);
+    this.#publishWorkspace(workspaceId, executionMode, undefined);
     try {
       await this.#operations.selectExecutionMode(workspaceId, executionMode);
       claim.settle(() => {
         this.#publisher.requestRefreshAfterSelect();
+      });
+    } catch (rejection) {
+      claim.settle(() => {
+        this.#publishWorkspace(
+          workspaceId,
+          executionMode,
+          coerceToRefusal(
+            rejection,
+            MODE_SWITCH_REFUSAL_ORIGIN,
+            `${MODE_SWITCH_REFUSAL_ORIGIN}-call-failed`,
+          ),
+        );
       });
     } finally {
       // Read before the release, which makes it false: a finished switch must bring the picker
@@ -60,7 +79,15 @@ export class ExecutionModeSelections {
       const stillStanding = claim.isCurrent;
       claim.release();
       if (stillStanding) {
-        this.#publishPending(workspaceId, undefined);
+        const reading = this.#publisher.currentReading();
+        this.#publisher.publish({
+          ...reading,
+          pendingModeByWorkspaceId: withEntry(
+            reading.pendingModeByWorkspaceId,
+            workspaceId,
+            undefined,
+          ),
+        });
       }
     }
   }
@@ -70,17 +97,22 @@ export class ExecutionModeSelections {
     this.#inFlight.supersedeAll();
   }
 
-  /** Publish the pending map with one workspace's entry set, or removed where absent. */
-  #publishPending(workspaceId: string, executionMode: ExecutionMode | undefined): void {
+  /** Publish one workspace's pending switch and its refusal, each removed where absent. */
+  #publishWorkspace(
+    workspaceId: string,
+    pendingMode: ExecutionMode | undefined,
+    refusal: Refusal | undefined,
+  ): void {
     const reading = this.#publisher.currentReading();
-    const pendingModeByWorkspaceId = { ...reading.pendingModeByWorkspaceId };
-    if (executionMode === undefined) {
-      // Deleted, not set to `undefined`: `exactOptionalPropertyTypes` distinguishes them.
-      delete pendingModeByWorkspaceId[workspaceId];
-    } else {
-      pendingModeByWorkspaceId[workspaceId] = executionMode;
-    }
-    this.#publisher.publish({ ...reading, pendingModeByWorkspaceId });
+    this.#publisher.publish({
+      ...reading,
+      pendingModeByWorkspaceId: withEntry(
+        reading.pendingModeByWorkspaceId,
+        workspaceId,
+        pendingMode,
+      ),
+      refusedModeByWorkspaceId: withEntry(reading.refusedModeByWorkspaceId, workspaceId, refusal),
+    });
   }
 }
 
@@ -91,4 +123,21 @@ export class ExecutionModeSelections {
 export function selectionInFlightCopy(pendingMode: ExecutionMode | undefined): string {
   const subject = pendingMode === undefined ? "A switch" : `A switch to ${pendingMode}`;
   return `${subject} has been sent for this workspace and the background service has not answered yet. Nothing else is sent until it settles.`;
+}
+
+// A copy of `record` with `key` set to `value`, or removed where `value` is absent. Deleted, not
+// set to `undefined`: `exactOptionalPropertyTypes` distinguishes them, and a reader asks whether
+// there is an entry.
+function withEntry<TValue>(
+  record: Readonly<Record<string, TValue>>,
+  key: string,
+  value: TValue | undefined,
+): Readonly<Record<string, TValue>> {
+  const copy = { ...record };
+  if (value === undefined) {
+    delete copy[key];
+  } else {
+    copy[key] = value;
+  }
+  return copy;
 }

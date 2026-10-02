@@ -1,4 +1,4 @@
-// The session reads the daemon answers, in the shapes the console asks them in.
+// The session reads the daemon answers, in the shapes the app asks them in.
 
 /** What a session is called and the state it is in. */
 export interface SessionSummary {

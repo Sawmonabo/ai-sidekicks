@@ -4,6 +4,7 @@
 // Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts";
+import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist.js";
 
@@ -89,7 +90,7 @@ export function projectDefinitionRows(
       if (byName !== 0) {
         return byName;
       }
-      return compareIdentifiers(left.definitionId, right.definitionId);
+      return compareCodeUnits(left.definitionId, right.definitionId);
     });
 }
 
@@ -166,12 +167,4 @@ function describeToolAllowlist(allowlist: readonly string[] | null): string {
 /** Whether there is prose, never the prose: the text belongs to the editor. */
 function describeProsePresence(prose: string | null): string {
   return prose !== null && prose.length > 0 ? "Written" : "None";
-}
-
-/** Total, and deliberately not collated. See {@link projectDefinitionRows}. */
-function compareIdentifiers(left: string, right: string): number {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
 }

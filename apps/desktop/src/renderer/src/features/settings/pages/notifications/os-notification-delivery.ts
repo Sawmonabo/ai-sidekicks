@@ -1,9 +1,10 @@
-// Whether an OS notification this console emits will reach a person at all.
+// Whether an OS notification this app raises will reach a person at all.
 //
-// `native.showNotification` returns `void`, so a denial is indistinguishable from a delivery at
-// emission; `native.getNotificationPermission` reports it. The renderer's `Notification.permission`
-// is the wrong instrument: it concerns the Web notification API, while this console emits through
-// the main process.
+// The main process raises the notification and nothing comes back from raising it, so a denial
+// is indistinguishable from a delivery at emission; the machine's permission, in the states of
+// `NotificationPermission` (`src/shared/preload-api.ts`), says which. The renderer's
+// `Notification.permission` is the wrong instrument: it concerns the Web notification API, while
+// this app raises its notifications through the main process.
 //
 // The reading is advisory and gates nothing on the way out: the OS is the authority, so an
 // unobtainable reading suppresses no emission. Only `withheld` changes what a person sees. This
@@ -13,12 +14,12 @@
 import type { OsNotificationPermissionReading } from "./os-notification-permission.js";
 
 /**
- * What the console may say about the OS notification path.
+ * What the app may say about the OS notification path.
  *
  * Three arms: `granted` and `not-determined` are both `permitted`, since a machine nobody has
  * asked yet raises the system's own consent flow on the first emission, and reporting that as
  * a denial would mislead someone whose notifications work. `unread` covers a read in flight
- * and a platform whose permission the main process cannot read; the console does not know.
+ * and a platform whose permission the main process cannot read; the app does not know.
  */
 export type OsNotificationDelivery =
   | { readonly status: "unread" }

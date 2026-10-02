@@ -20,7 +20,7 @@
  * of those ship untested.
  */
 
-/** Window in which a review's threads may still be materialising. */
+/** Window in which a review's threads may still be materializing. */
 export const DEFAULT_SETTLE_WINDOW_MS = 120_000;
 
 /**
@@ -609,7 +609,7 @@ function newestCreatedAge(rows, nowMs) {
  * them together was a false pass. Citing a sha proves only that Codex looked at
  * this commit; it says nothing whatever about what it found. A findings-bearing
  * comment naming HEAD therefore satisfied the ack leg on its own, and in the
- * window before its inline threads materialise the gate saw an ack with zero
+ * window before its inline threads materialize the gate saw an ack with zero
  * open threads and called it `ack_clean`. `commentAssertsClean` is the narrower
  * fact — a comment that both names this commit and declares it clean, or a
  * clean verdict fresh enough to belong to this push.
@@ -956,7 +956,7 @@ export function selectUnresolvedBotThreads(threadNodes) {
  * fail every `<` test identically, so mapping the second case to Infinity told
  * `computeVerdict` the ack was comfortably outside the settle window and let it
  * score `ack_clean` + `merge_ok=1` before any delayed review thread could
- * materialise — the exact false pass the window exists to hold.
+ * materialize — the exact false pass the window exists to hold.
  *
  * 0 is the fail-closed reading: an ack you cannot date is treated as one that
  * landed this instant, so the window holds it. That is deliberately sticky — an
@@ -1045,7 +1045,7 @@ export function computeVerdict(signals, options = {}) {
 
   // The settle window covers every ack leg that can be FOLLOWED by inline
   // threads — the review object and the acking comment — because the race it
-  // guards is thread materialisation lagging the ack that announces it. Scoping
+  // guards is thread materialization lagging the ack that announces it. Scoping
   // it to the review leg let a findings-bearing comment slip through the same
   // window on the comment side. The reaction leg stays out on purpose — a +1
   // means "no suggestions", so nothing is pending behind it, and gating it would
@@ -1167,7 +1167,7 @@ export function computeVerdict(signals, options = {}) {
     // told where the findings actually are.
     //
     // Ahead of `unsettled` deliberately. The settle window exists to avoid
-    // mistaking "threads not yet materialised" for "clean"; here the answer is
+    // mistaking "threads not yet materialized" for "clean"; here the answer is
     // already in hand, so waiting a window to re-ask a settled question would
     // only delay an actionable report.
     verdict = "ack_findings_no_threads";

@@ -733,7 +733,6 @@ export {
   RECOVERY_EVENTS_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   SECURITY_EVENTS_EVENT_TYPES,
-  SESSION_EVENT_TYPES,
   SESSION_LIFECYCLE_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
@@ -809,7 +808,11 @@ export type {
   WorkflowStepSkippedEvent,
   WorkflowStepStartedEvent,
 } from "./event-variant-types.js";
-export { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "./event.js";
+export {
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  SESSION_EVENT_TYPES,
+  SessionEventSchema,
+} from "./event.js";
 // The git-flow contracts import one way, shared <- hosting <- local <- methods, and each holds
 // eager module-scope Zod schemas, so the chain must stay acyclic. `gitflow/shared.ts` is not
 // exported: its scalars are building blocks of the public schemas.
@@ -2220,8 +2223,8 @@ export type {
   WslServiceRecord,
 } from "./service-place.js";
 export {
-  ExecutionPostureModeSchema,
   ModerationReviewFlaggedPayloadSchema,
+  PermissionLevelSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
@@ -2257,9 +2260,9 @@ export {
   SideQuestionIdSchema,
 } from "./session-controls.js";
 export type {
-  ExecutionPostureMode,
   ModerationReviewFlaggedPayload,
   ModerationReviewSignal,
+  PermissionLevel,
   ProviderWarningSource,
   RunSafetyBufferingUpdatedPayload,
   RunStepLimitReachedPayload,
@@ -2375,13 +2378,8 @@ export type {
   SessionSetWorkingFolderResponse,
 } from "./session-directory.js";
 export {
-  ARTIFACT_PICTURE_PIXEL_LIMIT,
-  ARTIFACT_PICTURE_REFUSED_CODE,
-  ARTIFACT_PICTURE_REFUSED_REASONS,
-  SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT,
   SESSION_ATTACHMENT_REFUSED_CODE,
   SESSION_ATTACHMENT_REFUSED_REASONS,
-  SESSION_ATTACHMENT_UNRESOLVED_CAUSES,
   SESSION_DRAFT_METHOD_DESCRIPTORS,
   SessionAttachmentAddRequestSchema,
   SessionAttachmentAddResponseSchema,
@@ -2394,8 +2392,6 @@ export {
   SessionDraftUpdateResponseSchema,
 } from "./session-draft.js";
 export type {
-  ArtifactPictureRefusedCode,
-  ArtifactPictureRefusedReason,
   SessionAttachmentAddRequest,
   SessionAttachmentAddResponse,
   SessionAttachmentCoverBox,
@@ -2411,7 +2407,6 @@ export type {
   SessionAttachmentRemoveRequest,
   SessionAttachmentRemoveResponse,
   SessionAttachmentSummary,
-  SessionAttachmentUnresolvedCause,
   SessionDraftMethodDescriptors,
   SessionDraftUpdateRequest,
   SessionDraftUpdateResponse,
@@ -2512,6 +2507,7 @@ export {
   SessionMarkChangePayloadSchema,
   SessionReadRequestSchema,
   SessionReadResponseSchema,
+  SessionRecordSchema,
   SessionRenameOriginSchema,
   SessionRenameRequestSchema,
   SessionRenameResponseSchema,
@@ -2519,7 +2515,6 @@ export {
   SessionSearchRequestSchema,
   SessionSearchResponseSchema,
   SessionShapeSchema,
-  SessionSnapshotSchema,
   SessionStateSchema,
   SessionStreamFrameSchema,
   SessionSubscribeRequestSchema,
@@ -2541,6 +2536,7 @@ export type {
   SessionMethodDescriptors,
   SessionReadRequest,
   SessionReadResponse,
+  SessionRecord,
   SessionRenameOrigin,
   SessionRenameRequest,
   SessionRenameResponse,
@@ -2550,7 +2546,6 @@ export type {
   SessionSearchRequest,
   SessionSearchResponse,
   SessionShape,
-  SessionSnapshot,
   SessionState,
   SessionStreamChange,
   SessionStreamFrame,
@@ -2978,7 +2973,6 @@ export type {
   WorkflowParamType,
 } from "./workflow-kind.js";
 export {
-  WORKFLOW_CONTROL_DENIED_CODE,
   WORKFLOW_INVALID_TRANSITION_CODE,
   WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE,
   WORKFLOW_REPAIR_NOT_PARKED_CODE,

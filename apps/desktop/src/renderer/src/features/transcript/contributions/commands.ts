@@ -13,7 +13,8 @@ import {
   type TranscriptActs,
   type MountedTranscript,
 } from "../mounted-transcript.js";
-import { TRANSCRIPT_KEY_BINDINGS, WHEN_SESSION_ACTIVE } from "./keybindings.js";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
+import { TRANSCRIPT_KEY_BINDINGS } from "./keybindings.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 
 /**

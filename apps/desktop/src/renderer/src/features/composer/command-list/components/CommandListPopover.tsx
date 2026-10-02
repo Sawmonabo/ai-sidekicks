@@ -68,7 +68,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 
   // The addressed run's group, chosen before the catalog is composed; a reading with no group
-  // for this run contributes nothing, and the absence is stated beneath the list.
+  // for this run contributes nothing, and the empty state beneath the list says so.
   const addressedGroup =
     enumeration.phase === "served"
       ? selectAddressedBindingGroup(enumeration.groups, addressed)

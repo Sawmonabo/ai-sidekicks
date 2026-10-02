@@ -1,4 +1,4 @@
-// The sessions destination's absence, chosen by what the directory read did rather than by
+// The sessions destination's empty state, chosen by what the directory read did rather than by
 // the row count. `rows/session-directory-rows.ts` owns `sessionListNothingKindFor`, so the
 // merge and this component agree. A served directory with no rows is `empty`; a read still
 // in flight is `not-loaded`, and the two must not be conflated.

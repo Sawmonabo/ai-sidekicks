@@ -1,5 +1,5 @@
-// Codex capability declaration: composition refuses a foreign reading, and the model catalog reads the provider's recorded
-// `model/list` reply.
+// Codex capability declaration: composition refuses a foreign reading, and the model catalog
+// reads the provider's recorded `model/list` reply.
 
 import { describe, expect, it } from "vitest";
 
@@ -24,8 +24,8 @@ import {
 } from "../../../provider-driver.js";
 
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
-  raw: "0.149.1",
-  semver: "0.149.1",
+  rawVersion: "0.149.1",
+  parsedVersion: "0.149.1",
 };
 
 // A Cellar path, deliberately not the `/opt/homebrew/bin/codex` launcher symlink: a reading carries
@@ -66,7 +66,7 @@ describe("Codex composition is bound to the spawned build", () => {
     const foreign: SpawnedProviderVersionReading = {
       driverName: "claude",
       resolvedExecutablePath: "/opt/homebrew/Cellar/claude/2.1.245/bin/claude",
-      report: { raw: "2.1.245", semver: "2.1.245" },
+      report: { rawVersion: "2.1.245", parsedVersion: "2.1.245" },
     };
     expect(() => getCodexCapabilities(foreign, CODEX_DETECTION)).toThrow(/driver 'claude'/);
 
@@ -86,9 +86,9 @@ describe("Codex composition is bound to the spawned build", () => {
 
   it("threads the SPAWNED reading's report, not a caller-chosen version", () => {
     // The wrapper carries exactly the version the resolved build reported.
-    const reading = codexReading({ raw: "0.150.1", semver: "0.150.1" });
+    const reading = codexReading({ rawVersion: "0.150.1", parsedVersion: "0.150.1" });
     const result = getCodexCapabilities(reading, CODEX_DETECTION);
-    expect(result.cliVersion).toStrictEqual({ raw: "0.150.1", semver: "0.150.1" });
+    expect(result.cliVersion).toStrictEqual({ rawVersion: "0.150.1", parsedVersion: "0.150.1" });
     expect(result.cliVersion).not.toBe(reading.report);
   });
 });

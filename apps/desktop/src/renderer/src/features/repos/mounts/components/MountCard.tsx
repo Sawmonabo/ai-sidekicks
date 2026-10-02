@@ -26,6 +26,7 @@ import { ReattachControl } from "../attach/ReattachControl.js";
 import { BindWorkspaceDialog } from "../bind/BindWorkspaceDialog.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import type { Refusal } from "@renderer/lib/refusal.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
@@ -40,6 +41,8 @@ export interface MountCardProps {
   >;
   /** Per workspace: the mode a switch is on the wire for, where one is. */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
+  /** Per workspace: why its newest switch was refused, where it was. */
+  readonly refusedModeByWorkspaceId: Readonly<Record<string, Refusal>>;
   /** The bridge each control takes its clock from. */
   readonly bridge: PlatformBridge;
   /** The calls each control on this card makes. */
@@ -150,6 +153,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 workspace={workspace}
                 capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
                 pendingMode={props.pendingModeByWorkspaceId[workspace.id]}
+                modeRefusal={props.refusedModeByWorkspaceId[workspace.id]}
                 bridge={props.bridge}
                 sessionStore={props.sessionStore}
                 operations={props.operations}

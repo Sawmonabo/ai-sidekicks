@@ -14,7 +14,7 @@
     },
     "typecheck": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "test/**", "tsconfig*.json", "package.json"],
+      "inputs": ["src/**", "tsconfig*.json", "package.json"],
       "outputs": [".tsbuildinfo"]
     },
     "lint": {
@@ -23,13 +23,13 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "inputs": ["src/**", "vitest.config.*", "tsconfig*.json", "package.json"],
       "outputs": [],
       "cache": false
     },
     "test:coverage": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "inputs": ["src/**", "vitest.config.*", "tsconfig*.json", "package.json"],
       "outputs": ["coverage/**"],
       "cache": false
     },

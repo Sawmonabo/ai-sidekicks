@@ -501,30 +501,27 @@ export type WindowTelemetry =
     };
 
 /**
- * Derive one window-telemetry update at the normalize boundary. Each driver supplies its own
- * session baseline: the constant overhead its provider counts before the first turn, or zero.
- * A frame carrying only half the pair yields the counts-absent arm, which fabricates no
- * denominator and ships no lone numerator. On that arm `exceeded` is the caller's, taken from the
- * wire's own limit signal, because a hard-coded `false` would claim a window that was never
- * measured is not exceeded.
+ * Derive one window-telemetry update at the normalize boundary. The used count is carried as the
+ * provider reports it, with nothing subtracted: the session's fixed start sets only the compaction
+ * slider's bottom stop. A frame carrying only half the pair yields the counts-absent arm, which
+ * fabricates no denominator and ships no lone numerator. On that arm `exceeded` is the caller's,
+ * taken from the wire's own limit signal, because a hard-coded `false` would claim a window that
+ * was never measured is not exceeded.
  */
 export function deriveWindowTelemetry(options: {
   readonly windowSource: WindowSource;
   /** The wire's used-tokens reading, or null where the frame carries none. */
-  readonly rawUsedTokens: number | null;
+  readonly windowUsedTokens: number | null;
   /** The window ceiling, or null where neither wire nor model declares one. */
   readonly windowMaxTokens: number | null;
-  /** Session-constant overhead the driver declares, subtracted before use. */
-  readonly sessionBaselineTokens: number;
   /** The wire's own limit signal, used only on the counts-absent arm. */
   readonly exceededWhenCountsAbsent: boolean;
 }): WindowTelemetry {
-  if (options.rawUsedTokens !== null && options.windowMaxTokens !== null) {
-    const windowUsedTokens = Math.max(0, options.rawUsedTokens - options.sessionBaselineTokens);
+  if (options.windowUsedTokens !== null && options.windowMaxTokens !== null) {
     return {
       windowSource: options.windowSource,
-      exceeded: windowUsedTokens >= options.windowMaxTokens,
-      windowUsedTokens,
+      exceeded: options.windowUsedTokens >= options.windowMaxTokens,
+      windowUsedTokens: options.windowUsedTokens,
       windowMaxTokens: options.windowMaxTokens,
     };
   }

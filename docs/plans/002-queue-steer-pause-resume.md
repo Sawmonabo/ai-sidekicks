@@ -128,7 +128,7 @@ Phase 1 also waits on Plan-003 Phase 1: T1.2's steer arm imports the `ArtifactId
 
 #### Tasks
 
-- **T1.1 — QueueItem contracts** (`QueueItemCreate` / `QueueItemList` / `QueueItemCancel` / `QueueItemReorder` Zod schemas). `QueueItemCreate` carries one typed message — its text and its attachments (`ArtifactId[]`), the id the daemon stamps on it, and its target, the lead or a child's handle — plus the optional addressee `to` naming another session and the optional `replacesQueueItemId` of an edit; `QueueItemList` returns each item's text, state and, for an item not delivered, its reason; `QueueItemReorder` is `{sessionId, childHandle?, queueItemIds}`, the full new order.
+- **T1.1 — QueueItem contracts** (`QueueItemCreate` / `QueueItemList` / `QueueItemCancel` / `QueueItemReorder` Zod schemas). `QueueItemCreate` carries one typed message — its text and its attachments (`ArtifactId[]`), the id the daemon stamps on it, and its target, the lead or a child's handle — plus the optional picked skills (each skill picked from the composer's `/` list, by its name and `SKILL.md` path), the optional addressee `to` naming another session and the optional `replacesQueueItemId` of an edit; `QueueItemList` returns each item's text, state and, for an item not delivered, its reason; `QueueItemReorder` is `{sessionId, childHandle?, queueItemIds}`, the full new order.
 - **Files:** `packages/contracts/src/run-control.ts` (CREATE)
 - **Spec coverage:** Spec-003 §Interfaces And Contracts (the queue calls against runtime-owned durable state)
 - **Verifies invariant:** I-002-1, I-002-20

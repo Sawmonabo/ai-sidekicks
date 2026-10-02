@@ -7,7 +7,7 @@
 // timer: the live-status subscription is the update channel.
 
 import type { Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 

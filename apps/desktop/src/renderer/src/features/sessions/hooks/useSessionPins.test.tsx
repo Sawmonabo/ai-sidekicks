@@ -1,8 +1,8 @@
-// A durable binding whose store was replaced, and what may still reach the old one. The
-// window closes and remakes its store when the bridge changes; a binding built in a
-// `useState` initializer would stay on the closed one, silently. The pin binding is driven
-// through a mounted view, because the property is a React lifetime and calling `acquire`
-// by hand would only prove the holder.
+// A pin binding whose durable store was replaced, and what may still reach the old one. The
+// window closes and remakes its store when the bridge changes; a binding built in a `useState`
+// initializer would stay on the closed one, silently. The binding is driven through a mounted
+// view, because the property is a React lifetime and calling `acquire` by hand would only prove
+// the holder.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -10,64 +10,14 @@ import { describe, expect, it } from "vitest";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { openStoreOver } from "../sessions.test-support.js";
-import { DurableViewBindingHolder, type DurableViewBinding } from "./durable-view-binding.js";
 import { PINNED_SESSIONS_KEY, type SessionPins } from "../rows/session-pins.js";
-import { useSessionPins } from "../hooks/useSessionPins.js";
+import { useSessionPins } from "./useSessionPins.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
 
 /** Let a durable read or write settle. Both are promises the acts do not await. */
 async function settle(): Promise<void> {
   await settleReactWork();
 }
-
-/**
- * A binding that records what the holder did to it. It counts disposals, which no real store
- * exposes; the cases that drive real behavior use the real stores.
- */
-class RecordingBinding implements DurableViewBinding {
-  public hydrateCount = 0;
-  public disposeCount = 0;
-
-  public async hydrate(): Promise<void> {
-    this.hydrateCount += 1;
-    await Promise.resolve();
-  }
-
-  public dispose(): void {
-    this.disposeCount += 1;
-  }
-
-  public subscribe(): () => void {
-    return () => undefined;
-  }
-}
-
-describe("the holder that keys a binding on its store", () => {
-  it("disposes the binding a different store supersedes, exactly once", () => {
-    const adapter = new MemoryPersistenceAdapter();
-    const holder = new DurableViewBindingHolder(() => new RecordingBinding());
-    const first = holder.acquire(openStoreOver(adapter));
-    const replacement = openStoreOver(adapter);
-    const second = holder.acquire(replacement);
-    holder.acquire(replacement);
-
-    expect(first.disposeCount).toBe(1);
-    expect(second).not.toBe(first);
-    expect(second.disposeCount).toBe(0);
-  });
-
-  it("negative control: a render-body lookup mints and disposes nothing", () => {
-    // Without this, the disposal above could pass over a holder whose lookup also acquired,
-    // letting a discarded render dispose the committed tree's binding.
-    const adapter = new MemoryPersistenceAdapter();
-    const store = openStoreOver(adapter);
-    const holder = new DurableViewBindingHolder(() => new RecordingBinding());
-    expect(holder.bindingIfCurrent(store)).toBeUndefined();
-    const acquired = holder.acquire(store);
-    expect(holder.bindingIfCurrent(openStoreOver(adapter))).toBeUndefined();
-    expect(acquired.disposeCount).toBe(0);
-  });
-});
 
 /** A probe that renders the pin map it is bound to and offers the one act. */
 function PinProbe(props: { readonly store: UiStateStore }): React.JSX.Element {

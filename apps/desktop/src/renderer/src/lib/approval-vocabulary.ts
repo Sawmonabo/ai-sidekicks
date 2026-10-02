@@ -9,6 +9,9 @@ import type {
   RememberedScopeKind,
 } from "@ai-sidekicks/contracts";
 
+/** The palette category the approval rows and the rule revocations sit under. */
+export const APPROVAL_COMMAND_GROUP = "Approvals";
+
 /** What a category is called on screen, in words; the wire token is rendered beside it, in mono. */
 export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>> = {
   tool_execution: "Run a tool",

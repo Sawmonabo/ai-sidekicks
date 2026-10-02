@@ -11,9 +11,9 @@ import { rowOf } from "./keyboard-page.test-support.js";
 
 /** A command no `beforeEach` registers, so a case can register it late and with no chord. */
 const LATE_COMMAND = {
-  id: "frame.openContextPicker",
-  title: "Open the context picker",
-  group: "Navigation",
+  id: "bridge.copyBuildDetails",
+  title: "Copy build details",
+  group: "Help",
   run: () => undefined,
 } as const;
 
@@ -63,7 +63,7 @@ describe("keyboard page — a command registered after the page first rendered",
     );
     expect(rowOf(container, "Check for updates")).toBeDefined();
 
-    commandRegistry.unregister("app.checkForUpdates");
+    commandRegistry.unregister("bridge.checkForUpdates");
     await act(async () => {
       rerender(
         <LiveAnnouncerProvider>

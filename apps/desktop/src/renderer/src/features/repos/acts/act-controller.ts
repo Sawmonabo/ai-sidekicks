@@ -5,11 +5,12 @@
 // Only the prerequisite read is scheduled. An act is never re-sent on a refresh: that would
 // put a second durable record on the wire for one press. A rejected act publishes its refusal,
 // with the service's own message, and frees the control for another press; a rejected read
-// leaves the prerequisite where it was and the scheduler rethrows it. Each call is a closure the owner passes in, so nothing here
-// touches the bridge.
+// publishes its refusal as the prerequisite, unless the question moved on or the round ended.
+// Each call is a closure the owner passes in, so nothing here touches the bridge.
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import {
   ACT_IDLE,
@@ -58,6 +59,9 @@ const ACT_KEY = "act";
 
 /** The subsystem a refused repo act names, so a refusal says which part of the app sent it. */
 const REPO_ACT_REFUSAL_ORIGIN = "repo-act";
+
+/** The subsystem a refused prerequisite read names. */
+const REPO_PREREQUISITE_REFUSAL_ORIGIN = "repo-prerequisite";
 
 /**
  * One act, published as the settlement a dialog reads. Owns the single-flight guard, the
@@ -251,18 +255,27 @@ export class PrerequisiteReader<TValue> implements ReadTriggerTarget {
 
   // Reads the question at perform time, not request time: the scheduler coalesces, so two
   // edits inside one debounce window are one call and it must be for what is named now.
-  // The round belongs to the scheduler and is not released here.
+  // The round belongs to the scheduler and is not released here. A rejection settles under the
+  // same two guards as an answer, so a read abandoned with its round never reaches the screen.
   async #performRead(round: ReadRound): Promise<void> {
     const question = this.#question;
     if (question === undefined) {
       return;
     }
-    const value = await this.#readPrerequisite(question, round.signal);
+    let reading: ActPrerequisiteReading<TValue>;
+    try {
+      reading = { status: "read", value: await this.#readPrerequisite(question, round.signal) };
+    } catch (rejection) {
+      reading = {
+        status: "refused",
+        refusal: coerceToRefusal(rejection, REPO_PREREQUISITE_REFUSAL_ORIGIN),
+      };
+    }
     if (this.#question !== question) {
       return;
     }
     round.settle(() => {
-      this.#publish({ status: "read", value });
+      this.#publish(reading);
     });
   }
 

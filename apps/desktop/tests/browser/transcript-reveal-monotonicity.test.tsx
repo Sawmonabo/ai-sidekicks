@@ -16,7 +16,7 @@ import { VisibleTextMonotonicityRecorder } from "./visible-text-monotonicity.js"
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { RowRevealProvider } from "@renderer/features/transcript/reveal/components/RowRevealProvider.js";
-import { useAnimationFrameCoordinator } from "@renderer/features/transcript/hooks/useAnimationFrameCoordinator.js";
+import { useAnimationFrameScheduler } from "@renderer/features/transcript/hooks/useAnimationFrameScheduler.js";
 import { useReveal } from "@renderer/features/transcript/reveal/hooks/useReveal.js";
 import { useRowReveal } from "@renderer/features/transcript/reveal/hooks/useRowReveal.js";
 import { revealProse } from "@renderer/features/transcript/reveal/reveal.test-support.js";
@@ -45,10 +45,10 @@ interface StreamingProbeProps {
  * reveal regressions here.
  */
 function StreamingProbe(props: StreamingProbeProps): React.JSX.Element {
-  // The coordinator orders every drain, and the feed mints one per mount from its clock; the
+  // The scheduler orders every drain, and the feed mints one per mount from its clock; the
   // probe composes the engine the same way.
-  const frameCoordinator = useAnimationFrameCoordinator(props.clock);
-  const reveal = useReveal({ frameCoordinator, clock: props.clock });
+  const frameScheduler = useAnimationFrameScheduler(props.clock);
+  const reveal = useReveal({ frameScheduler, clock: props.clock });
   props.handle.ingest = (laneId: string, text: string) => {
     reveal.ingest({ laneId, mode: "direct", text });
   };

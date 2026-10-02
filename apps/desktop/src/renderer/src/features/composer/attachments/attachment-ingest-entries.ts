@@ -7,7 +7,8 @@
 // finished uploads do not pin ten files of memory. A write moving a settled entry back into a
 // sending state is refused.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,

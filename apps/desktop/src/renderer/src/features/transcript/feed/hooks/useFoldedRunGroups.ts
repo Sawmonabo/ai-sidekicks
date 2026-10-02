@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { TranscriptRowRetention } from "../../window/row-retention.js";
 import {
   type TranscriptPipelineStage,
@@ -22,7 +22,7 @@ export function useFoldedRunGroups(
   // follows a navigation to another log without unmounting, and a table carried across would
   // hold the rows of a session nobody is reading.
   const bridge = usePlatformBridge();
-  const retention = useSessionScopedState(bridge, sessionId, () => new TranscriptRowRetention());
+  const retention = useSubjectScopedState(bridge, sessionId, () => new TranscriptRowRetention());
   const heldRetention = retention.value;
   return useMemo(
     () => foldRunGroupHeaders(model, openedTerminalRunIds, heldRetention),

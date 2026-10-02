@@ -9,7 +9,8 @@
 // nothing watches. It names no DOM type because `lib/` is also compiled by programs with no DOM
 // lib; the element and the window are opaque here.
 
-import { Emitter, type Unsubscribe } from "./emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "./emitter.js";
 
 /** The element an overlay hands over for an installed observer to watch; never read here. */
 export type AirspaceOverlayElement = object;

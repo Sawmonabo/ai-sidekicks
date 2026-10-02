@@ -8,6 +8,7 @@
 
 import { createElement, lazy, type LazyExoticComponent } from "react";
 
+import { MemoizedLoad } from "@renderer/lib/memoized-load.js";
 import { LazyBody } from "./LazyBody.js";
 
 /** The module a lazily loaded body comes from; it exports `Body`, never `default`. */
@@ -35,10 +36,9 @@ export interface PreloadableRegistry<TKey> {
  * in one process do not share a memo.
  */
 export class LoaderBackedBody<TContext extends object> {
-  readonly #loader: LazyBodyLoader<TContext>;
+  /** The one shared load; a rejected one is released and mints a fresh component with it. */
+  readonly #moduleLoad: MemoizedLoad<LazyBodyModule<TContext>>;
   readonly #fallback: (context: TContext) => React.ReactNode;
-  /** The one in-flight or fulfilled load; `undefined` until asked, and again after a rejection. */
-  #pending: Promise<LazyBodyModule<TContext>> | undefined;
   /**
    * The mounted form. Its identity is what React reconciles by, so it is built once, and
    * rebuilt only when a load rejects: `lazy` never re-runs a rejected initializer, so without a
@@ -69,7 +69,9 @@ export class LoaderBackedBody<TContext extends object> {
     loader: LazyBodyLoader<TContext>,
     fallback: (context: TContext) => React.ReactNode,
   ) {
-    this.#loader = loader;
+    this.#moduleLoad = new MemoizedLoad(loader, () => {
+      this.#component = this.#mintComponent();
+    });
     this.#fallback = fallback;
     this.#component = this.#mintComponent();
   }
@@ -80,9 +82,7 @@ export class LoaderBackedBody<TContext extends object> {
    * a reopen) is a real request. Nothing here re-asks on its own.
    */
   public async load(): Promise<LazyBodyModule<TContext>> {
-    const pending = this.#pending ?? this.#mintPendingLoad();
-    this.#pending = pending;
-    const loaded = await pending;
+    const loaded = await this.#moduleLoad.load();
     this.#resolvedBody = loaded.Body;
     return loaded;
   }
@@ -91,24 +91,7 @@ export class LoaderBackedBody<TContext extends object> {
    * True once the module has been asked for and the ask has not rejected; read by the warm walk.
    */
   public get isResolved(): boolean {
-    return this.#pending !== undefined;
-  }
-
-  /**
-   * Starts one load and releases the memo if it rejects. The release is attached here, not in
-   * `load`, so it runs once rather than once per joined caller; only the promise that is still
-   * the memo may clear it.
-   */
-  #mintPendingLoad(): Promise<LazyBodyModule<TContext>> {
-    const pending = this.#loader();
-    void pending.catch(() => {
-      if (this.#pending !== pending) {
-        return;
-      }
-      this.#pending = undefined;
-      this.#component = this.#mintComponent();
-    });
-    return pending;
+    return this.#moduleLoad.isStarted;
   }
 
   /** The `lazy()` form over this registration's memo, whichever load is current. */

@@ -12,7 +12,8 @@
 // 4. At most one timer is armed, for the earliest lane deadline, and re-armed from its own tick.
 //    Nothing polls, and an idle announcer holds no handle.
 
-import { Emitter, type EmitterSink, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter, type EmitterSink } from "@renderer/lib/emitter.js";
 import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,

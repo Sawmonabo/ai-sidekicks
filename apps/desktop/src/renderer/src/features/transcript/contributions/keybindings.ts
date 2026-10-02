@@ -1,12 +1,7 @@
 // The chords the transcript claims in the keybinding table.
 
 import { type Keybinding } from "@renderer/registries/commands/command-types.js";
-
-/**
- * The `when` clause every transcript command and chord carries. The clause evaluator answers
- * `false` for a key the context lacks, so a window with no session offers none of them.
- */
-export const WHEN_SESSION_ACTIVE = "sessionActive";
+import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 
 /**
  * The chords the transcript claims. `$mod` is Cmd on macOS and Ctrl elsewhere.

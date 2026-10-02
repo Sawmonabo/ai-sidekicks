@@ -1,6 +1,6 @@
 // Claude capability declaration: a reporter that carries the spawned build's version and its
-// output-speed levels and refuses a foreign one before the writer sees it; and the model catalog read from the
-// recorded `list_models` reply.
+// output-speed levels and refuses a foreign one before the writer sees it; and the model catalog
+// read from the recorded `list_models` reply.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,7 +23,10 @@ import {
   ModelCatalogUnreadableError,
 } from "../../../provider-driver.js";
 
-const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
+const CLI_VERSION: DriverCliVersionReport = {
+  rawVersion: "2.1.245 (Claude Code)",
+  parsedVersion: "2.1.245",
+};
 
 // A Cellar path, not the `/opt/homebrew/bin/claude` launcher symlink: a reading never describes
 // a launcher.
@@ -67,8 +70,8 @@ describe("getCapabilities()", () => {
 describe("refreshDeclaration()", () => {
   it("re-reads the version on each refresh, so a CLI upgrade reaches the sink under this driver", async () => {
     const versions: DriverCliVersionReport[] = [
-      { raw: "2.1.245", semver: "2.1.245" },
-      { raw: "2.1.246", semver: "2.1.246" },
+      { rawVersion: "2.1.245", parsedVersion: "2.1.245" },
+      { rawVersion: "2.1.246", parsedVersion: "2.1.246" },
     ];
     let call = 0;
     const reporter = makeReporter(() => {
@@ -85,8 +88,8 @@ describe("refreshDeclaration()", () => {
       CLAUDE_DRIVER_NAME,
       CLAUDE_DRIVER_NAME,
     ]);
-    expect(sink.calls[0]?.result.cliVersion.semver).toBe("2.1.245");
-    expect(sink.calls[1]?.result.cliVersion.semver).toBe("2.1.246");
+    expect(sink.calls[0]?.result.cliVersion.parsedVersion).toBe("2.1.245");
+    expect(sink.calls[1]?.result.cliVersion.parsedVersion).toBe("2.1.246");
   });
 });
 
@@ -96,7 +99,7 @@ describe("Claude composition is bound to the spawned build", () => {
     const foreign: SpawnedProviderVersionReading = {
       driverName: "codex",
       resolvedExecutablePath: "/opt/homebrew/Cellar/codex/0.149.1/bin/codex",
-      report: { raw: "0.149.1", semver: "0.149.1" },
+      report: { rawVersion: "0.149.1", parsedVersion: "0.149.1" },
     };
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(foreign),

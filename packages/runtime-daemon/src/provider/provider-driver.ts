@@ -250,19 +250,22 @@ export const DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE =
 
 /**
  * The provider CLI version as the spawned process reports it in-band, never from a launcher
- * symlink that may name a different build. `raw` is the printed version, always; `semver` is its
- * canonical parse, present only when it parses. A version the parser cannot read still runs; the
- * floor is compared only on a parsed version, and one below it refuses as
+ * symlink that may name a different build. `rawVersion` is the printed version, always;
+ * `parsedVersion` is its canonical parse, present only when it parses. A version the parser cannot
+ * read still runs; the floor is compared only on a parsed version, and one below it refuses as
  * `driver.cli_version_below_floor`.
  */
 export interface DriverCliVersionReport {
-  raw: string;
-  semver?: string | undefined;
+  rawVersion: string;
+  parsedVersion?: string | undefined;
 }
 
 /** Rebuilds a stored report from its two columns; a NULL parse is a version that did not parse. */
-export function readCliVersionColumns(raw: string, semver: string | null): DriverCliVersionReport {
-  return semver === null ? { raw } : { raw, semver };
+export function readCliVersionColumns(
+  rawVersion: string,
+  parsedVersion: string | null,
+): DriverCliVersionReport {
+  return parsedVersion === null ? { rawVersion } : { rawVersion, parsedVersion };
 }
 
 /**

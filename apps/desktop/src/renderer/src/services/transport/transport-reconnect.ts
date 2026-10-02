@@ -25,7 +25,8 @@
 // view. Repeated observations of the same state are free, since every subscription reports. It is
 // not on `PreloadApi` because the preload exposes no connection state; it sits on `PlatformBridge`.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 
 /**

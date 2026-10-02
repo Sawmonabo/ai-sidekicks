@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { replay } from "../session-projector.js";
-import type { DaemonSessionSnapshot, StoredEvent } from "../types.js";
+import type { DaemonSessionRecord, StoredEvent } from "../types.js";
 import {
   makeCreatedEvent,
   OCCURRED_AT,
@@ -15,15 +15,15 @@ import {
 
 describe("session-projector — bootstrap projection", () => {
   it("records the owner from a single session.created event", () => {
-    const snapshot: DaemonSessionSnapshot | null = replay([makeCreatedEvent()]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return; // type guard for TS
+    const record: DaemonSessionRecord | null = replay([makeCreatedEvent()]);
+    expect(record).not.toBeNull();
+    if (record === null) return; // type guard for TS
 
-    expect(snapshot.sessionId).toBe(SESSION_ID);
-    expect(snapshot.createdAt).toBe(OCCURRED_AT);
-    expect(snapshot.asOfSequence).toBe(0);
+    expect(record.sessionId).toBe(SESSION_ID);
+    expect(record.createdAt).toBe(OCCURRED_AT);
+    expect(record.asOfSequence).toBe(0);
 
-    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
+    expect(record.ownerActor).toBe(OWNER_ACTOR_ID);
   });
 });
 

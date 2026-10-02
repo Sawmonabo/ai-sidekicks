@@ -16,7 +16,7 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
+import { PermissionLevelSchema, type PermissionLevel } from "./session-controls.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */
@@ -106,7 +106,7 @@ export const PlanHandedOffPayloadSchema: z.ZodType<PlanHandedOffPayload> = z
  */
 export interface PlanFreshSession {
   driverName: ProviderName;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 
 /** The verdict on one plan. `fresh` is present exactly on the `fresh` verdict. */
@@ -121,7 +121,7 @@ export const PlanResolveRequestSchema: z.ZodType<PlanResolveRequest, PlanResolve
     planId: PlanIdSchema,
     verdict: PlanVerdictSchema,
     fresh: z
-      .object({ driverName: ProviderNameSchema, level: ExecutionPostureModeSchema })
+      .object({ driverName: ProviderNameSchema, level: PermissionLevelSchema })
       .strict()
       .optional(),
   })

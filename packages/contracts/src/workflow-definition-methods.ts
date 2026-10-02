@@ -87,7 +87,6 @@ export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unkno
  * field. The name is the document's own.
  */
 export interface WorkflowDefinitionCreateRequest {
-  sessionId: SessionId;
   scope: WorkflowDefinitionScope;
   scopeRef?: string | undefined;
   parentContentHash?: string | undefined;
@@ -99,12 +98,12 @@ export const WorkflowDefinitionCreateRequestSchema: z.ZodType<
   WorkflowDefinitionCreateRequest
 > = z
   .object({
-    sessionId: SessionIdSchema,
     // The scope is the caller's: a `shared` target is never quietly narrowed to a smaller
     // one.
     scope: WorkflowDefinitionScopeSchema,
-    // Omitted at `session`, it means this request's session; at `shared`, the empty
-    // string. `project` has nothing to derive it from, so omitting it there is refused.
+    // Omitted at `shared`, it is the empty string. The request carries no session, so
+    // `session` and `project` have nothing to derive it from: the daemon's check refuses its
+    // absence there with `workflow.definition_refused`, finding `scope_ref_invalid`.
     scopeRef: WorkflowDefinitionScopeRefSchema.optional(),
     // The hash of the `shared` definition this one was branched from when an author
     // edited it. Provenance only: it is outside the hashed body, so a branched definition
@@ -565,7 +564,6 @@ export const WorkflowDefinitionExportResponseSchema: z.ZodType<WorkflowDefinitio
  * main forwards in place of the token the platform's open chooser returned.
  */
 export interface WorkflowDefinitionImportRequest {
-  sessionId: SessionId;
   filePath: string;
   scope: WorkflowDefinitionScope;
   scopeRef?: string | undefined;
@@ -576,7 +574,6 @@ export const WorkflowDefinitionImportRequestSchema: z.ZodType<
   WorkflowDefinitionImportRequest
 > = z
   .object({
-    sessionId: SessionIdSchema,
     filePath: filePathSchema,
     scope: WorkflowDefinitionScopeSchema,
     scopeRef: WorkflowDefinitionScopeRefSchema.optional(),

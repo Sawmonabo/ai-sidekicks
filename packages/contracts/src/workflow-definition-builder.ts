@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { countSchema, isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
-import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
+import { PermissionLevelSchema, type PermissionLevel } from "./session-controls.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowDraftDocumentSchema,
@@ -92,26 +92,22 @@ export const WorkflowDefinitionSettingResponseSchema: z.ZodType<WorkflowDefiniti
  */
 export interface WorkflowPermissionLevelUpdateRequest {
   definitionId: WorkflowDefinitionId;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 /** Wire schema for {@link WorkflowPermissionLevelUpdateRequest}. */
 export const WorkflowPermissionLevelUpdateRequestSchema: z.ZodType<
   WorkflowPermissionLevelUpdateRequest,
   WorkflowPermissionLevelUpdateRequest
-> = z
-  .object({ definitionId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
-  .strict();
+> = z.object({ definitionId: WorkflowDefinitionIdSchema, level: PermissionLevelSchema }).strict();
 
 /** The level the workflow now runs at. */
 export interface WorkflowPermissionLevelUpdateResponse {
   definitionId: WorkflowDefinitionId;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 /** Wire schema for {@link WorkflowPermissionLevelUpdateResponse}. */
 export const WorkflowPermissionLevelUpdateResponseSchema: z.ZodType<WorkflowPermissionLevelUpdateResponse> =
-  z
-    .object({ definitionId: WorkflowDefinitionIdSchema, level: ExecutionPostureModeSchema })
-    .strict();
+  z.object({ definitionId: WorkflowDefinitionIdSchema, level: PermissionLevelSchema }).strict();
 
 /**
  * The `workflow.pinDataSet` input: pin items onto one node as test data, or unpin with

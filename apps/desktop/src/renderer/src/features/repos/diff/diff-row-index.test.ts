@@ -1,6 +1,6 @@
 // The flattening the diff views rest on. Every case runs without a DOM, which is what lets
-// the endurance tier measure a five-thousand-line change set; the window itself comes from
-// `@tanstack/react-virtual` and is asserted against the DOM in `DiffRenderer.test.ts`.
+// `diff-row-index.large-diff.test.ts` measure a five-thousand-line change set; the window itself
+// comes from `@tanstack/react-virtual` and is asserted against the DOM in `DiffRenderer.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";

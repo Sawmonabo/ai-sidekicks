@@ -34,8 +34,8 @@ import {
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import {
+  PROVIDER_QUOTA_DELIVERY_STREAM,
   PROVIDER_QUOTA_REFUSAL_ORIGIN,
-  unreadableProviderQuotaDeliveryRefusal,
 } from "./provider-account-refusals.js";
 import { ProviderAccountNotificationHold } from "@renderer/store/provider-accounts/provider-account-notification-hold.js";
 import {
@@ -68,7 +68,7 @@ export class ProviderAccountDeliveries {
   readonly #fold: ProviderAccountFold;
   readonly #sink: ProviderAccountDeliverySink;
   readonly #hold = new ProviderAccountNotificationHold();
-  readonly #unreadable = new UnreadableDeliveryCounter(unreadableProviderQuotaDeliveryRefusal);
+  readonly #unreadable = new UnreadableDeliveryCounter(PROVIDER_QUOTA_DELIVERY_STREAM);
   #hasReportedHighWaterDrop = false;
   #newestLoginCompletion: ProviderLoginCompletion | undefined = undefined;
 

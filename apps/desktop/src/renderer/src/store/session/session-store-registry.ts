@@ -8,12 +8,12 @@
 // keeps `store/` below `services/` in the import direction.
 
 import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
 import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import type { SessionDegradedCause, SessionStore } from "./session-store.js";
-import type { TimelineResumeDecision } from "./timeline-resume.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
@@ -24,25 +24,11 @@ export interface SessionRegistryChange {
   readonly change: "opened" | "closed";
 }
 
-/**
- * Construction inputs, derived from the entry's options (the registry passes them straight
- * through) so the two cannot drift. `onTimelineResumeSettled` is subtracted because it is the
- * registry's own wiring: a caller's would silently replace the fan-out every reading uses.
- */
-export type SessionStoreRegistryOptions = Omit<OpenSessionEntryOptions, "onTimelineResumeSettled">;
-
 /** The set of open sessions in one window; owns each session's entry and routes deliveries. */
 export class SessionStoreRegistry {
-  readonly #options: SessionStoreRegistryOptions;
+  readonly #options: OpenSessionEntryOptions;
   readonly #entriesBySessionId = new Map<string, OpenSessionEntry>();
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
-  /**
-   * Fan-out for "one session's resume decision settled", carrying whose. Kept apart from the
-   * change emitter so a reading of either is not woken by the other's traffic
-   * (`useOpenSessionIds` is subscribed for the life of every window). It exists because the
-   * store revision is not a sound notification here (`open-session-entry.ts`).
-   */
-  readonly #resumeSettlements = new Emitter<string>("session resume settlement");
   // The open set as an array, rebuilt only when the set changes. Load-bearing:
   // `useSyncExternalStore` re-renders while consecutive reads differ by `Object.is`, so a getter
   // spreading the map per call would spin forever. Every mutation pairs with
@@ -50,7 +36,7 @@ export class SessionStoreRegistry {
   #openSessionIdsSnapshot: readonly string[] | undefined = undefined;
   #disposed = false;
 
-  public constructor(options: SessionStoreRegistryOptions) {
+  public constructor(options: OpenSessionEntryOptions) {
     this.#options = options;
   }
 
@@ -73,12 +59,7 @@ export class SessionStoreRegistry {
         ),
       );
     }
-    const entry = new OpenSessionEntry(sessionId, {
-      ...this.#options,
-      onTimelineResumeSettled: () => {
-        this.#resumeSettlements.emit(sessionId);
-      },
-    });
+    const entry = new OpenSessionEntry(sessionId, this.#options);
     this.#entriesBySessionId.set(sessionId, entry);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
@@ -122,8 +103,6 @@ export class SessionStoreRegistry {
     this.#entriesBySessionId.delete(sessionId);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "closed" });
-    // A resume reading for this session now answers `undefined`, and only this wakes it.
-    this.#resumeSettlements.emit(sessionId);
     return true;
   }
 
@@ -184,25 +163,6 @@ export class SessionStoreRegistry {
     }
   }
 
-  /**
-   * What the newest completed read of one session said about resuming its stream, or `undefined`
-   * when that session is not open or no read has landed. A view holding a session id reaches the
-   * entry's decision through here, since nothing outside the registry holds the entry.
-   */
-  public timelineResumeFor(sessionId: string): TimelineResumeDecision | undefined {
-    return this.#entriesBySessionId.get(sessionId)?.timelineResume;
-  }
-
-  /**
-   * Be told when any open session settles a resume decision. Not keyed by session: a per-session
-   * subscription would have to survive the session opening after the subscriber mounted, which
-   * is the ordinary order. A reading woken for another session re-reads its own decision, gets
-   * the identical object back, and React ends the pass without a render.
-   */
-  public subscribeToTimelineResume(onSettled: (sessionId: string) => void): Unsubscribe {
-    return this.#resumeSettlements.subscribe(onSettled);
-  }
-
   /** How many reads a session's scheduler has performed; an assertion seam for tests. */
   public refreshCountFor(sessionId: string): number {
     return this.#entriesBySessionId.get(sessionId)?.refreshScheduler.performCount ?? 0;
@@ -233,8 +193,6 @@ export class SessionStoreRegistry {
       this.close(sessionId);
     }
     this.#changes.clear();
-    // Both fan-outs, or a sink would keep the closure of an already unmounted React subscription.
-    this.#resumeSettlements.clear();
     this.#disposed = true;
   }
 

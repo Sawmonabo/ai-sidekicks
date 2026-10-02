@@ -3,9 +3,10 @@
 // subscribe, window focus, reconnect and the terminal events this class names, never on an
 // interval. The order is forced by the wire: there is no mount list call, so mounts are learned
 // from the listed workspaces, then read once per distinct mount (the only read carrying
-// `health`), then worktree status once per mount. A rejected call is not caught here: the
-// scheduler re-throws it and the reading stays where it was. The state is not in the session
-// store because a mount read is a probe, not an event projection.
+// `health`), then worktree status once per mount. A rejected call ends the pass: its cause goes
+// to the window's diagnostic capture and the reading returns to where it stood before the pass.
+// The state is not in the session store because a mount read is a probe, not an event
+// projection.
 
 import type {
   ExecutionMode,
@@ -14,7 +15,13 @@ import type {
   WorkspaceId,
   WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts";
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
@@ -28,6 +35,9 @@ import {
 import { REPO_MOUNTS_NOT_READ, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
+
+/** The subsystem a refused mount read names. */
+const REPO_MOUNTS_READ_ORIGIN = "repo-mounts";
 
 /** What one section reader collaborates with. */
 export interface RepoMountsReaderOptions {
@@ -184,13 +194,37 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
+   * One pass, which never rejects: a refused call puts the reading back to the status it had
+   * before the pass, so the section never says it is reading after the pass has ended, and
+   * records the cause in the window's diagnostic capture.
+   */
+  async #performRead(round: ReadRound): Promise<void> {
+    const statusBeforePass = this.#reading.status;
+    this.#publish({ ...this.#reading, status: "reading" });
+    try {
+      await this.#readSection(round);
+    } catch (rejection) {
+      if (this.#disposed) {
+        return;
+      }
+      const refusal = coerceToRefusal(rejection, REPO_MOUNTS_READ_ORIGIN);
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(this.#clock),
+        severity: "warning",
+        source: "features/repos",
+        kind: "repo-mounts-read-refused",
+        detail: `session ${this.#sessionId}: ${refusal.code}: ${refusal.detail}`,
+      });
+      this.#publish({ ...this.#reading, status: statusBeforePass });
+    }
+  }
+
+  /**
    * The section's whole reading: the listed workspaces, one mount read per distinct mount, one
    * worktree read per mount and one capability read per workspace. The round's signal reaches
    * each read, so an abandoned pass costs only the pre-send check per remaining call.
    */
-  async #performRead(round: ReadRound): Promise<void> {
-    this.#publish({ ...this.#reading, status: "reading" });
-
+  async #readSection(round: ReadRound): Promise<void> {
     const { workspaces } = await this.#operations.listWorkspaces(this.#sessionId, round.signal);
     if (this.#isAbandoned(round)) {
       return;
@@ -243,6 +277,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
       // Spread forward, never rebuilt: a switch still on the wire while a read runs beside it
       // must keep holding the picker.
       pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
+      refusedModeByWorkspaceId: this.#reading.refusedModeByWorkspaceId,
     });
   }
 

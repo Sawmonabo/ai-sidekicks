@@ -3,7 +3,8 @@
 // It takes a reading rather than the scroll container, so it holds no element and is driven by
 // numbers alone.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import {
   TRANSCRIPT_GEOMETRY_EPSILON_PX,

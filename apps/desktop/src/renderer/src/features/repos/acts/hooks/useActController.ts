@@ -4,7 +4,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import {
   CONTROLLER_DISPOSAL,
   type DisposableController,

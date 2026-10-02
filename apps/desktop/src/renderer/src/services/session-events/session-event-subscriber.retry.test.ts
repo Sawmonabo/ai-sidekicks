@@ -13,7 +13,7 @@ import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SessionEventSubscriber } from "./session-event-subscriber.js";

@@ -1,54 +1,11 @@
-// What a view is told about an attachment: the two instants, and the sentence an unresolved
-// marker carries. The progress figure is the daemon's (the chunk reply carries it), so it lives
+// What a view is told about an upload's silence: the instant it becomes worth disclosing, and
+// whether it has. The progress figure is the daemon's (the chunk reply carries it), so it lives
 // in `services/attachment-ingest-acknowledgement.ts`. Every function takes an entry and, where
 // the answer moves on its own, the instant it is asked at; nothing here reads a clock, since an
-// age computed from the wall clock would move while nothing was happening. The unresolved
-// marker is read from the reading node's own manifest row, never a fresher relay answer.
-
-import type { SessionAttachmentUnresolvedCause } from "@ai-sidekicks/contracts";
+// age computed from the wall clock would move while nothing was happening.
 
 import { INGEST_STALL_DISCLOSURE_MS } from "./attachment-caps.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
-
-/** What a cause means, and what a user can do about it. */
-export interface UnresolvedAttachmentPresentation {
-  readonly meaning: string;
-  /** Absent means there is no remedy, said outright rather than left blank. */
-  readonly remedy: string | undefined;
-}
-
-/**
- * The six causes, total over `SessionAttachmentUnresolvedCause`, each with its own remedy.
- * `deleted` carries none: a softer sentence would imply a way back.
- */
-export const UNRESOLVED_ATTACHMENT_PRESENTATION: Readonly<
-  Record<SessionAttachmentUnresolvedCause, UnresolvedAttachmentPresentation>
-> = {
-  deleted: {
-    meaning: "The manifest is gone.",
-    remedy: undefined,
-  },
-  local_only_remote: {
-    meaning: "Held on the publishing node only, and this is not that node.",
-    remedy: "Change its visibility to shared on the publishing node.",
-  },
-  pending_replication: {
-    meaning: "The publisher has it and the relay does not yet.",
-    remedy: "Wait for the publisher's transfer to finish.",
-  },
-  over_cap: {
-    meaning: "Too large to pin on the relay, so it is only reachable from the publisher.",
-    remedy: "The publisher must be online.",
-  },
-  quota_exceeded: {
-    meaning: "The publisher's relay quota was full when this was published.",
-    remedy: "Free relay quota, then re-publish.",
-  },
-  expired: {
-    meaning: "The payload is not obtainable from the relay.",
-    remedy: "The publisher re-publishes it while online.",
-  },
-};
 
 /**
  * The instant this upload's silence becomes worth disclosing, or `undefined` when nothing is

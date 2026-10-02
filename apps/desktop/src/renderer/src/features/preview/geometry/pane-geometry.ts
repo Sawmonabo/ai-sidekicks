@@ -4,7 +4,7 @@
 // `lib/airspace-registry.ts`, so the two modules do not cycle.
 
 import { type AirspaceMotionObserver, type AirspaceRect } from "@renderer/lib/airspace-registry.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 /** Two-decimal rounding as a factor; `toFixed` would be a second number formatter. */
 const GEOMETRY_ROUNDING_FACTOR = 100;

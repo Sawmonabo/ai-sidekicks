@@ -32,7 +32,8 @@
 // told and `useSubjectScopedResource.ts` handles values that must be disposed. What becomes of a
 // value this class lets go of is `unheld-value-disposal.ts`.
 
-import { Emitter, type Unsubscribe } from "../emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "../emitter.js";
 
 import { UnheldValueDisposal, type SubjectScopedHolderOptions } from "./unheld-value-disposal.js";
 

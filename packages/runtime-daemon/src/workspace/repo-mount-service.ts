@@ -341,8 +341,9 @@ export class RepoMountService {
 
   /**
    * Detach a mount and archive its workspaces (a no-op if not `attached`); refuses with
-   * `RepoDetachConflictError` while one is `busy`. Rejects with `detach_notification_incomplete`
-   * if committed but an event append failed; the rows are the truth and a rerun is a no-op.
+   * `RepoDetachConflictError`, naming the running session, while one is `busy`. Rejects with
+   * `detach_notification_incomplete` if committed but an event append failed; the rows are the
+   * truth and a rerun is a no-op.
    */
   async detach(input: DetachRepoMountInput): Promise<RepoMountDetachOutcome> {
     const actor = input.actor ?? null;
@@ -412,11 +413,10 @@ export class RepoMountService {
       repo_mount_id: repoMountId,
     }) as DependentWorkspaceRow[];
 
-    const busyWorkspaceIds = dependents
-      .filter((dependent) => dependent.state === BUSY_WORKSPACE_STATE)
-      .map((dependent) => dependent.id);
-    if (busyWorkspaceIds.length > 0) {
-      throw new RepoDetachConflictError(busyWorkspaceIds);
+    // The refusal names one running session; the oldest busy workspace's, by the query's order.
+    const busyDependent = dependents.find((dependent) => dependent.state === BUSY_WORKSPACE_STATE);
+    if (busyDependent !== undefined) {
+      throw new RepoDetachConflictError(busyDependent.session_id);
     }
 
     const archivedWorkspaces: DependentWorkspaceRow[] = [];

@@ -63,11 +63,9 @@ function resolveDefaultDeps(
 }
 
 /** Per-session state, keyed by the sidecar-minted `s-{n}` session id. */
-interface SessionRecord {
-  /** Exit code once the sidecar has reported it, `null` while alive; `kill` re-emits from it. */
-  exitCode: number | null;
-  /** POSIX signal number; `undefined` for a normal exit. */
-  signalCode: number | undefined;
+interface PtySessionRecord {
+  /** `true` once `onExit` has fired for this session; write-once, so the exit is reported once. */
+  hasExited: boolean;
 }
 
 /**
@@ -88,7 +86,7 @@ interface OutstandingRequest {
 export class RustSidecarPtyHost implements PtyHost {
   private readonly childProcess: SidecarChildSupervisor;
 
-  private readonly sessions: Map<string, SessionRecord> = new Map();
+  private readonly sessions: Map<string, PtySessionRecord> = new Map();
 
   /**
    * Set at `shutdown()` entry: suppresses respawn and crash accounting for the deliberate exit and
@@ -169,14 +167,16 @@ export class RustSidecarPtyHost implements PtyHost {
     );
   }
 
-  /** Signals a session; an exited one re-emits its cached exit. Rejects for an unknown id. */
+  /**
+   * Signals a session; an exited one gets nothing and its exit is not reported again. Rejects for
+   * an unknown id.
+   */
   public async kill(sessionId: string, signal: PtySignal): Promise<void> {
-    const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       throw new Error(`RustSidecarPtyHost.kill: unknown sessionId '${sessionId}'`);
     }
-    if (record.exitCode !== null) {
-      this.fireExit(sessionId, record.exitCode, record.signalCode);
+    if (record.hasExited) {
       return;
     }
     await this.childProcess.ensureChild(this.shuttingDown);
@@ -191,13 +191,13 @@ export class RustSidecarPtyHost implements PtyHost {
     // Delete the record and remember the id before the kill request goes out, so an exit or data
     // frame arriving during the await is suppressed, not buffered as pre-spawn. The kill response
     // is matched by kind, so it still resolves without a record.
-    const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       return;
     }
     this.sessions.delete(sessionId);
     this.preSpawnBuffer.recordClosedSessionId(sessionId);
-    if (record.exitCode === null) {
+    if (!record.hasExited) {
       try {
         await this.sendRequest(
           { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
@@ -237,8 +237,8 @@ export class RustSidecarPtyHost implements PtyHost {
     this.shuttingDown = true;
 
     const activeSessionIds: string[] = Array.from(this.sessions.keys()).filter((sessionId) => {
-      const record: SessionRecord | undefined = this.sessions.get(sessionId);
-      return record !== undefined && record.exitCode === null;
+      const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+      return record !== undefined && !record.hasExited;
     });
 
     const perSessionOutcomes: Array<"drained" | "forced"> = await Promise.all(
@@ -332,12 +332,11 @@ export class RustSidecarPtyHost implements PtyHost {
       });
       // onExit fires with code 1 and no signal, as in NodePtyHost, not the -1 crash sentinel;
       // without it the consumer could wait forever if the sidecar reaps the child but sends no
-      // notification. The exitCode check prevents a double fire; a later real notification hits the
-      // duplicate branch.
-      const record: SessionRecord | undefined = this.sessions.get(sessionId);
-      if (record !== undefined && record.exitCode === null) {
-        record.exitCode = 1;
-        record.signalCode = undefined;
+      // notification. The hasExited check prevents a double fire; a later real notification hits
+      // the duplicate branch.
+      const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+      if (record !== undefined && !record.hasExited) {
+        record.hasExited = true;
         try {
           this.fireExit(sessionId, 1, undefined);
         } catch (err: unknown) {
@@ -499,16 +498,19 @@ export class RustSidecarPtyHost implements PtyHost {
    * SpawnResponse.
    */
   private handleExitNotification(notification: ExitCodeNotification): void {
-    const record: SessionRecord | undefined = this.sessions.get(notification.session_id);
+    const record: PtySessionRecord | undefined = this.sessions.get(notification.session_id);
     if (record !== undefined) {
-      if (record.exitCode !== null) {
+      if (record.hasExited) {
         // Duplicate. Still tick the shutdown waiter so a shutdown racing a re-emission converges.
         this.notifyShutdownWaiter(notification.session_id);
         return;
       }
-      record.exitCode = notification.exit_code;
-      record.signalCode = notification.signal_code ?? undefined;
-      this.fireExit(notification.session_id, notification.exit_code, record.signalCode);
+      record.hasExited = true;
+      this.fireExit(
+        notification.session_id,
+        notification.exit_code,
+        notification.signal_code ?? undefined,
+      );
       // Lets drainSingleSession finish once the real exit has been dispatched.
       this.notifyShutdownWaiter(notification.session_id);
       return;
@@ -577,10 +579,7 @@ export class RustSidecarPtyHost implements PtyHost {
         );
         return;
       }
-      this.sessions.set(envelope.session_id, {
-        exitCode: null,
-        signalCode: undefined,
-      });
+      this.sessions.set(envelope.session_id, { hasExited: false });
       this.replayPreSpawnEvents(envelope.session_id);
     }
     head.resolve(envelope);
@@ -617,14 +616,14 @@ export class RustSidecarPtyHost implements PtyHost {
         }
       }
       if (exit !== undefined) {
-        const record: SessionRecord | undefined = this.sessions.get(sessionId);
-        if (record === undefined || record.exitCode !== null) {
-          // The record is gone (same-tick teardown) or an exit was cached; deliver at most once.
+        const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+        if (record === undefined || record.hasExited) {
+          // The record is gone (same-tick teardown) or the exit already fired; deliver at most
+          // once.
           return;
         }
-        record.exitCode = exit.exit_code;
-        record.signalCode = exit.signal_code ?? undefined;
-        this.fireExit(sessionId, exit.exit_code, record.signalCode);
+        record.hasExited = true;
+        this.fireExit(sessionId, exit.exit_code, exit.signal_code ?? undefined);
       }
     });
     handle.unref();
@@ -676,15 +675,14 @@ export class RustSidecarPtyHost implements PtyHost {
   private fireCrashTimeOnExit(): void {
     const sessionIds: string[] = Array.from(this.sessions.keys());
     // Each session gets one terminal onExit: its real exit, the forced-kill exit from
-    // drainSingleSession, or the -1 below; the `exitCode !== null` check is the dedupe.
+    // drainSingleSession, or the -1 below; `hasExited` is the dedupe.
     for (const sessionId of sessionIds) {
-      const record: SessionRecord | undefined = this.sessions.get(sessionId);
+      const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
       if (record === undefined) {
         continue;
       }
-      if (record.exitCode === null) {
-        record.exitCode = -1;
-        record.signalCode = undefined;
+      if (!record.hasExited) {
+        record.hasExited = true;
         try {
           this.fireExit(sessionId, -1, undefined);
         } catch (err: unknown) {

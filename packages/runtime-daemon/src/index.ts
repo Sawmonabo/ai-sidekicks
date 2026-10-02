@@ -10,4 +10,4 @@ export type {
   TranslateSpawnCwdInput,
   WrappingShell,
 } from "./session/spawn-cwd-translator.js";
-export type { DaemonSessionSnapshot, StoredEvent } from "./session/types.js";
+export type { DaemonSessionRecord, StoredEvent } from "./session/types.js";

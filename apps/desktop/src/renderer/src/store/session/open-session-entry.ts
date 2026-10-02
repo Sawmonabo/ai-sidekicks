@@ -12,13 +12,8 @@
 //
 // A refused position degrades honestly. When the daemon answers `event.cursor_unresolvable` the
 // entry forgets the position, re-reads from the window's beginning through the same reader, and
-// records the refusal for the view and, with its cause, in the window's diagnostic capture. The
-// refused cursor is remembered so the next read does not submit it again (two reads per refresh
-// otherwise).
-//
-// The decision has its own notification because the store revision cannot carry it:
-// `initialize` refuses a snapshot behind the store's cursor, which is what the re-read after a
-// refused position answers with. The entry reports settlement through a registry callback.
+// records the refusal in the window's diagnostic capture. The refused cursor is remembered so the
+// next read does not submit it again (two reads per refresh otherwise).
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
@@ -32,13 +27,16 @@ import type { EntityProjectorTable } from "./entities/entities.js";
 import { ApplyQueue } from "./apply-queue.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
 import { type ApplyOutcome } from "./apply-outcome.js";
-import { SessionStore, type SessionSnapshot } from "./session-store.js";
+import { SessionStore, type SessionBaseState } from "./session-store.js";
 import {
   isUnresolvableCursorRejection,
-  refuseUnresolvableResume,
   resolveTimelineResume,
   type TimelineResumeDecision,
 } from "./timeline-resume.js";
+
+/** What the diagnostic capture records when the daemon refuses the submitted position. */
+const UNRESOLVABLE_RESUME_DETAIL =
+  "the remembered read position could not be resolved, so the log was re-read from the beginning of its window";
 
 /**
  * The read a refresh performs.
@@ -57,7 +55,7 @@ export type SessionSnapshotReader = (
   sessionId: string,
   reasons: readonly RefreshReason[],
   resumeFromCursor: string | undefined,
-) => Promise<SessionSnapshot | undefined>;
+) => Promise<SessionBaseState | undefined>;
 
 /**
  * Everything one open session needs. Declared here, in the lower module, because the registry
@@ -67,12 +65,6 @@ export type SessionSnapshotReader = (
 export interface OpenSessionEntryOptions {
   /** The read every session's refresh scheduler performs; required, or a refresh reads nothing. */
   readonly read: SessionSnapshotReader;
-  /**
-   * Called after every read that settles a resume decision, so a reading can subscribe to the
-   * decision rather than to a store transition that may not happen. Supplied by the registry
-   * because the fan-out belongs to the object views already hold.
-   */
-  readonly onTimelineResumeSettled?: () => void;
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
   readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
@@ -91,14 +83,8 @@ export class OpenSessionEntry {
   public readonly applyQueue: ApplyQueue;
   public readonly refreshScheduler: RefreshScheduler;
   /**
-   * What the newest completed read's cursor block said to do, or `undefined` before one has
-   * landed. Only the latest is kept, since each read carries the whole cursor block.
-   */
-  #timelineResume: TimelineResumeDecision | undefined = undefined;
-  /**
-   * The position the next read submits, or `undefined` for the window's beginning. Separate from
-   * the decision because they diverge after a refused position: the decision is the refusal a
-   * view renders, while the next read submits what the recovering re-read acknowledged.
+   * The position the next read submits, or `undefined` for the window's beginning. After a
+   * refused position it is what the recovering re-read acknowledged.
    */
   #resumeFromCursor: string | undefined = undefined;
   /**
@@ -107,12 +93,10 @@ export class OpenSessionEntry {
    * could be re-submitted, and a set would grow without bound in a long session.
    */
   #unresolvableCursor: string | undefined = undefined;
-  readonly #onTimelineResumeSettled: (() => void) | undefined;
   readonly #releaseCauseCapture: () => void;
   readonly #clock: Clock;
 
   public constructor(sessionId: string, options: OpenSessionEntryOptions) {
-    this.#onTimelineResumeSettled = options.onTimelineResumeSettled;
     const clock = options.clock ?? new RealClock();
     this.#clock = clock;
     this.store = new SessionStore({
@@ -181,15 +165,6 @@ export class OpenSessionEntry {
     });
   }
 
-  /**
-   * The resume decision the newest completed read settled, or `undefined` before one has
-   * landed. "No read has completed" is not any settled arm; showing the refusal for it would
-   * report a failed resume every time a session opened.
-   */
-  public get timelineResume(): TimelineResumeDecision | undefined {
-    return this.#timelineResume;
-  }
-
   /** Release the cause capture and dispose the queue and scheduler. */
   public dispose(): void {
     this.#releaseCauseCapture();
@@ -209,7 +184,7 @@ export class OpenSessionEntry {
     reasons: readonly RefreshReason[],
   ): Promise<void> {
     const submitted = this.#resumeFromCursor;
-    let snapshot: SessionSnapshot | undefined;
+    let snapshot: SessionBaseState | undefined;
     try {
       snapshot = await read(sessionId, reasons, submitted);
     } catch (rejection: unknown) {
@@ -220,21 +195,18 @@ export class OpenSessionEntry {
       // that carried a cursor, so a read with none cannot have raised it about our position.
       this.#unresolvableCursor = submitted;
       this.#resumeFromCursor = undefined;
-      const refused = refuseUnresolvableResume();
       windowDiagnosticCapture.record({
         at: diagnosticStampAt(this.#clock),
         severity: "warning",
         source: "store/session",
-        kind: refused.refusal.code,
-        detail: `session ${sessionId}: ${refused.refusal.detail}`,
+        kind: "resume-cursor-unresolvable",
+        detail: `session ${sessionId}: ${UNRESOLVABLE_RESUME_DETAIL}`,
       });
-      this.#settleTimelineResume(refused);
       snapshot = await read(sessionId, reasons, undefined);
       if (snapshot === undefined) {
         return;
       }
-      // The refusal stands as the decision. What the recovering read acknowledged is carried
-      // forward as the next position, and nothing else.
+      // What the recovering read acknowledged is carried forward as the next position.
       this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
       // The recovering read submitted nothing, so its window opens at the log's beginning.
       this.store.initialize(snapshot);
@@ -243,11 +215,7 @@ export class OpenSessionEntry {
     if (snapshot === undefined) {
       return;
     }
-    const decision = resolveTimelineResume(snapshot.timelineCursors);
-    this.#rememberNextResumePosition(decision);
-    // Settled before the base state and unconditionally, so a reader beside an initialized store
-    // sees this read's decision, and a completed read always says where the next starts.
-    this.#settleTimelineResume(decision);
+    this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
     // `initialize` is what clears the sticky degraded flag, so a completed re-pull lands here.
     // The submitted position travels with the snapshot because only this object knows it: the
     // stream replays from it, so it is where this window begins, and the reply names no oldest
@@ -255,12 +223,6 @@ export class OpenSessionEntry {
     this.store.initialize(
       submitted === undefined ? snapshot : { ...snapshot, readFromCursor: submitted },
     );
-  }
-
-  /** Hold the newest decision and tell the registry it moved. */
-  #settleTimelineResume(decision: TimelineResumeDecision): void {
-    this.#timelineResume = decision;
-    this.#onTimelineResumeSettled?.();
   }
 
   /**

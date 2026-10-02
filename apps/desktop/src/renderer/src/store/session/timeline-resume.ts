@@ -1,29 +1,13 @@
-// Where a store's next read of a session's stream starts, and what the console does when the
-// remembered position is refused. Pure: `open-session-entry.ts` acts on the decision.
+// Where a store's next read of a session's stream starts. Pure: `open-session-entry.ts` acts on
+// the decision and recovers when the daemon refuses the position it submitted.
 //
 // The decision reads the two members the wire schema carries (`latest` and optional
-// `acknowledged`). The cursor is opaque to the console, so there is no lost-event arm: a lost
-// row reaches the store as the sequence gap it already reconciles.
+// `acknowledged`). The cursor is opaque to the app, so there is no lost-event arm: a lost row
+// reaches the store as the sequence gap it already reconciles.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import { readWireErrorEnvelopeWithCode } from "@renderer/lib/wire-errors.js";
-import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
-
-/** The origin every refusal this module raises names. */
-export const TIMELINE_RESUME_ORIGIN = "timeline-resume";
-
-/**
- * Why a resume cycle was refused. Closed at one member: a reply with no `acknowledged`
- * position describes the reply, not an answer, so it restarts instead of being refused.
- */
-export const TIMELINE_RESUME_REFUSAL_CODES = ["resume-cursor-unresolvable"] as const;
-
-/** One refusal code, derived from the enumeration above. */
-export type TimelineResumeRefusalCode = (typeof TIMELINE_RESUME_REFUSAL_CODES)[number];
-
-/** The refusal this module raises, held to its own closed code union. */
-export type TimelineResumeRefusal = NarrowedRefusal<TimelineResumeRefusalCode>;
 
 /**
  * What a read said about where the stream picks up next. A union rather than a cursor plus a
@@ -38,10 +22,6 @@ export type TimelineResumeDecision =
   | {
       /** Nothing acknowledged: start at the window's beginning and submit no cursor. */
       readonly outcome: "restart";
-    }
-  | {
-      readonly outcome: "refused";
-      readonly refusal: TimelineResumeRefusal;
     };
 
 /**
@@ -55,24 +35,6 @@ export function resolveTimelineResume(cursors: unknown): TimelineResumeDecision 
   return acknowledged === undefined
     ? { outcome: "restart" }
     : { outcome: "resume", fromCursor: acknowledged };
-}
-
-/**
- * The refusal a caller records when the daemon could not resolve the cursor it sent. The detail
- * is for diagnostics, says what was done about it, and never carries the refused cursor.
- */
-export function refuseUnresolvableResume(): Extract<
-  TimelineResumeDecision,
-  { outcome: "refused" }
-> {
-  return {
-    outcome: "refused",
-    refusal: refuse(
-      TIMELINE_RESUME_ORIGIN,
-      "resume-cursor-unresolvable",
-      "the remembered read position could not be resolved, so the log was re-read from the beginning of its window",
-    ),
-  };
 }
 
 /**

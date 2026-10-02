@@ -5,8 +5,8 @@
 // to round offsets.
 
 import { type Clock } from "@renderer/lib/clock.js";
-import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { type AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { OverflowMeasurementBatch } from "../viewport/overflow-measurement-batch.js";
 import { type ScrollGeometry, type GeometryChangeCause } from "./geometry-sample.js";
 import { type ScrollCaller } from "./scroll-callers.js";
@@ -175,13 +175,13 @@ export class ScrollController {
 
   /**
    * Join the frame's phase one so this controller's reactive writes precede reveal work.
-   * A setter because the feed owns the coordinator and the viewport constructs this controller.
+   * A setter because the feed owns the scheduler and the viewport constructs this controller.
    */
-  public adoptFrameCoordinator(frameCoordinator: AnimationFrameCoordinator): void {
+  public adoptFrameScheduler(frameScheduler: AnimationFrameScheduler): void {
     if (this.#disposed) {
       return;
     }
-    this.#frameWrites.adopt(frameCoordinator);
+    this.#frameWrites.adopt(frameScheduler);
   }
 
   /**

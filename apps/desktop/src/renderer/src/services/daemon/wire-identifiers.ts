@@ -1,4 +1,4 @@
-// The console's one reading of a wire identifier. The store holds ids as plain strings while
+// The app's one reading of a wire identifier. The store holds ids as plain strings while
 // requests take branded ids, so the registered schema is read here once instead of being cast per
 // call site. A contracts `*Schema` is importable only in `services/`, so features consume these
 // `read*` functions, which return the value or `undefined`. They mint no refusal: whether an

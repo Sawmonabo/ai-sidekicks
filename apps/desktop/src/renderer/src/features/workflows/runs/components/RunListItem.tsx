@@ -8,17 +8,10 @@ import { memo } from "react";
 import type { InstantReading } from "@renderer/lib/instant.js";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime } from "@renderer/lib/wire-figures.js";
+import { UNREADABLE_FIGURE, formatDateTime } from "@renderer/lib/wire-figures.js";
 import { ParkBadge } from "../../components/ParkBadge.js";
 import type { OpenRun, WorkflowRunListRow } from "../run-list-projection.js";
 import type { WorkflowRunState } from "../run-list-rows.js";
-
-/**
- * What this row prints where the start is a value `workflowInstant` refused. The em dash is
- * restated because `lib/wire-figures.ts` keeps its glyph private and this row refuses under a
- * stricter policy than the formatter does.
- */
-const UNREADABLE_START = "—";
 
 /**
  * The start a row prints, taken from the reading the projection already made. `formatDateTime`
@@ -27,7 +20,7 @@ const UNREADABLE_START = "—";
  * unreadable.
  */
 function startFigureFor(startedAt: InstantReading): string {
-  return startedAt.kind === "malformed" ? UNREADABLE_START : formatDateTime(startedAt.text);
+  return startedAt.kind === "malformed" ? UNREADABLE_FIGURE : formatDateTime(startedAt.text);
 }
 
 /** How the sentence a run carries about its own ending reads on a row. */

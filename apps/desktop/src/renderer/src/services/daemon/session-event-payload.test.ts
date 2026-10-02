@@ -1,4 +1,4 @@
-// The decode boundary reads the wire's envelope and refuses the console's own projection shape.
+// The decode boundary reads the wire's envelope and refuses the app's own projection shape.
 // Both halves matter: a boundary that read the projection's names refused every canonical envelope
 // while the fixture handed it the projection and every assertion agreed. The envelopes here are
 // written member by member, not composed by `event-envelope.fixture.ts`, so the test checks the
@@ -91,7 +91,7 @@ function readOneEvent(envelope: unknown): ProjectedSessionEvent | undefined {
 }
 
 describe("readSessionStreamFrame — the registered envelope", () => {
-  it("decodes a wire envelope into the console's event, carrying its type as the kind", () => {
+  it("decodes a wire envelope into the app's event, carrying its type as the kind", () => {
     const reading = readFrameOf(registeredEnvelope({ actor: USER_ID }));
 
     expect(reading).toStrictEqual({
@@ -112,7 +112,7 @@ describe("readSessionStreamFrame — the registered envelope", () => {
   });
 
   it("decodes a system-emitted envelope with no actor at all", () => {
-    // `actor: null` is the wire's system arm. It must reach the console as an absence, not as the
+    // `actor: null` is the wire's system arm. It must reach the app as an absence, not as the
     // string "null" or an empty id, because the store hands every actor to the agent hue allocator.
     const decoded = readOneEvent(registeredEnvelope({ actor: null }));
 
@@ -136,7 +136,7 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
   });
 
   it("admits a type the census does not register, whatever category it names", () => {
-    // A higher-minor producer may send a type this console has no entry for, and the console keeps
+    // A higher-minor producer may send a type this app has no entry for, and the app keeps
     // it. Every category is swept so a check that refused one would be caught.
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(UNREGISTERED_TYPE as never)).toBe(false);
 
@@ -161,8 +161,8 @@ describe("readSessionStreamFrame — the drop mark", () => {
 });
 
 describe("readSessionStreamFrame — what it refuses", () => {
-  it("refuses the console's own projection shape", () => {
-    // The console's own field names, with no `category` or `version`, which a boundary still
+  it("refuses the app's own projection shape", () => {
+    // The app's own field names, with no `category` or `version`, which a boundary still
     // reading the projection would admit.
     const reading = readFrameOf({
       id: EVENT_ID,

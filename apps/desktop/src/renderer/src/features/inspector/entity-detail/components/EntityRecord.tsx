@@ -16,7 +16,7 @@ import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { EntityFacet } from "../entity-facets.js";
 
-/** What one entity record draws: identity, facets, and the wording of its absence arms. */
+/** What one entity record draws: identity, facets, and the wording of its empty-state arms. */
 export interface EntityRecordProps {
   /** The kind's glyph, from the console's glyph set. */
   readonly glyph: GlyphName;
@@ -47,7 +47,8 @@ export interface EntityRecordProps {
 
 /**
  * One entity's record. The arms rank: read not answered, then projection incomplete (above
- * absence, since a missing record proves nothing while incomplete), then absent, then the record.
+ * the absent arm, since a missing record proves nothing while incomplete), then absent, then the
+ * record.
  */
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   const subject = props.heading.toLowerCase();

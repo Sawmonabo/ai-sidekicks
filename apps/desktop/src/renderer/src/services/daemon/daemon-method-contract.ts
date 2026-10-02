@@ -1,9 +1,9 @@
-// The daemon methods the console calls, by name only. Request and reply types come from the
+// The daemon methods the app calls, by name only. Request and reply types come from the
 // daemon's method map in `@ai-sidekicks/contracts` and the schemas from each method's descriptor
 // (see `daemon-reply-registry.ts`), so a method's shape is stated once, by the contract.
 
 /**
- * Every daemon method the console calls, closed.
+ * Every daemon method the app calls, closed.
  *
  * Each entry must be a query or mutation the daemon's method map names: the reply registry types
  * entries with `DaemonParams` and `DaemonResult`, so a misspelled method or a subscription is a
@@ -23,5 +23,5 @@ export const REGISTERED_DAEMON_METHODS = [
   "highlight.read",
 ] as const;
 
-/** One daemon method the console calls. */
+/** One daemon method the app calls. */
 export type RegisteredDaemonMethod = (typeof REGISTERED_DAEMON_METHODS)[number];

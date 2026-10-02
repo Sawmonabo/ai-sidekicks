@@ -8,7 +8,7 @@ import { registerTerminalPane } from "@renderer/features/terminal/contributions/
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
+import { fixtureSessionBaseState } from "@renderer/services/daemon/session-base-state.fixture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js";
 import { renderSettled } from "../app-harness.js";
@@ -33,7 +33,7 @@ function terminalSessionStore(): SessionStore {
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
   store.initialize(
-    fixtureSessionSnapshot(TERMINAL_LEASE_SCENARIO, TERMINAL_LEASE_SCENARIO.sessionId),
+    fixtureSessionBaseState(TERMINAL_LEASE_SCENARIO, TERMINAL_LEASE_SCENARIO.sessionId),
   );
   store.applyBatch(
     TERMINAL_LEASE_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent),

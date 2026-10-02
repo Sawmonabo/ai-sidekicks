@@ -9,6 +9,7 @@
 // `workflowRunId` so rows do not move between reads. The park classification rides each parked
 // phase because the badge renders one park at a time. Shapes live in `run-list-rows.ts`.
 
+import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
 import { compareInstants, type InstantReading } from "@renderer/lib/instant.js";
 import { foldParkAttention, type WorkflowParkAttentionEntry } from "./park-attention-fold.js";
 import {
@@ -67,7 +68,9 @@ export class RunListProjection {
         const startDelta = compareInstants(left.startedAt, right.startedAt, "newest-first");
         // Then the run id: equal starts (same millisecond, or both unreadable) would otherwise
         // keep enumeration order and swap on screen between reads.
-        return startDelta !== 0 ? startDelta : workflowRunIdAscending(left, right);
+        return startDelta !== 0
+          ? startDelta
+          : compareCodeUnits(left.run.workflowRunId, right.run.workflowRunId);
       });
     // Folded from the sorted rows, so the entries come out in the list's own order.
     this.#parkAttention = foldParkAttention(
@@ -135,19 +138,6 @@ export function projectParkedPhases(
     }
   }
   return parkedPhases;
-}
-
-/**
- * The ordering tie-break. Compares by code unit, not `localeCompare`, so the order is the same
- * on every host.
- */
-function workflowRunIdAscending(left: WorkflowRunListRow, right: WorkflowRunListRow): number {
-  const leftRunId = left.run.workflowRunId;
-  const rightRunId = right.run.workflowRunId;
-  if (leftRunId === rightRunId) {
-    return 0;
-  }
-  return leftRunId < rightRunId ? -1 : 1;
 }
 
 /** One run's row, with every derived fact read off the snapshot exactly once. */

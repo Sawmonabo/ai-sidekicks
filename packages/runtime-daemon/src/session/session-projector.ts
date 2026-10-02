@@ -1,17 +1,17 @@
-// Pure fold from a session's event stream to a `DaemonSessionSnapshot`. It does no I/O; the
+// Pure fold from a session's event stream to a `DaemonSessionRecord`. It does no I/O; the
 // caller supplies events in `sequence ASC` order and the projector trusts that order.
 
-import type { DaemonSessionSnapshot, StoredEvent } from "./types.js";
+import type { DaemonSessionRecord, StoredEvent } from "./types.js";
 
 /**
- * Folds a session's events into a snapshot, or returns `null` for an empty list, since a
+ * Folds a session's events into a record, or returns `null` for an empty list, since a
  * session has at least its `session.created` event.
  *
  * Throws when the first event is not a `session.created` at sequence 0: a bootstrap at another
  * sequence means earlier events were lost or the producer broke the contract, and projecting
  * from it would present partial state as complete.
  */
-export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapshot | null {
+export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionRecord | null {
   if (events.length === 0) {
     return null;
   }
@@ -26,22 +26,19 @@ export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionSnapsho
       `replay: bootstrap 'session.created' must have sequence=0 (got sequence=${String(first.sequence)}); a non-zero bootstrap sequence indicates lost/corrupted earlier events or a producer-side bootstrap-contract violation`,
     );
   }
-  let snapshot: DaemonSessionSnapshot = bootstrapFromCreated(first);
+  let record: DaemonSessionRecord = bootstrapFromCreated(first);
   for (let i = 1; i < events.length; i++) {
-    snapshot = projectEvent(snapshot, events[i]!);
+    record = projectEvent(record, events[i]!);
   }
-  return snapshot;
+  return record;
 }
 
 /**
- * Applies one event to a snapshot and returns the new snapshot without mutating the input.
+ * Applies one event to a record and returns the new record without mutating the input.
  * Every type except `session.created` only advances `asOfSequence`; a `session.created` here
  * throws.
  */
-export function projectEvent(
-  snapshot: DaemonSessionSnapshot,
-  event: StoredEvent,
-): DaemonSessionSnapshot {
+export function projectEvent(record: DaemonSessionRecord, event: StoredEvent): DaemonSessionRecord {
   switch (event.type) {
     case "session.created":
       // A second `session.created` would replace the session's state mid-stream or duplicate
@@ -52,11 +49,11 @@ export function projectEvent(
       );
     default:
       // Every other event type only advances the sequence.
-      return { ...snapshot, asOfSequence: event.sequence };
+      return { ...record, asOfSequence: event.sequence };
   }
 }
 
-function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
+function bootstrapFromCreated(event: StoredEvent): DaemonSessionRecord {
   // The owner is the envelope's `actor`. A system-emitted bootstrap has `actor: null` (legal
   // on the wire), which stays `null` rather than an invented identity. An empty string is
   // normalized to `null` so readers check one absent form.

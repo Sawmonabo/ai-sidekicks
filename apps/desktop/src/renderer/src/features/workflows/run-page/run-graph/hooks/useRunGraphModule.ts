@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
-import type { RunGraphLoader, RunGraphModule } from "../run-graph-loader.js";
+import type { MemoizedLoad } from "@renderer/lib/memoized-load.js";
+import type { RunGraphModule } from "../run-graph-loader.js";
 
 /** Where the renderer's code is: still coming, here, or refused. */
 export type RunGraphModuleState =
@@ -30,7 +31,10 @@ const LOADING_GRAPH_MODULE: RunGraphModuleState = { status: "loading" };
  * drops a late settlement after unmount or retry. `isNeeded` false starts nothing. `retry`
  * bumps the attempt counter, so the loader (which drops its memo on rejection) is asked again.
  */
-export function useRunGraphModule(loader: RunGraphLoader, isNeeded: boolean): RunGraphModuleFetch {
+export function useRunGraphModule(
+  loader: MemoizedLoad<RunGraphModule>,
+  isNeeded: boolean,
+): RunGraphModuleFetch {
   const [graphModule, setGraphModule] = useState<RunGraphModuleState>(LOADING_GRAPH_MODULE);
   const [attempt, setAttempt] = useState(0);
 

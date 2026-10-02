@@ -1,6 +1,7 @@
 // Each owner's commands and chords, installed into the window's command registry.
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { CommandRegistry } from "./command-registry.js";
 import type { CommandDefinition, Keybinding } from "./command-types.js";
 import { commandRegistry } from "./window-command-registry.js";

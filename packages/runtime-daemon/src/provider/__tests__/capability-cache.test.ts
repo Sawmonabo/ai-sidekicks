@@ -34,7 +34,7 @@ function hydrationHit(
   const result: GetCapabilitiesResult = {
     capabilities,
     tools: [{ name: "bash", idempotency_class: "manual_reconcile_only" }],
-    cliVersion: { raw: "2.1.251 (Claude Code)", semver: "2.1.251" },
+    cliVersion: { rawVersion: "2.1.251 (Claude Code)", parsedVersion: "2.1.251" },
     ...(capabilities.flags.output_speed
       ? { outputSpeedLevels: [...PROVIDER_DRIVER_DESCRIPTORS[driverName].outputSpeedLevels] }
       : {}),
@@ -89,7 +89,7 @@ describe("DriverCapabilityCache", () => {
             contractVersion: "1.0.0",
           },
           tools: [],
-          cliVersion: { raw: "1.0.0", semver: "1.0.0" },
+          cliVersion: { rawVersion: "1.0.0", parsedVersion: "1.0.0" },
         },
       }),
     });

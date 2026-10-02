@@ -55,7 +55,7 @@ export interface MachinePresenceStream {
   readonly scope: "machine-presence";
 }
 
-/** One registered subscription this console opens. */
+/** One registered subscription this app opens. */
 export type SessionEventStream =
   | WholeSessionEventStream
   | NarrowedSessionEventStream
@@ -69,7 +69,7 @@ export type SessionEventStreamName =
   | typeof PRESENCE_EVENT_STREAM;
 
 /**
- * Every stream the console can subscribe to; the one authority on which name routes where. Keyed
+ * Every stream the app can subscribe to; the one authority on which name routes where. Keyed
  * by name, so a stream without a row, or a row nothing registers, fails the compile.
  */
 export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, SessionEventStream>> =

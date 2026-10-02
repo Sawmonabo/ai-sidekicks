@@ -8,7 +8,7 @@ import type { RunState, SessionEventType } from "@ai-sidekicks/contracts";
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 
 /** The state a run is created in. No transition ends in it, so `run.queued` is a creation. */
-const RUN_INITIAL_STATE: "queued" = "queued" satisfies RunState;
+export const RUN_INITIAL_STATE: "queued" = "queued" satisfies RunState;
 
 /** The kind of the event that creates a run, the one that can bring its agent into the session. */
 export const RUN_QUEUED_EVENT_KIND: Extract<SessionEventType, "run.queued"> =

@@ -7,7 +7,8 @@
 // members the controller rebuilds on change (rows, row keys, key projection and prune outcome,
 // compared by identity) and which it re-reads (the three reading fields, compared by value).
 
-import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
+import { Emitter } from "@renderer/lib/emitter.js";
 import { type ViewportSnapshot } from "./viewport-snapshot.js";
 
 /** Dependencies of a `ViewportPublication`. */

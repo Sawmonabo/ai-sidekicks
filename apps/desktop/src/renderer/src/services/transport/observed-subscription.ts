@@ -15,7 +15,7 @@
 // that opened a stream inside one of its scripted outages would contradict its script until the
 // next advance. The fixture's own subscribe arm is where that would be refused, not a branch here.
 
-import type { Unsubscribe } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "@shared/preload-api.js";
 import type { TransportReconnectSignal } from "./transport-reconnect.js";
 
 /**

@@ -14,7 +14,7 @@ import { SessionHeaderSkeleton } from "./SessionHeaderSkeleton.js";
 
 /** What the session header renders from. */
 export interface SessionHeaderProps {
-  /** `undefined` on a route that names no session, rendered as an absence. */
+  /** `undefined` on a route that names no session, rendered as an empty state. */
   readonly sessionId: string | undefined;
   /** `undefined` while the session's store has not opened: the loading arm. */
   readonly sessionStore: SessionStore | undefined;
