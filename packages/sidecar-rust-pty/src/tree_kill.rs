@@ -5,8 +5,7 @@
 //! its contract (both flags and a decimal PID) is unit-tested without spawning anything.
 //!
 //! The caller owns spawning and the timeout: reaping must not block the sidecar's main loop, so it
-//! runs `taskkill` with a bound and emits `ExitCodeNotification` even if reaping is incomplete. The
-//! Windows kill path in `pty_session` does not call this yet.
+//! runs `taskkill` with a bound and emits `ExitCodeNotification` even if reaping is incomplete.
 
 #![cfg(target_os = "windows")]
 

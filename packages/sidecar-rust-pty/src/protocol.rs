@@ -23,8 +23,8 @@ use serde_with::{base64::Base64, serde_as};
 
 /// POSIX signal name in `KillRequest.signal`, serialized verbatim (`"SIGINT"`, `"SIGTERM"`, ...).
 ///
-/// Unix delivers it with `kill(2)`. The Windows path is not wired yet; `kill_translation` holds the
-/// mapping it will use.
+/// Unix delivers it with `kill(2)`. On Windows the sidecar's kill returns an error;
+/// `kill_translation` holds the Windows mapping.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtySignal {
     #[serde(rename = "SIGINT")]
@@ -142,7 +142,7 @@ pub struct KillResponse {
 pub struct ExitCodeNotification {
     pub session_id: String,
     pub exit_code: i32,
-    /// Always `None` today: `portable-pty` does not expose the signal number.
+    /// Always `None`: `portable-pty` does not expose the signal number.
     pub signal_code: Option<i32>,
 }
 

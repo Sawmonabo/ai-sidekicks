@@ -1,8 +1,8 @@
 //! Sidecar dispatcher binary: a stdio-driven PTY multiplexer.
 //!
-//! It reads Content-Length-framed JSON [`crate::protocol::Envelope`]s from stdin, dispatches each
-//! by `kind` to the [`pty_session::PtySessionRegistry`], and writes responses plus async
-//! `DataFrame` and `ExitCodeNotification` events to stdout. Retries, backoff and respawn belong to
+//! It reads Content-Length-framed JSON [`Envelope`]s from stdin, dispatches each by `kind` to the
+//! [`PtySessionRegistry`], and writes responses plus async `DataFrame` and `ExitCodeNotification`
+//! events to stdout. Retries, backoff and respawn belong to
 //! the daemon (`packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`); this binary stays a
 //! pure stdio actor.
 //!
@@ -27,30 +27,16 @@
 //! once every sender has dropped. EOF mid-frame is an `Err(UnexpectedEof)` and a non-zero exit, so
 //! a truncated frame trips the supervisor's crash budget instead of exiting `0`.
 
-mod framing;
-mod protocol;
-mod pty_session;
-
-// Windows-only modules, each gated by a module-level `#![cfg(target_os = "windows")]`.
-// `allow(dead_code)` because the Windows arm of `pty_session::kill()` does not call them yet.
-#[cfg(target_os = "windows")]
-#[allow(dead_code)]
-mod kill_translation;
-#[cfg(target_os = "windows")]
-#[allow(dead_code)]
-mod tree_kill;
-#[cfg(target_os = "windows")]
-#[allow(dead_code)]
-mod wsl_pass_through;
-
 use std::io::{Error as IoError, ErrorKind};
 
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::framing::{read_frame, write_frame, FrameReadOutcome};
-use crate::protocol::{Envelope, KillResponse, ResizeResponse, SpawnResponse, WriteResponse};
-use crate::pty_session::{PtySessionError, PtySessionRegistry};
+use sidecar_rust_pty::framing::{read_frame, write_frame, FrameReadOutcome};
+use sidecar_rust_pty::protocol::{
+    Envelope, KillResponse, PingResponse, ResizeResponse, SpawnResponse, WriteResponse,
+};
+use sidecar_rust_pty::pty_session::{PtySessionError, PtySessionRegistry};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -242,10 +228,7 @@ async fn dispatch_one(
         Envelope::PingRequest(_) => {
             // Ping does not touch the registry; the reply shows the dispatcher loop is making
             // progress.
-            try_send_envelope(
-                dispatch_tx,
-                Envelope::PingResponse(crate::protocol::PingResponse {}),
-            )?;
+            try_send_envelope(dispatch_tx, Envelope::PingResponse(PingResponse {}))?;
         }
         // Responses and notifications are never legitimately inbound; log and skip.
         Envelope::SpawnResponse(_)
@@ -414,7 +397,7 @@ mod tests {
     use std::task::{Context, Poll};
     use std::time::Duration;
 
-    use crate::protocol::{DataFrame, DataStream, PingResponse};
+    use sidecar_rust_pty::protocol::{DataFrame, DataStream};
     use tokio::io::AsyncWrite;
     use tokio::time::timeout;
 
@@ -439,6 +422,19 @@ mod tests {
         fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
             Poll::Ready(Ok(()))
         }
+    }
+
+    /// Yields until `needle` appears in the writer's output, or one second passes.
+    async fn wait_for_output(
+        shared: &Arc<Mutex<Vec<u8>>>,
+        needle: &str,
+    ) -> Result<(), tokio::time::error::Elapsed> {
+        timeout(Duration::from_secs(1), async {
+            while !String::from_utf8_lossy(&shared.lock().unwrap()).contains(needle) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
     }
 
     // `finalize_result`: the dispatcher's error wins, and a writer error is never dropped when the
@@ -475,8 +471,8 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::BrokenPipe);
     }
 
-    /// Happy-path check: both channels closed with one queued envelope, and the final `try_recv`
-    /// drain delivers it. It does not catch the closed-arm spin; the next test does.
+    /// An envelope still queued when both channels close is written before the writer exits, by
+    /// the final `try_recv` drain. The arm order is random, so the drain runs on some runs only.
     #[tokio::test(flavor = "current_thread")]
     async fn write_merged_drains_buffered_outbound_when_both_channels_already_closed() {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Envelope>();
@@ -512,9 +508,7 @@ mod tests {
     /// alive, not only at exit.
     ///
     /// The spinning shape (`biased;` plus `continue` on a closed arm) never polls outbound, so the
-    /// envelope stays stranded until outbound also closes. The 20 ms wait is empirical headroom,
-    /// well under the 100 ms outer timeout; `start_paused` would make it deterministic but needs
-    /// tokio's `test-util` feature.
+    /// envelope stays stranded until outbound also closes and the wait below times out.
     #[tokio::test(flavor = "current_thread")]
     async fn write_merged_drains_outbound_while_dispatch_closed_and_outbound_still_open() {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Envelope>();
@@ -541,21 +535,10 @@ mod tests {
             write_merged(&mut w, outbound_rx, dispatch_rx).await
         });
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
-
         // The frame must be in the buffer before `outbound_tx` drops.
-        {
-            let snap = shared.lock().unwrap();
-            assert!(
-                std::str::from_utf8(&snap)
-                    .map(|s| s.contains("\"data_frame\""))
-                    .unwrap_or(false),
-                "DataFrame was not drained while outbound_tx was alive (the writer \
-                 hot-spun on closed dispatch_rx instead of polling outbound_rx). \
-                 Buffer contents: {:?}",
-                String::from_utf8_lossy(&snap),
-            );
-        }
+        wait_for_output(&shared, "\"data_frame\"").await.expect(
+            "DataFrame not drained while outbound_tx was alive: the writer spun on dispatch_rx",
+        );
 
         // Close outbound so the writer reaches its exit branch.
         drop(outbound_tx);
@@ -650,8 +633,10 @@ mod tests {
             }
         });
 
-        // Let the writer run under sustained dispatch pressure.
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Let the writer run under sustained dispatch pressure until the `DataFrame` is out.
+        wait_for_output(&shared, "\"data_frame\"")
+            .await
+            .expect("DataFrame missing from writer output");
 
         // Stop the producer and close outbound so the writer can exit.
         producer.abort();
