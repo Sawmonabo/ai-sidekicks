@@ -79,22 +79,58 @@ export const RemovedWorktreeRequestSchema: z.ZodType<
 > = z.object({ removedWorktreeId: RemovedWorktreeIdSchema }).strict();
 
 /**
- * The `repo.worktreeRestore` result: the tree made again at `path`, on its own branch, or on
- * `<branch>-restored` when its branch has moved since or another worktree holds it (`onNewBranch`).
- * The kept copy stays until it is deleted, whether or not the put-back was refused.
+ * Why a put-back was refused: the project is no longer attached; the repository is no longer
+ * at `path`; or a worktree named `name` (the tree's `<name>-restored`) already exists.
  */
-export interface WorktreeRestoreResponse {
-  worktreeId: WorktreeId;
-  path: string;
-  branch: string;
-  onNewBranch: boolean;
-}
+export type WorktreeRestoreRefusal =
+  | { reason: "project_not_attached" }
+  | { reason: "repository_missing"; path: string }
+  | { reason: "name_taken"; name: string };
+
+/**
+ * The `repo.worktreeRestore` result: the tree made again at `path`, on its own branch, or on
+ * `<branch>-restored` when its branch has moved since or another worktree holds it (`onNewBranch`);
+ * or the refusal. The kept copy stays until it is deleted, whether or not the put-back was refused.
+ */
+export type WorktreeRestoreResponse =
+  | {
+      outcome: "restored";
+      worktreeId: WorktreeId;
+      path: string;
+      branch: string;
+      onNewBranch: boolean;
+    }
+  | { outcome: "refused"; refusal: WorktreeRestoreRefusal };
 /** Wire schema for {@link WorktreeRestoreResponse}. */
-export const WorktreeRestoreResponseSchema: z.ZodType<WorktreeRestoreResponse> = z
-  .object({
-    worktreeId: WorktreeIdSchema,
-    path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeRestoreResponse.path"),
-    branch: wireUncappedFreeFormString("WorktreeRestoreResponse.branch"),
-    onNewBranch: z.boolean(),
-  })
-  .strict();
+export const WorktreeRestoreResponseSchema: z.ZodType<WorktreeRestoreResponse> =
+  z.discriminatedUnion("outcome", [
+    z
+      .object({
+        outcome: z.literal("restored"),
+        worktreeId: WorktreeIdSchema,
+        path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeRestoreResponse.path"),
+        branch: wireUncappedFreeFormString("WorktreeRestoreResponse.branch"),
+        onNewBranch: z.boolean(),
+      })
+      .strict(),
+    z
+      .object({
+        outcome: z.literal("refused"),
+        refusal: z.discriminatedUnion("reason", [
+          z.object({ reason: z.literal("project_not_attached") }).strict(),
+          z
+            .object({
+              reason: z.literal("repository_missing"),
+              path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeRestoreRefusal.path"),
+            })
+            .strict(),
+          z
+            .object({
+              reason: z.literal("name_taken"),
+              name: wireUncappedFreeFormString("WorktreeRestoreRefusal.name"),
+            })
+            .strict(),
+        ]),
+      })
+      .strict(),
+  ]);

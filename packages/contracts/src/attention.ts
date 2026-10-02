@@ -48,6 +48,14 @@ export type AttentionBannerState = (typeof ATTENTION_BANNER_STATE_VALUES)[number
 export const ATTENTION_BANNER_STATES: readonly AttentionBannerState[] =
   ATTENTION_BANNER_STATE_VALUES;
 
+const ATTENTION_WEB_ADDRESS_STATE_VALUES = ["pending", "delivered", "undelivered"] as const;
+
+/** Where an entry's message to the person's web address stands. */
+export type AttentionWebAddressState = (typeof ATTENTION_WEB_ADDRESS_STATE_VALUES)[number];
+/** Every {@link AttentionWebAddressState}. */
+export const ATTENTION_WEB_ADDRESS_STATES: readonly AttentionWebAddressState[] =
+  ATTENTION_WEB_ADDRESS_STATE_VALUES;
+
 /**
  * The longest id an attention entry carries: its own, its moment's, its run's and its
  * source event's. The daemon mints each of them.
@@ -89,6 +97,12 @@ export interface AttentionItem {
   /** Set once the state that produced the item resolves; absent means outstanding. */
   readonly resolvedAt?: string | undefined;
   readonly bannerState: AttentionBannerState;
+  /**
+   * Where the entry's message to the web address stands, and how many sends it took; both
+   * present exactly when the entry is sent to a web address.
+   */
+  readonly webAddressState?: AttentionWebAddressState | undefined;
+  readonly webAddressAttemptCount?: number | undefined;
   readonly seen: boolean;
 }
 
@@ -115,9 +129,18 @@ export const AttentionItemSchema: z.ZodType<AttentionItem> = z
     createdAt: z.iso.datetime({ offset: true }),
     resolvedAt: z.iso.datetime({ offset: true }).optional(),
     bannerState: z.enum(ATTENTION_BANNER_STATE_VALUES),
+    webAddressState: z.enum(ATTENTION_WEB_ADDRESS_STATE_VALUES).optional(),
+    webAddressAttemptCount: z.number().int().nonnegative().optional(),
     seen: z.boolean(),
   })
   .strict()
+  .refine(
+    (item) => (item.webAddressState === undefined) === (item.webAddressAttemptCount === undefined),
+    {
+      message: "webAddressState and webAddressAttemptCount are present together",
+      path: ["webAddressAttemptCount"],
+    },
+  )
   .refine((item) => (item.trigger === "workflow_notify") === (item.stepId !== undefined), {
     message: "stepId is present exactly on a workflow_notify item",
     path: ["stepId"],

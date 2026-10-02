@@ -108,11 +108,20 @@ export interface AgentDefinitionBindingsDraft {
  * to exactly one binding.
  */
 function refineOneBindingPerDriver(
-  bindings: { default: AgentProviderBinding; overrides?: AgentProviderBinding[] | undefined },
+  bindings: {
+    default: { driverName?: ProviderName | undefined };
+    overrides?: Array<{ driverName?: ProviderName | undefined }> | undefined;
+  },
   context: z.RefinementCtx,
 ): void {
-  const seenDrivers = new Set<ProviderName>([bindings.default.driverName]);
+  const seenDrivers = new Set<ProviderName>();
+  if (bindings.default.driverName !== undefined) {
+    seenDrivers.add(bindings.default.driverName);
+  }
   for (const [index, override] of (bindings.overrides ?? []).entries()) {
+    if (override.driverName === undefined) {
+      continue;
+    }
     if (seenDrivers.has(override.driverName)) {
       context.addIssue({
         code: "custom",
@@ -138,6 +147,50 @@ export const AgentDefinitionBindingsDraftSchema: z.ZodType<
   .object({
     default: AgentProviderBindingSchema,
     overrides: z.array(AgentProviderBindingSchema).optional(),
+  })
+  .strict()
+  .superRefine(refineOneBindingPerDriver);
+
+/**
+ * A binding as the list serves it: `driverName` where the file names a provider this app runs,
+ * or `unsupportedProviderName`, the name the file gave, where it names one the app does not.
+ * Exactly one of the two is present.
+ */
+export interface AgentListedProviderBinding extends Omit<AgentProviderBinding, "driverName"> {
+  driverName?: ProviderName | undefined;
+  unsupportedProviderName?: string | undefined;
+}
+/** Parses an {@link AgentListedProviderBinding}. */
+export const AgentListedProviderBindingSchema: z.ZodType<AgentListedProviderBinding> = z
+  .object({
+    driverName: ProviderNameSchema.optional(),
+    unsupportedProviderName: providerTokenSchema(
+      "AgentListedProviderBinding.unsupportedProviderName",
+    ).optional(),
+    modelId: providerTokenSchema("AgentListedProviderBinding.modelId"),
+    providerAccountId: ProviderAccountIdSchema.nullable(),
+    effort: providerTokenSchema("AgentListedProviderBinding.effort").nullable(),
+    outputSpeed: providerTokenSchema("AgentListedProviderBinding.outputSpeed").optional(),
+  })
+  .strict()
+  .refine(
+    (binding) =>
+      (binding.driverName === undefined) !== (binding.unsupportedProviderName === undefined),
+    {
+      message: "A listed binding names a provider the app runs or the one it does not, not both.",
+      path: ["driverName"],
+    },
+  );
+
+/** A definition's bindings as the list serves them. */
+export interface AgentListedBindings {
+  default: AgentListedProviderBinding;
+  overrides: AgentListedProviderBinding[];
+}
+const AgentListedBindingsSchema: z.ZodType<AgentListedBindings> = z
+  .object({
+    default: AgentListedProviderBindingSchema,
+    overrides: z.array(AgentListedProviderBindingSchema),
   })
   .strict()
   .superRefine(refineOneBindingPerDriver);
@@ -259,7 +312,8 @@ export type AgentDefinitionScope = (typeof AGENT_DEFINITION_SCOPES)[number];
 /**
  * One definition as the list serves it: the record, where it lives, and two
  * provider facts. Each is its own member and none excludes another: an orphaned
- * record can also carry a load error.
+ * record can also carry a load error. Its bindings are listed bindings, so a file
+ * naming a provider the app does not run is listed too.
  *
  * - `pluginName` is present exactly on a plugin's agent, which is read-only.
  * - `projectId` is present exactly when `scope` is `project`.
@@ -270,7 +324,8 @@ export type AgentDefinitionScope = (typeof AGENT_DEFINITION_SCOPES)[number];
  * - `disabledInProvider`: the provider's own configuration switches the agent off.
  * - `loadError`: its file failed the daemon's own parse, with the reason.
  */
-export interface AgentDefinitionListEntry extends AgentDefinition {
+export interface AgentDefinitionListEntry extends Omit<AgentDefinition, "bindings"> {
+  bindings: AgentListedBindings;
   origin: AgentDefinitionOrigin;
   pluginName?: string | undefined;
   scope: AgentDefinitionScope;
@@ -319,6 +374,7 @@ export function refinePluginOrigin(
 export const AgentDefinitionListEntrySchema: z.ZodType<AgentDefinitionListEntry> = z
   .object({
     ...agentDefinitionFields,
+    bindings: AgentListedBindingsSchema,
     origin: z.enum(AGENT_DEFINITION_ORIGINS),
     pluginName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "pluginName").optional(),
     scope: z.enum(AGENT_DEFINITION_SCOPES),
@@ -640,6 +696,7 @@ export const AGENT_RESOLUTION_REFUSED_REASONS = [
   "effort_unsupported",
   "account_unavailable",
   "allowlist_unrealizable",
+  "provider_unsupported",
 ] as const;
 /** One of {@link AGENT_RESOLUTION_REFUSED_REASONS}. */
 export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REASONS)[number];
@@ -654,6 +711,8 @@ export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REAS
  * - `account_unavailable`: the pinned account this machine no longer holds.
  * - `allowlist_unrealizable`: the allowlisted tools that have left the catalog, and
  *   the tools the driver has.
+ * - `provider_unsupported`: the provider name the definition's file carries, which
+ *   this app does not run, until the person picks an installed provider.
  */
 export type AgentResolutionRefusedDetails =
   | {
@@ -678,6 +737,11 @@ export type AgentResolutionRefusedDetails =
       reason: "allowlist_unrealizable";
       toolNames: string[];
       supportedToolNames: string[];
+    }
+  | {
+      definitionId: AgentDefinitionId;
+      reason: "provider_unsupported";
+      unsupportedProviderName: string;
     };
 /** Parses {@link AgentResolutionRefusedDetails}. */
 export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefusedDetails> =
@@ -713,4 +777,34 @@ export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefus
         supportedToolNames: z.array(toolNameSchema),
       })
       .strict(),
+    z
+      .object({
+        definitionId: AgentDefinitionIdSchema,
+        reason: z.literal("provider_unsupported"),
+        unsupportedProviderName: providerTokenSchema("unsupportedProviderName"),
+      })
+      .strict(),
   ]);
+
+/** A definition update the daemon refused. */
+export type AgentUpdateRefusedCode = "agent.update_refused";
+/** The code of a definition update the daemon refused. */
+export const AGENT_UPDATE_REFUSED_CODE: AgentUpdateRefusedCode = "agent.update_refused";
+
+/**
+ * Why an update was refused: `plugin_read_only`, the definition is a plugin's agent,
+ * which is read-only; `not_orphaned`, a reattach named a record that is not orphaned.
+ */
+export const AGENT_UPDATE_REFUSED_REASONS = ["plugin_read_only", "not_orphaned"] as const;
+/** One of {@link AGENT_UPDATE_REFUSED_REASONS}. */
+export type AgentUpdateRefusedReason = (typeof AGENT_UPDATE_REFUSED_REASONS)[number];
+
+/** The update refusal's details: the definition and why. */
+export interface AgentUpdateRefusedDetails {
+  definitionId: AgentDefinitionId;
+  reason: AgentUpdateRefusedReason;
+}
+/** Parses {@link AgentUpdateRefusedDetails}. */
+export const AgentUpdateRefusedDetailsSchema: z.ZodType<AgentUpdateRefusedDetails> = z
+  .object({ definitionId: AgentDefinitionIdSchema, reason: z.enum(AGENT_UPDATE_REFUSED_REASONS) })
+  .strict();
