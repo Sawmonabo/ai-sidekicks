@@ -8,7 +8,7 @@ import { ProviderListResponseSchema, ProviderUpdateRequestSchema } from "../prov
 function claudeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     provider: "claude",
-    installation: { state: "installed", version: "2.1.271" },
+    installation: { state: "installed", rawVersion: "2.1.271", parsedVersion: "2.1.271" },
     commandPath: null,
     availableForNewSessions: true,
     helpersAtOnce: null,
@@ -28,7 +28,12 @@ function claudeRow(overrides: Record<string, unknown> = {}): Record<string, unkn
 function codexRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     provider: "codex",
-    installation: { state: "tooOld", version: "0.140.0", neededVersion: "0.156.0" },
+    installation: {
+      state: "tooOld",
+      rawVersion: "codex-cli 0.140.0",
+      parsedVersion: "0.140.0",
+      neededVersion: "0.156.0",
+    },
     commandPath: "/Users/person/.local/bin/codex",
     availableForNewSessions: false,
     helpersAtOnce: 4,
