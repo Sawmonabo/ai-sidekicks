@@ -87,7 +87,7 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Delivered by the launch-time `--agents` definitions, which the control-request channel cannot interrogate.",
+      "Delivered by the `agents` map on the session's `initialize` request, which the control-request channel cannot interrogate afterward.",
   },
   context_compaction: {
     detectionSource: "static",

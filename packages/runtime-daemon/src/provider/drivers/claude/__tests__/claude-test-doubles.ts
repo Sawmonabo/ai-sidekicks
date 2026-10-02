@@ -5,6 +5,7 @@
 import type { ApplyInterventionParams, RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { OutboundTextFrame } from "../../../outbound-frame.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
 import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
@@ -16,7 +17,6 @@ import type {
   ClaudeControlResponse,
   ClaudeInboundFrameObservation,
   ClaudeResumedSessionAttachment,
-  ClaudeRewoundSessionAttachment,
   ClaudeRunDispatch,
   ClaudeRunDispatchResolver,
   ClaudeSessionAttachment,
@@ -26,7 +26,6 @@ import type {
   ClaudeSessionSpawnRequest,
   ClaudeSessionTransport,
   ClaudeUserTextDelivery,
-  ClaudeUserTextFrame,
   ClaudeUserTextWriteAttempt,
 } from "../session-transport.js";
 import type { CreateSessionParams, StartRunParams } from "../../../provider-driver.js";
@@ -58,7 +57,7 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
 /** In-memory channel that records every write and control request and lets a test drive frames. */
 export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   readonly providerSessionId: string;
-  readonly sentTextFrames: ClaudeUserTextFrame[] = [];
+  readonly sentTextFrames: OutboundTextFrame[] = [];
   readonly controlRequests: ClaudeControlRequest[] = [];
   readonly disposals: ClaudeChannelDisposalReason[] = [];
   controlResponse: ClaudeControlResponse = { subtype: "success" };
@@ -97,7 +96,7 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
     return this.sentTextFrames.map((frame) => frame.authoredText);
   }
 
-  async sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt> {
+  async sendUserText(frame: OutboundTextFrame): Promise<ClaudeUserTextWriteAttempt> {
     this.sendUserTextAttempts += 1;
     this.onSendUserTextAttempt?.(this.sendUserTextAttempts);
     if (this.sendUserTextRejection !== undefined) {
@@ -290,7 +289,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
 
   async rewindSession(
     request: ClaudeSessionRewindRequest,
-  ): Promise<ClaudeRewoundSessionAttachment> {
+  ): Promise<ClaudeResumedSessionAttachment> {
     this.rewindRequests.push(request);
     this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await this.establishmentGate;

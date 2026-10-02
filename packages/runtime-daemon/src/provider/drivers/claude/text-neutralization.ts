@@ -7,6 +7,7 @@ import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type OutboundFrameTripwire,
+  type OutboundTextFrame,
   type OutboundTextFrameWriter,
   type RuntimeBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
@@ -19,7 +20,6 @@ import {
   type ClaudeRunDispatch,
   type ClaudeProviderProcess,
   type ClaudeUserTextDelivery,
-  type ClaudeUserTextFrame,
   type ClaudeUserTextWriteAttempt,
   RUN_OPENING_FRAME_ORIGIN,
 } from "./session-transport.js";
@@ -47,7 +47,7 @@ export interface ClaudeTextNeutralizationDependencies extends Pick<
  */
 export async function attemptClaudeFrameWrite(
   channel: ClaudeProviderProcess,
-  frame: ClaudeUserTextFrame,
+  frame: OutboundTextFrame,
 ): Promise<ClaudeUserTextWriteAttempt> {
   try {
     return await channel.sendUserText(frame);
@@ -87,10 +87,7 @@ export class ClaudeTextNeutralization {
    * Composes one run-opening frame, admits it to the tripwire and binds the run route. Every
    * attempt repeats all three, since an unregistered frame is unwatched.
    */
-  registerOpeningDispatch(
-    dispatch: ClaudeRunDispatch,
-    params: StartRunParams,
-  ): ClaudeUserTextFrame {
+  registerOpeningDispatch(dispatch: ClaudeRunDispatch, params: StartRunParams): OutboundTextFrame {
     // Composed only here, so neutralization sits on the only path to the wire. The origin is a
     // literal, not a `ClaudeRunDispatch` member: `driver_command` would deliver bytes verbatim and
     // exempt the turn from the tripwire.
@@ -120,7 +117,7 @@ export class ClaudeTextNeutralization {
     readonly sessionId: SessionId;
     readonly runId: RunId;
     readonly channel: ClaudeProviderProcess;
-    readonly frame: ClaudeUserTextFrame;
+    readonly frame: OutboundTextFrame;
     readonly delivery: ClaudeUserTextDelivery;
   }): void {
     if (ruling.delivery === "unsent") {
@@ -189,7 +186,7 @@ export class ClaudeTextNeutralization {
       if (!tripped) {
         tripped = true;
         // Quarantined first and on both axes, so a caller reacting synchronously cannot reach the
-        // process that swallowed the text by either door.
+        // process that swallowed the text by either path.
         this.#runtimeBindingQuarantine.disposeSession(sessionId);
       }
       this.#runtimeBindingQuarantine.disposeRun(runId, sessionId);

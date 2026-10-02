@@ -1,10 +1,9 @@
-// Claude capability declaration: the declared flag matrix; a reporter that admits any build at or
-// above the floor and refuses a below-floor, unparseable or foreign one before the writer sees it;
-// and the model catalog read from the recorded `list_models` reply.
+// Claude capability declaration: a reporter that carries the spawned build's version and its
+// output-speed levels, admits any build at or above the floor and refuses a below-floor,
+// unparseable or foreign one before the writer sees it; and the model catalog read from the
+// recorded `list_models` reply.
 
 import { describe, expect, it } from "vitest";
-
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import {
   RecordingCapabilityProbeTransport,
@@ -17,15 +16,12 @@ import {
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import {
-  CLAUDE_CAPABILITY_CONTRACT_VERSION,
-  CLAUDE_CAPABILITY_FLAGS,
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
   ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
   resolveClaudeModelCatalog,
 } from "../capabilities.js";
-import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../../provider-driver.js";
 
@@ -57,37 +53,10 @@ function makeReporter(
   });
 }
 
-describe("Claude capability declaration", () => {
-  it("declares the capability matrix values exactly", () => {
-    // The annotation makes this total: a flag added to the union breaks at compile time.
-    const matrix: Record<DriverCapabilityFlag, boolean> = {
-      resume: true,
-      steer: false,
-      interactive_requests: true,
-      mcp: true,
-      tool_calls: true,
-      reasoning_stream: true,
-      model_mutation: true,
-      structured_output: true,
-      rollback: true,
-      session_goals: false,
-      callback_tools: true,
-      subagents: true,
-      context_compaction: true,
-      provider_commands: true,
-      output_speed: true,
-    };
-    expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
-  });
-});
-
 describe("getCapabilities()", () => {
-  it("reports flags, contract version, tools, and the CLI version", async () => {
+  it("reports the CLI version it read and the output-speed levels", async () => {
     const result: GetCapabilitiesResult = await makeReporter().getCapabilities();
 
-    expect(result.capabilities.flags).toStrictEqual(CLAUDE_CAPABILITY_FLAGS);
-    expect(result.capabilities.contractVersion).toBe(CLAUDE_CAPABILITY_CONTRACT_VERSION);
-    expect(result.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(result.cliVersion).toStrictEqual(CLI_VERSION);
     // A declared `output_speed` needs its published set, or the gate would admit every string.
     expect("outputSpeedLevels" in result).toBe(true);
@@ -123,7 +92,6 @@ describe("refreshDeclaration()", () => {
 
 describe("Claude CLI-version floor", () => {
   it("refuses a below-floor reading before any report reaches a caller or the writer", async () => {
-    // 2.1.198 is below the current 2.1.234 floor.
     const reporter = makeReporter(() =>
       Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
     );

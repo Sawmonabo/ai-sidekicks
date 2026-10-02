@@ -87,34 +87,42 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     });
   }
 
+  /** Spawns and registers a new session; see {@link ClaudeSessionLifecycle.createSession}. */
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     return await this.#lifecycle.createSession(params);
   }
 
+  /** Resumes a session by its handle; see {@link ClaudeSessionLifecycle.resumeSession}. */
   async resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     return await this.#lifecycle.resumeSession(params);
   }
 
+  /** Writes a run's opening text; see {@link ClaudeSessionLifecycle.startRun}. */
   async startRun(params: StartRunParams): Promise<void> {
     await this.#lifecycle.startRun(params);
   }
 
+  /** Interrupts a run's turn; see {@link ClaudeSessionLifecycle.interruptRun}. */
   async interruptRun(params: InterruptRunParams): Promise<void> {
     await this.#lifecycle.interruptRun(params);
   }
 
+  /** Applies a steer, interrupt or cancel; see {@link ClaudeInterventionDispatcher}. */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     return await this.#interventionDispatcher.applyIntervention(params);
   }
 
+  /** Closes a session's channel; see {@link ClaudeSessionLifecycle.closeSession}. */
   async closeSession(params: CloseSessionParams): Promise<void> {
     await this.#lifecycle.closeSession(params);
   }
 
+  /** Forks the conversation at a message; see {@link ClaudeSessionLifecycle.forkConversation}. */
   async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     return await this.#lifecycle.forkConversation(params);
   }
 
+  /** Probes authentication without a turn; see {@link ClaudeSessionLifecycle.probeAuth}. */
   async probeAuth(): Promise<DriverAuthProbeResult> {
     return await this.#lifecycle.probeAuth();
   }
@@ -124,10 +132,12 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     return await resolveClaudeModelCatalog(this.#modelCatalogExchange);
   }
 
+  /** Compacts a session's context; see {@link ClaudeSessionLifecycle.compactContext}. */
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     return await this.#lifecycle.compactContext(params);
   }
 
+  /** Lists the provider's commands; see {@link ClaudeSessionLifecycle.listProviderCommands}. */
   async listProviderCommands(
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {

@@ -64,8 +64,8 @@ export class ClaudeHandshakeRegister {
     this.#handshakeBySession.delete(sessionId);
   }
 
-  // Answers only for the process the declaration was read from. The stamp is redundant today
-  // (registration clears the record and retired channels are refused first); it is a last guard.
+  // Answers only for the process the declaration was read from. The stamp is a last guard behind
+  // registration clearing the record and retired channels being refused first.
   heldHandshakeFor(
     sessionId: SessionId,
     providerSessionId: string,

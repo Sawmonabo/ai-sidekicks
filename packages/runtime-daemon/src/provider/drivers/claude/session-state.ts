@@ -34,7 +34,7 @@ import type {
 /**
  * One provider session's `system/init` declaration, stamped with the provider session id it was
  * observed under. A rewind forks a new process behind the same `SessionId`, so reads check the
- * stamp and answer "not yet observed" rather than with the dead process's declaration.
+ * stamp and answer as unobserved rather than with the dead process's declaration.
  */
 export interface ClaudeHeldHandshake {
   readonly providerSessionId: string;

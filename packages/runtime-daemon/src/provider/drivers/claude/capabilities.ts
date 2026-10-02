@@ -40,43 +40,42 @@ import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provid
 export const CLAUDE_DRIVER_NAME = "claude" as const;
 
 /** The semver the writer compares to detect change; bump it when the declared shape changes. */
-export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
+const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
 
 /**
  * Claude's capability declaration, total over `DRIVER_CAPABILITY_FLAGS` so a new flag breaks
  * compilation until decided. Frozen; `getCapabilities()` hands out a fresh spread.
  */
-export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
-  Object.freeze({
-    // `--resume` / `--resume-session-at`.
-    resume: true,
-    // The driver sends no steer, so steer degrades to queue plus interrupt, a reported
-    // degradation; declaring `true` would turn it into a lost message.
-    steer: false,
-    // Control-request registry: tool-permission and clarification requests.
-    interactive_requests: true,
-    // `--mcp-config`. The provider can invoke MCP tools, but the daemon has no census of them: an
-    // MCP-discovered tool still floors to `manual_reconcile_only` (`./tools.ts`).
-    mcp: true,
-    tool_calls: true,
-    reasoning_stream: true,
-    model_mutation: true,
-    // `--json-schema` constrains the final output to a supplied schema.
-    structured_output: true,
-    // Composed from resume-at plus `--fork-session`.
-    rollback: true,
-    session_goals: false,
-    callback_tools: true,
-    // `--agents` AgentDefinitions (provider-native in-session subagents).
-    subagents: true,
-    // Emulated: dispatches the provider's own compaction command as a `driver_command` frame,
-    // checked against the command enumeration before and typed evidence after.
-    context_compaction: true,
-    provider_commands: true,
-    // The handshake declares an accelerated-output state; the flag does not promise the mode is
-    // available (the binding holds what the provider declared).
-    output_speed: true,
-  });
+const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> = Object.freeze({
+  // `--resume` / `--resume-session-at`.
+  resume: true,
+  // The driver sends no steer, so steer degrades to queue plus interrupt, a reported
+  // degradation; declaring `true` would turn it into a lost message.
+  steer: false,
+  // Control-request registry: tool-permission and clarification requests.
+  interactive_requests: true,
+  // `--mcp-config`. The provider can invoke MCP tools, but the daemon has no census of them: an
+  // MCP-discovered tool still floors to `manual_reconcile_only` (`./tools.ts`).
+  mcp: true,
+  tool_calls: true,
+  reasoning_stream: true,
+  model_mutation: true,
+  // `--json-schema` constrains the final output to a supplied schema.
+  structured_output: true,
+  // Composed from resume-at plus `--fork-session`.
+  rollback: true,
+  session_goals: false,
+  callback_tools: true,
+  // AgentDefinitions in the `initialize` request's `agents` map (provider-native subagents).
+  subagents: true,
+  // Emulated: dispatches the provider's own compaction command as a `driver_command` frame,
+  // checked against the command enumeration before and typed evidence after.
+  context_compaction: true,
+  provider_commands: true,
+  // The handshake declares an accelerated-output state; the flag does not promise the mode is
+  // available (the binding holds what the provider declared).
+  output_speed: true,
+});
 
 /** Constructor dependencies of {@link ClaudeCapabilityReporter}. */
 export interface ClaudeCapabilityReporterDependencies {

@@ -7,13 +7,13 @@ import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   type ExecutionPosture,
+  type RunId,
+  type SessionId,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
-import type { RunId, SessionId } from "@ai-sidekicks/contracts";
-
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS } from "../../../transcript/failure-mapping.js";
@@ -885,7 +885,7 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
 
     // Once the process exits the retry must reach that channel, not report success against a
-    // session record that no longer exists.
+    // session record that is gone.
     channel.disposeFailure = undefined;
     await expect(
       harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID }),
@@ -1382,7 +1382,7 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
     const harness = buildHarness();
     harness.transport.probeAuthFailure = new Error("claude binary not found");
 
-    // Fail-closed for admission yet distinguishable: sending the person to re-authenticate a
+    // Fail-closed for admission but distinguishable: sending the person to re-authenticate a
     // credential never in question misleads them.
     const result = await harness.lifecycle.probeAuth();
 
@@ -2232,8 +2232,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     releaseRewind();
     expect((await rollback).status).toBe("applied");
 
-    // Once the successor is installed the predecessor is no longer the bound channel, so an
-    // undead process emitting into a slot it no longer holds is refused, not projected.
+    // Once the successor is installed the predecessor is not the bound channel, so an undead
+    // process emitting into a slot it has lost is refused, not projected.
     const afterRewind = predecessorChannel.emitStreamFrame(
       "system/task_progress",
       usageObservation(60),
@@ -2472,7 +2472,7 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
         providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
       },
     ]);
-    // Refused, not `undefined`: a quiet `undefined` reads as "no channel yet" and invites a retry
+    // Refused, not `undefined`: a quiet `undefined` reads as "no channel bound" and invites a retry
     // into the same swallow.
     expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
@@ -2821,9 +2821,9 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     );
   });
 
-  it("still disposes the binding when the failure consumer throws", async () => {
+  it("still disposes the binding and records the throw when the failure consumer throws", async () => {
     // A throwing listener must not lose the disposal, or the swallowed turn stays reachable as
-    // well as unrecorded.
+    // well as unrecorded; the throw itself lands as a diagnostic.
     const harness = buildHarness({
       onTextNeutralizationFailure: () => {
         throw new Error("the emission pipeline is unavailable");
@@ -2836,6 +2836,9 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
+    expect(
+      harness.diagnostics.recentRecordsOfKind("text_neutralization_trip_report_failed"),
+    ).toMatchObject([{ details: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID } }]);
   });
 });
 
@@ -3194,7 +3197,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("refuses `command_absent` before the handshake has been observed at all", async () => {
-    // "Not yet known" fails closed: the driver cannot prove the command exists, so it sends
+    // "Unknown" fails closed: the driver cannot prove the command exists, so it sends
     // nothing.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3225,7 +3228,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
       handshake: buildHandshake(),
     });
-    // The fork announces its own id by default, so the held stamp no longer matches.
+    // The fork announces its own id by default, so the held stamp stops matching.
     await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
@@ -3261,7 +3264,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       position: 4,
     });
 
-    // The retired channel speaks last, stamped with an id the live session no longer has.
+    // The retired channel speaks last, stamped with an id the live session has left behind.
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
       handshake: buildHandshake(),
     });
@@ -3467,7 +3470,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
 
   it("withdraws only its OWN wait — a concurrent caller still settles on the evidence", async () => {
     // Settlement is per key (one provider compaction) but withdrawal is per waiter: a caller
-    // whose write failed must not settle another user whose compaction is still running.
+    // whose write failed must not settle another request whose compaction is still running.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -4036,7 +4039,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("REFUSES the enumeration when a STALE registry names a different account", async () => {
-    // A registry that has moved on since admission would route this user's palette onto an
+    // A registry that has moved on since admission would route this session's palette onto an
     // account this process never authenticated as. Neither candidate is stamped: the record's
     // would assert an identity the registry contradicts, and the registry's would launder the
     // divergence into a correct-looking binding. A refused read costs a palette, not a run.

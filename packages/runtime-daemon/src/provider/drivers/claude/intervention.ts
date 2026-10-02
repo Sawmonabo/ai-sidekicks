@@ -67,6 +67,10 @@ export class ClaudeInterventionDispatcher {
     this.#channelLookup = dependencies.channelLookup;
   }
 
+  /**
+   * Answers a steer with the queue-and-interrupt fallback and sends interrupt or cancel as the
+   * CLI's interrupt request. Throws `ClaudeSessionUnavailableError` when the run has no channel.
+   */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     switch (params.type) {
       case "steer": {

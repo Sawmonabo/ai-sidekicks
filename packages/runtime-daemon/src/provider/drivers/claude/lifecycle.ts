@@ -39,7 +39,6 @@ import {
   type ClaudeProviderProcess,
   type ClaudeSessionTransport,
   composeClaudeMandatedEnvironment,
-  disposeSubagentAdmission,
   observeClaudeUserTextFailure,
 } from "./session-transport.js";
 import {
@@ -212,6 +211,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     );
   }
 
+  /**
+   * Writes the run's opening text to its session's live channel, re-sending only a write that
+   * provably never left. Throws when the run cannot be dispatched, and rethrows the failed write's
+   * cause once the text may not be sent again.
+   */
   async startRun(params: StartRunParams): Promise<void> {
     const dispatch = await this.#runDispatchResolver.resolveRunDispatch(params);
     if (dispatch === undefined) {
@@ -387,9 +391,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       });
     }
     const enumeration = this.#handshakes.enumerateProviderCommands(params.sessionId, live);
-    return await Promise.resolve({
+    return {
       bindings: [{ runId: this.#runRoutes.soleLiveRunOn(params.sessionId), ...enumeration }],
-    });
+    };
   }
 
   /**
@@ -438,7 +442,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
           // Not in `retireRunRoutes`: its terminal-path caller has just ruled the tripwire.
           this.#outboundFrameTripwire.forgetScope(params.sessionId);
           // Before the await, like the routes: a subagent would wait on a slot in a dying process.
-          disposeSubagentAdmission(slot.session.spawnBoundLegs);
+          slot.session.spawnBoundLegs.subagentAdmission?.dispose();
           await this.#disposeHeldChannel(params.sessionId, slot.session.channel);
           return;
         case "quarantined":
@@ -469,7 +473,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       // Per-session routing state; a surviving router would answer the next session with a stale
       // thread registry.
       this.#routingBands.delete(sessionId);
-      // A live read of a process that no longer exists; keeping it would be a stale registry.
+      // A live read of a process that has exited; keeping it would be a stale registry.
       this.#handshakes.forgetHandshake(sessionId);
     } catch (error) {
       // CLOSING -> QUARANTINED: nothing else references the still-running process, so keep the
@@ -483,11 +487,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   }
 
   /**
-   * The live channel a run is bound to, or `undefined` when it has none yet. Throws if a tripwire
-   * trip disposed the run's binding.
+   * The live channel a run is bound to, or `undefined` when no channel is bound to it. Throws if a
+   * tripwire trip disposed the run's binding.
    */
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
-    // Refused, not `undefined`, which would read as "no channel yet" and invite a retry into the
+    // Refused, not `undefined`, which would read as "no channel bound" and invite a retry into the
     // same swallow; the refusal carries the run terminal's code.
     this.#runtimeBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#runRoutes.sessionIdFor(runId);
@@ -567,9 +571,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     const band = this.#ensureRoutingBand(live.sessionId);
     this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
     // Discarded where all establishment paths converge, before listeners register: a resume reuses
-    // its predecessor's `providerSessionId`, so a surviving record would match. Fail-closed (none
-    // survives today); not restored on rollback, since a failed adoption already disposed its
-    // source.
+    // its predecessor's `providerSessionId`, so a surviving record would match. Not restored on
+    // rollback, since a failed adoption already disposed its source.
     this.#handshakes.forgetHandshake(live.sessionId);
     try {
       this.#registerLiveSessionHooks(band, live);
@@ -610,8 +613,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       this.#runRoutes.retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);
-    // Identity-gated the same way, and fail-closed: a frame from a channel the daemon no longer
-    // owns must not project.
+    // Identity-gated the same way, and fail-closed: a frame from a channel the daemon has released
+    // must not project.
     live.channel.onInboundFrame((observation): ThreadFrameRoute => {
       if (!this.#isChannelCurrentlyBound(live.sessionId, live.channel)) {
         return {
@@ -783,7 +786,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
 
     // Released after the successor is installed, so every earlier failure path is non-destructive.
     // A disposal failure does not fail the fork.
-    disposeSubagentAdmission(predecessor.spawnBoundLegs);
+    predecessor.spawnBoundLegs.subagentAdmission?.dispose();
     // The predecessor is going away, so its armed compaction waits can never see their evidence.
     // None exist for the successor: this method holds the rewind slot claim, and `compactContext`
     // needs a settled live slot.

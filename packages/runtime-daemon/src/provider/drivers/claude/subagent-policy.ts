@@ -125,13 +125,9 @@ export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPor
     this.#maxConcurrent = Math.max(1, Math.floor(options.maxConcurrent));
   }
 
-  /** Slots currently held. Exposed for the breach comparison and for tests. */
+  /** Slots currently held; read by the gate's tests. */
   get heldSlotCount(): number {
     return this.#heldSlotCount;
-  }
-
-  get waitingCallCount(): number {
-    return this.#waiters.length;
   }
 
   /** Takes a slot, waiting in arrival order when all are held. Rejects once disposed. */

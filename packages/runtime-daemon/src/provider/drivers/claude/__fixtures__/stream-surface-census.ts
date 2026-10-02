@@ -18,20 +18,6 @@ export const CLAUDE_RESULT_SUBTYPES: readonly string[] = Object.freeze([
 /** The single `result` subtype that carries a `result` field. */
 export const CLAUDE_RESULT_SUBTYPE_CARRYING_RESULT_FIELD = "success";
 
-/**
- * Adjacent stream subtypes present in the binary. Only `rate_limit_event` and `compact_boundary`
- * have a normalizer disposition; the other four are on the wire but outside the normalizer's
- * kind set, which is what the unrecognized-frame diagnostic exists to surface.
- */
-export const CLAUDE_ADJACENT_STREAM_SUBTYPES: readonly string[] = Object.freeze([
-  "rate_limit_event",
-  "compact_boundary",
-  "command_lifecycle",
-  "queued_notification",
-  "model_refusal_fallback",
-  "model_refusal_no_fallback",
-] as const);
-
 /** The binary maps `system/api_error` onto `system/api_retry`. */
 export const CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM: readonly [string, string] = Object.freeze([
   "system/api_error",

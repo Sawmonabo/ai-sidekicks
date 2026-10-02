@@ -12,7 +12,6 @@ import { type RecoveryCondition, type SessionId } from "@ai-sidekicks/contracts"
 import type {
   ClaudeChannelDisposalReason,
   ClaudeResumedSessionAttachment,
-  ClaudeRewoundSessionAttachment,
   ClaudeProviderProcess,
   ClaudeSessionTransport,
   ClaudeSpawnBoundLegs,
@@ -270,7 +269,7 @@ export class ClaudeSessionEstablishment {
         predecessor.spawnBoundLegs.subagentPolicy,
       ),
     };
-    let attachment: ClaudeRewoundSessionAttachment;
+    let attachment: ClaudeResumedSessionAttachment;
     try {
       attachment = await this.#transport.rewindSession({
         ...rewoundSpawnBoundLegs,

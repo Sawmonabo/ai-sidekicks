@@ -75,7 +75,7 @@ export type ClaudeWireFrameKind =
   | "control_response/error";
 
 /**
- * Whether a row's target type can be built into an envelope yet: it needs a payload variant in
+ * Whether a row's target type can be built into an envelope: it needs a payload variant in
  * `SessionEventSchema`. `payload-variant-pending` rows feed the diagnostic, never an envelope.
  */
 type ClaudeEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
@@ -85,7 +85,7 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
   SESSION_EVENT_TYPES,
 );
 
-/** Whether `eventType` may be built into a `SessionEvent` envelope today. Pure and total. */
+/** Whether `eventType` may be built into a `SessionEvent` envelope. Pure and total. */
 function resolveClaudeEmissionReadiness(eventType: SessionEventType): ClaudeEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
@@ -357,9 +357,9 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/mcp_message",
     channel: "control-request",
     reason:
-      "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record a plane the daemon already audits",
+      "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record events the daemon already audits",
   },
-  // Absent from the census yet observed answering at 2.1.234, 2.1.245 and 2.1.246; in the union
+  // Absent from the census but observed answering at 2.1.234, 2.1.245 and 2.1.246; in the union
   // because it dispatches, and not-evented because the daemon sends it.
   "control_request/mcp_set_servers": {
     disposition: "not-evented",
@@ -485,10 +485,6 @@ export function composeClaudeWireFrameKind(frameType: string, subtype: string | 
   return subtype === null ? frameType : `${frameType}/${subtype}`;
 }
 
-function refuseUnmappedClaudeWireFrame(frameKind: string): never {
-  throw new UnknownClaudeWireFrameError(frameKind);
-}
-
 /**
  * Normalizes one frame kind that parsed off the wire (unparseable bytes fail closed at the read
  * loop). Pure and total over the census, returning frozen singletons; throws
@@ -497,7 +493,7 @@ function refuseUnmappedClaudeWireFrame(frameKind: string): never {
 export function normalizeClaudeWireFrame(frameKind: string): ClaudeFrameNormalization {
   const normalization = CLAUDE_FRAME_NORMALIZATION_BY_KIND.get(frameKind as ClaudeWireFrameKind);
   if (normalization === undefined) {
-    refuseUnmappedClaudeWireFrame(frameKind);
+    throw new UnknownClaudeWireFrameError(frameKind);
   }
   return normalization;
 }
