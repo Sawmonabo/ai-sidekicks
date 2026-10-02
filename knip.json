@@ -149,12 +149,11 @@
         // naming a file and the limit it hit.
         "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
         "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
-        "src/renderer/src/features/composer/attachments/attachment-bounds.ts",
         "src/renderer/src/features/composer/attachments/composer-attachment-chip.ts",
         // The definitions a `/workflow start` name autocompletes over.
         "src/renderer/src/features/composer/command-list/workflow-command/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
-        "src/renderer/src/features/composer/question-card/BoundQuestionCard.tsx",
+        "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",
         // Interrupt and Interrupt everything on the run controls.
         "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
         "src/renderer/src/features/composer/run-controls/run-driver-bindings.ts",
@@ -163,6 +162,8 @@
         "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",
         // The inspector's Rules section with Revoke.
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
+        // The Preview pane's handback: which chords the page claims, told to the page host.
+        "src/renderer/src/features/preview/handback/chord-mirror.ts",
         // Attaching a folder by path, for the session strip's `Attach a repo` and `Open folder…`.
         "src/renderer/src/features/repos/mounts/attach/AttachRepositoryDialog.tsx",
         // What the git host reports about a pull request, for the Pull request tab's header,
@@ -176,7 +177,6 @@
         "src/renderer/src/features/sessions/rows/session-list-degradation.ts",
         // The session header's title read and its fixture answer.
         "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
-        "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
         "src/renderer/src/services/daemon/session-reads.ts",
         // The fixture bridge's session read, which plays the transcript-states scenario's refused
@@ -198,15 +198,7 @@
         "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-body.ts",
         "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-mount.ts",
         // A footnote's definition at the foot of its reply.
-        "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx",
-        // A run's detail, its steps waiting on a person with the form each opens, and the
-        // version chain the run header's pinned-version chip reads.
-        "src/renderer/src/features/workflows/run-page/components/RunDetailMountPoint.tsx",
-        "src/renderer/src/features/workflows/run-page/components/RunParks.tsx",
-        "src/renderer/src/features/workflows/run-page/hooks/useHumanFormSelection.ts",
-        "src/renderer/src/features/workflows/run-page/hooks/useWorkflowVersionChain.ts",
-        // A run's page refreshing live.
-        "src/renderer/src/features/workflows/run-page/hooks/useWorkflowRunLiveRefresh.ts"
+        "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx"
       ]
     },
 
