@@ -40,6 +40,8 @@ export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "u
 /**
  * Read one row as a question, or `undefined` for a row of another type or one missing its id
  * or page count.
+ *
+ * @consumedBy the question card, once the composer reads it off the session's question rows
  */
 export function readQuestion(row: TimelineRow): QuestionReading | undefined {
   if (row.type !== "question.asked") {

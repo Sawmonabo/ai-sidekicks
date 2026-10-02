@@ -1,15 +1,12 @@
-// Tier: endurance.
-//
 // A pane closed while its read is on the wire pays for nothing after it closes, and an app
 // that opens and closes panes all day accumulates nothing. Both claims are about sustained
 // churn: one abandoned read costs too little for a unit case to tell, so this drives open,
 // read, close mid-read, several hundred times.
 //
-// It runs in the Node project and opens no Electron window. The subject is
-// `store/reads/push-driven-read.ts` over `lib/reads/refresh-scheduler.ts`,
-// `lib/reads/read-scope.ts` and `callDaemon`, none of which touches the DOM, so the claims are
-// checkable in milliseconds on any runner, as in `diff-row-index.test.ts` beside it. That a
-// closed pane is gone from the tree belongs to the browser tiers.
+// The subject is `push-driven-read.ts` over `lib/reads/refresh-scheduler.ts`,
+// `lib/reads/read-scope.ts` and `callDaemon`, none of which opens a window, so the claims are
+// checkable in milliseconds on any runner. That a closed pane is gone from the tree belongs to
+// the browser tiers.
 //
 // The real mechanism is driven top to bottom: a `PushDrivenRead` over a `RefreshScheduler` on a
 // `ManualClock`, whose read body calls the real `callDaemon` against the fixture bridge with the
@@ -32,10 +29,10 @@ import { describe, expect, it } from "vitest";
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { bridgeAnswering } from "../helpers/fixture-bridge.js";
+import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
-import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 
 /**

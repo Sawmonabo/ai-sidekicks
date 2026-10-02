@@ -12,7 +12,7 @@ import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
-import { countingLoader, syntheticPaneContextAt } from "@test/helpers/lazy-body-contexts.js";
+import { countingLoader, syntheticPaneContextAt } from "./pane-registry.lazy-body.test-support.js";
 import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";

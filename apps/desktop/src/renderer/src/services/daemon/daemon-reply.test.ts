@@ -2,8 +2,8 @@
 // never reaches the wire, a rejection becomes a refusal and never an exception, and a read whose
 // owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the
 // real registry and the shipped fixture bridge, so a hand-rolled parser cannot pass with the
-// shipped one deleted. The shared helpers are `tests/helpers/daemon-reply-refusal.ts` and
-// `fixture-bridge.ts`.
+// shipped one deleted. The helpers are `daemon-reply.test-support.ts` beside this file and the
+// shared `tests/helpers/fixture-bridge.ts`.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { vi } from "vitest";
@@ -13,7 +13,7 @@ import { isRefusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
 import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
-import { refusalOf } from "@test/helpers/daemon-reply-refusal.js";
+import { refusalOf } from "./daemon-reply.test-support.js";
 import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
 
 /** A device id the response schema accepts. */
