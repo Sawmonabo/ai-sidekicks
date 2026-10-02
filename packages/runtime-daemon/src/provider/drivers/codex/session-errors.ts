@@ -99,7 +99,8 @@ export interface CodexRewindBoundaryUnsupportedFields {
 
 /**
  * The build accepts `thread/fork` but refuses its boundary member, which the static `rollback`
- * gate cannot see (`lastTurnId` is verified at the `0.150.1` pin, not the `0.141.0` floor).
+ * gate cannot see (`lastTurnId` is verified at the wire reference's pin, not at every older build the driver may
+ * admit).
  */
 export class CodexRewindBoundaryUnsupportedError extends Error {
   readonly code = "driver.capability_unsupported" as const;
