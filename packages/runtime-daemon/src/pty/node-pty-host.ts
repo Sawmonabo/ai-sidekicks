@@ -109,7 +109,7 @@ interface ResolvedNodePtyHostDeps {
 // Internal session table
 // --------------------------------------------------------------------------
 
-interface SessionRecord {
+interface PtySessionRecord {
   /** Underlying `node-pty` child. */
   readonly child: NodePtyChild;
   /**
@@ -119,12 +119,11 @@ interface SessionRecord {
    */
   readonly subscriptions: Array<{ dispose: () => void }>;
   /**
-   * Cached exit code once the child has terminated, `null` while it is alive. A `kill` after
-   * exit re-emits `onExit` from this value instead of throwing.
+   * `true` once `onExit` has fired for this session, from the child's own exit or the synthetic
+   * taskkill exit. Write-once, so the exit is reported exactly once and a later `kill()` sends
+   * nothing.
    */
-  exitCode: number | null;
-  /** Cached signal code (POSIX numeric) — `undefined` for normal exit. */
-  signalCode: number | undefined;
+  hasExited: boolean;
   /** Pending escalation timer, if `SIGTERM` is mid-flight on Windows. */
   pendingEscalation: NodeJS.Timeout | null;
   /**
@@ -233,7 +232,7 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
  */
 export class NodePtyHost implements PtyHost {
   /** Per-session table keyed by the host-minted session id. */
-  private readonly sessions = new Map<string, SessionRecord>();
+  private readonly sessions = new Map<string, PtySessionRecord>();
 
   /** Lazily-resolved `node-pty.spawn`. Cached after first call. */
   private cachedPtySpawn: NodePtySpawnFn | null = null;
@@ -309,11 +308,10 @@ export class NodePtyHost implements PtyHost {
     const sessionId: string = randomUUID();
     // One record shared by the listeners and the map, so exits seen in `child.onExit` are
     // visible to `kill()`.
-    const record: SessionRecord = {
+    const record: PtySessionRecord = {
       child,
       subscriptions: [],
-      exitCode: null,
-      signalCode: undefined,
+      hasExited: false,
       pendingEscalation: null,
       escalated: false,
     };
@@ -329,17 +327,14 @@ export class NodePtyHost implements PtyHost {
       child.onExit((event: { exitCode: number; signal?: number | undefined }) => {
         // The child exited on its own, so the taskkill escalation is no longer needed.
         this.clearPendingEscalation(record);
-        // `invokeTaskkill` already cached a synthetic exit (code 1). Keep that cache write-once so
-        // a later `kill()` re-emits what the consumer first saw.
-        if (record.exitCode !== null) {
+        // `invokeTaskkill` already reported a synthetic exit (code 1); the exit is reported once.
+        if (record.hasExited) {
           // The synthetic exit only happens after the forced kill, so a waiting `shutdown()`
           // gets `"forced"`.
           this.notifyShutdownWaiter(sessionId, "forced");
           return;
         }
-        // Cache the exit so a later `kill()` can re-emit it.
-        record.exitCode = event.exitCode;
-        record.signalCode = event.signal;
+        record.hasExited = true;
         this.fireExit(sessionId, event.exitCode, event.signal);
         // Notify after `fireExit` so listeners see the exit before the drain completes. On Windows
         // the 2 s taskkill escalation can win before the drain timeout, so the outcome reads
@@ -356,7 +351,7 @@ export class NodePtyHost implements PtyHost {
 
   /** Resizes the PTY. Throws for an unknown session id. */
   public async resize(sessionId: string, rows: number, cols: number): Promise<void> {
-    const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       throw new Error(`NodePtyHost.resize: unknown sessionId '${sessionId}'`);
     }
@@ -365,7 +360,7 @@ export class NodePtyHost implements PtyHost {
 
   /** Writes bytes to the PTY. Throws for an unknown session id. */
   public async write(sessionId: string, bytes: Uint8Array): Promise<void> {
-    const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       throw new Error(`NodePtyHost.write: unknown sessionId '${sessionId}'`);
     }
@@ -374,7 +369,7 @@ export class NodePtyHost implements PtyHost {
 
   /**
    * Sends `signal` to the session's child. Throws for an unknown session id; a child that
-   * already exited re-emits its cached exit and returns.
+   * already exited gets nothing, and its exit is not reported again.
    *
    * On Windows the signal is translated: SIGINT sends CTRL_C_EVENT, SIGTERM sends CTRL_BREAK_EVENT
    * and escalates to `taskkill /T /F` after 2 s, SIGKILL runs `taskkill /T /F` directly, and
@@ -385,13 +380,12 @@ export class NodePtyHost implements PtyHost {
    * the caller for up to 5 s. The exit arrives through `onExit`.
    */
   public async kill(sessionId: string, signal: PtySignal): Promise<void> {
-    const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       throw new Error(`NodePtyHost.kill: unknown sessionId '${sessionId}'`);
     }
 
-    if (record.exitCode !== null) {
-      this.fireExit(sessionId, record.exitCode, record.signalCode);
+    if (record.hasExited) {
       return;
     }
 
@@ -406,7 +400,7 @@ export class NodePtyHost implements PtyHost {
 
   /** Disposes the session and stops its child. Closing an unknown session is not an error. */
   public async close(sessionId: string): Promise<void> {
-    const record: SessionRecord | undefined = this.sessions.get(sessionId);
+    const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       return;
     }
@@ -418,7 +412,7 @@ export class NodePtyHost implements PtyHost {
     }
     // On Windows `child.kill()` would orphan descendants (see the file header), so use the same
     // `taskkill /T /F` as `kill(SIGKILL)`. Fire-and-forget: close must not wait for the reap.
-    if (record.exitCode === null) {
+    if (!record.hasExited) {
       if (this.deps.platform === "win32") {
         // The synthetic exit from `invokeTaskkill` is suppressed by the `sessions.delete` below:
         // after `close()` nothing is emitted for this session.
@@ -471,8 +465,8 @@ export class NodePtyHost implements PtyHost {
     this.shuttingDown = true;
 
     const activeSessionIds: string[] = Array.from(this.sessions.keys()).filter((sessionId) => {
-      const record: SessionRecord | undefined = this.sessions.get(sessionId);
-      return record !== undefined && record.exitCode === null;
+      const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
+      return record !== undefined && !record.hasExited;
     });
 
     const perSessionOutcomes: Array<"drained" | "forced"> = await Promise.all(
@@ -627,7 +621,7 @@ export class NodePtyHost implements PtyHost {
 
   private async killOnWindows(
     sessionId: string,
-    record: SessionRecord,
+    record: PtySessionRecord,
     signal: PtySignal,
   ): Promise<void> {
     const pid: number = record.child.pid;
@@ -660,7 +654,7 @@ export class NodePtyHost implements PtyHost {
     // The exit handler in `spawn` clears this timer if the child exits first.
     record.pendingEscalation = this.deps.setTimer(() => {
       // The child may have exited between arming and firing.
-      if (record.exitCode !== null) {
+      if (record.hasExited) {
         record.pendingEscalation = null;
         return;
       }
@@ -669,7 +663,7 @@ export class NodePtyHost implements PtyHost {
   }
 
   /** Cancels the pending Windows escalation timer, if any. */
-  private clearPendingEscalation(record: SessionRecord): void {
+  private clearPendingEscalation(record: PtySessionRecord): void {
     if (record.pendingEscalation !== null) {
       this.deps.clearTimer(record.pendingEscalation);
       record.pendingEscalation = null;
@@ -690,7 +684,7 @@ export class NodePtyHost implements PtyHost {
 
   private async invokeTaskkill(
     sessionId: string,
-    record: SessionRecord,
+    record: PtySessionRecord,
     pid: number,
   ): Promise<void> {
     record.pendingEscalation = null;
@@ -740,14 +734,13 @@ export class NodePtyHost implements PtyHost {
     });
 
     // Emit an exit even if the reap is incomplete: code 1 with no signal means "killed by the
-    // daemon, OS reap status unknown". A later real `child.onExit` is ignored because the cache
-    // is write-once.
+    // daemon, OS reap status unknown". A later real `child.onExit` is ignored because
+    // `hasExited` is write-once.
     //
     // `sessions.has` gates the emit so a `close()` that landed during the await above (it is the
     // only place sessions are deleted) cannot produce an exit after teardown.
-    if (record.exitCode === null && this.sessions.has(sessionId)) {
-      record.exitCode = 1;
-      record.signalCode = undefined;
+    if (!record.hasExited && this.sessions.has(sessionId)) {
+      record.hasExited = true;
       this.fireExit(sessionId, 1, undefined);
       // Resolve the drain waiter now instead of waiting for `child.onExit`, which is best-effort.
       // This is the forced-kill path, so the outcome is always "forced".

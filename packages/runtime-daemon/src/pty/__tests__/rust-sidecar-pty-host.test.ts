@@ -151,7 +151,7 @@ describe("RustSidecarPtyHost — PtyHost contract surface", () => {
     await expect(killP).resolves.toBeUndefined();
   });
 
-  it("kill() on an exited session re-emits the cached exit and sends no kill_request", async () => {
+  it("kill() on an exited session fires no second onExit and sends no kill_request", async () => {
     // A kill on an exited child's id could reach a session the sidecar has already dropped.
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
@@ -187,8 +187,7 @@ describe("RustSidecarPtyHost — PtyHost contract surface", () => {
     // Resolves at once: no request goes out, so no response is awaited.
     await host.kill("s-0", "SIGTERM");
 
-    expect(exitFn).toHaveBeenCalledTimes(2);
-    expect(exitFn).toHaveBeenNthCalledWith(2, "s-0", 3);
+    expect(exitFn).toHaveBeenCalledTimes(1);
     const killRequests = parseFramesFromStdin(fake.readStdin()).filter(
       (envelope) => envelope.kind === "kill_request",
     );
@@ -1461,7 +1460,7 @@ describe("RustSidecarPtyHost — stale child lifecycle events do not clobber the
 
 // ----------------------------------------------------------------------------
 // Crash-time onExit: when the sidecar dies, every session still in the map gets
-// `onExit(sessionId, -1)` and is deleted. A session whose exit code is already cached is not
+// `onExit(sessionId, -1)` and is deleted. A session whose exit already fired is not
 // re-fired, a throwing listener does not strand the rest, and a stale event never fires against
 // a replacement child's sessions.
 // ----------------------------------------------------------------------------
@@ -1559,7 +1558,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
     expect(internals.sessions.size).toBe(0);
   });
 
-  it("does NOT re-fire onExit for a session whose normal-path exit already cached an exitCode", async () => {
+  it("does NOT re-fire onExit for a session whose normal-path exit already fired", async () => {
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
@@ -1584,7 +1583,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
       await spawnP;
     }
 
-    // s-0 exits normally: its exit code is cached and onExit fires once.
+    // s-0 exits normally: onExit fires once.
     fake.writeStdout(
       frameEnvelope({
         kind: "exit_code_notification",
@@ -1597,7 +1596,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
     expect(exitFn).toHaveBeenCalledTimes(1);
     expect(exitFn).toHaveBeenCalledWith("s-0", 0);
 
-    // The crash skips s-0 (exit code already cached) and fires only for s-1; the map is emptied
+    // The crash skips s-0 (its exit already fired) and fires only for s-1; the map is emptied
     // either way.
     fake.triggerExit(1, null);
     await flushMicrotasks();
@@ -1611,8 +1610,8 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
   });
 
   it("clears the session map for already-exited sessions so write/resize throw unknown sessionId after a crash", async () => {
-    // Skipping a cached-exit session on crash would leave its id in the session map. `resize` and
-    // `write` gate only on that map, so the stale id would respawn the sidecar and reach a child
+    // Skipping an already-exited session on crash would leave its id in the session map. `resize`
+    // and `write` gate only on that map, so the stale id would respawn the sidecar and reach a child
     // that has no record of it, or one whose own `s-0` is another session.
     const seq = spawnReturningSequence();
     const host = new RustSidecarPtyHost({
@@ -1635,7 +1634,7 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
     childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
     await spawnP;
 
-    // s-0 exits normally: its exit code is cached but the record stays in the map (only
+    // s-0 exits normally: its exit fires but the record stays in the map (only
     // `close()` deletes it).
     childA.writeStdout(
       frameEnvelope({

@@ -173,12 +173,12 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
   });
 });
 
-// A real OS exit arriving after the synthetic taskkill exit (exitCode 1) must neither re-fire
-// onExit nor overwrite the cached code, so a later `kill()` re-emits the code the consumer first
-// saw. This also covers the de-dupe branch in `child.onExit`.
+// A real OS exit arriving after the synthetic taskkill exit (exitCode 1) must not fire onExit a
+// second time, and a later `kill()` must not either: the exit is reported exactly once. This also
+// covers the de-dupe branch in `child.onExit`.
 
-describe("NodePtyHost — synthetic-exit cache is write-once", () => {
-  it("post-synthetic-exit OS exit does not re-fire and does not mutate the cache; subsequent kill() re-emits the synthetic exitCode", async () => {
+describe("NodePtyHost — the synthetic exit is reported exactly once", () => {
+  it("neither the post-synthetic OS exit nor a later kill() fires onExit again", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
     // T+0: SIGTERM arms the 2 s escalation timer.
@@ -191,19 +191,17 @@ describe("NodePtyHost — synthetic-exit cache is write-once", () => {
     expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
     expect(ctx.exitRecorder).toHaveBeenNthCalledWith(1, session_id, 1);
 
-    // The real OS exit arrives with code 0; it must not re-fire onExit or change the cached code.
+    // The real OS exit arrives with code 0; it must not fire onExit again.
     ctx.triggerExit(0);
 
     // Only one onExit so far: the real exit was de-duped in `child.onExit`.
     expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
 
-    // A later kill() re-emits from the cache, and the cached code must still be the synthetic 1;
-    // otherwise consumers would see an inconsistent exit history.
+    // A later kill() sends nothing and reports nothing.
     await ctx.host.kill(session_id, "SIGTERM");
-    expect(ctx.exitRecorder).toHaveBeenCalledTimes(2);
-    expect(ctx.exitRecorder).toHaveBeenNthCalledWith(2, session_id, 1);
+    expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
 
-    // The re-emit must not send CTRL_BREAK_EVENT or run taskkill again.
+    // It must not send CTRL_BREAK_EVENT or run taskkill again.
     expect(ctx.mockGCCE).toHaveBeenCalledTimes(1); // only the original SIGTERM
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1); // only the original escalation
   });
@@ -459,11 +457,11 @@ describe("NodePtyHost — kill translation", () => {
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
 
-  it("kill() on an already-exited session re-emits onExit from cache and does NOT call any FFI", async () => {
+  it("kill() on an already-exited session fires no second onExit and does NOT call any FFI", async () => {
     // A taskkill on an exited child's pid could reach an unrelated process that reused it.
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-    // The child exits on its own; the `onExit` subscription from `spawn()` caches the code.
+    // The child exits on its own; the `onExit` subscription from `spawn()` reports it.
     ctx.triggerExit(0);
 
     expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
@@ -471,9 +469,8 @@ describe("NodePtyHost — kill translation", () => {
 
     await ctx.host.kill(session_id, "SIGTERM");
 
-    // Two fires: the child's own exit, then the re-emit from cache.
-    expect(ctx.exitRecorder).toHaveBeenCalledTimes(2);
-    expect(ctx.exitRecorder).toHaveBeenNthCalledWith(2, session_id, 0);
+    // Exactly one fire: the child's own exit.
+    expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
 
     // No FFI call, no taskkill, no node-pty kill.
     expect(ctx.mockGCCE).not.toHaveBeenCalled();

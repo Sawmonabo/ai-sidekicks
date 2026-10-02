@@ -110,7 +110,7 @@ describe("NodePtyHost.shutdown — drain", () => {
   it("excludes already-exited sessions from both counters at shutdown entry", async () => {
     const spawnResp = await ctx.host.spawn(SAMPLE_SPAWN);
 
-    // The session exits before `shutdown()`, which skips sessions whose `exitCode` is already set.
+    // The session exits before `shutdown()`, which skips sessions that have already exited.
     ctx.spawnedChildren[0]!.triggerExit(0);
     expect(ctx.exitRecorder).toHaveBeenCalledWith(spawnResp.session_id, 0);
 
