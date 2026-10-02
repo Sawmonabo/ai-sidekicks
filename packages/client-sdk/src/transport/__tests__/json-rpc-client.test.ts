@@ -5,7 +5,11 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { JsonRpcNotification, JsonRpcResponseEnvelope } from "@ai-sidekicks/contracts";
+import type {
+  JsonRpcId,
+  JsonRpcNotification,
+  JsonRpcResponseEnvelope,
+} from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION, SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts";
 
 import {
@@ -495,7 +499,7 @@ describe("subscription ends with an error instead of growing or vanishing", () =
   const subscriptionId = "44444444-4444-4444-8444-444444444444";
   const valueSchema = z.object({ seq: z.number() });
 
-  function requestIdAt(transport: ScriptedDaemon, index: number): number | string {
+  function requestIdAt(transport: ScriptedDaemon, index: number): JsonRpcId {
     const envelope = transport.sentEnvelopes[index];
     if (envelope === undefined || !("id" in envelope)) throw new Error("no request at " + index);
     return envelope.id;
