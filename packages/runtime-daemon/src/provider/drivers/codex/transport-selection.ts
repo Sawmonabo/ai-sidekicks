@@ -17,6 +17,11 @@ export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready
  * The `sh -c` script: `stty`, readiness sentinel, then `exec` of the provider; `&&` makes a failed
  * `stty` a typed startup failure, and `"$@"` passes argv words unparsed so no path becomes shell
  * syntax. Windows needs an equivalent termios step or a non-PTY transport.
+ *
+ * A PTY slave starts canonical with echo on, and `codex app-server` never calls `tcsetattr`.
+ * Canonical mode silently drops an input line over MAX_CANON (1024 bytes on Darwin; `codex-cli
+ * 0.149.1` answered a 1015-byte frame, not a 1045-byte one), and splitting a frame across writes
+ * does not help: the cap is per line, not per write.
  */
 export const CODEX_APP_SERVER_SHELL_PRELUDE: string =
   `stty -icanon -echo` +

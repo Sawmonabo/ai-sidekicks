@@ -16,6 +16,7 @@ import {
   parseCodexSessionConfig,
   resolveBoundProviderAccountId,
 } from "./session-config.js";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { CodexDriverConfigError } from "./session-errors.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "./server-requests.js";
@@ -196,6 +197,10 @@ export class CodexSpawnPosture {
     });
   }
 
+  /**
+   * The turn's `sandboxPolicy`, from the run's posture or else the session's, so a turn never goes
+   * out with no policy; empty when neither declares one.
+   */
   composeTurnPostureParams(
     record: CodexSessionRecord,
     params: StartRunParams,
@@ -237,7 +242,7 @@ export class CodexSpawnPosture {
         reason: CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
       });
       this.#options.diagnostics.emit({
-        provider: "codex",
+        provider: CODEX_DRIVER_NAME,
         kind: "subagent_definition_disabled",
         rawWireType: null,
         dispositionReason: CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
@@ -264,10 +269,10 @@ export class CodexSpawnPosture {
       withheldToolCount,
       reason: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
     });
-    // Both sinks: the local transport arm is this driver's structured record; the shared diagnostic kind
-    // is the one the daemon's counters name.
+    // Both sinks: the local transport arm is this driver's structured record; the shared
+    // diagnostic kind is the one the daemon's counters name.
     this.#options.diagnostics.emit({
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "callback_tool_registry_withheld",
       rawWireType: null,
       dispositionReason: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,

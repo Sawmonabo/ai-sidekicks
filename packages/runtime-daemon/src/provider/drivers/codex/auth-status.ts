@@ -6,7 +6,11 @@
 import { type RecoveryCondition } from "@ai-sidekicks/contracts";
 import { isPlainObject } from "./record-readers.js";
 import type { CodexAppServerConnection } from "./app-server-connection.js";
-import { CodexProviderRequestError } from "./session-errors.js";
+import { CodexProviderRequestError, normalizeProviderFailureDetail } from "./session-errors.js";
+import {
+  type CodexDiagnosticSink,
+  reportDiagnosticFromDetachedFrame,
+} from "./transport-diagnostics.js";
 import {
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DriverAuthProbeResultSchema,
@@ -96,11 +100,13 @@ export async function requestCodexAuthStatus(
  * connection is asked the credential question directly (the provider has no typed auth error),
  * and only after a `CodexProviderRequestError`, which proves the child is alive; asking a
  * wedged connection would wait out a second deadline. Anything short of a determinate
- * logged-out reading, an `indeterminate` probe included, is `recovery-needed`.
+ * logged-out reading, an `indeterminate` or failed probe included, is `recovery-needed`; a failed
+ * probe is reported to `reportDiagnostic`.
  */
 export async function classifyResumeRecoveryCondition(
   connection: CodexAppServerConnection,
   cause: unknown,
+  reportDiagnostic: CodexDiagnosticSink,
 ): Promise<RecoveryCondition> {
   if (!(cause instanceof CodexProviderRequestError) || connection.isClosed) {
     return "recovery-needed";
@@ -110,8 +116,12 @@ export async function classifyResumeRecoveryCondition(
       await requestCodexAuthStatus(connection, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS),
     );
     return reading.status === "unauthenticated" ? "reauth-required" : "recovery-needed";
-  } catch {
+  } catch (probeFault) {
     // Contained: a failed probe must not replace the typed `failed` result the resume path returns.
+    reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+      kind: "resume-auth-classification-failed",
+      detail: normalizeProviderFailureDetail(probeFault),
+    });
     return "recovery-needed";
   }
 }

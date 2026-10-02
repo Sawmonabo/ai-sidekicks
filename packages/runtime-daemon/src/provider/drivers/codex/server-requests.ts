@@ -303,9 +303,6 @@ export type CodexRoutedAskAttribution =
   | { readonly outcome: "unattributed"; readonly runId: RunId | null }
   | { readonly outcome: "refused"; readonly reason: string };
 
-/** JSON-RPC "method not found" — the fail-closed answer to an unhandled server request. */
-export const JSON_RPC_METHOD_NOT_FOUND = -32601;
-
 /**
  * The `thread/realtime/*` notifications opted out at negotiation (exact names, `codex-cli
  * 0.150.1`): V1 has no realtime surface, so each would be an unmapped-kind diagnostic per audio
@@ -315,7 +312,7 @@ export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] =
   "thread/realtime/started",
   "thread/realtime/closed",
   "thread/realtime/error",
-  // The older `itemAdded` and `transcript/*` names still publish beside the newer `item/*` ones.
+  // The pin publishes the `itemAdded` and `transcript/*` names beside the `item/*` ones.
   "thread/realtime/itemAdded",
   "thread/realtime/sdp",
   "thread/realtime/outputAudio/delta",

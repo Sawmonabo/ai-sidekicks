@@ -117,8 +117,8 @@ export class CodexRoutedAskAttributor {
 
   /**
    * Records one refused routed ask that named an unresolvable turn. The transport arm takes every
-   * refusal; the shared diagnostic kind only callback-tool ones, since `callback_tool_invocation_refused`
-   * counts those and other refusals would corrupt that count.
+   * refusal; the shared diagnostic kind only callback-tool ones, since
+   * `callback_tool_invocation_refused` counts those and other refusals would corrupt that count.
    */
   #reportRoutedAskTurnUnresolved(
     sessionId: SessionId,
@@ -139,7 +139,7 @@ export class CodexRoutedAskAttributor {
       return;
     }
     this.#options.diagnostics.emit({
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "callback_tool_invocation_refused",
       rawWireType: method,
       dispositionReason:

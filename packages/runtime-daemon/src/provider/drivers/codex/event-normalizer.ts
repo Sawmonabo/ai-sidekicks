@@ -4,19 +4,20 @@
 // The table covers the server-originated JSON-RPC methods of the pinned `codex-cli 0.150.1`
 // app-server protocol, named as its generated schema names them.
 //
-// - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name in
-//   `./lifecycle.ts`), the experimental `mcpServer/event/stream/notification`, and replies to
-//   daemon-issued requests such as `account/rateLimits/read`.
+// - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name at `initialize`),
+//   the experimental `mcpServer/event/stream/notification`, and replies to daemon-issued requests
+//   such as `account/rateLimits/read`.
 // - `artifact_publication` has no row: no Codex frame maps to it. `turn/diff/updated` is a
 //   `tool.result` row.
-// - An unmapped method throws `UnknownCodexInboundFrameError`; `resolveCodexFrameEmissionRoute`
-//   emits an `unmapped_wire_kind` diagnostic instead. Neither drops the frame silently.
+// - An unmapped method gets an `unmapped_wire_kind` diagnostic from
+//   `resolveCodexFrameEmissionRoute`; the frame is never dropped silently.
 
 import {
   SESSION_EVENT_TYPES,
   type EventCategory,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
@@ -106,7 +107,7 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
   SESSION_EVENT_TYPES,
 );
 
-/** Says whether `eventType` may be built into a `SessionEvent` envelope today. */
+/** Says whether `eventType` may be built into a `SessionEvent` envelope. */
 function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
@@ -145,9 +146,7 @@ interface CodexNotEventedFrameDisposition {
 }
 
 /** The total result of normalizing one pinned Codex inbound frame method. */
-export type CodexFrameNormalization =
-  | CodexNormalizedFamilyEmission
-  | CodexNotEventedFrameDisposition;
+type CodexFrameNormalization = CodexNormalizedFamilyEmission | CodexNotEventedFrameDisposition;
 
 // A row before its derived members are put on it. Stating one by hand is a compile error (TS2353),
 // but only for fresh object literals, which every row here is.
@@ -175,24 +174,6 @@ function composeCodexFrameNormalization(
     ...target,
     emissionReadiness: resolveCodexEmissionReadiness(target.eventType),
   };
-}
-
-/**
- * Thrown when a Codex inbound method resolves to no census row. `nativeMethod` is untrusted data,
- * never interpolated into anything that executes.
- */
-export class UnknownCodexInboundFrameError extends Error {
-  readonly nativeMethod: string;
-
-  constructor(nativeMethod: string) {
-    super(
-      `Unmapped Codex inbound frame method: ${JSON.stringify(nativeMethod)}. ` +
-        "The pinned census does not cover it; the daemon diagnostic default branch " +
-        "replaces this refusal on the routed normalize path.",
-    );
-    this.name = "UnknownCodexInboundFrameError";
-    this.nativeMethod = nativeMethod;
-  }
 }
 
 // Keyed by the closed union, so a missing or extra method is a compile error.
@@ -485,25 +466,6 @@ const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
   ]),
 );
 
-// The driver core uses `resolveCodexFrameEmissionRoute`, which emits a diagnostic instead.
-function refuseUnmappedCodexInboundFrame(nativeMethod: string): never {
-  throw new UnknownCodexInboundFrameError(nativeMethod);
-}
-
-/**
- * Normalizes one Codex inbound method into its family disposition (the identical frozen
- * singleton for the same input). Throws {@link UnknownCodexInboundFrameError} if it is unmapped.
- */
-export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNormalization {
-  const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(
-    nativeMethod as CodexInboundFrameMethod,
-  );
-  if (normalization === undefined) {
-    refuseUnmappedCodexInboundFrame(nativeMethod);
-  }
-  return normalization;
-}
-
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type CodexFrameEmissionRoute =
   | { readonly route: "emit"; readonly normalization: CodexNormalizedFamilyEmission }
@@ -524,7 +486,7 @@ export function resolveCodexFrameEmissionRoute(
   );
   if (normalization === undefined) {
     const record: DriverDiagnosticRecord = {
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "unmapped_wire_kind",
       rawWireType: nativeMethod,
       dispositionReason:
@@ -539,7 +501,7 @@ export function resolveCodexFrameEmissionRoute(
   }
   if (normalization.emissionReadiness === "payload-variant-pending") {
     const record: DriverDiagnosticRecord = {
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       kind: "payload_variant_pending",
       rawWireType: nativeMethod,
       dispositionReason:

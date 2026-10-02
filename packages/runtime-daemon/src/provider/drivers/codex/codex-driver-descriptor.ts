@@ -1,5 +1,6 @@
 // Codex's static facts: what the daemon reads about it before any session exists.
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
 import type { DriverCapabilityDetectionTable, ProbeAnswer } from "../../capability-probe.js";
@@ -115,18 +116,6 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
 });
 
 /**
- * Measured at the pinned build: the Codex app-server answers this for both an unaccepted name and
- * an accepted name whose payload does not deserialize, so the code alone classifies nothing.
- */
-const CODEX_INVALID_REQUEST_CODE = -32600;
-
-/**
- * The standard JSON-RPC method-not-found code. The pinned build does not emit it for an
- * unaccepted name, but a build that adopts it must not be read as acceptance.
- */
-const CODEX_METHOD_NOT_FOUND_CODE = -32601;
-
-/**
  * The deserializer's unknown-variant message: the refused variant, then the accepted set. Anchored
  * on those fragments because the `Invalid request: ` preamble does not discriminate.
  */
@@ -164,10 +153,14 @@ function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnsw
   if (typeof code !== "number") {
     return "unrecognized";
   }
-  if (code === CODEX_METHOD_NOT_FOUND_CODE) {
+  // The pinned build does not emit method-not-found for an unaccepted name, but a build that
+  // adopts it must not be read as acceptance.
+  if (code === JsonRpcErrorCode.MethodNotFound) {
     return "unknown-name";
   }
-  if (code !== CODEX_INVALID_REQUEST_CODE) {
+  // The pinned build answers invalid-request both for an unaccepted name and for an accepted name
+  // whose payload does not deserialize, so the code alone classifies nothing.
+  if (code !== JsonRpcErrorCode.InvalidRequest) {
     return "accepted";
   }
   const message = error["message"];

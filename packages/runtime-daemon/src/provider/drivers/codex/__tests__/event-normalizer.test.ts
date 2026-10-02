@@ -7,9 +7,7 @@ import { describe, expect, it } from "vitest";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   classifyCodexFrameFamilyForRouting,
-  normalizeCodexInboundFrame,
   resolveCodexFrameEmissionRoute,
-  UnknownCodexInboundFrameError,
 } from "../event-normalizer.js";
 import { TerminalEmissionGate, type TerminalRunFrame } from "../../../terminal-emission-gate.js";
 import { classifyCodexUsageLimitSignal } from "../usage-limit-signal.js";
@@ -29,10 +27,6 @@ describe("resolveCodexFrameEmissionRoute", () => {
       expect(route.record.provider).toBe("codex");
     }
     expect(diagnostics.emittedRecordCount()).toBe(1);
-    // The bare resolver still throws for direct misuse.
-    expect(() => normalizeCodexInboundFrame("thread/unheard-of")).toThrow(
-      UnknownCodexInboundFrameError,
-    );
   });
 });
 

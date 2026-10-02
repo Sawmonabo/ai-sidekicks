@@ -98,7 +98,7 @@ function interruptParams(): ApplyInterventionParams {
     targetRunId: RUN_ID,
     expectedRunVersion: 4,
     clientIdempotencyKey: "idem-2",
-    payload: { reason: "operator paused the run" },
+    payload: { reason: "the person paused the run" },
   };
 }
 
@@ -108,7 +108,7 @@ function cancelParams(): ApplyInterventionParams {
     targetRunId: RUN_ID,
     expectedRunVersion: 4,
     clientIdempotencyKey: "idem-3",
-    payload: { reason: "operator canceled the run" },
+    payload: { reason: "the person canceled the run" },
   };
 }
 
@@ -136,7 +136,7 @@ describe("CodexInterventionDispatcher native routing", () => {
 
     expect(harness.interruptRun).toHaveBeenCalledWith({
       runId: RUN_ID,
-      reason: "operator paused the run",
+      reason: "the person paused the run",
     });
     expect(result).toEqual({ status: "applied" });
   });
@@ -150,7 +150,7 @@ describe("CodexInterventionDispatcher native routing", () => {
     // does with the run afterwards.
     expect(harness.interruptRun).toHaveBeenCalledWith({
       runId: RUN_ID,
-      reason: "operator canceled the run",
+      reason: "the person canceled the run",
     });
     expect(result).toEqual({ status: "applied" });
   });

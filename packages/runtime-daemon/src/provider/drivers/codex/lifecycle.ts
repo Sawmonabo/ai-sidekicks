@@ -1,16 +1,9 @@
 /**
- * Codex app-server transport (`CodexAppServerConnection`, JSONL JSON-RPC over one `PtyHost`) and
- * lifecycle (`CodexLifecycleManager`). No port separates them, so tests drive the real framing
- * through a fake `PtyHost`.
- * - `/bin/sh -c` spawns the provider (see the prelude): a PTY slave starts canonical with echo on,
- *   and `codex app-server` never calls `tcsetattr`. Canonical mode silently drops an input line
- *   over MAX_CANON (Darwin 1024 bytes; `codex-cli 0.149.1` answered a 1015-byte frame, not 1045).
- *   Splitting a frame across small writes does not help: the cap is per line, not per write, and
- *   it performs worse.
+ * The Codex session lifecycle (`CodexLifecycleManager`): one `CodexAppServerConnection` per
+ * session, with no port between them, so tests drive the real framing through a fake `PtyHost`.
  * - The establishment legs, spawn posture, text-neutralization tripwire, steer dispatch, routing
  *   band, routed-ask attribution, command cache and compaction dispatch are dependencies this
- *   class builds once; it keeps the session slots, the run and turn entry
- *   points and teardown.
+ *   class builds once; it keeps the session slots, the run and turn entry points and teardown.
  * - Every spawn or dispose runs inside `#claimSessionSlot` (`establishing`, `live`, `closing`),
  *   held until fully settled, so no owned process exists without a held slot; a `startRun` that
  *   only installs a route re-reads the slot after its await.
@@ -71,6 +64,7 @@ import {
   normalizeProviderFailureDetail,
 } from "./session-errors.js";
 import { readTurnId } from "./thread-view.js";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   buildAuthProbeResult,
   classifyCodexAuthStatus,
@@ -88,7 +82,6 @@ import { CodexSteerDispatch } from "./steer-dispatch.js";
 import { CodexCompactionDispatch } from "./compaction-dispatch.js";
 import { CodexSessionEstablishment, releaseAbandonedConnection } from "./session-establishment.js";
 import {
-  ForkConversationResultSchema,
   type ClearSessionGoalParams,
   type CloseSessionParams,
   type CompactContextParams,
@@ -386,11 +379,13 @@ export class CodexLifecycleManager {
         this.#providerCommands.discardProviderCommandEnumeration(record.sessionId);
         this.#textNeutralization.releaseOutboundFrameBudget(record.sessionId);
       }
-      try {
-        await record.connection.killAndClose();
-      } catch {
-        // The caller is already throwing the typed cause; a teardown artifact must not displace it.
-      }
+      // Contained: the caller is already throwing the typed cause, which a teardown fault must
+      // not displace.
+      await releaseAbandonedConnection(
+        record.connection,
+        this.#options.reportDiagnostic,
+        "kill-and-close",
+      );
     });
   }
 
@@ -410,7 +405,7 @@ export class CodexLifecycleManager {
       return buildAuthProbeResult("indeterminate", normalizeProviderFailureDetail(cause));
     } finally {
       // Contained so a teardown fault cannot displace the answer; `close()` is idempotent.
-      await releaseAbandonedConnection(connection);
+      await releaseAbandonedConnection(connection, this.#options.reportDiagnostic);
     }
   }
 
@@ -463,19 +458,13 @@ export class CodexLifecycleManager {
     const record = this.#requireSession(params.sessionId);
     if (record.runIdByActiveTurnId.size > 0) {
       // The provider refuses to fork through a live turn; answer locally with a typed result.
-      return ForkConversationResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "rewind-deferred-turn-in-progress",
-      });
+      return { status: "degraded", fallbackAction: "rewind-deferred-turn-in-progress" };
     }
     // Position 0 must not become an omitted `lastTurnId`, which forks the whole thread.
     const boundaryTurnId =
       params.position >= 1 ? record.turnBoundaries[params.position - 1] : undefined;
     if (boundaryTurnId === undefined) {
-      return ForkConversationResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "rewind-target-not-a-recorded-boundary",
-      });
+      return { status: "degraded", fallbackAction: "rewind-target-not-a-recorded-boundary" };
     }
     // Held across the fork: a `startRun` meanwhile would register on the pre-fork thread and its
     // frames would be shed, and two rewinds would both report `applied`. `establishing` because a
@@ -569,7 +558,7 @@ export class CodexLifecycleManager {
       return existing;
     }
     const router = new ThreadFrameRouter<CodexRoutableFrame>({
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       diagnostics: this.#options.diagnostics,
       config: CODEX_THREAD_FRAME_ROUTER_CONFIG,
     });
@@ -584,7 +573,7 @@ export class CodexLifecycleManager {
       return existing;
     }
     const accountant = new UsageDeltaAccountant({
-      provider: "codex",
+      provider: CODEX_DRIVER_NAME,
       diagnostics: this.#options.diagnostics,
     });
     this.#usageAccountants.set(sessionId, accountant);
@@ -623,8 +612,12 @@ export class CodexLifecycleManager {
             { threadId: record.threadId },
             UNSUBSCRIBE_TIMEOUT_MS,
           );
-        } catch {
-          /* teardown proceeds */
+        } catch (cause) {
+          reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+            kind: "teardown-step-failed",
+            step: "thread-unsubscribe",
+            detail: normalizeProviderFailureDetail(cause),
+          });
         }
       }
       await record.connection.close();
@@ -735,8 +728,7 @@ export class CodexLifecycleManager {
       onServerNotification: (method: string, params: unknown): void => {
         this.#observeServerNotification(sessionId, method, params);
         // Every inbound frame goes through the router before any projection; the delegate is
-        // reached only from inside the routing band's normalize hand-off. That inner guard has no
-        // test of its own: the outer catch reports an identical diagnostic.
+        // reached only from inside the routing band's normalize hand-off.
         try {
           this.#notificationRouting.routeInboundNotification(sessionId, method, params);
         } catch (cause) {
@@ -773,10 +765,14 @@ export class CodexLifecycleManager {
    * not wait on or be unwound by a child's death.
    */
   #disposeQuarantinedSession(record: CodexSessionRecord): void {
-    void this.#disposeAmbiguousSession(record).catch(() => {
-      // Unreachable by construction: the ambiguous-disposal path contains its own teardown fault.
-      // Guarded because an unhandled rejection out of the read-chunk drain would be a second
-      // failure.
+    // The disposal contains its own teardown fault; anything else is reported, because an
+    // unhandled rejection out of the read-chunk drain would be a second failure.
+    void this.#disposeAmbiguousSession(record).catch((cause: unknown) => {
+      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+        kind: "teardown-step-failed",
+        step: "session-disposal",
+        detail: normalizeProviderFailureDetail(cause),
+      });
     });
   }
 

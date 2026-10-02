@@ -28,7 +28,6 @@ import type {
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
-import { CODEX_DRIVER_DESCRIPTOR } from "./codex-driver-descriptor.js";
 import { getCodexToolMetadata } from "./tools.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
 
@@ -115,10 +114,6 @@ export function getCodexCapabilities(
     cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
     // Fresh: the reading's record is frozen and shared.
     detectionSource: { ...detection.detectionSource },
-    // Present only when the flag is true, which it never is for this driver.
-    ...(CODEX_CAPABILITY_FLAGS.output_speed
-      ? { outputSpeedLevels: [...CODEX_DRIVER_DESCRIPTOR.outputSpeedLevels] }
-      : {}),
   };
 }
 

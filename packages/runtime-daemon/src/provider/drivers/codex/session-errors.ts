@@ -163,8 +163,8 @@ export class CodexSessionAlreadyLiveError extends Error {
 export class CodexDriverConfigError extends Error {
   readonly field: string;
 
-  constructor(message: string, field: string) {
-    super(message);
+  constructor(message: string, field: string, options?: { readonly cause: unknown }) {
+    super(message, options);
     this.name = "CodexDriverConfigError";
     this.field = field;
   }
@@ -176,17 +176,13 @@ export class CodexDriverConfigError extends Error {
  * Total over arbitrary values.
  */
 export function normalizeProviderFailureDetail(cause: unknown): string {
-  try {
-    const trimmed = readFailureText(cause).replaceAll("\0", "").trim();
-    if (trimmed.length === 0) {
-      return UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-    }
-    return trimmed.length > DRIVER_FAILURE_DETAIL_MAX_LEN
-      ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
-      : trimmed;
-  } catch {
+  const trimmed = readFailureText(cause).replaceAll("\0", "").trim();
+  if (trimmed.length === 0) {
     return UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
   }
+  return trimmed.length > DRIVER_FAILURE_DETAIL_MAX_LEN
+    ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
+    : trimmed;
 }
 
 /**

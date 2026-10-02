@@ -45,7 +45,7 @@ export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
  * Posture-affecting `turn/start` fields the daemon derives; `StartRunParams.agentConfig` is
  * untyped, so this refusal keeps a caller-declared policy off the wire.
  */
-export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
+const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
   "cwd",
   "sandboxPolicy",
   "permissions",
@@ -60,10 +60,7 @@ export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
  * with `-32600`, an `experimentalApi` one accepts both), so V1 realizes `sandboxPolicy`;
  * `permissionProfile` refuses `-32602` at the pin.
  */
-export const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = [
-  "permissions",
-  "permissionProfile",
-];
+const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = ["permissions", "permissionProfile"];
 
 /**
  * Throws `CodexDriverConfigError` if a constructed `turn/start` carries an unrealized posture
@@ -365,15 +362,15 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "sessionId",
     "StartRunParams.agentConfig.sessionId",
   );
-  let sessionId: SessionId;
-  try {
-    sessionId = SessionIdSchema.parse(rawSessionId);
-  } catch {
+  const parsedSessionId = SessionIdSchema.safeParse(rawSessionId);
+  if (!parsedSessionId.success) {
     throw new CodexDriverConfigError(
       "StartRunParams.agentConfig.sessionId must be a session id.",
       "StartRunParams.agentConfig.sessionId",
+      { cause: parsedSessionId.error },
     );
   }
+  const sessionId = parsedSessionId.data;
   const input = readRequiredString(source, "input", "StartRunParams.agentConfig.input");
   const model = readOptionalString(source, "model", "StartRunParams.agentConfig.model");
   const clientUserMessageId = readOptionalString(
@@ -381,8 +378,9 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
-  // Read only to refuse: the run-opening boundary mints its own frame origin, and a
-  // caller-declared tripwire-exempt origin would deliver the user's words as a provider command.
+  // Read only to check it: the run-opening boundary mints its own frame origin, so any other value
+  // is refused; a caller-declared tripwire-exempt origin would deliver the user's words as a
+  // provider command.
   const declaredFrameOrigin = readOptionalString(
     source,
     "frameOrigin",

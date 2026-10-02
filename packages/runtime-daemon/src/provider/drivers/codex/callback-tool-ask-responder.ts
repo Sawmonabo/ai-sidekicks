@@ -4,6 +4,7 @@
  */
 
 import type { CallbackToolHost } from "../../callback-tool-host.js";
+import { normalizeProviderFailureDetail } from "./session-errors.js";
 import {
   CallbackToolInvocationSchema,
   type CallbackToolInvocation,
@@ -184,21 +185,23 @@ function rebuildContentItem(candidate: unknown): Record<string, string> | null {
   return { type: itemType, [requiredMemberName]: requiredMember };
 }
 
+const UNRENDERABLE_OUTPUT_TEXT =
+  "The callback tool completed with an output this daemon could not render as text.";
+
 /**
  * Renders one non-content-item output as text. An unserializable value (a cycle, a `BigInt`) still
- * yields a visible item: the call was already allowed and must not become an unanswered frame.
+ * yields a visible item that names why: the call was already allowed and must not become an
+ * unanswered frame.
  */
 function renderContentItemText(output: unknown): string {
   if (typeof output === "string") {
     return output;
   }
+  let serialized: string | undefined;
   try {
-    const serialized = JSON.stringify(output);
-    if (serialized !== undefined) {
-      return serialized;
-    }
-  } catch {
-    /* fall through to the un-renderable answer below */
+    serialized = JSON.stringify(output);
+  } catch (cause) {
+    return `${UNRENDERABLE_OUTPUT_TEXT} (${normalizeProviderFailureDetail(cause)})`;
   }
-  return "The callback tool completed with an output this daemon could not render as text.";
+  return serialized ?? UNRENDERABLE_OUTPUT_TEXT;
 }

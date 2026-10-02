@@ -19,7 +19,10 @@ import {
 } from "./session-errors.js";
 import { readThread, readThreadTurnIds } from "./thread-view.js";
 import { classifyResumeRecoveryCondition } from "./auth-status.js";
-import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
+import {
+  type CodexDiagnosticSink,
+  reportDiagnosticFromDetachedFrame,
+} from "./transport-diagnostics.js";
 import type { CodexSpawnPosture } from "./spawn-posture.js";
 import type { CodexNotificationRouting } from "./notification-routing.js";
 import type { CodexProviderCommandCache } from "./provider-command-cache.js";
@@ -37,19 +40,49 @@ import {
 } from "../../provider-driver.js";
 
 /**
- * Closes an abandoned connection without letting a teardown fault (an injected disposer is
- * caller code) change the outcome of the operation that abandoned it. `closeSession` does not
- * use it: a close has no other outcome to protect.
+ * Closes an abandoned connection, killing the child first under `kill-and-close`, and reports a
+ * teardown fault (an injected disposer is caller code) rather than letting it change the outcome
+ * of the operation that abandoned it. `closeSession` does not use it: a close has no other outcome
+ * to protect.
  */
 export async function releaseAbandonedConnection(
   connection: CodexAppServerConnection,
+  reportDiagnostic: CodexDiagnosticSink,
+  release: "close" | "kill-and-close" = "close",
 ): Promise<void> {
   try {
-    await connection.close();
-  } catch {
-    // Deliberately swallowed: the transport is abandoned either way, and a refusing teardown is
-    // a host-level condition, not a result.
+    await (release === "kill-and-close" ? connection.killAndClose() : connection.close());
+  } catch (cause) {
+    // `close()` throws only its disposer's fault; the transport is released either way.
+    reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+      kind: "subscription-dispose-failed",
+      detail: normalizeProviderFailureDetail(cause),
+    });
   }
+}
+
+/** The record for a just-established thread; every per-turn register starts empty. */
+function composeSessionRecord(
+  established: Pick<
+    CodexSessionRecord,
+    | "sessionId"
+    | "connection"
+    | "threadId"
+    | "turnBoundaries"
+    | "executionPosture"
+    | "subagentPolicy"
+    | "spawnConfig"
+  >,
+): CodexSessionRecord {
+  return {
+    ...established,
+    runIdByActiveTurnId: new Map(),
+    unmatchedTurnEvidence: new Map(),
+    inFlightTurnStarts: 0,
+    settledTurnIds: new Set(),
+    inFlightSteers: 0,
+    interruptedRunIdByTurnId: new Map(),
+  };
 }
 
 /** The session records, dependencies and lifecycle accessors the establishment legs write into. */
@@ -127,21 +160,18 @@ export class CodexSessionEstablishment {
       const thread = readThread(response, "thread/start");
       this.#spawnPosture.assertPostureRealized(params.executionPosture, response);
       this.#spawnPosture.reportWithheldCallbackTools(params.sessionId, params.callbackTools);
-      this.#sessions.set(params.sessionId, {
-        sessionId: params.sessionId,
-        connection,
-        threadId: thread.id,
-        turnBoundaries: [],
-        executionPosture: params.executionPosture,
-        subagentPolicy: params.subagentPolicy,
-        spawnConfig: config,
-        runIdByActiveTurnId: new Map(),
-        unmatchedTurnEvidence: new Map(),
-        inFlightTurnStarts: 0,
-        settledTurnIds: new Set(),
-        inFlightSteers: 0,
-        interruptedRunIdByTurnId: new Map(),
-      });
+      this.#sessions.set(
+        params.sessionId,
+        composeSessionRecord({
+          sessionId: params.sessionId,
+          connection,
+          threadId: thread.id,
+          turnBoundaries: [],
+          executionPosture: params.executionPosture,
+          subagentPolicy: params.subagentPolicy,
+          spawnConfig: config,
+        }),
+      );
       // A fresh process now answers for this session id, so a prior trip's refusal is released.
       this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
       // Bases at zero: the provider's counter starts there, so the first turn is real spend.
@@ -151,7 +181,7 @@ export class CodexSessionEstablishment {
       return { providerSessionId: thread.sessionId, resumeHandle: thread.id };
     } catch (cause) {
       // Contained so a throwing disposer in `close()` cannot replace the spawn or handshake error.
-      await releaseAbandonedConnection(connection);
+      await releaseAbandonedConnection(connection, this.#options.reportDiagnostic);
       throw cause;
     }
   }
@@ -199,8 +229,9 @@ export class CodexSessionEstablishment {
           { threadId: thread.id },
         );
       }
-      // Built and validated before the swap: the caller's minter can throw, and after the install
-      // that would leave the session mapped to a closed connection.
+      // Built before the swap: the caller's minter can throw, and after the install that would
+      // leave the session mapped to a closed connection. Parsed because the schema is the only
+      // check of the minted `bindingId` (length cap, no blank, no NUL) before it is persisted.
       const resumedResult = DriverResumeResultSchema.parse({
         status: "resumed",
         bindingId: this.#newBindingId(),
@@ -208,22 +239,20 @@ export class CodexSessionEstablishment {
       });
       // Re-reported on resume: this leg offers the provider no callback-tool registry either.
       this.#spawnPosture.reportWithheldCallbackTools(params.sessionId, params.callbackTools);
-      this.#sessions.set(params.sessionId, {
-        sessionId: params.sessionId,
-        connection,
-        threadId: thread.id,
-        // Seeded from the thread's own history so a rewind indexes the same axis as before restart.
-        turnBoundaries: readThreadTurnIds(thread.turns),
-        executionPosture: params.executionPosture,
-        subagentPolicy: params.subagentPolicy,
-        spawnConfig,
-        runIdByActiveTurnId: new Map(),
-        unmatchedTurnEvidence: new Map(),
-        inFlightTurnStarts: 0,
-        settledTurnIds: new Set(),
-        inFlightSteers: 0,
-        interruptedRunIdByTurnId: new Map(),
-      });
+      this.#sessions.set(
+        params.sessionId,
+        composeSessionRecord({
+          sessionId: params.sessionId,
+          connection,
+          threadId: thread.id,
+          // Seeded from the thread's own history so a rewind indexes the same axis as before
+          // restart.
+          turnBoundaries: readThreadTurnIds(thread.turns),
+          executionPosture: params.executionPosture,
+          subagentPolicy: params.subagentPolicy,
+          spawnConfig,
+        }),
+      );
       // Discarded: the held enumeration is a read from the replaced process, and its
       // `skills/changed` cue would arrive on a dead connection.
       this.#providerCommands.discardProviderCommandEnumeration(params.sessionId);
@@ -254,20 +283,24 @@ export class CodexSessionEstablishment {
       this.#textNeutralization.releaseOutboundFrameBudget(params.sessionId);
       // Released after the install so a failed resume leaves the prior leg live.
       if (existing !== undefined) {
-        await releaseAbandonedConnection(existing.connection);
+        await releaseAbandonedConnection(existing.connection, this.#options.reportDiagnostic);
       }
       return resumedResult;
     } catch (cause) {
       // Classified before the release: it asks this connection whether the credential is still
       // good, and a refused resume leaves the transport open. The release is contained so its
       // fault cannot escape the typed result.
-      const recoveryCondition = await classifyResumeRecoveryCondition(connection, cause);
-      await releaseAbandonedConnection(connection);
-      return DriverResumeResultSchema.parse({
+      const recoveryCondition = await classifyResumeRecoveryCondition(
+        connection,
+        cause,
+        this.#options.reportDiagnostic,
+      );
+      await releaseAbandonedConnection(connection, this.#options.reportDiagnostic);
+      return {
         status: "failed",
         recoveryCondition,
         providerFailureDetail: normalizeProviderFailureDetail(cause),
-      });
+      };
     }
   }
 
@@ -302,26 +335,17 @@ export class CodexSessionEstablishment {
     // Answering with the thread it was handed means no fork happened; adopting it would report
     // `applied` with no surviving pre-rewind thread.
     if (forkedThread.id === preForkThreadId) {
-      return ForkConversationResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "rewind-not-forked",
-      });
+      return { status: "degraded", fallbackAction: "rewind-not-forked" };
     }
     // A thread this session already meters would have its spend registers reset. Ordered after the
     // fork check because the pre-fork thread is itself registered.
     if (this.#usageAccountantFor(params.sessionId).hasThread(forkedThread.id)) {
-      return ForkConversationResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "rewind-target-thread-already-registered",
-      });
+      return { status: "degraded", fallbackAction: "rewind-target-thread-already-registered" };
     }
     // Re-read after the await, before the first mutation; rebinding under a live turn would strand
     // the turn.
     if (record.runIdByActiveTurnId.size > 0) {
-      return ForkConversationResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "rewind-deferred-turn-in-progress",
-      });
+      return { status: "degraded", fallbackAction: "rewind-deferred-turn-in-progress" };
     }
     record.threadId = forkedThread.id;
     // The routing and metering band moves with the record. Based like a resume on the pre-fork
@@ -354,6 +378,7 @@ export class CodexSessionEstablishment {
     } else {
       record.turnBoundaries.length = params.position;
     }
+    // Parsed for the minted `bindingId`, which the schema alone caps before it is persisted.
     return ForkConversationResultSchema.parse({
       status: "applied",
       sessionPosition: params.position,

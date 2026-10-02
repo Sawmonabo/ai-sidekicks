@@ -16,13 +16,14 @@ import {
   composeTextNeutralizationRunFailure,
   observedTurnEvidence,
 } from "../../outbound-frame.js";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import { CODEX_TURN_COMPLETED_METHOD } from "./event-normalizer.js";
 import {
   classifyCodexTurnEvidence,
   classifyCodexTurnEvidenceObservation,
 } from "./turn-evidence.js";
 import {
   CODEX_TERMINAL_TURN_STATUSES,
-  CODEX_TURN_COMPLETED_NOTIFICATION,
   type CodexLifecycleOptions,
   type CodexSessionRecord,
   rememberSettledTurn,
@@ -243,7 +244,7 @@ export class CodexTextNeutralization {
         remembered.observations.add(inFlightEvidence.observation);
       }
     }
-    if (method !== CODEX_TURN_COMPLETED_NOTIFICATION) {
+    if (method !== CODEX_TURN_COMPLETED_METHOD) {
       return;
     }
     const payload = isPlainObject(params) ? params : {};
@@ -470,7 +471,7 @@ export class CodexTextNeutralization {
       this.#options.onTextNeutralizationFailure(sessionId, runId, failure);
     } catch (cause) {
       this.#options.diagnostics.emit({
-        provider: "codex",
+        provider: CODEX_DRIVER_NAME,
         kind: "text_neutralization_trip_report_failed",
         rawWireType: null,
         dispositionReason: normalizeProviderFailureDetail(cause),
@@ -480,7 +481,7 @@ export class CodexTextNeutralization {
   }
 
   /**
-   * Drops the unsettled frames of a binding this manager no longer holds. Retained decisions
+   * Drops the unsettled frames of a binding this manager has released. Retained decisions
    * survive: they are keyed by turn and the intervention dispatcher reads them after teardown.
    */
   releaseOutboundFrameBudget(sessionId: SessionId): void {
