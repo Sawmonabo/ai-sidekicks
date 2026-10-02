@@ -166,7 +166,7 @@ The requests that start a run under an agent are Plan-013-owned and Plan-001-own
 
 Plan-024 authors the destination's library, editor and `Browse plugins` view as components in the desktop's agents feature (`features/agents/`), owning no chrome, router, or navigation file. The desktop app must mount that feature and route to it, `#/sidekicks/plugins` included.
 
-**Resolution.** Plan-020 registers the reciprocal CP-020-3 and mounts the agents feature in its Phase 6 renderer work. Plan-024 T5.1 authors the components behind that mount, following the [Plan-002](./002-queue-steer-pause-resume.md) precedent, where the authoring plan owns a feature's parts and the host plan owns the mount.
+**Resolution.** Plan-020 registers the reciprocal CP-020-2 and mounts the agents feature in its Phase 6 renderer work. Plan-024 T5.1 authors the components behind that mount, following the [Plan-002](./002-queue-steer-pause-resume.md) precedent, where the authoring plan owns a feature's parts and the host plan owns the mount.
 
 ### CP-024-3 — Durable resolved-configuration columns owed to [Plan-013](./013-multi-agent-orchestration.md)
 
@@ -184,7 +184,7 @@ Plan-024 authors the destination's library, editor and `Browse plugins` view as 
 - `packages/runtime-daemon/src/agents/` (NEW directory, Plan-024-owned): `definition-store.ts`, `definition-resolver.ts`, `run-start-resolution.ts`, `handlers.ts`, `bridge-tools.ts`, `peer-invocation-handler.ts`, `errors.ts`, and `session-pack.ts`, the one session pack every contributor extends; beside them the definition watch, the hook gate, and the plugin service. The bridge verbs' argument schemas, with the 10-second wait cap and the 15-second close figure declared beside them, live here, since only the daemon's tool server and a provider read them.
 - The daemon's one local schema and its test (EXTEND) — the `agent_definitions` table.
 - `packages/runtime-daemon/src/provider/drivers/` (EXTEND) — each driver's fixed built-in tool table, and the spawn-time carriers for the allowlist, the turn cap, the hooks and the memory, at the driver sites.
-- `apps/cli/src/commands/agent-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-005-12.
+- `apps/cli/src/commands/agent-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-005-11.
 - `packages/client-sdk/src/` (EXTEND) — `agent-client.ts` (NEW), the typed client for the `agent.*` definition pairs, plus one named export line in the package's Plan-001-owned entry point `index.ts`.
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `agent.*` definition handler files (T2.2).
 - `apps/desktop/src/renderer/src/store/` and `apps/desktop/src/renderer/src/services/daemon/` (EXTEND) — the definition list is app-wide state: the daemon client (`services/daemon/`) reads `agent.definitionList` into the app-wide store (`store/`) and keeps it current from `agent.definitionSubscribe`, and the agents feature, the session composer's `/` list and the workflow node's chooser each read it there, so none of them imports another (T5.1).
@@ -300,7 +300,7 @@ Plan-024 implementation lands as a sequence of small PRs. Each PR exercises one 
   - **Tests:** each definition pair and the stream registered; an export writing one Markdown file per definition with no account and no memory contents, and a failed write refused with its cause; an import folder holding a file that is not a definition creating every definition beside it and listing the skipped file once with its reason; an imported definition landing in the global scope; an update to a plugin's agent refused; a stream subscriber receiving the whole list after a save in another window and after a file changed on disk.
 - **T2.3 — CLI definition commands.**
   - **Files:** `apps/cli/src/commands/agent-definition-list.ts`, `agent-definition-create.ts`, `agent-definition-edit.ts`, `agent-definition-delete.ts` (all NEW), `apps/cli/src/main.ts` (EXTEND — its `.register()` calls only).
-  - **Provides:** the definition commands the person runs over the T2.2 handlers, under the command group word a person types, `sidekick-definition` (D-024-9), each command extending the shared base command class from `apps/cli/src/base-command.ts` per CP-005-12, writing results to the injected stdout and diagnostics to the injected stderr.
+  - **Provides:** the definition commands the person runs over the T2.2 handlers, under the command group word a person types, `sidekick-definition` (D-024-9), each command extending the shared base command class from `apps/cli/src/base-command.ts` per CP-005-11, writing results to the injected stdout and diagnostics to the injected stderr.
   - **Consumes:** T2.2; **T2.4** — the typed client this command surface calls, which is why the SDK is authored in this phase rather than in Phase 5; Plan-005 base command class (Phase R3) and client SDK transport.
   - **Spec coverage:** Spec-026 §Scope.
   - **Verifies invariant:** none — a command surface over already-verified handlers.
