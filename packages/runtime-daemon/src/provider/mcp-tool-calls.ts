@@ -4,30 +4,15 @@
 // - An MCP-discovered tool is always `manual_reconcile_only`, never derived from annotation hints:
 //   MCP requires a client to treat annotations as untrusted.
 // - The `taskId` in a task-augmented call's `CreateTaskResult` is the handle recovery polls instead
-//   of halting. Nothing feeds acceptances here yet: the provider CLIs are the MCP clients, so the
-//   daemon does not see a `CreateTaskResult` at dispatch.
+//   of halting.
 
 import type { IdempotencyClass } from "@ai-sidekicks/contracts";
 
 /** The class of every MCP-discovered tool: equal to a driver's default in value but not in rule. */
 const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
-/**
- * MCP `ToolAnnotations` self-claims, modeled only so {@link classifyMcpDiscoveredTool} can name
- * what it ignores.
- */
-export interface McpToolAnnotationHints {
-  readonly readOnlyHint?: boolean | undefined;
-  readonly idempotentHint?: boolean | undefined;
-  readonly destructiveHint?: boolean | undefined;
-  readonly openWorldHint?: boolean | undefined;
-}
-
-/** Classifies an MCP-discovered tool: always the floor, whatever `annotations` claim. */
-export function classifyMcpDiscoveredTool(
-  annotations?: McpToolAnnotationHints | undefined,
-): IdempotencyClass {
-  void annotations;
+/** Classifies an MCP-discovered tool: always the floor, whatever its annotations claim. */
+export function classifyMcpDiscoveredTool(): IdempotencyClass {
   return MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS;
 }
 

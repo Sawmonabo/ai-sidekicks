@@ -256,7 +256,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "attestation/generate",
     transport: "server-request",
     reason:
-      "control-plane request answered on the transport (the initialize-declared requestAttestation capability, codex.md); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
+      "control-plane request answered on the transport (the initialize-declared requestAttestation capability); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
   },
   "account/chatgptAuthTokens/refresh": {
     disposition: "not-evented",
@@ -404,7 +404,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/reverted",
     transport: "server-notification",
     reason:
-      'correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, which the V1 driver does not drive at all: binds the Codex rewind to `thread/fork` at an inclusive `lastTurnId` (amended 2026-08-26), and `thread/revert` is separately `#[experimental("thread/revert")]` and paginated-threads-only at the pin, so this frame is off the V1 rewind path rather than on its hot path. Where it does arrive it correlates a revert the daemon requested, and the rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused',
+      'correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, which the driver does not drive: the Codex rewind is `thread/fork` at an inclusive `lastTurnId`, and `thread/revert` is `#[experimental("thread/revert")]` and paginated-threads-only at the pin, so this frame is off the rewind path. Where it does arrive it correlates a revert the daemon requested, and the rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused',
   },
   "thread/queue/changed": {
     disposition: "not-evented",

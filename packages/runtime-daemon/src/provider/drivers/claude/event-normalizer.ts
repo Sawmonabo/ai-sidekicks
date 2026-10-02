@@ -252,21 +252,20 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/notification",
     channel: "stream",
     reason:
-      "distinct from the census `notification` kind (row 17, Codex-fed); the user-facing-notice capability is already carried there — this Claude system subtype is redundant transport noise",
+      "distinct from the `notification` kind, which Codex feeds; the user-facing-notice capability is already carried there — this Claude system subtype is redundant transport noise",
   },
   "system/files_persisted": {
     disposition: "not-evented",
     frameKind: "system/files_persisted",
     channel: "stream",
     reason:
-      "file-write summary; the adopted `diff` (32) / `command_output` (33) rows plus `artifact_publication` already carry the file-change capability",
+      "file-write summary; the adopted `diff` / `command_output` kinds plus `artifact_publication` already carry the file-change capability",
   },
   "system/tool_use_summary": {
     disposition: "not-evented",
     frameKind: "system/tool_use_summary",
     channel: "stream",
-    reason:
-      "aggregate over the adopted `tool_start` (3) / `tool_complete` (4) rows; no new capability",
+    reason: "aggregate over the adopted `tool_start` / `tool_complete` kinds; no new capability",
   },
   "system/memory_recall": {
     disposition: "not-evented",
@@ -279,14 +278,14 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/local_command_output",
     channel: "stream",
     reason:
-      "superseded by the adopted `command_output` (33) kind; the local variant carries no additional capability",
+      "superseded by the adopted `command_output` kind; the local variant carries no additional capability",
   },
   "system/task_progress": {
     disposition: "not-evented",
     frameKind: "system/task_progress",
     channel: "stream",
     reason:
-      "intra-task progress; the adopted `task_create` (15) / `task_update` (16) + `todo_update` snapshots carry the durable task state",
+      "intra-task progress; the adopted `task_create` / `task_update` kinds and `todo_update` snapshots carry the durable task state",
   },
 
   // A `result` frame does not end the read loop (trailing events can follow), so the loop reads
