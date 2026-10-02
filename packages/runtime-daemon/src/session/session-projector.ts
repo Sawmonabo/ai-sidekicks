@@ -51,7 +51,7 @@ export function projectEvent(
         `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=${String(event.sequence)})`,
       );
     default:
-      // Event types the projector does not fold yet only advance the sequence.
+      // Every other event type only advances the sequence.
       return { ...snapshot, asOfSequence: event.sequence };
   }
 }
@@ -66,9 +66,6 @@ function bootstrapFromCreated(event: StoredEvent): DaemonSessionSnapshot {
 
   return {
     sessionId: event.sessionId,
-    // A new session starts in `provisioning`; a `session.activated` event would move it to
-    // `active`, but the projector does not fold that event yet.
-    state: "provisioning",
     createdAt: event.occurredAt,
     asOfSequence: event.sequence,
     ownerActor,

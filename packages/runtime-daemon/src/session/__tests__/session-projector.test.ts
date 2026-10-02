@@ -50,7 +50,6 @@ describe("session-projector — bootstrap projection", () => {
     if (snapshot === null) return; // type guard for TS
 
     expect(snapshot.sessionId).toBe(SESSION_ID);
-    expect(snapshot.state).toBe("provisioning");
     expect(snapshot.createdAt).toBe(OCCURRED_AT);
     expect(snapshot.asOfSequence).toBe(0);
 
@@ -77,8 +76,8 @@ describe("session-projector — bootstrap refusals", () => {
     expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
   });
 
-  // `SessionService.append` accepts any sequence, so this projector check is the only guard
-  // against a log that opens at sequence > 0 and hides lost or corrupted earlier events.
+  // A stored row can carry any sequence, so this projector check is the only guard against a log
+  // that opens at sequence > 0 and hides lost or corrupted earlier events.
 
   it("rejects a bootstrap session.created event at sequence > 0", () => {
     const nonZeroBootstrap: StoredEvent = {
