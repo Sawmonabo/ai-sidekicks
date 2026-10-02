@@ -156,7 +156,7 @@ type ApprovalState = "pending" | "approved" | "rejected" | "canceled";
 // mode, not a permission level, and the level still governs what a plan may read. A provider's own mode
 // name never appears here — each level is one of that provider's own modes underneath, and the realized
 // sandbox-and-network composition is `ExecutionPosture` below.
-type ExecutionPostureMode = "readonly" | "ask" | "reviewed" | "sandboxed" | "yolo";
+type PermissionLevel = "readonly" | "ask" | "reviewed" | "sandboxed" | "yolo";
 
 // Where a session's work runs. `bound-root` works in the root already bound to the workspace — the
 // project's own checkout, or a chat's managed workspace — and makes nothing; `provisioned-worktree`
@@ -574,7 +574,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `run.intervene` {type: "interrupt"} | `Interrupt` the lead (Escape or the word): pending messages go as the next turn, and a live exchange ends on both sides | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.2, T2.4, T4.1; [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) |
 | `run.pause` | `Pause` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.4, T4.1 |
 | `run.queueCancel` | Remove a pending message | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.3, T4.1 |
-| `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
+| `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; the skills picked from the `/` list, each by its `SKILL.md` path; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
 | `run.queueCreate` with an addressee member `to` | The person writes to another session with `@name` from the composer | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
 | `run.queueList` | The pending messages | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T4.1 |
 | `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.10 |
@@ -630,7 +630,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.pin` and `session.unpin`, events `session.pinned` and `session.unpinned` | Pin and unpin a session inside its group, pin order kept; held by the daemon | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.6 |
 | `session.providerCommandsSubscribe` | The live `/` list: the process's slash commands plus each working server's prompts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.9 |
 | `session.reactivate`, event `session.reactivated` | Unarchive a session; a closed session offers no `Unarchive` | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.5 |
-| Field `shape: "chat" \| "project"` on the session snapshot, read through `session.read` and `session.list` | The durable shape column: chat or project | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
+| Field `shape: "chat" \| "project"` on the session record, read through `session.read` and `session.list` | The durable shape column: chat or project | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
 | The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
 | `session.read` | One session's facts: title, shape, state, project, worktree, base, elapsed time, ahead count, snapshot count, pending folder move, address, draft and staged files, lead binding | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
 | `session.rename`, event `session.renamed` | Rename a session | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.4 |
@@ -822,7 +822,7 @@ interface SessionReadRequest {
   sessionId: SessionId;
 }
 interface SessionReadResponse {
-  session: SessionSnapshot;
+  session: SessionRecord;
   timelineCursors: { latest: EventCursor; acknowledged?: EventCursor };
 }
 
@@ -864,12 +864,12 @@ interface SessionStreamFrame {
 // when the session is archived, and skipped by the archive sweep. A `project` session is bound to a repo
 // the person attached, which is defined against that mount's origin rather than against a folder
 // existing. Converting a chat to a project copies the workspace's files into the attached repo and moves
-// the shape IN PLACE with the session's history kept, which is why the shape is a member of the snapshot
-// and not an immutable creation argument.
+// the shape IN PLACE with the session's history kept, which is why the shape is a member of the session
+// record and not an immutable creation argument.
 type SessionShape = "chat" | "project";
 
 // Shared projection types
-interface SessionSnapshot {
+interface SessionRecord {
   id: SessionId;
   state: SessionState;
   shape: SessionShape;
@@ -935,7 +935,7 @@ interface SessionMaxStepsUpdateRequest {
 }
 interface SessionMaxStepsUpdateResponse {
   sessionId: SessionId;
-  maxStepsPerTurn?: number; // absent after a clear, which is the same shape the snapshot carries
+  maxStepsPerTurn?: number; // absent after a clear, the same shape the session record carries
 }
 
 // SessionSpendLimitUpdate / SessionTokensPerRunUpdate — session.spendLimitUpdate /
@@ -1050,25 +1050,18 @@ interface SessionAttachmentAddResponse {
 interface SessionAttachmentRefusal {
   clientStagingId: string;
   name: string;
-  cause:
-    | {
-        code: "session.attachment_refused";
-        // count_limit: the message already carries as many files as it may; folder: a folder was offered;
-        // provider_takes_no_attachments; card_waiting: a card above the composer waits on the person;
-        // copy_failed: the copy to the daemon did not complete.
-        reason:
-          | "count_limit"
-          | "folder"
-          | "provider_takes_no_attachments"
-          | "card_waiting"
-          | "copy_failed";
-      }
-    | {
-        code: "artifact.picture_refused";
-        // pixel_limit: the header claims more than 268,402,689 pixels across every frame, so nothing of
-        // it is decoded; damaged: it does not decode cleanly.
-        reason: "pixel_limit" | "damaged";
-      };
+  cause: {
+    code: "session.attachment_refused";
+    // count_limit: the message already carries as many files as it may; folder: a folder was offered;
+    // provider_takes_no_attachments; card_waiting: a card above the composer waits on the person;
+    // copy_failed: the copy to the daemon did not complete.
+    reason:
+      | "count_limit"
+      | "folder"
+      | "provider_takes_no_attachments"
+      | "card_waiting"
+      | "copy_failed";
+  };
 }
 // Every member is what the daemon found in the bytes it copied, never what the caller declared.
 interface SessionAttachmentSummary {
@@ -1122,7 +1115,7 @@ interface SessionSearchResponse {
 }
 interface SessionSearchGroup {
   sessionId: SessionId;
-  name?: string; // absent for an untitled session, as on the snapshot
+  name?: string; // absent for an untitled session, as on the session record
   hits: SessionSearchHit[]; // at least one
 }
 interface SessionSearchHit {
@@ -1185,7 +1178,7 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 
 **Every search read goes over one index.** The palette's search box and a session's own find box are answered by ONE daemon search over session titles and message text: `session.search`, the cross-session form, returns hits grouped by session, each hit carrying its own message anchor, in the index's own ranked order with no cap; `timeline.search`, the single-session form, pages that session's hits newest first and counts every match in the session, so the find box counts the whole session and loads the history a hit sits in only when the person steps to it. Both shapes are in the §Plan-001 block above. `timeline.search` sits in the `timeline` namespace with the session's other row reads and is registered in [§Timeline Method-Name Registry](#timeline-method-name-registry). The renderer walks no rows it does not hold, which is the whole reason the read is daemon-side. The index behind both is SQLite's own FTS5 over session titles and message text, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4 ([local-sqlite-schema §Session Search Index](../schemas/local-sqlite-schema.md#session-search-index)).
 
-**A session's address mints no read.** The address another session writes to when it messages this one rides `SessionSnapshot` above, because the one surface that shows it — the inspector's `Copy address` — already reads that snapshot, and a second verb would be a second source for one fact. It is the inbox the daemon holds for the session, present for the session's whole life. The two operations two sessions actually talk through are tools the daemon serves to the providers and are registered in §Plan-013's registry note, not here.
+**A session's address mints no read.** The address another session writes to when it messages this one rides `SessionRecord` above, because the one surface that shows it — the inspector's `Copy address` — already reads that record, and a second verb would be a second source for one fact. It is the inbox the daemon holds for the session, present for the session's whole life. The two operations two sessions actually talk through are tools the daemon serves to the providers and are registered in §Plan-013's registry note, not here.
 
 **`Copy link` and `sidekicks open <address>` mint no method.** A session's link is `sidekicks://session/<id>`, one form with one function that composes it and one that parses it in `packages/contracts`, and three places share it: the session's `Copy link` copies it as one plain line, main's link handler routes it, and `sidekicks open <address>` on the CLI hands it to the running app through the platform's own registered link type, so it adds no second path into the app and carries nothing the address does not. The link handler is in the main process ([Spec-021 §Main Process Responsibilities](../../specs/021-desktop-app-and-renderer.md#main-process-responsibilities)): it parses the link, drops a malformed one, and hands the renderer only the parsed `SessionId` through `window.subscribeToNavigationRequest`. No daemon wire surface is involved.
 
@@ -2094,7 +2087,7 @@ interface ProviderMode {
 // Behavior). Referenced by RunStateChangeEvent.executionPosture? (the run.running
 // audit stamp) and by CreateSessionParams/StartRunParams (the spawn/turn carriers).
 // This is what a DRIVER APPLIES, not what a person chooses: a person chooses one of the five
-// permission levels, the posture carries that level verbatim as its `mode` (`ExecutionPostureMode`
+// permission levels, the posture carries that level verbatim as its `mode` (`PermissionLevel`
 // in §Shared Enums), and each driver resolves it into the network and filesystem composition below
 // against its own provider's modes, per Spec-010 §Required Behavior. The level-to-provider-mode
 // realization is each driver's, recorded per driver in Spec-010 §Required Behavior; no table here
@@ -2104,7 +2097,7 @@ type ExecutionPostureNetwork =
   | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] }; // non-empty by construction (Spec-010 cross-field invariants, fail closed)
 
 type ExecutionPosture = ExecutionPostureNetwork & {
-  mode: ExecutionPostureMode; // the session's permission level (§Shared Enums) — the only posture vocabulary in the product (Spec-010 §Required Behavior)
+  mode: PermissionLevel; // the session's permission level (§Shared Enums) — the only posture vocabulary in the product (Spec-010 §Required Behavior)
   writableRoots: string[];
   profileName?: string;
   credentialPolicyRef: string; // a plain reference naming the credential deny list the daemon handed the provider — REQUIRED on every run. The provider's own rule enforces the list (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not) (Spec-010 §Required Behavior).
@@ -2810,7 +2803,8 @@ interface DaemonHelloAck {
   daemonSupportedProtocols?: string[]; // when incompatible, so the client can pick a version to retry with
   // The connecting device's own id: the one a terminal lease names as its holder (`holderDeviceId`
   // on `pty.control_changed`), so a client tells this device holding a shell apart from another
-  // device holding it, and, by `holderRunId`, from an agent's run holding it.
+  // device holding it, and, by `holderRunId`, from an agent's run holding it. Lands with Plan-021
+  // Phase 3B (T-021-3B-3), where the service gains its device identity.
   deviceId: DeviceId;
 }
 
@@ -3012,6 +3006,13 @@ interface QueueItemCreateRequest {
   clientIdempotencyKey: string; // a UUID; a retried send replays the first answer
   content: string;
   attachments?: ArtifactId[]; // in staging order; how many a message carries is what the daemon and the provider accept
+  // Each skill the person picked from the composer's `/` list, in the order picked: the row's
+  // front-matter name and its `SKILL.md` path, both as `skill.list` gives them. The daemon writes the
+  // provider's call form into the text either way; to a Codex agent each pick also travels in the
+  // turn's input as Codex's own skill item `{type: "skill", name, path}`, so of two Codex folders
+  // sharing one name the row picked is the one that runs. A Claude Code agent receives only the
+  // `/name` text. Absent when nothing was picked.
+  skills?: { name: string; path: string }[];
   // An edit of a message still waiting, made in one call: the named item reads `superseded` and this
   // one takes its place in the order, so the edited message keeps its position. Refused once the agent
   // has taken the named message (`queue.change_refused`, `already_taken`). The daemon does the replacing
@@ -4095,7 +4096,7 @@ interface PlanResolveRequest {
     // where that provider cannot give it. A level that provider, its account or the model cannot run
     // is refused with `session.permission_level_unavailable`, naming the level, and no session is
     // minted.
-    level: ExecutionPostureMode;
+    level: PermissionLevel;
   };
 }
 interface PlanResolveResponse {
@@ -6259,7 +6260,7 @@ interface OrchestrationRunLinkCarrier {
 
 `session.maxStepsUpdate`, `session.spendLimitUpdate` and `session.tokensPerRunUpdate`, the session's own `Max steps per turn`, `Spend limit` and `Tokens per run`, are registered with their shapes in §Session Method-Name Registry.
 
-**The session-to-session tool mints no method here, and that is the point.** Two sessions talk through operations the daemon serves to the **providers** — `SendToSession {to, message, files?}` and `ListSessions {}`, whose arguments `packages/contracts/src/provider-tools.ts` parses where the call reaches the daemon — served on the daemon's one MCP `url` entry per session, on the daemon's own tool route — never a tool server inside Claude Code's `initialize` request and never a Codex dynamic tool — so a call arrives at the daemon as that provider's own MCP tool call and is answered there ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)). A send is an ordinary tool call under the sending session's own permission level — the levels that ask raise the ordinary approval card, `Sandboxed` and `YOLO` ask nothing, and no switch, setting or cap of the app's gates it — and what the message causes follows the receiving session's own level. The server and the namespace are both `sessions`, so the name a model reads is that prefix plus the tool — `mcp__sessions__SendToSession` on the one leg, the namespace plus the tool on the other. `to` is the other session's name and the daemon resolves the address from its own directory, so no caller spells one; `files` is an optional list of paths the sending session can read, which the daemon stages into the receiving session as attachments through [Spec-012](../../specs/012-artifacts-files-and-attachments.md)'s ingest pipeline, so they arrive as paths the receiving model reads with its own file tools on either provider rather than as bytes on this tool's own wire — both `Message` rows carry the file chips a sent turn's attachments already carry, and the only bound on them is that pipeline's. The daemon reads each of those paths **as the person's own user, at send time**, and a path that does not exist or cannot be read **fails the call with that path named in the tool result** rather than being dropped from the list while the rest arrive; there is no second gate on top of that read, since the receiving session runs as the same person on the same machine and could open the path itself. No client calls them, so no wire method is registered, no error code is minted, and no event type is added: a send's result carries one state at a time — `sent`, then `delivered`, `queued`, `held`, `refused` with the provider's own reason, or `not delivered` — and a refusal is the provider's own words rather than this corpus's error envelope. What the screen draws rides documented surfaces. The two rows are the ordinary tool events of the two sessions' logs, and a sent row's later states come over the run-state subscription. The exchange line on a session's row is the `exchange` member (`{peerSessionId, peerName, messageCount}`) of that session's `session.list` entry ([§Plan-001](#plan-001--session-core)), present while the session trades messages, so one feed serves every row and the list opens no stream per session. The messages waiting for a paused session are items of that session's own queue, held in arrival order with the sending session as their origin and read through `run.queueList` ([§Run-Control Method-Name Registry](#run-control-method-name-registry)). The daemon's phone book of sessions and addresses and its exchange table are daemon-interior and reach no wire; beside the exchange line, the one member a client reads is the address on `SessionSnapshot` (§Plan-001 above), which the inspector's `Copy address` lifts.
+**The session-to-session tool mints no method here, and that is the point.** Two sessions talk through operations the daemon serves to the **providers** — `SendToSession {to, message, files?}` and `ListSessions {}`, whose arguments `packages/contracts/src/provider-tools.ts` parses where the call reaches the daemon — served on the daemon's one MCP `url` entry per session, on the daemon's own tool route — never a tool server inside Claude Code's `initialize` request and never a Codex dynamic tool — so a call arrives at the daemon as that provider's own MCP tool call and is answered there ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)). A send is an ordinary tool call under the sending session's own permission level — the levels that ask raise the ordinary approval card, `Sandboxed` and `YOLO` ask nothing, and no switch, setting or cap of the app's gates it — and what the message causes follows the receiving session's own level. The server and the namespace are both `sessions`, so the name a model reads is that prefix plus the tool — `mcp__sessions__SendToSession` on the one leg, the namespace plus the tool on the other. `to` is the other session's name and the daemon resolves the address from its own directory, so no caller spells one; `files` is an optional list of paths the sending session can read, which the daemon stages into the receiving session as attachments through [Spec-012](../../specs/012-artifacts-files-and-attachments.md)'s ingest pipeline, so they arrive as paths the receiving model reads with its own file tools on either provider rather than as bytes on this tool's own wire — both `Message` rows carry the file chips a sent turn's attachments already carry, and the only bound on them is that pipeline's. The daemon reads each of those paths **as the person's own user, at send time**, and a path that does not exist or cannot be read **fails the call with that path named in the tool result** rather than being dropped from the list while the rest arrive; there is no second gate on top of that read, since the receiving session runs as the same person on the same machine and could open the path itself. No client calls them, so no wire method is registered, no error code is minted, and no event type is added: a send's result carries one state at a time — `sent`, then `delivered`, `queued`, `held`, `refused` with the provider's own reason, or `not delivered` — and a refusal is the provider's own words rather than this corpus's error envelope. What the screen draws rides documented surfaces. The two rows are the ordinary tool events of the two sessions' logs, and a sent row's later states come over the run-state subscription. The exchange line on a session's row is the `exchange` member (`{peerSessionId, peerName, messageCount}`) of that session's `session.list` entry ([§Plan-001](#plan-001--session-core)), present while the session trades messages, so one feed serves every row and the list opens no stream per session. The messages waiting for a paused session are items of that session's own queue, held in arrival order with the sending session as their origin and read through `run.queueList` ([§Run-Control Method-Name Registry](#run-control-method-name-registry)). The daemon's phone book of sessions and addresses and its exchange table are daemon-interior and reach no wire; beside the exchange line, the one member a client reads is the address on `SessionRecord` (§Plan-001 above), which the inspector's `Copy address` lifts.
 
 **The daemon's own agent tree, and why no verb reads it directly.** The daemon builds a parent-to-child index per session FROM THE PROVIDER STREAM — the task-started frame and its parent call id on one provider, the child's turn-started frame on the other — and persists it, because neither provider lists its children back on a resume. That index is the single source of every fan-out count the screen shows and of every stop that reaches more than one child: a subtree stop is one stop per id walked from the index at every depth, never a relay through the lead, because neither provider's lead can stop a subtree — one provider's own stop tool refuses a grandchild as another agent's, and the other has no stop-all verb at all. The durable handle for a child is the run plus the provider plus the child together, never a bare child id, which is what lets a restart re-attach every child by id. Four further things the index holds are daemon-interior and reach no wire: the per-child hold key that routes a pause to the right leg, the background request issued before a lead interrupt on one provider so a foreground child is not swept with it, the per-child stop behind the two sweeping controls, and the provider's own terminal verbs that end a command an interrupt left running. `orchestration.childRunLinkRead` above is the projection a client reads; it is a read OF the index, and no second verb exposes the index itself. The two child records the screen folds are `subagent.started` and `subagent.completed`, whose taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
@@ -6332,25 +6333,20 @@ type WorkflowDefinitionScope = "session" | "project" | "shared";
 // validation error, with the DDL CHECK mirroring it as defense in depth — without it,
 // `project` names no project and definition dedupe cannot converge.
 //
-// On requests the field is optional and the daemon derives what it can: absent at
-// `session` means the request's own `sessionId`, absent at `shared` means the empty
-// string. `project` is the one scope with nothing to derive from, so omitting it there
-// is refused with `workflow.definition_refused` (finding `scope_ref_invalid`), never a
-// silent default.
+// On requests the field is optional only at `shared`, where absent means the empty
+// string. A definition request carries no session, so `session` and `project` have
+// nothing to derive a ref from, and omitting it there is refused with
+// `workflow.definition_refused` (finding `scope_ref_invalid`), never a silent default.
 type WorkflowDefinitionScopeRef = string;
 
 // WorkflowDefinitionCreate — workflow.definitionCreate
 interface WorkflowDefinitionCreateRequest {
-  // The session the author works in. Omitted from the Workflows screen, which belongs to no session: a
-  // create there names `project` or `shared` scope, and a `session`-scoped create with no session has no
-  // scope ref to derive, so it is refused as below.
-  sessionId?: SessionId;
   // A save from the Save panel, a Duplicate, and a file import all ride this one operation,
   // at any scope, with no role check; the name is the document's own. A document the
   // daemon's re-check refuses answers `workflow.definition_refused`, carrying every
   // finding with the rule it breaks and the nodes it names.
   scope: WorkflowDefinitionScope;
-  scopeRef?: WorkflowDefinitionScopeRef; // derived where it can be; required at `project`
+  scopeRef?: WorkflowDefinitionScopeRef; // required at `session` and `project`
   // Copy-on-write provenance: the content hash of the `shared` definition this one was
   // branched from when an author edited a shared definition. Provenance only — it is NOT
   // part of the hashed body, so a branched definition and a from-scratch definition with
@@ -6621,7 +6617,7 @@ interface WorkflowDefinitionReadResponse {
   contentHash: string;
   document: WorkflowDocument;
   // The workflow's own level, which every run of it uses and the builder's level pill reads.
-  permissionLevel: ExecutionPostureMode;
+  permissionLevel: PermissionLevel;
   createdAt: string;
   // The webhook token's dates, present only where the document's trigger is a webhook and a token
   // exists. The token itself is never read back — only its hash is kept, and
@@ -7054,7 +7050,6 @@ interface WorkflowDefinitionExportResponse {
 // `Packages not locked` where the lock cannot be made. A document with no layout
 // section is laid out deterministically on open, so an imported file is never unopenable.
 interface WorkflowDefinitionImportRequest {
-  sessionId?: SessionId; // omitted from the Workflows screen, as on workflow.definitionCreate
   filePath: string;
   scope: WorkflowDefinitionScope;
   scopeRef?: WorkflowDefinitionScopeRef;
@@ -7382,11 +7377,11 @@ interface WorkflowDefinitionSettingResponse {
 // its next step. The level sits outside the hashed body, so a change mints no version.
 interface WorkflowPermissionLevelUpdateRequest {
   definitionId: WorkflowDefinitionId;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 interface WorkflowPermissionLevelUpdateResponse {
   definitionId: WorkflowDefinitionId;
-  level: ExecutionPostureMode;
+  level: PermissionLevel;
 }
 
 // WorkflowPinDataSet — workflow.pinDataSet. Pins test data onto one node, or unpins it with `items: null`,
