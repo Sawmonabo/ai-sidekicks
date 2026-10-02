@@ -19,13 +19,8 @@ import {
 } from "./provider-account.js";
 import { DeclaredLossKindSchema, type DeclaredLossKind } from "./provider-driver-transcript.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
-import {
-  SessionIdSchema,
-  UserIdSchema,
-  wireFreeFormString,
-  type SessionId,
-  type UserId,
-} from "./session.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 
 /** The event a deferred switch settles with when it applied. */
 export const AGENT_PROVIDER_BINDING_CHANGED_EVENT = "agent.provider_binding_changed" as const;
@@ -58,7 +53,7 @@ export type AgentBindingContinuity = (typeof AGENT_BINDING_CONTINUITIES)[number]
  * longer declares the pended speed; or `account_unavailable`, the account it lands on cannot carry
  * the run. A switch refused before it was accepted is an error on the request instead.
  */
-export const AGENT_BINDING_CHANGE_FAILURE_REASONS = [
+export const AGENT_BINDING_SWITCH_FAILURE_REASONS = [
   "driver_unavailable",
   "model_unavailable",
   "effort_unavailable",
@@ -67,8 +62,8 @@ export const AGENT_BINDING_CHANGE_FAILURE_REASONS = [
   "interrupt_refused",
   "target_unstartable",
 ] as const;
-/** One of {@link AGENT_BINDING_CHANGE_FAILURE_REASONS}. */
-export type AgentBindingChangeFailureReason = (typeof AGENT_BINDING_CHANGE_FAILURE_REASONS)[number];
+/** One of {@link AGENT_BINDING_SWITCH_FAILURE_REASONS}. */
+export type AgentBindingSwitchFailureReason = (typeof AGENT_BINDING_SWITCH_FAILURE_REASONS)[number];
 
 /**
  * Why the account a switch lands on cannot carry the run. Only `reauth_required`
@@ -214,13 +209,13 @@ export const AgentBindingSwitchOutcomeSchema: z.ZodType<AgentBindingSwitchOutcom
 export interface AgentBindingSwitchFailed {
   status: "failed";
   switchId: string;
-  reason: AgentBindingChangeFailureReason;
+  reason: AgentBindingSwitchFailureReason;
   accountState?: AgentBindingSwitchAccountState | undefined;
 }
 
 /** Refuses an account state that does not match an account failure. */
 function refineAccountState(
-  failure: { reason: AgentBindingChangeFailureReason; accountState?: unknown },
+  failure: { reason: AgentBindingSwitchFailureReason; accountState?: unknown },
   context: z.RefinementCtx,
 ): void {
   if ((failure.reason === "account_unavailable") !== (failure.accountState !== undefined)) {
@@ -234,7 +229,7 @@ function refineAccountState(
 
 const switchFailureFields = {
   switchId: switchIdSchema,
-  reason: z.enum(AGENT_BINDING_CHANGE_FAILURE_REASONS),
+  reason: z.enum(AGENT_BINDING_SWITCH_FAILURE_REASONS),
   accountState: z.enum(AGENT_BINDING_SWITCH_ACCOUNT_STATES).optional(),
 };
 
@@ -284,8 +279,11 @@ export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDi
 export interface AgentProviderBindingChangedPayload extends AgentBindingSwitchOutcome {
   sessionId: SessionId;
   agentId: AgentId;
-  /** Who asked, recorded at acceptance so a settlement after a restart names them. */
-  actor: UserId;
+  /**
+   * The device whose connection carried the switch, recorded at acceptance so a settlement after
+   * a restart still names it.
+   */
+  actor: DeviceId;
   from: AgentProviderBinding;
   to: AgentProviderBinding;
   landedProviderAccountId: ProviderAccountId;
@@ -298,7 +296,7 @@ export const AgentProviderBindingChangedPayloadSchema: z.ZodType<AgentProviderBi
       continuity: z.enum(AGENT_BINDING_CONTINUITIES),
       sessionId: SessionIdSchema,
       agentId: AgentIdSchema,
-      actor: UserIdSchema,
+      actor: DeviceIdSchema,
       from: AgentProviderBindingSchema,
       to: AgentProviderBindingSchema,
       landedProviderAccountId: ProviderAccountIdSchema,
@@ -315,10 +313,10 @@ export interface AgentProviderBindingChangeFailedPayload {
   sessionId: SessionId;
   agentId: AgentId;
   switchId: string;
-  actor: UserId;
+  actor: DeviceId;
   from: AgentProviderBinding;
   attempted: AgentBindingSwitchTarget;
-  reason: AgentBindingChangeFailureReason;
+  reason: AgentBindingSwitchFailureReason;
   accountState?: AgentBindingSwitchAccountState | undefined;
 }
 /** Parses an {@link AgentProviderBindingChangeFailedPayload}. */
@@ -328,7 +326,7 @@ export const AgentProviderBindingChangeFailedPayloadSchema: z.ZodType<AgentProvi
       ...switchFailureFields,
       sessionId: SessionIdSchema,
       agentId: AgentIdSchema,
-      actor: UserIdSchema,
+      actor: DeviceIdSchema,
       from: AgentProviderBindingSchema,
       attempted: AgentBindingSwitchTargetSchema,
     })

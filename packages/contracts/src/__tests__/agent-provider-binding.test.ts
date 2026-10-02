@@ -12,7 +12,7 @@ import {
 
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const AGENT_ID = "44444444-4444-4444-8444-444444444444";
-const USER_ID = "55555555-5555-4555-8555-555555555555";
+const DEVICE_ID = "device-laptop";
 const CLAUDE_BINDING = {
   driverName: "claude",
   modelId: "opus",
@@ -30,7 +30,7 @@ const CHANGED = {
   sessionId: SESSION_ID,
   agentId: AGENT_ID,
   switchId: "switch-1",
-  actor: USER_ID,
+  actor: DEVICE_ID,
   from: CLAUDE_BINDING,
   to: CODEX_BINDING,
   landedProviderAccountId: "codex-personal",
@@ -42,7 +42,7 @@ const FAILED = {
   sessionId: SESSION_ID,
   agentId: AGENT_ID,
   switchId: "switch-2",
-  actor: USER_ID,
+  actor: DEVICE_ID,
   from: CLAUDE_BINDING,
   attempted: { driverName: "codex", modelId: "gpt-5.5" },
   reason: "account_unavailable",

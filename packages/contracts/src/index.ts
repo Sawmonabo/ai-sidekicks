@@ -89,7 +89,7 @@ export type {
   AgentUpdateRefusedReason,
 } from "./agent-definition.js";
 export {
-  AGENT_BINDING_CHANGE_FAILURE_REASONS,
+  AGENT_BINDING_SWITCH_FAILURE_REASONS,
   AGENT_BINDING_CONTINUITIES,
   AGENT_BINDING_SWITCH_ACCOUNT_STATES,
   AGENT_BINDING_SWITCH_BOUNDARIES,
@@ -105,7 +105,7 @@ export {
   AgentProviderBindingChangedPayloadSchema,
 } from "./agent-provider-binding.js";
 export type {
-  AgentBindingChangeFailureReason,
+  AgentBindingSwitchFailureReason,
   AgentBindingContinuity,
   AgentBindingSwitchAccountState,
   AgentBindingSwitchBoundary,
