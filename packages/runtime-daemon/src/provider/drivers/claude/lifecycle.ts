@@ -624,18 +624,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
             "frame arrived on a channel this session no longer holds; refused rather than projected into whichever session occupies the slot now",
         };
       }
-      const boundBand = this.#routingBands.get(live.sessionId);
-      if (boundBand === undefined) {
-        // Unreachable: the band is built before this listener exists and only a close releases it;
-        // kept fail-closed rather than project a frame no router classified.
-        return {
-          decision: "quarantined",
-          reason:
-            "frame arrived while this session held no routing band; refused rather than classified against a registry that does not exist",
-        };
-      }
+      // The band this registration joined: while the channel is bound, the session's band is this
+      // one, since only a close or a failed registration releases it and both unbind the channel.
       return this.#frameRouting.observeInboundFrame(
-        boundBand,
+        band,
         live.sessionId,
         live.providerSessionId,
         observation,
