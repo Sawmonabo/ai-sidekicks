@@ -11,7 +11,7 @@ import {
 import { codexDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
 import type { CapabilityDetectionReading } from "../../../capability-probe.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
-import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
+import type { SpawnedProviderVersionReading } from "../../../spawned-provider-version.js";
 import {
   CODEX_DRIVER_NAME,
   getCodexCapabilities,

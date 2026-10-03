@@ -1,7 +1,6 @@
-// Spawn-time binary resolution, the in-band version read and the floor gate: the version recorded
-// is the one the spawned build reported, a below-floor build is refused before any other use while
-// an unparseable one runs with its printed version, and every provider child carries its
-// auto-update opt-out.
+// Spawn-time binary resolution and the in-band version read: the version recorded is the one the
+// spawned build reported, an unparseable one runs with its printed version, and every provider
+// child carries its auto-update opt-out.
 
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +14,6 @@ import {
   RecordingDeclarationSink,
 } from "../__fixtures__/capability-probe-doubles.js";
 import { codexDefaultProbeReply } from "../drivers/codex/__fixtures__/capability-probe-replies.js";
-import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import {
@@ -30,7 +28,7 @@ import {
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
   type SpawnedProviderVersionReading,
-} from "../version-gate.js";
+} from "../spawned-provider-version.js";
 import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../drivers/codex/capabilities.js";
 import type { DriverCliVersionReport } from "../provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
@@ -63,7 +61,7 @@ class RecordingHandshake {
 }
 
 function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
-  // The shape measured at the pin: `<clientName>/<codexVersion> (<os>; <arch>)
+  // The shape measured at codex-cli 0.149.1: `<clientName>/<codexVersion> (<os>; <arch>)
   // <terminal> (<clientName>; <clientVersion>)`.
   return (
     `${DEFAULT_PROVIDER_VERSION_CLIENT_NAME}/${codexVersion} (macos; aarch64) ` +
@@ -146,7 +144,7 @@ describe("provider executable resolution", () => {
     readonly buildPath: string;
     readonly binDirectory: string;
   }> {
-    const root = await mkdtemp(join(tmpdir(), "ais-version-gate-"));
+    const root = await mkdtemp(join(tmpdir(), "ais-spawned-version-"));
     temporaryDirectories.push(root);
     const binDirectory = join(root, "bin");
     const buildDirectory = join(root, "builds", "2.1.245");
@@ -360,7 +358,7 @@ describe("in-band version read — Codex initialize userAgent", () => {
   });
 });
 
-describe("the floor gate at the spawn", () => {
+describe("the version read at the spawn", () => {
   const CODEX_EXECUTABLE = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
 
   function passthroughResolver(): {
@@ -395,60 +393,6 @@ describe("the floor gate at the spawn", () => {
       diagnostics: makeSilentDriverDiagnostics(),
     });
   }
-
-  it("refuses a below-floor build AFTER the handshake spawn and BEFORE any other use", async () => {
-    // The handshake process may spawn (the version is read in-band from it); the refusal precedes
-    // every other use: no declaration reaches the writer and no second request reaches the process.
-    const handshake = new RecordingHandshake({
-      [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("0.140.0") },
-    });
-    const sink = new RecordingDeclarationSink();
-    const probe = new RecordingCapabilityProbeTransport(codexDefaultProbeReply);
-
-    const thrown = await captureRejection(async () => {
-      await attachCodex(sink, handshake, probe);
-    });
-
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    expect((thrown as DriverCliVersionBelowFloorError).fields).toStrictEqual({
-      driverName: "codex",
-      parsedVersion: "0.140.0",
-      floor: PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
-    });
-    expect(handshake.requests).toHaveLength(1);
-    expect(sink.calls).toHaveLength(0);
-    // A refused build is never asked what it can do, so not even the probe channel's negative
-    // control is issued against it.
-    expect(probe.requests).toHaveLength(0);
-  });
-
-  it("admits a build exactly at the floor", async () => {
-    const handshake = new RecordingHandshake({
-      [CODEX_EXECUTABLE]: {
-        userAgent: codexUserAgent(PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor),
-      },
-    });
-    const sink = new RecordingDeclarationSink();
-    await attachCodex(sink, handshake);
-    expect(sink.calls).toHaveLength(1);
-    expect(sink.calls[0]?.result.cliVersion.parsedVersion).toBe(
-      PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
-    );
-  });
-
-  it("ATTACHES an above-the-pin build — newer-than-measured is not a refusal", async () => {
-    // The floor comparison is the whole gate: a build above the measured pin attaches.
-    const handshake = new RecordingHandshake({
-      [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("9.99.0") },
-    });
-    const sink = new RecordingDeclarationSink();
-    await attachCodex(sink, handshake);
-    expect(sink.calls).toHaveLength(1);
-    expect(sink.calls[0]?.result.cliVersion).toStrictEqual({
-      rawVersion: "9.99.0",
-      parsedVersion: "9.99.0",
-    });
-  });
 
   it("runs an unparseable in-band report with its printed version and no parse", async () => {
     const handshake = new RecordingHandshake({

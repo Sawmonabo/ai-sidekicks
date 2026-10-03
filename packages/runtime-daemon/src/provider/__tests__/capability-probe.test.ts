@@ -49,7 +49,7 @@ import {
   refreshCodexCapabilities,
 } from "../drivers/codex/capabilities.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
-import type { SpawnedProviderVersionReading } from "../version-gate.js";
+import type { SpawnedProviderVersionReading } from "../spawned-provider-version.js";
 
 const DRIVERS: readonly ProviderName[] = ["claude", "codex"];
 

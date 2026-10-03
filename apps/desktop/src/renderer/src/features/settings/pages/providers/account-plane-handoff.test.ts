@@ -13,6 +13,5 @@ describe("the account-plane router", () => {
     expect(accountPlaneHandoffFor("")).toBeUndefined();
     // A session asking for an account verb is not routed to a page that would change nothing.
     expect(accountPlaneHandoffFor("provideraccount.permission_denied")).toBeUndefined();
-    expect(accountPlaneHandoffFor("provideraccount.provider_version_below_floor")).toBeUndefined();
   });
 });

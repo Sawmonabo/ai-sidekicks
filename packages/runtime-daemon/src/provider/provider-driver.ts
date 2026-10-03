@@ -251,9 +251,8 @@ export const DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE =
 /**
  * The provider CLI version as the spawned process reports it in-band, never from a launcher
  * symlink that may name a different build. `rawVersion` is the printed version, always;
- * `parsedVersion` is its canonical parse, present only when it parses. A version the parser cannot
- * read still runs; the floor is compared only on a parsed version, and one below it refuses as
- * `driver.cli_version_below_floor`.
+ * `parsedVersion` is its canonical parse, present only when it parses. Every version runs, parsed
+ * or not; nothing refuses on it.
  */
 export interface DriverCliVersionReport {
   rawVersion: string;
@@ -277,7 +276,7 @@ export interface GetCapabilitiesResult {
   tools: ProviderToolMetadata[];
   // Required: every capability report carries the printed provider version.
   // It describes this reading rather than a capability, so it rides this wrapper and is not part
-  // of the stored capability snapshot (the version floor gates attach only).
+  // of the stored capability snapshot.
   cliVersion: DriverCliVersionReport;
   // Present and total over the flag set on a live driver read; absent when the result was rebuilt
   // by `DriverCapabilitiesWriter.hydrate()` from the durable cache, which stores flag values and

@@ -73,8 +73,8 @@ export interface DeclareDriverCapabilitiesResult {
 
 /**
  * A hit carries the whole `GetCapabilitiesResult`; a miss is `never_written` or
- * `cli_version_missing` (row with a NULL pair; the version is never invented because it feeds the
- * attach-time floor gate). A wrong flag key set throws instead of missing.
+ * `cli_version_missing` (row with a NULL pair; the version is never invented, because the stored
+ * pair is the spawned build's own report). A wrong flag key set throws instead of missing.
  */
 export type DriverCapabilityHydrationResult =
   | { readonly hit: true; readonly result: GetCapabilitiesResult }
@@ -294,8 +294,8 @@ export class DriverCapabilitiesWriter {
     );
 
     if (snapshotsEqual(priorSnapshot, newSnapshot)) {
-      // A provider upgrade with no capability change must still refresh the pair, or the
-      // attach-time floor gate reads a stale version.
+      // A provider upgrade with no capability change must still refresh the pair, or the stored
+      // version names a build no longer installed.
       if (cliVersionRefreshed) {
         this.#refreshCliVersionPairStmt.run({
           driver_name: driverName,

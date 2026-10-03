@@ -110,7 +110,7 @@ describe("CapabilityRefresher", () => {
   it("reports one driver's failed read and still reads its sibling", async () => {
     const claude = buildFakeDriverEntry("claude");
     const codex = buildFakeDriverEntry("codex");
-    claude.setRefreshResult(new Error("below floor"));
+    claude.setRefreshResult(new Error("handshake failed"));
     const { refresher, diagnostics } = buildRefresher([claude, codex]);
 
     await refresher.refreshNow();
@@ -121,7 +121,7 @@ describe("CapabilityRefresher", () => {
         driverName: "claude",
         leg: "capability-refresh",
         code: undefined,
-        message: "below floor",
+        message: "handshake failed",
         timedOut: false,
       },
     ]);

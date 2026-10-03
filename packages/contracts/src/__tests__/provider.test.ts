@@ -29,10 +29,9 @@ function codexRow(overrides: Record<string, unknown> = {}): Record<string, unkno
   return {
     provider: "codex",
     installation: {
-      state: "tooOld",
+      state: "installed",
       rawVersion: "codex-cli 0.140.0",
       parsedVersion: "0.140.0",
-      neededVersion: "0.156.0",
     },
     commandPath: "/Users/person/.local/bin/codex",
     availableForNewSessions: false,

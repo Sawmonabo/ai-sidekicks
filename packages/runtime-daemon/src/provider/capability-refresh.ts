@@ -1,10 +1,7 @@
 /**
- * Capability refresh: the CLI-version floor gate and the refresher that re-reads capabilities. Each
- * provider's floor value is on its descriptor.
+ * Capability refresh: the CLI-version parse and the refresher that re-reads capabilities.
  *
- * - The floor refuses a parsed version below it as `driver.cli_version_below_floor` (409), not
- *   `version.floor_exceeded`, which governs client and event-envelope floors. A build at or above
- *   the floor is admitted, and so is a version the parser cannot read.
+ * - The parse records a version; nothing compares it, so every installed build runs.
  * - The refresher reads on demand only, never on a timer, and holds no auth record: readiness to
  *   admit a run comes from the account's stored health. Change detection belongs to
  *   `DriverCapabilitiesWriter`; the refresher adds none.
@@ -17,23 +14,6 @@ import { type CapabilityDetectionReading, isCapabilityProbeError } from "./capab
 import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
-
-/** Thrown when a parsed version is below the driver's floor (`driver.cli_version_below_floor`). */
-export class DriverCliVersionBelowFloorError extends Error {
-  readonly code = "driver.cli_version_below_floor" as const;
-  readonly fields: {
-    readonly driverName: ProviderName;
-    readonly parsedVersion: string;
-    readonly floor: string;
-  };
-
-  constructor(driverName: ProviderName, parsedVersion: string, floor: string) {
-    super("The provider CLI's reported version is below the configured minimum floor");
-    this.name = "DriverCliVersionBelowFloorError";
-    this.fields = { driverName, parsedVersion, floor };
-  }
-}
 
 // The first `X.Y.Z` token in prose such as `"cli-name 2.1.245 (build 7)"`. Not `semver.coerce`,
 // which would turn `"v2"` into `2.0.0`: a partial version stays unparsed.
@@ -50,26 +30,9 @@ export function parseCliVersionReport(rawVersion: string): DriverCliVersionRepor
 }
 
 /**
- * The floor gate: throws `DriverCliVersionBelowFloorError` when a parsed version is below the
- * driver's floor. A report with no parsed version passes: the floor is compared only on one.
- */
-export function assertCliVersionMeetsFloor(
-  driverName: ProviderName,
-  report: DriverCliVersionReport,
-): void {
-  if (report.parsedVersion === undefined) {
-    return;
-  }
-  const floor = PROVIDER_DRIVER_DESCRIPTORS[driverName].cliVersionFloor;
-  if (semver.lt(report.parsedVersion, floor)) {
-    throw new DriverCliVersionBelowFloorError(driverName, report.parsedVersion, floor);
-  }
-}
-
-/**
  * The liveness backstop for one driver's read: a read that never settles would hold the in-flight
  * slot and wedge every later refresh. It abandons the promise; only the seam's own deadline
- * (`resolveProviderExecutable` in `version-gate.ts`) can cancel provider work.
+ * (`resolveProviderExecutable` in `spawned-provider-version.ts`) can cancel provider work.
  */
 export const CAPABILITY_REFRESH_READ_TIMEOUT_MS: number = 2 * 60 * 1000;
 

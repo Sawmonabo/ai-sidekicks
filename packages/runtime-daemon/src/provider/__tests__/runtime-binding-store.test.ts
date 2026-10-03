@@ -31,7 +31,7 @@ import {
   readSpawnedProviderVersion,
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
-} from "../version-gate.js";
+} from "../spawned-provider-version.js";
 import type { CallbackToolResult, DriverCliVersionReport } from "../provider-driver.js";
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
@@ -682,17 +682,17 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 // handle at the provider.
 
 describe("RuntimeBindingStore — spawned-version carriers", () => {
-  // `version-gate.test.ts` proves the reading is taken from the dereferenced build. This proves
+  // `spawned-provider-version.test.ts` proves the reading is taken from the dereferenced build. This proves
   // that value is what a later reader gets back out of the database, through `create()`'s
   // report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none of
-  // which the in-memory projection helpers exercise: the version compared, the version
-  // recorded and the version run are one reading.
+  // which the in-memory projection helpers exercise: the version recorded and the version run
+  // are one reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
   const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
 
-  // Keyed by resolved path. The launcher answers a build below the version floor, so a
-  // resolver that failed to dereference would make the read refuse; every assertion also
-  // witnesses which process was asked.
+  // Keyed by resolved path. The launcher answers a different build's version, so a resolver
+  // that failed to dereference would record the wrong one; every assertion also witnesses which
+  // process was asked.
   const REPORTED_VERSION_BY_PATH: ReadonlyMap<string, string> = new Map([
     [LAUNCHER_PATH, "2.1.198"],
     [DEREFERENCED_BUILD_PATH, "2.1.245"],
@@ -710,7 +710,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
   // Injected rather than filesystem-backed: drift is "realpath answers a different path than
   // the candidate", which runs on every platform (the real-symlink fixture in
-  // `version-gate.test.ts` is posix-only).
+  // `spawned-provider-version.test.ts` is posix-only).
   const DRIFTING_RESOLVER = {
     isExecutableFile: async (): Promise<boolean> => true,
     realpath: async (candidate: string): Promise<string> =>

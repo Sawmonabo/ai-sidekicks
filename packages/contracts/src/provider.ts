@@ -48,14 +48,11 @@ export const PROVIDER_INSTALL_COMMAND_MAX_LEN = 1024;
  * What the provider check found where the command resolves.
  *
  * `rawVersion` is the version as the command printed it, always present; `parsedVersion` is
- * present only when it parses, and a provider whose version does not parse still runs.
- * `tooOld` is a parsed version below the one this build supports and names the version needed.
- * `notInstalled` found nothing runnable. `indeterminate` is a check that could not settle and is
- * never folded into another arm.
+ * present only when it parses, and every version runs. `notInstalled` found nothing runnable.
+ * `indeterminate` is a check that could not settle and is never folded into another arm.
  */
 export type ProviderInstallation =
   | { state: "installed"; rawVersion: string; parsedVersion?: string | undefined }
-  | { state: "tooOld"; rawVersion: string; parsedVersion: string; neededVersion: string }
   | { state: "notInstalled" }
   | { state: "indeterminate" };
 
@@ -70,14 +67,6 @@ export const ProviderInstallationSchema: z.ZodType<ProviderInstallation> = z.dis
         state: z.literal("installed"),
         rawVersion: providerVersionSchema,
         parsedVersion: providerVersionSchema.optional(),
-      })
-      .strict(),
-    z
-      .object({
-        state: z.literal("tooOld"),
-        rawVersion: providerVersionSchema,
-        parsedVersion: providerVersionSchema,
-        neededVersion: providerVersionSchema,
       })
       .strict(),
     z.object({ state: z.literal("notInstalled") }).strict(),

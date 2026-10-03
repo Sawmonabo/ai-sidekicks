@@ -161,7 +161,6 @@ export const CLAUDE_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze(
   // Replaces a live session's full server set.
   capabilityProbeProhibitedNames: Object.freeze(["mcp_set_servers"]),
   classifyCapabilityProbeReply: classifyClaudeProbeReply,
-  cliVersionFloor: "2.1.234",
   readReportedVersion: readClaudeReportedVersion,
   // Presence-style gates: the pinned build honors them when set.
   autoUpdateOptOutEnvironment: Object.freeze(

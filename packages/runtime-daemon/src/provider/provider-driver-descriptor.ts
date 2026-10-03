@@ -37,8 +37,6 @@ export interface ProviderDriverDescriptor {
   readonly capabilityProbeProhibitedNames: readonly string[];
   /** Reads one probe reply about `probeName`; only a name-level refusal is `unknown-name`. */
   readonly classifyCapabilityProbeReply: (payload: unknown, probeName: string) => ProbeAnswer;
-  /** The oldest CLI build accepted, a floor and not a pin, compared with the in-band reading. */
-  readonly cliVersionFloor: string;
   /**
    * Reads the version out of the zero-turn version handshake's reply. `clientName` is the client
    * name the daemon sent at that handshake. Throws only for a daemon fault in its arguments.

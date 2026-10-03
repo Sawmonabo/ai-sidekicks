@@ -390,7 +390,6 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Providers, import unread files | An import that settled with files it could not read, whose row unfolds their paths |
 | Providers, import part failed | An import that settled with some sessions failed, each unfolding with its reason |
 | Providers, nothing to import | A second press that found nothing new to bring in |
-| Providers, tool too old | A provider command older than the build supports, naming the version needed |
 | Accounts reading | The account list still being read |
 | Accounts none | No accounts registered for either provider |
 | Accounts failed | The account list that could not be read, with a try-again |

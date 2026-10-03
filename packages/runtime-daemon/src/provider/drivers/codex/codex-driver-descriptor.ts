@@ -217,7 +217,6 @@ export const CODEX_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
   capabilityProbeNegativeControl: "zzq/nonexistent_method",
   capabilityProbeProhibitedNames: Object.freeze(["turn/start", "thread/start"]),
   classifyCapabilityProbeReply: classifyCodexProbeReply,
-  cliVersionFloor: "0.141.0",
   readReportedVersion: readCodexReportedVersion,
   // codex-cli documents no environment opt-out; the driver pins an exact build path instead.
   autoUpdateOptOutEnvironment: Object.freeze({}),

@@ -3,9 +3,8 @@
 //
 // - `CODEX_CAPABILITY_FLAGS` is a total record, so a flag added to or missing from the contract's
 //   flag tuple is a compile error; the registry gate fails closed on `!== true`.
-// - `cliVersion` is passed through verbatim from the spawned-build reading. Both entry points
-//   refuse a below-floor reading (`driver.cli_version_below_floor`), and that gate runs before the
-//   probe, so a refused build is never probed.
+// - `cliVersion` is passed through verbatim from the spawned-build reading, taken before the probe
+//   so the flags describe the build whose version is reported.
 // - Each flag is the matrix intersected with a zero-turn probe (`../../capability-probe.ts`);
 //   `detectionSource` records which decided it and is composed only from a live read.
 
@@ -23,7 +22,7 @@ import type {
   DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type { SpawnedProviderVersionReading } from "../../version-gate.js";
+import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
 
 import { getCodexToolMetadata } from "./tools.js";
 import {
@@ -84,7 +83,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
 /**
  * Composes the `getCapabilities()` report from the build `reading` and probe `detection`; the
  * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws a plain
- * `Error` for a foreign or mismatched reading; the version passed the floor gate when it was read.
+ * `Error` for a foreign or mismatched reading.
  */
 export function getCodexCapabilities(
   reading: SpawnedProviderVersionReading,
@@ -121,9 +120,8 @@ export function getCodexCapabilities(
 }
 
 /**
- * Takes one detection reading for the build `reading` describes; the reading passed the floor gate
- * when it was taken, so a below-floor build is never probed. Withdrawals are reported here so attach and refresh meter
- * them through one counter.
+ * Takes one detection reading for the build `reading` describes. Withdrawals are reported here so
+ * attach and refresh meter them through one counter.
  */
 export async function readCodexCapabilityDetection(
   reading: SpawnedProviderVersionReading,

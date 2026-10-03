@@ -9,7 +9,7 @@ import {
   RecordingDeclarationSink,
 } from "../../../__fixtures__/capability-probe-doubles.js";
 import { claudeDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
-import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
+import type { SpawnedProviderVersionReading } from "../../../spawned-provider-version.js";
 import {
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,

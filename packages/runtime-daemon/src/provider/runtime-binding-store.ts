@@ -91,7 +91,7 @@ export interface CreateRuntimeBindingInput {
 /**
  * The `create` members filled from one spawned-build reading of `resolvedExecutablePath`, never a
  * launcher symlink or `--version`, so a row never pairs one install's version with another's path.
- * `version-gate.ts` produces this through `toBindingVersionCarriers`.
+ * `spawned-provider-version.ts` produces this through `toBindingVersionCarriers`.
  */
 export interface SpawnedVersionBindingCarriers {
   readonly cliVersion: DriverCliVersionReport;

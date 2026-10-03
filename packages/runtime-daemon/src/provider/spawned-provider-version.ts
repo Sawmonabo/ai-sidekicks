@@ -1,11 +1,11 @@
-// Provider version gate: spawn-time executable resolution, the in-band version read, and the
-// floor check, in one module so they cannot describe different installs.
+// Provider version read: spawn-time executable resolution and the in-band version read, in one
+// module so they cannot describe different installs. Any version runs; the reading is recorded.
 //
 // - The reported version is the version that spawned: the executable is resolved to an exact build
 //   path (a launcher's `--version` names the launcher's current build, measurably not the one a
 //   path-addressed spawn runs) and the version is read in-band from that process.
 // - Each provider's descriptor reads its version out of the handshake reply
-//   (`ProviderDriverDescriptor.readReportedVersion`) and declares its floor.
+//   (`ProviderDriverDescriptor.readReportedVersion`).
 // - The transport is an injected seam with no default (each driver's `lifecycle.ts` owns process
 //   talk); its implementer owns the deadline (`driver.timeout`).
 import { constants as filesystemConstants } from "node:fs";
@@ -14,7 +14,7 @@ import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "
 
 import type { ProviderName } from "@ai-sidekicks/contracts";
 
-import { assertCliVersionMeetsFloor, parseCliVersionReport } from "./capability-refresh.js";
+import { parseCliVersionReport } from "./capability-refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
@@ -227,7 +227,6 @@ export interface SpawnedProviderVersionReading {
   readonly driverName: ProviderName;
   /** Absolute, symlink-dereferenced: the build that answered the handshake. */
   readonly resolvedExecutablePath: string;
-  /** At or above the driver's floor by construction. */
   readonly report: DriverCliVersionReport;
 }
 
@@ -248,10 +247,7 @@ export interface SpawnedProviderVersionReadRequest {
   readonly resolver?: Partial<ProviderExecutableResolverDependencies>;
 }
 
-/**
- * Resolves, spawns, reads in-band, and gates on the floor. The floor refusal comes before any
- * other use of the process, so no session, probe or billed turn touches an unsupported build.
- */
+/** Resolves the configured command to one build, spawns it and reads its version in-band. */
 export async function readSpawnedProviderVersion(
   request: SpawnedProviderVersionReadRequest,
 ): Promise<SpawnedProviderVersionReading> {
@@ -289,7 +285,6 @@ export async function readSpawnedProviderVersion(
   // The one place the version enters the daemon, so the storage bounds are checked here too; an
   // empty reply has no printed version and is refused as invalid provider output.
   assertValidCliVersionReport(driverName, report);
-  assertCliVersionMeetsFloor(driverName, report);
   return { driverName, resolvedExecutablePath: resolved.resolvedExecutablePath, report };
 }
 

@@ -7,10 +7,9 @@
 // to the settings section where the act lives; nothing runs a sign-in or re-derives admission.
 //
 // The table maps into the contract's `ProviderRemedy` union, so a new upstream arm is a compile
-// error here. A code with no remedy is a real answer: four of the eleven are refusals no app act
+// error here. A code with no remedy is a real answer: three of the ten are refusals no app act
 // closes (a session asking for an account verb, a lost set-default race that retries, a token
-// this machine's keychain refused to seal, a provider binary below the floor), so the table's
-// value type admits `null`.
+// this machine's keychain refused to seal), so the table's value type admits `null`.
 
 import type { ProviderRemedy } from "@ai-sidekicks/contracts";
 
@@ -33,7 +32,6 @@ export const ACCOUNT_PLANE_REFUSAL_CODES = [
   "provideraccount.signin_unsupported",
   "provideraccount.signin_in_flight",
   "provideraccount.credential_seal_refused",
-  "provideraccount.provider_version_below_floor",
 ] as const;
 
 /** One registered account-plane refusal. Derived from the tuple, never restated. */
@@ -72,15 +70,13 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
   // readiness handoff discloses, display-only on the page that shows it.
   "provideraccount.signin_unsupported": { section: "providers", remedyKind: "sign_in" },
-  // No app act closes these four: only this machine's client or a linked device may call an
-  // account verb, never a session; a lost set-default race is retried; a token the keychain
-  // refused to seal needs the keychain fixed; and a provider binary below the floor needs
-  // upgrading outside this application.
+  // No app act closes these three: only this machine's client or a linked device may call an
+  // account verb, never a session; a lost set-default race is retried; and a token the keychain
+  // refused to seal needs the keychain fixed.
   // Routing any to a page would offer an act that changes nothing.
   "provideraccount.permission_denied": null,
   "provideraccount.default_conflict": null,
   "provideraccount.credential_seal_refused": null,
-  "provideraccount.provider_version_below_floor": null,
 };
 
 /** True when a wire string names a refusal this router knows. */

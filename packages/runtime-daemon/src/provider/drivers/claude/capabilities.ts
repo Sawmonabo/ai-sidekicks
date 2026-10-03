@@ -4,9 +4,9 @@
  *
  * - {@link CLAUDE_CAPABILITY_FLAGS} is total over `DriverCapabilityFlag`; an undeclared flag is
  *   unsupported, and support is never inferred from a method existing on the provider's wire.
- * - Order is version floor, then probe, then compose, so a refused build is never probed. A probe
- *   may withdraw a declared flag but never grant one. `detectionSource` is set only on this live
- *   read.
+ * - Order is version read, then probe, then compose, so the flags describe the build whose version
+ *   is reported. A probe may withdraw a declared flag but never grant one. `detectionSource` is set
+ *   only on this live read.
  */
 
 import {
@@ -27,7 +27,7 @@ import type {
   DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type { SpawnedProviderVersionReading } from "../../version-gate.js";
+import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
 
 import { CLAUDE_DRIVER_DESCRIPTOR } from "./claude-driver-descriptor.js";
 import { getClaudeToolMetadata } from "./tools.js";
@@ -106,10 +106,7 @@ export class ClaudeCapabilityReporter {
     this.#diagnostics = dependencies.diagnostics;
   }
 
-  /**
-   * The driver's `getCapabilities()` answer; every member is a fresh object. The version reading
-   * passed the floor gate when it was taken, so attach and refresh are gated alike.
-   */
+  /** The driver's `getCapabilities()` answer; every member is a fresh object. */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
     const reading = await this.#readSpawnedVersion();
     // A reading from another driver's build is a daemon wiring fault, not provider misbehavior.
@@ -119,7 +116,6 @@ export class ClaudeCapabilityReporter {
       );
     }
     const cliVersion: DriverCliVersionReport = reading.report;
-    // The reading passed the floor gate, so a build the daemon refused is never probed.
     const detection: CapabilityDetectionReading = await readCapabilityDetection({
       driverName: CLAUDE_DRIVER_NAME,
       // The executable the version handshake resolved, not resolved again, so the version and the
