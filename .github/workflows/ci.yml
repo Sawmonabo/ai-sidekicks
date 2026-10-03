@@ -863,6 +863,8 @@ jobs:
       - name: Download shard results
         uses: actions/download-artifact@v4
         with:
+          # Shard artifacts are named `<package>--<shard>`; the run's other artifacts are not shards.
+          pattern: "*--*"
           path: ${{ runner.temp }}/mutation-shards
 
       - name: Merge

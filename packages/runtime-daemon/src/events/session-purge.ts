@@ -1,5 +1,6 @@
-// The whole-session purge: deletes every row of each session a person deletes, outright, appends
-// one receipt naming every session that lost rows, then truncates the write-ahead log.
+// The whole-session purge: deletes the event and snapshot rows of each session a person deletes,
+// outright, appends one receipt naming every session that lost rows, then truncates the
+// write-ahead log.
 //
 // It is the only operation in this package that removes a committed row of the append-only log.
 // Nothing in the background calls it. The caller chooses the sessions and owns the precondition

@@ -159,13 +159,19 @@ async function* daemonSubscribe(
   let loopThrew = false;
   try {
     let lastCursor = options.afterCursor;
-    for (let frame = await subscription.next(); frame !== undefined; ) {
+    // A canceled subscription still hands back queued frames, so the abort is read before each
+    // frame and change, through a function: a property read stays narrowed to false across `yield`.
+    const consumerAborted = (): boolean => options.signal?.aborted === true;
+    for (let frame = await subscription.next(); frame !== undefined && !consumerAborted(); ) {
       // The drop mark rides the first frame after the gap, so it is raised
       // before that frame's changes: yielding them would hide the hole.
       if (frame.dropped === true) {
         throw new SessionStreamDroppedError(lastCursor);
       }
       for (const change of frame.changes) {
+        if (consumerAborted()) {
+          return;
+        }
         lastCursor = change.cursor;
         yield { eventId: change.cursor, event: change.event };
       }
