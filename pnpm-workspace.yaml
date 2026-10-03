@@ -8,6 +8,14 @@ packages:
 minimumReleaseAge: 1440
 blockExoticSubdeps: true
 
+# Deprecation warnings muted for two packages our libraries pull in, each the exact version in the
+# lockfile so a different version still warns. `lodash.isequal` comes from `electron-updater`, whose
+# maintainers keep it on purpose; `node-domexception` comes from `google-auth-library` through
+# gaxios, node-fetch 3 and fetch-blob. Both work, and no release of either library drops them.
+allowedDeprecatedVersions:
+  lodash.isequal: "4.5.0"
+  node-domexception: "1.0.0"
+
 # Strict build-script allowlist. `allowBuilds` (pnpm 10.26+) replaces the deprecated
 # `pnpm.onlyBuiltDependencies` / `ignoredBuiltDependencies`. Only allowlisted packages may run
 # install-time scripts (paired with `strict-dep-builds=true` in .npmrc). Listing a package, true or
