@@ -26,6 +26,10 @@ min_version: "2.1.6"
 # sources and `CONTRIBUTING.md` §Hooks for what the hooks need from you.
 rc: tools/lefthook-rc.sh
 
+# The generated hooks run the first `lefthook` on PATH, so a copy installed another way (Homebrew)
+# would run instead of the version this repository pins. This points them at the installed one.
+lefthook: node_modules/.bin/lefthook
+
 pre-commit:
   # Sequential at the top level so the screens observe lint-staged's re-staged output.
   parallel: false
