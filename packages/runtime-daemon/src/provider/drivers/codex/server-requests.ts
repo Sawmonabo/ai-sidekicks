@@ -307,7 +307,7 @@ export type CodexRoutedAskAttribution =
 /**
  * The `thread/realtime/*` notifications opted out at negotiation (exact names, `codex-cli
  * 0.150.1`): V1 has no realtime surface, so each would be an unmapped-kind diagnostic per audio
- * delta. Re-derive when the pin moves; never widen it to quiet a diagnostic.
+ * delta. Never widen it to quiet a diagnostic.
  */
 export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object.freeze([
   "thread/realtime/started",

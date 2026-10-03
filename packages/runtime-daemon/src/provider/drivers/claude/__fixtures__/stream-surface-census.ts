@@ -1,7 +1,6 @@
-// Golden vectors: Claude stream-json subtypes, recorded at Claude Code 2.1.251. Read from the
-// schema constructors in the 2.1.245 binary; each string still occurs as a literal at 2.1.251.
-// Names only: no authless probe records a stream frame body. When the pin moves, re-read the
-// new binary and re-derive this file; never hand-edit a subtype to make a test pass.
+// Golden vectors: Claude stream-json subtypes, read from the schema constructors in the Claude
+// Code 2.1.251 binary. Names only: no authless probe records a stream frame body. Never
+// hand-edit a subtype to make a test pass.
 
 /**
  * The five `result` subtypes. The `result` field is present only on `success`, and trailing

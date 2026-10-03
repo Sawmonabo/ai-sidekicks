@@ -359,8 +359,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     reason:
       "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record events the daemon already audits",
   },
-  // Absent from the census but observed answering at 2.1.234, 2.1.245 and 2.1.246; in the union
-  // because it dispatches, and not-evented because the daemon sends it.
+  // Absent from the census, but the CLI answers it; in the union because it dispatches, and
+  // not-evented because the daemon sends it.
   "control_request/mcp_set_servers": {
     disposition: "not-evented",
     frameKind: "control_request/mcp_set_servers",

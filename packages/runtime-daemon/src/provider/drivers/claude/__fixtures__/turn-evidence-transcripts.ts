@@ -2,7 +2,6 @@
 // build). Source: three live `claude -p --output-format stream-json` runs against that build,
 // same model and session shape, differing only in the message body (a command-shaped first
 // word, the same body with one prepended newline, ordinary prose). Every number is a reading.
-// The behavior also reproduced unchanged at 2.1.245.
 //
 // The zero-turn frame is the instance every driver's turn-evidence classifier must trip on: a
 // client-composed reply with no model-turn attribution and no token usage, inside a
