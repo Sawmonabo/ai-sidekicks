@@ -50,7 +50,7 @@ The rule that nothing deletes a session automatically, set against a probe showi
 2. **Each account home's `settings.json` holds the same value**, for a process started in that home without the flag, such as a sign-in.
 3. **A managed value below it raises `settings_ignored`.** A managed policy outranks the flag. After each spawn the daemon reads `effective.cleanupPeriodDays` from `get_settings`, and when it is lower the session shows the `session.notice` kind `settings_ignored`.
 4. **`Delete old data` removes each purged session's provider files from every account home it ran in.** On Claude Code that is the conversation file with its subagent and tool-result files, its file history, session environment, todo and task lists, plan file and debug log; on Codex it is `thread/delete`. A session typed in a terminal keeps its conversation in the person's own Codex folder, which the purge never touches.
-5. **The provider's other files go past `Keep diagnostic logs for`.** With the sweep held off, what the provider writes into an account home and never reads back for a session — its logs, telemetry, traces, shell snapshots and paste cache — is diagnostic data and follows the service's own diagnostic bound. The list is the pinned build's own cleanup list minus what belongs to a session, and it is read again on every pin move.
+5. **The provider's other files go past `Keep diagnostic logs for`.** With the sweep held off, what the provider writes into an account home and never reads back for a session — its logs, telemetry, traces, shell snapshots and paste cache — is diagnostic data and follows the service's own diagnostic bound. The list is Claude Code's own cleanup list, as measured, minus what belongs to a session.
 
 The daemon never writes these values into the person's own `~/.claude` or `~/.codex`: a home the person uses in a terminal keeps the person's own settings.
 
@@ -106,10 +106,10 @@ The product already promises the person that nothing goes until they say so, and
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | `cleanupPeriodDays` accepts 36500 | The schema is a positive whole number with no maximum; 21,000 was accepted and kept a 1970 file | A build that adds a maximum rejects the flag's settings; the pin-bump probe catches it |
-| 2 | `--settings` outranks project and local files | Measured: with the flag, a repository value of 1 deleted nothing | A repository could empty a home; the probe re-runs on every pin |
+| 1 | `cleanupPeriodDays` accepts 36500 | The schema is a positive whole number with no maximum; 21,000 was accepted and kept a 1970 file | A build that adds a maximum rejects the flag's settings, which the `get_settings` read-back after each spawn shows |
+| 2 | `--settings` outranks project and local files | Measured: with the flag, a repository value of 1 deleted nothing | A repository could empty a home |
 | 3 | A managed value outranks the flag | Claude Code's settings precedence and its binary | Assumed true, which is why the read-back exists |
-| 4 | Codex deletes nothing by age | 0.156.0 has no age sweep; `thread/delete` is its only delete | A Codex build that adds one needs the same treatment; checked on each Codex pin |
+| 4 | Codex deletes nothing by age | 0.156.0 has no age sweep; `thread/delete` is its only delete | A Codex build that adds one needs the same treatment |
 | 5 | Age is file modification time | Measured on planted files | If content times were used, the value's reach would change; still covered by the ceiling |
 
 ## Failure Mode Analysis
@@ -118,7 +118,7 @@ The product already promises the person that nothing goes until they say so, and
 | --- | --- | --- | --- | --- |
 | A managed policy sets a lower value | Low for one person | High: conversations deleted while shown as resumable | `get_settings` read after each spawn | The `settings_ignored` notice in the session |
 | A process starts in an account home without the flag | Medium (sign-in) | High without the home file | Review of every spawn path | The same value in the home's `settings.json` |
-| A new Claude Code build adds a kind of per-session file | Medium | Files outlive their purged session | The pinned build's cleanup list, read on every pin move | Session files join the purge list; the rest follow the diagnostic bound |
+| A new Claude Code build adds a kind of per-session file | Medium | Files outlive their purged session | A session file left in an account home after its purge, investigated when seen | Session files join the purge list; the rest follow the diagnostic bound |
 | The purge misses a home a session ran in | Low | A conversation file outlives its session | The integration run across an account switch (Success Criteria) | The purge walks every account home the session ran in |
 
 ## Reversibility Assessment
@@ -154,8 +154,8 @@ The product already promises the person that nothing goes until they say so, and
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| A conversation file older than Claude Code's default cleanup period survives a new process's start in a managed account home | Kept | Planted-file probe with the daemon's spawn settings | Each Claude Code pin bump |
-| The same, under a repository whose `.claude/settings.json` sets `cleanupPeriodDays` to 1 | Kept | Same probe with the repository file | Each Claude Code pin bump |
+| A conversation file older than Claude Code's default cleanup period survives a new process's start in a managed account home | Kept | Planted-file probe with the daemon's spawn settings | When the provider unit lands |
+| The same, under a repository whose `.claude/settings.json` sets `cleanupPeriodDays` to 1 | Kept | Same probe with the repository file | When the provider unit lands |
 | A managed value below 36500 | `settings_ignored` shown | Probe with a managed settings file | When the provider unit lands |
 | After `Delete old data`, the purged session's provider files in every account home it ran in | None left; a terminal session's Codex conversation untouched | Integration run across an account switch | When the purge lands |
 
