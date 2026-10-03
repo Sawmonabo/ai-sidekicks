@@ -8,6 +8,11 @@
 # `ci-gate` treats `skipped` as success. The nightly schedule runs everything unfiltered so red that
 # a filter let through is found within a day.
 #
+# A pull request into `develop` runs only the fast jobs, so its checks finish within about ten
+# minutes. The slow jobs (mutation testing, the desktop end-to-end, endurance and benchmark tiers,
+# and the native prebuild matrix) run on the nightly schedule, on pull requests into `main`, and on
+# a manual run; `changes` sets `slow-jobs` for those events.
+#
 # The full-repo `eslint .` and `prettier --check .` steps close the `git commit --no-verify` bypass.
 # They do not go through lefthook, because lint-staged reads the git index, which is empty in CI.
 
@@ -19,10 +24,13 @@ on:
   push:
     branches: [develop, main]
   schedule:
-    # Nightly full run over `develop`. A scheduled run is dispatched against the default branch
-    # (`main`), so every checkout pins `ref` to `SWEEP_REF`; otherwise it would re-test the already
-    # protected branch instead of the integration tree it sweeps.
-    - cron: "17 3 * * *"
+    # Nightly full run over `develop`, at 2:00 AM Eastern in daylight time. A scheduled run is
+    # dispatched against the default branch (`main`), so every checkout pins `ref` to `SWEEP_REF`;
+    # otherwise it would re-test the already protected branch instead of the integration tree it
+    # sweeps.
+    - cron: "0 6 * * *"
+  # A manual run tests the ref it is started on, with every job and no path filter.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -54,6 +62,7 @@ jobs:
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
       structure: ${{ steps.filter.outputs.structure || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
+      slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -468,6 +477,8 @@ jobs:
   # The enumeration is deliberate: a Vitest project added to `apps/desktop/vitest.config.ts` is not
   # picked up here. A project wired into neither this matrix nor the package's aggregate `test`
   # script is a review rejection (`apps/desktop/AGENTS.md`).
+  #
+  # The slow tiers sit in `desktop-slow`, which shares these steps and the same check names.
   desktop:
     name: desktop (${{ matrix.tier }})
     needs: [changes]
@@ -493,11 +504,8 @@ jobs:
             serial: true
           - tier: "test:smoke"
             serial: true
-          - tier: "test:e2e test:endurance"
-            serial: true
-          - tier: "test:bench"
           - tier: "structure:layering"
-    steps:
+    steps: &desktop-tier-steps
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -654,6 +662,25 @@ jobs:
           SIDEKICKS_BENCH_LEDGER_PATH: ${{ runner.temp }}/bench-ledger.json
         run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --continue ${{ matrix.serial && '--concurrency=1' || '' }} ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
+  # The desktop tiers that run only where `slow-jobs` is set.
+  desktop-slow:
+    name: desktop (${{ matrix.tier }})
+    needs: [changes]
+    if: needs.changes.outputs.slow-jobs == 'true' && needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tier: "test:e2e test:endurance"
+            serial: true
+          - tier: "test:bench"
+    steps: *desktop-tier-steps
+
   # Dead code across every workspace. It reads source only, so the job installs
   # without the Electron binary.
   structure:
@@ -695,14 +722,16 @@ jobs:
   # package's source files into shards balanced by the tests their mutants ran last time, and the
   # matrix runs every shard in parallel against the package's saved results.
   #
-  # A pull request mutates only the files it changed, re-tests only the mutants whose code or
-  # covering tests changed since develop's saved results, and skips static mutants (module-level
-  # code, which re-runs the whole suite per mutant). A push to develop and the nightly run mutate
-  # every file, static mutants included, and the merge job saves the combined results. A cold full
-  # run is hours of runner time (the daemon alone is over three hours on a fast laptop), hence the
-  # long time limit, which only stops a hung job.
+  # It runs only where `slow-jobs` is set. A pull request into main mutates only the files it
+  # changed, re-tests only the mutants whose code or covering tests changed since the saved results,
+  # and skips static mutants (module-level code, which re-runs the whole suite per mutant). The
+  # nightly run and a manual run mutate every file, static mutants included, and the merge job saves
+  # the combined results. A cold full run is hours of runner time (the daemon alone is over three
+  # hours on a fast laptop), hence the long time limit, which only stops a hung job.
   mutation-plan:
     name: mutation plan
+    needs: [changes]
+    if: needs.changes.outputs.slow-jobs == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -832,11 +861,12 @@ jobs:
 
   # Folds every shard's results over the saved ones and saves them for the next
   # run. A shard that failed or timed out leaves its files' earlier results in
-  # place.
+  # place. A scheduled run's cache scope is the default branch, which every
+  # branch reads; a manual run saves into the scope of the ref it ran on.
   mutation-merge:
     name: mutation merge
     needs: [mutation]
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')) }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -970,11 +1000,11 @@ jobs:
   native-prebuilds:
     name: native prebuild (${{ matrix.prebuild }})
     # Five runners across three operating systems, and only the dependency graph (the lockfile, a
-    # package.json, or the npm client config) can change which binding resolves. A pull request
-    # touching none of them skips this job, and `ci-gate` reads the skip as success. The nightly
-    # schedule runs it unconditionally.
+    # package.json, or the npm client config) can change which binding resolves. It runs only where
+    # `slow-jobs` is set; there a pull request touching none of those files skips it, and `ci-gate`
+    # reads the skip as success. The nightly and manual runs run it unconditionally.
     needs: [changes]
-    if: needs.changes.outputs.deps == 'true' || github.event_name == 'schedule'
+    if: needs.changes.outputs.slow-jobs == 'true' && needs.changes.outputs.deps == 'true'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -1155,7 +1185,7 @@ jobs:
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [changes, node-version, test, desktop, structure, native-prebuilds]
+    needs: [changes, node-version, test, desktop, desktop-slow, structure, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -1164,7 +1194,8 @@ jobs:
         #
         # One predicate for every job: `skipped` counts as success. A path-filtered job that did not
         # need to run must not hold the gate pending, and a job skipped by its filter carries as
-        # much signal as a green one. `test` is never skipped. A dependency whose result is
+        # much signal as a green one; so does a slow job on a pull request into develop, where it
+        # does not run. `test` is never skipped. A dependency whose result is
         # `cancelled` or `failure` still fails, since neither result is accepted.
         #
         # `node-version` is checked for the same reason: `test` needs it, so its failure skips
@@ -1186,7 +1217,8 @@ jobs:
           check node-version "${{ needs.node-version.result }}"
           check test "${{ needs.test.result }}"
           check desktop "${{ needs.desktop.result }}"
+          check desktop-slow "${{ needs.desktop-slow.result }}"
           check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
-          echo "ci-gate: all required jobs succeeded or were skipped by path filter"
+          echo "ci-gate: all required jobs succeeded or were skipped"

@@ -81,7 +81,7 @@ Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval ru
 
 ## Cedar Version Pin
 
-The daemon depends on `@cedar-policy/cedar-wasm` on the Cedar **v4.11** line (12.9 MB unpacked at 4.11.2; [Plan-009](../plans/009-approvals-permissions-and-trust-boundaries.md) pins 4.11.x). A Cedar upgrade ships in an app update, with the built-in rules checked against it by the policy test suite.
+The daemon depends on `@cedar-policy/cedar-wasm` on the Cedar **v4.13** line (12.9 MB unpacked at 4.11.2; [Plan-009](../plans/009-approvals-permissions-and-trust-boundaries.md) pins 4.13.0). A Cedar upgrade ships in an app update, with the built-in rules checked against it by the policy test suite.
 
 ## Decision Validation
 

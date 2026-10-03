@@ -58,42 +58,82 @@ ok(`phase ${phase} section found`);
 //    subject and its `-E` engine has no `\b`, so the subjects are read once
 //    and matched here.
 //
-//    Commit 426a4ce3a renumbered the plan corpus, so a subject written before
-//    it names a different plan by the same number; subjects from that era are
-//    translated through the table below before matching, and a number whose
-//    plan was retired translates to a token no query can equal. The tests
-//    point `PREFLIGHT_RENUMBER_COMMIT` at a fixture boundary to drive this.
-const RENUMBER_COMMIT = process.env.PREFLIGHT_RENUMBER_COMMIT ?? "426a4ce3a";
-const PLAN_RENUMBERED = {
-  "001": "001",
-  "003": "002",
-  "004": "003",
-  "005": "004",
-  "006": "005",
-  "007": "006",
-  "009": "007",
-  "010": "008",
-  "011": "009",
-  "012": "010",
-  "013": "011",
-  "014": "012",
-  "015": "013",
-  "016": "014",
-  "017": "015",
-  "018": "016",
-  "019": "017",
-  "020": "018",
-  "021": "019",
-  "022": "020",
-  "023": "021",
-  "024": "022",
-  "026": "023",
-  "027": "024",
-  "028": "025",
-  "029": "026",
-  "030": "027",
-  "031": "028",
-};
+//    The plan corpus has been renumbered twice, so a subject names the plan its
+//    number meant when it was written. Each renumbering lists its commit and the
+//    table from the numbers before it to the numbers after it; a subject is
+//    translated through every renumbering that came after it, in order, and a
+//    number whose plan was retired translates to a token no query can equal.
+//    The tests point `PREFLIGHT_RENUMBER_COMMITS` (comma-separated, oldest
+//    first) at fixture boundaries to drive this.
+const RENUMBER_COMMIT_OVERRIDES = (process.env.PREFLIGHT_RENUMBER_COMMITS ?? "")
+  .split(",")
+  .filter(Boolean);
+const RENUMBERINGS = [
+  {
+    commit: RENUMBER_COMMIT_OVERRIDES[0] ?? "426a4ce3a",
+    table: {
+      "001": "001",
+      "003": "002",
+      "004": "003",
+      "005": "004",
+      "006": "005",
+      "007": "006",
+      "009": "007",
+      "010": "008",
+      "011": "009",
+      "012": "010",
+      "013": "011",
+      "014": "012",
+      "015": "013",
+      "016": "014",
+      "017": "015",
+      "018": "016",
+      "019": "017",
+      "020": "018",
+      "021": "019",
+      "022": "020",
+      "023": "021",
+      "024": "022",
+      "026": "023",
+      "027": "024",
+      "028": "025",
+      "029": "026",
+      "030": "027",
+      "031": "028",
+    },
+  },
+  {
+    commit: RENUMBER_COMMIT_OVERRIDES[1] ?? "d0d7e73f3",
+    table: {
+      "001": "001",
+      "003": "002",
+      "004": "003",
+      "005": "004",
+      "006": "005",
+      "007": "006",
+      "008": "007",
+      "009": "008",
+      "010": "009",
+      "011": "010",
+      "012": "011",
+      "013": "012",
+      "014": "013",
+      "015": "014",
+      "016": "015",
+      "017": "016",
+      "018": "017",
+      "019": "018",
+      "020": "019",
+      "021": "020",
+      "022": "021",
+      "025": "022",
+      "026": "023",
+      "027": "024",
+      "028": "025",
+      "030": "026",
+    },
+  },
+];
 
 // Each entry keeps the subject as it was written alongside the copy matching
 // reads, so every message quotes what a person will find in `git log`.
@@ -110,20 +150,21 @@ function readSubjects(range) {
   }
 }
 
-function renumber(entry) {
-  return {
-    subject: entry.original.replace(/Plan-(\d{3})/gi, (token, number) =>
-      PLAN_RENUMBERED[number] ? `Plan-${PLAN_RENUMBERED[number]}` : "Plan-retired",
-    ),
-    original: entry.original,
-  };
+function renumber(entry, renumberings) {
+  let subject = entry.original;
+  for (const { table } of renumberings) {
+    subject = subject.replace(/Plan-(\d{3})/gi, (token, number) =>
+      table[number] ? `Plan-${table[number]}` : "Plan-retired",
+    );
+  }
+  return { subject, original: entry.original };
 }
 
-// A checkout whose history does not carry the renumber commit has not been
-// renumbered either, so all of it is already in today's numbering.
-function historyWasRenumbered() {
+// A checkout whose history does not carry a renumber commit has not been
+// renumbered by it either.
+function inHistory(commit) {
   try {
-    execFileSync("git", ["merge-base", "--is-ancestor", RENUMBER_COMMIT, "HEAD"], {
+    execFileSync("git", ["merge-base", "--is-ancestor", commit, "HEAD"], {
       stdio: "ignore",
     });
     return true;
@@ -135,12 +176,21 @@ function historyWasRenumbered() {
 let subjectCache = null;
 function commitEntries() {
   if (subjectCache === null) {
-    subjectCache = historyWasRenumbered()
-      ? [
-          ...readSubjects(`${RENUMBER_COMMIT}^..HEAD`),
-          ...readSubjects(`${RENUMBER_COMMIT}^`).map(renumber),
-        ]
-      : readSubjects("HEAD");
+    const applied = RENUMBERINGS.filter(({ commit }) => inHistory(commit));
+    if (applied.length === 0) {
+      subjectCache = readSubjects("HEAD");
+    } else {
+      // A renumber commit's own subject is written in the numbering it creates.
+      subjectCache = readSubjects(`${applied.at(-1).commit}^..HEAD`);
+      for (let index = applied.length - 1; index >= 0; index -= 1) {
+        const range =
+          index === 0
+            ? `${applied[0].commit}^`
+            : `${applied[index - 1].commit}^..${applied[index].commit}^`;
+        const later = applied.slice(index);
+        subjectCache.push(...readSubjects(range).map((entry) => renumber(entry, later)));
+      }
+    }
   }
   return subjectCache;
 }

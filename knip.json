@@ -86,7 +86,7 @@
       // icon sets are reached only through those virtual specifiers, so without the plugin
       // `@iconify-json/tabler` is an unused dependency that in fact supplies the renderer's glyphs,
       // and the only other way to say so would be an `ignoreDependencies` entry, which
-      // `apps/desktop/AGENTS.md` admits none of.
+      // `apps/desktop/AGENTS.md` admits only for a library no code imports yet.
       "unplugin-icons": true,
 
       // The Vitest plugin reads the config and treats every project's `include` globs as entries,
@@ -113,6 +113,23 @@
       // (`tests/helpers/display-readiness.ts`); it is never a package dependency, so knip is told
       // not to expect it in a manifest.
       "ignoreBinaries": ["xdpyinfo"],
+
+      // Libraries installed ahead of the code that imports them, each with what will import it.
+      "ignoreDependencies": [
+        // The workflow canvas laying its nodes out left to right.
+        "@dagrejs/dagre",
+        // The app updating itself to a new release.
+        "electron-updater",
+        // A diagram block in a reply drawn as a picture.
+        "mermaid",
+        // The overlay scrollbar on every scroller but the conversation.
+        "overlayscrollbars",
+        "overlayscrollbars-react",
+        // The strokes a person draws to mark up the Preview page.
+        "perfect-freehand",
+        // A Codex voice hold played into the call faster with its pitch kept.
+        "signalsmith-stretch"
+      ],
 
       // Whole files kept for a consumer that is not built yet, each with what will consume it.
       "ignoreFiles": [
@@ -216,12 +233,66 @@
       // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
       // Postgres client the control plane's stores are built on, and `@ai-sidekicks/contracts`
       // holds the wire shapes those stores serve; neither is imported until the stores land.
-      "ignoreDependencies": ["wrangler", "pg", "@types/pg", "@ai-sidekicks/contracts"]
+      "ignoreDependencies": [
+        "wrangler",
+        "pg",
+        "@types/pg",
+        "@ai-sidekicks/contracts",
+        // The push senders that present the person's own credentials: the signed headers of a
+        // Web Push, a notice sent through Apple's push service, and the sign-in for Firebase's.
+        "web-push",
+        "apns2",
+        "google-auth-library"
+      ]
     },
     "packages/runtime-daemon": {
-      // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
-      // knip cannot follow; it is a hard runtime dependency.
-      "ignoreDependencies": ["node-pty"],
+      "ignoreDependencies": [
+        // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
+        // knip cannot follow; it is a hard runtime dependency.
+        "node-pty",
+        // The rest are libraries installed ahead of the code that imports them, each with what
+        // will import it.
+        // The sandbox a workflow code step runs in on Claude Code.
+        "@anthropic-ai/sandbox-runtime",
+        // The approval policy engine that judges each action against the built-in rules.
+        "@cedar-policy/cedar-wasm",
+        // Laying out a workflow an agent wrote with no layout of its own.
+        "@dagrejs/dagre",
+        // Adding a tool server to a project's Codex config while keeping its comments and layout.
+        "@decimalturn/toml-patch",
+        // Sealing a push notice to a linked device's push key.
+        "@hpke/core",
+        "@hpke/hybridkem-x-wing",
+        // Drawing the first page of an attached PDF.
+        "@hyzyla/pdfium",
+        // The daemon's own connections to the tool servers a session uses.
+        "@modelcontextprotocol/client",
+        // The daemon's shared tool server that hands sessions their session, workflow and
+        // browser tools.
+        "@modelcontextprotocol/server",
+        // Hosting Playwright's browser tool server for Preview and an agent's browser tools.
+        "@modelcontextprotocol/sdk",
+        "playwright-core",
+        // Running a workflow code step's JavaScript or TypeScript, and locking its packages.
+        "bun",
+        // A workflow schedule's next run in its timezone.
+        "croner",
+        // A workflow's expressions, and the regular-expression engine they run on.
+        "jsonata",
+        "re2js",
+        // The email digest of what needs the person's attention.
+        "nodemailer",
+        // Matching a workflow file-watch trigger's path patterns.
+        "picomatch",
+        // A short workflow code step run in its own memory-bounded engine.
+        "quickjs-emscripten",
+        // The picture of an attachment's first page and its covered copy.
+        "sharp",
+        // Encrypting a Web Push notice on this machine before the relay sends it.
+        "web-push",
+        // A workflow step that parses YAML.
+        "yaml"
+      ],
       // The machine's `presence.read` binding, which nothing registers until Remote Control
       // reports the devices connected to this machine.
       "ignoreFiles": ["src/ipc/handlers/presence-read.ts"]

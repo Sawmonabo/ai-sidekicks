@@ -1,4 +1,4 @@
-# lefthook 2.1.15 configuration.
+# lefthook 2.1.16 configuration.
 #
 # Job order is load-bearing. `lint-staged` rewrites staged files (`prettier --write`,
 # `eslint --fix`) and re-stages them twice: once itself (`git add` inside lint-staged's
