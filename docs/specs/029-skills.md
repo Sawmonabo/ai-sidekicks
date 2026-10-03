@@ -248,7 +248,7 @@ Described here; the shapes belong to [Plan-026](../plans/026-skills.md).
 
 ## Implementation Notes
 
-- The scan's per-provider vocabulary — tool names and call sigils — is the one part of this destination that ages with the providers. It belongs in one place, read at each provider version bump, and its output is words rather than wire spellings so a rename upstream changes a table and not the screen.
+- The scan's per-provider vocabulary — tool names and call sigils — is the one part of this destination that ages with the providers. It belongs in one table, and its output is words rather than wire spellings so a rename upstream changes the table and not the screen. The scan works with whatever provider version is installed, and nothing is re-checked on a version bump: a tool a provider renamed shows as a scan miss in the daemon's logs and is investigated when seen.
 - The daemon watching a root that does not exist yet is worth creating rather than skipping: on Claude Code a scope directory that did not exist when a session started is invisible for the life of that session unless the reload request is sent, so creating the roots before launch and sending the reload after a write is what makes a mid-session save reliable.
 - Because the two providers' front matter overlaps on exactly the two keys the editor surfaces, the editor needs no per-provider mode. What a provider keeps for itself — the Codex metadata file — is an ordinary file in the Files list and needs no special case beyond being listed.
 - The four addresses make each screen state linkable, which is also what makes each state reachable from a test without driving the interface to get there.

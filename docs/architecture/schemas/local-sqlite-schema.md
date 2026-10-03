@@ -111,6 +111,67 @@ The daemon keeps one row per session it hosts in `sessions`, the directory that 
 
 - `shape TEXT NOT NULL CHECK (shape IN ('chat', 'project'))` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.list`.
 - `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.list`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
+- `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
+
+A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
+
+```sql
+-- Owner: Plan-001
+CREATE TABLE session_groups (
+  id           TEXT NOT NULL PRIMARY KEY,
+  project_id   TEXT NOT NULL,              -- the project record the group belongs to; a chat has no groups
+  name         TEXT NOT NULL,              -- the person's own casing, for display
+  name_folded  TEXT NOT NULL,              -- the full-Unicode case fold of name, written by the store on every insert and rename
+  created_at   TEXT NOT NULL
+);
+
+-- A group's name is unique in its project ignoring case, on the stored fold key, the same rule
+-- agent definition names follow.
+CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
+
+CREATE INDEX idx_sessions_group ON sessions(group_id);
+
+-- One row per pair of sessions and kind. The daemon writes or bumps a row when the event that makes it
+-- is recorded, never by a rescan. Rows name sessions by id, so a rename changes none. Only a 'related'
+-- row is ever deleted (the person's or an agent's Unlink); the others record what happened.
+CREATE TABLE session_links (
+  source_session_id  TEXT NOT NULL,
+  target_session_id  TEXT NOT NULL,
+  kind               TEXT NOT NULL
+                     CHECK (kind IN ('started', 'copied_from', 'messaged', 'asked', 'mentioned', 'related')),
+  use_count          INTEGER NOT NULL DEFAULT 1 CHECK (use_count >= 1),  -- messaged counts the messages traded
+  first_at           TEXT NOT NULL,
+  last_at            TEXT NOT NULL,          -- the 30-day halving of a link's weight is measured from here
+  PRIMARY KEY (source_session_id, target_session_id, kind)
+);
+
+CREATE INDEX idx_session_links_target ON session_links(target_session_id, source_session_id);
+
+-- Any number of tags per session, across projects, nested with '/'. The fold key makes a tag match
+-- ignoring case, and a prefix match on it finds a parent's children ('billing' finds 'billing/stripe').
+CREATE TABLE session_tags (
+  session_id  TEXT NOT NULL,
+  tag         TEXT NOT NULL,                 -- as written, for display
+  tag_folded  TEXT NOT NULL,
+  PRIMARY KEY (session_id, tag_folded)
+);
+
+CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, session_id);
+
+-- Each session's related list, computed ahead by personalized PageRank cut at two steps and stored
+-- under the session's id, so a read is one indexed lookup. A new link re-scores, in the background
+-- after its event is written, only the two sessions it joins and their neighbors.
+CREATE TABLE session_related (
+  session_id          TEXT NOT NULL,
+  related_session_id  TEXT NOT NULL,
+  score               REAL NOT NULL,
+  PRIMARY KEY (session_id, related_session_id)
+);
+
+CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
+```
+
+Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on SQLite 3.50.4 at that size, a stored related list read in 0.012 ms and a tag or group lookup in 0.033 ms at p95.
 
 ---
 
@@ -1616,4 +1677,4 @@ CREATE TABLE shared_ports (
 
 ## Session Search Index
 
-The search across every session and a session's own find are answered from one FTS5 virtual table over session titles and message text, SQLite's own full-text index, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4. It reaches every session the list holds, archived ones included, answers in the index's own ranked order with no cap, and is kept in step with the rows it indexes by the daemon's write path. Its DDL lands with the search reads, `session.search` across sessions and `timeline.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).
+The search across every session and a session's own find are answered from one FTS5 virtual table over session titles, message text, group names and tags, SQLite's own full-text index, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4. It reaches every session the list holds, archived ones included, with no cap, and is kept in step with the rows it indexes by the daemon's write path. Only settled messages are indexed, never streamed chunks; a prefix index serves search as the person types; and the index is merged into one tree (FTS5's `optimize`) when the daemon is idle. A `tag:<tag>` term matches the tag and every tag nested under it through `session_tags`. A search with words alone answers in the index's BM25 order; where it also names a relation or a tag, the BM25 rank and the relation rank from `session_related` are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank), and results come grouped by project, then group, then session, each branch ordered by its best score. A common word ranked across 1,000,000 messages measured 8.2 ms at p95 on SQLite 3.50.4, inside the 50 ms budget §Session Directory (Plan-001) sets. Its DDL lands with the search reads, `session.search` across sessions and `timeline.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).

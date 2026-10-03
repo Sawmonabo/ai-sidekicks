@@ -148,7 +148,7 @@ Tooling is the console's existing tiers ([Spec-021 §Console Test Tiers](../spec
 
 ## Risks
 
-- **The scan's provider vocabulary ages.** Tool names and call sigils change as the providers ship. Keep the vocabulary in one table, re-read it at every provider version bump, and keep the scan's output words rather than wire spellings so an upstream rename changes the table and not the screen.
+- **The scan's provider vocabulary ages.** Tool names and call sigils change as the providers ship. Keep the vocabulary in one table and the scan's output words rather than wire spellings, so an upstream rename changes the table and not the screen. Nothing is re-checked on a version bump: a tool a provider renamed shows as a scan miss in the daemon's logs and is investigated when seen.
 - **A provider adds or moves a skill root.** The watch's root list is one place for exactly this reason; a new root is one entry, and a folder found there keeps that provider's origin mark and shows the root in its path.
 - **A mid-session save that the provider never sees.** On Claude Code a scope directory that did not exist when a session started stays invisible for that session's whole life unless the reload request is sent. Create the roots before launch and send the reload after every write; a save that reports success and does not reach the running session is the failure this mitigates.
 - **The skill roots on the watch cost handles and wake-ups.** They join the one watch Plan-024 builds rather than a second one: one recursive watch per root with a debounce, a burst of writes coalesced into one registry rebuild, and no polling.
