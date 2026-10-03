@@ -343,8 +343,7 @@ export class CodexLifecycleManager {
       input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
       // The pin that carries the security property: `approvalsReviewer` on a turn overrides routing
       // for it and later turns, so a config-selected `auto_review` would otherwise win.
-      // `turn/steer` creates no turn and needs none. Present on TurnStartParams at codex-cli
-      // 0.150.1, unchanged back to 0.141.0.
+      // `turn/steer` creates no turn and needs none.
       approvalsReviewer: "user",
       // The run's posture wins and the session's spawn posture is the floor, so a turn never goes
       // out with no policy; both send the roots the thread-level selector cannot carry.
