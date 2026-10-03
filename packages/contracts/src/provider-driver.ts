@@ -313,22 +313,14 @@ export const DriverInterventionResultSchema: z.ZodType<
 // ---- Execution posture ----
 
 /**
- * The network half of an {@link ExecutionPosture}. `allowedDomains` exists only under
- * `networkAccess: "allowed-domains"` and is non-empty there, so an empty allow-list, which would
- * read as fail-open, cannot be written.
- */
-export type ExecutionPostureNetwork =
-  | { networkAccess: "none" | "full"; allowedDomains?: never }
-  | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] };
-
-/**
  * The sandbox and permissions a spawn or turn runs under, stamped on `run.running`. `mode` is the
  * session's permission level, which each driver resolves into its own provider's modes.
  * `credentialPolicyRef` names the credential deny list handed to the provider on every level; it
  * is a reference, so the list itself is never embedded.
  */
-export type ExecutionPosture = ExecutionPostureNetwork & {
+export type ExecutionPosture = {
   mode: PermissionLevel;
+  networkAccess: "none" | "full";
   writableRoots: string[];
   profileName?: string | undefined;
   credentialPolicyRef: string;

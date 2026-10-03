@@ -187,17 +187,12 @@ describe("RunStateChangeEvent", () => {
   describe("the executionPosture member", () => {
     const base = { writableRoots: ["/workspace"], credentialPolicyRef: "policy://default" };
 
-    it("admits both network arms at a permission level", () => {
+    it("admits both network settings at a permission level", () => {
       const postures = [
         { ...base, networkAccess: "none", mode: "readonly", writableRoots: [] },
+        { ...base, networkAccess: "none", mode: "sandboxed" },
         { ...base, networkAccess: "full", mode: "ask", profileName: "default" },
         { ...base, networkAccess: "full", mode: "yolo", writableRoots: [] },
-        {
-          ...base,
-          networkAccess: "allowed-domains",
-          allowedDomains: ["registry.npmjs.org"],
-          mode: "sandboxed",
-        },
       ];
       for (const executionPosture of postures) {
         expect(
@@ -206,9 +201,9 @@ describe("RunStateChangeEvent", () => {
       }
     });
 
-    it("refuses a posture with no credential policy, a mode outside the levels, or a stray domain list", () => {
-      // A recorded posture missing its credential policy, naming a mode that is not a permission
-      // level, or carrying a domain list on an open network misstates the run's boundary.
+    it("refuses a posture with no credential policy or a mode outside the levels", () => {
+      // A recorded posture missing its credential policy or naming a mode that is not a permission
+      // level misstates the run's boundary.
       const { credentialPolicyRef: _omitted, ...withoutPolicy } = base;
       expect(() =>
         RunStateChangeEventSchema.parse({
@@ -220,17 +215,6 @@ describe("RunStateChangeEvent", () => {
         RunStateChangeEventSchema.parse({
           ...minimalRunStateChange,
           executionPosture: { ...base, networkAccess: "none", mode: "workspace-sandboxed" },
-        }),
-      ).toThrow();
-      expect(() =>
-        RunStateChangeEventSchema.parse({
-          ...minimalRunStateChange,
-          executionPosture: {
-            ...base,
-            networkAccess: "full",
-            allowedDomains: ["example.test"],
-            mode: "ask",
-          },
         }),
       ).toThrow();
     });

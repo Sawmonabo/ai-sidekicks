@@ -18,11 +18,9 @@ const CLAUDE_POSTURE_SCALAR_AXES = [
   "profileName",
 ] as const;
 
-const CLAUDE_POSTURE_SET_AXES = ["allowedDomains", "writableRoots"] as const;
+const CLAUDE_POSTURE_SET_AXES = ["writableRoots"] as const;
 
 type ClaudePostureScalarAxis = (typeof CLAUDE_POSTURE_SCALAR_AXES)[number];
-
-type ClaudePostureSetAxis = (typeof CLAUDE_POSTURE_SET_AXES)[number];
 
 function readPostureScalarAxis(
   posture: ExecutionPosture,
@@ -31,22 +29,11 @@ function readPostureScalarAxis(
   return posture[axis];
 }
 
-function readPostureSetAxis(
-  posture: ExecutionPosture,
-  axis: ClaudePostureSetAxis,
-): readonly string[] | undefined {
-  const widened = posture as Partial<Record<ClaudePostureSetAxis, readonly string[]>>;
-  return widened[axis];
-}
-
 // Order-insensitive but multiplicity-sensitive: a duplicated root is a different declaration.
 function postureSetAxisDiffers(
-  runValue: readonly string[] | undefined,
-  spawnValue: readonly string[] | undefined,
+  runValue: readonly string[],
+  spawnValue: readonly string[],
 ): boolean {
-  if (runValue === undefined || spawnValue === undefined) {
-    return runValue !== spawnValue;
-  }
   if (runValue.length !== spawnValue.length) {
     return true;
   }
@@ -71,8 +58,8 @@ export function findPostureDivergence(
     }
   }
   for (const axis of CLAUDE_POSTURE_SET_AXES) {
-    const runValue = readPostureSetAxis(runPosture, axis);
-    const spawnValue = readPostureSetAxis(spawnPosture, axis);
+    const runValue = runPosture[axis];
+    const spawnValue = spawnPosture[axis];
     if (postureSetAxisDiffers(runValue, spawnValue)) {
       return `${axis} (run ${JSON.stringify(runValue)}, session ${JSON.stringify(spawnValue)})`;
     }

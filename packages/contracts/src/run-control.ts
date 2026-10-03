@@ -288,41 +288,21 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
   })
   .strict();
 
-// A tuple, not `.nonempty()`, which leaves the inferred type `string[]`.
-const allowedDomainsSchema: z.ZodType<[string, ...string[]], [string, ...string[]]> = z.tuple(
-  [wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains")],
-  wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains"),
-);
-
-// The parts both network forms of a posture share.
-const executionPostureSharedShape = {
-  mode: PermissionLevelSchema,
-  writableRoots: z.array(filesystemPathSchema),
-  profileName: wireFreeFormString(
-    DRIVER_WIRE_HANDLE_MAX_LEN,
-    "ExecutionPosture.profileName",
-  ).optional(),
-  credentialPolicyRef: wireFreeFormString(
-    DRIVER_WIRE_HANDLE_MAX_LEN,
-    "ExecutionPosture.credentialPolicyRef",
-  ),
-};
-
-const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
-  z
-    .object({
-      networkAccess: z.enum(["none", "full"]),
-      ...executionPostureSharedShape,
-    })
-    .strict(),
-  z
-    .object({
-      networkAccess: z.literal("allowed-domains"),
-      allowedDomains: allowedDomainsSchema,
-      ...executionPostureSharedShape,
-    })
-    .strict(),
-]);
+const executionPostureSchema: z.ZodType<ExecutionPosture> = z
+  .object({
+    mode: PermissionLevelSchema,
+    networkAccess: z.enum(["none", "full"]),
+    writableRoots: z.array(filesystemPathSchema),
+    profileName: wireFreeFormString(
+      DRIVER_WIRE_HANDLE_MAX_LEN,
+      "ExecutionPosture.profileName",
+    ).optional(),
+    credentialPolicyRef: wireFreeFormString(
+      DRIVER_WIRE_HANDLE_MAX_LEN,
+      "ExecutionPosture.credentialPolicyRef",
+    ),
+  })
+  .strict();
 
 /**
  * A turn the provider's safety check refused with no other model to take it, on

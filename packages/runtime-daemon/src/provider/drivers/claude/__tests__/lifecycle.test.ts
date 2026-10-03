@@ -570,11 +570,10 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
 // and `networkAccess` alone would admit a run into a process whose sandbox differs on another
 // axis. One test per axis keeps a re-narrowing from passing on the popular ones.
 describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
-  const ALLOWED_DOMAINS_POSTURE: Extract<ExecutionPosture, { networkAccess: "allowed-domains" }> = {
+  const SPAWN_POSTURE: ExecutionPosture = {
     mode: "sandboxed",
     credentialPolicyRef: "policy://default",
-    networkAccess: "allowed-domains",
-    allowedDomains: ["api.example.com", "docs.example.com"],
+    networkAccess: "none",
     writableRoots: ["/workspace", "/tmp/scratch"],
     profileName: "default",
   };
@@ -600,31 +599,28 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     readonly runPosture: ExecutionPosture;
   }> = [
     {
-      axis: "allowedDomains (an added domain widens the network reach)",
-      runPosture: {
-        ...ALLOWED_DOMAINS_POSTURE,
-        allowedDomains: ["api.example.com", "docs.example.com", "exfil.example.net"],
-      },
+      axis: "networkAccess (opening the network widens what the process may reach)",
+      runPosture: { ...SPAWN_POSTURE, networkAccess: "full" },
     },
     {
       axis: "writableRoots (an added root widens what the process may write)",
       runPosture: {
-        ...ALLOWED_DOMAINS_POSTURE,
+        ...SPAWN_POSTURE,
         writableRoots: ["/workspace", "/tmp/scratch", "/etc"],
       },
     },
     {
       axis: "credentialPolicyRef",
-      runPosture: { ...ALLOWED_DOMAINS_POSTURE, credentialPolicyRef: "policy://elevated" },
+      runPosture: { ...SPAWN_POSTURE, credentialPolicyRef: "policy://elevated" },
     },
     {
       axis: "profileName",
-      runPosture: { ...ALLOWED_DOMAINS_POSTURE, profileName: "permissive" },
+      runPosture: { ...SPAWN_POSTURE, profileName: "permissive" },
     },
     {
       axis: "writableRoots (a duplicated root is a real difference, not noise)",
       runPosture: {
-        ...ALLOWED_DOMAINS_POSTURE,
+        ...SPAWN_POSTURE,
         writableRoots: ["/workspace", "/workspace"],
       },
     },
@@ -632,7 +628,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
 
   it.each(DIVERGENT_POSTURES)("never starts a run diverging on $axis", async ({ runPosture }) => {
     const harness = buildHarness();
-    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+    await arrangeSession(harness, SPAWN_POSTURE);
 
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), executionPosture: runPosture }),
@@ -643,17 +639,16 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
-  it("admits a posture whose set axes agree but are ordered differently", async () => {
+  it("admits a posture whose roots agree but are ordered differently", async () => {
     const harness = buildHarness();
-    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+    await arrangeSession(harness, SPAWN_POSTURE);
 
-    // The same roots and domains in another order are the same posture; refusing would force
-    // relaunches over serialization order.
+    // The same roots in another order are the same posture; refusing would force relaunches over
+    // serialization order.
     await harness.lifecycle.startRun({
       ...buildStartRunParams(),
       executionPosture: {
-        ...ALLOWED_DOMAINS_POSTURE,
-        allowedDomains: ["docs.example.com", "api.example.com"],
+        ...SPAWN_POSTURE,
         writableRoots: ["/tmp/scratch", "/workspace"],
       },
     });
@@ -672,14 +667,14 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     await expect(
       harness.lifecycle.startRun({
         ...buildStartRunParams(),
-        executionPosture: ALLOWED_DOMAINS_POSTURE,
+        executionPosture: SPAWN_POSTURE,
       }),
     ).rejects.toMatchObject({ fields: { reason: "execution_posture_mismatch" } });
   });
 
   it("admits a run declaring no posture into a posture-bound session", async () => {
     const harness = buildHarness();
-    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+    await arrangeSession(harness, SPAWN_POSTURE);
 
     await harness.lifecycle.startRun(buildStartRunParams());
 

@@ -95,8 +95,6 @@ export type CodexTransportDiagnostic =
       expectedTurnCount: number;
       confirmedTurnCount: number;
     }
-  /** A domain allow-list was requested but the network axis is a boolean; spawned denied. */
-  | { kind: "posture-network-allowlist-narrowed"; deniedDomainCount: number }
   /**
    * The realized sandbox policy is wider than the posture demanded (unrecognized config keys are
    * silently ignored). Reported, not fatal.

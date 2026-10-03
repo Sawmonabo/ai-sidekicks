@@ -110,10 +110,6 @@ const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   yolo: "never",
 });
 
-/**
- * Whether the posture allows network access. A domain allow-list resolves down to `false` (the
- * provider's axis is a boolean) and is reported as a diagnostic.
- */
 function codexNetworkAccessEnabled(posture: ExecutionPosture): boolean {
   return posture.networkAccess === "full";
 }

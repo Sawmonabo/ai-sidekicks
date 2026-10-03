@@ -162,16 +162,14 @@ export class CodexSpawnPosture {
   }
 
   /**
-   * The spawn-time posture legs (`sandbox`, `approvalPolicy`), plus the diagnostic for the one
-   * axis this provider cannot express. Presets are expanded daemon-side, so the profile name is not
-   * forwarded; the credential deny-list is realized in the child environment, so no credential
-   * axis is read here.
+   * The spawn-time posture legs (`sandbox`, `approvalPolicy`). Presets are expanded daemon-side, so
+   * the profile name is not forwarded; the credential deny-list is realized in the child
+   * environment, so no credential axis is read here.
    */
   #composeSpawnPostureParams(posture: ExecutionPosture | undefined): Record<string, unknown> {
     if (posture === undefined) {
       return {};
     }
-    this.#reportNarrowedNetworkAllowlist(posture);
     const { sandbox, approvalPolicy } = composeCodexThreadPosture(posture);
     return { sandbox, approvalPolicy };
   }
@@ -207,22 +205,7 @@ export class CodexSpawnPosture {
     if (posture === undefined) {
       return {};
     }
-    // Reported per turn too: a run adding an allow-list to a session spawned without one would
-    // otherwise narrow silently.
-    if (params.executionPosture !== undefined) {
-      this.#reportNarrowedNetworkAllowlist(params.executionPosture);
-    }
     return { sandboxPolicy: composeCodexTurnSandboxPolicy(posture) };
-  }
-
-  #reportNarrowedNetworkAllowlist(posture: ExecutionPosture): void {
-    if (posture.networkAccess !== "allowed-domains") {
-      return;
-    }
-    reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-      kind: "posture-network-allowlist-narrowed",
-      deniedDomainCount: posture.allowedDomains.length,
-    });
   }
 
   /**

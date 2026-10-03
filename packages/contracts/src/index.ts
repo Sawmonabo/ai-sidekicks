@@ -1655,7 +1655,6 @@ export type {
   DriverCapabilityFlag,
   DriverInterventionResult,
   ExecutionPosture,
-  ExecutionPostureNetwork,
   IdempotencyClass,
   InterruptPayload,
   InterruptRunParams,

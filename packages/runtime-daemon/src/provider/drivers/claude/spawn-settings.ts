@@ -86,14 +86,7 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
         allowWrite: posture.mode === "readonly" ? [] : posture.writableRoots,
       },
       // `full` omits the restriction, since an empty list means the opposite; `none` is empty.
-      ...(posture.networkAccess === "full"
-        ? {}
-        : {
-            network: {
-              allowedDomains:
-                posture.networkAccess === "allowed-domains" ? posture.allowedDomains : [],
-            },
-          }),
+      ...(posture.networkAccess === "full" ? {} : { network: { allowedDomains: [] } }),
     },
     credentialPolicyRef: posture.credentialPolicyRef,
   };

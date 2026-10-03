@@ -2092,12 +2092,9 @@ interface ProviderMode {
 // against its own provider's modes, per Spec-010 §Required Behavior. The level-to-provider-mode
 // realization is each driver's, recorded per driver in Spec-010 §Required Behavior; no table here
 // restates it, and the posture carries no vocabulary of its own beside the level.
-type ExecutionPostureNetwork =
-  | { networkAccess: "none" | "full"; allowedDomains?: never } // allowedDomains structurally absent
-  | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] }; // non-empty by construction (Spec-010 cross-field invariants, fail closed)
-
-type ExecutionPosture = ExecutionPostureNetwork & {
+type ExecutionPosture = {
   mode: PermissionLevel; // the session's permission level (§Shared Enums) — the only posture vocabulary in the product (Spec-010 §Required Behavior)
+  networkAccess: "none" | "full";
   writableRoots: string[];
   profileName?: string;
   credentialPolicyRef: string; // a plain reference naming the credential deny list the daemon handed the provider — REQUIRED on every run. The provider's own rule enforces the list (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not) (Spec-010 §Required Behavior).

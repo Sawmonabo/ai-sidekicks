@@ -89,8 +89,7 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
       executionPosture: {
         mode: "ask",
         credentialPolicyRef: "policy://workspace",
-        networkAccess: "allowed-domains",
-        allowedDomains: ["registry.npmjs.org", "github.com"],
+        networkAccess: "full",
         writableRoots: ["/Users/dev/code/ai-sidekicks"],
       },
     },
