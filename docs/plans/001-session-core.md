@@ -89,16 +89,16 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 - `turbo.json` — `build`, `test`, `lint`, `typecheck`, and `dev` task pipelines at scaffold time; later tasks (`test:coverage`, for one) are added by the work that owns them
 - `tsconfig.base.json` — strict + `isolatedDeclarations: true` + ESM-only; per-package `tsconfig.json` extends base
 - `.npmrc` — `node-linker=isolated` (required by [ADR-021](../decisions/021-v1-toolchain-selection.md) two-ABI native binding constraint)
-- `.nvmrc` — pins Node 24.16, the floor the daemon and the command line run on because the memory gate reads `process.availableMemory()`, per [ADR-021](../decisions/021-v1-toolchain-selection.md)
+- `.nvmrc` — pins Node 24.21, the one Node line the daemon, the command line and the Electron app share, per [ADR-021](../decisions/021-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
 **Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.16 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config (its type set leaves out `style`), Renovate config (`renovate.json5`), `CODEOWNERS`, Gitleaks 8.30.1 workflow, and code-signing custody artifacts (the self-signed macOS identity, then Apple Developer Individual, and SignPath Foundation for Windows) are owned by [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision).
 
 ### Per-Package Scaffolding
 
-Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the packages' floor `>=24.16.0` per [ADR-021](../decisions/021-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory.
+Every `packages/*` and `apps/*` member receives a `package.json` (with `"type": "module"`, `engines.node` set to the packages' floor `>=24.21.0` per [ADR-021](../decisions/021-v1-toolchain-selection.md), and an `exports` map), a `tsconfig.json` extending base, and a `src/` directory.
 
-The daemon and the command line run on Node 24.16 or later, because the memory gate that decides when a step starts reads `process.availableMemory()`; every package shares that one floor, and the desktop app runs the Node its Electron pin bundles.
+The daemon and the command line run on Node 24.21 or later: the memory gate that decides when a step starts reads `process.availableMemory()`, which needs 24.16 or later, and 24.21 is the Node Electron 44 bundles; every package shares that one floor, and the desktop app runs the Node its Electron pin bundles.
 
 Vitest test-file discovery is owned by each package's own standalone `vitest.config.ts` — a plain `defineConfig` with no workspace-level config above it and no single project-wide test path. The root `vitest.shared.ts` holds only the coverage options and test limits every config calls, a factory rather than one root config with `projects`, because Vitest 4 reads `coverage` only at the root once projects exist. The suites aggregate through Turbo's `test` task (`turbo run test`), which runs each package's own `test` script. Every package under `packages/` with tests (all but `packages/search-ranking/`, which has none) discovers `src/**/__tests__/**/*.test.ts`, and `packages/client-sdk/` adds `test/**/*.test.ts` for its integration tests. `apps/desktop/` declares Vitest `projects` in its config: `smoke` (Node, `tests/*.test.ts`, the Electron-spawning probes), `main-unit` (Node, the units of the main process, the preload, the shared code, the build and script trees and the test helpers), and the renderer tiers declared in `vitest/tier-projects.ts` — `renderer` (happy-dom, `src/renderer/src/**/*.test.{ts,tsx}`), then `browser`, `screenshot`, `accessibility`, `bundle`, `e2e`, `endurance` and `bench`, each over its own folder under `tests/`; its `test` script runs them tier by tier through Turbo.
 
@@ -208,7 +208,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ##### T1.1 — Workspace root scaffolding
 
-**Files:** `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.npmrc`, `.nvmrc` **Reference:** [§Repo Layout And Bootstrap →§Root Scaffolding](#root-scaffolding); [ADR-021](../decisions/021-v1-toolchain-selection.md) **Acceptance:** `pnpm install` succeeds; `pnpm-workspace.yaml` declares `packages/*` and `apps/*`; `tsconfig.base.json` has `"strict": true` + `"isolatedDeclarations": true` + ESM-only; `.npmrc` has `node-linker=isolated`; `.nvmrc` pins Node 24.16. **Spec coverage:** none (workspace-root bootstrap) **Verifies invariant:** none (workspace bootstrap)
+**Files:** `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.npmrc`, `.nvmrc` **Reference:** [§Repo Layout And Bootstrap →§Root Scaffolding](#root-scaffolding); [ADR-021](../decisions/021-v1-toolchain-selection.md) **Acceptance:** `pnpm install` succeeds; `pnpm-workspace.yaml` declares `packages/*` and `apps/*`; `tsconfig.base.json` has `"strict": true` + `"isolatedDeclarations": true` + ESM-only; `.npmrc` has `node-linker=isolated`; `.nvmrc` pins Node 24.21. **Spec coverage:** none (workspace-root bootstrap) **Verifies invariant:** none (workspace bootstrap)
 
 ##### T1.2 — Per-package skeletons (`apps/desktop/` ships placeholder; Plan-020's partial delivery repositions)
 

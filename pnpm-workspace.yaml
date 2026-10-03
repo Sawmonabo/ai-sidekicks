@@ -69,13 +69,6 @@ allowBuilds:
   #   own. Required on every dev and CI platform that builds or runs the desktop shell; without the
   #   binary `electron-vite` and `electron .` cannot launch.
   electron: true
-  # - node-mac-permissions: no prebuilt binary ships, so its install is the implicit
-  #   `node-gyp rebuild` of its `binding.gyp`, compiling one Objective-C++ file against the macOS
-  #   frameworks it reads permission state from. It is a Node-API addon, so the one build loads in
-  #   Electron's main process as well as in Node. Approve: required, or it cannot load. It declares
-  #   `os: darwin` and is an optional dependency, so Linux and Windows installs skip it and build
-  #   nothing.
-  node-mac-permissions: true
   # The endurance tier's heap-snapshot reader
   # (`apps/desktop/tests/endurance/heap-snapshot-analysis.ts`) calls memlab's `getHeapFromFile` on a
   # `.heapsnapshot` this repo captures itself over Electron's own CDP session. Denied, all four,

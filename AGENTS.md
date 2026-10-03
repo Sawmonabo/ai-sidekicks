@@ -12,7 +12,7 @@ Features: [README.md](README.md). What is left to build and in what order: [`doc
 
 ## Commands
 
-pnpm 10.33.2, Node ≥ 24.16. Never `npm` (the workspace uses pnpm's `catalog:` protocol, which npm cannot read).
+pnpm 10.33.2, Node ≥ 24.21. Never `npm` (the workspace uses pnpm's `catalog:` protocol, which npm cannot read).
 
 - `pnpm install` (also installs the git hooks)
 - `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm format`

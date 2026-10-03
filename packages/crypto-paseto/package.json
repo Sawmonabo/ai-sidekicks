@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "description": "PASETO v4.public + v4.local primitives for AI Sidekicks (substrate for auth).",
   "engines": {
-    "node": ">=24.16.0"
+    "node": ">=24.21.0"
   },
   "exports": {
     ".": {

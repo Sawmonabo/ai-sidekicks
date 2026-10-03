@@ -164,6 +164,9 @@ importers:
       micromark-extension-gfm:
         specifier: 3.0.0
         version: 3.0.0
+      notify-status:
+        specifier: 1.1.1
+        version: 1.1.1
       overlayscrollbars:
         specifier: 2.16.0
         version: 2.16.0
@@ -276,10 +279,6 @@ importers:
       vitest:
         specifier: catalog:testing
         version: 4.1.11(@types/node@26.6.3)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(happy-dom@20.11.15)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))
-    optionalDependencies:
-      node-mac-permissions:
-        specifier: 2.5.0
-        version: 2.5.0
 
   packages/client-sdk:
     dependencies:
@@ -3344,9 +3343,6 @@ packages:
   bind-event-listener@3.0.0:
     resolution: {integrity: sha512-PJvH288AWQhKs2v9zyfYdPzlPqf5bXbGMmhmUIY9x4dAUGIWgomO771oBQNwJnMQSnUIXhKu6sgzpBRXTlvb8Q==}
 
-  bindings@1.5.0:
-    resolution: {integrity: sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==}
-
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
@@ -4201,9 +4197,6 @@ packages:
 
   file-entry-cache@11.1.5:
     resolution: {integrity: sha512-+PFTHITI08JIGhnNpGNI8T8inUpgZfk3GNEqfT9R2zZV2iFXg3CvqzSl/uEhs7TSGujYRELEANyDvS8Fj7+S7Q==}
-
-  file-uri-to-path@1.0.0:
-    resolution: {integrity: sha512-0Zt+s3L7Vf1biwWZ29aARiVYLx7iMGnEUl9x33fbB/j3jR81u/O2LbqK+Bm1CDSNDKVtJ/YjwY7TUd5SkeLQLw==}
 
   fill-range@7.1.1:
     resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
@@ -5238,10 +5231,6 @@ packages:
     resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
     engines: {node: '>= 6.13.0'}
 
-  node-mac-permissions@2.5.0:
-    resolution: {integrity: sha512-zR8SVCaN3WqV1xwWd04XVAdzm3UTdjbxciLrZtB0Cc7F2Kd34AJfhPD4hm1HU0YH3oGUZO4X9OBLY5ijSTHsGw==}
-    os: [darwin]
-
   node-pty@1.2.0-beta.15:
     resolution: {integrity: sha512-vORSzHXi4Ofl7HemVWpuudLqCPdaQb4LfpRCUpE5HPxhp4JYscl8zZwxh11p26v2wvW24WMwnMfLjhRLixrfxA==}
 
@@ -5252,6 +5241,34 @@ packages:
   nodemailer@10.0.13:
     resolution: {integrity: sha512-SzG86OlvcW/NNhUFC6uROMwRTL4n7MswfQqC/T8mhkmnY1YVa23zUEMYi4ijSeXSl9GLz9ZeTJDUatEDuY5FeQ==}
     engines: {node: '>=20.0.0'}
+
+  notify-status-darwin-arm64@1.1.1:
+    resolution: {integrity: sha512-2pqee1/iqG/dSh8dDMJK50ZUC1vFGybv36z3ustStVIQ2FH+wtmiIIsU+JAHniUeqDXelfkzR6I0UAfUvlg56w==}
+    engines: {node: '>=24.21.0'}
+    cpu: [arm64]
+    os: [darwin]
+
+  notify-status-darwin-x64@1.1.1:
+    resolution: {integrity: sha512-mdiKKHCO+5S9flUR75VJB56xjNBD55+VmZLuMHIYApgtBpDvCOEc6bC3Fp5Fm64m8c0jAuUcQJYUcu6YEq/ARQ==}
+    engines: {node: '>=24.21.0'}
+    cpu: [x64]
+    os: [darwin]
+
+  notify-status-win32-arm64-msvc@1.1.1:
+    resolution: {integrity: sha512-1BCA3inGSSeUsTagBBbt7NHfy1wT2MQoVe7IOS1hAmqQzeuGUD5Ir+N3H/6te9I4c4rjdgLKECeyuHxgtpRXPA==}
+    engines: {node: '>=24.21.0'}
+    cpu: [arm64]
+    os: [win32]
+
+  notify-status-win32-x64-msvc@1.1.1:
+    resolution: {integrity: sha512-wtcg8+KvJus673NwvwIzNJV9+IxMW1sIltPTsRpgGoaxoZp8Lgrh2BGBEDXJLoVxXcl1WaCGFM+b/P9FjfcqFg==}
+    engines: {node: '>=24.21.0'}
+    cpu: [x64]
+    os: [win32]
+
+  notify-status@1.1.1:
+    resolution: {integrity: sha512-mfg3dr6T7PDNzE4q6HttoJNCtJ9GCBFlBdIP6WPJgHbPaG+w1jmTF0hqlh8sNrkwfQE3WJrw7qVEyAZamFqZhg==}
+    engines: {node: '>=24.21.0'}
 
   npm-run-path@6.0.0:
     resolution: {integrity: sha512-9qny7Z9DsQU8Ou39ERsPU4OZQlSTP47ShQzuKZ6PRXpYLtIFgl/DEBYEXKlvcEa+9tHVcK8CF81Y2V72qaZhWA==}
@@ -9065,9 +9082,9 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.11(@types/node@26.6.3)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(happy-dom@20.11.15)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))
+      vitest: 4.1.11(@types/node@24.19.0)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(happy-dom@20.11.15)(vite@8.3.1(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))
     optionalDependencies:
-      '@vitest/browser': 4.1.11(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))(vitest@4.1.11)
+      '@vitest/browser': 4.1.11(vite@8.3.1(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))(vitest@4.1.11)
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -9338,11 +9355,6 @@ snapshots:
   bignumber.js@9.3.1: {}
 
   bind-event-listener@3.0.0: {}
-
-  bindings@1.5.0:
-    dependencies:
-      file-uri-to-path: 1.0.0
-    optional: true
 
   blake3-wasm@2.1.5: {}
 
@@ -10378,9 +10390,6 @@ snapshots:
   file-entry-cache@11.1.5:
     dependencies:
       flat-cache: 6.1.23
-
-  file-uri-to-path@1.0.0:
-    optional: true
 
   fill-range@7.1.1:
     dependencies:
@@ -11638,12 +11647,6 @@ snapshots:
 
   node-forge@1.4.0: {}
 
-  node-mac-permissions@2.5.0:
-    dependencies:
-      bindings: 1.5.0
-      node-addon-api: 7.1.1
-    optional: true
-
   node-pty@1.2.0-beta.15:
     dependencies:
       node-addon-api: 7.1.1
@@ -11651,6 +11654,25 @@ snapshots:
   node-releases@2.0.57: {}
 
   nodemailer@10.0.13: {}
+
+  notify-status-darwin-arm64@1.1.1:
+    optional: true
+
+  notify-status-darwin-x64@1.1.1:
+    optional: true
+
+  notify-status-win32-arm64-msvc@1.1.1:
+    optional: true
+
+  notify-status-win32-x64-msvc@1.1.1:
+    optional: true
+
+  notify-status@1.1.1:
+    optionalDependencies:
+      notify-status-darwin-arm64: 1.1.1
+      notify-status-darwin-x64: 1.1.1
+      notify-status-win32-arm64-msvc: 1.1.1
+      notify-status-win32-x64-msvc: 1.1.1
 
   npm-run-path@6.0.0:
     dependencies:

@@ -19,7 +19,7 @@ if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-
     # Fail closed: without the lock the commit would share lefthook's backup with other worktrees,
     # and the hooks need node anyway.
     echo "lefthook: node is required to serialize the pre-commit unstaged-changes backup." >&2
-    echo "lefthook: install Node >= 24.16.0 (see .nvmrc), or set LEFTHOOK=0 to skip hooks." >&2
+    echo "lefthook: install Node >= 24.21.0 (see .nvmrc), or set LEFTHOOK=0 to skip hooks." >&2
     exit 1
   fi
 

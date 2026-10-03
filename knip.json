@@ -122,6 +122,8 @@
         "electron-updater",
         // A diagram block in a reply drawn as a picture.
         "mermaid",
+        // The operating system's notification permission, read for the Notifications settings.
+        "notify-status",
         // The overlay scrollbar on every scroller but the conversation.
         "overlayscrollbars",
         "overlayscrollbars-react",

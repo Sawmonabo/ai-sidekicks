@@ -7,7 +7,7 @@
   "description": "The control plane's gated Cloudflare Worker and its Postgres schema runner.",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=24.16.0"
+    "node": ">=24.21.0"
   },
   "exports": {
     ".": {

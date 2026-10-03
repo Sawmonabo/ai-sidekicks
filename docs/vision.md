@@ -385,7 +385,7 @@ Diff attribution must be per run, with an explicit fallback path only when provi
 
 ## Suggested Greenfield Stack
 
-- Daemon: Node 24.16+, TypeScript
+- Daemon: Node 24.21+, TypeScript
 - Renderer: React, Vite
 - Desktop app: Electron
 - Local DB: SQLite
