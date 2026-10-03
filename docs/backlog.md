@@ -76,3 +76,63 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: The Android app's push goes through FCM, sent from a Firebase project in the person's own Google account; the relay adds that project's credentials to a push the machine has already sealed. Push to the Android app waits on it. Everything else in the Android app builds and installs without it, and every other Remote Control unit builds without it.
 - Named gate: a Firebase project in the person's Google account.
 - Exit Criteria: (a) the Firebase project exists in the person's Google account; (b) its FCM credentials held by the person's relay; (c) a push delivered through FCM to the Android app.
+
+## BL-160: signalsmith-stretch reading a request added in pieces
+
+- Status: `blocked` (external-world wait — a `signalsmith-stretch` release carrying [Signalsmith-Audio/signalsmith-stretch#30](https://github.com/Signalsmith-Audio/signalsmith-stretch/pull/30))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Spec-021 §Console Libraries](./specs/021-desktop-app-and-renderer.md#console-libraries) (the Voice call playback row), [Signalsmith-Audio/signalsmith-stretch#30](https://github.com/Signalsmith-Audio/signalsmith-stretch/pull/30) (the fix), [Signalsmith-Audio/signalsmith-stretch#22](https://github.com/Signalsmith-Audio/signalsmith-stretch/issues/22) (the issue it fixes)
+- Summary: A Codex hold's request plays into a voice call through `signalsmith-stretch` 1.3.2 in the window, streamed in a second at a time with `addBuffers`. In 1.3.2 the package's read loop loses its place at the first joint between pieces (upstream issue #22). The fix is posted upstream as pull request #30 and no release carries it, so the desktop carries it as a `pnpm patch` to the read loop, held in `patches/` and named in `patchedDependencies` in `pnpm-workspace.yaml`.
+- Named gate: a `signalsmith-stretch` release that carries the fix. Nothing in-tree blocks.
+- Exit Criteria: (a) the desktop on that release; (b) the patch and its `patchedDependencies` entry deleted; (c) until then, each newest-release pass checks the pull request's state with `gh pr view 30 -R Signalsmith-Audio/signalsmith-stretch`.
+
+## BL-161: Bun building a package that sets `"gypfile": false`
+
+- Status: `blocked` (external-world wait — a Bun release fixing [oven-sh/bun#43903](https://github.com/oven-sh/bun/issues/43903))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Spec-015 §Node-Kind Taxonomy](./specs/015-workflow-authoring-and-execution.md#node-kind-taxonomy) (a run installs from the lock and never resolves again), [oven-sh/bun#43903](https://github.com/oven-sh/bun/issues/43903)
+- Summary: A workflow's code step installs its packages with `bun install --frozen-lockfile` in that version's code folder. Bun runs the `node-gyp` build even for a package that sets `"gypfile": false`, such as `better-sqlite3`, and that build fetches the Node headers. So the install runs with `npm_config_devdir` and `TMPDIR` pointed into the daemon's folder, and the headers land under the daemon's cache rather than the person's own.
+- Named gate: a Bun release that carries the fix. Nothing in-tree blocks.
+- Exit Criteria: (a) the daemon's `bun` on that release; (b) `npm_config_devdir` and `TMPDIR` kept on the install only if the cache placement still needs them; (c) until then, each newest-release pass checks the issue's state with `gh issue view 43903 -R oven-sh/bun`.
+
+## BL-162: Codex sending no command item for a command its sandbox refuses early
+
+- Status: `blocked` (external-world wait — a Codex release fixing [openai/codex#47433](https://github.com/openai/codex/issues/47433))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Spec-004 §Per-Driver Capability Matrix](./specs/004-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix) (Codex's hooks and their trust), [Codex wire reference §Hooks passed at the service's start, and their trust](./reference/provider-wire/codex.md#hooks-passed-at-the-services-start-and-their-trust), [openai/codex#47433](https://github.com/openai/codex/issues/47433)
+- Summary: When Codex's sandbox refuses a command on its early exit path, Codex sends no `commandExecution` item for it, while the model still gets the refusal with exit code 1: a sandbox-refused `touch .git/config` run twice in one thread with approvals never has no item the second time. The pre-tool and post-tool hooks still fire for that call, since a refused command still counts as a success. So a command Codex refused before sending its command item gets its row from the daemon's hook pair: a command a hook reports with no item by the end of its turn is one the sandbox refused before sending its item, and its row carries no exit code, since the post payload carries none.
+- Named gate: a Codex release that sends the command item on the early refusal path. Nothing in-tree blocks.
+- Exit Criteria: (a) a refused command's row drawn from Codex's own item; (b) the hook-drawn row path deleted, the hooks keeping their other work (reporting a command and holding a call while the session is paused); (c) until then, each newest-release pass checks the issue's state with `gh issue view 47433 -R openai/codex`.
+
+## BL-163: The compaction point no provider request reports
+
+- Status: `blocked` (external-world wait — a Claude Code release answering [anthropics/claude-code#97568](https://github.com/anthropics/claude-code/issues/97568), and a Codex release answering [openai/codex#48616](https://github.com/openai/codex/issues/48616))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Spec-011 §Context Window and Usage Meters](./specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters), [Claude wire reference §What the daemon sends to a process it starts, and what it reads back](./reference/provider-wire/claude.md#what-the-daemon-sends-to-a-process-it-starts-and-what-it-reads-back), [Codex wire reference §Conversation settings a client sets per conversation](./reference/provider-wire/codex.md#conversation-settings-a-client-sets-per-conversation), [Plan-010 §Phase 3 — Child-Run Expansion And Reasoning Surfaces](./plans/010-live-timeline-visibility-and-reasoning-surfaces.md#phase-3--child-run-expansion-and-reasoning-surfaces) (T3.8, T3.9), [anthropics/claude-code#97568](https://github.com/anthropics/claude-code/issues/97568), [openai/codex#48616](https://github.com/openai/codex/issues/48616)
+- Summary: Each provider's compaction point is set by its own knob, and for some bounds no request reports the point the bound resolves to, so the daemon calibrates it. On Claude Code the window key's point is read back from `get_context_usage`, but below 67,000 tokens only the percentage key reaches, and no request reports that key's point: the daemon computes it from the reply reserve and the constant, read with two `get_context_usage` reads in the short control-only process it runs at session creation, with `apply_flag_settings {env}` between them setting the window key and then a `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value, once per model. Request #97568 asks `get_context_usage` to report the percentage key's point. On Codex the resolved limit for `model_auto_compact_token_limit` appears only in the `post sampling token usage` trace line (`auto_compact_scope_limit`), about 330 KB of trace a turn: a short calibration service on a throwaway home, against a local stand-in endpoint that spends no tokens, reads it once per model and window the picker offers, stored by the Codex version, the model and the window, and run again when the installed Codex version or the model catalog changes. Request #48616 asks Codex to report the resolved limit in `thread/tokenUsage/updated` or `model/list`.
+- Named gate: a Claude Code release that reports the percentage key's point, and a Codex release that reports the resolved limit; each half closes on its own provider's release. Nothing in-tree blocks.
+- Exit Criteria: (a) on a Claude Code release that reports it, the two context reads that calibrate the percentage key's point deleted and the provider's figure read, the creation-time process keeping its other reads; (b) on a Codex release that reports it, the calibration service deleted and the provider's figure read; (c) until both close, each newest-release pass checks each issue's state with `gh issue view 97568 -R anthropics/claude-code` and `gh issue view 48616 -R openai/codex`.
+
+## BL-164: MCP Tasks on Codex
+
+- Status: `blocked` (external-world wait — a Codex release carrying MCP Tasks, [openai/codex#48617](https://github.com/openai/codex/issues/48617))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [ADR-038 §Context](./decisions/038-mcp-credential-custody.md#context), [ADR-038 §Option E](./decisions/038-mcp-credential-custody.md#option-e-wait-for-the-providers-filed-in-parallel-not-chosen-alone), [Spec-024 §Long tool calls and the fronted route](./specs/024-mcp-server-configuration-and-governance.md#long-tool-calls-and-the-fronted-route), [openai/codex#48617](https://github.com/openai/codex/issues/48617)
+- Summary: Codex has no MCP Tasks and cannot move a long call to the background. So the daemon fronts every tool server a Codex session reaches, on its own route, with its own MCP client holding the real connection: past 120 s the route answers Codex's pending call with a task handle, the call keeps running in the daemon's client, which makes it task-augmented wherever the tool allows one, and the result is delivered into the conversation when the call ends. A fronted server behind a sign-in is reached on the daemon's own sign-in. The request asks Codex to make a task-augmented call when a tool allows one, poll `tasks/get` and keep the task across a thread resume.
+- Named gate: a Codex release that makes task-augmented calls itself. Nothing in-tree blocks.
+- Exit Criteria: (a) a Codex session's task-augmented calls handed to Codex; (b) the daemon's fronting narrowed, the single sign-in for both providers keeping its own value; (c) until then, each newest-release pass checks the issue's state with `gh issue view 48617 -R openai/codex`.
+
+## BL-165: MCP prompts on Codex
+
+- Status: `blocked` (external-world wait — a Codex release with prompt calls on its app-server, [openai/codex#5059](https://github.com/openai/codex/issues/5059))
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [ADR-038 §Context](./decisions/038-mcp-credential-custody.md#context), [ADR-038 §Option E](./decisions/038-mcp-credential-custody.md#option-e-wait-for-the-providers-filed-in-parallel-not-chosen-alone), [openai/codex#5059](https://github.com/openai/codex/issues/5059) (the project's comment proposes the calls)
+- Summary: Codex never asks a server for its prompts: its app-server has no prompt verb, and its MCP client methods are `mcpServerStatus/list`, `mcpServer/oauth/login`, `config/mcpServer/reload`, `mcpServer/resource/read`, `mcpServer/tool/call` and an event stream that serves only hosted apps. So on a Codex session the daemon lists and reads a server's prompts through its own MCP client, which needs a credential for a server behind a sign-in. The comment on #5059 asks for `mcpServer/prompt/list` and `mcpServer/prompt/get` beside `mcpServer/resource/read`, on the connection Codex already holds.
+- Named gate: a Codex release with prompt calls on its app-server. Nothing in-tree blocks.
+- Exit Criteria: (a) a Codex session's prompts listed and read through Codex's own prompt calls, in place of the daemon's own MCP client; (b) until then, each newest-release pass checks the issue's state with `gh issue view 5059 -R openai/codex`.
