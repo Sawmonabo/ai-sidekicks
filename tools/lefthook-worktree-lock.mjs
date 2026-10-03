@@ -2,7 +2,7 @@
 // Repository-wide mutex around lefthook's pre-commit run, so two linked worktrees never sit
 // inside its unstaged-changes backup at once. `tools/lefthook-rc.sh` takes it for `pre-commit`.
 //
-// lefthook 2.1.15 hides the unstaged hunks of partially staged files during `pre-commit` and keeps
+// lefthook hides the unstaged hunks of partially staged files during `pre-commit` and keeps
 // the backup where every linked worktree shares it: `info/lefthook-unstaged.patch` in the common
 // git dir (git resolves `info` there, not in the worktree's own dir) and the single `refs/stash`,
 // whose cleanup drops every stash entry matching its message. Two overlapping runs apply one

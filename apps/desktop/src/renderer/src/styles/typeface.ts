@@ -21,71 +21,16 @@
 //     fallback faces.
 //   - The Pi split is not shipped, so the arrows `lib/chord-format.ts` draws fall to the host face:
 //     declaring it would pass the font budget.
+//   - No `unicode-range`: the browser falls back one character at a time by each file's own glyph
+//     table, so a codepoint outside the Latin-1 split takes the next face in the stack.
 //
 // The `font-family` descriptor is the name the token stack asks for, not the name inside the
-// file. A family's two Latin-1 splits publish the same `unicode-range`; recopy the ranges on any
-// version bump.
+// file.
 
 import monoItalicLatin1Url from "@ibm/plex-mono-variable/fonts/split/woff2/IBM Plex Mono Var-Italic-Latin1.woff2?url";
 import monoRomanLatin1Url from "@ibm/plex-mono-variable/fonts/split/woff2/IBM Plex Mono Var-Roman-Latin1.woff2?url";
 import sansItalicLatin1Url from "@ibm/plex-sans-variable/fonts/split/woff2/IBM Plex Sans Var-Italic-Latin1.woff2?url";
 import sansRomanLatin1Url from "@ibm/plex-sans-variable/fonts/split/woff2/IBM Plex Sans Var-Roman-Latin1.woff2?url";
-
-/**
- * The Latin-1 coverage of the sans splits, verbatim from that package's stylesheets. Copied
- * rather than derived: it is the publisher's description of the codepoints the files contain.
- * One constant serves both styles because the package publishes one range for both.
- */
-const SANS_LATIN1_UNICODE_RANGE = [
-  "U+0000",
-  "U+000D",
-  "U+0020-007E",
-  "U+00A0-00FF",
-  "U+0131",
-  "U+0152-0153",
-  "U+02C6",
-  "U+02DA",
-  "U+02DC",
-  "U+2013-2014",
-  "U+2018-201A",
-  "U+201C-201E",
-  "U+2020-2022",
-  "U+2026",
-  "U+2030",
-  "U+2039-203A",
-  "U+2044",
-  "U+20AC",
-  "U+2122",
-  "U+2212",
-  "U+FB01-FB02",
-].join(", ");
-
-/**
- * The Latin-1 coverage of the mono splits, verbatim from that package's stylesheets: the sans
- * range minus `U+0000` and `U+000D`. Written out rather than sliced from its sibling, because
- * that relationship is a coincidence of these versions and not a rule either package states.
- */
-const MONO_LATIN1_UNICODE_RANGE = [
-  "U+0020-007E",
-  "U+00A0-00FF",
-  "U+0131",
-  "U+0152-0153",
-  "U+02C6",
-  "U+02DA",
-  "U+02DC",
-  "U+2013-2014",
-  "U+2018-201A",
-  "U+201C-201E",
-  "U+2020-2022",
-  "U+2026",
-  "U+2030",
-  "U+2039-203A",
-  "U+2044",
-  "U+20AC",
-  "U+2122",
-  "U+2212",
-  "U+FB01-FB02",
-].join(", ");
 
 /** The `font-style` a face is selected for; the two the foundry cuts and no third. */
 type TypefaceStyle = "normal" | "italic";
@@ -100,8 +45,6 @@ interface TypefaceFace {
   readonly weightRange: string;
   /** The file's own `wdth` range, or `null` where the file carries no width axis. */
   readonly stretchRange: string | null;
-  /** The codepoints this split contains, as the publisher describes them. */
-  readonly unicodeRange: string;
   /** The emitted asset URL, resolved by the bundler from the package path. */
   readonly url: string;
 }
@@ -116,7 +59,6 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     style: "normal",
     weightRange: "100 700",
     stretchRange: "85% 100%",
-    unicodeRange: SANS_LATIN1_UNICODE_RANGE,
     url: sansRomanLatin1Url,
   },
   {
@@ -124,7 +66,6 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     style: "italic",
     weightRange: "100 700",
     stretchRange: "85% 100%",
-    unicodeRange: SANS_LATIN1_UNICODE_RANGE,
     url: sansItalicLatin1Url,
   },
   {
@@ -132,7 +73,6 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     style: "normal",
     weightRange: "100 700",
     stretchRange: null,
-    unicodeRange: MONO_LATIN1_UNICODE_RANGE,
     url: monoRomanLatin1Url,
   },
   {
@@ -140,7 +80,6 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
     style: "italic",
     weightRange: "100 700",
     stretchRange: null,
-    unicodeRange: MONO_LATIN1_UNICODE_RANGE,
     url: monoItalicLatin1Url,
   },
 ];
@@ -156,7 +95,6 @@ export function generateTypefaceCss(): string {
       ...(face.stretchRange === null ? [] : [`  font-stretch: ${face.stretchRange};`]),
       "  font-display: block;",
       `  src: url("${face.url}") format("woff2");`,
-      `  unicode-range: ${face.unicodeRange};`,
       "}",
     ].join("\n"),
   ).join("\n\n");

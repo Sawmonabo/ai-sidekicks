@@ -67,7 +67,7 @@ Plan-001 owns the daemon-side session lifecycle and the `PtyHost.spawn` entry-po
 
 ## Preconditions
 
-- **Phase 1 CI surface**: [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.16 pre-commit framework, commitlint 21.2.3, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 release skeleton, code-signing custody artifacts) is governed by that ADR.
+- **Phase 1 CI surface**: [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.16 pre-commit framework, commitlint 21.2.3, Renovate dependency-update config, Gitleaks 8.30.1 secret scanner, release-please-action@v5 release skeleton, code-signing custody artifacts) is governed by that ADR.
 
 Target paths below assume the implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -92,7 +92,7 @@ Workspace topology is described in [Container Architecture](../architecture/cont
 - `.nvmrc` — pins Node 24.16, the floor the daemon and the command line run on because the memory gate reads `process.availableMemory()`, per [ADR-021](../decisions/021-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
-**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.16 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config (its type set leaves out `style`), Renovate config (`renovate.json5`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (the self-signed macOS identity, then Apple Developer Individual, and SignPath Foundation for Windows) are owned by [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision).
+**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.16 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config (its type set leaves out `style`), Renovate config (`renovate.json5`), `CODEOWNERS`, Gitleaks 8.30.1 workflow, and code-signing custody artifacts (the self-signed macOS identity, then Apple Developer Individual, and SignPath Foundation for Windows) are owned by [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision).
 
 ### Per-Package Scaffolding
 

@@ -33,8 +33,9 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
  * faces, self-hosted as variable builds: `typeface.ts` declares the `@font-face` rules over
  * `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`. Those packages are build-time-only
  * `devDependencies`, since the bundler resolves the `?url` imports and nothing resolves them at
- * runtime. The platform fallbacks stay because each face carries a `unicode-range`, so a
- * codepoint outside Latin-1 falls through to them instead of rendering a notdef box.
+ * runtime. The platform fallbacks stay because the faces hold only the Latin-1 split, so a
+ * codepoint outside it falls through to them, one character at a time, instead of rendering a
+ * notdef box.
  *
  * The stack names the family a rule asks for; which bytes answer is `typeface.ts`'s. The files
  * carry a continuous `wght 100–700` axis, so the 400, 500 and 600 the stylesheets ask for and the
