@@ -517,7 +517,7 @@ export interface TerminalProviderSession {
 
 /**
  * The provider sessions typed in a terminal, read off the same directory entries the agents'
- * `ListSessions` names. Empty while `Reach Codex sessions started in a terminal` is off.
+ * `session_list` names. Empty while `Reach Codex sessions started in a terminal` is off.
  */
 export interface SessionTerminalProviderSessionListResponse {
   sessions: TerminalProviderSession[];

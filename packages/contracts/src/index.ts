@@ -1754,14 +1754,14 @@ export type {
   SessionImportMethodDescriptors,
 } from "./provider-import.js";
 export {
-  ListSessionsArgumentsSchema,
-  SendToSessionArgumentsSchema,
+  SessionListArgumentsSchema,
+  SessionSendArgumentsSchema,
   TaskOutputArgumentsSchema,
   TaskStopArgumentsSchema,
 } from "./provider-tools.js";
 export type {
-  ListSessionsArguments,
-  SendToSessionArguments,
+  SessionListArguments,
+  SessionSendArguments,
   TaskOutputArguments,
   TaskStopArguments,
 } from "./provider-tools.js";

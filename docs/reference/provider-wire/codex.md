@@ -192,7 +192,7 @@ One further leg came from the same run: `turn/steer` sent while that tool call w
 
 **What is not established.** The connection negotiated `experimentalApi: true`, so this run does **not** show whether `dynamicTools` is accepted on a **default** connection at runtime. The generation points the other way: at `0.160.0` and `0.159.2` `dynamicTools` is absent from the default `ThreadStartParams` and present only under `--experimental`, the same field-level gating `turn/start` shows ([The experimental gate](#the-experimental-gate--a-runtime-filter-not-a-schema-filter), [`turn/start`](#turnstart--per-turn-overrides)), so a consumer that needs the default surface measures it there. Nothing was varied about how many namespaces or tools one thread may carry, and no refusal shape for a malformed spec was probed.
 
-**Why it matters.** It records a surface this project does not use for its own tools: the daemon's tools, `SendToSession` and `ListSessions` among them, reach both providers through the daemon's one MCP `url` entry per session, never through `dynamicTools` ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)).
+**Why it matters.** It records a surface this project does not use for its own tools: the daemon's tools, `session_send` and `session_list` among them, reach both providers through the daemon's one MCP `url` entry per session, never through `dynamicTools` ([Spec-014 §Sessions Talking To Each Other](../../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)).
 
 ### This provider publishes no turn cap
 

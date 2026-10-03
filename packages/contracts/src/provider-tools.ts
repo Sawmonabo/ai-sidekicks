@@ -12,29 +12,30 @@ import {
 } from "./session.js";
 
 /**
- * `SendToSession`: a message to another session. `to` is that session's name as `ListSessions`
+ * `session_send`: a message to another session. `to` is that session's name as `session_list`
  * prints it, never an address; `files` are paths the sending session can read, staged into the
  * receiving session as its own attachments.
  */
-export interface SendToSessionArguments {
+export interface SessionSendArguments {
   to: string;
   message: string;
   files?: string[] | undefined;
 }
-/** Parses {@link SendToSessionArguments}. */
-export const SendToSessionArgumentsSchema: z.ZodType<SendToSessionArguments> = z
+/** Parses {@link SessionSendArguments}. */
+export const SessionSendArgumentsSchema: z.ZodType<SessionSendArguments> = z
   .object({
-    to: wireFreeFormString(SESSION_NAME_MAX_LEN, "SendToSession.to"),
-    message: wireUncappedFreeFormString("SendToSession.message"),
-    files: z.array(wireFreeFormString(FILE_PATH_MAX_LEN, "SendToSession.files")).optional(),
+    to: wireFreeFormString(SESSION_NAME_MAX_LEN, "session_send.to"),
+    message: wireUncappedFreeFormString("session_send.message"),
+    files: z.array(wireFreeFormString(FILE_PATH_MAX_LEN, "session_send.files")).optional(),
   })
   .strict();
 
-/** `ListSessions` takes no arguments. */
-export type ListSessionsArguments = Record<string, never>;
-/** Parses {@link ListSessionsArguments}: an empty object. */
-export const ListSessionsArgumentsSchema: z.ZodType<ListSessionsArguments, ListSessionsArguments> =
-  z.object({}).strict();
+/** `session_list` takes no arguments. */
+export type SessionListArguments = Record<string, never>;
+/** Parses {@link SessionListArguments}: an empty object. */
+export const SessionListArgumentsSchema: z.ZodType<SessionListArguments, SessionListArguments> = z
+  .object({})
+  .strict();
 
 /**
  * `task_output`: the status of a tool call that moved to the background and, once it ends, its
