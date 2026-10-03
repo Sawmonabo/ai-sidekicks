@@ -36,12 +36,8 @@ allowBuilds:
   # Cloudflare Workers tooling (wrangler):
   # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.
   # - esbuild: Worker-bundle compiler invoked by wrangler. Approve: required.
-  # - sharp: Cloudflare Images binding emulation pulled in via miniflare. The control plane does not
-  #   use the Images binding, so its postinstall is denied to keep the build-script footprint
-  #   minimal. Flip to `true` if the control plane ever uses Images locally.
   workerd: true
   esbuild: true
-  sharp: false
   # Runtime-daemon PTY backend dependencies:
   # - node-pty: prebuild-install pulls a platform-specific .node binding for the in-process PTY
   #   backend. Required on every dev and CI platform (the daemon's local NodePtyHost cannot
@@ -52,12 +48,26 @@ allowBuilds:
   #   loads and builds it from source with CMake when no prebuilt package fits the platform.
   node-pty: true
   koffi: true
+  # The workflow Code node's full tier runs steps on Bun:
+  # - bun: the package's own `bin/bun.exe` is a placeholder until its postinstall replaces it with
+  #   the binary from the matching `@oven/bun-<platform>` optional package, about 60 MB on
+  #   darwin-arm64 and 62 to 86 MB per platform. When that package is missing the script runs
+  #   `npm install` for it, and failing that downloads its tarball from registry.npmjs.org.
+  #   Approve: required, or the daemon has no Bun to run a step with.
+  bun: true
   # apps/desktop Electron substrate:
   # - electron: the binary is downloaded by `apps/desktop/scripts/materialize-electron.ts`, the
   #   desktop package's `postinstall`, because Electron 42 and later ship no install script of their
   #   own. Required on every dev and CI platform that builds or runs the desktop shell; without the
   #   binary `electron-vite` and `electron .` cannot launch.
   electron: true
+  # - node-mac-permissions: no prebuilt binary ships, so its install is the implicit
+  #   `node-gyp rebuild` of its `binding.gyp`, compiling one Objective-C++ file against the macOS
+  #   frameworks it reads permission state from. It is a Node-API addon, so the one build loads in
+  #   Electron's main process as well as in Node. Approve: required, or it cannot load. It declares
+  #   `os: darwin` and is an optional dependency, so Linux and Windows installs skip it and build
+  #   nothing.
+  node-mac-permissions: true
   # The endurance tier's heap-snapshot reader
   # (`apps/desktop/tests/endurance/heap-snapshot-analysis.ts`) calls memlab's `getHeapFromFile` on a
   # `.heapsnapshot` this repo captures itself over Electron's own CDP session. Denied, all four,
@@ -119,4 +129,4 @@ catalogs:
     "@vitest/browser": 4.1.11
 
 patchedDependencies:
-  react-resizable-panels@4.14.1: patches/react-resizable-panels@4.14.1.patch
+  signalsmith-stretch@1.3.2: patches/signalsmith-stretch@1.3.2.patch

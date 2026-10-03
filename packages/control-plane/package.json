@@ -31,7 +31,10 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "@trpc/server": "^11.19.0",
-    "pg": "^8.23.1"
+    "apns2": "^12.2.0",
+    "google-auth-library": "^11.1.0",
+    "pg": "^8.23.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -40,6 +43,6 @@
     "eslint": "^10.11.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "catalog:testing",
-    "wrangler": "^4.145.0"
+    "wrangler": "^4.147.0"
   }
 }
