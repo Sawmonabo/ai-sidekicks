@@ -1,30 +1,17 @@
 #!/usr/bin/env node
-// Renderer initial-graph budgets.
+// Measures the renderer's initial import graph against `renderer-initial-bundle` and
+// `renderer-initial-fonts`. The graph comes from Vite's `.vite/manifest.json`
+// (`renderer.build.manifest: true` in electron.vite.config.ts): every entry chunk plus its
+// transitive static imports, stylesheets and assets. A `dynamicImports` edge is never crossed, so
+// lazy chunks stay out; the initial/lazy split is the bundler's and is not re-derived here.
 //
-// Walks the renderer's initial import graph, read from Vite's own
-// `.vite/manifest.json` (`renderer.build.manifest: true` in
-// electron.vite.config.ts): every entry chunk plus its transitive STATIC
-// imports, stylesheets, and assets. A `dynamicImports` edge is never crossed,
-// so lazy chunks stay out of the sum — which is what the budget excludes. The
-// initial/lazy split is the bundler's; this file never re-derives it.
+// One walk, two sums, because code and fonts are not commensurable:
+//   - code: scripts and stylesheets, gated gzipped, since the spec's figure is a gzip figure.
+//   - fonts: the self-hosted `woff2` faces `src/renderer/src/styles/typeface.ts` declares, gated
+//     raw. A `woff2` is already Brotli-compressed; gzipping one measured 28 B larger than the file.
 //
-// ONE WALK, TWO SUMS. The graph carries two classes of byte and they are not
-// commensurable, so one figure over both measures neither:
-//
-//   • CODE — the scripts and stylesheets the bundler emits. Gated GZIPPED
-//     against `renderer-initial-bundle`, because the spec's figure is a gzip
-//     figure and a script really is served compressed.
-//   • FONTS — the self-hosted `woff2` faces `frame/bindings/typeface.ts` declares. Gated
-//     RAW against `renderer-initial-fonts`. A `woff2` container is Brotli-
-//     compressed already: gzipping one measured 28 B LARGER than the file, so
-//     folding these into the compressed sum both overstated the total and stated
-//     it in a unit that describes nothing about how the bytes are served. They
-//     are bounded, and bounded in the unit that describes them.
-//
-// Both rows are ceilings on the same walk; the split is a change of unit and of
-// accounting, never an exclusion. An asset in neither class is REFUSED rather
-// than dropped, because a byte that falls out of both sums is the silent
-// under-count these gates exist to prevent.
+// An asset in neither class is refused rather than dropped, because a byte that falls out of both
+// sums is the silent under-count these gates exist to prevent.
 //
 //   node --experimental-strip-types scripts/budget/measure-bundle.mts
 // Exit: 0 within both budgets · 1 over either · 2 no build output / bad usage.
@@ -35,9 +22,10 @@ import process from "node:process";
 import console from "node:console";
 import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
-import { gzipSync, brotliCompressSync } from "node:zlib";
+import { gzipSync } from "node:zlib";
 
-import { DESKTOP_PACKAGE_ROOT, type ConsoleBudgetRegistry } from "./budget-registry.mts";
+import { errorText } from "./budget-document.mts";
+import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./budget-registry.mts";
 import {
   BudgetSubjectMissingError,
   formatBudgetReport,
@@ -50,7 +38,7 @@ import {
 /** The compressed-code ceiling for the renderer's initial graph. */
 export const RENDERER_BUNDLE_BUDGET_ID: string = "renderer-initial-bundle";
 
-/** The raw-font-byte ceiling, this harness's own row beside the spec's. */
+/** The raw-font-byte ceiling, a `harness` row beside the spec's code row. */
 export const RENDERER_FONTS_BUDGET_ID: string = "renderer-initial-fonts";
 
 /** `electron.vite.config.ts` → `renderer.build.outDir`. */
@@ -67,20 +55,14 @@ export const RENDERER_MANIFEST_RELATIVE_PATH: string = ".vite/manifest.json";
 const GZIP_LEVEL = 9;
 
 /**
- * What an initial-graph asset IS, and therefore which row bounds it.
- *
- * Closed on purpose, and read from the emitted file's extension because that is
- * what the bundler decided: a `.woff2` is a font whichever module imported it,
- * and a `.css` is code the document parses whichever family declared it.
+ * What an initial-graph asset is, and so which row bounds it. Read from the emitted file's
+ * extension, which is what the bundler decided: a `.woff2` is a font whichever module imported it.
  */
 export type RendererBundleAssetClass = "code" | "font";
 
 /**
- * The extension each class is emitted with.
- *
- * A closed map rather than a predicate with an `else`, so an emitted extension
- * nobody classified is a refusal instead of falling into whichever arm the `else`
- * happened to be. Every entry is a suffix the renderer build can actually emit.
+ * The extension each class is emitted with. A closed map, so an emitted extension nobody
+ * classified is refused rather than falling into whichever arm an `else` happened to be.
  */
 const ASSET_CLASS_BY_EXTENSION: ReadonlyMap<string, RendererBundleAssetClass> = new Map([
   [".js", "code"],
@@ -99,13 +81,13 @@ export function rendererBundleAssetClassOf(
   return ASSET_CLASS_BY_EXTENSION.get(path.extname(relativePath).toLowerCase());
 }
 
+/** One file of the initial graph, with its size raw and compressed. */
 export interface RendererBundleAsset {
   /** Relative to the output directory, POSIX separators. */
   readonly relativePath: string;
   readonly assetClass: RendererBundleAssetClass;
   readonly rawByteCount: number;
   readonly gzipByteCount: number;
-  readonly brotliByteCount: number;
 }
 
 /** One class's share of the walk. Each figure sums exactly the assets of that class. */
@@ -113,9 +95,9 @@ export interface RendererBundleClassTotals {
   readonly assetCount: number;
   readonly rawByteCount: number;
   readonly gzipByteCount: number;
-  readonly brotliByteCount: number;
 }
 
+/** One walk of the initial graph: every asset, and the totals of each class. */
 export interface RendererBundleMeasurement {
   readonly rendererOutputDirectory: string;
   readonly measuredAt: string;
@@ -157,6 +139,7 @@ function stringsIn(value: unknown): readonly string[] {
     : [];
 }
 
+/** Walks the renderer build's initial graph and sums its assets by class. */
 export class RendererBundleMeasurer {
   readonly #rendererOutputDirectory: string;
 
@@ -176,8 +159,11 @@ export class RendererBundleMeasurer {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(this.#resolve(RENDERER_MANIFEST_RELATIVE_PATH), "utf8"));
-    } catch {
-      this.#refuse(`no readable chunk manifest at ${RENDERER_MANIFEST_RELATIVE_PATH}`);
+    } catch (manifestError) {
+      this.#refuse(
+        `no readable chunk manifest at ${RENDERER_MANIFEST_RELATIVE_PATH} ` +
+          `(${errorText(manifestError)})`,
+      );
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       this.#refuse(`${RENDERER_MANIFEST_RELATIVE_PATH} is not a record of chunks`);
@@ -188,8 +174,8 @@ export class RendererBundleMeasurer {
   #measureAsset(relativePath: string): RendererBundleAsset {
     const assetClass = rendererBundleAssetClassOf(relativePath);
     if (assetClass === undefined) {
-      // An unclassified asset would sum into neither row, which is the same
-      // silent under-count as a file that is not there at all.
+      // An unclassified asset would sum into neither row, the same silent under-count as a missing
+      // file.
       this.#refuse(
         `the chunk manifest names ${relativePath}, whose extension belongs to no asset class ` +
           `(${[...ASSET_CLASS_BY_EXTENSION.keys()].join(", ")}) — classify it before it can be budgeted`,
@@ -198,21 +184,22 @@ export class RendererBundleMeasurer {
     let contents: Buffer;
     try {
       contents = readFileSync(this.#resolve(relativePath));
-    } catch {
-      // Counting a named-but-absent file as zero bytes is the silent under-count
-      // this gate exists to prevent, so it refuses instead.
-      this.#refuse(`the chunk manifest names ${relativePath}, which the output tree does not hold`);
+    } catch (readError) {
+      // Counting a named-but-unreadable file as zero bytes would be a silent under-count.
+      this.#refuse(
+        `the chunk manifest names ${relativePath}, which the output tree cannot give ` +
+          `(${errorText(readError)})`,
+      );
     }
     return {
       relativePath,
       assetClass,
       rawByteCount: contents.byteLength,
       gzipByteCount: gzipSync(contents, { level: GZIP_LEVEL }).byteLength,
-      brotliByteCount: brotliCompressSync(contents).byteLength,
     };
   }
 
-  /** The four figures of one class, summed over exactly the assets in it. */
+  /** The figures of one class, summed over exactly the assets in it. */
   #totalsFor(
     assets: readonly RendererBundleAsset[],
     assetClass: RendererBundleAssetClass,
@@ -224,7 +211,6 @@ export class RendererBundleMeasurer {
       assetCount: inClass.length,
       rawByteCount: sumOf((asset) => asset.rawByteCount),
       gzipByteCount: sumOf((asset) => asset.gzipByteCount),
-      brotliByteCount: sumOf((asset) => asset.brotliByteCount),
     };
   }
 
@@ -233,7 +219,7 @@ export class RendererBundleMeasurer {
     const records = this.#readManifest();
     const entryKeys = Object.keys(records).filter((key) => records[key]?.isEntry === true);
     if (entryKeys.length === 0) {
-      // An empty graph would measure zero bytes against a 450 kB ceiling.
+      // An empty graph would measure zero bytes and pass any ceiling.
       this.#refuse(`no record in ${RENDERER_MANIFEST_RELATIVE_PATH} is marked \`isEntry\``);
     }
 
@@ -252,8 +238,7 @@ export class RendererBundleMeasurer {
           initialFiles.add(emitted);
         }
       }
-      // `dynamicImports` is deliberately not followed — a chunk reached only
-      // across one is a lazy chunk, which is what the budget excludes.
+      // `dynamicImports` is not followed: a chunk reached only across one is lazy and excluded.
       pendingKeys.push(...stringsIn(record.imports));
     }
 
@@ -270,10 +255,7 @@ export class RendererBundleMeasurer {
 }
 
 function formatAssetSizes(asset: RendererBundleAsset): string {
-  return (
-    `raw ${formatBytes(asset.rawByteCount)}  ` +
-    `gzip ${formatBytes(asset.gzipByteCount)}  brotli ${formatBytes(asset.brotliByteCount)}`
-  );
+  return `raw ${formatBytes(asset.rawByteCount)}  gzip ${formatBytes(asset.gzipByteCount)}`;
 }
 
 /** One class's block: its assets, then the two figures that class can be read in. */
@@ -288,15 +270,15 @@ function formatClassReadings(
     ...measurement.assets
       .filter((asset) => asset.assetClass === assetClass)
       .map((asset) => `  ${asset.relativePath}  ${formatAssetSizes(asset)}`),
-    `  TOTAL  raw ${formatBytes(totals.rawByteCount)}  ` +
-      `gzip ${formatBytes(totals.gzipByteCount)}  brotli ${formatBytes(totals.brotliByteCount)}`,
+    `  TOTAL  raw ${formatBytes(totals.rawByteCount)}  gzip ${formatBytes(totals.gzipByteCount)}`,
   ];
 }
 
+/** The report both gates print: each class's assets and totals, then the verdicts. */
 export function formatRendererBundleReport(
   measurement: RendererBundleMeasurement,
   gateReadings: readonly BudgetGateReading[],
-  registry: ConsoleBudgetRegistry,
+  registry: BudgetRegistry,
 ): string {
   return formatBudgetReport(
     {
@@ -310,8 +292,6 @@ export function formatRendererBundleReport(
         ...formatClassReadings("Code (gated gzipped)", measurement, "code", measurement.code),
         "",
         ...formatClassReadings("Fonts (gated raw)", measurement, "font", measurement.fonts),
-        "",
-        "Brotli is reported for every asset and gated for none.",
       ],
     },
     gateReadings,
@@ -320,12 +300,8 @@ export function formatRendererBundleReport(
 }
 
 /**
- * The two rows one walk of the initial graph answers, and the figure each takes.
- *
- * Exported so the bundle tier drives THESE gates rather than a copy of them: a
- * test that re-declared "the code row compares the gzip sum" would agree with
- * this file only while someone kept the two in step, and the gate the CLI runs
- * is the one that has to be right.
+ * The two rows one walk of the initial graph answers, and the figure each takes. Exported so the
+ * bundle tier drives these gates rather than a copy that could drift from what the CLI runs.
  */
 export const RENDERER_BUNDLE_GATES: readonly BudgetGate<RendererBundleMeasurement>[] = [
   {
@@ -343,12 +319,8 @@ export const RENDERER_BUNDLE_GATES: readonly BudgetGate<RendererBundleMeasuremen
 ];
 
 /**
- * CLI entry point; returns the process exit code. It takes no options: the one
- * knob a caller ever needed is the output directory, and that is the measurer's
- * constructor argument.
- *
- * Two gates over one walk — see the header for why the classes are measured in
- * different units and why neither figure is the other's substitute.
+ * CLI entry point; returns the process exit code. It takes no options: the output directory is the
+ * measurer's constructor argument.
  */
 export function runBundleBudgetCommand(argumentList: readonly string[]): Promise<number> {
   if (argumentList.length > 0) {
@@ -362,13 +334,11 @@ export function runBundleBudgetCommand(argumentList: readonly string[]): Promise
   });
 }
 
-// CLI only when this file is the entry point, so the Vitest project can import
-// it without side effects.
-// Compared through `realpathSync` on BOTH sides, never `import.meta.url ===
-// pathToFileURL(argv[1])`: Node resolves the module URL through symlinks while
-// argv[1] keeps the path as typed, so the naive form silently no-ops through a
-// symlinked or spaced checkout and exits 0 over an unrun budget gate
-// (`tools/__tests__/entry-guard.test.mjs` pins exactly this).
+// CLI only when this file is the entry point, so Vitest can import it without side effects. Both
+// sides go through `realpathSync`: Node resolves the module URL through symlinks while argv[1]
+// keeps the path as typed, so the naive comparison silently no-ops through a symlinked or spaced
+// checkout and exits 0 over an unrun gate. Node's own `import.meta.main` (from 24.2, below the
+// `.nvmrc` floor, still marked early development) answers the same question without a comparison.
 const invokedPath = process.argv[1];
 if (
   invokedPath !== undefined &&

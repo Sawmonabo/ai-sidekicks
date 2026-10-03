@@ -1,68 +1,26 @@
-// Deployed as a Cloudflare Worker via `@trpc/server/adapters/fetch`'s
-// `fetchRequestHandler` (resolution).
-//
-// Dual-gate enforcement runs at request entry:
-//   1. CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'  (kill-switch; default off)
-//   2. ENVIRONMENT === 'development'            (allow-list; only one passing value)
-// Both refusals return HTTP 503 immediately, before any router dispatch. Logging
-// the refusal reason is intentional — operator-facing diagnostic for misconfigured
-// dev instances.
-//
-// This module exposes TWO surfaces:
-//   - `buildControlPlaneFetchHandler(deps)` — the test-friendly factory. Accepts a
-//     directoryService (constructor injection #1). All Phase 1 tests drive this
-//     function.
-//   - `default { fetch }` — the deployable Worker module. Production wiring of
-//     SessionDirectoryService (Hyperdrive / D1 / WorkerPg adapter) is deferred,
-//     so the deployable surface throws on Querier use. The dual-gate
-//     intercepts before that throw is reachable in normal flows; the throw is
-//     defense-in-depth for any hypothetical gate bypass.
-//
+// The control plane's Worker entry, served through tRPC's fetch adapter.
+// Two gates run at request entry, before any router dispatch: CONTROL_PLANE_BOOTSTRAP_ENABLED must
+// be '1' and ENVIRONMENT must be 'development'. A refusal returns 503 and logs its reason, so a
+// misconfigured dev instance names the variable it lacks. The router mounts no procedures.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { EventLogAnchorStore } from "../event-anchors/anchor-store.js";
-import {
-  createEventAnchorRouter,
-  type EventAnchorRouterDeps,
-} from "../event-anchors/anchor-router.js";
-import { AttachService } from "../runtime-nodes/attach-service.js";
-import { HeartbeatService } from "../runtime-nodes/heartbeat-service.js";
-import {
-  createRuntimeNodeRouter,
-  type RuntimeNodeRouterDeps,
-} from "../runtime-nodes/runtime-node-router.factory.js";
-import type { Querier } from "../sessions/migration-runner.js";
-import { SessionDirectoryService } from "../sessions/session-directory-service.js";
-import { createSessionRouter } from "../sessions/session-router.factory.js";
-import type { SessionRouterDeps } from "../sessions/session-router.js";
-import { t, type SessionRouterContext } from "../sessions/trpc.js";
+import { t, type ControlPlaneContext } from "./trpc.js";
 import { checkDevEnvironment, type DevEnvironmentEnv } from "./dev-environment-gate.js";
 import { checkFeatureFlag, type FeatureFlagEnv } from "./feature-flag-gate.js";
-import { prefixSseRetry } from "./sse-retry-prefix.js";
 
+/** The Worker environment both gates read. */
 export type ControlPlaneEnv = FeatureFlagEnv & DevEnvironmentEnv;
 
-/**
- * Host deps — the union of the session router's `SessionRouterDeps`, the
- * runtime-node router's `RuntimeNodeRouterDeps`, and the event-anchor router's
- * `EventAnchorRouterDeps` (the host forwards to ALL THREE sibling routers).
- * Tests inject a pglite-backed directoryService + the two runtime-node services
- * (attach + heartbeat) + the anchor store + deterministic stubs for the
- * principal/ID/identity callbacks.
- */
-export type ControlPlaneDeps = SessionRouterDeps & RuntimeNodeRouterDeps & EventAnchorRouterDeps;
-
+/** Optional overrides for {@link buildControlPlaneFetchHandler}. */
 export interface ControlPlaneHandlerOptions {
   /** tRPC endpoint base path. Defaults to `/trpc`. */
   readonly endpoint?: string;
   /**
-   * Request-id generator — defaults to `crypto.randomUUID()`. Tests inject
-   * a deterministic generator to assert on request-correlation logging.
+   * Request-id generator; defaults to `crypto.randomUUID()`. Tests inject a deterministic one.
    */
   readonly requestIdGenerator?: () => string;
   /**
-   * Refusal logger — defaults to `console.warn`. Tests inject a capture sink
-   * to assert the refusal-logging contract.
+   * Refusal logger; defaults to `console.warn`. Tests inject a capturing sink.
    */
   readonly refusalLogger?: (message: string) => void;
 }
@@ -77,30 +35,19 @@ function refuseUnavailable(reason: string, log: (message: string) => void): Resp
   });
 }
 
+/**
+ * Builds the gated fetch handler: both gates run first and refuse with a 503,
+ * then the request dispatches into the tRPC router.
+ */
 export function buildControlPlaneFetchHandler(
-  deps: ControlPlaneDeps,
   options: ControlPlaneHandlerOptions = {},
 ): (request: Request, env: ControlPlaneEnv) => Promise<Response> {
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const generateRequestId = options.requestIdGenerator ?? (() => crypto.randomUUID());
   const log = options.refusalLogger ?? ((message: string) => console.warn(message));
 
-  // Build the router once at handler-construction time. Each procedure closes
-  // over its constructor-injected service #1 — the directory dependency (session
-  // procedures), the attach/heartbeat services (runtime-node procedures), and
-  // the anchor store (the event-anchor procedure). The three routers are MERGED
-  // as siblings: every factory returns an already-namespaced router (`session:`
-  // / `runtimenode:` / `eventanchor:`), so `t.mergeRouters` composes them flat
-  // (no re-nesting) and the merged router inherits the shared `trpc.ts` context
-  // + errorFormatter.
-  //
-  // The `eventanchor` mount is: owns this file, and registers its router here
-  // rather than standing up a second host.
-  const router = t.mergeRouters(
-    createSessionRouter(deps),
-    createRuntimeNodeRouter(deps),
-    createEventAnchorRouter(deps),
-  );
+  // Built once per handler, not per request.
+  const router = t.router({});
 
   return async function handle(request, env) {
     const flagResult = checkFeatureFlag(env);
@@ -109,97 +56,20 @@ export function buildControlPlaneFetchHandler(
     const envResult = checkDevEnvironment(env);
     if (!envResult.ok) return refuseUnavailable(envResult.reason, log);
 
-    const response = await fetchRequestHandler({
+    return fetchRequestHandler({
       endpoint,
       req: request,
       router,
-      createContext: (): SessionRouterContext => ({
+      createContext: (): ControlPlaneContext => ({
         requestId: generateRequestId(),
       }),
     });
-    return prefixSseRetry(response);
   };
 }
 
-// The service production wiring (Hyperdrive binding → Querier adapter) is
-// deferred. Today the deployable surface
-// composes through `buildControlPlaneFetchHandler` with placeholder services
-// — the directoryService (session procedures) AND the runtime-node
-// attach/heartbeat services, all constructed with the SAME throwing
-// `productionPlaceholderQuerier` so any reachable query throws — meaning:
-//   - Gate-fail requests (any production deploy without .dev.vars) → 503 (gate refusal).
-//   - Gate-pass requests (only `wrangler dev` with both .dev.vars keys) → 500
-//     from the procedure body's throw. This is acceptable for Phase 1's skeleton
-//     scope: wiring the real Querier makes the procedures stop throwing. The
-//     runtime-node procedures share this deferred behavior — a gate-pass
-//     request reaching `runtimenode.*` throws on Querier use identically
-//     to the session procedures.
-// Tests bypass this default export and call `buildControlPlaneFetchHandler`
-// directly with a pglite-backed `Querier` so they can exercise the happy path.
+const productionFetchHandler = buildControlPlaneFetchHandler();
 
-function deferredWiringError(symbol: string): Error {
-  return new Error(
-    `${symbol} wiring is deferred; this build is operator-development-only ` +
-      "behind the dual gate.",
-  );
-}
-
-// `SessionDirectoryService` is a class with a private `#querier` field, so
-// TypeScript treats it nominally — a structural-shape literal can't satisfy
-// the type without an `as unknown as` double-cast. Instead of casting (which
-// would silently mask any future surface drift on the class), construct the
-// real class with a throwing `Querier` adapter. Production wiring
-// replaces this adapter with a Hyperdrive-backed Pool; until then the gates
-// intercept any traffic before this querier is reached.
-const productionPlaceholderQuerier: Querier = {
-  query() {
-    throw deferredWiringError("Querier.query (Hyperdrive binding pending)");
-  },
-  exec() {
-    throw deferredWiringError("Querier.exec (Hyperdrive binding pending)");
-  },
-  transaction() {
-    throw deferredWiringError("Querier.transaction (Hyperdrive binding pending)");
-  },
-};
-
-const productionPlaceholderDirectoryService = new SessionDirectoryService(
-  productionPlaceholderQuerier,
-);
-
-// `AttachService` / `HeartbeatService` carry private `#querier` fields, so they
-// are nominal types a structural stub cannot satisfy without an `as unknown as`
-// double-cast (same rationale as `productionPlaceholderDirectoryService` above).
-// Construct the real classes with the throwing `productionPlaceholderQuerier`;
-// the gates intercept traffic before the querier is reached, and a gate-pass
-// request reaching a runtime-node procedure throws on Querier use (→ 500),
-// matching the session procedures until the real Querier is wired.
-const productionPlaceholderAttachService = new AttachService(productionPlaceholderQuerier);
-const productionPlaceholderHeartbeatService = new HeartbeatService(productionPlaceholderQuerier);
-
-// `EventLogAnchorStore` carries a private `#querier` field too, so the same
-// nominal-type reasoning applies: construct the real class with the throwing
-// querier rather than casting a structural stub. A gate-pass request reaching
-// `eventanchor.upload` throws on Querier use (→ 500), matching every sibling
-// procedure until the real Querier is wired.
-const productionPlaceholderAnchorStore = new EventLogAnchorStore(productionPlaceholderQuerier);
-
-const productionFetchHandler = buildControlPlaneFetchHandler({
-  directoryService: productionPlaceholderDirectoryService,
-  attachService: productionPlaceholderAttachService,
-  heartbeatService: productionPlaceholderHeartbeatService,
-  anchorStore: productionPlaceholderAnchorStore,
-  resolveCurrentUserId: () => {
-    throw deferredWiringError("resolveCurrentUserId (PASETO auth)");
-  },
-  generateSessionId: () => {
-    throw deferredWiringError("generateSessionId (UUID v7)");
-  },
-  eventStreamProvider: () => {
-    throw deferredWiringError("eventStreamProvider (event log)");
-  },
-});
-
+/** The deployable Worker module. */
 export default {
   async fetch(request: Request, env: ControlPlaneEnv): Promise<Response> {
     return productionFetchHandler(request, env);

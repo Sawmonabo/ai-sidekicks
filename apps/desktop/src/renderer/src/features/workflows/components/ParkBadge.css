@@ -1,0 +1,104 @@
+/*
+ * The park badge and the stack that arranges several of them, imported by `ParkBadge.tsx`. The
+ * stack rule travels with the badge because a stack is only ever a stack of these.
+ */
+
+/*
+ * A stack, not a grid: badges read top to bottom in phase order, and columns would set a park a
+ * person must act on beside one nothing waits for, implying they are peers.
+ */
+.meridian-workflow__parks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-park {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-park__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+/*
+ * The phase's authored name where there is one, and its wire identifier always. Baseline-aligned
+ * because the two are one reading of one phase.
+ */
+.meridian-park__phase {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The engine's sentence, verbatim. Prose, not mono: it is bounded at 8 KiB at its source, and a
+ * paragraph set in mono goes unread.
+ */
+.meridian-park__cause {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-park__schedule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/*
+ * The malformed instant a park armed. It wraps onto its own line because the sentence is the
+ * person's next move and this is the evidence.
+ */
+.meridian-park__unreadable {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+/*
+ * The route to this phase's own form. A control, not an adjudication: it opens the form beside
+ * these cards and asks the daemon nothing, so it carries the accent reserved for action.
+ */
+.meridian-park__form-action {
+  align-self: flex-start;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  background: var(--meridian-accent);
+  border: none;
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-accent-ink);
+  font-family: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-park__form-action:active {
+  background: var(--meridian-accent-pressed);
+}
+
+/*
+ * For a card with nothing to press (the form is open, or the run reported no handle): faint
+ * prose, not a disabled control, since there is nothing to do here rather than something blocked.
+ */
+.meridian-park__form-state {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

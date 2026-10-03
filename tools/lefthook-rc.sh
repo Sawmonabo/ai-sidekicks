@@ -1,37 +1,25 @@
 # shellcheck shell=sh
-# lefthook rc file — wired in by `lefthook.yml` (`rc: tools/lefthook-rc.sh`) and
-# sourced by lefthook's GENERATED git hooks via `[ -f <rc> ] && . <rc>`, which
-# `internal/templates/hook.tmpl` emits immediately before `call_lefthook`.
+# lefthook rc file (`rc: tools/lefthook-rc.sh` in `lefthook.yml`), sourced by every generated git
+# hook right before lefthook runs. lefthook's unstaged-changes backup opens before its first job
+# and closes after its last, so only code that runs on both sides of lefthook can wrap it.
 #
-# That placement is the whole point. lefthook's unstaged-changes backup opens
-# before its first job runs and closes after its last one, so nothing declared
-# inside `lefthook.yml` can wrap it — the rc file is the only repo-owned code
-# that runs on both sides of a lefthook invocation.
+# For `pre-commit` this takes a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) and
+# releases it from an EXIT trap, so two linked worktrees never sit inside that backup at once.
+# Other hooks are left alone: lefthook takes the backup only for a hook named `pre-commit`.
 #
-# For `pre-commit` this takes a repository-wide mutex (see
-# `tools/lefthook-worktree-lock.mjs` for the hazard it closes and the primary
-# sources) and releases it from an EXIT trap, so two linked worktrees never sit
-# inside that backup window at once. Every other hook is left alone: lefthook
-# only takes the backup for a hook named exactly `pre-commit`
-# (`internal/config/available_hooks.go`, `HookUsesStagedFiles`).
-#
-# `$0` is the hook path even inside a sourced file — POSIX `.` does not rebind
-# it — so it is what tells one hook from another here.
+# `$0` is the hook path even in a sourced file, which is how one hook is told from another.
 
-# The environment marker makes a nested commit — a `git commit` started from
-# inside a running pre-commit hook — skip the lock its own ancestor already
-# holds. Without it the inner hook would wait on a live pid that cannot finish
-# until the inner hook does, and settle by timing out after minutes.
+# A nested commit (a `git commit` started inside a running pre-commit hook) skips the lock its
+# ancestor holds; otherwise it would wait on a live pid until the timeout.
 if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-}" ]; then
   __lefthook_worktree_lock_root="$(git rev-parse --show-toplevel 2>/dev/null)"
   __lefthook_worktree_lock_script="${__lefthook_worktree_lock_root}/tools/lefthook-worktree-lock.mjs"
 
   if ! command -v node >/dev/null 2>&1; then
-    # Fail closed. Skipping the lock would leave the commit sharing lefthook's
-    # backup with every other worktree, and this repo cannot run its hooks
-    # without node anyway (lint-staged, the docs-corpus screens).
+    # Fail closed: without the lock the commit would share lefthook's backup with other worktrees,
+    # and the hooks need node anyway.
     echo "lefthook: node is required to serialize the pre-commit unstaged-changes backup." >&2
-    echo "lefthook: install Node >= 22.14.0 per CONTRIBUTING.md, or set LEFTHOOK=0 to skip hooks." >&2
+    echo "lefthook: install Node >= 24.16.0 (see .nvmrc), or set LEFTHOOK=0 to skip hooks." >&2
     exit 1
   fi
 
@@ -54,9 +42,8 @@ if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-
     node "$__lefthook_worktree_lock_script" release --owner-pid="$$" >/dev/null 2>&1 || true
   }
 
-  # `exit` with the status captured on entry, so releasing the lock never
-  # rewrites the hook's own verdict. Each signal trap exits, which runs the EXIT
-  # trap, which is the single place the lock is released.
+  # Exit with the status captured on entry so releasing never rewrites the hook's verdict. Each
+  # signal trap exits, which runs the EXIT trap, the one place the lock is released.
   trap '__lefthook_worktree_lock_status=$?; __lefthook_worktree_lock_release; exit $__lefthook_worktree_lock_status' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM

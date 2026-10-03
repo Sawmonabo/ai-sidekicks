@@ -1,53 +1,15 @@
-// LocalIpcGateway — JSON-RPC 2.0 substrate with LSP-style Content-Length
-// framing for the local daemon.
+// LocalIpcGateway: the JSON-RPC 2.0 substrate for the local daemon, over LSP-style
+// `Content-Length: <bytes>\r\n\r\n` framing on a Unix domain socket or Windows named pipe.
 //
-//   * JSON-RPC 2.0 + `Content-Length: <byte-count>\r\n\r\n` framing; max message size
-//     1 MB; JSON via JSON.stringify/parse.
-//   * OS-local default transport (Unix domain socket on
-//     Unix-like; named pipe on Windows).
-//   * Wire- format decision rationale.
-//
-// Invariants this module owns at the substrate boundary (canonical text):
-//   * Substrate- side: the framing parser must reject malformed frames at
-//     the boundary so handlers never see garbage payloads. Only well-formed
-//     JSON-RPC envelopes reach dispatch.
-//   * Substrate-side: the error-emission path (`sanitizeErrorMessage`)
-//     strips stack traces and absolute filesystem paths from
-//     `error.message` before the envelope leaves the daemon.
-//
-// Plan citations:
-//   * 1MB max-message-size hard-coded in the substrate. Changes
-//     require a Phase 2 amendment + update.
-//   * Supervision hook surface `{ onConnect(transport): void;
-//     onDisconnect(transport, reason): void;
-//        onError(transport, err): void }` exported for the desktop-shell
-//     supervision consumer.
-//
-// What this module does NOT do (deferred to sibling tasks):
-//   * `DaemonHello` / `DaemonHelloAck` version negotiation — owns
-//     `protocol-negotiation.ts`.
-//   * `LocalSubscriptionProducer<T>` streaming primitive — owns
-//     `streaming-primitive.ts`.
-//
-// What this module CONSUMES from sibling tasks:
-//   * `MethodRegistry` (cross-package interface from
-//     `@ai-sidekicks/contracts/jsonrpc-registry.ts`; runtime
-//     implementation in `./registry.ts`) — the gateway accepts a
-//     `MethodRegistry` instance via constructor injection (mandatory
-//     dependency, fail-loud at construction time). The bootstrap
-//     orchestrator constructs the registry, registers Phase 3 handlers
-//     against it, and then constructs the gateway with the populated
-//     registry.
-//   * `mapJsonRpcError` (in `./jsonrpc-error-mapping.ts`) — the
-//     gateway's single error-emission seam. Every throw that surfaces a
-//     JSON-RPC error response on the wire flows through this helper,
-//     which selects the JSON-RPC 2.0 numeric code and applies
-//     sanitization. The gateway DOES NOT reach into the discriminator
-//     branches itself — it only routes thrown values.
-//
-// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string):. The
-// substrate accepts the date-string form; non-conforming shapes are
-// rejected at schema-validation before reaching the gateway.
+// * The framing parser rejects malformed frames at the boundary, so handlers only ever see
+//   well-formed JSON-RPC envelopes.
+// * Every error response goes through `mapJsonRpcError`, which picks the numeric code and strips
+//   stack traces and absolute paths; the gateway only routes thrown values to it.
+// * The message cap, `MAX_MESSAGE_BYTES`, is fixed in the substrate; changing it changes the wire
+//   contract.
+// * `MethodRegistry` is injected at construction. `DaemonHello` version negotiation lives in
+//   `protocol-negotiation.ts` and streaming in `streaming-primitive.ts`.
+// * `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date string.
 
 import * as net from "node:net";
 
@@ -70,6 +32,13 @@ import {
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { SecureDefaults } from "../bootstrap/secure-defaults.js";
+import {
+  CONTENT_LENGTH_HEADER,
+  FramingError,
+  HEADER_BODY_SEPARATOR,
+  parseFrame,
+  type ParseFrameResult,
+} from "./content-length-framing.js";
 import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 
 // --------------------------------------------------------------------------
@@ -77,87 +46,42 @@ import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 // --------------------------------------------------------------------------
 
 /**
- *
- * The VALUE now lives in `@ai-sidekicks/contracts` (`jsonrpc.ts`) and is
- * re-exported here unchanged, so the substrate keeps its own name for the
- * constant and every existing importer of `MAX_MESSAGE_BYTES` from this
- * module is unaffected. It moved because a producer outside the substrate
- * now has to size a reply against the frame it will become, and a second
- * copy of the number would drift from the framer silently — the drift
- * surfacing as closed connections rather than as a failing test.
- *
- * Enforcement is still HERE and only here: `parseFrame` rejects an
- * oversized declared length and `encodeFrame` refuses to emit an oversized
- * body. an oversized body closes the connection with an error frame.
- * Changing the value is a wire-contract change.
+ * The largest accepted or emitted frame body, in bytes. The value lives in
+ * `@ai-sidekicks/contracts` so a producer sizing a reply shares it with the framer; enforcement is
+ * only here: the gateway hands it to `parseFrame` as the body limit, and `encodeFrame` refuses to
+ * emit an oversized body.
  */
 export { MAX_MESSAGE_BYTES };
 
 /**
- * The ceiling on a JSON-RPC `id`, in JSON-encoded bytes.
- *
- * Declared in `@ai-sidekicks/contracts` (`jsonrpc.ts`) beside
- * `MAX_MESSAGE_BYTES` and re-exported here for the same reason: the value has
- * a second reader outside the substrate (a paged reply subtracts it from its
- * own budget), while the ACCEPT/REFUSE decision lives here and only here.
- *
- * Enforcement is two-sited and both sites are required. `#dispatchFrame`
- * refuses an over-bound id as `-32600 Invalid Request` before dispatch, so a
- * well-formed request carrying one never reaches a handler. `extractIdSafely`
- * independently drops an over-bound id to `null`, because the earlier
- * envelope gates (`jsonrpc`, `method`) answer BEFORE the id-shape gate runs
- * and would otherwise echo the oversized id into their own error frame — the
- * exact frame that cannot be sent. Per JSON-RPC section 5 an id that could not be
- * recovered is reported as Null, which is what both sites do.
+ * The ceiling on a JSON-RPC `id`, in JSON-encoded bytes. The value lives in
+ * `@ai-sidekicks/contracts` because a paged reply subtracts it from its own budget; the accept or
+ * refuse decision is only here, at two sites. `#dispatchFrame` refuses an over-bound id as
+ * `-32600` before dispatch. `extractIdSafely` drops one to `null`, because the earlier envelope
+ * gates (`jsonrpc`, `method`) answer before the id gate and would otherwise echo the oversized id
+ * into an error frame that cannot be sent.
  */
 export { JSON_RPC_ID_MAX_BYTES };
 
-/**
- * The LSP-style framing header name. Lower-cased compare on receive
- * (HTTP-style header semantics) but always emitted with the canonical
- * casing on send.
- */
-const CONTENT_LENGTH_HEADER = "Content-Length";
-
-/**
- * Header/body separator per LSP / MCP framing convention (CRLFCRLF).
- * Embedded in headers only — never inside the body.
- */
-const HEADER_BODY_SEPARATOR = "\r\n\r\n";
-
 // --------------------------------------------------------------------------
+// Supervision surface
 // --------------------------------------------------------------------------
 
 /**
- * Per-connection transport handle. Opaque to consumers — the gateway owns
- * the underlying `net.Socket`. Supervision callers receive the handle to
- * correlate `onConnect` / `onDisconnect` / `onError` calls but should not
- * inspect or mutate it.
- *
- * `id` is a process-monotonic integer, assigned at `onConnect` time. It is
- * stable for the lifetime of the connection and is the only value
- * supervision consumers (the desktop-shell) should key off.
+ * The handle passed to supervision hooks for one connection: opaque to consumers, who use it only
+ * to correlate `onConnect`, `onDisconnect` and `onError`. `id` is a process-monotonic integer
+ * assigned at connect time and stable for the connection's life.
  */
-export interface SupervisionTransport {
+interface SupervisionTransport {
   readonly id: number;
-  readonly remoteFamily: "unix" | "pipe" | "tcp" | "unknown";
 }
 
 /**
- * Reasons a connection terminated. Closed string union — supervision
- * consumers can switch exhaustively. New reasons require a Phase 2
- * amendment.
- *
- *   * `"client_close"` — the peer closed cleanly (FIN / EOF received).
- *   * `"server_close"` — the gateway closed the connection deliberately
- *     (e.g. on `stop()`, on framing-violation rejection, on oversized-body).
- *   * `"transport_error"` — the underlying socket emitted an `error` event
- *     before close. The corresponding `onError` fires before this
- *     `onDisconnect`.
- *   * `"oversized_body"` — the declared `Content-Length` exceeded
- *     `MAX_MESSAGE_BYTES`. the connection MUST close.
- *   * `"malformed_frame"` — the incoming buffer violated framing grammar
- *     (bad header, missing separator, non-numeric Content-Length, etc.)..
+ * Why a connection ended, as a closed union. `"client_close"` is the peer closing;
+ * `"server_close"` is a deliberate gateway close (`stop()`, or an outbound frame that could not be
+ * encoded); `"transport_error"` is a socket `error` event, after which `onError` has fired;
+ * `"oversized_body"` is a declared `Content-Length` over `MAX_MESSAGE_BYTES`; `"malformed_frame"`
+ * is any other framing violation.
  */
 export type SupervisionDisconnectReason =
   | "client_close"
@@ -167,14 +91,9 @@ export type SupervisionDisconnectReason =
   | "malformed_frame";
 
 /**
- * The desktop-shell supervision consumer registers these to surface the
- * daemon connection lifecycle in the renderer status surface.
- *
- * All three callbacks are SYNCHRONOUS — supervision is observation, not
- * mediation. A throwing callback is a programmer error; the gateway
- * forwards the throw via the underlying `net.Server` `error` event but
- * does NOT swallow it (silent supervision failure would defeat the
- * surface's purpose).
+ * Callbacks that observe the connection lifecycle. All three are synchronous, and a throwing
+ * callback is a programmer error that the gateway does not swallow. Each connection's `onError`
+ * is followed by exactly one `onDisconnect` for the same transport.
  */
 export interface SupervisionHooks {
   onConnect(transport: SupervisionTransport): void;
@@ -182,164 +101,12 @@ export interface SupervisionHooks {
   onError(transport: SupervisionTransport, err: unknown): void;
 }
 
-// --------------------------------------------------------------------------
-// Framing parser (exported for direct test)
-// --------------------------------------------------------------------------
-
 /**
- * Result of a single `parseFrame` invocation against the per-connection
- * accumulating buffer.
- *
- *   * `frame !== null`: a complete frame body was extracted. `consumed`
- *     names the number of bytes the caller MUST drop from the head of
- *     its accumulator before the next parse attempt.
- *   * `frame === null` AND `consumed === 0`: the buffer does not yet
- *     contain a complete frame. The caller should keep accumulating
- *     bytes and re-attempt `parseFrame` when more arrive. This sentinel
- *     replaces a thrown "not yet ready" condition — partial buffers are
- *     a normal-path event, not an error.
- *
- * Errors (oversized declared length, malformed header, non-numeric
- * Content-Length, missing CRLFCRLF, etc.) throw `FramingError`; the
- * gateway converts the throw into a `malformed_frame` disconnect.
- */
-export interface ParseFrameResult {
-  /** Decoded body bytes, or `null` when the buffer doesn't yet contain
-   *  a complete frame. */
-  readonly frame: Buffer | null;
-  /** Number of bytes consumed from the buffer head when `frame !== null`,
-   *  or 0 when waiting for more bytes. */
-  readonly consumed: number;
-}
-
-/**
- * Distinct subclass of `Error` so the gateway can discriminate framing
- * violations from arbitrary thrown values inside the
- * supervision/disconnect path. Carries a `code` string for test
- * introspection and an optional `fields` payload for the throw sites that
- * project structured detail through `mapJsonRpcError` into the JSON-RPC
- * envelope's `error.data.fields`. The JSON-RPC numeric mapping (`-32600`
- * etc.) is T-2's surface and does NOT live here.
- */
-export class FramingError extends Error {
-  readonly code: string;
-  readonly fields?: Record<string, unknown>;
-  constructor(code: string, message: string, fields?: Record<string, unknown>) {
-    super(message);
-    this.name = "FramingError";
-    this.code = code;
-    if (fields !== undefined) {
-      this.fields = fields;
-    }
-  }
-}
-
-/**
- * Parse a single LSP-style Content-Length-framed message from the head of
- * the supplied buffer.
- *
- *   `Content-Length: <byte-count>\r\n\r\n<body>`
- *
- * Multi-byte safety: `Content-Length` is BYTES, not characters. A UTF-8
- * body containing multi-byte sequences is sliced by byte count, not by
- * `String#length`. The returned `Buffer` slice is the verbatim body bytes;
- * JSON parsing is the caller's concern.
- *
- * Partial-buffer handling: returns `{ frame: null, consumed: 0 }` when the
- * buffer is too short to contain a complete header or body. This is the
- * normal path under stream-oriented transports (TCP / Unix domain socket /
- * named pipe) — the caller resumes accumulation.
- *
- * Throws `FramingError` on:
- *   * Header lacks `Content-Length` (the only header the framing
- *     recognizes; future LSP-compatible additions would require a Phase 2
- *     amendment).
- *   * Content-Length value is not a non-negative integer.
- *   * Declared length exceeds `MAX_MESSAGE_BYTES`.
- *   * Header section contains bytes that violate the
- *     `<name>: <value>\r\n` grammar.
- */
-export function parseFrame(buffer: Buffer): ParseFrameResult {
-  const separatorIndex = buffer.indexOf(HEADER_BODY_SEPARATOR);
-  // Header-section size cap (1 KB). Fires UNCONDITIONALLY whenever the
-  // header section size is determinable:
-  //
-  //   * `separatorIndex === -1` — delimiter not yet seen; the header
-  //     section so far is `buffer.byteLength` bytes. A peer streaming
-  //     megabytes of header without ever sending CRLFCRLF would
-  //     otherwise pin the accumulator indefinitely (in-flight desync).
-  //   * `separatorIndex > 1024` — delimiter present but the header
-  //     section itself exceeds 1 KB. Without this branch, a peer who
-  //     prepends 10 MB of header bytes followed by CRLFCRLF bypasses
-  //     the cap entirely — the parser would proceed to ASCII-decode
-  //     and parse the multi-MB header block. The body cap
-  //     (`MAX_MESSAGE_BYTES`) only governs the BODY per the file
-  //     header comment at lines 84-88; the header cap closes the
-  //     symmetric DoS surface implied.
-  //
-  // The threshold is generous (1 KB) because legitimate Content-Length
-  // headers are tens of bytes; a 1 KB header section accommodates many
-  // future LSP-compatible headers without forcing a Phase 2 amendment.
-  if (separatorIndex === -1) {
-    if (buffer.byteLength > 1024) {
-      throw new FramingError(
-        "header_too_long",
-        `parseFrame: header section exceeded 1024 bytes without ${JSON.stringify(HEADER_BODY_SEPARATOR)} (likely framing desync)`,
-      );
-    }
-    return { frame: null, consumed: 0 };
-  }
-  if (separatorIndex > 1024) {
-    throw new FramingError(
-      "header_too_long",
-      `parseFrame: header section is ${separatorIndex} bytes (with delimiter present); exceeds 1024 byte cap`,
-    );
-  }
-
-  const headerBytes = buffer.subarray(0, separatorIndex);
-  const headerText = headerBytes.toString("ascii");
-  const declaredLength = extractContentLength(headerText);
-
-  if (declaredLength > MAX_MESSAGE_BYTES) {
-    // Throw at the parser boundary; the gateway converts to
-    // `oversized_body` disconnect. The structured `fields` payload
-    // feeds `data.fields: { limit, observed }`.
-    throw new FramingError(
-      "oversized_body",
-      `parseFrame: declared body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
-      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
-    );
-  }
-
-  const bodyStart = separatorIndex + Buffer.byteLength(HEADER_BODY_SEPARATOR, "ascii");
-  const bodyEnd = bodyStart + declaredLength;
-  if (buffer.byteLength < bodyEnd) {
-    // The header is here but the body bytes haven't all arrived yet.
-    // Wait for more data; do not advance the consumer's cursor.
-    return { frame: null, consumed: 0 };
-  }
-
-  const body = buffer.subarray(bodyStart, bodyEnd);
-  // Defensive copy: `subarray` returns a view over the same backing
-  // ArrayBuffer. The caller will drop the head bytes from the
-  // accumulator after consuming, which would invalidate the view.
-  // Buffer.from(view) copies into a fresh allocation.
-  return { frame: Buffer.from(body), consumed: bodyEnd };
-}
-
-/**
- * Encode a JSON-RPC envelope into a Content-Length-framed wire frame.
- *
- * The body is JSON.stringify()-ed; the Content-Length header carries the
- * UTF-8 BYTE count of the body (not character count). The returned
- * `Buffer` is ready to write to the underlying transport.
- *
- * A daemon-side bug that built an oversized envelope would otherwise reach
- * the wire and trip the peer's inbound check, leaving the daemon's logs
- * without provenance.
+ * Encode a JSON-RPC envelope as a Content-Length frame; the header carries the body's UTF-8 byte
+ * count. Throws `FramingError("oversized_body")` past `MAX_MESSAGE_BYTES`, so the daemon's own
+ * oversized reply fails here with provenance instead of tripping the peer's inbound check.
  */
 export function encodeFrame(envelope: JsonRpcMessage): Buffer {
-  // JSON.stringify is the documented serialization.
   const bodyText = JSON.stringify(envelope);
   const bodyBytes = Buffer.from(bodyText, "utf8");
   const declaredLength = bodyBytes.byteLength;
@@ -357,182 +124,32 @@ export function encodeFrame(envelope: JsonRpcMessage): Buffer {
   return Buffer.concat([headerBytes, bodyBytes]);
 }
 
-/**
- * Extract and validate the `Content-Length` header value from the header
- * section. Case-insensitive name match (HTTP/LSP convention); strict
- * decimal-integer value check.
- *
- * Throws `FramingError` if no `Content-Length` header is present, the
- * value is non-numeric, or any header line violates `<name>: <value>`
- * grammar. The strict grammar refuses partial / interleaved framing —
- * any deviation triggers a `malformed_frame` disconnect rather than a
- * silent best-effort recovery.
- */
-function extractContentLength(headerText: string): number {
-  // Header lines are CRLF-terminated per LSP. Reject lone-LF terminators
-  // (lenient parsing here would mask peer bugs that the spec guards
-  // against).
-  if (headerText.length > 0 && headerText.includes("\n") && !headerText.includes("\r\n")) {
-    throw new FramingError(
-      "malformed_header",
-      "parseFrame: header section uses LF line terminator; expected CRLF per LSP framing",
-    );
-  }
-  const lines = headerText.length === 0 ? [] : headerText.split("\r\n");
-  let declaredLength: number | null = null;
-  for (const line of lines) {
-    if (line.length === 0) {
-      // Empty line in mid-header is a grammar violation. The CRLFCRLF
-      // separator is the canonical "end of headers" marker; an empty
-      // line before that is malformed.
-      throw new FramingError("malformed_header", "parseFrame: empty line within header section");
-    }
-    const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) {
-      throw new FramingError(
-        "malformed_header",
-        `parseFrame: header line missing ':' separator: ${JSON.stringify(line)}`,
-      );
-    }
-    const name = line.slice(0, colonIndex).trim();
-    const value = line.slice(colonIndex + 1).trim();
-    if (name.length === 0) {
-      throw new FramingError(
-        "malformed_header",
-        `parseFrame: header line has empty name: ${JSON.stringify(line)}`,
-      );
-    }
-    if (name.toLowerCase() === CONTENT_LENGTH_HEADER.toLowerCase()) {
-      // Reject duplicate Content-Length headers per the strict-grammar
-      // contract above. A peer sending two Content-Length headers with
-      // different values is the request-smuggling shape — silently
-      // picking last-wins would let the parser slice a body of one
-      // length from a buffer carrying the OTHER length, leaving the
-      // remainder to be reinterpreted as a fresh frame on the next
-      // iteration. Refuse at the boundary; supervision converts the
-      // throw into a `malformed_frame` disconnect.
-      if (declaredLength !== null) {
-        throw new FramingError(
-          "malformed_content_length",
-          `parseFrame: duplicate ${CONTENT_LENGTH_HEADER} header (request-smuggling shape)`,
-        );
-      }
-      // Strict decimal-integer check. Reject leading +/-, leading zeros
-      // beyond a single zero, hex, scientific notation, or whitespace
-      // inside the value.
-      if (!/^\d+$/.test(value)) {
-        throw new FramingError(
-          "malformed_content_length",
-          `parseFrame: Content-Length value ${JSON.stringify(value)} is not a non-negative decimal integer`,
-        );
-      }
-      const parsed = Number.parseInt(value, 10);
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        throw new FramingError(
-          "malformed_content_length",
-          `parseFrame: Content-Length value ${JSON.stringify(value)} is not finite or is negative`,
-        );
-      }
-      declaredLength = parsed;
-    }
-    // Other header names are ignored (forward-compatibility hook).
-    // LSP / MCP frame grammars permit `Content-Type` etc.; we don't
-    // enforce them and don't reject unknown header names.
-  }
-  if (declaredLength === null) {
-    throw new FramingError(
-      "missing_content_length",
-      `parseFrame: header section did not include ${CONTENT_LENGTH_HEADER}`,
-    );
-  }
-  return declaredLength;
-}
-
 // --------------------------------------------------------------------------
+// Error-message sanitization
 // --------------------------------------------------------------------------
 
 /**
- * Strip stack traces, absolute filesystem paths, and other internals from
- * an arbitrary thrown value before it leaves the daemon as a JSON-RPC
- * `error.message` string.
+ * Reduce any thrown value to a string safe to send as `error.message`. An `Error` contributes its
+ * `.message` only, never `.stack`; anything else goes through `String(value)`. Unix, UNC and
+ * Windows-drive paths become `<redacted-path>` (see {@link redactPathsFromString}), and the result
+ * is capped at `SANITIZED_MESSAGE_MAX_LEN`.
  *
- * "Stack traces and secrets MUST never leak through the response." This
- * helper is the substrate-side enforcement seam — every error-emission
- * path passes its thrown value through here before constructing the
- * `JsonRpcErrorResponse` envelope.
- *
- * What this function does:
- *   * For an `Error` instance: extracts `.message` ONLY (never `.stack`).
- *   * For a non-Error throw (`throw "boom"` / `throw 42` / `throw null`):
- *     coerces via `String(value)` into a printable form.
- *   * Replaces Unix absolute filesystem paths (`/foo/bar.ts:line:col`)
- *     with the literal `<redacted-path>`.
- *   * Replaces UNC paths (`\\host\share\path...`) with the literal
- *     `<redacted-path>`. Share/path segments tolerate internal spaces
- *     (e.g. `\\fs\Shared Drive\config.json`); the host segment does not.
- *   * Replaces Windows absolute filesystem paths (`C:\foo\bar.ts`) with
- *     the literal `<redacted-path>`. Path segments tolerate internal
- *     spaces (e.g. `C:\Program Files\App\bin.exe` — the canonical
- *     Windows install prefix).
- *   * Caps the output length to `SANITIZED_MESSAGE_MAX_LEN` (8 KB) — a
- *     thrown value carrying a megabyte-long string would otherwise inflate
- *     the response envelope past the 1 MB max-message limit.
- *
- * What this function does NOT do:
- *   * It does not strip secrets that don't match the path patterns
- *     (e.g. a leaked API key in a string literal). The handler author is
- *     responsible for not putting secrets in error messages in the first
- *     place; the path-redaction is a defense-in-depth backstop, not a
- *     guarantee.
- *   * It does not interpret the JSON-RPC error code — code selection is
- *     the surface.
- *
- * Trade-off (over-redaction posture): because Windows / UNC path
- * segments may contain internal spaces, the regex CANNOT distinguish
- * `C:\Foo and more prose` (intent: drive + segment + prose) from
- * `C:\Program Files` (intent: drive + multi-word segment) — both end
- * in non-path characters that the regex's bounded character class
- * accepts. The boundary is reached at the next character outside
- * `[A-Za-z0-9_. -]` (quote, semicolon, slash, etc.). Trailing prose
- * after a Windows / UNC path with no such delimiter MAY be over-
- * redacted as part of the path. This is consistent with the security
- * posture: over-redaction is a cosmetic defect; under- redaction is
- * a security defect.
- *
- * Non-throwing contract: this function MUST NOT throw for any input.
- * If string conversion of a non-Error / non-string thrown value fails
- * (e.g. an object whose `toString` itself throws — `String(value)`
- * invokes `ToPrimitive` which calls `toString`), the fallback returns
- * a safe placeholder string `"<unprintable thrown value>"`.
- * enforcement seam is the boundary between arbitrary user- thrown
- * values and the wire — a hostile or buggy handler that engineers a
- * poisoned thrown object MUST NOT crash the daemon (a DoS surface
- * otherwise: `--unhandled-rejections=throw` would terminate the
- * process). The fallback string is itself path-shape-free and
- * stack-shape-free so it cannot leak internals through the redaction
- * regexes.
+ * It never throws: a hostile value whose `toString` throws would otherwise escape as an unhandled
+ * rejection, so it yields `"<unprintable thrown value>"`. It does not catch secrets that do not
+ * look like paths; handler authors keep those out of messages. Because Windows and UNC segments
+ * may contain spaces, prose that directly follows such a path can be over-redacted, which is the
+ * safe direction.
  */
 export function sanitizeErrorMessage(value: unknown): string {
   let raw: string;
   if (value instanceof Error) {
-    // Deliberately read `.message` only — `.stack` would leak filesystem
-    // paths, function names, and module structure.
+    // Never `.stack`: it leaks file paths, function names and module structure.
     raw = value.message;
   } else if (typeof value === "string") {
     raw = value;
   } else {
-    // `String(null)` => "null", `String(undefined)` => "undefined",
-    // `String({})` => "[object Object]" — all printable, none leaking
-    // structured internals. JSON.stringify would be richer but could
-    // include user-supplied structured fields we don't want on the wire.
-    //
-    // `String(value)` invokes `ToPrimitive` which calls `value.toString()`
-    // for objects — a misbehaving handler can `throw { toString() {
-    // throw... } }`, which would otherwise escape this function and become
-    // an unhandled rejection at the `mapJsonRpcError` call site.
-    // enforcement seam MUST be non-throwing for arbitrary input (see JSDoc
-    // "Non-throwing contract" above); fall back to a safe placeholder if
-    // conversion throws.
+    // `String(value)` is printable for null, undefined and plain objects without exposing
+    // structured fields, but it calls `toString`, which a hostile thrown object can make throw.
     try {
       raw = String(value);
     } catch {
@@ -549,69 +166,29 @@ export function sanitizeErrorMessage(value: unknown): string {
 }
 
 /**
- * Path-shape redaction primitive: replaces Unix absolute paths, UNC paths,
- * and Windows-drive paths with the literal `<redacted-path>`. Extracted
- * from `sanitizeErrorMessage` so enforcement regex set is shared between
- * the `error.message` seam (single-string sanitization in
- * `sanitizeErrorMessage`) and the `data.fields` seam (recursive
- * structured-value sanitization in `jsonrpc-error-mapping.ts`'s
- * `sanitizeFields`). Centralizing the regexes here keeps both surfaces
- * auditable in one place — a future tightening of the path patterns (e.g.
- * macOS `/Volumes/...` UNC-style mounts, or `nix store` paths) applies to
- * both surfaces uniformly.
+ * Replace Unix absolute paths, UNC paths and Windows-drive paths with `<redacted-path>`. It is
+ * shared by `sanitizeErrorMessage` and `sanitizeFields` so both channels redact the same way. Each
+ * pattern accepts an optional `:line:col` trailer for stack-frame-shaped text.
  *
- * Regex order is load-bearing: Unix first because `/`-anchor cannot
- * collide with UNC's `\\` or Windows-drive's `[A-Za-z]:\\`; UNC second
- * because its `\\\\` prefix is not matched by the drive-letter pattern;
- * Windows-drive last. Each pattern accepts an optional `:line:col`
- * trailer to handle stack-frame-shaped strings.
- *
- * Character classes are intentionally conservative: Unix uses
- * `[A-Za-z0-9_.-]` (no spaces — Unix paths conventionally don't carry
- * them, and a space terminates a path token); UNC host follows the
- * same shape but UNC share/path segments use `[A-Za-z0-9_. -]` to
- * tolerate `\\fs\Shared Drive\config.json`; Windows-drive segments
- * likewise tolerate internal spaces (`C:\Program Files\bin.exe`).
- *
- * Non-throwing contract: pure regex `.replace` calls. Cannot throw for
- * any string input. Idempotent: a string already containing
- * `<redacted-path>` literals will not be re-replaced because the
- * literal does not match any of the three patterns.
- *
- * ReDoS posture: each pattern's quantifier body is bounded by a
- * character class, not a wildcard — `(?:\/[A-Za-z0-9_.-]+)+` matches
- * disjoint segments of distinct character runs, so backtracking is
- * linear in the input length. Pathological inputs like
- * `'/'.repeat(N)` (where each `/` is followed by no characters in the
- * class) terminate immediately because `[A-Za-z0-9_.-]+` requires at
- * least one character after `/`.
+ * Unix segments exclude spaces, which end a path token. UNC hosts also exclude spaces, but UNC
+ * share and path segments and Windows-drive segments allow them (`\\fs\Shared Drive\a.json`,
+ * `C:\Program Files\a.exe`). It never throws and is idempotent, since `<redacted-path>` matches
+ * none of the patterns. Each quantifier body is a bounded character class over disjoint segments,
+ * so backtracking stays linear on pathological input such as `'/'.repeat(N)`.
  */
 export function redactPathsFromString(input: string): string {
-  // Unix absolute paths with optional `:line:col` suffix. The character
-  // class is conservative: alphanumerics, `_`, `.`, `-`, `/` only. Stop
-  // at whitespace, quotes, or any character that wouldn't legitimately
-  // appear in a sane filesystem path. Order: Unix first because its
-  // leading-`/` anchor cannot collide with UNC's leading `\\` or the
-  // Windows-drive `[A-Za-z]:\` anchor, and the regex is the most
-  // common-case match by far.
-  let sanitized = input.replace(/(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g, "<redacted-path>");
-  // UNC paths: `\\host\share\path...`. Host segment is hostname-shape
-  // (alphanumerics, `_`, `.`, `-` — no spaces in hostnames), but the
-  // share + path segments after the first separator can contain spaces
-  // (e.g. `\\fileserver\share\Program Files\bin.exe`). Run BEFORE the
-  // drive-letter Windows branch because UNC's `\\` prefix is not
-  // matched by `[A-Za-z]:\`, but explicit ordering documents the intent.
-  // Optional `:line:col` suffix kept consistent with the other branches.
+  // Unix: conservative character class, so it stops at whitespace, quotes and similar. A path
+  // starts at a token boundary, so a slash inside a name (`feature/login`) is not one.
+  let sanitized = input.replace(
+    /(?<![A-Za-z0-9_.-])(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g,
+    "<redacted-path>",
+  );
+  // UNC: the host has no spaces, the share and path segments may.
   sanitized = sanitized.replace(
     /\\\\[A-Za-z0-9_.-]+(?:\\[A-Za-z0-9_. -]+)+(?::\d+(?::\d+)?)?/g,
     "<redacted-path>",
   );
-  // Windows absolute paths: drive letter, colon, backslash, then path
-  // body. Path segments allow internal spaces (e.g. `C:\Program Files\`
-  // — the canonical Windows install prefix). The character class keeps
-  // `-` LAST to avoid range interpretation. Optional `:line:col` suffix
-  // kept distinct from the drive-letter colon (the regex anchors on
-  // `[A-Za-z]:\` to discriminate).
+  // Windows drive: segments may contain spaces; `-` is last in the class so it is not a range.
   sanitized = sanitized.replace(
     /[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::\d+(?::\d+)?)?/g,
     "<redacted-path>",
@@ -620,12 +197,8 @@ export function redactPathsFromString(input: string): string {
 }
 
 /**
- * Cap on the sanitized error-message length. 8 KB is well above any
- * legitimate human-readable error message; the cap exists to prevent a
- * pathological thrown string from inflating the response envelope past
- * `MAX_MESSAGE_BYTES`. Centralized here (rather than in `error.ts`) so
- * the substrate's enforcement does not depend on the project- wide
- * error envelope's length cap, which is a separate contract.
+ * Cap on a sanitized error message, so a pathological thrown string cannot push the response past
+ * `MAX_MESSAGE_BYTES`.
  */
 export const SANITIZED_MESSAGE_MAX_LEN = 8192;
 
@@ -636,12 +209,9 @@ export const SANITIZED_MESSAGE_MAX_LEN = 8192;
 interface ConnectionState {
   readonly transport: SupervisionTransport;
   readonly socket: net.Socket;
-  /** Per-connection accumulator. Each connection has its own buffer; the
-   *  parser does NOT share state across sockets. */
+  /** Per-connection accumulator; the parser shares no state across sockets. */
   buffer: Buffer;
-  /** Set true after the gateway has emitted onDisconnect for this
-   *  connection so a stray socket event late in teardown doesn't fire
-   *  a duplicate. */
+  /** Set once `onDisconnect` has fired, so a late socket event cannot fire it twice. */
   disposed: boolean;
 }
 
@@ -650,44 +220,14 @@ function allocTransportId(): number {
   return nextTransportId++;
 }
 
-function detectFamily(
-  socket: net.Socket,
-  listenPath: string,
-): SupervisionTransport["remoteFamily"] {
-  // For Unix domain sockets and Windows named pipes, `socket.remoteFamily`
-  // is empty/undefined; we discriminate via the listening path. Windows
-  // named pipes use the `\\?\pipe\<name>` or `\\.\pipe\<name>` shape.
-  if (listenPath.startsWith("\\\\.\\pipe\\") || listenPath.startsWith("\\\\?\\pipe\\")) {
-    return "pipe";
-  }
-  if (socket.remoteFamily === "IPv4" || socket.remoteFamily === "IPv6") {
-    return "tcp";
-  }
-  // Default: assume Unix domain socket (path-style address that's not a
-  // Windows pipe). The "unknown" branch is a catch-all for future
-  // transport families we add later.
-  return "unix";
-}
-
 // --------------------------------------------------------------------------
 // LocalIpcGateway
 // --------------------------------------------------------------------------
 
 /**
- * Configuration for `LocalIpcGateway`. Exact-optional discipline: omit
- * fields rather than assigning `undefined` (matches
- * `exactOptionalPropertyTypes: true`).
- *
- * `registry` is the MANDATORY method-namespace registry (the `MethodRegistry` instance is INJECTED,
- * not constructed inside the gateway. Do NOT make the gateway own registry construction).
- * Constructor injection — the bootstrap orchestrator constructs the registry, registers Phase 3 /
- * downstream handlers against it, and only THEN constructs the gateway with the populated registry.
- * Failing-loud at construction time (rather than at first dispatch) makes a misconfigured bootstrap
- * detectable before any listener binds.
- *
- * `hooks` is the OPTIONAL supervision surface — the desktop-shell
- * consumer passes them in; callers may omit if they don't need
- * lifecycle notifications.
+ * Configuration for `LocalIpcGateway`. Optional fields are omitted rather than set to `undefined`
+ * (`exactOptionalPropertyTypes`). `registry` is required and injected, so the gateway never owns
+ * registry construction; `hooks` is optional supervision.
  */
 export interface LocalIpcGatewayOptions {
   readonly registry: MethodRegistry;
@@ -695,32 +235,12 @@ export interface LocalIpcGatewayOptions {
 }
 
 /**
- * The gateway is INSTANTIABLE (not a module-singleton like
- * `SecureDefaults`). It owns I/O resources — a `net.Server`, per-connection
- * sockets, accumulating buffers — that have explicit lifecycle. Multiple
- * gateway instances per process are not anticipated for V1, but the
- * instantiable shape lets tests construct an isolated instance per case
- * without a `__resetForTest()` hook proliferation, and it leaves the
- * door open to future surfaces (HTTP listener, TLS listener) sharing a
- * single process.
- *
- * Recommendation alternative considered: module-singleton matching
- * `SecureDefaults`. Why instantiable wins: the bootstrap singletons
- * (`SecureDefaults`, `SecureDefaultOverrideEmitter`) are CONFIGURATION
- * surfaces — one validated bind config per process, one audit-event
- * dedupe set per process. The gateway is an I/O surface — a `net.Server`
- * with a per-instance lifecycle. Mapping I/O onto module-singleton state
- * forces a `__resetForTest()` that the I/O domain doesn't naturally need.
- *
- * Trade-off accepted: callers must pass the `LocalIpcGateway` instance
- * to dispatch consumers (wires the registry into a specific gateway),
- * where a singleton would let any module call a static dispatch method.
- * The trade is small — there is exactly one consumer (the bootstrap
- * orchestrator), which can plumb the instance once.
+ * A JSON-RPC listener on the local IPC path that frames, validates and dispatches requests to the
+ * injected `MethodRegistry`. It is instantiable rather than a singleton because it owns I/O
+ * resources (a `net.Server`, sockets, buffers) with their own lifecycle, and a test builds an
+ * isolated instance per case.
  */
 export class LocalIpcGateway {
-  // Per-instance state. The gateway encapsulates everything; nothing
-  // leaks to module scope.
   readonly #registry: MethodRegistry;
   readonly #hooks: SupervisionHooks | null;
   #server: net.Server | null;
@@ -728,10 +248,6 @@ export class LocalIpcGateway {
   #started: boolean;
 
   constructor(options: LocalIpcGatewayOptions) {
-    // Constructor injection — the registry is MANDATORY (fail-loud
-    // at construction time). A `null`-valued / missing registry is a
-    // programmer error in the bootstrap orchestrator; we don't
-    // attempt graceful degradation.
     this.#registry = options.registry;
     this.#hooks = options.hooks ?? null;
     this.#server = null;
@@ -740,67 +256,35 @@ export class LocalIpcGateway {
   }
 
   /**
-   * Bind the gateway's listener to the OS-local socket / named pipe path
-   * declared in `SecureDefaults.effectiveSettings()`.
-   *
-   * Sequence:
-   *   1. `assertLoadedForBind()` — enforcement; throws if
-   *      `SecureDefaults.load(config)` has not yet completed (Phase 1's
-   *      orchestrator-throw seam).
-   *   2. Read `SecureDefaults.effectiveSettings()` for the bind path.
-   *   3. Construct `net.createServer` with the per-connection handler
-   *      below; wire supervision callbacks.
-   *   4. `server.listen(path)`.
-   *
-   * Returns a Promise that resolves when the listener is bound. Rejects
-   * on bind failure (e.g. EADDRINUSE) — the caller is responsible for
-   * surfacing the failure to the operator.
-   *
-   * Idempotency: calling `start()` a second time on a started gateway
-   * throws. The gateway is single-shot per instance — call `stop()` then
-   * construct a new instance to re-listen.
+   * Bind the listener to the path in `SecureDefaults.effectiveSettings()`. Rejects if
+   * `SecureDefaults.load` has not completed, if the gateway is already started, or on a bind
+   * failure such as EADDRINUSE; a failed bind leaves the instance unstarted so `start()` can be
+   * retried.
    */
   async start(): Promise<void> {
     if (this.#started) {
       throw new Error("LocalIpcGateway.start: gateway already started");
     }
 
-    // `SecureDefaults.load(config)` MUST run before any daemon listener
-    // binds. Phase 1's `assertLoadedForBind()` is the seam this gateway
-    // hooks. Calling it FIRST means a misconfigured bootstrap surfaces
-    // as a synchronous throw before any I/O resource is allocated.
+    // Checked first so a misconfigured bootstrap throws before any I/O resource is allocated.
     assertLoadedForBind();
 
     const settings = SecureDefaults.effectiveSettings();
     const listenPath = settings.localIpcPath;
 
     const server = net.createServer((socket) => {
-      this.#onSocketConnect(socket, listenPath);
+      this.#onSocketConnect(socket);
     });
 
     server.on("error", (err) => {
-      // Server-level errors (bind failure, post-listen socket failure)
-      // surface through supervision's onError with a synthetic transport
-      // handle (id 0, no per-connection context). The throw flow is
-      // documented for the desktop-shell consumer.
+      // Server-level errors have no connection, so supervision gets a synthetic transport (id 0).
       if (this.#hooks !== null) {
-        this.#hooks.onError({ id: 0, remoteFamily: "unknown" }, err);
+        this.#hooks.onError({ id: 0 }, err);
       }
     });
 
-    // Promise wrap around `server.listen` so callers can `await start()`
-    // and get either a successful listen or a structured failure. The
-    // `listening` and `error` events are mutually exclusive on first
-    // bind per Node's net docs.
-    //
-    // State-mutation ordering: `#server` and `#started` are assigned
-    // AFTER `await` resolves, NOT before. If `listen` rejects (EADDRINUSE,
-    // EACCES, etc.), the rejection propagates and the instance stays in
-    // the pre-call state — a subsequent `start()` retry is permitted
-    // (rather than throwing "gateway already started" against a
-    // never-bound listener). The persistent `server.on("error", ...)`
-    // listener above is unaffected; supervision still fires for the
-    // failed-bind error event.
+    // `#server` and `#started` are set only after the listen resolves, so a failed bind leaves the
+    // instance retryable. The persistent `error` listener above still reports the failed bind.
     await new Promise<void>((resolve, reject) => {
       const onListening = (): void => {
         server.removeListener("error", onListenError);
@@ -820,22 +304,16 @@ export class LocalIpcGateway {
   }
 
   /**
-   * Tear down the listener and all open connections. Idempotent — calling
-   * `stop()` on an unstarted or already-stopped gateway is a no-op (in
-   * contrast to `start()`'s strict single-shot semantic). The asymmetry
-   * is deliberate: shutdown paths must be safe to call from error
-   * handlers that don't know the gateway state.
-   *
-   * Each open connection emits `onDisconnect(transport, "server_close")`
-   * before its socket is destroyed.
+   * Close the listener and every open connection, each of which fires
+   * `onDisconnect(transport, "server_close")`. Unlike `start()`, it is idempotent and a no-op on an
+   * unstarted or stopped gateway, so error handlers can call it without knowing the state.
    */
   async stop(): Promise<void> {
     if (!this.#started || this.#server === null) {
       return;
     }
 
-    // Snapshot the connection list — `#onSocketEnd` mutates the map
-    // during iteration if we don't snapshot first.
+    // Snapshot: disconnecting mutates the map.
     const connections = Array.from(this.#connections.values());
     for (const conn of connections) {
       this.#emitDisconnect(conn, "server_close");
@@ -862,11 +340,8 @@ export class LocalIpcGateway {
   // Per-connection wiring
   // ------------------------------------------------------------------------
 
-  #onSocketConnect(socket: net.Socket, listenPath: string): void {
-    const transport: SupervisionTransport = {
-      id: allocTransportId(),
-      remoteFamily: detectFamily(socket, listenPath),
-    };
+  #onSocketConnect(socket: net.Socket): void {
+    const transport: SupervisionTransport = { id: allocTransportId() };
     const state: ConnectionState = {
       transport,
       socket,
@@ -886,21 +361,13 @@ export class LocalIpcGateway {
       this.#emitDisconnect(state, "client_close");
     });
     socket.on("close", () => {
-      // `close` fires after `end` or after `error`. The disposed flag
-      // suppresses the duplicate disconnect notification.
+      // `close` follows `end` or `error`; the disposed flag drops the duplicate.
       this.#emitDisconnect(state, "client_close");
     });
     socket.on("error", (err) => {
-      // Disposed-flag gate maintains the supervision contract documented
-      // on `SupervisionDisconnectReason["transport_error"]` — every
-      // `onError(transport, ...)` is followed by exactly ONE
-      // `onDisconnect(transport, reason)` for the same transport id.
-      // Node permits a trailing socket `error` event after `close` (e.g.
-      // ECONNRESET observed during teardown after a clean `end`); without
-      // this gate, the `onError` would fire on a transport id already
-      // declared dead while the subsequent `#emitDisconnect` is suppressed
-      // by the same disposed flag — supervision would observe a dangling
-      // `onError` it cannot correlate to a lifecycle event.
+      // Node can emit an `error` after `close` (such as ECONNRESET during teardown). Once
+      // disposed, `#emitDisconnect` is suppressed, so reporting it would leave a dangling
+      // `onError` with no matching `onDisconnect`.
       if (state.disposed) {
         return;
       }
@@ -913,21 +380,14 @@ export class LocalIpcGateway {
 
   #onSocketData(state: ConnectionState, chunk: Buffer): void {
     state.buffer = Buffer.concat([state.buffer, chunk]);
-    // Drain as many complete frames as the buffer contains. A single
-    // chunk MAY carry multiple frames (TCP / Unix domain socket has no
-    // message boundaries); per-iteration `parseFrame` extracts one and
-    // we loop until the parser signals "wait for more".
+    // One chunk can carry several frames, since a stream has no message boundaries.
     for (;;) {
       let result: ParseFrameResult;
       try {
-        result = parseFrame(state.buffer);
+        result = parseFrame(state.buffer, MAX_MESSAGE_BYTES);
       } catch (err) {
-        // Malformed framing substrate-side enforcement: the boundary
-        // REJECTS the frame; downstream dispatch never sees it. the
-        // gateway emits a JSON-RPC error response with id=null AND THEN
-        // closes the connection. The wire is structurally desynced —
-        // the peer cannot recover by reading more bytes — so we send
-        // the response best-effort and tear down the transport.
+        // The wire is desynced and the peer cannot recover, so send a best-effort error response
+        // with id null and then close.
         const reason: SupervisionDisconnectReason =
           err instanceof FramingError && err.code === "oversized_body"
             ? "oversized_body"
@@ -937,21 +397,10 @@ export class LocalIpcGateway {
             this.#hooks.onError(state.transport, err);
           }
         } finally {
-          // I/O tear-down MUST run regardless of supervision-hook
-          // behavior. hook throws propagate (programmer error); the I/O
-          // guarantee that a desynced socket is torn down is INDEPENDENT
-          // of supervision health. Without this finally, a throwing
-          // onError would skip `#sendEnvelope` / `#emitDisconnect` /
-          // `socket.destroy()`, leaving the socket open with a corrupt
-          // accumulator — every subsequent `data` event would re-enter
-          // `#onSocketData` against the desynced buffer and re-throw on
-          // the same boundary.
-          //
-          // Best-effort emit: the `#sendEnvelope` may fail (e.g. socket
-          // already broken); we don't care because we're about to
-          // destroy the socket anyway. Use the id=null path per JSON-RPC
-          // section 5. `mapJsonRpcError` is non-throwing (its
-          // sanitization seam is non-throwing contract).
+          // Tear-down runs even if a supervision hook throws (the throw still propagates).
+          // Otherwise the socket would stay open with a corrupt accumulator and every later `data`
+          // event would fail on the same boundary. The send is best-effort because the socket is
+          // about to be destroyed, and `mapJsonRpcError` does not throw.
           this.#sendEnvelope(state, mapJsonRpcError(err, null));
           this.#emitDisconnect(state, reason);
           state.socket.destroy();
@@ -959,27 +408,17 @@ export class LocalIpcGateway {
         return;
       }
       if (result.frame === null) {
-        // Need more bytes. Wait for the next `data` event.
+        // Wait for the next `data` event.
         return;
       }
-      // Drop the consumed bytes from the head of the accumulator.
       state.buffer = state.buffer.subarray(result.consumed);
       this.#dispatchFrame(state, result.frame);
     }
   }
 
   #dispatchFrame(state: ConnectionState, body: Buffer): void {
-    // Step 1: parse the JSON body. Failures wrap as a `FramingError`
-    // with the synthetic `"invalid_json"` code so the single
-    // `mapJsonRpcError` discriminator handles every parse-failure
-    // shape uniformly. This is the JSON-RPC section 5.1 -32700 path.
-    //
-    // Substrate-side: malformed JSON inside an otherwise-well- framed
-    // body is a parse error. Emit a parse-error response (id null per
-    // spec) and CONTINUE serving the connection — JSON-level
-    // corruption of a single message does NOT require closing the
-    // transport (the framing layer succeeded; the next frame may parse
-    // cleanly).
+    // A body that is not valid JSON is a `-32700` parse error with id null. The connection stays
+    // open: the framing was intact, so the next frame may parse.
     let parsed: unknown;
     try {
       parsed = JSON.parse(body.toString("utf8")) as unknown;
@@ -992,14 +431,7 @@ export class LocalIpcGateway {
       return;
     }
 
-    // Step 2: discriminate the envelope shape. The substrate's only
-    // structural requirements at this layer are "is it a JSON-RPC
-    // envelope at all?" — full param-schema validation runs INSIDE
-    // the registry's dispatch (T-3).
-    //
-    // Envelope-shape failures wrap as a `FramingError` with the
-    // synthetic `"invalid_envelope"` code so they map to JSON-RPC
-    // -32600 Invalid Request per spec.
+    // Envelope-shape failures are `-32600`. Full params validation happens in the registry.
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       const wrapped = new FramingError(
         "invalid_envelope",
@@ -1017,8 +449,7 @@ export class LocalIpcGateway {
       this.#sendEnvelope(state, mapJsonRpcError(wrapped, extractIdSafely(envelope)));
       return;
     }
-    // A request envelope per JSON-RPC section 4 MUST carry a `method` field.
-    // Reject missing/non-string method as a -32600 Invalid Request.
+    // A request must carry a string `method`.
     const methodCandidate = envelope["method"];
     if (typeof methodCandidate !== "string") {
       const wrapped = new FramingError(
@@ -1029,25 +460,12 @@ export class LocalIpcGateway {
       return;
     }
 
-    // Step 3: notification vs request discrimination. The server
-    // MUST NOT reply to a notification per spec.
-    //
-    // Note: `extractIdSafely` returns `null` for BOTH "id field
-    // missing" AND "id field present but invalid"; we cannot use it
-    // for this discrimination. The `"id" in envelope` check is the
-    // only correct test.
+    // A notification has no `id` member. `extractIdSafely` returns `null` for both a missing and
+    // an invalid id, so only the `in` check tells them apart.
     const isNotification = !("id" in envelope);
-    // Substrate-side: when `id` IS present but its runtime type is not
-    // `string | number | null` (per JSON-RPC section 4 +
-    // contracts/jsonrpc.ts:74 `JsonRpcId`), the envelope is a malformed
-    // Request and MUST be rejected as -32600 BEFORE handler dispatch.
-    // Without this gate, an envelope like `{"id": {}}` / `{"id": []}` /
-    // `{"id": true}` would slip through the `"id" in envelope` check
-    // (id present), the handler would run, and `extractIdSafely` would
-    // coerce the bad id to `null` for the response — silently
-    // swallowing a wire-protocol violation. Mirrors the
-    // method-validation precedent above (lines 941-948): same shape,
-    // different field.
+    // A present `id` that is not a string, number or null is a `-32600` malformed request. Without
+    // this gate `{"id": {}}` would reach the handler, and `extractIdSafely` would quietly turn the
+    // bad id into `null` in the response.
     if (!isNotification) {
       const idCandidate = envelope["id"];
       if (
@@ -1062,21 +480,11 @@ export class LocalIpcGateway {
         this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
         return;
       }
-      // Step 3a: bound the id. The substrate echoes `id` verbatim, so it is
-      // the one response member the CALLER sizes. An id that fits the inbound
-      // frame can still make every reply to it un-encodable: the send path
-      // cannot transmit the reply that failed to encode, so it destroys the
-      // socket (`#sendEnvelope`). Without this gate a caller could drop its
-      // own session with a request the substrate accepted, and no response
-      // schema could prevent it — a schema bounds what the RESPONSE chooses,
-      // and the response does not choose its own id.
-      //
-      // Refused as -32600 Invalid Request, the same class as the shape
-      // violation above: an id outside the wire's declared bound is not a
-      // valid Request object. The error frame carries id Null rather than the
-      // offending value — echoing it back is precisely the write this gate
-      // exists to prevent, and JSON-RPC section 5 mandates Null whenever the id
-      // could not be recovered.
+      // Bound the id: the response echoes it verbatim, so it is the one response member the caller
+      // sizes. An id that fits the inbound frame can still make every reply un-encodable, and
+      // `#sendEnvelope` then destroys the socket, so a caller could drop its own session and no
+      // response schema could prevent it. The error frame carries id null, not the offending
+      // value, since echoing it is the write this gate exists to prevent.
       if (!isJsonRpcIdWithinBound(idCandidate)) {
         const wrapped = new FramingError(
           "invalid_envelope",
@@ -1089,44 +497,16 @@ export class LocalIpcGateway {
     const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
     const params = envelope["params"];
 
-    // Step 3.5: enforce per-request `protocolVersion`. The substrate refuses dispatch
-    // BEFORE the handler runs (substrate-side: every request that reaches the
-    // registry MUST carry a wire-shape-valid `protocolVersion` field on the JSON-RPC
-    // envelope itself). The handshake (`daemon.hello`) is exempt because the
-    // negotiation parameter rides in `params.protocolVersion` (proposed primary) /
-    // `params.supportedProtocols` (full set) — by definition the envelope-level field
-    // cannot exist before the handshake completes. The exempt set is canonical at
-    // `packages/contracts/src/jsonrpc.ts` `ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS`.
+    // Every request except the handshake must carry a valid envelope-level `protocolVersion`;
+    // `daemon.hello` is exempt because its version rides in `params` (see
+    // `ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS`). This gate runs after the id-shape gate so a bad
+    // id still reports `invalid_envelope`; keep that order.
     //
-    // Ordering rationale: this gate fires AFTER Step 3 (id-shape) so
-    // that structural-envelope violations (id wrong type) surface their
-    // own `invalid_envelope` data.type rather than this gate's
-    // `invalid_protocol_version`. A future refactor MUST NOT reorder
-    // these — the malformed-id regression test depends on id-shape
-    // rejecting first; reordering would change
-    // the surfaced `data.type` for `{ id: {}, ...no protocolVersion }`
-    // envelopes silently.
-    //
-    // Wire-shape: the gate fires three discriminated reasons
-    // (`missing` / `wrong_type` / `invalid_format`) carried in
-    // `data.fields.reason`. The actual offending VALUE is NOT echoed
-    // back — `wrong_type` includes a JS-typeof tag (`"object"`,
-    // `"number"`, `"boolean"`) so observability can reason without
-    // surfacing client-supplied content. Note: a JSON `null` arrives
-    // as `typeof null === "object"`, which we classify under
-    // `wrong_type` (not `missing`) — the field is PRESENT but not a
-    // string, mirroring the JSON-Schema `null !== absent` distinction.
-    //
-    // Notification path: per JSON-RPC section 4.1 the server MUST NOT respond
-    // to notifications. A notification with a malformed protocolVersion
-    // field is therefore dropped silently, with the violation surfaced
-    // through the supervision `onError` hook (mirroring the dispatch-
-    // path notification handling at lines 1107-1126 below). The
-    // `state.disposed` early-return preserves the supervision contract
-    // "every onError(transport, ...) is followed by exactly one
-    // onDisconnect(transport, reason) for the same transport id" — if
-    // the peer disconnected before this branch fires, the onDisconnect
-    // already ran and surfacing onError now would dangle.
+    // `data.fields.reason` is `missing`, `wrong_type` or `invalid_format`. The offending value is
+    // never echoed; `wrong_type` carries only the JS typeof tag. A JSON `null` is `wrong_type`
+    // because the field is present. A notification with a bad version is dropped and reported
+    // through `onError`, unless the peer already disconnected (an `onError` after `onDisconnect`
+    // would dangle).
     if (!ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS.has(methodCandidate)) {
       const pvCandidate = envelope["protocolVersion"];
       let pvReason: "missing" | "wrong_type" | "invalid_format" | null = null;
@@ -1161,26 +541,15 @@ export class LocalIpcGateway {
       }
     }
 
-    // Step 4: dispatch through the registry. The registry's
-    // `dispatch()` returns a `Promise<unknown>` that resolves with
-    // the handler's result on success or rejects with a
-    // `RegistryDispatchError` on registry-detected failure (or
-    // arbitrary thrown value on handler failure). Both shapes flow
-    // through `mapJsonRpcError` for the wire envelope.
-    //
-    // Async handling: `#onSocketData`'s outer loop continues draining
-    // synchronously (each `#dispatchFrame` call kicks off a
-    // dispatch and returns immediately); the dispatch's resolution
-    // writes back later via `#sendEnvelope`. Multiple in-flight
-    // dispatches per connection are permitted — JSON-RPC carries no
-    // ordering guarantee beyond request-response id-correlation.
+    // Dispatch resolves with the handler's result, or rejects with a `RegistryDispatchError` or
+    // whatever the handler threw; both paths reply through `#sendEnvelope`. The read loop does not
+    // wait, so several dispatches can be in flight per connection: JSON-RPC promises no order
+    // beyond id correlation.
     const ctx: HandlerContext = { transportId: state.transport.id };
     this.#registry.dispatch(methodCandidate, params, ctx).then(
       (result: unknown) => {
         if (isNotification) {
-          // Per JSON-RPC section 4.1: notifications MUST NOT receive a
-          // response. The handler ran (its side-effects took); we
-          // simply don't emit anything.
+          // A notification gets no response.
           return;
         }
         const response: JsonRpcResponse = {
@@ -1192,33 +561,17 @@ export class LocalIpcGateway {
       },
       (err: unknown) => {
         if (isNotification) {
-          // Per JSON-RPC section 4.1: notifications are one-way. The
-          // handler threw, but we MUST NOT emit a response. Surface
-          // via supervision so the operator can correlate notification-
-          // handler bugs with their causes; the response wire stays
-          // silent.
-          //
-          // Disposed-flag gate mirrors the socket `error` listener
-          // pattern at lines 799-804: the supervision contract is
-          // "every onError(transport, ...) is followed by exactly one
-          // onDisconnect(transport, reason) for the same transport id".
-          // If the peer disconnected before the notification handler
-          // resolved, `state.disposed` is already set and `onDisconnect`
-          // already fired — surfacing onError now would leave a
-          // dangling onError supervision cannot correlate.
+          // A notification gets no response, so a handler failure is reported through
+          // supervision. As in the socket `error` listener, a disposed connection is skipped so
+          // `onError` never follows `onDisconnect`.
           if (state.disposed) return;
           if (this.#hooks !== null) {
             this.#hooks.onError(state.transport, err);
           }
           return;
         }
-        // Enforcement happens INSIDE `mapJsonRpcError` — every
-        // error.message is sanitized before the envelope is built. We
-        // do not reach into the discriminator here. Note: the
-        // request-path resolution callbacks do NOT need explicit
-        // disposed gates — `#sendEnvelope` is disposed-aware
-        // (early-return at the top of the method), so an in-flight
-        // dispatch resolving after disconnect is dropped silently.
+        // `#sendEnvelope` drops replies to a disposed connection, so no disposed check is needed
+        // here.
         this.#sendEnvelope(state, mapJsonRpcError(err, requestId));
       },
     );
@@ -1229,16 +582,9 @@ export class LocalIpcGateway {
   // ------------------------------------------------------------------------
 
   /**
-   * Internal hook for emitting any JSON-RPC envelope on the connection.
-   * Single emission seam — every outbound success response, error
-   * response, and (post-T-5) streaming notification flows through here
-   * so future supervision/log hooks can intercept outbound traffic
-   * uniformly.
-   *
-   * Error envelopes reach this helper via `mapJsonRpcError` (the single
-   * sanitization + numeric-code-mapping seam). Success envelopes are
-   * constructed inline at the dispatch resolution site. will route
-   * streaming-notification envelopes through the same helper.
+   * The single outbound seam: every success response and error response is written here. Error
+   * envelopes come from `mapJsonRpcError`, which sanitizes them. Nothing is sent once the
+   * connection is disposed.
    */
   #sendEnvelope(state: ConnectionState, envelope: JsonRpcResponse | JsonRpcErrorResponse): void {
     if (state.disposed) {
@@ -1248,15 +594,9 @@ export class LocalIpcGateway {
     try {
       frame = encodeFrame(envelope);
     } catch (err) {
-      // Outbound oversize / encode failure. We cannot send a response
-      // (the response itself is what failed to encode); surface to
-      // supervision and disconnect.
-      //
-      // try/finally mirrors the framing-error catch in `#onSocketData`:
-      // I/O tear-down MUST run regardless of supervision-hook behavior.
-      // A throwing onError would otherwise skip `#emitDisconnect` and
-      // `socket.destroy()`, leaving the socket open and the connection
-      // map entry leaked.
+      // The reply that failed to encode cannot be sent, so report to supervision and disconnect.
+      // Tear-down runs even if `onError` throws, or the socket would stay open and leak its map
+      // entry.
       try {
         if (this.#hooks !== null) {
           this.#hooks.onError(state.transport, err);
@@ -1287,23 +627,15 @@ export class LocalIpcGateway {
 // --------------------------------------------------------------------------
 
 /**
- * Best-effort extraction of the request `id` for echo into an error
- * envelope. Per JSON-RPC 2.0 section 5.1: "If there was an error in detecting
- * the id in the Request object (e.g. Parse error / Invalid Request), it
- * MUST be Null." This helper returns `null` for any non-conforming `id`
- * value; the caller does not need to discriminate.
+ * The request `id` to echo into an error envelope, or `null` when it is missing, malformed or
+ * over the id bound. JSON-RPC requires Null when the id cannot be recovered.
  */
 function extractIdSafely(envelope: Record<string, unknown>): JsonRpcId {
   const candidate = envelope["id"];
   if (typeof candidate === "string" || typeof candidate === "number" || candidate === null) {
-    // An id past `JSON_RPC_ID_MAX_BYTES` is treated as unrecoverable rather
-    // than echoed. Every caller of this helper is building an ERROR frame for
-    // an envelope that failed an earlier gate (`jsonrpc`, `method`), and those
-    // gates answer before `#dispatchFrame`'s id-bound refusal runs — so
-    // without this branch the one frame guaranteed to be small would be the
-    // one carrying an oversized echo, and the connection would close on a
-    // malformed request instead of the client being told it sent one.
-    // JSON-RPC section 5 mandates Null when the id cannot be detected or recovered.
+    // An over-bound id is not echoed: the callers build error frames for envelopes that failed an
+    // earlier gate (`jsonrpc`, `method`), which answer before the id-bound refusal, so echoing
+    // would make the one frame that must be small the one that closes the connection.
     return isJsonRpcIdWithinBound(candidate) ? candidate : null;
   }
   return null;

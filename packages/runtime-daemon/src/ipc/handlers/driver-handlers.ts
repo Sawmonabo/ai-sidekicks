@@ -1,119 +1,20 @@
-// The `driver.*` JSON-RPC handlers
+// The `driver.*` request/response JSON-RPC handlers, bound onto the `MethodRegistry` and
+// dispatched into the in-daemon `ProviderRegistry`. `driver.subscribeEvents` lives in
+// `driver-subscribe.ts`.
 //
-// The EIGHT request/response verbs of the client-facing set, bound onto the
-// `MethodRegistry` and dispatched into the IN-DAEMON `ProviderRegistry`. The
-// ninth, `driver.subscribeEvents`, is registered by the sibling
-// `driver-subscribe.ts` — moved that leg out of this module rather than leaving a
-// second copy behind, so this file no longer binds it and no longer derives the
-// driver event set. That dispatch target is the point rather than an
-// implementation detail: holds driver authority LOCAL even when the provider
-// endpoint is remote, so every handler here resolves a driver instance from the
-// local registry and calls it in this process. Nothing in this module can express
-// "execute via the control plane", which is how the invariant survives contact
-// with a wire surface.
-//
-// WHY THE CLIENT-FACING SET IS NINE AND NOT THIRTEEN. `ProviderDriver` carries eighteen operations.
-// Four of them — `createSession`, `resumeSession`, `startRun`, `closeSession` — are daemon-internal
-// restore, start, or tear down a session-or-run domain object, which is orchestration's job, and a
-// client reaching them directly would let a caller mint runtime state behind the orchestrator's
-// back. Their absence from this file is the enforcement — there is no schema for them at the SDK
-// seam and no `register` call here, so a client that guessed the method name gets
-// `method_not_found` from the registry substrate. the two console-parity verbs
-// (`driver.compactContext`, `driver.listProviderCommands`) extend THIS module (never a second one),
-// taking the set bound here from six to eight: both are request/response dispatches, which is the
-// concern this file owns. `driver-subscribe.ts` is not a counterexample to that rule but an
-// application of it — a subscription allocates per-connection state and owns an ordering obligation
-// none of these verbs carry, which is the seam draws and the same one `session-subscribe.ts`
-// already sits on.
-//
-// THE TWO CONSOLE-PARITY VERBS ARE SESSION-ADDRESSED, AND AUTHORIZATION RUNS
-// FIRST. Unlike the run-addressed verbs — whose run id is globally unique — a
-// binding and an agent are only identified within a session, so both requests
-// carry the session id, and it is the AUTHORIZATION SCOPE before it is an
-// address. A caller naming a session this node does not host is refused
-// `session.not_found` BYTE-IDENTICALLY to a caller naming a session that does
-// not exist (one throw site, constant message, no fields), so the refusal is no
-// session-existence oracle. Only then does the canonical fixed refusal order
-// proceed: `run.not_found` / `agent.not_found` on the second key,
-// `driver.unavailable` where no live binding backs the target, and the
-// capability gate (`context_compaction` / `provider_commands`) last — every one
-// an already-registered code. `driver.compactContext` additionally runs the
-// run-control adjudication between the address check and the liveness check,
-// and a deny settles on the operation's OWN refused arm (`not_permitted`)
-// rather than as a JSON-RPC error: a denied caller was answered, not
-// mis-addressed.
-//
-// THE THREE READS ARE NO-ARG AND REPLY PER DRIVER. `driver.listCapabilities`,
-// `driver.listModels`, and `driver.listModes` take an empty request — the
-// ratified `DriverClient` signature writes them without a parameter while the
-// three run-addressed verbs take one — and answer with a GROUP LIST keyed by
-// driver name. The rosters are sorted by driver name so the reply is stable
-// across daemon restarts, which a renderer that keys list items on position
-// depends on.
-//
-// THE THREE RUN VERBS ARE RUN-ADDRESSED, AND RESOLUTION IS INJECTED. A run id is
-// globally unique, so the wire shapes carry no session selector — a second
-// addressing key would have no honest answer when the two disagreed. Turning a
-// run id into a driver is a LIVENESS judgement (`runtime_bindings` is 1:many per
-// run and retains superseded pre-relaunch rows), and `RuntimeBindingStore`
-// deliberately owns no liveness column so that the judgement is made in exactly
-// one place. This module therefore takes `resolveDriverForRun` as an injected
-// dependency rather than reaching for `findByRun` and picking the newest row —
-// picking here would be a wire handler inventing a second definition of "live",
-// which is precisely what that store's contract warns against.
-//
-// ERROR TRANSLATION HAPPENS HERE, AT THE WIRE BOUNDARY. `ProviderRegistry`
-// throws `DriverUnavailableError` / `DriverCapabilityUnsupportedError`, both
-// plain `Error` subclasses carrying a registered `code` and structured `fields`.
-// `mapJsonRpcError` has no branch for either, so left untranslated they would
-// reach a client as a bare `-32603` with no `data.type` — indistinguishable from
-// a daemon crash. Translating them into `DaemonDomainError` at this seam gives
-// them their registered wire projection through the mapper's single generic
-// branch WITHOUT editing the shipped provider-layer classes and WITHOUT minting
-// a numeric code: the provider layer keeps speaking its own typed errors, and
-// the IPC layer owns the projection, which is the layering the rest of the
-// daemon already uses.
-//
-// Every code this module can raise is already registered — `driver.unavailable`
-// (503), `driver.capability_unsupported` (400), `run.not_found` (404), and, on
-// the two console-parity verbs, `session.not_found` (404) and `agent.not_found`
-// (404). Nothing new is minted; the driver namespace stays closed at its seven
-// codes.
-//
-// ATTACHMENT-BEARING STEERS ARE REFUSED HERE, AT THE ONE INGRESS BOTH DRIVERS
-// SHARE. `SteerPayload.attachments` is typed `ArtifactId[]`, but no seam in this
-// daemon resolves an id to bytes yet and neither dispatcher reads the list — the
-// Codex one builds `steerRun` from `runId` / `content` / `expectedTurnId` / the
-// idempotency key, so a supported steer would return `applied` having dropped
-// every element. The contract is right and the daemon is what cannot honour it,
-// so the refusal lives at the dispatch boundary rather than in the schema (which
-// would make the arm unsendable for good) and rather than in each dispatcher
-// (which would be the same rule written twice). See
-// `refuseAttachmentDeliveryUnsupported`.
-//
-// Invariants this module participates in (canonical text):
-//   * Duplicate registration is rejected at register-time by the registry,
-//     so binding this namespace twice fails loudly at bootstrap.
-//   * The registry `safeParse`s the request SDK-seam schema before a handler
-//     body runs, and `safeParse`s the result before it reaches the wire.
-//   * Sanitized error mapping; see the translation note above.
-//   * Dotted-camelCase method names; all eight match the canonical regex.
-// It moved to `driver-subscribe.ts` with the handler that owes it.
-//
-// Mutating flags: `false` on the three roster reads and on
-// `listProviderCommands`, which reads live enumeration state and changes
-// nothing; `true` on `interruptRun`, `applyIntervention`, `respondToRequest`,
-// and `compactContext`, each of which drives a live run. The flag gates the
-// pre-handshake path, so a version-mismatched connection keeps read-only access
-// and loses exactly the four verbs that change something.
-// `driver.subscribeEvents` is `false` for the same reason the reads are, and
-// carries that flag in its own module.
-//
+// - Driver authority is local: every handler resolves a driver from the local registry.
+// - `createSession`, `resumeSession`, `startRun`, `closeSession` and `respondToRequest` have no
+//   verb: orchestration owns the first four, and a person answers an ask through
+//   `approval.resolve` or `question.resolve`. A client guessing the name gets `method_not_found`.
+// - Session-addressed verbs run the session-access mask first: a session id is the authorization
+//   scope before it is an address.
+// - Run-addressed verbs take `resolveDriverForRun` as a dependency, because liveness over
+//   `runtime_bindings` (1:many per run, superseded rows kept) is judged in one place.
 
 import type {
   ApplyInterventionParams,
   CompactContextRequest,
-  DriverAckResult,
+  EmptyPayload,
   DriverCapabilityReport,
   DriverCompactionResult,
   DriverInterventionResult,
@@ -123,33 +24,19 @@ import type {
   Handler,
   InterruptRunParams,
   ListCapabilitiesResult,
+  ListModelsRequest,
   ListModelsResult,
   ListModesResult,
   ListProviderCommandsRequest,
   MethodRegistry,
+  ProviderCommandBinding,
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
-  ProviderDriver,
-  RespondToRequestParams,
+  ProviderName,
   RunId,
   SessionId,
 } from "@ai-sidekicks/contracts";
-import {
-  ApplyInterventionParamsSchema,
-  CompactContextRequestSchema,
-  DriverAckResultSchema,
-  DriverCompactionResultSchema,
-  DriverInterventionResultSchema,
-  DriverReadParamsSchema,
-  InterruptRunParamsSchema,
-  JsonRpcErrorCode,
-  ListCapabilitiesResultSchema,
-  ListModelsResultSchema,
-  ListModesResultSchema,
-  ListProviderCommandsRequestSchema,
-  ProviderCommandListResultSchema,
-  RespondToRequestParamsSchema,
-} from "@ai-sidekicks/contracts";
+import { DRIVER_METHOD_DESCRIPTORS, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityCache } from "../../provider/capability-cache.js";
 import {
@@ -160,28 +47,20 @@ import {
 import { DaemonDomainError } from "../domain-error.js";
 import { SessionNotFoundError } from "../session-errors.js";
 
-// --------------------------------------------------------------------------
-// Dependency contracts
-// --------------------------------------------------------------------------
+import { registerDescribedMethod } from "./register-described-method.js";
+import {
+  DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
+  type ProviderDriver,
+} from "../../provider/provider-driver.js";
 
-/**
- * The registry surface a roster read needs. `Pick`ed rather than typed as the
- * whole class so a test double is the two methods it actually calls — and so a
- * handler cannot quietly start using `checkCapability`, which belongs to the
- * pre-dispatch gate and not to a read.
- */
+/** The registry surface a roster read needs; it excludes `checkCapability`, which is a gate. */
 type DriverRosterSource = Pick<ProviderRegistry, "listAvailable" | "lookup">;
 
 /** Dependencies for `driver.listCapabilities`. */
 export interface DriverListCapabilitiesDeps {
   /** Enumerates the drivers this node has loaded; the reply's roster. */
   readonly providerRegistry: Pick<ProviderRegistry, "listAvailable">;
-  /**
-   * `read` serves one driver's client-facing report from memory (or from ONE
-   * durable read on a miss) and never round-trips a driver process — which is
-   * what makes this method cheap enough for a renderer to call whenever it needs
-   * to know which controls to offer.
-   */
+  /** Serves one driver's report from memory or one durable read; never round-trips a driver. */
   readonly capabilityCache: Pick<DriverCapabilityCache, "read">;
 }
 
@@ -191,77 +70,36 @@ export interface DriverCatalogDeps {
 }
 
 /**
- * Dependencies for the three run-addressed verbs.
- *
- * `resolveDriverForRun` is the liveness seam. It answers "which driver is
- * currently bound to this run", returning `undefined` when the run is unknown or
- * holds no live binding, and its implementor — the bootstrap orchestrator's
- * session engine, which owns the liveness judgement — is deliberately outside
- * this module. See the file header for why a handler must not make that
- * judgement itself.
+ * Dependencies for the two run-addressed verbs. `resolveDriverForRun` names the driver bound to a
+ * run, or `undefined` when the run is unknown or not live; the handler does not judge liveness.
  */
 export interface DriverDispatchDeps {
   readonly providerRegistry: Pick<ProviderRegistry, "lookup">;
-  readonly resolveDriverForRun: (runId: RunId) => string | undefined;
+  readonly resolveDriverForRun: (runId: RunId) => ProviderName | undefined;
 }
 
-// --------------------------------------------------------------------------
-// Dependency contracts — the two console-parity verbs
-// --------------------------------------------------------------------------
-//
-// THE RESOLUTION UNIONS NEVER THROW, AND THAT IS A LOAD-BEARING PROPERTY, not a
-// style choice. The canonical fixed refusal order puts the run-control
-// adjudication BETWEEN the address check (`run.not_found`) and the liveness
-// check (`driver.unavailable`), so the resolver has to hand back both facts as
-// DATA for the handler to sequence — a resolver that threw `driver.unavailable`
-// itself would land liveness ahead of the authorization step and let a denied
-// caller's answer vary with binding state. The three-armed union is the same
-// liveness seam `resolveDriverForRun` draws (the judgement lives with the
-// bootstrap orchestrator's session engine, never in a wire handler), widened by
-// the one distinction these session-scoped verbs owe: an address that does not
-// resolve versus a resolved address no live binding backs.
+// The resolution unions never throw: a resolver hands back address and liveness as data so the
+// handler can put the permission check between them, and a denied caller's answer does not
+// vary with binding state.
 
 /** One run's live-binding resolution, scoped to the addressed session. */
-export type RunBindingResolution =
+type RunBindingResolution =
   | { readonly kind: "unknown-run" }
   | { readonly kind: "no-live-binding" }
-  | { readonly kind: "bound"; readonly driverName: string; readonly bindingId: string };
+  | { readonly kind: "bound"; readonly driverName: ProviderName; readonly bindingId: string };
 
 /**
- * One live binding as the daemon resolution hands it to the fan-out.
- *
- * `providerAccountId` is the daemon's OWN record of the account the binding was
- * admitted under (binds a run's account for the run's lifetime; the resolution
- * reads its own registry, never the driver). It is here because it is the
- * verification BASELINE for the driver-stamped routing pair on every returned
- * group and entry — doctrine says the pair is "enforced at the daemon rather
- * than trusted to the renderer", and a daemon that held only the driver name
- * could verify half the pair while trusting the DRIVER for the other half.
- * `null` is the positive statement that no account is bound (mirroring the
- * contracts-side null-doctrine on `ProviderCommandEntry`); in the verification
- * below `null === null` is agreement between two records of the SAME binding,
- * not the cross-binding wildcard match that doctrine forbids on dispatch
- * routing.
+ * One live binding as the daemon resolves it. `providerAccountId` is the daemon's own record
+ * (`null`: no account), the baseline the driver-stamped routing pair is verified against.
  */
-export interface ResolvedAgentBinding {
-  readonly driverName: string;
+interface ResolvedAgentBinding {
+  readonly driverName: ProviderName;
   readonly bindingId: string;
   readonly providerAccountId: string | null;
 }
 
-/**
- * One agent's live-binding resolution, scoped to the addressed session.
- *
- * The `bound` arm is STRUCTURALLY non-empty (a leading-element tuple): an agent
- * whose binding list would be empty IS the `no-live-binding` arm, and encoding
- * that in the type means an honest resolver cannot even express the
- * bound-but-empty answer. The handler still guards the empty case at runtime —
- * a resolver cast past this type would otherwise skip the documented
- * `driver.unavailable` refusal, dispatch nothing, and let the result schema's
- * never-empty-on-success rule convert the read into a `-32603` that reports a
- * daemon bug where the contract's own refusal was owed.
- */
-export type AgentBindingsResolution =
+/** One agent's live-binding resolution; the `bound` arm is non-empty by type. */
+type AgentBindingsResolution =
   | { readonly kind: "unknown-agent" }
   | { readonly kind: "no-live-binding" }
   | {
@@ -271,92 +109,42 @@ export type AgentBindingsResolution =
 
 /** Dependencies for `driver.compactContext`. */
 export interface DriverCompactContextDeps {
-  /** `checkCapability` joins `lookup` here: this verb IS pre-gated (contrast
-   * `applyIntervention`, whose exclusion is recorded on its binder).
-   */
+  /** `checkCapability` joins `lookup` here because this verb is capability-gated. */
   readonly providerRegistry: Pick<ProviderRegistry, "lookup" | "checkCapability">;
   /**
-   * The session-access mask both console-parity verbs run FIRST. Answers
-   * `true` only when the named session EXISTS in this daemon's session engine
-   * AND is bound to this runtime node — the node executing the verb — and
-   * `false` otherwise.
-   *
-   * `false` still collapses "no such session" and "not bound here" into one
-   * answer on purpose: the handler's single masked throw site is what makes
-   * the two refusals byte-identical, and a resolver that distinguished them
-   * would be rebuilding the session-existence oracle the mask exists to
-   * remove. Implementor: the bootstrap orchestrator's session engine, off the
-   * session record it already holds and that record's runtime-node binding.
+   * `true` only when the session exists here and is bound to this node; one answer for both
+   * refusals keeps the masked throw byte-identical.
    */
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
   /**
-   * The run-control adjudication, REQUIRED. This MUST be bound to the
-   * IDENTICAL `Action::"intervene"` evaluation the `run.pause` / `run.resume`
-   * path runs — the Security Architecture permission-matrix run-control row
-   * names compaction on that same row, so a second policy here would fork one
-   * decision. No Cedar seam exists in the daemon at this task's landing (owns
-   * it); this dependency is that seam's named socket rather than a fabricated
-   * engine, and it is REQUIRED rather than optional so a bootstrap that forgot
-   * to wire it fails typecheck instead of silently refusing every compaction
-   * at runtime. The handler is fail-closed against a broken implementor
-   * besides: every answer except the literal `"permit"` settles as the
-   * operation's own `not_permitted` refusal.
+   * The run-control permission decision; required so an omitted one fails typecheck. Fail-closed:
+   * anything but `"permit"` settles as `not_permitted`.
    */
   readonly evaluateInterveneAction: (sessionId: SessionId, runId: RunId) => "permit" | "deny";
-  /** The liveness seam — see the union's own doctrine above. */
+  /** Resolves the run to its live binding, as data; see the note above the unions. */
   readonly resolveRunBinding: (sessionId: SessionId, runId: RunId) => RunBindingResolution;
 }
 
 /** Dependencies for `driver.listProviderCommands`. */
 export interface DriverListProviderCommandsDeps {
   readonly providerRegistry: Pick<ProviderRegistry, "lookup" | "checkCapability">;
-  /**
-   * Same contract as `DriverCompactContextDeps.resolveSessionAccess` — `true`
-   * only for a session that exists in this daemon's session engine AND is
-   * bound to this runtime node, with `false` collapsing "no such session" and
-   * "not bound here" so the masked refusal stays byte-identical. The
-   * production wiring binds ONE implementation to both.
-   */
+  /** Same contract as `DriverCompactContextDeps.resolveSessionAccess`. */
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
-  /**
-   * The agent-to-live-bindings fan-out seam. `agentId` is `string` because the
-   * canonical `AgentId` brand homes in the unshipped `orchestration.ts` — the
-   * wire schema UUID-validates the value, and the member narrows to the brand
-   * when that module ships (see the contracts-side note on
-   * `ListProviderCommandsRequest`).
-   */
+  /** Resolves an agent to its live bindings in the session; the wire schema checks the UUID. */
   readonly resolveAgentBindings: (sessionId: SessionId, agentId: string) => AgentBindingsResolution;
 }
 
-// --------------------------------------------------------------------------
-// Error translation
-// --------------------------------------------------------------------------
-
 /**
- * Project a provider-layer typed error onto its registered wire code, or rethrow
- * anything else untouched.
- *
- * Always throws — the `never` return is what lets a call site write
- * `catch (thrown) { translateDriverError(thrown); }` without the compiler
- * demanding a return after it.
- *
- * The `httpStatus` values mirror the error-contracts table exactly (503 / 400)
- * and are carried for control-plane and observability symmetry; the JSON-RPC
- * seam reads `jsonRpcCode`, not this. `InvalidRequest` for
- * `capability_unsupported` rather than `InvalidParams`: the request is
- * structurally well-formed and its params resolve fine — what fails is a
- * protocol-state contract, which is that numeric's stated meaning, whereas
- * `InvalidParams` is for a supplied id that does not resolve.
- *
- * `fields` is spread into `detail` rather than aliased so the thrown error's own
- * object cannot be mutated by the mapper's sanitizer downstream.
+ * Projects a provider-layer typed error onto its registered wire code and rethrows anything else;
+ * it always throws. `capability_unsupported` is `InvalidRequest`: the params resolve and a
+ * protocol-state contract fails.
  */
 export function translateDriverError(thrown: unknown): never {
+  // `detail` is a copy so the mapper's sanitizer cannot mutate the error's own fields.
   if (thrown instanceof DriverUnavailableError) {
     throw new DaemonDomainError(thrown.message, {
       code: thrown.code,
       jsonRpcCode: JsonRpcErrorCode.InternalError,
-      httpStatus: 503,
       detail: { ...thrown.fields },
     });
   }
@@ -365,14 +153,12 @@ export function translateDriverError(thrown: unknown): never {
     throw new DaemonDomainError(thrown.message, {
       code: thrown.code,
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      httpStatus: 400,
       detail: { ...thrown.fields },
     });
   }
   throw thrown;
 }
 
-/** Run a driver dispatch with provider-layer errors projected onto the wire. */
 async function withDriverErrorTranslation<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
@@ -382,199 +168,109 @@ async function withDriverErrorTranslation<T>(operation: () => Promise<T>): Promi
 }
 
 /**
- * Resolve the driver instance currently bound to a run, or refuse.
- *
- * Two refusals, in a fixed order that mirrors the one the console-parity
- * verbs use for their session-addressed shapes: the ADDRESS fails first
- * (`run.not_found`), then availability (`driver.unavailable`). Checking
- * availability first would report a loaded-driver problem for a run id that
- * never existed, sending a caller to fix the wrong thing.
+ * Resolves the driver bound to a run, or refuses: the address fails first (`run.not_found`), then
+ * availability, so a run id that never existed is not reported as a driver problem.
  */
 function resolveDriverForRunOrThrow(
   deps: DriverDispatchDeps,
   runId: RunId,
-): { readonly driverName: string; readonly driver: ProviderDriver } {
-  // Called ONCE per dispatch and its answer carried, rather than re-asked for
-  // the name: the resolver reads live binding state, so two calls can disagree
-  // and a handler that acted on one answer while reporting the other would
-  // attribute a refusal to the wrong driver.
+): { readonly driverName: ProviderName; readonly driver: ProviderDriver } {
+  // Called once: the resolver reads live binding state, so a second call could disagree.
   const driverName = deps.resolveDriverForRun(runId);
   if (driverName === undefined) {
     refuseRunNotFound(runId);
   }
   const driver = deps.providerRegistry.lookup(driverName);
   if (driver === undefined) {
-    // The run names a driver this node has not loaded. Reusing the registry's
-    // own error class rather than constructing a `DaemonDomainError` inline
-    // keeps one throw site's worth of drift out of the codes: this is exactly
-    // the state `checkCapability` reports the same way.
+    // The run names a driver this node has not loaded; reuse the registry's error class.
     translateDriverError(new DriverUnavailableError(driverName));
   }
   return { driverName, driver };
 }
 
-/**
- * Refuse a run address that does not resolve. ONE throw site for the code, so
- * the run-addressed verbs and `driver.compactContext` cannot drift on its
- * message, numeric, or detail shape.
- */
+/** One throw site, so the run-addressed verbs and `driver.compactContext` cannot drift. */
 function refuseRunNotFound(runId: RunId): never {
   throw new DaemonDomainError("Run does not exist or is not accessible", {
     code: "run.not_found",
     jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    httpStatus: 404,
     detail: { runId },
   });
 }
 
 /**
- * Refuse a session the caller may not see — ONE throw site, and the singularity
- * is the security property. Both console-parity verbs route their
- * session-access mask through this function with a constant message and NO
- * fields, so `buildSessionNotFoundData` emits `{ type }` alone and the refusal
- * for a session that is not bound to this node is byte-for-byte the
- * unknown-session refusal: the verb cannot be used to probe which sessions
- * exist. The message is the registered description for `session.not_found`
- * verbatim.
+ * The only throw site for the session mask: constant message and no fields, so a session not
+ * bound here is indistinguishable from an unknown one.
  */
 function refuseSessionNotFound(): never {
   throw new SessionNotFoundError("Session does not exist or is not accessible");
 }
 
-/**
- * Refuse an agent address that does not resolve within the addressed session.
- * Mirrors `refuseRunNotFound` member for member; `agent.not_found` registers
- * `agentId` as its one `data.fields` entry.
- */
 function refuseAgentNotFound(agentId: string): never {
   throw new DaemonDomainError("Agent does not exist in the session", {
     code: "agent.not_found",
     jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    httpStatus: 404,
     detail: { agentId },
   });
 }
 
 /**
- * Refuse a resolved target that no live binding backs.
- *
- * Constructed inline rather than through `DriverUnavailableError` because that
- * class's fields carry a `driverId` — and on this arm there IS no driver name:
- * the target holds no live binding at all. The envelope carries NO
- * `data.fields` either, deliberately: naming the target (`runId` / `agentId`)
- * would mint a new fields shape on a registered code whose contract row
- * documents none (every other producer emits `{ driverId }`), and it would
- * tell the caller nothing — the caller addressed that exact target in the
- * request this refusal answers, and JSON-RPC id correlation already binds the
- * two. Message and numerics mirror the registered `driver.unavailable` row and
- * the `translateDriverError` projection exactly.
+ * Refuses a target no live binding backs. Built inline because `DriverUnavailableError` carries a
+ * `driverId` and there is no driver name here; no `data.fields`, the caller knows its target.
  */
 function refuseNoLiveBinding(): never {
   throw new DaemonDomainError("Provider driver is currently unavailable", {
     code: "driver.unavailable",
     jsonRpcCode: JsonRpcErrorCode.InternalError,
-    httpStatus: 503,
   });
 }
 
 /**
- * Assert a resolved driver actually implements the operation about to be called.
- *
- * NOT defensive programming. Both drivers this repo ships are deliberately
- * narrowed (`Pick`-typed) to the operations their phase has built, and two of
- * the nine client-facing verbs — `listModes` and `respondToRequest` — are
- * implemented by NEITHER at the time this handler set lands. `lookup()` returns
- * the full `ProviderDriver` type, so the call typechecks and then throws
- * `TypeError: driver.listModes is not a function` at runtime, which
- * `mapJsonRpcError` collapses to a bare `-32603` — a client told the daemon
- * crashed when what actually happened is a driver that does not offer the
- * operation.
- *
- * `driver.capability_unsupported` (400) is the registered code for that, and it
- * is the honest one on both halves: an operation the driver does not implement
- * IS a capability it does not support, and 400 says "this will not succeed on
- * retry", which is true where a 503 would invite a retry loop against a driver
- * that will never grow the method. It differs from `ProviderRegistry`'s gate in
- * carrying an OPERATION name rather than a `DriverCapabilityFlag`, because no
- * flag governs these two operations — the flag set gates capabilities, not the
- * contract's own method surface.
+ * Asserts a resolved driver implements the operation. Neither shipped driver implements every
+ * one (both omit `listModes`), and a missing method would be a `TypeError` mapped to `-32603`;
+ * `InvalidRequest` tells the caller not to retry. It names an operation because no capability
+ * flag governs it.
  */
 function requireDriverOperation(
   driver: ProviderDriver,
-  driverName: string,
+  driverName: ProviderName,
   operation: keyof ProviderDriver,
 ): void {
   if (typeof driver[operation] !== "function") {
-    throw new DaemonDomainError("Requested capability is not supported by the driver", {
+    throw new DaemonDomainError(DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, {
       code: "driver.capability_unsupported",
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      httpStatus: 400,
       detail: { driverId: driverName, operation },
     });
   }
 }
 
 /**
- * Refuse a steer carrying attachment references the daemon cannot yet deliver.
- *
- * ONE throw site, at the ONE ingress both drivers share, and BEFORE any driver
- * method runs — which is the whole point. `SteerPayload.attachments` is typed
- * `ArtifactId[]` and the schema admits it, but nothing downstream resolves an
- * id to bytes: the Codex dispatcher builds its `steerRun` request from
- * `runId` / `content` / `expectedTurnId` / the idempotency key and never reads
- * the list, so a supported steer would answer `applied` having dropped every
- * element. A silently shortened attachment list is precisely the failure the
- * typed carrier exists to prevent, so the carrier is refused WHOLE rather than
- * partially honoured. The Claude arm sends nothing today and degrades, but it
- * is refused on the same terms: `degraded` would tell the orchestration layer
- * to queue-and-interrupt with attachments the daemon equally cannot deliver.
- *
- * `driver.capability_unsupported` rather than a new code: no driver declares an
- * attachment-delivery leg, which is the same fact the registry's flag gate and
- * the operation check above report, and this refusal lifts the moment a driver
- * can honour the arm. Message, numerics, and `data.fields` mirror
- * `requireDriverOperation` exactly so the two cannot drift, and no new fields
- * member is minted (the count is not carried: the caller sent the list this
- * refusal answers).
+ * Refuses a steer with attachment references before any driver method runs: nothing downstream
+ * resolves an id to bytes (the Codex dispatcher builds `steerRun` without them), so the steer
+ * would answer `applied` with them dropped. Same shape as `requireDriverOperation`.
  */
-function refuseAttachmentDeliveryUnsupported(driverName: string): never {
+function refuseAttachmentDeliveryUnsupported(driverName: ProviderName): never {
   throw new DaemonDomainError(
-    "Attachment references on a steer cannot be delivered yet, so the whole intervention is refused rather than applied with its attachments dropped. Re-send the steer without attachments; delivery arrives with the daemon's attachment-reference resolver.",
+    "Attachment references on a steer cannot be delivered, so the whole intervention is refused " +
+      "rather than applied with its attachments dropped. Re-send the steer without attachments.",
     {
       code: "driver.capability_unsupported",
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      httpStatus: 400,
       detail: { driverId: driverName, operation: "applyIntervention" },
     },
   );
 }
 
-/**
- * The roster every group-list reply is built over: registered driver names in
- * stable sorted order.
- *
- * Sorted rather than registration-ordered because registration order is a
- * bootstrap accident — it changes with config, with which driver's spawn
- * resolved first, and with nothing a client can observe — so an unsorted reply
- * would reorder a rendered list across restarts for no semantic reason.
- */
-function sortedDriverNames(providerRegistry: Pick<ProviderRegistry, "listAvailable">): string[] {
+/** Sorted, because registration order depends on bootstrap timing and a list must not reorder. */
+function sortedDriverNames(
+  providerRegistry: Pick<ProviderRegistry, "listAvailable">,
+): ProviderName[] {
   return [...providerRegistry.listAvailable()].sort();
 }
 
-// --------------------------------------------------------------------------
-// Handler binders
-// --------------------------------------------------------------------------
-
 /**
- * Bind `driver.listCapabilities`.
- *
- * Served entirely cache: no provider round-trip per call, which is the property
- * that makes a no-arg whole-roster read affordable. A driver the cache cannot
- * substantiate refuses the WHOLE read rather than being silently omitted from
- * the roster — an omitted driver is indistinguishable from one that is not
- * loaded, and reporting "this driver has no capabilities" for one whose
- * capabilities are merely unknown is the failure mode exists to prevent.
+ * Binds `driver.listCapabilities`, served from the cache with no provider round-trip. A driver the
+ * cache cannot substantiate refuses the read: omitting it would look like an unloaded driver.
  */
 export function registerDriverListCapabilities(
   registry: MethodRegistry,
@@ -592,36 +288,22 @@ export function registerDriverListCapabilities(
     return { drivers };
   };
 
-  registry.register(
-    "driver.listCapabilities",
-    DriverReadParamsSchema,
-    ListCapabilitiesResultSchema,
-    handler,
-    { mutating: false },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.listCapabilities"], handler);
 }
 
 /**
- * Bind `driver.listModels`.
- *
- * Fans out across the roster in parallel and fails the whole read if any driver
- * fails. A partial reply would be a group list with a group silently missing,
- * which reads to a client as "that driver publishes no models" — a different and
- * false claim, and exactly the omission-versus-empty confusion the output-speed
- * vocabulary doctrine forbids elsewhere in this plan.
+ * Binds `driver.listModels`: fans out in parallel and fails the whole read if any driver fails,
+ * since a partial reply would read as "publishes no models". The request's session is unused.
  */
 export function registerDriverListModels(registry: MethodRegistry, deps: DriverCatalogDeps): void {
-  const handler: Handler<DriverReadParams, ListModelsResult> = async () => {
+  const handler: Handler<ListModelsRequest, ListModelsResult> = async () => {
     const drivers = await withDriverErrorTranslation(async () =>
       Promise.all(
         sortedDriverNames(deps.providerRegistry).map(
           async (driverName): Promise<DriverModelReport> => {
             const driver = deps.providerRegistry.lookup(driverName);
             if (driver === undefined) {
-              // The roster and the lookup disagree, which can only happen if a
-              // driver was removed between the two calls. Reporting it as
-              // unavailable is honest and self-correcting: the next read sees
-              // the shorter roster.
+              // The roster and lookup disagree only if a driver was removed between them.
               throw new DriverUnavailableError(driverName);
             }
             requireDriverOperation(driver, driverName, "listModels");
@@ -633,18 +315,10 @@ export function registerDriverListModels(registry: MethodRegistry, deps: DriverC
     return { drivers };
   };
 
-  registry.register("driver.listModels", DriverReadParamsSchema, ListModelsResultSchema, handler, {
-    mutating: false,
-  });
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.listModels"], handler);
 }
 
-/**
- * Bind `driver.listModes`.
- *
- * Structurally identical to `driver.listModels`; the two stay separate methods
- * because they answer about different axes and a merged one would force a caller
- * that wants one to pay for the other.
- */
+/** Binds `driver.listModes`; a separate method so a caller wanting one axis skips the other. */
 export function registerDriverListModes(registry: MethodRegistry, deps: DriverCatalogDeps): void {
   const handler: Handler<DriverReadParams, ListModesResult> = async () => {
     const drivers = await withDriverErrorTranslation(async () =>
@@ -664,24 +338,18 @@ export function registerDriverListModes(registry: MethodRegistry, deps: DriverCa
     return { drivers };
   };
 
-  registry.register("driver.listModes", DriverReadParamsSchema, ListModesResultSchema, handler, {
-    mutating: false,
-  });
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], handler);
 }
 
 /**
- * Bind `driver.interruptRun`.
- *
- * The driver operation returns `Promise<void>`; the handler answers `{}`. That
- * is not a formality — the registry `safeParse`s every result, and a handler
- * returning `undefined` would fail its own result schema and surface a
- * successful interrupt to the client as an internal error.
+ * Binds `driver.interruptRun`. The handler answers `{}`, since `undefined` would fail the
+ * registry's result parse and report a successful interrupt as an internal error.
  */
 export function registerDriverInterruptRun(
   registry: MethodRegistry,
   deps: DriverDispatchDeps,
 ): void {
-  const handler: Handler<InterruptRunParams, DriverAckResult> = async (params) => {
+  const handler: Handler<InterruptRunParams, EmptyPayload> = async (params) => {
     return withDriverErrorTranslation(async () => {
       const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
       requireDriverOperation(driver, driverName, "interruptRun");
@@ -690,31 +358,13 @@ export function registerDriverInterruptRun(
     });
   };
 
-  registry.register(
-    "driver.interruptRun",
-    InterruptRunParamsSchema,
-    DriverAckResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.interruptRun"], handler);
 }
 
 /**
- * Bind `driver.applyIntervention`.
- *
- * Deliberately NOT pre-gated by `ProviderRegistry.checkCapability`. makes an
- * unsupported intervention DATA rather than an exception: the call must reach
- * the driver so it can answer `{ status: "degraded", fallbackAction }`, and
- * refusing at a gate would replace a usable fallback hint with an error. The
- * registry records the same exclusion on its own side by having no branch for
- * this operation.
- *
- * The ONE exception to that is the attachment guard below, and it is not a
- * capability gate in disguise: it reports what the DAEMON cannot do, not what
- * the provider cannot do, so there is no fallback hint for it to displace. It
- * runs last in the canonical refusal order — address, availability, operation,
- * then this — so a caller is never sent to fix the attachment list for a run id
- * that does not resolve.
+ * Binds `driver.applyIntervention`. It is not pre-gated by `checkCapability`, so the driver can
+ * answer `{ status: "degraded", fallbackAction }`; the attachment guard runs last, after address,
+ * availability and operation.
  */
 export function registerDriverApplyIntervention(
   registry: MethodRegistry,
@@ -731,68 +381,20 @@ export function registerDriverApplyIntervention(
     });
   };
 
-  registry.register(
-    "driver.applyIntervention",
-    ApplyInterventionParamsSchema,
-    DriverInterventionResultSchema,
-    handler,
-    { mutating: true },
-  );
-}
-
-/** Bind `driver.respondToRequest`. Answers `{}` for the same reason as `interruptRun`. */
-export function registerDriverRespondToRequest(
-  registry: MethodRegistry,
-  deps: DriverDispatchDeps,
-): void {
-  const handler: Handler<RespondToRequestParams, DriverAckResult> = async (params) => {
-    return withDriverErrorTranslation(async () => {
-      const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
-      requireDriverOperation(driver, driverName, "respondToRequest");
-      await driver.respondToRequest(params);
-      return {};
-    });
-  };
-
-  registry.register(
-    "driver.respondToRequest",
-    RespondToRequestParamsSchema,
-    DriverAckResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], handler);
 }
 
 /**
- * Bind `driver.compactContext`.
- *
- * THE REFUSAL ORDER IS THE CANONICAL FIXED ONE, and every step earns its
- * position. The session-access mask runs first (one throw site — see
- * `refuseSessionNotFound` — so a session this node does not host and an
- * unknown session are byte-identical). The address check runs second: an
- * admitted caller is told the run id does not resolve (`run.not_found`) before
- * anything about drivers, per the resolver doctrine on
- * `resolveDriverForRunOrThrow`. The run-control adjudication runs third,
- * deliberately BEFORE liveness, so a denied caller gets the same answer
- * whether or not a binding happens to be live at that instant — adjudicated
- * refusals stay stable across mutable state, the same rule the PTY
- * session-attach path follows — and a deny settles on
- * the operation's OWN `refused` arm as `not_permitted`, never as a JSON-RPC
- * error, because the result union is the contract's encoding of exactly this
- * outcome. Liveness runs fourth (`driver.unavailable`), the capability gate
- * fifth — a declaring-false driver refuses `driver.capability_unsupported`
- * BEFORE any dispatch — and the driver call last, its discriminated
- * `DriverCompactionResult` answered verbatim: `refused` and `failed` are data a
- * caller branches on, never re-shaped into throws.
+ * Binds `driver.compactContext`. Refusal order: session mask, `run.not_found`, run-control
+ * permission (before liveness so a deny cannot vary with binding state; it answers `refused` as
+ * data), `driver.unavailable`, capability gate, then the driver's result verbatim.
  */
 export function registerDriverCompactContext(
   registry: MethodRegistry,
   deps: DriverCompactContextDeps,
 ): void {
   const handler: Handler<CompactContextRequest, DriverCompactionResult> = async (params) => {
-    // Fail-closed comparison: only the literal `true` admits, so a broken
-    // resolver answering `undefined` refuses rather than proceeding.
-    if (deps.resolveSessionAccess(params.sessionId) !== true) {
+    if (!deps.resolveSessionAccess(params.sessionId)) {
       refuseSessionNotFound();
     }
 
@@ -812,16 +414,12 @@ export function registerDriverCompactContext(
     return withDriverErrorTranslation(async () => {
       const driver = deps.providerRegistry.lookup(resolution.driverName);
       if (driver === undefined) {
-        // The binding names a driver this node has not loaded — the same state
-        // `resolveDriverForRunOrThrow` reports with the registry's own class.
+        // The binding names a driver this node has not loaded.
         throw new DriverUnavailableError(resolution.driverName);
       }
       deps.providerRegistry.checkCapability(resolution.driverName, "context_compaction");
       requireDriverOperation(driver, resolution.driverName, "compactContext");
-      // The DRIVER param shape (`CompactContextParams`) is binding-addressed;
-      // the run id was the wire's addressing key and stops here — the daemon
-      // resolved it, so the driver never re-derives what "this run's binding"
-      // means.
+      // The driver's params are binding-addressed; the daemon has already resolved the run.
       return driver.compactContext({
         sessionId: params.sessionId,
         bindingId: resolution.bindingId,
@@ -829,44 +427,19 @@ export function registerDriverCompactContext(
     });
   };
 
-  registry.register(
-    "driver.compactContext",
-    CompactContextRequestSchema,
-    DriverCompactionResultSchema,
-    handler,
-    { mutating: true },
-  );
+  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], handler);
 }
 
 /**
- * Verify the driver-stamped routing pair on one returned group against the
- * daemon's own record of the binding the dispatch was addressed to.
- *
- * THE DAEMON VERIFIES, IT DOES NOT TRUST. doctrine makes the `(driverName,
- * providerAccountId)` on every entry "a routing invariant enforced at the
- * daemon rather than trusted to the renderer" — and a daemon that forwarded
- * whatever pair the driver stamped would only have moved the trust one layer
- * down. Every carrier the reply holds is compared: the group's own pair and
- * each entry's pair (the two carriers the contract inlines by design, so a
- * filtered entry keeps its routing key). The expected pair is the resolution's
- * — daemon-owned registry state — never anything read back from the reply.
- *
- * A mismatch fails the WHOLE read as a plain `Error` (mapped `-32603`), the
- * same class as the one-group structural check: a driver stamping some other
- * binding's pair is violating its contract, not refusing a caller, and
- * exposing the mis-stamped enumeration would hand a renderer entries whose
- * routing key lies. The message carries only daemon-owned values (the expected
- * pair, the carrier position) — never the stamped strings, which are exactly
- * the values this check just established cannot be trusted.
+ * Verifies the routing pair on a returned group and each entry against the daemon's own record of
+ * the addressed binding. A mismatch fails the read as a plain `Error` (`-32603`) carrying only
+ * daemon-owned values.
  */
 function verifyDriverStampedRoutingPair(
   group: ProviderCommandBindingGroup,
   expected: ResolvedAgentBinding,
 ): void {
-  const pairMatches = (stamped: {
-    driverName: string;
-    providerAccountId: string | null;
-  }): boolean =>
+  const pairMatches = (stamped: ProviderCommandBinding): boolean =>
     stamped.driverName === expected.driverName &&
     stamped.providerAccountId === expected.providerAccountId;
 
@@ -887,31 +460,9 @@ function verifyDriverStampedRoutingPair(
 }
 
 /**
- * Bind `driver.listProviderCommands`.
- *
- * Any admitted caller reads: the enumeration carries offerability data, not an
- * intervention, so no adjudication step sits between the session-access mask
- * and the address check — the mask and the fixed order are otherwise identical
- * to `compactContext`'s.
- *
- * EVERY BINDING IS GATED BEFORE ANY IS DISPATCHED. One declaring-false (or
- * unloaded, or operation-less) driver refuses the WHOLE read with zero
- * dispatches: a partial group list would tell a caller the missing binding
- * enumerates nothing, which is the omission-versus-empty confusion forbids —
- * the same whole-read rule the roster reads apply to one failed driver. The
- * dispatch phase then fans out in parallel and MERGES BY CONCATENATION: each
- * driver answers exactly one group for its one binding (a different count is
- * a driver contract violation and fails the read as an internal error rather
- * than being silently flattened or padded), and the handler synthesizes
- * nothing — `runId` attribution, entry order, and truncation marking arrive
- * composed by the driver that owns them, and the routing pair on the group
- * and on every entry is VERIFIED against the resolution's own record before
- * the reply leaves the daemon (`verifyDriverStampedRoutingPair`). The routing
- * invariant holds twice over: on the DISPATCH side by unrepresentability — no
- * wire request admits a binding member, so a cross-binding dispatch cannot be
- * expressed at all — and on the READ side by that comparison, so a driver
- * stamping some other binding's pair fails the read instead of publishing a
- * lying routing key.
+ * Binds `driver.listProviderCommands`. Any admitted caller reads, so no permission check sits in
+ * `compactContext`'s refusal order. Every binding is gated before any dispatch, so a refusal
+ * means zero dispatches; each driver answers exactly one group and the handler adds nothing.
  */
 export function registerDriverListProviderCommands(
   registry: MethodRegistry,
@@ -920,7 +471,7 @@ export function registerDriverListProviderCommands(
   const handler: Handler<ListProviderCommandsRequest, ProviderCommandListResult> = async (
     params,
   ) => {
-    if (deps.resolveSessionAccess(params.sessionId) !== true) {
+    if (!deps.resolveSessionAccess(params.sessionId)) {
       refuseSessionNotFound();
     }
 
@@ -931,19 +482,9 @@ export function registerDriverListProviderCommands(
     if (resolution.kind === "no-live-binding") {
       refuseNoLiveBinding();
     }
-    // The bound arm is structurally non-empty, so this guard is unreachable
-    // through the type — it exists for a resolver cast past it. Without it a
-    // bound-but-empty answer would skip the documented refusal, dispatch
-    // nothing, and fail result validation as a `-32603` daemon bug.
-    if (resolution.bindings.length === 0) {
-      refuseNoLiveBinding();
-    }
 
     return withDriverErrorTranslation(async () => {
-      // Phase 1 — admit every binding SYNCHRONOUSLY, before any dispatch
-      // starts. A gate failure inside a parallel fan-out would race dispatches
-      // that were already in flight; gating in a plain loop first is what makes
-      // "zero dispatches on a refusal" a property rather than a probability.
+      // Admit every binding before any dispatch starts, so a refusal means zero dispatches.
       const admitted = resolution.bindings.map((resolvedBinding) => {
         const driver = deps.providerRegistry.lookup(resolvedBinding.driverName);
         if (driver === undefined) {
@@ -954,9 +495,8 @@ export function registerDriverListProviderCommands(
         return { driver, resolvedBinding };
       });
 
-      // Phase 2 — dispatch in parallel (the listModels precedent; each read is
-      // a live provider round-trip) and concatenate in resolver order, which
-      // `Promise.all` preserves.
+      // Parallel, since each read is a live provider round-trip; `Promise.all` keeps order. No wire
+      // request admits a binding member, so a cross-binding dispatch cannot be expressed.
       const groups: ProviderCommandBindingGroup[] = await Promise.all(
         admitted.map(async ({ driver, resolvedBinding }) => {
           const reply = await driver.listProviderCommands({
@@ -965,10 +505,8 @@ export function registerDriverListProviderCommands(
           });
           const [soleGroup] = reply.bindings;
           if (soleGroup === undefined || reply.bindings.length !== 1) {
-            // A plain Error (mapped `-32603`) rather than a driver code: this
-            // is a broken driver contract, not a refusal a caller can act on,
-            // and flattening extra groups or padding missing ones would forge
-            // provenance the shared-envelope doctrine exists to protect.
+            // A plain Error (`-32603`): a broken driver contract is not a refusal a caller can act
+            // on.
             throw new Error(
               `driver.listProviderCommands: driver "${resolvedBinding.driverName}" answered ` +
                 `${String(reply.bindings.length)} groups for one binding (the driver ` +
@@ -984,11 +522,9 @@ export function registerDriverListProviderCommands(
     });
   };
 
-  registry.register(
-    "driver.listProviderCommands",
-    ListProviderCommandsRequestSchema,
-    ProviderCommandListResultSchema,
+  registerDescribedMethod(
+    registry,
+    DRIVER_METHOD_DESCRIPTORS["driver.listProviderCommands"],
     handler,
-    { mutating: false },
   );
 }

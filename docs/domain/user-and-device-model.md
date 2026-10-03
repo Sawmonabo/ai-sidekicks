@@ -13,8 +13,8 @@ Account identity, device identity and lifecycle, the executing machine, and sess
 | Term | What it is | On screen |
 | --- | --- | --- |
 | **User** | The account holder. One per account. | "you", "your account" |
-| **Device** | A connected client of that account — a phone, a laptop app, a second desktop. | **Linked Devices** |
-| **Runtime node** | The machine that executes the session. | "this machine" |
+| **Device** | A phone or a browser linked to that account to reach its sessions. | **Devices** |
+| **Runtime node** | A machine: a computer whose background service runs sessions. The desktop app on that computer acts with the machine's own key. | The machine's name; `This machine` on the machine itself; **Machines** |
 | **Session owner** | The user a session belongs to. | — |
 
 ## What This Is
@@ -25,37 +25,37 @@ A **user** is the identity everything else hangs off. There is one, and every de
 
 A **device** is a client. It reads the timeline, sends, steers, stops, approves, drives agents, views the diff, and uses the terminal — and it does none of that itself. It asks the runtime node to. A device has its own identity key, minted on the device and kept there, which is what lets the log record not just that the account acted but which device acted.
 
-A **runtime node** is the machine where the work happens: provider processes, the working tree, the shell. A session is bound to exactly one at a time. The desktop app running on that same hardware is still a device; the hardware is still the runtime node. They are two nouns that happen to share a box.
+A **runtime node** is the machine where the work happens: provider processes, the working tree, the shell. A person may have any number of machines. A session runs on exactly one of them, the one it was started on, for its whole life. The desktop app on that computer acts with the machine's own key, so the computer is one machine under one name, never a machine and a device.
 
 ## What This Is Not
 
 - A device is not a runtime node. A device executes nothing.
 - A runtime node is not a user. It is owned by one.
 - A device is not a second account. Every device is the same user.
-- Device liveness is not a roster of anyone else. It says which of the user's own devices are currently reachable, and nothing about anybody else.
+- Presence is not a list of anyone else. A device's `Connected now` says only whether that one of the user's own devices holds a relay connection this moment, and nothing about anybody else.
 
 ## Invariants
 
 - A session has exactly one owner, and that owner is a user.
-- A session is bound to at most one runtime node at a time.
+- A session runs on exactly one runtime node, the one it was started on, for its whole life.
 - Every device belongs to exactly one user.
 - Every runtime node belongs to exactly one user.
 - A device's secret identity key never leaves the device.
-- A revoked device authenticates nothing further, and the events it already signed stay verifiable.
+- A revoked device authenticates nothing further, and the events it already sent stay in the log, recorded as sent from that device.
+- A key is trusted only through the account's statement chain, which every machine verifies itself. The control plane's own view of who may use the relay is for spam and cost only; a machine's refusal in the handshake is what protects the sessions.
+- Every linked device reads and acts on everything. There is no per-device permission and no view-only device; a device that should not act is revoked.
 
 ## Session Ownership
 
-Ownership is derived, not declared. On the daemon, the owner of a session is the actor on that session's first event — whoever started it owns it. On the control plane the same fact is stored directly on the session row, as `sessions.owner_user_id`, so a directory read answers "whose session is this" without replaying anything.
-
-The two are one fact in two places: the daemon derives it from the log it already holds, and the control plane records it because it holds no log to derive it from. Nothing else confers ownership, and ownership does not move.
+Ownership is derived, not declared. One account owns the machine, so the owner of every session on it is that account's user. Nothing is stored or checked per session: an event records the device it came from, never a person, and the control plane keeps no session record, so there is no second copy to keep in step. Ownership does not move.
 
 ## Relationships To Adjacent Concepts
 
-- **User → device.** One user, many devices. The link is the registry row, keyed by device id and carrying the device's public identity key.
-- **User → runtime node.** One user, one or more machines. A machine attaches to a session; the attachment names the owning user.
+- **User → device.** One user, many devices. The link is a `device.linked` statement on the account's statement chain, signed by a device or machine the chain already trusts and carrying the device's public identity key.
+- **User → runtime node.** One user, any number of machines. The first machine opens the account's statement chain with a `runtimenode.added` statement it signs itself; every later machine joins by linking, which records its `runtimenode.added` signed by the device or machine that links it. The machine's registration names the owning user.
 - **Session → user.** Exactly one owner.
-- **Session → runtime node.** Exactly one binding at a time.
-- **Device → runtime node.** No ownership edge at all. A device reaches a runtime node only through the session both are attached to.
+- **Session → runtime node.** Exactly one machine, for the session's whole life.
+- **Device → runtime node.** No ownership edge at all. A device trusts every machine the chain trusts, holds one encrypted channel to each machine it can reach, and opens a session by asking each machine whether it holds it.
 
 ## Lifecycle
 
@@ -63,23 +63,23 @@ A device moves through three states and does not come back:
 
 `linked → active → revoked`
 
-- **Linked.** The device has been paired with the account and its public identity key is registered. It has a name and a row in the registry.
-- **Active.** The device is reachable and driving. Its per-device liveness reads `online`, and degrades through `reconnecting` to `offline` when heartbeats stop — which is a statement about reachability, not about the lifecycle state.
-- **Revoked.** The device's key no longer resolves, any connection it held is closed, and it cannot re-link on the same key. A device that comes back links again as a new device with a new row.
+- **Linked.** A device or machine the account already trusts has signed a `device.linked` statement for the device's public identity key, after the same six digits were confirmed on both screens. The device has a name and a card on the Devices page.
+- **Active.** The device is reachable and driving. Its per-device liveness reads `online`, and degrades through `reconnecting` to `offline` when its presence beats stop — which is a statement about reachability, not about the lifecycle state. Its card reads `Connected now` or `Last seen <when>`.
+- **Revoked.** A `device.revoked` statement ends the device's key at that point in the chain: any connection it held is closed, every machine refuses a statement the key signs afterward from the time it hears of it, and what the key signed before stands, so every device it linked stays linked, its card reading `Linked from <device>, which you revoked. Revoke it if that device was lost.` An ended key is never trusted again, so the same key never links again. The card moves to the `Revoked` group, where `Forget` removes it. A device that comes back links again as a new device with a new key.
 
 ## Example Flows
 
-- `Example: A user starts a session on their laptop. The first event's actor makes that user the owner; the control plane stores the same user on the session row. The laptop is the runtime node and also carries a device.`
-- `Example: The user links their phone. The phone mints an identity key, registers its public half, and appears in Linked Devices. It opens the same session and drives it — the work still runs on the laptop.`
-- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the timeline and still verify.`
+- `Example: A user starts a session on their laptop. The laptop's account is the user's, so the user owns the session, and the laptop's daemon holds it. The laptop is the runtime node, and its desktop app acts with the laptop's own key, so the laptop is one machine card and never also a device.`
+- `Example: The user links their phone. The phone mints an identity key, the laptop signs a device.linked statement for its public half, and the phone appears under Devices on the laptop's Settings › Devices. It opens the same session and drives it — the work still runs on the laptop.`
+- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the timeline, recorded as sent from the phone.`
 
 ## Edge Cases
 
 - **The runtime node is offline.** Devices report the machine as unreachable. Nothing queues on their behalf.
-- **The last device is revoked from itself.** The account keeps its sessions and its runtime nodes; a new device links from scratch.
+- **The last device is revoked from itself.** The account keeps its sessions and its runtime nodes; a new device links with a passkey, or from a machine's own Devices page.
 - **A device is offline for a long time.** It is still linked and still active; only its liveness reading says offline.
 
 ## Related Specs
 
-- [Spec-028: Remote Control](../specs/028-remote-control.md)
-- [Spec-002: Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Spec-027: Remote Control](../specs/027-remote-control.md)
+- [Spec-002: Machine Registration](../specs/002-machine-registration.md)

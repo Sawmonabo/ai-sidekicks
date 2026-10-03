@@ -1,0 +1,276 @@
+/*
+ * The schema-derived form: fields, groups, lists and the raw editor. Loaded by the chunk root
+ * `schema-form-body.ts`, so it arrives with the first form. Meridian tokens only.
+ */
+
+.meridian-schema-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+}
+
+.meridian-schema-form__entry {
+  display: block;
+}
+
+/* ------------------------------------------------------------------- one field */
+
+.meridian-schema-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-schema-field__label {
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/* The required mark is quiet prose, not a warning: an unanswered field is not wrong. */
+.meridian-schema-field__required {
+  font-weight: 400;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-field__input,
+.meridian-schema-field__textarea,
+.meridian-schema-field__select {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+/* A figure the wire carries (a number, an artifact id) is set in mono like other daemon values. */
+.meridian-schema-field__input--figure {
+  font-family: var(--meridian-font-mono);
+}
+
+/* Enum members are the strings the engine stores, so mono; the `select` carries it because the
+   browser draws its own option list. */
+.meridian-schema-field__select {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-schema-field__textarea {
+  resize: vertical;
+}
+
+.meridian-schema-field__checkbox {
+  align-self: flex-start;
+}
+
+.meridian-schema-field__description {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The schema's findings: red because the answer is wrong, listed because it may say several. */
+.meridian-schema-field__issues {
+  margin: 0;
+  padding-inline-start: var(--meridian-space-4);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* --------------------------------------------------------- groups and lists */
+
+.meridian-schema-group,
+.meridian-schema-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-schema-group__legend,
+.meridian-schema-list__legend {
+  padding: 0 var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-group__entry {
+  display: block;
+}
+
+/*
+ * The activation control sits on the legend beside the name it is about. Inline-start margin
+ * rather than a flex legend: a display change on a `legend` moves the border notch. One class for
+ * group and collection, since one component draws it.
+ */
+.meridian-schema-activation {
+  margin-inline-start: var(--meridian-space-2);
+}
+
+.meridian-schema-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-schema-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * One entry: its control and the findings beneath it. A column inside the row keeps the remove
+ * control beside the entry; `min-inline-size: 0` lets a long finding wrap instead of widening
+ * the row past the fieldset.
+ */
+.meridian-schema-list__entry {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+/*
+ * Controls that change a list's entry count, and the one that answers an optional container.
+ * The form's own classes, not `.meridian-workflow__action`, whose sheet loads with the state
+ * strip and may not have loaded when a form mounts.
+ */
+
+.meridian-schema-activation,
+.meridian-schema-list__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+/* ------------------------------------------------------------- the raw editor */
+
+.meridian-schema-raw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/* Why this schema is answered as text: muted prose, since nothing failed. */
+.meridian-schema-raw__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* The submitted value itself, so it wears the wire's mono face. */
+.meridian-schema-raw__editor {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-2);
+  resize: vertical;
+  white-space: pre;
+}
+
+.meridian-schema-raw__syntax {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* The schema could not be checked. Amber, not red: the check is missing, not the answer wrong. */
+.meridian-schema-raw__uncheckable {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+/* ---------------------------------------------------------------- the preview */
+
+.meridian-schema-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-schema-preview__caption {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-preview__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* ----------------------------------------------------------------- the answer */
+
+.meridian-schema-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-schema-answer__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/* The act and its outcome on one row; a settlement wraps under the button on a narrow pane. */
+.meridian-schema-answer__act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-schema-answer__submit {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border-color: var(--meridian-edge);
+}
+
+/*
+ * The act while the form has no verdict yet (the schema compiler chunk has not landed). Quieted
+ * and un-pressable rather than hidden, so its place stays put and no press sends an unchecked
+ * answer.
+ */
+.meridian-schema-answer__submit:disabled {
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+/*
+ * What the daemon answered the last press. Drawn by the run page's submit binding beneath the
+ * form, since the reply is not part of the answer.
+ */
+.meridian-schema-answer__settlement {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

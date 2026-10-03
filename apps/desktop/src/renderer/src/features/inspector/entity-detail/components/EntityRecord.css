@@ -1,0 +1,69 @@
+/* The entity record's sheet, imported by `EntityRecord.tsx`. Meridian tokens only. */
+
+.meridian-entity-record {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+/* One line at rest, wrapping rather than truncating: a clipped identifier is the wrong one. */
+.meridian-entity-record__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  min-width: 0;
+  padding-bottom: var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-entity-record__glyph {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-entity-record__heading {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+/* Two columns at the reading measure, one when narrow; the fixed label column aligns values. */
+.meridian-entity-record__facets {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--meridian-space-2);
+  margin: 0;
+}
+
+@media (min-width: 30rem) {
+  .meridian-entity-record__facet {
+    display: grid;
+    grid-template-columns: 10rem minmax(0, 1fr);
+    gap: var(--meridian-space-3);
+    align-items: baseline;
+  }
+}
+
+.meridian-entity-record__label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-entity-record__value {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A note is the record speaking about itself; quiet, never mistakable for a value. */
+.meridian-entity-record__note,
+.meridian-entity-record__link {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

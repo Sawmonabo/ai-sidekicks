@@ -1,0 +1,230 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // Dead-code gate for every workspace. knip resolves each workspace's entry points, then reports
+  // everything under its `project` that no entry reaches, transitively.
+  //
+  // Run it from the workspace root: `pnpm structure:dead-code` runs every workspace, and
+  // `pnpm --filter @ai-sidekicks/desktop structure:dead-code` runs the desktop alone from here via
+  // `--directory ../..`, so the workspace keys below are repo-root-relative. A package-scoped run
+  // cannot see the workspace-root `pnpm-workspace.yaml`, so every `catalog:` specifier reports
+  // unresolved, nor the root manifest, so `tsc`, `eslint` and `turbo` report as unlisted binaries.
+  // Both classes vanish from the root, and neither is silenced by an ignore entry.
+  //
+  // The per-symbol dead-code lever: knip reads JSDoc/TSDoc tags off an export, and `-consumedBy`
+  // excludes every export carrying `@consumedBy` from the report (the documented `tags` option,
+  // which `apps/desktop/AGENTS.md` binds to a plain-word reason). It is per symbol, unlike `ignore`
+  // (file globs) and `ignoreIssues` (issue types per file pattern), neither of which is used here:
+  // exempting a file would exempt every export it ever grows.
+  //
+  // The one per-file lever is `ignoreFiles`, for a whole file kept for a consumer that is not built
+  // yet: one exact path per entry, never a directory or a glob, each with a comment saying what the
+  // unbuilt consumer is. The entry leaves in the change that builds its consumer. It clears only
+  // the file it names, so a chain of unwired files takes one entry per file.
+  //
+  // The tag must sit on every place knip reports (measured). For a barrelled symbol that is the
+  // barrel's own re-export specifier (knip reads per-specifier tags on an `export { … } from`);
+  // when the barrel is the defining file's only importer, knip reports the defining declaration
+  // too, so it carries the tag as well. A tag anywhere knip does not report suppresses nothing and
+  // raises an "unused tag" hint, and `--treat-tag-hints-as-errors` turns that hint into a gate
+  // failure, so a marker that outlived its consumer fails the run instead of rotting: the PR that
+  // imports the symbol deletes the tag in the same diff.
+  "tags": ["-consumedBy"],
+
+  // The root workspace is declared with empty globs on purpose: knip then reads its manifest for
+  // dependency resolution while contributing no findings of its own.
+  "workspaces": {
+    ".": {
+      // The repo's own scripts: each is run, never imported, so each is an entry and an export in
+      // one is dead. knip skips the exports of an entry it finds in the CI workflow, even with
+      // `includeEntryExports`, so only the scripts CI does not launch are checked for exports.
+      "entry": ["tools/*.mjs", "tools/__tests__/*.test.mjs"],
+      "project": ["tools/**/*.mjs"],
+      "includeEntryExports": true
+    },
+
+    "apps/desktop": {
+      // No `entry` declaration, deliberately. knip's defaults already cover the three process
+      // entries (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/main.tsx`) and the
+      // two tool configs (`vitest.config.ts`, `electron.vite.config.ts`), and knip resolves the
+      // rest from this package's manifest: a file named in a `scripts` entry is an entry, so
+      // `scripts/budget/measure-bundle.mts` is a root because the `budget:bundle` script runs it.
+      // Measured: dropping the globs moved no file into `Unused files`.
+      //
+      // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a
+      // root, so a dead export in `scripts/budget/budget-registry.mts`, a module nothing invokes by
+      // name, would be exempt rather than reported. Listing the defaults again is drift the run
+      // refuses: `--treat-config-hints-as-errors` fails the gate on a redundant or unmatched
+      // pattern.
+
+      // `project` is the universe the entry set is measured against. `build/**` runs during
+      // `pnpm build`; `scripts/**` is invoked by name from a package script. Both trees are
+      // TypeScript today; the `.mjs` / `.cjs` arms stay because `apps/desktop/AGENTS.md` binds the
+      // TypeScript posture as a rule a reader follows, and a glob that could not see a JavaScript
+      // file would let one escape the gate silently rather than report it. A brace pattern is
+      // hinted on the whole pattern rather than per arm, so an arm matching nothing today costs
+      // nothing under `--treat-config-hints-as-errors`.
+
+      // The renderer's compile-time icon resolver is declared in `vitest/icon-compilation.ts` and
+      // installed by both `vitest.config.ts` and `electron.vite.config.ts`, which are knip entries.
+      // Without `vitest/**` in the universe those entries reach a file knip does not analyze, so
+      // `unplugin-icons` and `@svgr/core`, imported there and nowhere else, reported as unused
+      // dependencies. Measured: adding this glob cleared both and moved no other file into any
+      // report.
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "fixtures/**/*.ts",
+        "build/**/*.{ts,mts,mjs,cjs}",
+        "scripts/**/*.{ts,mts,mjs,cjs}",
+        "tests/**/*.{ts,tsx}",
+        "vitest/**/*.ts"
+      ],
+
+      // The first-party `unplugin-icons` plugin, named rather than left to knip's own enabler
+      // check, because what it does is not guessable from the manifest: it excuses `~icons/*`
+      // specifiers from the unresolved report and `@iconify-json/*` from the dependency one. The
+      // icon sets are reached only through those virtual specifiers, so without the plugin
+      // `@iconify-json/tabler` is an unused dependency that in fact supplies the renderer's glyphs,
+      // and the only other way to say so would be an `ignoreDependencies` entry, which
+      // `apps/desktop/AGENTS.md` admits none of.
+      "unplugin-icons": true,
+
+      // The Vitest plugin reads the config and treats every project's `include` globs as entries,
+      // so a test file is a root and what it imports is reached. Without it every test file reports
+      // as an unused file and every test-only export as unused.
+      //
+      // This gate has one blind spot, a property of the entry set rather than of anything declared
+      // here: an entry that reaches a directory (a renderer suite written
+      // `import.meta.glob("../**/*.{ts,tsx}", { query: "?raw" })`, which Vite resolves at transform
+      // time and the plugin reads as one edge per matched file) makes every module under that
+      // directory reachable, so no orphan below it can be reported. Measured: a wholly unreachable
+      // module planted at `src/renderer/src/lib/` was reported by nothing (rc 0), while the same
+      // plant under `scripts/budget/` failed the run (rc 1). No setting here can see that, so the
+      // rule lives where the pattern is written: the test rules in `apps/desktop/AGENTS.md` forbid
+      // a directory glob in any module under `src/`, and `no-restricted-syntax` in
+      // `apps/desktop/eslint.config.mjs` enforces it.
+      "vitest": { "config": ["vitest.config.ts"] },
+
+      // A same-file consumer counts as a consumer. Without this, every helper a module uses
+      // internally and also exports for its own co-located test reports as an unused export.
+      "ignoreExportsUsedInFile": true,
+
+      // `xdpyinfo` is an X11 host utility the Xvfb smoke helper probes for with `spawnSync`
+      // (`tests/helpers/display-readiness.ts`); it is never a package dependency, so knip is told
+      // not to expect it in a manifest.
+      "ignoreBinaries": ["xdpyinfo"],
+
+      // Whole files kept for a consumer that is not built yet, each with what will consume it.
+      "ignoreFiles": [
+        // Wakes a view at a wall-clock deadline, for the device-link code that gives way to
+        // `Link a device` when its five minutes run out.
+        "src/renderer/src/hooks/useDeadlineWake.ts",
+        // Scripted diff patches kept as the fixtures' test data, read by no module until the Review
+        // pane's diff read lands.
+        "fixtures/data/repos-diff-patches.ts",
+        // The menu that registers its airspace over the Preview page, for a session row's More
+        // menu and the right-click that draws from the same list.
+        "src/renderer/src/components/OverlayPopups/OverlayMenuPopup.tsx",
+        // The anchored popover that registers its airspace over the Preview page, for the worktree
+        // popover and the context ring's compaction popover.
+        "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
+        // The provider, model, effort and account pickers of the agent definition editor and of
+        // the workflow node inspector.
+        "src/renderer/src/features/agents/binding/components/AxisCombobox.tsx",
+        // The daemon's callback tools on an agent definition's tool allowlist.
+        "src/renderer/src/features/agents/definitions/callback-tools/callback-tool-registry.ts",
+        "src/renderer/src/features/agents/definitions/callback-tools/components/CallbackToolRows.tsx",
+        "src/renderer/src/features/agents/definitions/callback-tools/components/CallbackTools.tsx",
+        // The agent library's chunk, mounted by the Sidekicks screen's registration.
+        "src/renderer/src/features/agents/library/agent-library-body.ts",
+        // Opening a child in the Sidekicks pane, which fetches that child's own rows once.
+        "src/renderer/src/features/agents/pane/hooks/useChildRunDisclosure.ts",
+        // An approval card takes focus when it arrives.
+        "src/renderer/src/features/composer/approval/hooks/useApprovalArrivalAnnouncement.ts",
+        // The composer's attachment strip: one chip per staged file, its size, and the refusal
+        // naming a file and the limit it hit.
+        "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
+        "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
+        "src/renderer/src/features/composer/attachments/composer-attachment-chip.ts",
+        // The definitions a `/workflow start` name autocompletes over.
+        "src/renderer/src/features/composer/command-list/workflow-command/components/WorkflowStartCandidates.tsx",
+        // An agent's question card.
+        "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",
+        // Interrupt and Interrupt everything on the run controls.
+        "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
+        "src/renderer/src/features/composer/run-controls/run-driver-bindings.ts",
+        // The inspector's Artifacts section and its rows.
+        "src/renderer/src/features/inspector/artifacts/components/ArtifactRow.tsx",
+        "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",
+        // The inspector's Rules section with Revoke.
+        "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
+        // The Preview pane's handback: which chords the page claims, told to the page host.
+        "src/renderer/src/features/preview/handback/chord-mirror.ts",
+        // Attaching a folder by path, for the session strip's `Attach a repo` and `Open folder…`.
+        "src/renderer/src/features/repos/mounts/attach/AttachRepositoryDialog.tsx",
+        // What the git host reports about a pull request, for the Pull request tab's header,
+        // check rows and review list.
+        "src/renderer/src/features/repos/mounts/hosting-status.ts",
+        // The sessions list: its rows, what it says with no sessions, and its header line when a
+        // refresh goes unanswered.
+        "src/renderer/src/features/sessions/components/SessionList.tsx",
+        "src/renderer/src/features/sessions/components/SessionListNothing.tsx",
+        "src/renderer/src/features/sessions/components/SessionRowGroup.tsx",
+        "src/renderer/src/features/sessions/rows/session-list-degradation.ts",
+        // The session header's title read and its fixture answer.
+        "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
+        "src/renderer/src/services/daemon/session-identity.fixture.ts",
+        "src/renderer/src/services/daemon/session-reads.ts",
+        // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
+        // for the run controls and the queue rows.
+        "src/renderer/src/services/daemon/daemon-streams.ts",
+        // Which provider each agent runs on, for the run controls' Interrupt and Interrupt
+        // everything.
+        "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",
+        // Reading what the providers support again once a session's stream is repaired.
+        "src/renderer/src/services/driver-capabilities/useDriverCapabilityRepairRead.ts",
+        // The window's one attention read, for the rail's bell, its Notifications list and the
+        // sessions list.
+        "src/renderer/src/store/attention/AttentionProvider.tsx",
+        "src/renderer/src/store/attention/hooks/useAttention.ts",
+        // The operating-system notification permission fold, which moves to main beside the
+        // notification poster.
+        "src/renderer/src/features/settings/pages/notifications/os-notification-delivery.ts",
+        // A provider section's session import, mounted from its own chunk.
+        "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-body.ts",
+        "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-mount.ts",
+        // A footnote's definition at the foot of its reply.
+        "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx"
+      ]
+    },
+
+    // The packages declare no source `entry`: knip reads each one's entries from its own manifest
+    // (`exports`, whose `@ai-sidekicks/source` condition points at `src/`), and its plugins add the
+    // rest: every package's `vitest.config.ts` test files, and the control plane's worker entry
+    // from `wrangler.toml`. Each ignore below names a dependency knip cannot see being used, with
+    // the reason.
+    "packages/contracts": {
+      // The conditional-type tests beside the contracts; `tsc -p tsconfig.test.json` checks
+      // them, and nothing imports them.
+      "entry": ["src/**/*.test-d.ts"]
+    },
+    "packages/crypto-paseto": {},
+    "packages/search-ranking": {},
+    "packages/client-sdk": {},
+    "packages/control-plane": {
+      // The Cloudflare CLI: the worker is run with `wrangler dev` and published with
+      // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
+      // Postgres client the control plane's stores are built on, and `@ai-sidekicks/contracts`
+      // holds the wire shapes those stores serve; neither is imported until the stores land.
+      "ignoreDependencies": ["wrangler", "pg", "@types/pg", "@ai-sidekicks/contracts"]
+    },
+    "packages/runtime-daemon": {
+      // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
+      // knip cannot follow; it is a hard runtime dependency.
+      "ignoreDependencies": ["node-pty"],
+      // The machine's `presence.read` binding, which nothing registers until Remote Control
+      // reports the devices connected to this machine.
+      "ignoreFiles": ["src/ipc/handlers/presence-read.ts"]
+    }
+  }
+}

@@ -1,2602 +1,185 @@
-// ClaudeSessionLifecycle — the Claude driver's session + run lifecycle band.
+// The Claude driver's session and run lifecycle: `createSession`, `resumeSession`, `startRun`,
+// `interruptRun` and `closeSession`, over one slot per session. The establishment legs, the
+// text-neutralization tripwire, frame routing, the handshake register, the spawn legs and
+// compaction dispatch are dependencies this class builds once; the other driver operations live
+// in sibling modules.
 //
-// Owns five of the fourteen `ProviderDriver` operations for the Claude leg:
-// `createSession`, `resumeSession`, `startRun`, `interruptRun`, `closeSession`.
-// The remaining nine (capabilities / models / modes, the parity operations,
-// `respondToRequest`, `probeAuth`) live in sibling modules and are deliberately
-// absent here rather than stubbed — a stub that throws would be a
-// declared-then-unsupported capability, which is exactly what the capability
-// declaration forbids.
-//
-// The normalized operation surface is the whole interface: the daemon drives
-// Claude through these methods and never through provider-native calls. A
-// resume-handle failure surfaces `provider failure` detail plus a visible
-// `recovery-needed` condition, and MUST NOT silently create a replacement
-// provider session under the same canonical run.
-//
-// THAT LAST RULE — never a silent replacement — is realized three ways:
-//   1. STRUCTURALLY — `DriverResumeResult` is a discriminated union whose
-//      `failed` arm carries no `bindingId`, so "failed" and "resumed" cannot be
-//      conflated. That half ships in `@ai-sidekicks/contracts`.
-//   2. BY IDENTITY GATE — a resume is `resumed` ONLY when the transport reports
-//      back the SAME provider session id the resume handle names. Claude answers
-//      a resume whose recorded working directory no longer matches by starting a
-//      FRESH session, and a fresh session announcing its own id through a resume
-//      path is precisely the silent replacement the rule prohibits. The readback
-//      is a REQUIRED field of `ClaudeResumedSessionAttachment` (never an optional
-//      one plus a presence check), so a transport that cannot report identity
-//      cannot express a successful resume at all.
-//   3. BY DISPOSAL — every refused attachment is disposed before the `failed`
-//      arm is returned, so a refusal never leaves a second live Claude process
-//      bound to the same canonical session.
-//
-// The DOMAIN half of resume verification — comparing `sessionPosition` against
-// the daemon's RECORDED position, and the divergence reconciliation a mismatch
-// triggers — belongs to the session layer, not here: it needs session state this
-// driver does not carry. This file performs the checks it can actually perform.
-//
-// PORTS, NOT PROCESSES. Every provider-process concern (binary resolution and
-// the version floor gate, spawn-environment hygiene and the auth probe,
-// per-capability zero-turn detection) sits behind the injected
-// `ClaudeSessionTransport` / `ClaudeSessionChannel` ports declared below. This
-// module spawns nothing, reads no environment variable, and therefore cannot
-// echo, persist, or log a `CLAUDE_CODE_OAUTH_TOKEN`.
-//
-// Typed-error convention: mirrors `provider-registry.ts` — a `readonly code`
-// literal drawn from the registered `driver.*` namespace (closed at seven),
-// plus a structured `fields` bag. Internal validation errors (e.g.
-// `ProviderOutputValidationError`) carry NO code — class identity
-// discriminates; a dotted literal belongs only to registered wire/domain
-// errors. Nothing here mints a new dotted code: `driver.unavailable` carries the
-// driver-side refusals to service a session/run operation and
-// `driver.capability_unsupported` carries a provider's typed control-request
-// refusal ("registry membership is not availability"). A finer taxonomy would
-// have to be registered first.
+// Provider-process concerns sit behind the injected `ClaudeSessionTransport` and
+// `ClaudeProviderProcess` ports: this module spawns nothing and reads no environment variable, so
+// it cannot leak a `CLAUDE_CODE_OAUTH_TOKEN`. Errors here carry a registered `driver.*` code.
 
 import {
-  DRIVER_AUTH_DETAIL_MAX_LEN,
-  DRIVER_FAILURE_DETAIL_MAX_LEN,
-  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
-  DriverAuthProbeResultSchema,
-  DriverGoalResultSchema,
-  DriverResumeResultSchema,
-  DriverRollbackResultSchema,
-  ProviderCommandEntrySchema,
-  ProviderOutputSpeedStateSchema,
-  type CallbackToolInvocation,
-  type DriverTranscriptReplayResult,
-  type ReplayTranscriptParams,
-  type CallbackToolResult,
-  type ClearSessionGoalParams,
+  type DriverCompactionResult,
+  type InterruptRunParams,
+  type ProviderCommandListResult,
+  type ProviderOutputSpeedState,
+  type RunId,
+  type SessionId,
+} from "@ai-sidekicks/contracts";
+import { PendingCompactionRegistry } from "../../compaction-wait.js";
+import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import { ThreadFrameRouter, type ThreadFrameRoute } from "../../thread-frame-router.js";
+import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
+import {
+  classifyProviderRequestFailure,
+  mayReattemptAfterDefinitelyUnsent,
+} from "../../transcript/failure-mapping.js";
+import {
+  OutboundFrameTripwire,
+  OutboundTextFrameWriter,
+  RuntimeBindingQuarantine,
+} from "../../outbound-frame.js";
+import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
+import { mintUuidV7 } from "../../../ids/uuid-v7.js";
+import {
+  CLAUDE_COMPACTION_COMMAND_NAME,
+  ClaudeControlRequestRefusedError,
+  type ClaudeRunProcessLookup,
+  type ClaudeRunDispatchResolver,
+  type ClaudeProviderProcess,
+  type ClaudeSessionTransport,
+  composeClaudeMandatedEnvironment,
+  observeClaudeUserTextFailure,
+} from "./session-transport.js";
+import {
+  CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
+  type ClaudeRoutableFrame,
+  type ClaudeSessionLifecycleDependencies,
+  type ClaudeSessionRoutingBand,
+  type ClaudeSessionSlot,
+  type LiveClaudeSession,
+} from "./session-state.js";
+import {
+  CLAUDE_AUTH_PROBE_REACHED_DETAIL,
+  ClaudeAuthenticationRequiredError,
+  ClaudeSessionUnavailableError,
+  describeFailure,
+  sanitizeFailureDetail,
+} from "./session-errors.js";
+import { assertClaudeSpawnBoundRealization, ClaudeSpawnLegComposer } from "./spawn-legs.js";
+import { ClaudeRunRoutes } from "./run-routes.js";
+import { ClaudeHandshakeRegister } from "./handshake-register.js";
+import { ClaudeFrameRouting } from "./frame-routing.js";
+import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
+import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session-establishment.js";
+import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
+import {
+  buildAuthProbeResult,
   type CloseSessionParams,
   type CompactContextParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
-  type DriverCompactionResult,
-  type DriverGoalResult,
   type DriverResumeResult,
-  type DriverRollbackResult,
-  type ExecutionPosture,
-  type InterruptRunParams,
+  type ForkConversationResult,
   type ListProviderCommandsParams,
-  type McpServerStatusProducer,
-  type ProviderCommandEntry,
-  type ProviderCommandListResult,
-  type ProviderOutputSpeedState,
   type ProviderSessionHandle,
-  type RecoveryCondition,
   type ResumeSessionParams,
-  type RollbackToParams,
-  type RunId,
-  type SessionCallbackTool,
-  type SessionId,
-  type SetSessionGoalParams,
+  type ForkConversationParams,
   type StartRunParams,
-  type SubagentDefinition,
-  type SubagentPolicy,
-} from "@ai-sidekicks/contracts";
-import { createHash } from "node:crypto";
+} from "../../provider-driver.js";
 
-import { PendingCompactionRegistry, type CompactionWaitScheduler } from "../../compaction-wait.js";
-import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import {
-  ThreadFrameRouter,
-  type RoutableProviderFrame,
-  type SubagentLifecycleEmission,
-  type ThreadFrameRoute,
-  type ThreadFrameRouterConfig,
-} from "../../thread-frame-router.js";
-import {
-  UsageDeltaAccountant,
-  type CumulativeAxisReadings,
-  type MeteredUsageDelta,
-} from "../../usage-delta-accountant.js";
-import {
-  buildProviderSpawnEnv,
-  hostEnvNameMatchForPlatform,
-  type SpawnEnvPair,
-} from "../../spawn-env.js";
-import {
-  classifyProviderRequestFailure,
-  mayReattemptAfterDefinitelyUnsent,
-  type ProviderRequestFailureObservation,
-} from "../../transcript/failure-mapping.js";
-import {
-  assertReplayReconstituted,
-  PostReplayAssertionFailedError,
-  ReplayTargetLedger,
-  type PostReplayVerdict,
-  type ReplayTargetAbandonmentCause,
-  type ReplayTargetReadback,
-  type ReplayTargetReadbackReader,
-  type SeededTranscriptFrame,
-} from "../../transcript/replay-assertion.js";
-
-import {
-  OutboundFrameTripwire,
-  OutboundTextFrameWriter,
-  ProviderBindingQuarantine,
-  UNRECOGNIZED_TURN_EVIDENCE,
-  composeSupersededDeliveryRunFailure,
-  composeTextNeutralizationRunFailure,
-  type CallerDeclaredFrameOrigin,
-  type OutboundTextFrame,
-  type TextNeutralityMechanismGrade,
-  type TextNeutralizationRunFailure,
-} from "../outbound-frame.js";
-import {
-  CLAUDE_DRIVER_NAME,
-  type ClaudeTranscriptReplayReading,
-  type ClaudeTranscriptReplaySurfaceReader,
-  type ClaudeTranscriptSeedOutcome,
-  type ClaudeTranscriptSeedingSurface,
-} from "./capabilities.js";
-import {
-  CLAUDE_SUBAGENT_START_SIGNAL,
-  ClaudeTerminalEmissionGate,
-  classifyClaudeFrameFamilyForRouting,
-  classifyClaudeTurnEvidence,
-  normalizeClaudeSubagentLifecycle,
-  type ClaudeSubagentLifecycleSignal,
-} from "./event-normalizer.js";
-import { mintUuidV7 } from "../../../ids/uuid-v7.js";
-
-// --------------------------------------------------------------------------
-// Canonical driver id + fixed message text
-// --------------------------------------------------------------------------
-
-// The driver's identity constant lives in `capabilities.ts` beside the registry
-// it keys; this band imports it rather than declaring a second one, so a rename
-// cannot leave the two disagreeing.
-
-// The V1 driver-side span classification for EVERY resume failure. The halted
-// span's CONTENT is not knowable at the driver boundary — the driver sees a
-// refused attach, never the work the previous leg performed — and
-// `unclassifiable` is the fail-closed member the consumer must handle exactly as
-// `irreversible`. A finer resume-failure taxonomy, if one is ever justified,
-// belongs with the auth-probe band rather than here.
-const CLAUDE_RESUME_SPAN_CLASSIFICATION = "unclassifiable" as const;
-
-const UNDESCRIBED_FAILURE_DETAIL =
-  "The Claude provider transport failed the resume with no describable detail.";
-
-// --------------------------------------------------------------------------
-// Console-parity constants
-// --------------------------------------------------------------------------
-
-// THE DECLARED BOUND for one user-triggered compaction on this driver.
-//
-// "Declared" means exactly this: the driver states, up front, how long it will
-// wait for the provider's own typed compaction evidence before reporting the
-// OPERATION failed. It is not a guess at how long a compaction takes and it is
-// not a timeout on the provider — the provider is never cancelled, and a
-// boundary frame that arrives after this elapses still travels its ordinary
-// route and still produces its `usage.context_compacted` row.
-//
-// PER-DRIVER rather than shared, because the two mechanisms have nothing in
-// common but their name. Codex compacts inside a request/response it can
-// acknowledge; this driver sends a command frame the provider never answers and
-// waits on a stream frame emitted whenever the provider gets around to it, over
-// a conversation whose length is exactly the thing being compacted. A single
-// shared bound would be wrong for one of the two by construction, so each driver
-// declares its own and the wait registry takes it as an argument.
-export const CLAUDE_COMPACTION_WAIT_MS: number = 120_000;
-
-// The provider's own compaction command, as the provider itself enumerates it.
-//
-// BARE, WITHOUT THE LEADING SLASH. A live `system/init` frame publishes
-// `slash_commands` as names only (`"compact"`, `"autocompact"`, ...), so this is
-// the form the pre-dispatch presence check compares against; the dispatched
-// frame text composes the slash back on. Comparing a composed `/compact` against
-// the published names would never match and would refuse every compaction.
-const CLAUDE_COMPACTION_COMMAND_NAME = "compact";
-
-const CLAUDE_COMPACTION_COMMAND_TEXT = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
-
-// The origin this driver's own command dispatch claims.
-//
-// Minted from a LITERAL, in the module that composes the frame, which is the
-// discipline `OutboundTextFrameWriter` requires of the `driver_command` arm: the
-// arm is exempt from the text-neutralization tripwire, so a value that could be
-// forwarded from a caller would let user words reach the provider under a
-// driver's exemption. Nothing outside this module can name it.
-const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
-
-// --------------------------------------------------------------------------
-// Transport ports — the seam between this driver band and the provider process
-// --------------------------------------------------------------------------
-
-// A single outbound user-authored text frame.
-//
-// Now the SHARED branded frame rather than a local shape, which is what makes
-// the neutralization structural instead of conventional: `OutboundTextFrame`
-// carries a `#private` field, so it is nominal and no object literal satisfies
-// it. This module therefore CANNOT compose a wire frame — it can only obtain
-// one from the frame writer, which is the single place the sentinel is applied
-// and the correlation value is minted. The transport reads `wireText`; the
-// author's bytes travel beside it as `authoredText` and are never what this
-// band persists, events, or replays.
-export type ClaudeUserTextFrame = OutboundTextFrame;
-
-// How far a FAILED `sendUserText` got — the discriminator this band cannot
-// derive and the transport cannot avoid knowing.
-//
-//   * `unsent` — the write was refused BEFORE any byte was handed over: the
-//     channel was already closed, the stream was not writable, or the frame
-//     could not be encoded. A POSITIVE claim about bytes, reserved for failures
-//     wholly ahead of the first one. The provider saw nothing, so no turn
-//     exists on account of this frame and none ever will.
-//   * `indeterminate` — anything at or after the hand-off, and anything the
-//     transport cannot place ahead of it. The host took the bytes and its write
-//     rejected, the process died mid-write, or the failure is simply not one of
-//     the two the transport can classify. How much of the line the child read
-//     is not knowable from here, and a partially written line is exactly the
-//     shape a child reads as a whole message once it sees the newline.
-//
-// There is deliberately NO `refused` arm. A user-text write on this leg is
-// one-way stdin: the provider answers a TURN, never the write, so no failure on
-// this path can carry the proof of receipt a control response can. Inventing
-// one would be inventing evidence.
-export type ClaudeUserTextDelivery = "unsent" | "indeterminate";
-
-// The settled outcome of one `sendUserText`, reported rather than thrown.
-//
-// A rejection cannot carry this: it collapses "nothing left" and "the bytes are
-// gone and the turn may be running" into one value, and the caller cannot
-// recover the difference afterwards without reading an error message, which is
-// a guess. The two cases are owed OPPOSITE treatment by the tripwire, so the
-// difference has to cross the seam as data.
-export type ClaudeUserTextWriteAttempt =
-  | { readonly settled: "written" }
-  | {
-      readonly settled: "failed";
-      readonly delivery: ClaudeUserTextDelivery;
-      readonly cause: unknown;
-    };
-
-/**
- * One failed user-text write, normalized for the shared classifier.
- *
- * A two-member mapping onto a three-member vocabulary, and the missing member is
- * the point. `consumed-and-refused` is unreachable from this seam BY
- * CONSTRUCTION: a user-text write here is one-way stdin, so the provider answers
- * a TURN and never the write, and {@link ClaudeUserTextDelivery} carries no
- * refused arm for exactly that reason. Producing one would be inventing the
- * evidence that arm's absence exists to prevent — so the permanent structural
- * class, which is reachable only from a typed refusal, is unreachable at this
- * seam and the classifier is never asked to rule on one here.
- *
- * `refusalShape` is therefore never supplied, and its absence is not a default
- * standing in for an unread value: there is nothing on this path that could
- * carry one. The provider's structural rejections arrive on this leg's INBOUND
- * frame path — `system/api_retry` with a typed `error`, and the result subtypes —
- * which is a different seam with a different owner.
- */
-export function observeClaudeUserTextFailure(
-  delivery: ClaudeUserTextDelivery,
-): ProviderRequestFailureObservation {
-  return { delivery: delivery === "unsent" ? "unsent" : "indeterminate" };
-}
-
-// The one control-request subtype this band drives. `interrupt` is censused at
-// the pin; `cancel` is NOT a control-request subtype at all
-// in the pinned control-request registry, which is why the cancel intent rides
-// `cancelQueued` on this same request instead of a second subtype the CLI would
-// refuse. `cancelQueued` is REQUIRED so a caller states the intent explicitly;
-// realizing it against a build whose `system/init` capability tokens do not
-// include `interrupt_cancel_queued_v1` is the transport's job, through
-// per-capability detection.
-export interface ClaudeInterruptControlRequest {
-  readonly subtype: "interrupt";
-  readonly cancelQueued: boolean;
-}
-
-// Widened by the sibling bands as they take ownership of further subtypes (the
-// parity operations, the interactive-request plumbing). A closed union is the
-// point: an unrouted subtype must not typecheck.
-export type ClaudeControlRequest = ClaudeInterruptControlRequest;
-
-// The already-correlated `control_response` payload. Request/response id
-// correlation and read-to-EOF framing belong to the transport; this band sees
-// only the settled answer, because what it must classify is the TYPED REFUSAL
-// ("Unsupported control request subtype: ...", or a dispatcher arm reporting the
-// callback is not registered) that every driver must feature-detect at call
-// time rather than infer from a version number.
-export type ClaudeControlResponse =
-  | { readonly subtype: "success"; readonly response?: Record<string, unknown> | undefined }
-  | { readonly subtype: "error"; readonly error: string };
-
-// Why a channel is being torn down. Passed to the transport so an INTENDED close
-// is distinguishable from a crash — the seam the intended-close terminal
-// suppression consumes. This band never suppresses an event itself.
-export type ClaudeChannelDisposalReason =
-  | "session_closed"
-  | "spawn_identity_diverged"
-  | "resume_identity_diverged"
-  | "resume_result_invalid"
-  // Anything that failed between the transport handing over a live channel and
-  // that channel being registered — a throwing binding minter, a schema the
-  // spawn-binding digest cannot canonicalize, a transport whose `onTurnTerminal`
-  // rejects registration. Distinct from the identity arms because the provider
-  // did nothing wrong: the driver could not complete adoption.
-  | "establishment_failed";
-
-/**
- * One inbound Claude stream frame's cumulative token readings, as the transport
- * read them.
- *
- * Cumulative, not per-turn: this provider reports a RUNNING TOTAL for the
- * session that resets at no turn boundary, at no compaction, and on no resume.
- * The driver differences it; the transport must not.
- */
-export interface ClaudeCumulativeUsageObservation {
-  /** The turn the metered frame itself names, or `null` where it names none. */
-  readonly namedTurnId: string | null;
-  readonly cumulative: CumulativeAxisReadings;
-  /** The wire's own per-turn figure where one exists; a cross-check only. */
-  readonly declaredPerTurn?: CumulativeAxisReadings | null;
-}
-
-/**
- * The provider's own declaration, as published on the `system/init` handshake.
- *
- * Read from a live frame's members verbatim: `slash_commands`, `skills`,
- * `terminal_slash_commands`, `fast_mode_state`, `fast_mode_disabled_reason`.
- * Every list is carried WHOLE — the driver caps nothing here, because the cap
- * belongs to the composed reply and not to what the driver knows (see
- * {@link ClaudeSessionLifecycle.listProviderCommands}).
- *
- * A LIVE READ HELD AS DRIVER-SESSION STATE AND NEVER A STORED REGISTRY. A stored
- * copy would need invalidation, staleness, and reconciliation machinery whose
- * only purpose is to re-derive what one handshake read already gives.
- */
-export interface ClaudeHandshakeDeclaration {
-  /** `slash_commands` — interactively invocable, names WITHOUT a leading `/`. */
-  readonly slashCommands: readonly string[];
-  /** `skills` — the provider's skill surface, names verbatim. */
-  readonly skills: readonly string[];
-  /**
-   * `terminal_slash_commands` — published under a SEPARATE handshake member.
-   *
-   * The provider itself separates these from `slash_commands`, and the reason is
-   * load-bearing: they run in the provider's own terminal UI and are NOT
-   * interactively invocable over the programmatic surface this driver drives.
-   * Merging them into the invocable set would offer a user a control that
-   * silently does nothing; dropping them would hide a surface the provider
-   * really does publish. They are therefore carried, and the distinction is
-   * recorded on the entry rather than erased (see `scope` below).
-   */
-  readonly terminalSlashCommands: readonly string[];
-  /** `fast_mode_state` — the provider's reportable vocabulary, verbatim. */
-  readonly fastModeState: string | null;
-  /** `fast_mode_disabled_reason` — present only where the provider supplies it. */
-  readonly fastModeDisabledReason: string | null;
-}
-
-/**
- * A typed provider compaction frame, as the transport read it.
- *
- * The ONLY evidence that admits `applied`. `boundaryPosition` is `null` when the
- * provider's frame names no position — a positive statement, not an absence of
- * information about whether the compaction happened.
- */
-export interface ClaudeCompactionBoundaryObservation {
-  readonly boundaryPosition: number | null;
-}
-
-/**
- * The routing-relevant facts of one inbound Claude stream frame.
- *
- * Deliberately not the frame. See {@link ClaudeSessionChannel.onInboundFrame}
- * for why this shape, and not a frame body, is what crosses the seam.
- */
-export interface ClaudeInboundFrameObservation {
-  /** The composed `type/subtype` wire kind, verbatim and untrusted. */
-  readonly frameKind: string;
-  /**
-   * The provider-attributed subagent identity where the frame carries one.
-   *
-   * `null` for a frame on the session's own thread. Claude frames carry NO
-   * thread-id member, so this identity IS the child's identity axis and its
-   * absence is what marks a frame as the session's own.
-   */
-  readonly subagentId: string | null;
-  /** Cumulative token readings where the frame carries a usage block. */
-  readonly cumulativeUsage: ClaudeCumulativeUsageObservation | null;
-  /** The `SubagentStart` / `SubagentStop` signal where the frame is one. */
-  readonly subagentLifecycle: ClaudeSubagentLifecycleSignal | null;
-  /**
-   * The `system/init` handshake declaration where this frame is that handshake.
-   *
-   * Carried on the ordinary observation rather than on a second callback so the
-   * handshake cannot arrive down a path the routing band never sees: one seam,
-   * one arrival order, one place to reason about.
-   */
-  readonly handshake: ClaudeHandshakeDeclaration | null;
-  /** The typed compaction frame's reading where this frame is one. */
-  readonly compactionBoundary: ClaudeCompactionBoundaryObservation | null;
-}
-
-// One live Claude provider process, already handshaken through `system/init`.
-export interface ClaudeSessionChannel {
-  readonly providerSessionId: string;
-
-  /**
-   * Whether this channel can still deliver a turn terminal.
-   *
-   * TRANSPORT OBLIGATION — `isClosed` MUST read `true` once no further
-   * {@link ClaudeSessionChannel.onTurnTerminal} invocation can arrive for this
-   * channel, and MUST read `false` while one still can. That is the WHOLE of
-   * the property, and it is narrower than it looks: not "the process exited",
-   * not "the pipe broke", not "the last write failed" — only whether a terminal
-   * is still reachable. A transport that wired this to some other notion of
-   * liveness would be answering a question this band never asked.
-   *
-   * The one caller is the failed-write ruling below, whose entire argument for
-   * RETAINING an ambiguous frame is that the turn's own terminal will arrive
-   * and rule it. A channel that can deliver no terminal cannot make that
-   * argument, so this is the fact the fail-closed arm turns on.
-   *
-   * Reading `false` is the SAFE default, which is why the flag is asked in this
-   * direction. A transport that has not implemented it honestly yet leaves the
-   * frame retained: that costs one pending slot on a scope that already
-   * admitted it, and scope release reclaims it. The opposite default would trip
-   * a healthy binding on every recoverable write failure — a run failed and a
-   * provider session disposed over text the provider is still perfectly able to
-   * answer for.
-   */
-  readonly isClosed: boolean;
-
-  /**
-   * Writes one user-authored text frame and REPORTS the outcome.
-   *
-   * TRANSPORT OBLIGATION — a failure MUST be reported as a `failed` attempt
-   * carrying the delivery classification, NOT raised as a rejection. The
-   * classification is not recoverable above this seam: only the transport
-   * observes whether the refusal happened ahead of the first byte or after the
-   * host took the line, and that difference decides whether the frame is
-   * forgotten or ruled fail-closed. See {@link ClaudeUserTextDelivery} for what
-   * each arm claims — `unsent` is a positive claim and every failure the
-   * transport cannot place ahead of the first byte is `indeterminate`.
-   *
-   * The driver still contains a rejection (as `indeterminate`, the fail-closed
-   * arm) rather than trusting this obligation to hold, because a contract
-   * violation must not be read as good news about bytes.
-   */
-  sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt>;
-
-  sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse>;
-
-  /**
-   * Registers the lifecycle's turn-terminal observer. Called EXACTLY ONCE, when
-   * the driver adopts the channel; a later registration replaces the listener.
-   *
-   * TRANSPORT OBLIGATION — the transport MUST invoke `listener` when a terminal
-   * stream frame (`result/success`, `result/error_*`) arrives for this session's
-   * turn, and MUST NOT invoke it for any non-terminal frame. The driver has no
-   * other way to learn that a turn ended: stream frames flow to the transport's
-   * own consumer, not through this interface.
-   *
-   * Why the driver needs it at all: Claude's interrupt is CHANNEL-level, not
-   * run-level. A run route that outlives its turn is therefore not a harmless
-   * stale entry — it is an aimed weapon, and a late interrupt for the finished
-   * run would land on whatever turn the channel is running now. The listener
-   * retires the route so that interrupt refuses instead.
-   *
-   * The hook carries the terminal frame BODY, untyped and untrusted — the
-   * "future caller" its previous no-payload form named, arrived. The runtime
-   * text-neutralization tripwire has to ask whether a model turn demonstrably
-   * happened, and that answer lives in typed members of this exact frame
-   * (`num_turns`, `modelUsage`, `duration_api_ms`, `total_cost_usd`).
-   *
-   * The band's no-frame-vocabulary discipline is PRESERVED rather than
-   * abandoned: this module does not read a single member of the value. It
-   * forwards it to the normalizer's classifier, which is the module that owns
-   * frame content, and acts only on the classification that comes back. Typed
-   * `unknown` so that stays enforced rather than merely intended.
-   */
-  onTurnTerminal(listener: (terminalFrame: unknown) => void): void;
-
-  /**
-   * Registers the lifecycle's inbound-frame observer. Called EXACTLY ONCE, when
-   * the driver adopts the channel; a later registration replaces the listener.
-   *
-   * TRANSPORT OBLIGATION — the transport MUST invoke `observer` for EVERY
-   * inbound stream frame, BEFORE handing that frame to its own normalize
-   * consumer, and MUST deliver that frame to the consumer if and ONLY if the
-   * returned {@link ThreadFrameRoute}'s decision appears in the DELIVER column
-   * below. A transport that observed after projecting, or that ignored the
-   * decision, would put a child thread's output in the parent's timeline — the
-   * fabricated transcript this routing rule exists to prevent.
-   *
-   * DELIVER — the frame reaches the normalize consumer:
-   *
-   *   * `project` — a frame on the session's own thread.
-   *   * `route-connection-scoped` — a frame from a censused connection- or
-   *     account-scoped family, which carries no thread identity by design:
-   *     `system/init`, `system/rate_limit_event`, `system/api_retry`, and the
-   *     whole `control_request/*` / `control_response/*` family. Withholding
-   *     these would silence rate-limit telemetry and HANG every inbound
-   *     permission prompt, whose answer the provider is blocking on.
-   *   * `carve-out-interactive-request` — a child's ask travels on the DECISION
-   *     itself and routes through the same approval pipeline as the parent's.
-   *     Suppressing it would not hide the child but hang it.
-   *
-   * WITHHOLD — the frame does not reach the consumer:
-   *
-   *   * `carve-out-usage` — a child's spend is metered driver-side, ahead of
-   *     suppression; the child's content still never enters the parent's
-   *     timeline.
-   *   * `suppress-child-transcript` — the child's content, whose only timeline
-   *     presence is the `subagent.*` pair.
-   *   * `held-pending-registration` — buffered against a not-yet-registered
-   *     child; re-routed on registration and answered through
-   *     {@link ClaudeSessionLifecycleOptions.onReleasedFrameRoute}.
-   *   * `quarantined` — an absent or unrecognized identity, recorded as a
-   *     diagnostic rather than guessed into the parent.
-   *
-   * Held and quarantined frames are recorded by the router; neither is a silent
-   * drop. This table is the same one the sibling driver applies driver-side in
-   * its own route-decision switch — the difference is only WHO delivers, since
-   * this band answers by return value and never touches frame content.
-   *
-   * Why the widening. Claude multiplexes subagent threads over the PARENT's own
-   * stream, so "arrived on this channel" no longer identifies whose stream a
-   * frame came from — the assumption `onTurnTerminal` was written under. The
-   * thread-identity registry, the fail-closed routing decision, and the
-   * usage-delta base registers are driver-session state held for the life of
-   * the provider session, so the driver must see every frame to keep them.
-   *
-   * The observation carries NO frame content: a wire kind, an optional
-   * provider-attributed subagent identity, an optional CLOSED numeric usage
-   * reading, and an optional subagent-lifecycle signal. The normalizer still
-   * owns the frame vocabulary and every payload mapping — what crosses here is
-   * only what the routing and metering decisions are made of.
-   */
-  onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void;
-
-  /**
-   * Tears the provider process down. `dispose` is this band's WHOLE teardown
-   * surface: the driver holds no kill, no signal escalation, and no reaper, so
-   * process supervision (SIGTERM then SIGKILL, exit confirmation, orphan sweep)
-   * lives entirely behind this method in the transport implementation.
-   *
-   * TRANSPORT OBLIGATION — a `dispose` that REJECTS must retain supervision of
-   * the underlying process and owns its eventual termination. The rejection is
-   * a report, never a handoff: nothing above this interface can finish the job.
-   *
-   * What the driver does with a rejection depends on whose process it is:
-   *
-   *   * A channel bound to the session's OWN identity is retained in the
-   *     lifecycle's quarantine, its slot is held against any further create or
-   *     resume, and the next `closeSession` for that session retries THIS
-   *     channel. The driver keeps a handle, so the transport has a retrier.
-   *   * A REFUSED channel — one whose announced provider session id diverged
-   *     from the pinned or resumed id — is deliberately NOT retained. It is
-   *     bound to a foreign identity, so quarantining the session slot would
-   *     punish the slot for someone else's process and leave create
-   *     un-retryable after a divergence. The driver drops its reference and
-   *     surfaces the rejection in the refusal error text only; no lifecycle
-   *     operation ever revisits it. From that moment the transport is the sole
-   *     owner of that process, which is what this obligation exists to pin.
-   */
-  dispose(reason: ClaudeChannelDisposalReason): Promise<void>;
-}
-
-// The spawn-bound parity legs, in ONE shape shared by the create and resume
-// requests. Resume is a FRESH PROCESS SPAWN, so a leg bound at create and
-// omitted at resume is silently shed — a posture-less relaunch runs UNSANDBOXED
-// and a schema-less one unconstrained. Sharing the shape (and the single private
-// builder below that fills it) makes that shedding structurally impossible here
-// rather than a discipline the two call sites are asked to remember.
-export interface ClaudeSpawnBoundLegs {
-  readonly sessionId: SessionId;
-  /**
-   * The session goal, rendered to text by the daemon (EMULATED).
-   *
-   * TRANSPORT OBLIGATION — a present goal is realized as the CLI's system-prompt
-   * append on this spawn. It is not a user turn and MUST NOT be delivered as
-   * one: the goal is daemon-authored standing instruction, and injecting it into
-   * the user's message stream would put words in a user's mouth
-   * and put them in the transcript.
-   *
-   * Rides the SPAWN-BOUND shape rather than a live control request because this
-   * provider exposes no arbitrary session-metadata surface — session name, tag,
-   * and `getSessionInfo` only — so the append is the mechanism, and an append is
-   * bound at process start. That is exactly why `setSessionGoal` answers
-   * `degraded` against a running process instead of claiming an application it
-   * cannot perform until the next spawn.
-   */
-  readonly goalText: string | undefined;
-  readonly admittedCostCapCents: number | undefined;
-  readonly executionPosture: ExecutionPosture | undefined;
-  readonly callbackTools: SessionCallbackTool[] | undefined;
-  /**
-   * The subagent policy as REALIZED — definitions this driver cannot
-   * boundary-mediate are already withheld and `maxDepth` is already clamped, so
-   * the transport realizes what it is given rather than re-deciding.
-   */
-  readonly subagentPolicy: SubagentPolicy | undefined;
-  /**
-   * The definitions withheld from `subagentPolicy` and why.
-   *
-   * Carried BESIDE the policy rather than folded into it, because a transport
-   * that received only the surviving definitions could not tell a policy that
-   * declared three from one that declared five and lost two. Enforcement is
-   * observability-only: a withheld definition never fails a run.
-   */
-  readonly withheldSubagentDefinitions: readonly ClaudeWithheldSubagentDefinition[];
-  /**
-   * The `--settings` sandbox document composed from `executionPosture`, or
-   * `undefined` when the session declares no posture.
-   *
-   * Composed by the DRIVER and handed over ready to write: the posture-to-flag
-   * mapping is a normalization decision the driver contract owns, and leaving it
-   * to each transport would make the enforced sandbox depend on which transport
-   * happened to be wired.
-   */
-  readonly sandboxSettings: ClaudeSandboxSettings | undefined;
-  readonly outputSchema: Record<string, unknown> | undefined;
-  readonly onCallbackToolCall:
-    | ((invocation: CallbackToolInvocation) => Promise<CallbackToolResult>)
-    | undefined;
-  /**
-   * The daemon-hosted ephemeral MCP server the admitted `callbackTools` are
-   * served through, or `undefined` when none are served.
-   *
-   * TRANSPORT OBLIGATION — realized as `--mcp-config` with this server's tools,
-   * and the provider-facing names are taken from the descriptor rather than
-   * re-derived. An invocation arriving under a provider-facing name is
-   * translated back through `registryNamesByProviderName` before it becomes a
-   * `CallbackToolInvocation`, so the daemon-side host is always asked about a
-   * name its own registry holds.
-   *
-   * PRESENT ONLY when `onCallbackToolCall` is bound. That pairing is the
-   * fail-closed spawn rule made structural: a registry served with no dispatcher
-   * would offer the model tools whose invocations nothing could answer.
-   */
-  readonly callbackToolServer: ClaudeCallbackMcpServerDescriptor | undefined;
-  /**
-   * The daemon boundary that serializes beyond-cap subagent tool calls, or
-   * `undefined` when the session declares no enabled subagent policy.
-   */
-  readonly subagentAdmission: ClaudeSubagentAdmissionPort | undefined;
-  readonly onMcpServerStatus: McpServerStatusProducer | undefined;
-  /**
-   * The variables this provider's child MUST carry, whatever else it carries —
-   * for this CLI, its documented auto-update opt-out.
-   *
-   * NOT the child environment. The curated base and the run-provisioned
-   * variables are the transport's own obligation on `spawnSession`, and
-   * so is the deny strip, because the transport is what resolves the
-   * `credentialPolicyRef` this shape already carries on `sandboxSettings`. What
-   * rides here is the other half of that composition: the pairs the daemon
-   * mandates, which the transport applies LAST and must not shed — a policy that
-   * could strip them, or a base that carried `DISABLE_AUTOUPDATER=0`, would let
-   * a provider build replace itself mid-session and invalidate both the version
-   * recorded on the run's binding and the capability snapshot the run was
-   * admitted against.
-   *
-   * Composed by the shared spawn-environment builder rather than written out
-   * here, so the opt-out has ONE definition across both drivers, and carried on
-   * the SPAWN-BOUND shape for the reason that shape exists: a resume is a fresh
-   * spawn, and suppression bound at create and omitted at resume would silently
-   * expire at the first relaunch.
-   */
-  readonly mandatedEnvironment: readonly SpawnEnvPair[];
-  /**
-   * The output-speed level this session was REQUESTED at, or `undefined` when
-   * the caller named none.
-   *
-   * A SPAWN-BOUND leg and not a live control, which is why it rides this shape:
-   * the provider settles the state at process start and reports it on the
-   * handshake, so a level bound at create and omitted at resume would be
-   * silently shed at the first relaunch — precisely the shedding this shape
-   * exists to make impossible.
-   *
-   * Carried as the caller's REQUEST, never as the provider's answer. What the
-   * provider actually declares arrives on the `system/init` handshake and is
-   * held against the binding (see
-   * {@link ClaudeSessionLifecycle.observedOutputSpeedFor}); the two are
-   * different facts and this driver never writes one over the other.
-   */
-  readonly outputSpeed: string | undefined;
-}
-
-export interface ClaudeSessionSpawnRequest extends ClaudeSpawnBoundLegs {
-  // Pinned by the driver and passed to the CLI as `--session-id`, so the id the
-  // process runs under is one the daemon chose. It is deliberately NOT the
-  // daemon's `SessionId`: a session relaunch spawns a second process for the same
-  // canonical session, and reusing the canonical id would collide with the leg
-  // still shutting down.
-  readonly providerSessionId: string;
-  readonly config: Record<string, unknown>;
-}
-
-export interface ClaudeSessionResumeRequest extends ClaudeSpawnBoundLegs {
-  readonly resumeHandle: string;
-}
-
-/**
- * A conversation rewind. Composed, on this provider, from
- * `--resume-session-at <message-uuid>` + `--fork-session`, with
- * `--replay-user-messages` so message-uuid rewind targets appear on the wire at
- * all.
- *
- * It extends the SPAWN-BOUND legs for the same reason resume does, and the
- * reason is not symmetry: a fork is a fresh process, so a rewind that omitted a
- * leg would relaunch the session shorn of it — unsandboxed, uncapped, or
- * unconstrained — while every layer above read an ordinary rewind.
- *
- * TRANSPORT OBLIGATIONS:
- *   1. `targetPosition` is the DRIVER-NORMALIZED session position. Resolving it
- *      to the provider's message uuid is the transport's job, because the uuid
- *      lives in the stream this band deliberately does not parse. A position
- *      that names no boundary MUST throw rather than resolve to a nearby one:
- *      rewinding to approximately the right place is a wrong answer that reads
- *      as a right one.
- *   2. The forked process runs from the IDENTICAL worktree cwd as the session
- *      being rewound. This provider answers a resume it cannot honour by
- *      starting a fresh session instead, and a cwd change is the documented
- *      trigger.
- *   3. `--rewind-files` is NOT used. Its coverage is Write/Edit-only, so it
- *      would restore some of the tree and leave the rest — file-state restore is
- *      the daemon's turn-snapshot leg, which is provider-uniform and strictly
- *      richer.
- */
-export interface ClaudeSessionRewindRequest extends ClaudeSpawnBoundLegs {
-  readonly resumeHandle: string;
-  readonly targetPosition: number;
-}
-
-export interface ClaudeSessionAttachment {
-  // What the spawned process announced on `system/init`. Compared against the
-  // pinned / requested id — never assumed to match.
-  readonly providerSessionId: string;
-  readonly channel: ClaudeSessionChannel;
-}
-
-export interface ClaudeResumedSessionAttachment extends ClaudeSessionAttachment {
-  // REQUIRED: a resume without a comparable position is structurally
-  // inexpressible, so a transport cannot report a success it cannot evidence.
-  readonly sessionPosition: number;
-}
-
-/**
- * What a transport reports for a completed rewind.
- *
- * `providerSessionId` is the FORKED session's own id and is expected to differ
- * from the handle that was rewound — that difference is what "fork" means here,
- * and the driver checks it rather than assuming it.
- *
- * `sessionPosition` is REQUIRED and is the position the fork actually landed on,
- * not the one that was asked for. Reporting the request back would make a
- * boundary the transport silently adjusted indistinguishable from one it hit
- * exactly, which is the same evidence gap the resume identity gate closes.
- */
-export interface ClaudeRewoundSessionAttachment extends ClaudeSessionAttachment {
-  readonly sessionPosition: number;
-}
-
-/**
- * What a transport reports when the zero-turn auth probe found a usable credential.
- *
- * Resolving IS the authenticated verdict; there is no negative arm, because the
- * two negative outcomes are already carried by typed throws (see the port). A
- * three-armed reading would have given a transport a second way to say "logged
- * out" and this band two shapes to agree with each other about.
- */
-export interface ClaudeAuthProbeReading {
-  /**
-   * Operator-facing, non-PII, and OPTIONAL — e.g. which credential source
-   * answered.
-   *
-   * MUST NOT carry credential material or a seat email. The pinned CLI's
-   * `CLAUDE_CODE_OAUTH_TOKEN` is a credential that must never be echoed,
-   * persisted, or written to a workspace, and a probe detail is
-   * all three waiting to happen. The driver contract bounds this at
-   * `DRIVER_AUTH_DETAIL_MAX_LEN` and treats it as diagnostics only: `status`
-   * alone carries the fail-closed admission decision.
-   */
-  readonly detail?: string | undefined;
-}
-
-/**
- * What the auth probe's spawn is obliged to carry.
- *
- * A STANDALONE shape rather than a `ClaudeSpawnBoundLegs` extender, and the
- * difference is the point: a probe binds to no session, starts no thread, and
- * admits no run, so it has no posture, no goal, no callback registry, and no
- * cost cap to carry. Widening the spawn-bound shape to reach it would hand the
- * probe legs it must not have — and would move the "every one of the three
- * spawn-bound requests" count the port's obligations below are stated against.
- *
- * What it does share is the one leg that is not about a session at all: the
- * pairs the daemon mandates on EVERY child it causes to exist.
- */
-export interface ClaudeAuthProbeRequest {
-  /**
-   * The variables the probe's child MUST carry — for this CLI, its documented
-   * auto-update opt-out, composed by the same shared builder that composes the
-   * spawn-bound requests' copy.
-   *
-   * REQUIRED rather than optional, because the probe is simultaneously the spawn
-   * path where the suppression is easiest to lose and the one where losing it
-   * costs most. A probe runs on a cadence and its child is short-lived, so an
-   * unsuppressed probe can UPDATE THE INSTALLATION underneath the very version
-   * and capability readings the next admission is decided against — drift with
-   * no user action anywhere behind it, produced by the check that exists
-   * to make admission safe.
-   */
-  readonly mandatedEnvironment: readonly SpawnEnvPair[];
-}
-
-/**
- * The daemon's mandated pairs for a Claude child — ONE definition, every spawn.
- *
- * Shared by the spawn-bound legs builder and the auth probe rather than composed
- * at each site. Two composition sites are two chances for one to drift, and this
- * particular drift is invisible from the outside: a probe that shed the opt-out
- * still answers the question it was asked, correctly, while the installation
- * moves underneath the answer.
- */
-function composeClaudeMandatedEnvironment(): readonly SpawnEnvPair[] {
-  return buildProviderSpawnEnv({
-    driverName: "claude",
-    // An EMPTY base is the honest input from this band: it holds no curated
-    // environment to prune, and the names a policy denies are reachable only
-    // through the `credentialPolicyRef` the transport resolves. So the builder
-    // is asked for exactly what this side owns — the mandated pairs — and the
-    // transport composes them over the base it built.
-    baseEnv: [],
-    // The host's own semantics, not a policy's: this side holds no policy, and
-    // the transport applies these pairs by comparing names under the same rule
-    // the builder folded them under.
-    hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
-  });
-}
-
-export interface ClaudeSessionTransport {
-  /**
-   * Whether THIS transport realizes the callback-tool registration — writing
-   * `--mcp-config` for `callbackToolServer` so the model actually sees the
-   * tools (the Claude half).
-   *
-   * WHY THE PORT DECLARES IT RATHER THAN THE DRIVER ASSUMING IT. The Codex half
-   * of this leg can settle the same question by reading the pinned protocol —
-   * `ThreadStartParams.dynamicTools` is experimental-generation-only, so the
-   * registration surface is provably unreachable and the registry is withheld
-   * (see `CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL`). This band has
-   * no equivalent reading: it spawns nothing, and whether the tools reach the
-   * model is a property of whichever transport is bound. Left unasked, a
-   * transport that never wrote `--mcp-config` would produce EXACTLY the failure
-   * the Codex withholding exists to prevent — the daemon holding a live
-   * registry and believing it offered tools the model was never told about —
-   * and it would be invisible, because a tool the model never calls looks
-   * identical to a tool the model chose not to call.
-   *
-   * REQUIRED rather than optional, on this file's own fail-open-forbidden rule:
-   * an optional member a composition root simply never set would decide this by
-   * omission. A transport that does not realize the registration is a
-   * REPRESENTABLE and supported configuration — it declares `false`, the
-   * registry is withheld, one diagnostic is recorded, and the session runs
-   * without callback tools rather than with tools nothing can deliver.
-   */
-  readonly realizesCallbackToolRegistration: boolean;
-
-  /**
-   * Starts a provider process for a new session.
-   *
-   * SPAWN-ENVIRONMENT OBLIGATION, owned here for the same reason the auth
-   * probe is: THIS BAND SPAWNS NOTHING, so the only place the rule can bind is
-   * the port. The child environment is CONSTRUCTED, never inherited — the
-   * transport composes it from the curated base plus the run-provisioned
-   * variables and strips the effective credential policy's denied names, and no
-   * path spreads the daemon's own `process.env` into a child. It applies
-   * identically to `resumeSession`, which is a fresh spawn and not a reattach.
-   *
-   * WHOSE POLICY, stated per request, because "the effective policy" is only
-   * well-defined once its source is named. It is always the
-   * `credentialPolicyRef` carried on THAT REQUEST'S OWN `sandboxSettings`, never
-   * one the transport resolved for an earlier spawn of the same session:
-   *
-   *   * a spawn and a resume both take it from `#buildSpawnBoundLegs`, the one
-   *     builder both paths use, which reads `params.executionPosture` — so a
-   *     posture that CHANGED between create and resume governs the resumed
-   *     child, in both directions. A resume under a tightened posture strips
-   *     names the create did not; a resume under a `trusted` posture strips
-   *     nothing, because that arm types `credentialPolicyRef?: never` and is a
-   *     positive statement that nothing is denied.
-   *   * a rewind reuses its predecessor's legs, and that is deliberate rather
-   *     than the same rule going missing: `RollbackToParams` carries no posture,
-   *     so no newer one is reachable at that call, and substituting a default
-   *     would invent a policy no caller stated.
-   *
-   * A transport that resolved a ref once and reused the resolution across a
-   * session's relaunches would put the stale-policy spawn back — the child would
-   * run under whatever was in force when the session was first created.
-   *
-   * Beneath it sits the provider-native layer this CLI needs: `CLAUDE_*` and
-   * `CLAUDECODE*` are stripped so an ambient developer configuration cannot
-   * reach an agent's process, and configuration is supplied through `--settings`
-   * rather than the ambient `~/.claude`, so two sessions on one node cannot read
-   * each other's settings.
-   *
-   * `mandatedEnvironment` is applied LAST, after that strip, on every one of the
-   * three spawn-bound requests: those pairs are the daemon's own instructions to
-   * the child rather than inherited state, so a deny list has no authority over
-   * them, and a base carrying one of their names is REPLACED rather than
-   * appended beside — a duplicate name resolves at the discretion of whatever
-   * finally execs the process.
-   *
-   * Both that strip and that replacement compare NAMES under THIS HOST's
-   * semantics — case-insensitively on Windows and byte-for-byte elsewhere,
-   * which `hostEnvNameMatchForPlatform` is the one definition of — and never
-   * under whatever a policy artifact happens to declare. A resolved policy that
-   * disagrees with the host is a wiring fault the shared builder REFUSES rather
-   * than applies, so a transport that folded under the policy's value would be
-   * reintroducing exactly the case the builder rejects.
-   *
-   * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below: a
-   * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
-   * and every other failure throws anything else. That typed distinction is the
-   * only route by which this band reports `reauth-required` instead of
-   * `recovery-needed` — `classifyRecoveryCondition` keys on the class and never
-   * on message text, so a transport that reported a logout as a generic error
-   * would silently downgrade the operator's remediation to "reconcile by hand".
-   */
-  spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment>;
-  /**
-   * Re-attaches to an existing provider session.
-   *
-   * Carries the same auth-failure obligation as `spawnSession`: this is the call
-   * whose rejection `#establishResumedSession` classifies, so an expired
-   * credential MUST arrive as `ClaudeAuthenticationRequiredError`.
-   */
-  resumeSession(request: ClaudeSessionResumeRequest): Promise<ClaudeResumedSessionAttachment>;
-  /**
-   * Forks the session at a rewind target, producing a new provider session whose
-   * history stops at that boundary.
-   *
-   * A SEPARATE method rather than an optional member on `resumeSession`: the two
-   * differ in their answer as well as their flags — a resume that lands on a
-   * different session id is a FAILURE (the provider replaced the session), while
-   * a rewind that lands on the same id is one (the provider did not fork). One
-   * method could not carry both rules, and a shared one would have to pick.
-   *
-   * Carries `spawnSession`'s spawn-environment and auth-failure obligations
-   * unchanged: this is a fresh process spawn, not a reattach.
-   */
-  rewindSession(request: ClaudeSessionRewindRequest): Promise<ClaudeRewoundSessionAttachment>;
-  /**
-   * The zero-turn authentication probe, owned by the transport because
-   * THIS BAND SPAWNS NOTHING.
-   *
-   * No authless protocol probe exists for this provider, which is measured
-   * rather than assumed: reaching a working `system/init` IS the authentication
-   * evidence, and only the layer that can start a process can obtain it. So the
-   * probe is a port obligation rather than a method here, and this band supplies
-   * the classification instead.
-   *
-   * TRANSPORT OBLIGATIONS, all five load-bearing:
-   *   1. It spends NO turn and admits no run. A probe that cost a turn would
-   *      defeat its own purpose, which is to refuse admission before one is spent.
-   *   2. It returns, logs, and persists NO credential material — in particular
-   *      never the `CLAUDE_CODE_OAUTH_TOKEN` value, whether it read one or not.
-   *   3. It throws `ClaudeAuthenticationRequiredError` for a DETERMINATE
-   *      logged-out reading, and any other error for one it could not take. That
-   *      typed distinction is the whole reason this band can report
-   *      `unauthenticated` separately from `indeterminate` without sniffing a
-   *      message string — the same rule `classifyRecoveryCondition` already
-   *      applies on the resume path.
-   *   4. Any process it starts is torn down before the returned promise settles,
-   *      on every path including the throwing ones.
-   *   5. Every process it starts carries `request.mandatedEnvironment`, applied
-   *      the same way the three spawn-bound requests apply theirs — LAST, and
-   *      never shed. Obligation 4 is what makes this one necessary rather than
-   *      redundant: the probe's child is short-lived AND recurring, so an
-   *      unsuppressed probe is the one spawn path that can update the
-   *      installation out from under the version and capability readings the
-   *      next admission is decided against. The request carries the pairs
-   *      because the port is where the rule can bind — a zero-argument probe
-   *      could not receive them, and a transport-construction-time copy would be
-   *      a second definition this band could not check.
-   */
-  probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading>;
-}
-
-// --------------------------------------------------------------------------
-// Run dispatch resolution — the daemon-owned half of `startRun`
-// --------------------------------------------------------------------------
-
-/**
- * The origin a run's opening frame is written under.
- *
- * A CONSTANT rather than a port member. The text this driver opens a run with
- * is the user's own message, composed by the daemon's run pipeline, so
- * the origin is a fact of the code path and not a claim a resolver gets to make.
- */
-const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
-
-// `StartRunParams` carries `runId` / `channelId` / `agentConfig` and NEITHER the
-// owning `sessionId` NOR the run's opening text. Both are daemon-owned facts:
-// the run-to-binding mapping lives in `runtime_bindings` and the opening
-// content is composed by the daemon's run pipeline. Reading either out of the
-// untyped `agentConfig` record would invent an unratified key, so this band asks
-// for them through an injected port instead. The daemon wires the
-// implementation; the outbound frame writer composes the text.
-export interface ClaudeRunDispatch {
-  readonly sessionId: SessionId;
-  readonly openingText: string;
-}
-
-export interface ClaudeRunDispatchResolver {
-  resolveRunDispatch(params: StartRunParams): Promise<ClaudeRunDispatch | undefined>;
-}
-
-// The read the intervention dispatcher needs, and the only coupling
-// between the two bands — narrowed to one method so `intervention.ts` cannot
-// reach session state it has no business mutating.
-//
-// THREE outcomes, not two: a live channel, `undefined` for a run
-// with no route, and a THROWN refusal for a run whose provider binding a
-// text-neutralization trip disposed. The third is deliberately not folded into
-// the second — "this run has no channel yet" invites a retry, and a retry into
-// a process that has already swallowed a user's words is the one
-// response that must not happen. A caller that treats every non-channel answer
-// as absence will now see the refusal escape instead, which is the intended
-// direction: it names the real cause rather than a plausible wrong one.
-export interface ClaudeRunChannelLookup {
-  findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined;
-}
-
-// --------------------------------------------------------------------------
-// Typed errors (both codes already registered in the driver namespace)
-// --------------------------------------------------------------------------
-
-export type ClaudeSessionUnavailableReason =
-  | "session_already_live"
-  | "session_id_pin_diverged"
-  | "no_live_session"
-  | "no_live_run"
-  | "run_already_dispatched"
-  | "session_turn_in_flight"
-  | "run_dispatch_unresolved"
-  | "cost_cap_mismatch"
-  | "execution_posture_mismatch"
-  | "output_schema_unbound"
-  | "output_schema_mismatch"
-  | "provider_account_unusable"
-  | "provider_account_ambiguous";
-
-const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReason, string>> = {
-  session_already_live:
-    "A live Claude session is already bound to this session; create would orphan it.",
-  session_id_pin_diverged:
-    "The spawned Claude process announced a session id other than the pinned one.",
-  no_live_session: "No live Claude session is bound to this session.",
-  no_live_run: "No live Claude session is bound to this run.",
-  run_already_dispatched:
-    "This run's opening frame is already on the wire and its turn has not settled.",
-  session_turn_in_flight:
-    "Another run's frame is still pending on this Claude session; its turn has not settled.",
-  run_dispatch_unresolved: "The daemon resolved no Claude dispatch for this run.",
-  cost_cap_mismatch:
-    "The run's admitted cost cap does not match the cap the Claude session was spawned with.",
-  // (A run declaring no cap is admitted into any session — see
-  // `#assertSpawnBoundRealization`.)
-  execution_posture_mismatch:
-    "The run's execution posture does not match the posture the Claude session was spawned with.",
-  output_schema_mismatch:
-    "The run's output schema differs from the schema the Claude session was spawned with.",
-  output_schema_unbound:
-    "The run requires schema-constrained output but the Claude session was spawned without a schema.",
-  // Two DIFFERENT faults, deliberately not one reason. "Unusable" is one source
-  // that arrived malformed; "ambiguous" is two well-formed sources that disagree.
-  // An operator repairs those differently, and the `reason` field exists to carry
-  // exactly the distinction the shared 503 code cannot.
-  provider_account_unusable:
-    "The request named a provider account that is present but empty; an account was meant to be bound and none was.",
-  provider_account_ambiguous:
-    "Two resolvers name different provider accounts for this Claude session.",
-};
-
-export interface ClaudeSessionUnavailableFields {
-  readonly driverId: string;
-  readonly reason: ClaudeSessionUnavailableReason;
-  readonly sessionId: SessionId | undefined;
-  readonly runId: RunId | undefined;
-}
-
-export interface ClaudeSessionUnavailableContext {
-  readonly sessionId?: SessionId | undefined;
-  readonly runId?: RunId | undefined;
-  readonly detail?: string | undefined;
-}
-
-// Every driver-side refusal to service a session or run operation. Rides the
-// REGISTERED `driver.unavailable` (503) rather than minting a code, because no
-// registered member names a finer condition and the namespace is closed. The
-// `reason` field carries the distinction operators need.
-export class ClaudeSessionUnavailableError extends Error {
-  readonly code = "driver.unavailable" as const;
-  readonly fields: ClaudeSessionUnavailableFields;
-
-  constructor(reason: ClaudeSessionUnavailableReason, context: ClaudeSessionUnavailableContext) {
-    const detail = context.detail;
-    super(
-      detail === undefined
-        ? SESSION_UNAVAILABLE_MESSAGES[reason]
-        : `${SESSION_UNAVAILABLE_MESSAGES[reason]} ${detail}`,
-    );
-    this.name = "ClaudeSessionUnavailableError";
-    this.fields = {
-      driverId: CLAUDE_DRIVER_NAME,
-      reason,
-      sessionId: context.sessionId,
-      runId: context.runId,
-    };
-  }
-}
-
-export interface ClaudeControlRequestRefusedFields {
-  readonly driverId: string;
-  readonly subtype: ClaudeControlRequest["subtype"];
-  readonly providerError: string;
-}
-
-// A censused control subtype that the running dispatcher refused. The wire
-// reference is explicit that registry membership is not availability and that a
-// refusal arrives as a TYPED `control_response` error, so this is a runtime
-// unsupported-capability answer — the registered `driver.capability_unsupported`
-// (400), not an invented code.
-export class ClaudeControlRequestRefusedError extends Error {
-  readonly code = "driver.capability_unsupported" as const;
-  readonly fields: ClaudeControlRequestRefusedFields;
-
-  constructor(subtype: ClaudeControlRequest["subtype"], providerError: string) {
-    super(`The Claude CLI refused the ${subtype} control request.`);
-    this.name = "ClaudeControlRequestRefusedError";
-    this.fields = { driverId: CLAUDE_DRIVER_NAME, subtype, providerError };
-  }
-}
-
-// The marker a transport throws when the failure it hit is an expired or missing
-// credential rather than a generic provider fault. It is the ONLY route by which
-// a resume reports `reauth-required` instead of `recovery-needed` — two
-// conditions with two different operator actions, which is why the classification
-// must come from a typed signal and never from message-substring sniffing. The
-// producing side is the auth probe / mid-run reauth route; this band is the
-// consumer. Rides the registered `driver.not_authenticated` (409).
-/**
- * Thrown when a replay is asked of a build whose transcript-replay probe refused.
- *
- * A REFUSAL and not a fault. A `false` `transcript_replay` is a supported
- * declaration: the caller catches this, settles
- * on the memo projection, and reports `degraded` with
- * `conversation_history_summarized` declared. Throwing rather than returning
- * `degraded` from here is the same distinction the sibling Codex leg draws — the
- * `degraded` result belongs to whoever actually delivered the memo, and minting
- * it in a driver that delivered nothing would claim a summarized history exists.
- */
-/**
- * Thrown when a replay against a build that DOES carry a seeding surface fails
- * — a malformed frame, a non-fresh target, an interior refusal, or an
- * ambiguous delivery.
- *
- * Its own class rather than `ClaudeSessionUnavailableError`, whose `reason` is a
- * closed union mapped to fixed operator-facing messages. Every failure here
- * names a transcript POSITION or a target's contents, which that union has no
- * member for, and widening it would put replay-specific arms into the vocabulary
- * every session-lifecycle refusal shares.
- */
-export class ClaudeTranscriptReplayFailedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaudeTranscriptReplayFailedError";
-  }
-}
-
-/**
- * Calls a replay-target readback reader and converts a rejection into the
- * `unreadable` arm.
- *
- * That conversion is the seam's own contract — "rejecting is equivalent to
- * answering `unreadable`" — realized once so neither call site can forget it and
- * turn a failed read into a thrown transport error the assertion never sees.
- */
-async function readReplayTargetSafely(
-  read: ReplayTargetReadbackReader,
-  targetProviderSessionId: string,
-): Promise<ReplayTargetReadback> {
-  try {
-    return await read(targetProviderSessionId);
-  } catch (error: unknown) {
-    return { kind: "unreadable", reason: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-/**
- * Parses one exported transcript frame for the Claude replay leg, fail-closed.
- *
- * Deliberately a sibling of the Codex leg's parser rather than a shared helper:
- * the two driver trees are import-independent by design, so neither can break
- * the other by moving a file, and the same duplication rule the capability
- * modules follow applies here. The RULES the two enforce are identical, and both
- * are held to them by `replay-assertion.ts`, which is shared.
- *
- * Every refusal is deliberate: a frame this leg cannot read is a frame it cannot
- * seed, and skipping one would be a loss with no `DeclaredLossKind` to declare
- * it, falsifying the empty loss list the `applied` arm returns.
- */
-function readRenderedTranscriptFrameForClaudeReplay(frame: unknown): SeededTranscriptFrame {
-  if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
-    throw new ClaudeTranscriptReplayFailedError(
-      "A transcript frame handed to the Claude replay leg was not an object.",
-    );
-  }
-  const candidate = frame as Record<string, unknown>;
-  const position = candidate["position"];
-  const role = candidate["role"];
-  const segments = candidate["segments"];
-  if (typeof position !== "number" || !Number.isInteger(position)) {
-    throw new ClaudeTranscriptReplayFailedError(
-      "A transcript frame handed to the Claude replay leg carried no integer position.",
-    );
-  }
-  if (role !== "user" && role !== "assistant") {
-    throw new ClaudeTranscriptReplayFailedError(
-      `A transcript frame at position ${String(position)} carried the unrecognized role "${String(role)}".`,
-    );
-  }
-  if (!Array.isArray(segments)) {
-    throw new ClaudeTranscriptReplayFailedError(
-      `The transcript frame at position ${String(position)} carried no segment list.`,
-    );
-  }
-  const bodyParts: string[] = [];
-  for (const segment of segments) {
-    if (typeof segment !== "object" || segment === null || Array.isArray(segment)) {
-      throw new ClaudeTranscriptReplayFailedError(
-        `The transcript frame at position ${String(position)} carried a segment that was not an object.`,
-      );
-    }
-    const kind = (segment as Record<string, unknown>)["kind"];
-    if (kind === "text" || kind === "reasoning") {
-      const text = (segment as Record<string, unknown>)["text"];
-      if (typeof text !== "string") {
-        throw new ClaudeTranscriptReplayFailedError(
-          `A "${String(kind)}" segment of the transcript frame at position ${String(position)} carried no text.`,
-        );
-      }
-      if (text.length > 0) {
-        bodyParts.push(text);
-      }
-      continue;
-    }
-    if (kind === "tool_call" || kind === "tool_result") {
-      continue;
-    }
-    // The no-silent-drop rule: an unrecognized kind refuses rather than being
-    // passed over, so a kind added to the canonical union without this leg
-    // learning to seed it fails loudly on the first transcript carrying one.
-    throw new ClaudeTranscriptReplayFailedError(
-      `The transcript frame at position ${String(position)} carried an unsupported segment kind "${String(kind)}"; refusing to seed a frame this driver cannot represent.`,
-    );
-  }
-  return { position, role, text: bodyParts.join("\n\n") };
-}
-
-export class ClaudeTranscriptReplayUnsupportedError extends Error {
-  constructor(reason: string) {
-    super(
-      `The installed Claude build exposes no prior-turn seeding surface this driver can drive: ${reason}`,
-    );
-    this.name = "ClaudeTranscriptReplayUnsupportedError";
-  }
-}
-
-export class ClaudeAuthenticationRequiredError extends Error {
-  readonly code = "driver.not_authenticated" as const;
-  readonly fields: { readonly driverId: string };
-
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaudeAuthenticationRequiredError";
-    this.fields = { driverId: CLAUDE_DRIVER_NAME };
-  }
-}
-
-// --------------------------------------------------------------------------
-// Detail sanitation
-// --------------------------------------------------------------------------
-
-// `name` and `message` are ordinary data properties on a normal `Error`, but
-// nothing stops a value from backing either with an accessor — and a getter that
-// throws would throw INSIDE the catch block that called us. Reads are therefore
-// guarded, and a non-string value falls through rather than being stringified:
-// `${anObject}` is how "[object Object]" — or a credential-bearing `toString` —
-// reaches a durable row.
-function readErrorStringProperty(error: Error, property: "message" | "name"): string | undefined {
-  try {
-    const value: unknown = error[property];
-    return typeof value === "string" ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Renders an arbitrary thrown value as one operator-safe line.
- *
- * CONTRACT: TOTAL over arbitrary JavaScript values — it returns a string for
- * every input and throws for none. That totality is load-bearing rather than
- * tidy: every caller is a `catch` block, and `#disposeRefusedChannel`'s entire
- * job is to not throw, so a `describeFailure` that could throw would defeat the
- * guard calling it and re-open the orphaned-process window one layer up.
- *
- * NEVER serializes an arbitrary value. `providerFailureDetail` is persisted and
- * operator-visible, and a blind `JSON.stringify` of an unknown rejection reason
- * is how spawn configuration — up to and including credential material the
- * transport was handed — leaks into a durable row. For the same reason there is
- * no `String(error)` and no `String(error.cause)` fallback: an unreadable value
- * is reported as undescribable, never rendered on a best-effort basis.
- */
-function describeFailure(error: unknown): string {
-  if (error instanceof Error) {
-    const name = readErrorStringProperty(error, "name");
-    const message = readErrorStringProperty(error, "message");
-    if (message !== undefined && message.length > 0) {
-      // An unreadable name costs the prefix, not the whole detail.
-      return name !== undefined && name.length > 0 ? `${name}: ${message}` : message;
-    }
-    if (name !== undefined && name.length > 0) {
-      return name;
-    }
-    return UNDESCRIBED_FAILURE_DETAIL;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return UNDESCRIBED_FAILURE_DETAIL;
-}
-
-// `wireFreeFormString` demands 1..MAX characters, at least one non-whitespace
-// character, and no NUL byte. Trimming first means the truncation below can
-// never leave a whitespace-only remainder.
-function sanitizeFailureDetail(detail: string): string {
-  const trimmed = detail.replaceAll("\0", "").trim();
-  if (trimmed.length === 0) {
-    return UNDESCRIBED_FAILURE_DETAIL;
-  }
-  return trimmed.length <= DRIVER_FAILURE_DETAIL_MAX_LEN
-    ? trimmed
-    : trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN);
-}
-
-/**
- * Builds a probe result, TOTALLY — an over-long or refused detail never throws.
- *
- * `DRIVER_AUTH_DETAIL_MAX_LEN` is two orders of magnitude tighter than the
- * failure-detail bound `sanitizeFailureDetail` cuts to, so a sanitized cause
- * still needs its own trim before the strict envelope sees it. When the envelope
- * refuses even the trimmed string the detail is DROPPED rather than allowed to
- * throw: `status` carries the fail-closed admission decision and the detail only
- * tells an operator why, so losing it costs diagnostics and never correctness.
- */
-function buildAuthProbeResult(
-  status: DriverAuthProbeResult["status"],
-  detail: string,
-): DriverAuthProbeResult {
-  const sanitized = sanitizeFailureDetail(detail);
-  const bounded =
-    sanitized.length > DRIVER_AUTH_DETAIL_MAX_LEN
-      ? sanitized.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
-      : sanitized;
-  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
-  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
-}
-
-// Stands in when a transport reports an authenticated reading with no detail of
-// its own. Names the EVIDENCE rather than asserting a credential source the
-// probe did not report: the pinned CLI publishes no authless protocol probe, so
-// reaching a working provider handshake is the whole of what an authenticated
-// verdict rests on, and the detail should not imply more than that.
-const CLAUDE_AUTH_PROBE_REACHED_DETAIL = "the provider answered the zero-turn auth probe";
-
-function classifyRecoveryCondition(error: unknown): RecoveryCondition {
-  return error instanceof ClaudeAuthenticationRequiredError ? "reauth-required" : "recovery-needed";
-}
-
-// --------------------------------------------------------------------------
-// Live-session bookkeeping
-// --------------------------------------------------------------------------
-
-// The spawn-bound realization of the surfaces Claude binds AT PROCESS SPAWN,
-// recorded so `startRun` can refuse a run whose per-run realization disagrees
-// (see `#assertSpawnBoundRealization`). Only the closed-literal axes are kept:
-// they are the sandbox-defeating ones, and comparing them needs no canonical
-// serializer whose key ordering could manufacture a false refusal.
-// The axes of `ExecutionPosture` that a spawn realizes, in the order a mismatch
-// is reported. Enumerated from the contract type rather than sampled: the type is
-// an intersection of two discriminated unions, so `allowedDomains` exists only on
-// the `allowed-domains` network arm and `credentialPolicyRef` only on the two
-// sandboxed mode arms. Comparing a subset would admit a run into a process whose
-// sandbox differs on an axis nobody checked, and the run's recorded effective
-// posture would then be a lie.
-//
-// `allowedDomains` and `writableRoots` are SETS — a caller that lists the same
-// roots in a different order has declared the same posture, so they compare
-// order-insensitively. Every other axis is a scalar and compares strictly.
-const CLAUDE_POSTURE_SCALAR_AXES = [
-  "mode",
-  "networkAccess",
-  "credentialPolicyRef",
-  "profileName",
-] as const;
-const CLAUDE_POSTURE_SET_AXES = ["allowedDomains", "writableRoots"] as const;
-
-type ClaudePostureScalarAxis = (typeof CLAUDE_POSTURE_SCALAR_AXES)[number];
-type ClaudePostureSetAxis = (typeof CLAUDE_POSTURE_SET_AXES)[number];
-
-function readPostureScalarAxis(
-  posture: ExecutionPosture,
-  axis: ClaudePostureScalarAxis,
-): string | undefined {
-  // Each axis is read through the union-widened view rather than a direct member
-  // access: `credentialPolicyRef` is typed `never` on the `trusted` arm and
-  // `profileName` is optional, so neither is reachable on the bare union.
-  const widened = posture as Partial<Record<ClaudePostureScalarAxis, string>>;
-  return widened[axis];
-}
-
-function readPostureSetAxis(
-  posture: ExecutionPosture,
-  axis: ClaudePostureSetAxis,
-): readonly string[] | undefined {
-  const widened = posture as Partial<Record<ClaudePostureSetAxis, readonly string[]>>;
-  return widened[axis];
-}
-
-// Order-insensitive, multiplicity-sensitive. A duplicate is a real difference:
-// two identical writable roots and one are not the same declaration, and
-// silently collapsing them would be this finding's mistake in miniature.
-function postureSetAxisDiffers(
-  runValue: readonly string[] | undefined,
-  spawnValue: readonly string[] | undefined,
-): boolean {
-  if (runValue === undefined || spawnValue === undefined) {
-    return runValue !== spawnValue;
-  }
-  if (runValue.length !== spawnValue.length) {
-    return true;
-  }
-  const sortedRun = [...runValue].sort();
-  const sortedSpawn = [...spawnValue].sort();
-  return sortedRun.some((entry, index) => entry !== sortedSpawn[index]);
-}
-
-// Names the FIRST axis on which a run-declared posture diverges from the posture
-// its session was spawned under, or `undefined` when every axis agrees.
-function findPostureDivergence(
-  runPosture: ExecutionPosture,
-  spawnPosture: ExecutionPosture,
-): string | undefined {
-  for (const axis of CLAUDE_POSTURE_SCALAR_AXES) {
-    const runValue = readPostureScalarAxis(runPosture, axis);
-    const spawnValue = readPostureScalarAxis(spawnPosture, axis);
-    if (runValue !== spawnValue) {
-      return `${axis} (run ${String(runValue)}, session ${String(spawnValue)})`;
-    }
-  }
-  for (const axis of CLAUDE_POSTURE_SET_AXES) {
-    const runValue = readPostureSetAxis(runPosture, axis);
-    const spawnValue = readPostureSetAxis(spawnPosture, axis);
-    if (postureSetAxisDiffers(runValue, spawnValue)) {
-      return `${axis} (run ${JSON.stringify(runValue)}, session ${JSON.stringify(spawnValue)})`;
-    }
-  }
-  return undefined;
-}
-
-// A stable serialization: object keys sorted recursively, array order PRESERVED.
-// Array order is semantic in JSON Schema (`prefixItems`, `allOf` short-circuit
-// order), so sorting arrays would call two different schemas equal. Keys are
-// emitted through `JSON.stringify` so escaping is the platform's problem, and
-// `undefined`-valued keys are dropped because `JSON.stringify` drops them too —
-// a schema object cannot distinguish an absent key from one set to `undefined`.
-function canonicalizeJsonValue(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalizeJsonValue).join(",")}]`;
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entryValue]) => entryValue !== undefined)
-    // Code-unit ordering, deliberately not `localeCompare`: a digest whose key
-    // order depends on the host locale is not deterministic.
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
-  return `{${entries
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalizeJsonValue(entryValue)}`)
-    .join(",")}}`;
-}
-
-// Identity for an output schema. A boolean "is one bound?" admits a run carrying
-// schema B into a process spawned with schema A — the provider would then
-// constrain output to a shape the run never asked for.
-function digestOutputSchema(outputSchema: Record<string, unknown>): string {
-  return createHash("sha256").update(canonicalizeJsonValue(outputSchema)).digest("hex");
-}
-
-// --------------------------------------------------------------------------
-// Execution posture + subagent policy -> Claude spawn config
-// --------------------------------------------------------------------------
-
-/**
- * The approval supervision every non-`trusted` posture runs under.
- *
- * RATIFIED MAPPING (user decision, 2026-08-25): a `supervised` posture maps to
- * `on-request` UNCONDITIONALLY — there is no conditional arm, and no posture
- * axis, profile, or provider capability may soften it. On this provider that is
- * realized as the ALWAYS-ARMED permission prompt: `allowUnsandboxedCommands` is
- * pinned `false` and the daemon's own permission-prompt tool adjudicates every
- * call, so no tool call reaches the model's hands without passing the daemon.
- * Recorded in code because this constant is the enforcement, and a reader
- * changing it must see that they are reversing a ratified decision.
- */
-const CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS = false;
-
-/**
- * The subagent depth ceiling this driver clamps to.
- *
- * A CEILING, not a default: a policy asking for less gets what it asked for. It
- * exists because subagent depth multiplies a run's blast radius geometrically
- * and the single-supervisor invariant makes the daemon answerable for every
- * level, so an unbounded depth would be a promise this daemon cannot keep.
- */
-export const CLAUDE_SUBAGENT_MAX_DEPTH_CEILING: number = 5;
-
-/**
- * The permission modes under which a subagent's tool calls still pass the
- * daemon's interception point.
- *
- * THE FAIL-CLOSED CRITERION for leg 4, and it is mechanical rather than
- * editorial: the daemon interposes at the permission prompt, so a definition
- * whose mode SKIPS that prompt has no interception point and its beyond-cap tool
- * calls cannot be held at a boundary that is not there. An UNRECOGNIZED mode is
- * treated the same way for the same reason a capability declaration is total —
- * a capability is present only when explicitly declared, never inferred from a
- * string this driver does not know.
- *
- * An ABSENT mode is mediatable: it inherits the session's own mode, which this
- * driver pins to the always-armed prompt above.
- */
-const CLAUDE_BOUNDARY_MEDIATABLE_PERMISSION_MODES: ReadonlySet<string> = new Set([
-  "default",
-  "plan",
-]);
-
-/** Why one subagent definition was withheld from the spawn. */
-export interface ClaudeWithheldSubagentDefinition {
-  readonly name: string;
-  readonly reason: string;
-}
-
-/** A subagent policy split into what this driver will spawn and what it refused. */
-export interface ClaudeSubagentPolicyRealization {
-  readonly policy: SubagentPolicy;
-  readonly withheld: readonly ClaudeWithheldSubagentDefinition[];
-}
-
-/**
- * Admits the subagent definitions this driver can boundary-mediate and withholds
- * the rest (the fail-closed rule).
- *
- * Withheld rather than downgraded. Rewriting an unmediatable definition's
- * permission mode would hand the agent a subagent that runs under a
- * configuration nobody chose, and doing so silently is worse than not offering
- * the subagent at all: the agent wastes no turns invoking a definition that was
- * never registered, and it cannot be misled about what the one it got enforces.
- *
- * `maxDepth` is clamped rather than refused. Depth is a scalar the daemon can
- * satisfy PARTIALLY and still be honest about — running three levels when five
- * were asked for is a strict subset of the request — where a definition is not
- * divisible that way.
- */
-export function realizeClaudeSubagentPolicy(
-  policy: SubagentPolicy,
-): ClaudeSubagentPolicyRealization {
-  if (!policy.enabled) {
-    return { policy, withheld: [] };
-  }
-  const admitted: SubagentDefinition[] = [];
-  const withheld: ClaudeWithheldSubagentDefinition[] = [];
-  for (const definition of policy.definitions) {
-    const permissionMode = definition.permissionMode;
-    if (
-      permissionMode === undefined ||
-      CLAUDE_BOUNDARY_MEDIATABLE_PERMISSION_MODES.has(permissionMode)
-    ) {
-      admitted.push(definition);
-      continue;
-    }
-    withheld.push({
-      name: definition.name,
-      reason: `permission mode "${permissionMode}" bypasses the daemon permission prompt, so this subagent's tool calls could not be held at the daemon boundary`,
-    });
-  }
-  return {
-    policy: {
-      enabled: true,
-      maxDepth: Math.min(policy.maxDepth, CLAUDE_SUBAGENT_MAX_DEPTH_CEILING),
-      maxConcurrent: policy.maxConcurrent,
-      definitions: admitted,
-    },
-    withheld,
-  };
-}
-
-// --------------------------------------------------------------------------
-// Subagent concurrency: the daemon-side boundary serialization
-// --------------------------------------------------------------------------
-
-/**
- * Fails the waiters of a session whose process is going away.
- *
- * Free-standing rather than a method so both teardown paths — the close and the
- * rewind's predecessor release — reach it identically, and so a spawn that
- * declared no subagents (no gate) needs no null check at either call site.
- */
-function disposeSubagentAdmission(legs: ClaudeSpawnBoundLegs): void {
-  legs.subagentAdmission?.dispose();
-}
-
-/** Releases one held subagent slot. Idempotent — a double release frees one. */
-export type ClaudeSubagentSlotRelease = () => void;
-
-/** One queued admission, retained so a disposal can name who it abandoned. */
-interface ClaudeSubagentSlotWaiter {
-  readonly subagentId: string;
-  readonly resolve: () => void;
-  readonly reject: (reason: Error) => void;
-}
-
-/**
- * The port the transport awaits before dispatching a SUBAGENT-originated tool
- * call, and the one this driver satisfies.
- *
- * Exists because this provider documents no concurrency cap of its own, so
- * `maxConcurrent` has no native enforcement here and the daemon must supply it.
- * The enforcement point is the tool-call boundary rather than the spawn: a
- * subagent that has been created but is not calling tools is consuming nothing
- * this cap is about, and holding at creation would serialize planning as well
- * as work.
- *
- * TRANSPORT OBLIGATION — the release returned by `admit` MUST be called when the
- * tool call settles, on every path including failure. A leaked release holds the
- * slot for the session's lifetime, and the gate deliberately has no timeout that
- * would forgive one: reclaiming a slot on a guess would let the cap be exceeded
- * exactly when the daemon had lost track of who held it.
- *
- * `admit` REJECTS rather than hanging when the session it guards is disposed —
- * a waiter with no failure path outlives the process it was queued behind, and
- * a provider turn awaiting a tool result that can never arrive is a run that
- * never terminates.
- */
-export interface ClaudeSubagentAdmissionPort {
-  admit(subagentId: string): Promise<ClaudeSubagentSlotRelease>;
-  /** Fails every waiter. Called when the guarded session is disposed. */
-  dispose(): void;
-}
-
-/**
- * Holds beyond-cap subagent tool calls at the daemon boundary, and records the
- * breaches it could not hold.
- *
- * TWO SURFACES, and the split is the honest part. `admit` is ENFORCEMENT: a
- * call arriving with every slot taken waits in arrival order until one frees,
- * which is the "boundary-serialized" mechanism the parity matrix records for
- * this provider. `observeLiveSubagentCount` is OBSERVABILITY-ONLY: the provider
- * can create subagents without any of them calling a tool, so the daemon can
- * see more live subagents than the cap admits without the gate ever having been
- * consulted. That is a breach, it surfaces a diagnostic, and it never fails a
- * run — which is exactly what the row requires and all it requires.
- *
- * FIFO rather than a bare counter. A waiter set resolved in arbitrary order
- * starves whichever subagent is unlucky, and a starved subagent inside a run
- * with a wall-clock budget is a run that fails for a reason no user did.
- */
-export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPort {
-  readonly #sessionId: SessionId;
-  readonly #diagnostics: DriverDiagnosticsEmitter;
-  readonly #maxConcurrent: number;
-  readonly #waiters: ClaudeSubagentSlotWaiter[] = [];
-  #heldSlotCount = 0;
-  #reportedBreachCeiling = 0;
-  #disposed = false;
-
-  constructor(options: {
-    readonly sessionId: SessionId;
-    readonly diagnostics: DriverDiagnosticsEmitter;
-    readonly maxConcurrent: number;
-  }) {
-    this.#sessionId = options.sessionId;
-    this.#diagnostics = options.diagnostics;
-    // A cap below one would admit nothing and deadlock every subagent tool call
-    // behind a slot that can never free, so it floors at one. The refusal a
-    // caller who wants no subagents needs is `enabled: false`, which never
-    // constructs a gate at all.
-    this.#maxConcurrent = Math.max(1, Math.floor(options.maxConcurrent));
-  }
-
-  /** Slots currently held. Exposed for the breach comparison and for tests. */
-  get heldSlotCount(): number {
-    return this.#heldSlotCount;
-  }
-
-  /** Calls waiting for a slot. */
-  get waitingCallCount(): number {
-    return this.#waiters.length;
-  }
-
-  async admit(subagentId: string): Promise<ClaudeSubagentSlotRelease> {
-    this.#assertLive(subagentId);
-    if (this.#heldSlotCount < this.#maxConcurrent) {
-      // Take the slot in the SAME synchronous step as the test. Deciding here
-      // and incrementing after an `await` would let a second caller read the
-      // pre-increment count and take the same slot.
-      this.#heldSlotCount += 1;
-    } else {
-      await new Promise<void>((resolve, reject) => {
-        this.#waiters.push({ subagentId, resolve, reject });
-      });
-      // The slot was HANDED OVER by the releasing call, which never decremented
-      // — so `#heldSlotCount` already accounts for this admission. Incrementing
-      // here would double-count; decrementing at release and re-incrementing in
-      // this continuation would open a window (the continuation runs a
-      // microtask later) in which a third caller reads a free slot that a
-      // waiter has already been promised.
-      this.#assertLive(subagentId);
-    }
-    let released = false;
-    return () => {
-      // Idempotent: a transport that releases on both a success path and a
-      // `finally` must not free two slots for one call.
-      if (released) {
-        return;
-      }
-      released = true;
-      const nextWaiter = this.#waiters.shift();
-      if (nextWaiter !== undefined) {
-        nextWaiter.resolve();
-        return;
-      }
-      this.#heldSlotCount -= 1;
-    };
-  }
-
-  /**
-   * Fails every waiter, and every later admission, for a session that is gone.
-   *
-   * Held slots are NOT reclaimed: their releases are already in flight on the
-   * transport, are idempotent, and freeing them here would hand a slot to a
-   * waiter this method is in the middle of failing.
-   */
-  dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
-    this.#disposed = true;
-    // Drain by splice rather than iterate-then-clear: a rejection handler that
-    // re-enters `admit` must find an empty queue, not one being walked.
-    const abandonedWaiters = this.#waiters.splice(0, this.#waiters.length);
-    for (const waiter of abandonedWaiters) {
-      waiter.reject(this.#composeDisposedError(waiter.subagentId));
-    }
-  }
-
-  #assertLive(subagentId: string): void {
-    if (this.#disposed) {
-      throw this.#composeDisposedError(subagentId);
-    }
-  }
-
-  #composeDisposedError(subagentId: string): ClaudeSessionUnavailableError {
-    return new ClaudeSessionUnavailableError("no_live_session", {
-      sessionId: this.#sessionId,
-      detail: `Subagent ${subagentId} was waiting for a concurrency slot when the session was disposed.`,
-    });
-  }
-
-  /**
-   * Records that the daemon observed `liveSubagentCount` subagents alive at
-   * once. Emits at most one diagnostic per NEW ceiling, so a breach that
-   * persists across many observations is one record rather than a stream.
-   */
-  observeLiveSubagentCount(liveSubagentCount: number): void {
-    if (
-      liveSubagentCount <= this.#maxConcurrent ||
-      liveSubagentCount <= this.#reportedBreachCeiling
-    ) {
-      return;
-    }
-    this.#reportedBreachCeiling = liveSubagentCount;
-    this.#diagnostics.emit({
-      provider: "claude",
-      kind: "subagent_concurrency_breach",
-      rawWireType: null,
-      dispositionReason:
-        "more subagents were observed alive than the declared concurrency cap admits; the cap is enforced at the tool-call boundary and never fails a run",
-      details: {
-        sessionId: this.#sessionId,
-        maxConcurrent: this.#maxConcurrent,
-        liveSubagentCount,
-      },
-    });
-  }
-}
-
-// --------------------------------------------------------------------------
-// Callback tools: the daemon-hosted ephemeral MCP server
-// --------------------------------------------------------------------------
-
-/**
- * The server name every callback tool is served under.
- *
- * One server rather than one per tool: the provider namespaces tool names by
- * server, so a second server would only add a second name to keep in sync while
- * the daemon's registry is already flat.
- */
-export const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sessions";
-
-/**
- * Why a spawn served the provider no callback-tool registry even though the
- * daemon admitted one and bound a dispatcher (the Claude half).
- *
- * The mirror of `CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL` on the
- * axis this provider's uncertainty actually lives on. There the registration
- * surface is unreachable at the pinned protocol; here the protocol supports it
- * and the open question is whether the BOUND TRANSPORT writes the
- * `--mcp-config` that realizes it. Both withhold for one reason: a registry the
- * model is never shown, held open on the daemon side, is worse than no registry
- * at all — the daemon waits on invocations that cannot arrive and nothing says
- * why.
- */
-export const CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL: string =
-  "the bound Claude transport declares it does not realize the callback-tool --mcp-config registration, so no invocation could arrive; the registry is withheld rather than offered undeliverable";
-
-/**
- * Composes the provider-facing name for one callback tool.
- *
- * `mcp__<server>__<tool>` is the provider's own naming, and it is NOT parsed
- * back: a tool name containing the separator would make the split ambiguous, so
- * the descriptor carries an explicit reverse map built at composition time
- * instead. Mangling is injective for distinct registry names, which is what
- * makes that map total.
- */
-export function composeClaudeProviderToolName(serverName: string, toolName: string): string {
-  return `mcp__${serverName}__${toolName}`;
-}
-
-/** The daemon-hosted ephemeral MCP server one session's callback tools ride. */
-export interface ClaudeCallbackMcpServerDescriptor {
-  readonly serverName: string;
-  /** The admitted registry, in registration order and de-duplicated by name. */
-  readonly tools: readonly SessionCallbackTool[];
-  /**
-   * Provider-facing name -> registry name. The transport answers the provider
-   * with provider-facing names and dispatches with registry names, so this map
-   * is what keeps the two vocabularies from being conflated at either end.
-   */
-  readonly registryNamesByProviderName: ReadonlyMap<string, string>;
-}
-
-/**
- * Builds the ephemeral-MCP descriptor for one admitted registry.
- *
- * DUPLICATES are collapsed last-wins, matching the daemon-side host's own
- * registry construction: two entries under one name are one tool to the
- * provider, and having the driver and the host disagree about WHICH one would
- * make an invocation dispatch against a schema the provider was never shown.
- */
-export function composeClaudeCallbackMcpServer(
-  tools: readonly SessionCallbackTool[],
-): ClaudeCallbackMcpServerDescriptor {
-  const admittedByName = new Map<string, SessionCallbackTool>();
-  for (const tool of tools) {
-    admittedByName.set(tool.name, tool);
-  }
-  const registryNamesByProviderName = new Map<string, string>();
-  for (const name of admittedByName.keys()) {
-    registryNamesByProviderName.set(
-      composeClaudeProviderToolName(CLAUDE_CALLBACK_MCP_SERVER_NAME, name),
-      name,
-    );
-  }
-  return {
-    serverName: CLAUDE_CALLBACK_MCP_SERVER_NAME,
-    tools: [...admittedByName.values()],
-    registryNamesByProviderName,
-  };
-}
-
-/**
- * The `--settings` sandbox document one execution posture composes to
- * (native-partial and Bash-scoped).
- *
- * `credentialPolicyRef` rides through as the REFERENCE it is. Expanding it here
- * would put the installation's denied-credential list inside the driver, which
- * is the disclosure the content-addressed reference exists to avoid — and the
- * enforcement does not need it: the transport's spawn-environment obligation
- * already strips the effective policy's denied names from the child
- * environment. TRANSPORT OBLIGATION — a present ref is resolved by the
- * transport and mirrored into `permissions.deny` `Read` rules beside that env
- * scrub, so the deny-list is enforced on both the filesystem and the
- * environment rather than on one of them.
- */
-export interface ClaudeSandboxSettings {
-  readonly sandbox: {
-    readonly enabled: boolean;
-    readonly failIfUnavailable: boolean;
-    readonly allowUnsandboxedCommands: boolean;
-    readonly filesystem: { readonly allowWrite: readonly string[] };
-    readonly network?: { readonly allowedDomains: readonly string[] } | undefined;
-  };
-  readonly credentialPolicyRef?: string | undefined;
-}
-
-/**
- * Composes the sandbox settings document for a posture.
- *
- * `failIfUnavailable` is pinned `true` on every sandboxed arm, and that is the
- * whole fail-closed property of this leg: a host whose sandbox cannot be brought
- * up must REFUSE to start the session, because the alternative — starting
- * unsandboxed while the daemon records a sandboxed posture — is the one outcome
- * an execution posture exists to make impossible.
- *
- * `trusted` is the single arm where the sandbox is off, which is what `trusted`
- * means. It still pins `failIfUnavailable`, harmlessly, so the document's shape
- * is uniform and a future edit cannot flip `enabled` without also deciding the
- * failure mode.
- */
-export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeSandboxSettings {
-  const sandboxed = posture.mode !== "trusted";
-  return {
-    sandbox: {
-      enabled: sandboxed,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: sandboxed ? CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS : true,
-      filesystem: {
-        // `readonly-sandboxed` writes nowhere, so the list is EMPTY rather than
-        // omitted: an omitted list is a request for the provider's default,
-        // which is not the same statement.
-        allowWrite: posture.mode === "readonly-sandboxed" ? [] : posture.writableRoots,
-      },
-      // `full` omits the restriction entirely — the absence IS the statement, and
-      // an empty list would mean the opposite. `none` is the empty list, and an
-      // allow-list rides through natively, which is the axis this provider
-      // expresses and the Codex leg cannot.
-      ...(posture.networkAccess === "full"
-        ? {}
-        : {
-            network: {
-              allowedDomains:
-                posture.networkAccess === "allowed-domains" ? posture.allowedDomains : [],
-            },
-          }),
-    },
-    ...(posture.mode === "trusted" ? {} : { credentialPolicyRef: posture.credentialPolicyRef }),
-  };
-}
-
-/**
- * One session's routing and metering band.
- *
- * The two halves are one record because they are one lifetime: the router's
- * thread registry and the accountant's base registers answer the same question
- * from two sides, and a band holding one without the other routes a frame
- * against a thread it can meter nothing for.
- */
-/**
- * One provider session's `system/init` declaration, held for that session's life.
- *
- * STAMPED WITH THE PROVIDER SESSION ID IT WAS OBSERVED UNDER, and every read
- * re-checks the stamp against the live session. A rewind forks a NEW provider
- * process behind the SAME canonical `SessionId`, and the fork publishes its own
- * handshake; without the stamp, a read landing between the fork and the new
- * handshake would answer with the dead process's declaration — commands the new
- * binding may not have, and an output-speed state it never reported. The stamp
- * makes that read say "not yet observed" instead, which is the truth.
- */
-interface ClaudeHeldHandshake {
-  readonly providerSessionId: string;
-  readonly declaration: ClaudeHandshakeDeclaration;
-  /**
-   * The INTERACTIVELY INVOCABLE names, built from `slash_commands` ALONE.
-   *
-   * Structurally separate from the composed entry list rather than derived from
-   * it, and that separation is the guard: `terminal_slash_commands` are carried
-   * as entries (they are a real published surface) but are not invocable over
-   * the programmatic transport, so a set built from the entries would let a
-   * terminal-only name satisfy a dispatch check by accident. It is also
-   * separate from the CAP: the cap trims the composed reply, never what the
-   * driver knows, so a command truncated out of a client's palette is still
-   * dispatchable by a control that names it.
-   */
-  readonly invocableCommandNames: ReadonlySet<string>;
-}
-
-interface ClaudeSessionRoutingBand {
-  readonly router: ThreadFrameRouter<ClaudeRoutableFrame>;
-  readonly accountant: UsageDeltaAccountant;
-}
-
-interface ClaudeSpawnBinding {
-  readonly admittedCostCapCents: number | undefined;
-  // The COMPLETE posture the process was spawned under, retained so every axis
-  // can be compared. Storing a projection is what let axes drift unchecked.
-  readonly executionPosture: ExecutionPosture | undefined;
-  readonly outputSchemaDigest: string | undefined;
-}
-
-interface LiveClaudeSession {
-  readonly sessionId: SessionId;
-  readonly providerSessionId: string;
-  readonly channel: ClaudeSessionChannel;
-  readonly spawnBinding: ClaudeSpawnBinding;
-  /**
-   * The exact legs this process was spawned with, retained whole.
-   *
-   * A rewind is a fresh spawn with NO params object of its own — the caller
-   * addresses a position, not a configuration — so these are the only record of
-   * what the rewound leg must be re-realized under. Retaining the legs rather
-   * than re-deriving them is the point: re-derivation would have to guess, and a
-   * guess that omits the posture relaunches the session unsandboxed.
-   *
-   * Distinct from `spawnBinding` beside it, which holds a DIGEST for comparison.
-   * A digest can prove two spawns agree; it cannot spawn anything.
-   */
-  readonly spawnBoundLegs: ClaudeSpawnBoundLegs;
-  /**
-   * Which base-establishment arm this leg takes, and whose sum it bases on.
-   *
-   * A daemon-created session bases its usage registers at ZERO. A resume — and
-   * a rewind, which is a fresh spawn continuing a session whose spend the
-   * daemon already emitted — bases at the prior-emitted cumulative sum.
-   *
-   * The resume arm carries `priorEmittedThreadId` because the thread to base
-   * FROM is not always the thread being established. A provider-native resume
-   * answers with the id it was handed (the identity gate refuses anything
-   * else), so the two coincide there. A REWIND forks: the successor announces a
-   * brand-new provider session id that the daemon has never emitted a single
-   * token against, so keying the lookup on it would resolve to nothing on every
-   * rewind. The predecessor's id is the only key under which the daemon's own
-   * emitted sum exists.
-   */
-  readonly establishment: ClaudeUsageEstablishment;
-  /**
-   * The provider account the daemon ADMITTED this process against, or `null`
-   * when the request named none.
-   *
-   * CAPTURED, NEVER RESOLVED. It is copied off `CreateSessionParams` /
-   * `ResumeSessionParams` at establishment and held as an OPAQUE string: never
-   * parsed, never used to locate credentials, and never fed to
-   * `#buildSpawnBinding` or `#buildSpawnBoundLegs`. Environment construction is
-   * the daemon's, and a driver that started deriving anything from this value
-   * would be doing the credential location this band deliberately does not do.
-   *
-   * ON THE RECORD RATHER THAN RE-READ, because the enumeration's routing binding
-   * must report the account THIS process was admitted under, and the account
-   * registry is a live surface that can move underneath a long-lived session. A
-   * value captured at establishment cannot drift from the process it describes;
-   * a value re-read at enumeration time can, and did — see
-   * {@link ClaudeSessionLifecycleDependencies.readBoundProviderAccountId}.
-   *
-   * A REWIND INHERITS IT rather than re-reading, for the same reason it inherits
-   * `spawnBinding`: a fork continues the run the daemon already admitted, and
-   * `RollbackToParams` names no account of its own.
-   */
-  readonly admittedProviderAccountId: string | null;
-}
-
-/**
- * Which usage base-establishment arm a live session's binding takes.
- *
- * A union rather than a string discriminant so the resume arm cannot be
- * constructed without naming the thread whose prior-emitted sum it bases on —
- * the omission that made every rewind base at zero.
- */
-type ClaudeUsageEstablishment =
-  | { readonly mode: "fresh" }
-  | { readonly mode: "resume"; readonly priorEmittedThreadId: string };
-
-// The state of one canonical session's slot. Absence from `#sessionSlots` is the
-// fifth state, EMPTY — the only one in which a create or resume may proceed.
-//
-// This is ONE registry on purpose. An earlier revision kept three maps (live,
-// establishing, quarantined) and answered "is this slot taken?" by querying all
-// three; the bug that shape produced was structural rather than local — a slot
-// mid-disposal belonged to no map, so it read as EMPTY for the whole `dispose`
-// await and a concurrent create spawned a replacement beside a process that was
-// still dying. A union in a single map makes the states exhaustive: a new state
-// is a new arm the compiler forces every reader to handle, not a fourth map some
-// reader forgets to consult.
-//
-// THE RULE, stated once: a slot is HELD from the moment an operation claims it
-// until that operation's LAST await has settled. No transition is observable
-// mid-flight. Every arm that owns an in-flight transition therefore carries a
-// `settled` promise that resolves — never rejects — when the transition ends.
-type ClaudeSessionSlot =
-  // A create or resume is bringing a process up. Ends LIVE, or EMPTY if it fails.
-  //
-  // `channel` is the channel BOUND to this session for the duration of the
-  // claim, which is `undefined` for a create or resume (nothing is bound yet —
-  // both start from EMPTY) and the PREDECESSOR's channel for a rewind, which
-  // starts from LIVE and keeps its process running for the whole multi-second
-  // fork. Carried for the same reason the `quarantined` arm carries one: an
-  // establishing slot that named no channel made every predecessor frame
-  // unattributable for the length of the window, so a rewind that then FAILED
-  // resumed a session with a diagnosed hole in its transcript — the opposite of
-  // the non-destructive-on-failure property the rewind claim exists to give.
-  | {
-      readonly state: "establishing";
-      readonly settled: Promise<void>;
-      readonly channel: ClaudeSessionChannel | undefined;
-    }
-  // A process is up and may accept runs. The only startable state.
-  | { readonly state: "live"; readonly session: LiveClaudeSession }
-  // `dispose` is in flight. Ends EMPTY on resolve, QUARANTINED on reject.
-  | { readonly state: "closing"; readonly settled: Promise<void> }
-  // `dispose` rejected: the process is still alive and this channel is the only
-  // handle anyone holds on it. Retained until a later close disposes it.
-  | { readonly state: "quarantined"; readonly channel: ClaudeSessionChannel };
-
-/**
- * Normalizes the typed provider-account member a request carries into the value
- * the session record holds.
- *
- * TWO ARMS AND NO THIRD. An ABSENT member is the ordinary case — the account
- * plane is not shipped, so most requests name nothing — and becomes `null`, the
- * value that matches nothing in the consuming routing check. A PRESENT member is
- * carried through verbatim, as an opaque string this band never parses.
- *
- * A PRESENT-BUT-EMPTY MEMBER IS NEITHER, so it is refused by the caller rather
- * than folded into one of them. An empty string is a daemon that meant to bind an
- * account and bound nothing, which is a different fact from a session that never
- * had one — and only the second may enumerate under a `null`. Folding it to
- * `null` would hide the wiring fault; carrying it would be worse, because two
- * accountless bindings stamped `""` compare EQUAL in the routing check that
- * `null` exists to make match nothing. The sibling band refuses the same value at
- * the same point, for the same reason.
- *
- * REFUSED BY THE CALLER rather than here, because the two establishment paths
- * have different failure channels — `createSession` throws and `resumeSession`
- * owes the typed `failed` arm — and a helper that threw would force the resume
- * path to catch its own precondition.
- */
-function isUnusableAdmittedProviderAccountId(requested: string | undefined): boolean {
-  return requested !== undefined && requested.length === 0;
-}
-
-function readAdmittedProviderAccountId(requested: string | undefined): string | null {
-  return requested ?? null;
-}
-
-export interface ClaudeSessionLifecycleDependencies {
-  readonly transport: ClaudeSessionTransport;
-  readonly runDispatchResolver: ClaudeRunDispatchResolver;
-  /**
-   * The daemon-wide diagnostic band.
-   *
-   * REQUIRED. The parity legs owe a RECORD on each of their fail-closed paths —
-   * a withheld subagent definition, a withheld callback-tool registry, an
-   * observed concurrency breach — and a leg whose record could be dropped
-   * because a sink was left unbound is fail-closed in name only.
-   */
-  readonly diagnostics: DriverDiagnosticsEmitter;
-  /**
-   * The daemon's own prior-emitted cumulative token sums for one provider
-   * session, used to base a PROVIDER-NATIVE RESUME or a REWIND.
-   *
-   * `threadId` is the thread the sums were emitted UNDER, which on a rewind is
-   * the predecessor rather than the successor being established. Answering
-   * `undefined` is a legitimate answer meaning "nothing was emitted under this
-   * id"; it bases at zero and records nothing. A reader left unbound, or one
-   * that throws, is the faulty case and IS recorded.
-   *
-   * Optional because the driver cannot rebuild it: the sums live in the
-   * canonical event record, which the daemon owns and this module never reads.
-   */
-  readonly readPriorEmittedUsage?:
-    | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
-    | undefined;
-  /**
-   * Receives each metered per-turn usage delta. PRODUCER-ONLY: the
-   * driver states what was spent and the emission pipeline mints the
-   * `usage_telemetry` envelope, so no driver mints a session event.
-   */
-  readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
-  /**
-   * This leg's declared text-neutrality parity grade, defaulting to the grade
-   * the parity mechanism table records for it.
-   *
-   * Injectable because the grade is a behavioral INPUT: a leg re-graded
-   * `native` by amendment flips this value, and no code path branches on the
-   * provider's name to decide it.
-   */
-  readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
-  /** Correlation minting for outbound text frames. Injectable for tests. */
-  readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
-  /**
-   * Receives the run terminal a text-neutralization tripwire trip produces
-   *. PRODUCER-ONLY, exactly like the sibling callbacks above: the
-   * driver states that the run failed and why, and the emission pipeline mints
-   * the envelope.
-   *
-   * REQUIRED, like `diagnostics` and unlike the optional sibling callbacks: the
-   * trip NEVER raises a JSON-RPC error, so this callback is the ONLY surface a
-   * swallowed turn has. An optional arm would let a construction site that
-   * simply never bound it end a neutralized turn with no terminal an operator
-   * can read.
-   */
-  readonly onTextNeutralizationFailure: (
-    sessionId: SessionId,
-    runId: RunId,
-    failure: TextNeutralizationRunFailure,
-  ) => void;
-  /**
-   * Receives the `subagent.started` / `subagent.completed` pair for each
-   * provider-attributed child. PRODUCER-ONLY, and the child's ONLY
-   * timeline presence: a registered child's content and lifecycle frames are
-   * transcript-suppressed, so this pair survives the suppression rather than
-   * sharing it.
-   */
-  /**
-   * Reads the installed build's transcript-replay surface.
-   *
-   * The SAME reading `ClaudeCapabilityReporterDependencies.transcriptReplayProbe`
-   * turns into the `transcript_replay` flag — a composed daemon binds this as a
-   * closure over that probe and the executable path the capability read
-   * resolved. One reading serving both is what keeps the declared flag and this
-   * driver's behaviour from disagreeing about one build.
-   *
-   * OPTIONAL, and absent means every replay refuses — the honest state at this
-   * pin, where no published build carries a seeding surface.
-   */
-  readonly transcriptReplaySurfaceReader?: ClaudeTranscriptReplaySurfaceReader | undefined;
-  readonly onSubagentLifecycle?:
-    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
-    | undefined;
-  /**
-   * Receives the routing decision for a frame that was RELEASED from a pending
-   * hold rather than routed inside the observer call.
-   *
-   * REQUIRED FOR CORRECTNESS ON THE HELD PATH, optional only because a
-   * deployment binding no consumer for released frames is already choosing not
-   * to project them. A frame routed inside {@link
-   * ClaudeSessionChannel.onInboundFrame} answers the transport by RETURN VALUE;
-   * a held frame is released later, when no observer call is in flight and no
-   * return value exists — so without this seam every deliverable decision a
-   * release can carry would have no recipient.
-   *
-   * What a release can actually carry on THIS provider. A hold is only ever
-   * taken for a frame naming a thread identity the router has not yet seen, so
-   * a release re-routes that frame against the now-registered child. The
-   * reachable outcomes are `carve-out-usage` — the child's spend, metered
-   * driver-side and deliberately NOT delivered — and `suppress-child-transcript`
-   * for the child's content. Both are terminal here; the seam exists so the
-   * release path is a routed decision with a recorded recipient rather than a
-   * drop, and so a future family whose released decision IS deliverable has a
-   * seam to arrive on.
-   *
-   * `carve-out-interactive-request` is structurally unreachable on this leg.
-   * The frame kinds that raise an interactive request on this provider are the
-   * `control_request/*` family, which
-   * {@link classifyClaudeFrameFamilyForRouting} censuses CONNECTION-scoped:
-   * they carry no thread identity, so they are
-   * never held, never released, and never routed against a child. Contrast the
-   * sibling driver, whose routable frame carries params and a per-frame thread
-   * identity: there the same carve-out is reachable, and its release is a
-   * body-complete delivery to the normalize band.
-   */
-  readonly onReleasedFrameRoute?:
-    | ((
-        sessionId: SessionId,
-        observation: ClaudeInboundFrameObservation,
-        route: ThreadFrameRoute,
-      ) => void)
-    | undefined;
-  // The provider-side session id pinned at spawn (`--session-id`). Injected so
-  // tests and a future deterministic id source can drive it; defaults to
-  // `mintUuidV7`. The flag is version-agnostic — the pinned CLI documents it as
-  // `--session-id <uuid>`, "Use a specific session ID for the conversation
-  // (must be a valid UUID)" — so nothing here may be read as a v4 guarantee,
-  // and an injected source is free to supply any valid UUID.
-  readonly mintProviderSessionId?: (() => string) | undefined;
-  // The opaque session-binding handle the `resumed` arm carries. The daemon's
-  // `runtime_bindings` store mints it in production; the default keeps this band
-  // runnable without a database.
-  readonly mintBindingId?: (() => string) | undefined;
-  /**
-   * Schedules the declared compaction bound. Defaults to a real, unref'd timer.
-   *
-   * Injected for the reason every timer in this band is injected: a test that
-   * has to wait out `CLAUDE_COMPACTION_WAIT_MS` to observe an expiry is a test
-   * nobody runs.
-   */
-  readonly compactionWaitScheduler?: CompactionWaitScheduler | undefined;
-  /**
-   * The daemon account registry's answer for this session, or `null` when it
-   * reports none.
-   *
-   * A CROSS-CHECK, NO LONGER THE SOURCE. It was once the only thing this band
-   * could ask, because the driver cannot rebuild the registry — that is still
-   * true, and it is why the port remains injected rather than derived, the same
-   * reason `readPriorEmittedUsage` is. What changed is that the session record
-   * now CAPTURES the account the daemon admitted the process against
-   * ({@link LiveClaudeSession.admittedProviderAccountId}), so the registry is
-   * second opinion rather than sole testimony.
-   *
-   * THE FOLD AT THE ENUMERATION, which is the one place this band needs the
-   * identity at all:
-   *
-   *   * RECORD NAMES AN ACCOUNT, THIS PORT ANSWERS NOTHING — the record's. An
-   *     unbound port and a `null` answer are the same fact here (see the
-   *     conflation below), and neither contradicts a session that was admitted
-   *     against a named account. Reading the port's silence as authoritative was
-   *     the defect: a caller that supplied only the typed member stamped `null`,
-   *     and because the consuming routing check treats `null` as matching
-   *     NOTHING, every such session's enumeration was unroutable.
-   *   * BOTH NAME THE SAME ACCOUNT — that account, stamped once.
-   *   * BOTH NAME AN ACCOUNT AND THEY DIFFER — the call REFUSES. Neither
-   *     candidate is stamped, because a stale registry answering for a process
-   *     admitted under another account is the identity divergence this driver
-   *     must not launder into a correct-looking binding, and two resolvers
-   *     disagreeing about a billing identity is a wiring fault rather than a
-   *     precedence question.
-   *   * RECORD NAMES NONE — this port's answer, unchanged. A caller that omits
-   *     the typed member leaves the registry as the only source there has ever
-   *     been, and that path is preserved exactly.
-   *
-   * THE SIBLING IMPLEMENTATION IS THE CODEX BAND'S `resolveBoundProviderAccountId`,
-   * which applies the same ratified rule — the identity reported is the one the
-   * process actually runs under, and a disagreement refuses rather than picking.
-   * It is deliberately NOT imported: the two bands are parallel structures with
-   * different records, different seams, and different typed error classes, and a
-   * shared function would have to be generic over all three to say the same
-   * thing it says in each. The rule is shared; the code is not.
-   *
-   * TWO FACTS COINCIDE HERE AND THE CONFLATION IS DELIBERATE. An unbound reader
-   * means "this driver could not ask"; a `null` answer means "no account is
-   * bound". Both surface as `providerAccountId: null`, which is safe in the one
-   * direction that matters: the consuming routing check treats `null` as
-   * matching NOTHING, so neither fact can ever authorize a dispatch onto another
-   * binding. Synthesizing a placeholder instead would make that same check
-   * compare equal across two accountless bindings and look enforced while
-   * enforcing nothing.
-   */
-  readonly readBoundProviderAccountId?: ((sessionId: SessionId) => string | null) | undefined;
-}
-
-/**
- * One observed Claude frame as the thread-frame router sees it.
- *
- * Claude frames carry no thread-id member, so `threadId` DERIVES: the frame's
- * subagent identity where it has one, and the session's own provider session id
- * otherwise. It is never `null` for a session frame — passing `null` would
- * quarantine every ordinary frame as a thread-scoped family with no identity.
- */
-interface ClaudeRoutableFrame extends RoutableProviderFrame {
-  readonly threadId: string;
-  /**
-   * The observation this frame was built from, carried along because a HELD
-   * frame must still be meterable: the router releases pending holds when the
-   * registration they were waiting for lands, and a release that handed back
-   * only the routing members would have shed the child's usage reading.
-   */
-  readonly observation: ClaudeInboundFrameObservation;
-}
-
-/**
- * The router's bounds for a Claude session.
- *
- * The hold covers one race — a subagent's frames arriving ahead of the
- * `SubagentStart` signal that announces it — which is short and narrow; the
- * timeout is the outer bound on that race and is deliberately far below any
- * human-visible latency, because a frame held longer than this is not racing an
- * announcement, it names a child that will never be announced.
- */
-const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze({
-  maxQuarantinedFrames: 64,
-  maxPendingHoldFrames: 128,
-  pendingRegistrationTimeoutMs: 5_000,
-});
-
-export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
+/** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
+export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   readonly #transport: ClaudeSessionTransport;
   readonly #runDispatchResolver: ClaudeRunDispatchResolver;
-  readonly #mintProviderSessionId: () => string;
-  readonly #mintBindingId: () => string;
-  // The single source of truth for every canonical session's slot. See
-  // `ClaudeSessionSlot` for the five states and the holding rule.
-  //
-  // ONE coherent contention mechanism, stated here so the two sides cannot drift:
-  //
-  //   * `createSession` / `resumeSession` REFUSE on any non-EMPTY slot. They never
-  //     chain, because the winner's spawn-bound legs (cap, posture, schema) are
-  //     not the loser's — handing back a session realized under someone else's
-  //     posture is the swap `#assertSpawnBoundRealization` exists to prevent.
-  //   * `closeSession` CHAINS: it awaits whatever transition is in flight and
-  //     re-reads, because "make this session not exist" is satisfiable no matter
-  //     which state the slot settles into, and refusing a close would leave the
-  //     caller no way to reach a process it must be able to stop.
-  //
-  // Claims are taken SYNCHRONOUSLY — between reading a slot and writing its next
-  // state there is never an await — which is what makes check-then-act atomic on
-  // a single-threaded runtime.
+  // Every session's slot. Create and resume refuse on a non-EMPTY slot instead of chaining, since
+  // a session realized under another posture is what `assertClaudeSpawnBoundRealization`
+  // prevents; close chains. Claims read and write with no await between, so check-then-act is
+  // atomic.
   readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
-  readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
-  // The intended-close producer half. One gate per session, installed at establishment
-  // and signalled at the top of `closeSession`; the terminal-emission boundary
-  // in `event-normalizer.ts` is the CONSUMER that stamps the flag, because that
-  // is the module that owns the terminal frame.
-  //
-  // Keyed beside the slot map rather than carried on `LiveClaudeSession`: the
-  // intent must be recordable while the slot is ESTABLISHING, CLOSING, or
-  // QUARANTINED — states that hold no live session — and a close arriving
-  // during an establishment is exactly the case where mis-reading a clean
-  // shutdown as a crash would be most misleading.
-  readonly #terminalEmissionGates: Map<SessionId, ClaudeTerminalEmissionGate> = new Map();
-  // The child-routing and usage-delta band, one instance of each per provider
-  // session and held for that session's lifetime. It is driver-session state,
-  // so it is constructed here rather than composed from outside.
-  // ONE map, so the router and the accountant are created and released
-  // together. Two maps let a caller resurrect one half of a band the other half
-  // had already been released from, which is a routing decision made against a
-  // thread registry no accountant holds registers for.
+  readonly #runRoutes: ClaudeRunRoutes = new ClaudeRunRoutes();
+  // The producer half of the intended-close signal, signaled at the top of `closeSession` before
+  // the channel is disposed, so the `result/*` it provokes reads as a clean shutdown. Keyed beside
+  // the slot map because the intent must be recordable while the slot holds no live session.
+  readonly #terminalEmissionGates: Map<SessionId, TerminalEmissionGate> = new Map();
+  // A session's router and accountant, in one map so they are created and released together.
   readonly #routingBands: Map<SessionId, ClaudeSessionRoutingBand> = new Map();
-  readonly #readPriorEmittedUsage:
-    | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
-    | undefined;
-  readonly #onMeteredUsage: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
-  // The writer is the ONLY composer of provider-bound text bytes on this leg;
-  // the tripwire correlates each written frame with the turn that settles
-  // it; the quarantine holds bindings a trip disposed. Constructed here rather
-  // than injected as a unit because all three are driver-session state whose
-  // lifetime is this object's.
-  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
+  // The tripwire correlates each frame with the turn that settles it; the quarantine holds
+  // bindings a trip disposed.
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
-  readonly #providerBindingQuarantine: ProviderBindingQuarantine = new ProviderBindingQuarantine();
-  readonly #onTextNeutralizationFailure: (
-    sessionId: SessionId,
-    runId: RunId,
-    failure: TextNeutralizationRunFailure,
-  ) => void;
-  readonly #transcriptReplaySurfaceReader: ClaudeTranscriptReplaySurfaceReader | undefined;
-  /**
-   * Replay targets this driver has burned. Keyed by PROVIDER session id
-   * for the same reason the sibling Codex ledger is: the rule is about the
-   * provider-side conversation, and a caller reaching a burned target does so
-   * through the handle it still holds.
-   */
-  readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
-  readonly #onSubagentLifecycle:
-    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
-    | undefined;
-  readonly #onReleasedFrameRoute:
-    | ((
-        sessionId: SessionId,
-        observation: ClaudeInboundFrameObservation,
-        route: ThreadFrameRoute,
-      ) => void)
-    | undefined;
-  /**
-   * The daemon-stored session goals (the emulation's driver half).
-   *
-   * DRIVER-HELD, never durable truth: the goal's record of record is the
-   * session's own `goal_updated` / `goal_cleared` events, and the daemon
-   * re-pushes on resume. This map exists only so a spawn this driver performs
-   * ITSELF — a rewind fork — carries the goal the session currently has, rather
-   * than silently relaunching without it.
-   *
-   * Keyed beside the slot map for the same reason the terminal gates are: a goal
-   * set against a session whose slot is mid-transition must still be recorded.
-   */
-  readonly #sessionGoals: Map<SessionId, string> = new Map();
-  /**
-   * The `system/init` declaration of each live session — a LIVE READ held as
-   * driver-session state, never a stored registry and never persisted.
-   *
-   * Keyed by the canonical `SessionId` because that is what every caller names,
-   * and stamped inside the record with the provider session id it was observed
-   * under (see {@link ClaudeHeldHandshake}). Discarded with the session, in the
-   * same place the routing band is.
-   */
-  readonly #handshakeBySession: Map<SessionId, ClaudeHeldHandshake> = new Map();
+  readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine = new RuntimeBindingQuarantine();
+  readonly #handshakes: ClaudeHandshakeRegister;
   readonly #pendingCompactions: PendingCompactionRegistry;
-  readonly #readBoundProviderAccountId: ((sessionId: SessionId) => string | null) | undefined;
   readonly #diagnostics: DriverDiagnosticsEmitter;
+  readonly #frameRouting: ClaudeFrameRouting;
+  readonly #textNeutralization: ClaudeTextNeutralization;
+  readonly #establishment: ClaudeSessionEstablishment;
+  readonly #compactionDispatch: ClaudeCompactionDispatch;
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
     this.#transport = dependencies.transport;
     this.#runDispatchResolver = dependencies.runDispatchResolver;
     this.#diagnostics = dependencies.diagnostics;
-    this.#readPriorEmittedUsage = dependencies.readPriorEmittedUsage;
-    this.#onMeteredUsage = dependencies.onMeteredUsage;
-    this.#onSubagentLifecycle = dependencies.onSubagentLifecycle;
-    this.#transcriptReplaySurfaceReader = dependencies.transcriptReplaySurfaceReader;
-    this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
-    this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? mintUuidV7;
-    this.#mintBindingId = dependencies.mintBindingId ?? mintUuidV7;
-    this.#readBoundProviderAccountId = dependencies.readBoundProviderAccountId;
+    this.#handshakes = new ClaudeHandshakeRegister(dependencies);
     this.#pendingCompactions = new PendingCompactionRegistry(
       dependencies.compactionWaitScheduler ??
         ((callback: () => void, delayMs: number): (() => void) => {
           const timer = setTimeout(callback, delayMs);
-          // Unref'd: a pending compaction wait is not a reason to keep the
-          // daemon process alive. The wait exists to bound one caller, and a
-          // shutdown that raced it settles the caller through the binding-loss
-          // terminal rather than by holding the event loop open.
+          // Unref'd so a pending wait never keeps the daemon alive; shutdown is a binding loss.
           timer.unref();
           return (): void => {
             clearTimeout(timer);
           };
         }),
     );
-    this.#onTextNeutralizationFailure = dependencies.onTextNeutralizationFailure;
-    this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
-      // `emulated` is this leg's grade at the pin: the provider's own
-      // programmatic input surface intercepts command-shaped text client-side,
-      // measured first-party against the pinned build.
+    // Composes all provider-bound text; handed to the dependencies that write it.
+    const outboundTextFrameWriter = new OutboundTextFrameWriter({
+      // `emulated` at the pinned build: its input intercepts command-shaped text (measured).
       mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
     });
-    // Constructed here rather than as a field initializer because the predicate
-    // reads a field declared after it, and a field initializer that captured
-    // that field would depend on declaration order to be correct.
-    //
-    // A session is retired once it holds no slot at all — every disposal path
-    // ends by deleting it — or once a trip has quarantined the binding. Either
-    // way no turn on it can ever settle, so the frames it left pending are owed
-    // no ruling. The SLOT map rather than `#findLiveSession`, deliberately: a
-    // session mid-establishment or mid-close still holds its slot and its
-    // frames may still be ruled, and reclaiming those would be the eviction the
-    // capacity refusal exists to replace.
+    // Built here because the predicate reads a field declared later. A session is retired when it
+    // holds no slot or a trip quarantined it; the slot map is checked, not `#findLiveSession`,
+    // since a session mid-establishment or mid-close may still have frames to rule.
     this.#outboundFrameTripwire = new OutboundFrameTripwire({
       isScopeRetired: (scopeKey: string): boolean =>
         !this.#sessionSlots.has(scopeKey as SessionId) ||
-        this.#providerBindingQuarantine.isSessionDisposed(scopeKey),
+        this.#runtimeBindingQuarantine.isSessionDisposed(scopeKey),
+    });
+    this.#frameRouting = new ClaudeFrameRouting({
+      ...dependencies,
+      pendingCompactions: this.#pendingCompactions,
+      handshakes: this.#handshakes,
+    });
+    this.#textNeutralization = new ClaudeTextNeutralization({
+      ...dependencies,
+      outboundTextFrameWriter,
+      outboundFrameTripwire: this.#outboundFrameTripwire,
+      runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
+      runRoutes: this.#runRoutes,
+      disposeQuarantinedSession: (sessionId: SessionId): void => {
+        this.#disposeQuarantinedSession(sessionId);
+      },
+    });
+    this.#compactionDispatch = new ClaudeCompactionDispatch({
+      pendingCompactions: this.#pendingCompactions,
+      outboundTextFrameWriter,
+      diagnostics: dependencies.diagnostics,
+    });
+    this.#establishment = new ClaudeSessionEstablishment({
+      transport: dependencies.transport,
+      mintProviderSessionId: dependencies.mintProviderSessionId ?? mintUuidV7,
+      mintBindingId: dependencies.mintBindingId ?? mintUuidV7,
+      spawnLegs: new ClaudeSpawnLegComposer(dependencies),
+      registerLiveSession: (live: LiveClaudeSession): void => {
+        this.#registerLiveSession(live);
+      },
+      releaseSupersededPredecessor: (
+        sessionId: SessionId,
+        predecessor: LiveClaudeSession,
+      ): void => {
+        this.#releaseSupersededPredecessor(sessionId, predecessor);
+      },
     });
   }
 
+  /**
+   * Spawns a new provider process for `params.sessionId` and registers it. Throws
+   * `ClaudeSessionUnavailableError` when the slot is held or the provider account is empty;
+   * throwing is the only failure channel.
+   */
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    // Fail closed rather than replacing: an existing live channel was spawned
-    // with ITS OWN posture / cap / schema, so silently swapping it for a new one
-    // would both orphan a process and re-realize the spawn-bound legs behind the
-    // daemon's back. A create racing another create — or a resume — for the same
-    // canonical session is the same fault seen a moment earlier, so it takes the
-    // same refusal rather than a second one.
+    // Fail closed, not replace: an existing channel has its own posture, cap and schema.
     const slotHolder = this.#describeSlotHolder(params.sessionId);
     if (slotHolder !== undefined) {
       throw new ClaudeSessionUnavailableError("session_already_live", {
@@ -2607,95 +190,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
     return await this.#withSessionSlotClaimed(
       params.sessionId,
-      async () => await this.#establishCreatedSession(params),
+      async () => await this.#establishment.establishCreatedSession(params),
     );
   }
 
-  async #establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    // BEFORE THE SPAWN, so a request that cannot state its own billing identity
-    // never reaches a process. `createSession`'s only failure channel is a throw.
-    if (isUnusableAdmittedProviderAccountId(params.providerAccountId)) {
-      throw new ClaudeSessionUnavailableError("provider_account_unusable", {
-        sessionId: params.sessionId,
-      });
-    }
-    const pinnedProviderSessionId = this.#mintProviderSessionId();
-    // Built ONCE and retained, not built twice. The second build would read
-    // `#sessionGoals` again, so a goal set between the spawn and the
-    // registration would be recorded as the leg this process launched under
-    // when it is not.
-    const spawnBoundLegs = this.#buildSpawnBoundLegs(params);
-    const attachment = await this.#transport.spawnSession({
-      ...spawnBoundLegs,
-      providerSessionId: pinnedProviderSessionId,
-      config: params.config,
-    });
-
-    if (attachment.providerSessionId !== pinnedProviderSessionId) {
-      const disposalNote = await this.#disposeRefusedChannel(
-        attachment.channel,
-        "spawn_identity_diverged",
-      );
-      throw new ClaudeSessionUnavailableError("session_id_pin_diverged", {
-        sessionId: params.sessionId,
-        detail: `Pinned ${pinnedProviderSessionId}, announced ${attachment.providerSessionId}.${disposalNote}`,
-      });
-    }
-
-    // ADOPTION INVARIANT — between the transport handing us a live channel and
-    // that channel being registered, EVERY exit (return or throw) either
-    // registers the channel or disposes it. There is no third exit. Without this
-    // guard a throw in the window escapes past both, the outer slot claim clears
-    // the slot in its settle path, and the still-running process is orphaned with
-    // its slot free — so the next create spawns a second process beside it.
-    //
-    // The window is not empty: `#buildSpawnBinding` digests a caller-supplied
-    // output schema (a cyclic or unserializable one throws) and
-    // `#registerLiveSession` calls transport-implemented `onTurnTerminal`.
-    try {
-      this.#registerLiveSession({
-        sessionId: params.sessionId,
-        providerSessionId: attachment.providerSessionId,
-        channel: attachment.channel,
-        spawnBinding: this.#buildSpawnBinding(params),
-        spawnBoundLegs: spawnBoundLegs,
-        establishment: { mode: "fresh" },
-        // CAPTURED, not resolved: the account the daemon admitted this run
-        // against, held opaquely so the enumeration reports the identity this
-        // process actually runs under rather than whatever the registry says
-        // later. It reaches neither `#buildSpawnBinding` nor `spawnBoundLegs`
-        // above — environment construction stays the daemon's.
-        admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
-      });
-    } catch (error) {
-      // Dispose, then re-throw the ORIGINAL cause. `createSession` has no
-      // degraded arm — throwing is its only failure channel, and it already
-      // propagates raw transport errors — so wrapping would hide the real fault
-      // behind a reason arm no caller could act on differently.
-      await this.#disposeRefusedChannel(attachment.channel, "establishment_failed");
-      throw error;
-    }
-
-    // Claude resumes by session id (`--resume <session-id>`), so the resume
-    // handle IS the provider session id at this pin. The daemon treats it as
-    // opaque, which is what lets a future provider hand back something else.
-    return {
-      providerSessionId: attachment.providerSessionId,
-      resumeHandle: attachment.providerSessionId,
-    };
-  }
-
+  /** Resumes a provider session by its handle; every failure returns through the `failed` arm. */
   async resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
-    // Resuming beside a live channel for the same canonical session is the
-    // silent-replacement shape from the other direction: two Claude processes,
-    // one canonical run. Refuse through the `failed` arm — never by throwing,
-    // because the contract's failure channel for resume IS that arm. An
-    // establishment already in flight is refused identically: the winner's
-    // spawn-bound legs are not this caller's, so handing back its handle would be
-    // the realization swap `#assertSpawnBoundRealization` exists to prevent.
+    // Resuming beside a live channel would leave two processes for one canonical session, and an
+    // in-flight establishment belongs to a caller with different spawn-bound legs.
     const slotHolder = this.#describeSlotHolder(params.sessionId);
     if (slotHolder !== undefined) {
-      return this.#buildResumeFailure(
+      return buildClaudeResumeFailure(
         "recovery-needed",
         `${slotHolder} Resuming beside it would replace it silently.`,
       );
@@ -2703,132 +208,25 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
     return await this.#withSessionSlotClaimed(
       params.sessionId,
-      async () => await this.#establishResumedSession(params),
+      async () => await this.#establishment.establishResumedSession(params),
     );
   }
 
-  async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
-    // BEFORE THE SPAWN, and through the `failed` ARM rather than a throw: resume's
-    // contractual failure channel is that arm, and a raw rejection here would
-    // reach a caller with no arm for it.
-    if (isUnusableAdmittedProviderAccountId(params.providerAccountId)) {
-      return this.#buildResumeFailure(
-        "recovery-needed",
-        "ResumeSessionParams.providerAccountId is present but empty; an account was meant to be bound and none was.",
-      );
-    }
-    const spawnBoundLegs = this.#buildSpawnBoundLegs(params);
-    let attachment: ClaudeResumedSessionAttachment;
-    try {
-      attachment = await this.#transport.resumeSession({
-        ...spawnBoundLegs,
-        resumeHandle: params.resumeHandle,
-      });
-    } catch (error) {
-      return this.#buildResumeFailure(classifyRecoveryCondition(error), describeFailure(error));
-    }
-
-    // The identity gate. Claude answers a resume it cannot honour (a
-    // working-directory mismatch is the documented case) by starting a FRESH
-    // session, which announces its own id. Adopting that session would be the
-    // silent replacement.
-    if (attachment.providerSessionId !== params.resumeHandle) {
-      const disposalNote = await this.#disposeRefusedChannel(
-        attachment.channel,
-        "resume_identity_diverged",
-      );
-      return this.#buildResumeFailure(
-        "recovery-needed",
-        `Resume handle ${params.resumeHandle} was answered by session ${attachment.providerSessionId}; the provider started a replacement session rather than resuming.${disposalNote}`,
-      );
-    }
-
-    // ADOPTION INVARIANT — from here to registration, EVERY exit (return or
-    // throw) either registers the channel or disposes it. There is no third exit.
-    //
-    // The window contains three things that can throw, none of them the
-    // provider's doing: the injected binding minter, `#buildSpawnBinding`'s
-    // digest of a caller-supplied output schema, and the transport's own
-    // `onTurnTerminal`. An escaping throw would be doubly wrong here — the outer
-    // slot claim clears the slot in its settle path, orphaning a process that is
-    // resumed and running while the next create spawns beside it, AND resume's
-    // contractual failure channel is the `failed` ARM, so a raw throw reaches a
-    // caller that has no arm for it.
-    let validatedResumeResult: DriverResumeResult;
-    try {
-      const resumed: DriverResumeResult = {
-        status: "resumed",
-        bindingId: this.#mintBindingId(),
-        sessionPosition: attachment.sessionPosition,
-      };
-      // An out-of-contract `resumed` arm (a non-integer or negative position, an
-      // unusable binding id) is ITSELF a provider failure and must surface
-      // `recovery-needed` rather than parse-rejecting into an exception the
-      // resume caller has no arm for.
-      const validated = DriverResumeResultSchema.safeParse(resumed);
-      if (!validated.success) {
-        const disposalNote = await this.#disposeRefusedChannel(
-          attachment.channel,
-          "resume_result_invalid",
-        );
-        return this.#buildResumeFailure(
-          "recovery-needed",
-          `The Claude transport reported a resume that fails the driver resume contract: ${validated.error.message}${disposalNote}`,
-        );
-      }
-      validatedResumeResult = validated.data;
-
-      this.#registerLiveSession({
-        sessionId: params.sessionId,
-        providerSessionId: attachment.providerSessionId,
-        channel: attachment.channel,
-        spawnBinding: this.#buildSpawnBinding(params),
-        spawnBoundLegs: spawnBoundLegs,
-        // The resume identity gate above already refused any id but the handle
-        // the caller supplied, so the session being established IS the thread
-        // the daemon has been emitting against.
-        establishment: { mode: "resume", priorEmittedThreadId: attachment.providerSessionId },
-        // CAPTURED FROM THE REQUEST, WITH NOTHING TO RECONCILE AGAINST, and the
-        // absence of a reconciliation here is structural rather than an omission.
-        // The sibling band reconciles a resume's typed member against a surviving
-        // live record because its resume SUPERSEDES a live predecessor. This band
-        // cannot reach that state: `resumeSession` refuses on any non-EMPTY slot
-        // (`#describeSlotHolder`), so a resume that gets this far holds a claim on
-        // a session with no record at all. Writing a reconciliation for a record
-        // that provably cannot exist would be an unreachable branch asserting a
-        // rule nothing can violate.
-        admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
-      });
-    } catch (error) {
-      const disposalNote = await this.#disposeRefusedChannel(
-        attachment.channel,
-        "establishment_failed",
-      );
-      // `recovery-needed`, not `reauth-required`: the resume itself SUCCEEDED —
-      // the daemon simply could not adopt what it got back — so re-authenticating
-      // would answer a question nobody asked. Retrying is the recovery.
-      return this.#buildResumeFailure(
-        "recovery-needed",
-        `The Claude session resumed but could not be adopted: ${describeFailure(error)}${disposalNote}`,
-      );
-    }
-    return validatedResumeResult;
-  }
-
+  /**
+   * Writes the run's opening text to its session's live channel, re-sending only a write that
+   * provably never left. Throws when the run cannot be dispatched, and rethrows the failed write's
+   * cause once the text may not be sent again.
+   */
   async startRun(params: StartRunParams): Promise<void> {
     const dispatch = await this.#runDispatchResolver.resolveRunDispatch(params);
     if (dispatch === undefined) {
       throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
     }
 
-    // Asked BEFORE the live-session lookup so the cause survives. A trip
-    // disposes the session's channel, so a quarantined session fails that lookup
-    // too — with `no_live_session`, a plausible wrong cause that reads as a race
-    // and invites a retry into the process that swallowed the user's
-    // words. Asked here, the refusal names the neutralization instead. Released
-    // at establishment, so the promised recovery — a fresh spawn under this id —
-    // is the thing that lifts it.
-    this.#providerBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
+    // Before the live-session lookup so the cause survives: a trip disposes the channel, and the
+    // lookup would then report `no_live_session`, which invites a retry into the process that
+    // swallowed the user's words. A fresh spawn releases the quarantine.
+    this.#runtimeBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
 
     const live = this.#findLiveSession(dispatch.sessionId);
     if (live === undefined) {
@@ -2838,21 +236,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
-    this.#assertSpawnBoundRealization(params, live);
+    assertClaudeSpawnBoundRealization(params, live);
 
-    // One run key holds at most ONE pending frame on this leg — the invariant
-    // the tripwire's settle already attributes by: it classifies the frame at
-    // position 0 with the terminal's real verdict and rules every later frame
-    // under the same key `UNRECOGNIZED_TURN_EVIDENCE`, which trips. Registering
-    // a second opening frame for a run whose first has not settled would
-    // therefore quarantine this session over a duplicate dispatch, not over a
-    // swallowed user. Refused HERE, before compose and register, so the
-    // duplicate mutates nothing; the first dispatch's frame, route, and pending
-    // turn all stand exactly as they were. Deliberately NOT keyed on the run
-    // route (`#sessionIdByRunId`): `#ruleFailedOpeningFrame`'s dead-channel arm
-    // retains the route precisely so `findChannelForRun` refuses loudly, and a
-    // ruled run re-dispatching after that failure is a real path this guard
-    // must not close.
+    // One pending opening frame per run key: a second would be ruled `UNRECOGNIZED_TURN_EVIDENCE`
+    // and trip the session. Not keyed on the run route, which a dead-channel ruling keeps while
+    // the run may re-dispatch.
     if (this.#outboundFrameTripwire.hasPendingFrame(params.runId)) {
       throw new ClaudeSessionUnavailableError("run_already_dispatched", {
         sessionId: dispatch.sessionId,
@@ -2860,17 +248,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
-    // The SESSION-scoped completion of the guard above — the run-keyed check
-    // stays first so a duplicate keeps its precise cause. Claude's settling
-    // envelope carries no run id, so `#ruleTextNeutralizationTripwire` can
-    // credit the terminal's real classification within only one run at a time:
-    // with two runs' frames pending on one session, the oldest-bound run takes
-    // the real verdict and every other is ruled unrecognized — quarantining a
-    // healthy session over a perfectly valid queued start. The transport
-    // serializes turns anyway, so a start admitted here could never run ahead
-    // of the pending one; refused before compose and register, it mutates
-    // nothing, and the caller is free to re-dispatch once the pending turn
-    // settles — the same recovery the duplicate guard promises.
+    // Claude's settling envelope carries no run id, so a terminal's classification can be credited
+    // to only one run per session. Refused before anything is composed, so the caller may
+    // re-dispatch once the turn settles.
     if (this.#outboundFrameTripwire.hasPendingFrameInScope(dispatch.sessionId)) {
       throw new ClaudeSessionUnavailableError("session_turn_in_flight", {
         sessionId: dispatch.sessionId,
@@ -2878,24 +258,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
-    // The write is attempted inside a bounded ladder rather than once, and the
-    // ladder is entered on ONE classification only. The shared
-    // classifier rules, so this leg cannot drift from the Codex one about what a
-    // failure means; what it can supply is narrower — see
-    // `observeClaudeUserTextFailure` for why the refusal arm is unreachable at
-    // this seam.
+    // Only a definitely-unsent write is retried; the shared classifier decides, as for Codex.
     for (let dispatchAttemptsMade = 1; ; dispatchAttemptsMade += 1) {
-      const frame = this.#registerOpeningDispatch(dispatch, params);
-      const attempt = await this.#attemptFrameWrite(live.channel, frame);
+      const frame = this.#textNeutralization.registerOpeningDispatch(dispatch, params);
+      const attempt = await attemptClaudeFrameWrite(live.channel, frame);
       if (attempt.settled === "written") {
         return;
       }
-      // Ruled BEFORE the retry decision, unconditionally, and in the same place
-      // it was ruled before this ladder existed. The ruling is what releases the
-      // frame's registration — the `unsent` arm forgets it — so a re-attempt that
-      // registered a second frame without it would put two frames on one run key
-      // and trip the tripwire over the driver's own retry.
-      this.#ruleFailedOpeningFrame({
+      // Ruled before the retry decision: the ruling releases the frame's registration, and a
+      // second registered frame on one run key would trip the tripwire.
+      this.#textNeutralization.ruleFailedOpeningFrame({
         sessionId: dispatch.sessionId,
         runId: params.runId,
         channel: live.channel,
@@ -2905,15 +277,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       const disposition = classifyProviderRequestFailure(
         observeClaudeUserTextFailure(attempt.delivery),
       ).disposition;
-      // The ONLY arm that re-sends, and only because `unsent` is a positive
-      // claim about bytes: the provider saw nothing, so there is no turn to
-      // duplicate and no spend to repeat. The other arm reaching here is
-      // `reconcile-ambiguous-delivery`, which on this leg has no positional read
-      // available — this driver holds no acknowledged-user-send ledger and
-      // the provider publishes no turn readback — so it settles the way an
-      // unreadable target settles everywhere: nothing is re-sent, nothing is
-      // assumed delivered, and the turn fails visibly on the run's existing
-      // failure path.
+      // Only `unsent` is re-sent, as the one positive claim that the provider saw nothing.
+      // `reconcile-ambiguous-delivery` has no readback here, so the turn fails instead.
       if (
         disposition !== "retry-definitely-unsent" ||
         !mayReattemptAfterDefinitelyUnsent(dispatchAttemptsMade)
@@ -2924,282 +289,41 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Composes one run-opening frame, admits it to the tripwire, and binds the run
-   * route — the three steps that must happen together for every dispatch attempt.
-   *
-   * Extracted so a re-attempt reconstitutes ALL of them. A retry that
-   * re-composed without re-registering would write an unwatched frame, and a turn
-   * that settles against no correlated frame PASSES — the silent swallow the
-   * tripwire exists to catch.
-   */
-  #registerOpeningDispatch(
-    dispatch: ClaudeRunDispatch,
-    params: StartRunParams,
-  ): ClaudeUserTextFrame {
-    // The bytes are composed HERE and nowhere else: this band cannot
-    // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only
-    // path to the wire rather than on a path a reviewer has to remember to
-    // check. Composed before the registration because the registration is keyed
-    // by the frame it admits.
-    //
-    // The origin is MINTED from a literal and is deliberately not a member of
-    // `ClaudeRunDispatch`. A run's opening text is the user's own
-    // message, composed by the daemon's run pipeline, so the origin is a fact of
-    // this code path rather than a claim the resolver gets to make — and the arm
-    // a resolver could otherwise have named, `driver_command`, is the one that
-    // delivers command-shaped bytes verbatim AND exempts the turn from the
-    // tripwire, so a wrong value there would swallow the user's words and
-    // report the turn completed. A port that cannot state it cannot get it wrong.
-    //
-    // A re-attempt therefore composes a FRESH frame rather than re-offering the
-    // ruled one: neutralization and correlation are per-frame, and re-writing a
-    // frame the tripwire has already forgotten would put unwatched bytes on the
-    // wire.
-    const frame = this.#outboundTextFrameWriter.compose({
-      text: dispatch.openingText,
-      origin: RUN_OPENING_FRAME_ORIGIN,
-    });
-    // A REFUSED registration aborts before the write. Taking the write anyway
-    // would be the one genuinely unsafe option — a turn that settles against no
-    // correlated frame PASSES, so an unwatched frame turns this session's
-    // backlog into a silent swallow.
-    //
-    // Admitted BEFORE the run route is bound, so a refusal here leaves this
-    // method having mutated nothing at all. The order is not cosmetic: a route
-    // bound ahead of a throwing admission would survive it, `findChannelForRun`
-    // would answer for a run that never dispatched, and a later interrupt or
-    // cancel for that run would send a SESSION-scoped control request that
-    // stops whatever older turn is genuinely running on the channel. Both steps
-    // are synchronous and both precede the write, so nothing is given up by
-    // asking for the budget first. (With the session-serialization guard above,
-    // this scope holds at most the one frame that guard admitted, so a capacity
-    // refusal here is unreachable via startRun — retained fail-closed against
-    // state drift, not as a live branch.)
-    this.#outboundFrameTripwire.register({
-      scopeKey: dispatch.sessionId,
-      joinKey: params.runId,
-      frameRole: "turn-opening",
-      frame,
-    });
-    // Bound BEFORE the frame is written: once the text is on the wire the turn
-    // may already be running, and an interrupt racing the write must find a
-    // route. What a FAILED write leaves behind is now decided by how far its
-    // bytes got — see `#ruleFailedOpeningFrame`.
-    this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
-    return frame;
-  }
-
-  /**
-   * Writes ONE composed frame, containing a transport that rejects instead of
-   * reporting.
-   *
-   * `sendUserText` is obliged to REPORT its failures so the delivery
-   * classification crosses the seam as data. A transport that rejected has
-   * broken that obligation, and the one thing this band must not do with a
-   * broken contract is read it as good news: a rejection carries no claim about
-   * bytes, and `unsent` is precisely a claim about bytes. So it lands on the
-   * fail-closed arm — the same rule the classification itself runs under, where
-   * anything that cannot be placed ahead of the first byte is `indeterminate`.
-   */
-  async #attemptFrameWrite(
-    channel: ClaudeSessionChannel,
-    frame: ClaudeUserTextFrame,
-  ): Promise<ClaudeUserTextWriteAttempt> {
-    try {
-      return await channel.sendUserText(frame);
-    } catch (cause) {
-      return { settled: "failed", delivery: "indeterminate", cause };
-    }
-  }
-
-  /**
-   * Decides what a failed opening frame is owed, by how far its bytes got.
-   *
-   * UNSENT — owed nothing. No turn will ever account for the frame, and leaving
-   * it registered would let it consume the evidence of the NEXT run on this
-   * session: the older frame rules first, the live run is ruled against none,
-   * and a run whose text did reach the provider is failed for it. The drop is
-   * frame-scoped for the shape this leg does not yet have but the sibling does
-   * — a second frame on the same key, still live and still owed its own ruling.
-   *
-   * The route goes with it once nothing else on that run is still owed a
-   * ruling, and that is a DEPARTURE from what a failed write used to leave
-   * behind. A route is not inert bookkeeping on this leg: Claude's interrupt is
-   * CHANNEL-scoped, so a route pointing at a run that provably never dispatched
-   * is an aimed weapon with nothing to aim at, and the interrupt it answers
-   * would stop whatever older turn the channel is actually running. The old
-   * blanket "an interruptible run beats a turn with no route to it" is the right
-   * trade only where a turn MIGHT exist; here, provably, none does.
-   *
-   * The condition on that deletion is what stops the trade from paying for
-   * itself with a sibling's silence. The registration this arm drops is
-   * FRAME-scoped and the route is RUN-scoped, so where two writes overlapped on
-   * one run — a retry beside the attempt it was retrying — deleting the route
-   * unconditionally would retire the ACCEPTED frame's only correlation along
-   * with the unsent one's. The terminal path reaches its runs through this map:
-   * `#ruleTextNeutralizationTripwire` intersects the routes with the keys still
-   * holding a pending frame, so that run would not appear among the correlated
-   * ids at all, its live frame would never be ruled, and command-intercepted
-   * text would vanish with no failure reported — the silent pass this whole leg
-   * exists to close, reached by way of the cleanup rather than by the swallow.
-   *
-   * The predicate is asked AFTER the forget, and about the RUN rather than about
-   * the frame. Both halves are load-bearing and both fail in a different
-   * direction: asking first would see this frame pending on every call and
-   * delete no route ever, restoring the aimed-weapon case above, while asking
-   * about the frame would answer a question the route is not keyed by. What the
-   * route still owes is exactly whether any OTHER frame on that key is still
-   * awaiting a turn.
-   *
-   * This leg cannot key its routes by turn the way the sibling driver does, and
-   * the reason is the transport's: Claude serializes turns per session and names
-   * none of them at start, so "a terminal arrived on this channel" is the whole
-   * of the correlation. There is no turn id to route by, which is why the
-   * sibling-aware predicate is the available answer rather than the second-best
-   * one.
-   *
-   * INDETERMINATE on a serviceable channel — owed the opposite. The provider may
-   * have received the text, intercepted it as a client-side command, and
-   * answered with the zero-turn success this tripwire exists to catch; the
-   * rejection the caller saw says nothing either way. Withdrawing the frame
-   * there is exactly how a swallowed directive escapes detection while the
-   * unsafe binding stays reusable. So the registration is RETAINED, the route is
-   * retained with it, and the turn's own terminal rules it — the argument the
-   * sibling driver's steer path could not make and this one can, because this
-   * path deliberately keeps both the route and the binding live.
-   *
-   * Retention has a cost, and it is worth naming rather than discovering: the
-   * retained frame becomes the FIRST claimant on this session's next terminal.
-   * If a later run then writes successfully and that run's turn settles, the
-   * ambiguous frame consumes the settling evidence and the later run is ruled
-   * against none — so the trip is reported against the wrong run. That is the
-   * fail-closed direction: the session is quarantined and disposed either way,
-   * and the user is protected. The alternative — dropping the ambiguous
-   * frame so the attribution reads cleanly — is a SILENT PASS on the exact case
-   * this tripwire exists for.
-   *
-   * INDETERMINATE on a dead channel — the one case retention cannot cover. No
-   * terminal will ever arrive, so the frame would sit until the scope's budget
-   * is released and be dropped as mere occupancy: silence in the case that
-   * warrants the loudest answer. Ruled here instead, fail-closed, and ruled
-   * FRAME-scoped so a sibling frame on the same key whose delivery was never in
-   * doubt is not tripped alongside it.
-   *
-   * The route is deliberately LEFT on that last arm. `disposeRun` is what makes
-   * `findChannelForRun` refuse rather than answer `undefined`, and the two mean
-   * different things to a caller — a quiet `undefined` reads as "no channel
-   * yet", the one reading that invites a retry straight back into the swallow.
-   * Deleting the route would trade the loud refusal for exactly that silence.
-   *
-   * Residual, deliberately not closed here: a channel still serviceable at this
-   * moment that dies later without ever settling the turn leaves the retained
-   * frame to scope release. Closing it would mean carrying "delivery
-   * indeterminate" as tripwire state and ruling it at scope release, which
-   * fires neutralization failures on ordinary session closes that happen to
-   * have a turn in flight — a false trip on every clean shutdown, to cover a
-   * window this path already narrows to one that opens after the
-   * classification.
-   */
-  #ruleFailedOpeningFrame(ruling: {
-    readonly sessionId: SessionId;
-    readonly runId: RunId;
-    readonly channel: ClaudeSessionChannel;
-    readonly frame: ClaudeUserTextFrame;
-    readonly delivery: ClaudeUserTextDelivery;
-  }): void {
-    if (ruling.delivery === "unsent") {
-      this.#outboundFrameTripwire.forgetFrame(ruling.frame);
-      if (!this.#outboundFrameTripwire.hasPendingFrame(ruling.runId)) {
-        this.#sessionIdByRunId.delete(ruling.runId);
-      }
-      return;
-    }
-    if (!ruling.channel.isClosed) {
-      return;
-    }
-    const decision = this.#outboundFrameTripwire.settleFrame(
-      ruling.frame,
-      UNRECOGNIZED_TURN_EVIDENCE,
-    );
-    if (!decision.tripped) {
-      return;
-    }
-    // The same disposal the settlement path performs, in the same order: the
-    // SESSION arm first, so a caller reacting synchronously to the run failure
-    // cannot reach the condemned process by the other door. `startRun` resolves
-    // a session, so a run-keyed refusal alone would leave the next run free to
-    // dispatch onto the same channel.
-    this.#providerBindingQuarantine.disposeSession(ruling.sessionId);
-    this.#providerBindingQuarantine.disposeRun(ruling.runId, ruling.sessionId);
-    this.#reportTextNeutralizationFailure(
-      ruling.sessionId,
-      ruling.runId,
-      composeTextNeutralizationRunFailure(decision),
-    );
-    this.#disposeQuarantinedSession(ruling.sessionId);
-  }
-
-  /**
-   * Zero-turn authentication probe. NEVER throws.
-   *
-   * The classification, and nothing else: the transport owns the observation
-   * (this band spawns no process and reads no environment variable, which is why
-   * it could not obtain one), and this method maps the three ways that
-   * observation can land onto the contract's three-value result.
-   *
-   *   resolved                              -> `authenticated`
-   *   `ClaudeAuthenticationRequiredError`   -> `unauthenticated`
-   *   any other throw                       -> `indeterminate`
-   *
-   * The last arm is fail-closed for admission and still distinguishable from the
-   * middle one, which is the distinction the three-value enum exists to keep: an
-   * operator must be able to tell a logged-out provider from a probe that could
-   * not run. Claiming `unauthenticated` for an unhealthy probe would send them to
-   * re-authenticate a credential that was never in question.
-   *
-   * NO SESSION SLOT is claimed. The probe holds no session id, installs no live
-   * session, and starts no run, so it cannot refuse a concurrent create or close
-   * — and a `probeAuth` that queued behind a session transition would stall the
-   * very admission check it exists to make cheap.
+   * Zero-turn authentication probe; never throws. `ClaudeAuthenticationRequiredError` is
+   * `unauthenticated`, any other throw `indeterminate`. It claims no session slot.
    */
   async probeAuth(): Promise<DriverAuthProbeResult> {
     try {
-      // The probe spawns a child like every other path here, so it carries the
-      // mandated pairs like every other path here — obligation 5 on the port. A
-      // probe that shed them would be the one spawn able to update the
-      // installation underneath the readings the next admission is decided
-      // against, and it would do it on a cadence.
+      // Carries the mandated environment like every other spawn, so the probe cannot update the
+      // installation underneath the readings.
       const reading = await this.#transport.probeAuth({
         mandatedEnvironment: composeClaudeMandatedEnvironment(),
       });
       return buildAuthProbeResult(
         "authenticated",
-        reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL,
+        sanitizeFailureDetail(reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL),
       );
     } catch (cause) {
-      // Typed, never sniffed — the same rule the resume path's recovery
-      // classification follows, and for the same reason: a message-substring
-      // test would silently reclassify on any provider wording change.
+      // Typed, not sniffed from the message, which provider rewording would break.
       return buildAuthProbeResult(
         cause instanceof ClaudeAuthenticationRequiredError ? "unauthenticated" : "indeterminate",
-        describeFailure(cause),
+        sanitizeFailureDetail(describeFailure(cause)),
       );
     }
   }
 
+  /**
+   * Sends the CLI's `interrupt` control request for the run's channel. Throws
+   * `ClaudeSessionUnavailableError` when the run has no live channel and
+   * `ClaudeControlRequestRefusedError` when the CLI refuses.
+   */
   async interruptRun(params: InterruptRunParams): Promise<void> {
-    const channel = this.findChannelForRun(params.runId);
+    const channel = this.findProcessForRun(params.runId);
     if (channel === undefined) {
       throw new ClaudeSessionUnavailableError("no_live_run", { runId: params.runId });
     }
-    // `params.reason` is deliberately dropped rather than forwarded: the pinned
-    // CLI's `interrupt` control request carries no reason member, and inventing
-    // one would be an unregistered wire field. The reason is the daemon's own
-    // audit record, not provider input.
-    //
-    // `interruptRun` returns `void`: it has no `degraded` arm, so a typed refusal
-    // can only be reported by throwing. Reporting success here would tell the
-    // daemon a run was interrupted that is still producing tokens.
+    // `params.reason` is not forwarded: the pinned CLI's `interrupt` request has no reason member.
+    // A refusal throws, since returning would claim an interrupt that did not happen.
     const response = await channel.sendControlRequest({
       subtype: "interrupt",
       cancelQueued: false,
@@ -3210,34 +334,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Rewinds a session's conversation to a recorded position.
-   *
-   * CONVERSATION ONLY. Working-tree restore is the daemon's turn-snapshot leg;
-   * this provider's own `--rewind-files` is deliberately not used, because its
-   * Write/Edit-only coverage would restore part of a tree and leave the rest.
-   *
-   * MECHANISM: a FORK, not an in-place rewind — the transport composes
-   * `--resume-session-at` with `--fork-session`, so the rewound conversation
-   * runs as a NEW provider session and the pre-rewind one is left intact. That
-   * is why an `applied` result carries a freshly minted `bindingId`: the
-   * surrogate is the daemon's only channel for the new provider session, and
-   * without it the run stays bound to a session the store never recorded and is
-   * therefore not resumable across a restart.
-   *
-   * NON-DESTRUCTIVE ON FAILURE, which is the property the slot discipline here
-   * exists for. The predecessor is captured before the claim and restored by
-   * `#withRewindSlotClaimed` on every path that does not install a successor, so
-   * a rewind that fails leaves the session exactly as it was found — running,
-   * startable, and un-rewound — rather than emptying a slot whose process is
-   * still alive.
+   * Forks the provider conversation at a recorded message, leaving the original and the files on
+   * disk untouched (`--rewind-files` covers only Write/Edit). An `applied` result carries a fresh
+   * `bindingId` for the new provider session; a failed rewind restores the predecessor.
    */
-  async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+  async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     const live = this.#findLiveSession(params.sessionId);
     if (live === undefined) {
-      // Thrown rather than degraded, and the split is deliberate: `degraded` is
-      // the vocabulary for a driver that WAS able to act and reported a
-      // fallback. There is no session here to act on, so a `degraded` answer
-      // would invite a fallback for a session that does not exist.
+      // Thrown, not degraded: `degraded` is for a driver that could act and reported a fallback.
       throw new ClaudeSessionUnavailableError("no_live_session", {
         sessionId: params.sessionId,
       });
@@ -3245,295 +349,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     return await this.#withRewindSlotClaimed(
       params.sessionId,
       live,
-      async () => await this.#establishRewoundSession(params, live),
-    );
-  }
-
-  async #establishRewoundSession(
-    params: RollbackToParams,
-    predecessor: LiveClaudeSession,
-  ): Promise<DriverRollbackResult> {
-    // A rewind IS a spawn, so it is the boundary `setSessionGoal` promised to
-    // bind at. The predecessor's legs carry the goal as it stood at ITS spawn,
-    // and reusing them verbatim would drop a goal recorded since — answering a
-    // caller `degraded, goal-appended-at-next-session-spawn` and then skipping
-    // the very next spawn. Re-read here, and registered below, so a second
-    // rewind does not re-drop it.
-    const rewoundSpawnBoundLegs: ClaudeSpawnBoundLegs = {
-      // The predecessor's OWN legs, re-realized verbatim. Rebuilding them from
-      // anything else would relaunch the session under a configuration nobody
-      // chose — the same failure mode a resume guards against, reached here by
-      // a path that carries no params to rebuild from.
-      ...predecessor.spawnBoundLegs,
-      goalText: this.#sessionGoals.get(params.sessionId),
-      // A FRESH gate, never the predecessor's. A rewind relaunches the process,
-      // so every subagent the old gate was holding slots for died with it —
-      // carrying that gate forward would hold a permanently reduced cap against
-      // calls that no longer exist. The predecessor's gate is disposed with its
-      // channel below.
-      subagentAdmission: this.#buildSubagentAdmission(
-        params.sessionId,
-        predecessor.spawnBoundLegs.subagentPolicy,
-      ),
-    };
-    let attachment: ClaudeRewoundSessionAttachment;
-    try {
-      attachment = await this.#transport.rewindSession({
-        ...rewoundSpawnBoundLegs,
-        resumeHandle: predecessor.providerSessionId,
-        targetPosition: params.position,
-      });
-    } catch (error) {
-      // The predecessor is untouched, so the session is exactly as it was and a
-      // retry is safe. `degraded` rather than a throw: the caller has a fallback
-      // arm for precisely this, and the daemon's own rewind path is what runs it.
-      return DriverRollbackResultSchema.parse({
-        status: "degraded",
-        fallbackAction: `rewind-refused: ${sanitizeFailureDetail(describeFailure(error))}`,
-      });
-    }
-
-    // THE FORK CHECK. A rewind that answers with the id it was given did not
-    // fork — it either rewound the original session in place or handed the same
-    // process back. Either way the binding lineage the daemon records would be
-    // wrong, and the pre-rewind conversation the fork is supposed to preserve is
-    // gone. Refused rather than adopted.
-    if (attachment.providerSessionId === predecessor.providerSessionId) {
-      // Disposed only when it is a DIFFERENT channel. Handing the predecessor's
-      // own channel back is the one case where disposal would kill the session
-      // this method is about to restore.
-      const disposalNote =
-        attachment.channel === predecessor.channel
-          ? ""
-          : await this.#disposeRefusedChannel(attachment.channel, "resume_identity_diverged");
-      return DriverRollbackResultSchema.parse({
-        status: "degraded",
-        fallbackAction: `rewind-not-forked: the provider answered with session ${attachment.providerSessionId} rather than a fork.${disposalNote}`,
-      });
-    }
-
-    // ADOPTION INVARIANT — from here to registration, EVERY exit either
-    // registers the new channel or disposes it. The window holds the result
-    // validation and `#registerLiveSession`'s transport-implemented
-    // `onTurnTerminal`, and an escaping throw would orphan a forked process
-    // whose slot this method's own claim then restores to the PREDECESSOR.
-    let validatedRollbackResult: DriverRollbackResult;
-    try {
-      const applied = {
-        status: "applied" as const,
-        sessionPosition: attachment.sessionPosition,
-        bindingId: this.#mintBindingId(),
-      };
-      const validated = DriverRollbackResultSchema.safeParse(applied);
-      if (!validated.success) {
-        const disposalNote = await this.#disposeRefusedChannel(
-          attachment.channel,
-          "resume_result_invalid",
-        );
-        return DriverRollbackResultSchema.parse({
-          status: "degraded",
-          fallbackAction: `rewind-result-invalid: ${sanitizeFailureDetail(validated.error.message)}${disposalNote}`,
-        });
-      }
-      validatedRollbackResult = validated.data;
-
-      this.#registerLiveSession({
-        sessionId: params.sessionId,
-        providerSessionId: attachment.providerSessionId,
-        channel: attachment.channel,
-        spawnBinding: predecessor.spawnBinding,
-        spawnBoundLegs: rewoundSpawnBoundLegs,
-        // A rewind is a fresh spawn continuing a session whose earlier spend
-        // the daemon has already emitted, so it bases like a resume: a zero
-        // base here would re-meter every pre-rewind turn. Keyed on the
-        // PREDECESSOR's id, which is the only id the daemon has emitted spend
-        // under — the fork's brand-new id resolves to nothing by construction.
-        //
-        // Whether the provider's counter CONTINUES across `--fork-session` is
-        // deliberately unmeasured at the pin, which establishes only that the
-        // flag mints a new session id on resume. Both readings
-        // are handled and they are not symmetric. If the counter continues,
-        // this base is exact. If it restarts, the successor's readings fall
-        // BELOW this base and the accountant's decrease-floor rule floors the
-        // deltas at zero and records a diagnostic — loud under-metering that
-        // repairs itself once the counter passes the base. Zero-basing has the
-        // inverse failure: silent double-counting of every pre-rewind turn,
-        // which reaches a receipt as real money and says nothing.
-        establishment: { mode: "resume", priorEmittedThreadId: predecessor.providerSessionId },
-        // INHERITED, for the reason `spawnBinding` above is: a fork continues the
-        // run the daemon already admitted, and `RollbackToParams` names no
-        // account of its own. Re-reading the registry here would let a rewind
-        // silently re-bill a session the daemon never re-admitted.
-        admittedProviderAccountId: predecessor.admittedProviderAccountId,
-      });
-    } catch (error) {
-      const disposalNote = await this.#disposeRefusedChannel(
-        attachment.channel,
-        "establishment_failed",
-      );
-      return DriverRollbackResultSchema.parse({
-        status: "degraded",
-        fallbackAction: `rewind-adoption-failed: ${sanitizeFailureDetail(describeFailure(error))}${disposalNote}`,
-      });
-    }
-
-    // The predecessor's correlation is dropped only AFTER adoption has
-    // committed, and outside the try so that no throw can land between the drop
-    // and the registration.
-    //
-    // All three calls move together because they are one record read three
-    // ways: the tripwire finds a session's correlated runs THROUGH the routes,
-    // so acting on the frames while the routes stood — or the reverse — leaves a
-    // predecessor the slot machinery can restore but whose swallowed turns
-    // nothing can rule. A failed adoption restores a still-running predecessor,
-    // and it must come back correlated.
-    //
-    // The ORDER within the group is the mechanism rather than a preference. The
-    // failure sweep runs FIRST, while `#sessionIdByRunId` still names the runs
-    // its frames belong to; the retirement that empties that map runs second;
-    // the budget release is what is left once both have run.
-    //
-    // Retiring the routes is still right on the committed path: every run bound
-    // to this session was running on the PREDECESSOR's turn, so a surviving
-    // route would aim a later interrupt at a turn that never started. Dropping
-    // the FRAMES with them is what was not — the predecessor's turns can no
-    // longer settle, so a silent drop leaves a run whose text may never have
-    // reached the model looking exactly like one whose words landed. Nothing can
-    // observe the interval: the three calls are synchronous and adjacent to the
-    // registration, with no await between them.
-    this.#failSupersededDeliveries(params.sessionId);
-    this.#retireRunRoutes(params.sessionId);
-    // A no-op in the ordinary case: `#failSupersededDeliveries` consumed the
-    // scope's registrations already. Kept because it is the budget release's one
-    // and only home on this path, and a scope that somehow held a frame no route
-    // could explain must still not hold its budget for the fork's whole lifetime.
-    this.#outboundFrameTripwire.forgetScope(params.sessionId);
-
-    // The predecessor is released only AFTER the successor is installed, which
-    // is what made every failure path above non-destructive. Its disposal
-    // failure is folded into the applied result's report rather than thrown: the
-    // rewind SUCCEEDED, and converting it into a throw would tell the daemon a
-    // completed fork did not happen while leaving the forked process live.
-    disposeSubagentAdmission(predecessor.spawnBoundLegs);
-    // The predecessor process is going away, so any compaction wait armed
-    // against it can never see its evidence. Pushed here rather than left to the
-    // declared bound for the same reason the close path pushes it: the loss is
-    // known now. Waits armed against the SUCCESSOR cannot exist yet — this
-    // method holds the rewind slot claim for the whole window, and
-    // `compactContext` requires a settled live slot.
-    this.#pendingCompactions.releaseBinding(params.sessionId);
-    await this.#disposeRefusedChannel(predecessor.channel, "session_closed");
-    return validatedRollbackResult;
-  }
-
-  /**
-   * Records the session goal (EMULATED on this provider).
-   *
-   * ALWAYS `degraded` against a live session, and that is the honest answer
-   * rather than a limitation being papered over. This provider exposes no
-   * arbitrary session-metadata surface, so the goal is realized as a
-   * system-prompt append — which is bound at process start. A running process
-   * therefore cannot take a new goal, and answering `applied` would tell the
-   * daemon the session is governed by an instruction its model has never seen.
-   *
-   * The goal IS recorded, so every spawn this driver performs from here on
-   * carries it. `fallbackAction` names the boundary at which it takes effect, so
-   * the caller can decide whether to relaunch.
-   */
-  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-    this.#sessionGoals.set(params.sessionId, params.goalText);
-    return await Promise.resolve(
-      DriverGoalResultSchema.parse({
-        status: "degraded",
-        fallbackAction: "goal-appended-at-next-session-spawn",
-      }),
+      async () => await this.#establishment.establishRewoundSession(params, live),
     );
   }
 
   /**
-   * Clears the session goal (EMULATED on this provider).
-   *
-   * `applied` ONLY when no goal was recorded. That is not a technicality: the
-   * post-condition this operation promises is that the session carries no goal,
-   * and a session that never had one already satisfies it exactly. Where a goal
-   * WAS recorded, the running process still carries it in a system prompt that
-   * cannot be un-appended, so the answer is `degraded` at the same boundary the
-   * set path names.
-   */
-  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-    const hadGoal = this.#sessionGoals.delete(params.sessionId);
-    return await Promise.resolve(
-      DriverGoalResultSchema.parse(
-        hadGoal
-          ? { status: "degraded", fallbackAction: "goal-cleared-at-next-session-spawn" }
-          : { status: "applied" },
-      ),
-    );
-  }
-
-  // ------------------------------------------------------------------------
-  // Console parity
-  // ------------------------------------------------------------------------
-
-  /**
-   * Triggers a user-requested context compaction (EMULATED on this
-   * provider).
-   *
-   * THE MECHANISM. This CLI publishes no compaction request on its programmatic
-   * surface; what it publishes is its own `/compact` command, in the same
-   * enumeration a user would pick it from. So the driver sends that
-   * command as a `driver_command` frame — the FIRST V1 producer of one — and the
-   * two guards below are what make sending provider-interpreted text safe. They
-   * are independent and neither substitutes for the other.
-   *
-   * GUARD ONE, PRE-DISPATCH PRESENCE. The command must appear in the provider's
-   * OWN enumeration for this binding. Absent, the call refuses `command_absent`
-   * and NOTHING IS SENT — no frame is composed, no byte reaches the process.
-   * That matters because the `driver_command` origin is exempt from the
-   * text-neutralization tripwire: the tripwire is what would otherwise catch a
-   * command-shaped string being swallowed client-side, so a dispatch that
-   * bypasses it must prove the target exists BEFOREHAND rather than discover it
-   * afterwards. The enumeration publishes names without a leading `/`, so the
-   * comparison is bare and the slash is composed back on for the wire.
-   *
-   * GUARD TWO, POST-DISPATCH TYPED EVIDENCE. `applied` is admitted ONLY after
-   * the provider's own typed compaction frame — the same frame that normalizes
-   * into `usage.context_compacted`. The command frame is never answered, so
-   * settling on the request being accepted would report a compaction that may
-   * never happen. The wait is ARMED BEFORE THE DISPATCH so a provider fast
-   * enough to compact between the write resolving and the wait registering does
-   * not deliver its evidence to an empty registry.
-   *
-   * PROMPT-INJECTED SELF-SUMMARIZATION IS PROHIBITED AS A SUBSTITUTE. Asking the
-   * model to summarize its own context is not a compaction: it spends a turn, it
-   * produces no boundary, and every layer above would read a completed operation
-   * where the context window is exactly as full as before. There is deliberately
-   * no such arm here, and adding one would defeat guard two by making the
-   * evidence something this driver authored.
-   *
-   * THE FRAME IS NOT REGISTERED WITH THE OUTBOUND TRIPWIRE, and that is a
-   * decision rather than an omission. It carries no user words, so there
-   * is nothing for the tripwire to rule; and `startRun`'s session-serialization
-   * guard refuses a run while this scope holds a pending frame, so registering
-   * one here would make a compaction block every subsequent run on the session
-   * until a turn terminal it will never produce arrives.
-   *
-   * NO LIVE SESSION THROWS rather than answering an arm. Both failure arms make
-   * a claim this call could not have earned — `failed` says something was sent,
-   * and the refusal arm is closed at `command_absent` / `not_permitted`, neither
-   * of which describes a session that does not exist.
+   * Triggers a context compaction by sending the provider's `/compact` as a `driver_command`
+   * frame. Refuses `command_absent` unless the binding lists the command, since that origin skips
+   * the tripwire; `applied` needs the typed compaction frame. Throws with no live session.
    */
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     const live = this.#findLiveSession(params.sessionId);
@@ -3543,158 +366,21 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
-    // The held enumeration of THIS provider process, matched by stamp. That
-    // match is the routing guard on this leg, and it is strictly stronger than
-    // the `(driverName, providerAccountId)` pair the composed entries carry: the
-    // pair is provenance for a consumer holding groups from several bindings and
-    // no process handle, whereas here the driver dispatches only into the very
-    // process whose handshake it read. It never accepts a caller-supplied entry,
-    // so there is no entry-to-binding routing decision to make. Comparing the
-    // pair would also refuse every accountless session, since `null` matches
-    // nothing by design.
-    const held = this.#heldHandshakeFor(params.sessionId, live.providerSessionId);
+    // The held enumeration, matched by stamp: stricter than the composed entries'
+    // `(driverName, providerAccountId)` pair, which would refuse every accountless session.
+    const held = this.#handshakes.heldHandshakeFor(params.sessionId, live.providerSessionId);
     if (held === undefined || !held.invocableCommandNames.has(CLAUDE_COMPACTION_COMMAND_NAME)) {
+      // No prompt-based fallback: a model summary spends a turn and produces no boundary.
       return { status: "refused", reason: "command_absent" };
     }
 
-    // ARMED FIRST. See guard two above; the promise never rejects, and NO exit
-    // from here to the settlement leaves the registration behind — the reported
-    // write failure withdraws it below, and a THROWN one withdraws it in the
-    // guard immediately following.
-    const wait = this.#pendingCompactions.arm(params.sessionId, CLAUDE_COMPACTION_WAIT_MS);
-    let attempt: ClaudeUserTextWriteAttempt;
-    try {
-      const frame = this.#outboundTextFrameWriter.compose({
-        text: CLAUDE_COMPACTION_COMMAND_TEXT,
-        // A module-level LITERAL, per the frame writer's rule for this arm: a
-        // value forwarded from a caller could carry user words under a
-        // driver's tripwire exemption.
-        origin: CLAUDE_COMPACTION_FRAME_ORIGIN,
-      });
-      attempt = await this.#attemptFrameWrite(live.channel, frame);
-    } catch (cause) {
-      // A THROW OUT OF THE ARMED SPAN WITHDRAWS BEFORE IT PROPAGATES, and the
-      // hazard here is exactly the one the reported-failure arm below closes:
-      // an armed timer outliving the caller that armed it by the whole of
-      // `CLAUDE_COMPACTION_WAIT_MS`.
-      //
-      // The span is REACHABLE rather than defensive. Composition mints a
-      // correlation value through an injected dependency, so a minter that
-      // throws is a state this driver can be constructed into — while the write
-      // itself is total by construction, reporting its transport failures as
-      // data rather than as rejections.
-      //
-      // The guard spans the whole armed region rather than only today's
-      // throwing statement, because a guard scoped to one call silently stops
-      // covering the span the moment a statement is inserted beside it, and the
-      // defect it would reopen is invisible at the call site.
-      //
-      // RETHROWN, never converted. Both result arms make a claim this call could
-      // not have earned: `failed` says something was sent, and the refusal arm is
-      // closed at `command_absent` / `not_permitted`. A driver that could not
-      // compose its own frame has not refused and has not dispatched.
-      wait.abandon();
-      throw cause;
-    }
-    if (attempt.settled === "failed") {
-      // `provider_error` on BOTH deliveries. `unsent` and `indeterminate` differ
-      // in what a TURN is owed, and this frame opens no turn — what the caller
-      // asked was whether a compaction happened, and on either delivery the
-      // honest answer is that the driver cannot say it did.
-      //
-      // The armed wait is WITHDRAWN, not left to time out. Withdrawal is
-      // per-waiter and is not a settlement: settling would be per-key and would
-      // report this caller's write failure to a CONCURRENT user waiting on
-      // the same binding, while withdrawing cancels exactly this wait's timer and
-      // forgets exactly its registration. Left registered, it would hold an armed
-      // timer for the whole of `CLAUDE_COMPACTION_WAIT_MS` after its caller
-      // returned.
-      wait.abandon();
-      // DIAGNOSED, on the same rule the two wait terminals below follow: every
-      // non-applied compaction leaves an operator-findable record, and this arm
-      // is the one that previously did not. The `status`/`reason` pair collapses
-      // both deliveries onto `provider_error` because neither can claim a
-      // compaction happened, so the delivery classification would be lost
-      // entirely if it did not ride the diagnostic — and the two are genuinely
-      // different operationally: `unsent` is a write this driver knows never
-      // reached the provider, while `indeterminate` may have been applied with
-      // the acknowledgement lost.
-      //
-      // The compose-throw guard above deliberately emits NOTHING and is not an
-      // oversight of the same class: it RETHROWS, so its cause reaches the
-      // caller intact. This arm is the one that converts a failure into a
-      // generic reason, which is exactly what makes the record necessary.
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "compaction_wait_terminal",
-        rawWireType: null,
-        dispositionReason: sanitizeFailureDetail(describeFailure(attempt.cause)),
-        details: {
-          sessionId: params.sessionId,
-          terminal: "provider_error",
-          delivery: attempt.delivery,
-        },
-      });
-      return { status: "failed", reason: "provider_error" };
-    }
-
-    const observed = await wait.settled;
-    if (observed.terminal === "observed") {
-      return { status: "applied", boundaryPosition: observed.boundaryPosition };
-    }
-    // Emitted on the two NON-OBSERVED terminals only. An applied compaction is
-    // an ordinary success and needs no diagnostic; recording one would make the
-    // kind's own counts useless for spotting the case it exists to spot.
-    this.#diagnostics.emit({
-      provider: "claude",
-      kind: "compaction_wait_terminal",
-      rawWireType: null,
-      dispositionReason:
-        observed.terminal === "wait_expired"
-          ? "the declared compaction bound elapsed with no typed compaction frame; a later boundary still projects"
-          : "the provider binding was lost while a compaction wait was armed",
-      details: { sessionId: params.sessionId, terminal: observed.terminal },
-    });
-    return { status: "failed", reason: observed.terminal };
+    return await this.#compactionDispatch.dispatchCompaction(params.sessionId, live.channel);
   }
 
   /**
-   * Enumerates the provider's own command and skill surface for one binding.
-   *
-   * A LIVE READ, HELD AS DRIVER-SESSION STATE AND NEVER PERSISTED. The three
-   * sets come from the `system/init` handshake — `slash_commands`, `skills`,
-   * `terminal_slash_commands` — and are discarded with the session. A stored
-   * registry would need invalidation, staleness, and reconciliation machinery
-   * whose only purpose is to re-derive what one handshake read already gives.
-   *
-   * THE THREE SETS ARE CARRIED, NOT MERGED AND NOT DROPPED. `slash_commands` and
-   * `skills` differ in KIND and are reported as such. `terminal_slash_commands`
-   * are published by the provider under a separate member because they run in
-   * its own terminal UI and are not invocable over this transport; merging them
-   * into the commands would offer a user a control that silently does
-   * nothing, and dropping them would hide a surface the provider really
-   * publishes. They are therefore carried with `scope: "terminal"` — the
-   * distinction recorded on the entry rather than erased — while the invocable
-   * set the dispatch guard consults is built from `slash_commands` alone.
-   *
-   * NAMES ARE VERBATIM, WITHOUT A LEADING SLASH, exactly as the provider
-   * publishes them. `enabled` is ABSENT rather than synthesized `true`: this
-   * provider declares no enablement axis, and a fabricated `true` would be a
-   * claim the driver invented.
-   *
-   * THE CAP APPLIES TO THIS REPLY, NEVER TO WHAT THE DRIVER KNOWS. The held
-   * enumeration stays whole; only the composed group is truncated, with
-   * `complete: false` and a diagnostic carrying both counts. That is what lets
-   * `compactContext`'s presence check still find a command this cap trimmed out
-   * of a client's palette.
-   *
-   * BEFORE THE HANDSHAKE IS OBSERVED this binding enumerates EMPTY with
-   * `complete: true`. `complete` is the contract's CAP marker and nothing else —
-   * it says no tail was dropped, which is true of an empty list — so it is not
-   * repurposed to mean "not yet known". A refusal was considered and rejected:
-   * the pre-first-turn palette read is an answerable question, and this
-   * provider's declaring handshake rides a turn-bearing exchange the user
-   * has not yet produced.
+   * Enumerates the provider's command and skill surface for one binding from the held handshake,
+   * with terminal slash commands carried as `scope: "terminal"`. The cap trims this reply only
+   * (`complete: false` plus a diagnostic); before the handshake it answers empty and complete.
    */
   async listProviderCommands(
     params: ListProviderCommandsParams,
@@ -3705,582 +391,111 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         sessionId: params.sessionId,
       });
     }
-    const binding = {
-      driverName: CLAUDE_DRIVER_NAME,
-      // The RECORD is primary and the registry port is a cross-check; `null` is
-      // STATED, never synthesized. See `readBoundProviderAccountId` for the four
-      // arms and why a disagreement refuses instead of picking.
-      providerAccountId: this.#resolveStampedProviderAccountId(params.sessionId, live),
+    const enumeration = this.#handshakes.enumerateProviderCommands(params.sessionId, live);
+    return {
+      bindings: [{ runId: this.#runRoutes.soleLiveRunOn(params.sessionId), ...enumeration }],
     };
-    const held = this.#heldHandshakeFor(params.sessionId, live.providerSessionId);
-    const declared =
-      held === undefined
-        ? []
-        : this.#composeProviderCommandEntries(params.sessionId, held.declaration, binding);
-    const admitted = declared.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
-    if (admitted.length < declared.length) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "provider_command_entries_truncated",
-        rawWireType: null,
-        dispositionReason:
-          "the provider published more command and skill entries than one group admits; the tail is dropped from this reply and the held enumeration is unchanged",
-        details: {
-          sessionId: params.sessionId,
-          declaredEntryCount: declared.length,
-          admittedEntryCount: admitted.length,
-        },
-      });
-    }
-    return await Promise.resolve({
-      bindings: [
-        {
-          runId: this.#soleLiveRunOn(params.sessionId),
-          binding,
-          entries: admitted,
-          complete: admitted.length === declared.length,
-        },
-      ],
-    });
   }
 
   /**
-   * Answers which provider account an enumeration's routing binding is stamped
-   * with.
-   *
-   * ONE INVARIANT: the account stamped is the account this process actually runs
-   * under. The session record holds it because the daemon admitted the process
-   * against it and supplied the environment for it, so the record is PRIMARY and
-   * the injected registry port is a CROSS-CHECK. The four arms and the reasoning
-   * behind each live on
-   * {@link ClaudeSessionLifecycleDependencies.readBoundProviderAccountId}; what
-   * they amount to is that a stale registry can never overwrite a live record,
-   * and a registry naming a DIFFERENT account is a fault rather than a
-   * preference.
-   *
-   * REFUSING IS THE ONLY SAFE ANSWER TO A DISAGREEMENT, and it is safe in a way
-   * neither candidate is. Stamping the record's would publish an identity the
-   * daemon's own registry contradicts; stamping the registry's would route a
-   * user's command enumeration onto an account this process never
-   * authenticated as — the same identity divergence the sibling band refuses at
-   * its spawn seam. A refusal is the only answer that cannot move a session's
-   * billing identity without saying so, and this call is a READ: refusing it
-   * costs a palette, not a run.
-   *
-   * A `null` FROM THE PORT IS NOT A DISAGREEMENT. An unbound port and a port
-   * answering `null` are the same fact by construction (see the conflation
-   * paragraph on that port), and neither contradicts a record naming an account —
-   * it is silence, not testimony. Treating silence as a conflict would refuse
-   * every session whose registry lookup has not caught up with an admission that
-   * already happened.
-   */
-  #resolveStampedProviderAccountId(sessionId: SessionId, live: LiveClaudeSession): string | null {
-    const admitted = live.admittedProviderAccountId;
-    const registered = this.#readBoundProviderAccountId?.(sessionId) ?? null;
-    if (admitted === null) {
-      return registered;
-    }
-    if (registered === null || registered === admitted) {
-      return admitted;
-    }
-    throw new ClaudeSessionUnavailableError("provider_account_ambiguous", {
-      sessionId,
-      detail: `The session was admitted against provider account ${admitted} while the daemon's account registry reports ${registered}; the enumeration is routed by that identity, so neither resolver may silently win.`,
-    });
-  }
-
-  /**
-   * The output-speed state this binding's provider DECLARED, or `undefined`
-   * before it declared one.
-   *
-   * ABSENT UNTIL OBSERVED, never defaulted. Neither establishment path can carry
-   * this: the declaring handshake rides a turn-bearing exchange, and neither
-   * `createSession` nor `resumeSession` may block waiting for one or spend a
-   * synthetic turn to provoke it. So it is recorded when the handshake actually
-   * arrives and read from the binding here — deliberately NOT on
-   * `ProviderSessionHandle` and NOT on `DriverResumeResult`, both of which
-   * resolve before any such exchange and would have to fabricate a value.
-   *
-   * `declared` is carried VERBATIM. The pinned provider reports `on`, `cooldown`,
-   * and `off`, while the settable vocabulary this driver publishes as
-   * `outputSpeedLevels` is `off` and `on` — a user may not REQUEST a
-   * cooldown, but the provider may certainly REPORT one. Coercing a reported
-   * level into the settable set would fabricate a state the provider is not in.
-   *
-   * VERBATIM IS NOT UNBOUNDED, and the two are easy to conflate. The handshake's
-   * state and disabled-reason are provider output that reaches a client, so the
-   * composed reading is PARSED through the contract's own strict shape here at
-   * the return. That check ranges over LENGTH, emptiness, and NUL — never over
-   * the value's membership in any vocabulary, which is what keeps `cooldown` and
-   * any level a later build invents passing through untouched.
-   *
-   * A REJECTED READING IS ABSENT, not degraded and not raw. The absent answer
-   * already has a meaning every reader handles — the binding has no observation
-   * — and it is the only fail-closed one available: this shape carries no arm
-   * for "the provider said something unusable", and inventing a placeholder
-   * `declared` would put a state the provider is not in on a client's screen.
-   * The diagnostic is what keeps the difference between "not yet declared" and
-   * "declared unusably" visible to an operator, since the return cannot carry
-   * it.
+   * The output-speed state the provider declared, or `undefined` before it has: the handshake rides
+   * a turn-bearing exchange that create and resume do not wait for. A declaration the contract's
+   * bounds reject reads as absent, with a diagnostic; `cooldown` is carried as declared.
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     const live = this.#findLiveSession(sessionId);
     if (live === undefined) {
       return undefined;
     }
-    const held = this.#heldHandshakeFor(sessionId, live.providerSessionId);
-    if (held === undefined) {
-      return undefined;
-    }
-    const declared = held.declaration.fastModeState;
-    if (declared === null) {
-      return undefined;
-    }
-    const reason = held.declaration.fastModeDisabledReason;
-    const parsed = ProviderOutputSpeedStateSchema.safeParse({
-      declared,
-      // Present only where the provider supplied one: an absent reason means the
-      // provider gave none, never that there was none.
-      ...(reason === null ? {} : { reason }),
-    });
-    if (parsed.success) {
-      return parsed.data;
-    }
-    this.#diagnostics.emit({
-      provider: "claude",
-      kind: "output_speed_state_rejected",
-      rawWireType: null,
-      dispositionReason:
-        "the provider declared an output-speed state the contract's own bounds refuse; this binding reads as having no observation until it declares another",
-      details: {
-        sessionId,
-        // The FAILING FIELD and the offending LENGTHS — never the values, which
-        // are the untrusted strings the parse just refused.
-        rejectedField: parsed.error.issues[0]?.path.join(".") ?? "",
-        declaredLength: declared.length,
-        reasonLength: reason === null ? null : reason.length,
-      },
-    });
-    return undefined;
-  }
-
-  // A held declaration answers only for the provider process it was read from.
-  // See `ClaudeHeldHandshake` for the rewind case this stamp closes.
-  //
-  // HONEST REACHABILITY. The stamp is the read-side half of a pair whose two
-  // halves have converged: `#registerLiveSession` clears the record at every
-  // establishment, and `#isChannelCurrentlyBound` already refuses a frame from a
-  // retired channel BEFORE the declaration tap runs, so while a session is live
-  // any record standing against its id was written under the id that is live.
-  // Mutating this comparison away therefore breaks no test. It is kept as
-  // fail-closed defensive code — the read is the last place the question can be
-  // asked, and answering a palette read from a process the caller is not talking
-  // to is the one failure this leg must never produce — and the redundancy is
-  // recorded here rather than presented as a guard that carries reachable
-  // weight.
-  #heldHandshakeFor(
-    sessionId: SessionId,
-    providerSessionId: string,
-  ): ClaudeHeldHandshake | undefined {
-    const held = this.#handshakeBySession.get(sessionId);
-    return held?.providerSessionId === providerSessionId ? held : undefined;
-  }
-
-  // Composed at READ time from the raw declaration rather than at observation
-  // time, so the held state stays exactly what the provider said and the cap,
-  // the composition, and the binding stamp all live in one place.
-  //
-  // EVERY COMPOSED ENTRY IS PARSED, and that is what makes the held declaration
-  // safe to hold raw. The three name sets are provider output — a skill name is
-  // read out of an operator-writable local file's front matter — so an empty,
-  // whitespace-only, NUL-bearing, or over-long name reaches this composition
-  // intact. Bounding at the read seam rather than at observation is the same
-  // ordering the sibling driver takes: the held state stays exactly what the
-  // provider said, and the contract's own entry schema is the single bounding
-  // point, so a field this driver forgot to bound is refused by the shape rather
-  // than admitted by an omission.
-  //
-  // A REJECTED ENTRY IS DROPPED, NEVER SILENTLY AND NEVER FATALLY. Dropping is
-  // per-entry so one unusable name cannot empty a user's palette, and the
-  // diagnostic is what keeps the drop findable. The sibling driver reports the
-  // same condition on the same kind: its module-level composer stays pure and
-  // RETURNS what it refused, and the manager seam that holds the emitter and the
-  // session id records it. Only `name` is provider-supplied on this leg — the
-  // terminal `scope` is authored here — so a rejected entry here is always a
-  // rejected name, while the sibling additionally reports a refused caption or
-  // scope that cost the field rather than the entry.
-  #composeProviderCommandEntries(
-    sessionId: SessionId,
-    declaration: ClaudeHandshakeDeclaration,
-    binding: { driverName: string; providerAccountId: string | null },
-  ): ProviderCommandEntry[] {
-    const entries: ProviderCommandEntry[] = [];
-    const admit = (candidate: ProviderCommandEntry): void => {
-      const parsed = ProviderCommandEntrySchema.safeParse(candidate);
-      if (parsed.success) {
-        entries.push(parsed.data);
-        return;
-      }
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "provider_command_entry_rejected",
-        rawWireType: null,
-        dispositionReason:
-          "the provider published a command or skill entry the contract's own bounds refuse; it is dropped from this reply and its siblings are unaffected",
-        details: {
-          sessionId,
-          entryKind: candidate.kind,
-          // The terminal-only reach, so a rejected entry stays attributable to
-          // the published set it came from without carrying the name itself.
-          entryScope: candidate.scope ?? null,
-          // The FAILING FIELD and the offending LENGTH — never the value. The
-          // value is exactly the untrusted, possibly NUL-bearing, possibly
-          // enormous string the parse just refused, and a diagnostic is not the
-          // place to re-admit what a bound rejected.
-          rejectedField: parsed.error.issues[0]?.path.join(".") ?? "",
-          nameLength: candidate.name.length,
-        },
-      });
-    };
-    for (const name of declaration.slashCommands) {
-      admit({ name, kind: "command", binding });
-    }
-    for (const name of declaration.skills) {
-      admit({ name, kind: "skill", binding });
-    }
-    for (const name of declaration.terminalSlashCommands) {
-      // `command` in KIND — it is one — with the terminal-only reach recorded on
-      // `scope`, which is the axis that exists for exactly this. The two
-      // published sets stay distinguishable without inventing a third kind.
-      admit({ name, kind: "command", scope: "terminal", binding });
-    }
-    return entries;
+    return this.#handshakes.observedOutputSpeedFor(sessionId, live.providerSessionId);
   }
 
   /**
-   * The one run holding a live turn on this session, or `null`.
-   *
-   * `#sessionIdByRunId` is precisely "runs holding a live turn": a route is bound
-   * as a turn dispatches and retired at every terminal, close, and rewind. So
-   * zero entries is the ordinary pre-first-turn palette read and answers `null`
-   * rather than refusing, two or more answers `null` because no single run is
-   * attributable, and exactly one answers with that run.
-   *
-   * A last-bound fallback was considered and REJECTED: a never-cleared id names
-   * a run that has already retired, which is false provenance wearing a nominal
-   * type — strictly worse than the honest `null`.
-   *
-   * THE TWO-OR-MORE ARM IS UNREACHABLE ON THIS DRIVER and is retained fail-closed
-   * anyway. `startRun`'s session-serialization guard refuses a second dispatch
-   * while the scope holds a pending frame, and a turn terminal retires every
-   * route on the session, so a Claude session holds at most one live run. The
-   * arm exists against state drift, exactly as
-   * `#ruleTextNeutralizationTripwire`'s two-pending-run else-arm does; the
-   * sibling driver, which names its turns, can reach it for real.
+   * Closes the session's channel, chaining behind any in-flight transition and retrying a
+   * quarantined channel. Idempotent; rejects if the process will not exit.
    */
-  #soleLiveRunOn(sessionId: SessionId): RunId | null {
-    let soleRunId: RunId | null = null;
-    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
-      if (boundSessionId !== sessionId) {
-        continue;
-      }
-      if (soleRunId !== null) {
-        return null;
-      }
-      soleRunId = runId;
-    }
-    return soleRunId;
-  }
-
-  /**
-   * Records one `system/init` declaration against the live session.
-   *
-   * LAST DECLARATION WINS for a given provider session id. The provider emits
-   * this handshake on every turn-bearing exchange, and a later one is the newer
-   * truth about a surface an operator can change under a running session — a
-   * skill file added mid-session is a real change, and keeping the first read
-   * would answer a palette that no longer exists.
-   */
-  #observeHandshakeDeclaration(
-    sessionId: SessionId,
-    providerSessionId: string,
-    declaration: ClaudeHandshakeDeclaration,
-  ): void {
-    this.#handshakeBySession.set(sessionId, {
-      providerSessionId,
-      declaration,
-      invocableCommandNames: new Set(declaration.slashCommands),
-    });
-  }
-
-  /**
-   * Reconstitutes the canonical transcript into a FRESH provider session, and
-   * returns only after the target's own answer confirms it.
-   *
-   * ## This leg refuses on every published build, and that is the answer
-   *
-   * The Claude capability cell for `transcript_replay` is `probe`, not a
-   * constant, because no stable prior-turn seeding contract is published for this
-   * provider. The control-request census carries no seeding subtype, and the
-   * resume family (`--resume`, `--fork-session`, `--resume-session-at`) resumes
-   * the CLI's own stored sessions, whose on-disk format is not a contract this
-   * daemon may write into. So the probe answers `false`, the flag declares
-   * `false`, and reconstitution settles on the memo floor reported `degraded` —
-   * a supported outcome rather than a defect.
-   *
-   * What ships here is therefore the whole leg behind a seam: when a build does
-   * publish a seeding surface, the probe carries it, the flag follows in the
-   * same reading, and this code drives it with no further edit. The alternative —
-   * an unconditional throw — would make the flag's `true` arm unreachable and the
-   * probe decoration.
-   *
-   * ## Freshness is READ here rather than inferred
-   *
-   * Unlike the sibling Codex leg, this driver keeps no per-session turn ledger to
-   * gate on, so freshness costs a read: the target is asked what it holds BEFORE
-   * anything is written, and any answer but an empty one refuses. Paying a round
-   * trip is the right trade, because the post-replay assertion cannot recover the
-   * check afterwards — it tolerates a target answering with MORE turns than were
-   * seeded (a provider is entitled to add its own), so a target that arrived
-   * carrying a prior conversation would pass on a matching tail.
-   */
-  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    const targetProviderSessionId: string = params.target.providerSessionId;
-    this.#replayTargets.assertUsable(targetProviderSessionId);
-
-    const readSurface: ClaudeTranscriptReplaySurfaceReader | undefined =
-      this.#transcriptReplaySurfaceReader;
-    if (readSurface === undefined) {
-      throw new ClaudeTranscriptReplayUnsupportedError(
-        "no transcript-replay surface reader is bound, so no build has been shown to carry one",
-      );
-    }
-    const reading: ClaudeTranscriptReplayReading = await readSurface();
-    if (!reading.supported) {
-      // NOT an abandonment: nothing was written, the target is untouched, and a
-      // caller may hand this very session to the memo floor. Burning it here
-      // would cost a session for a condition that has nothing to do with it.
-      throw new ClaudeTranscriptReplayUnsupportedError(reading.reason);
-    }
-    const surface: ClaudeTranscriptSeedingSurface = reading.surface;
-
-    const seeded: SeededTranscriptFrame[] = params.frames.map((frame) =>
-      readRenderedTranscriptFrameForClaudeReplay(frame),
-    );
-    if (seeded.length === 0) {
-      throw new ClaudeTranscriptReplayFailedError(
-        "Refusing to replay an empty transcript: there is nothing to reconstitute, and a post-replay assertion over no frames confirms nothing.",
-      );
-    }
-
-    const priorContents: ReplayTargetReadback = await readReplayTargetSafely(
-      surface.readBack,
-      targetProviderSessionId,
-    );
-    if (priorContents.kind === "unreadable") {
-      this.#abandonReplayTarget(targetProviderSessionId, "readback-unavailable");
-      throw new ClaudeTranscriptReplayFailedError(
-        `Replay target "${targetProviderSessionId}" could not be read before seeding (${priorContents.reason}), so its freshness is unknown; the target was abandoned.`,
-      );
-    }
-    if (priorContents.turns.length > 0) {
-      this.#abandonReplayTarget(targetProviderSessionId, "target-not-fresh");
-      throw new ClaudeTranscriptReplayFailedError(
-        `Refusing to replay into session "${targetProviderSessionId}": it already holds ${String(priorContents.turns.length)} turn(s), and a replay target must be fresh.`,
-      );
-    }
-
-    for (const frame of seeded) {
-      const outcome: ClaudeTranscriptSeedOutcome = await surface.seedFrame(
-        targetProviderSessionId,
-        frame,
-      );
-      if (outcome.delivery === "applied") {
-        continue;
-      }
-      const cause: ReplayTargetAbandonmentCause =
-        outcome.delivery === "ambiguous" ? "ambiguous-delivery" : "interior-refusal";
-      this.#abandonReplayTarget(targetProviderSessionId, cause);
-      throw new ClaudeTranscriptReplayFailedError(
-        `Claude replay seeding stopped at transcript position ${String(frame.position)} (${outcome.delivery}: ${outcome.reason}); the target was abandoned and must not be reused.`,
-      );
-    }
-
-    const readback: ReplayTargetReadback = await readReplayTargetSafely(
-      surface.readBack,
-      targetProviderSessionId,
-    );
-    const verdict: PostReplayVerdict = assertReplayReconstituted(seeded, readback);
-    if (verdict.outcome === "refuted") {
-      const cause: ReplayTargetAbandonmentCause =
-        verdict.refutation === "target-unreadable" ? "readback-unavailable" : "assertion-refuted";
-      this.#abandonReplayTarget(targetProviderSessionId, cause);
-      throw new PostReplayAssertionFailedError(targetProviderSessionId, seeded.length, verdict);
-    }
-
-    // Retire the target on SUCCESS, not only on failure. This leg's freshness
-    // gate is a pre-seed READ, so unlike the Codex ledger it would in fact catch
-    // a second replay through the same handle — but it would catch it as
-    // `target-not-fresh`, which reads as "the caller handed us a used session"
-    // rather than "this daemon already replayed into this one", and it would
-    // spend a round trip to learn what the ledger already knows. Burning a
-    // confirmed target keeps both legs' single-use rule identical and stated in
-    // one place instead of resting on an accident of the two gates' shapes.
-    this.#replayTargets.consume(targetProviderSessionId);
-
-    // Empty, and it is a positive claim: this leg has no silent-drop path — an
-    // unrepresentable frame refuses in the parse above — so nothing was lost at
-    // the replay boundary. The export's own declared losses belong to the fold
-    // that produced them and ride the caller's disposition, never a second
-    // derivation here.
-    return { status: "applied", declaredLosses: [] };
-  }
-
-  /**
-   * Burns a replay target.
-   *
-   * Records ONLY, unlike the sibling Codex leg, which also disposes the process:
-   * the seeding surface here is injected and this driver does not own whatever
-   * session it wrote into, so tearing one down would be reaching past the seam it
-   * was handed. The ledger entry is the guarantee either way — a burned target is
-   * refused at the entrance of every later replay — and the caller, which
-   * established the target, is the party that can retire it.
-   *
-   * The residual is therefore LARGER here than on the Codex leg, and named rather
-   * than left to look like an omission: a burned Claude target is never disposed
-   * by this driver at all, where the Codex one is disposed best-effort. Disposal
-   * for an injected surface belongs to whoever established the session behind it,
-   * because that is the only party holding a handle this driver was not given.
-   * What is identical on both legs is the guarantee that matters — a burned target
-   * is never seeded again — since that rests on the ledger and not on disposal.
-   */
-  #abandonReplayTarget(targetProviderSessionId: string, cause: ReplayTargetAbandonmentCause): void {
-    this.#replayTargets.abandon(targetProviderSessionId, cause);
-  }
-
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // The intended-close latch, FIRST and unconditionally — before the chaining loop, not inside
-    // it. The daemon has expressed the intent by calling this method at all, so
-    // every terminal from this point on belongs to a clean shutdown: the ones a
-    // chained close only reaches after another transition settles, and the ones
-    // an establishment still in flight is about to produce as it is torn down.
+    // Latch first, so every terminal from here, including an in-flight establishment's, is a clean
+    // shutdown.
     this.#intendedCloseGateFor(params.sessionId).signalIntendedClose();
 
-    // Close CHAINS rather than refusing (the field doc states why): it awaits any
-    // in-flight transition, then re-reads, because the slot may have settled into
-    // a different state than the one it started waiting on — an establishment can
-    // finish LIVE, a concurrent close can finish EMPTY, and a failed close can
-    // finish QUARANTINED.
+    // Chains on any in-flight transition and re-reads: the slot may settle as live, empty or
+    // quarantined.
     for (;;) {
       const slot = this.#sessionSlots.get(params.sessionId);
-      // EMPTY. Idempotent: closing an already-closed session is the teardown
-      // path's normal double-call, not a fault. The latch this call just set
-      // goes with it — no slot means no session, so there is no terminal left
-      // for the flag to describe, and keeping the gate would accumulate one
-      // entry per redundant close.
+      // Idempotent: a double close is normal teardown; the latch set above goes so gates do not
+      // pile up.
       if (slot === undefined) {
         this.#terminalEmissionGates.delete(params.sessionId);
-        this.#sessionGoals.delete(params.sessionId);
         return;
       }
-      // Exhaustive over the union: a new slot state cannot be added without
-      // deciding here whether a close chains on it or acts on it.
+      // Exhaustive: a new slot state must decide whether close chains on it or acts on it.
       switch (slot.state) {
         case "establishing":
         case "closing":
-          // Chain, then re-read — the slot may settle into any other state.
           await slot.settled;
           continue;
         case "live":
-          // The slot is settled and occupied, so this call is the actor.
-          // Everything from here to the CLOSING write inside
-          // `#disposeHeldChannel` is SYNCHRONOUS, so no second closer can
-          // observe this same settled state and act on it too.
-          //
-          // Routes go first and unconditionally: a route pointing into a process
-          // that is being torn down would aim a later interrupt at a dead run.
-          this.#retireRunRoutes(params.sessionId);
-          // And with them the frames no turn on this channel can ever settle.
-          // Called HERE and at the rewind above rather than folded into
-          // `#retireRunRoutes`, because that helper's third caller is the
-          // terminal path — where the tripwire has just been ruled and dropping
-          // whatever it left behind would rest on "provably already empty"
-          // rather than on the binding being gone.
+          // Settled and occupied, so this call acts; everything up to the CLOSING write in
+          // `#disposeHeldChannel` is synchronous, so no second closer sees this state.
+          // Routes first: a route into a dying process would aim a later interrupt at a dead run.
+          this.#runRoutes.retireRunRoutes(params.sessionId);
+          // Not in `retireRunRoutes`: its terminal-path caller has just ruled the tripwire.
           this.#outboundFrameTripwire.forgetScope(params.sessionId);
-          // Before the await, for the same reason the routes go first: a
-          // subagent waiting on a slot in a process being torn down would wait
-          // for the session's whole remaining lifetime and answer its provider
-          // turn never.
-          disposeSubagentAdmission(slot.session.spawnBoundLegs);
+          // Before the await, like the routes: a subagent would wait on a slot in a dying process.
+          slot.session.spawnBoundLegs.subagentAdmission?.dispose();
           await this.#disposeHeldChannel(params.sessionId, slot.session.channel);
           return;
         case "quarantined":
-          // Retry THIS retained channel. It is the only handle anyone still
-          // holds on a process that would not exit.
+          // Retry the retained channel, the only handle on a process that would not exit.
           await this.#disposeHeldChannel(params.sessionId, slot.channel);
           return;
       }
     }
   }
 
-  // Disposes a channel with the slot HELD for the whole await. The CLOSING state
-  // is written before `dispose` is even called, so there is no instant at which
-  // the slot reads EMPTY while a process is still dying — the window an earlier
-  // revision left open, through which a concurrent create spawned a replacement
-  // and a later quarantine installed itself beside the new live channel.
-  async #disposeHeldChannel(sessionId: SessionId, channel: ClaudeSessionChannel): Promise<void> {
+  // Holds the slot as CLOSING for the whole await, so it never reads EMPTY while a process is dying
+  // and a concurrent create cannot spawn a replacement beside it.
+  async #disposeHeldChannel(sessionId: SessionId, channel: ClaudeProviderProcess): Promise<void> {
     let markSettled = (): void => undefined;
     const settled = new Promise<void>((resolve) => {
       markSettled = resolve;
     });
     this.#sessionSlots.set(sessionId, { state: "closing", settled });
-    // PUSHED HERE, at the CLOSING write and before the await, rather than polled
-    // from anywhere. From this instant the process is being torn down and no
-    // compaction frame it might still emit can be adopted, so a caller waiting
-    // on one is told at t=0 instead of at the end of the declared bound. This is
-    // the choke point every close path funnels through — the live arm, the
-    // quarantine retry, and the tripwire's own disposal.
+    // Pushed at the CLOSING write, before the await, so a waiting caller learns now; every close
+    // path funnels through here.
     this.#pendingCompactions.releaseBinding(sessionId);
     try {
       await channel.dispose("session_closed");
       // CLOSING -> EMPTY.
       this.#sessionSlots.delete(sessionId);
-      // The gate dies with the session it scoped. A terminal arriving after
-      // this point names a run no slot can settle, so retaining the gate would
-      // retain state for a decision nobody makes.
+      // The gate dies with its session; a later terminal names a run no slot can settle.
       this.#terminalEmissionGates.delete(sessionId);
-      // Same scope, same reason: a goal is a property of a session that exists.
-      this.#sessionGoals.delete(sessionId);
-      // The routing and metering band is per-provider-session state; a router
-      // surviving its session would answer the next one with a thread registry
-      // that session never made.
+      // Per-session routing state; a surviving router would answer the next session with a stale
+      // thread registry.
       this.#routingBands.delete(sessionId);
-      // And with it the handshake declaration: it is a LIVE READ of a process
-      // that no longer exists, so holding it past the session would turn the one
-      // thing that makes a stored registry unnecessary into a stale one.
-      this.#handshakeBySession.delete(sessionId);
+      // A live read of a process that has exited; keeping it would be a stale registry.
+      this.#handshakes.forgetHandshake(sessionId);
     } catch (error) {
-      // CLOSING -> QUARANTINED. The channel is retained rather than dropped: the
-      // process is still running and nothing else holds a reference to it. The
-      // rejection still propagates — a provider process that would not exit is
-      // not something to swallow.
+      // CLOSING -> QUARANTINED: nothing else references the still-running process, so keep the
+      // channel.
       this.#sessionSlots.set(sessionId, { state: "quarantined", channel });
       throw error;
     } finally {
-      // Runs after the state write on BOTH paths, so a chainer resuming on this
-      // promise always observes the settled state rather than the transition.
+      // After the state write on both paths, so a chainer resuming here sees the settled state.
       markSettled();
     }
   }
 
-  findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined {
-    // A binding a tripwire trip disposed is refused rather than answered
-    // with `undefined`: the two states mean different things to the caller, and
-    // a quiet `undefined` would read as "this run has no channel yet" — the one
-    // reading that invites a retry into the same swallow. The refusal carries
-    // the SAME code the run terminal did, so one cause reads as one cause.
-    this.#providerBindingQuarantine.assertRunAttachable(runId);
-    const sessionId = this.#sessionIdByRunId.get(runId);
+  /**
+   * The live channel a run is bound to, or `undefined` when no channel is bound to it. Throws if a
+   * tripwire trip disposed the run's binding.
+   */
+  findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
+    // Refused, not `undefined`, which would read as "no channel bound" and invite a retry into the
+    // same swallow; the refusal carries the run terminal's code.
+    this.#runtimeBindingQuarantine.assertRunAttachable(runId);
+    const sessionId = this.#runRoutes.sessionIdFor(runId);
     if (sessionId === undefined) {
       return undefined;
     }
@@ -4288,51 +503,27 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * The terminal-emission gate for one session.
-   *
-   * The emission pipeline reads it to stamp `intendedClose` and to suppress a
-   * duplicate terminal for an already-settled `(runId, runVersion)` epoch. Read
-   * LIVE at each terminal rather than captured, for the same reason the
-   * capability snapshot is: a gate captured before a close would answer with a
-   * latch the close has since set.
+   * The terminal-emission gate for one session, read live at each terminal because a gate captured
+   * before a close would miss the latch the close sets.
    */
-  terminalEmissionGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
+  terminalEmissionGateFor(sessionId: SessionId): TerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
   }
 
   /**
-   * The thread-frame router for one session, or `undefined` when this session
-   * holds no routing band.
-   *
-   * NON-CREATING, unlike the emission gate beside it. The band is per-provider-
-   * session state built at registration and released with the session, so a
-   * get-or-create accessor would let a call arriving AFTER the close silently
-   * resurrect a band nothing will ever delete — state accumulating for a
-   * session that no longer exists, and a router answering routing questions
-   * with a thread registry no session ever made. The emission gate is
-   * deliberately the other way round because its whole job is to survive
-   * whichever of close and establishment arrives first; a router has no such
-   * latch to keep.
-   *
-   * Read LIVE rather than captured: a router captured before a registration
-   * would answer with a thread set the registration has since widened.
+   * The thread-frame router for one session, or `undefined` when it holds no routing band.
+   * Non-creating: a get-or-create accessor would let a call after close resurrect a band.
    */
   frameRouterFor(sessionId: SessionId): ThreadFrameRouter<ClaudeRoutableFrame> | undefined {
     return this.#routingBands.get(sessionId)?.router;
   }
 
-  /**
-   * The usage-delta accountant for one session, or `undefined` when this
-   * session holds no routing band. Non-creating for the same reason
-   * {@link ClaudeSessionLifecycle.frameRouterFor} is.
-   */
+  /** The usage-delta accountant for one session, or `undefined` when it holds no routing band. */
   usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant | undefined {
     return this.#routingBands.get(sessionId)?.accountant;
   }
 
-  // Builds this session's routing band if it holds none. THE only creator, and
-  // it is reached from exactly one place: `#registerLiveSession`, where a
-  // session that can emit frames first exists.
+  // Builds the session's routing band if it holds none; reached only from `#registerLiveSession`.
   #ensureRoutingBand(sessionId: SessionId): ClaudeSessionRoutingBand {
     const existing = this.#routingBands.get(sessionId);
     if (existing !== undefined) {
@@ -4353,647 +544,78 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     return band;
   }
 
-  /**
-   * Bind a session's OWN thread identity into the routing and metering band.
-   *
-   * ORDER IS THE CONTRACT: the accountant's base registers are established
-   * BEFORE the router releases anything, because a released usage frame meters
-   * immediately and an unestablished thread would refuse it outright.
-   *
-   * The registration's released frames are RE-ROUTED rather than discarded. On
-   * this provider the identity is known at adoption, so the release is normally
-   * empty — but a caller that discarded it would shed any frame that did race
-   * the binding, and the router's release contract is the same on both legs.
-   */
-  #bindSessionThread(
-    band: ClaudeSessionRoutingBand,
-    sessionId: SessionId,
-    providerSessionId: string,
-    establishment: ClaudeUsageEstablishment,
-  ): void {
-    if (establishment.mode === "fresh") {
-      band.accountant.establishThread(providerSessionId, { mode: "fresh" });
-    } else {
-      band.accountant.establishThread(providerSessionId, {
-        mode: "resume",
-        priorEmittedCumulative:
-          this.#readPriorEmittedSum(sessionId, establishment.priorEmittedThreadId) ?? {},
-      });
-    }
-    this.#releaseHeldFrames(band, sessionId, band.router.registerSessionThread(providerSessionId));
-  }
-
-  /**
-   * Read the daemon's own prior-emitted cumulative sum for one thread.
-   *
-   * The diagnostic is reserved for the genuinely FAULTY arm — no reader bound,
-   * or a reader that threw. A bound reader answering `undefined` is a correct
-   * answer to a correct question: a session that legitimately emitted nothing
-   * has a prior-emitted sum of zero, and basing at zero is exactly right. An
-   * earlier revision recorded that case too, which made the record fire on
-   * every rewind and say nothing about any of them.
-   */
-  #readPriorEmittedSum(
-    sessionId: SessionId,
-    priorEmittedThreadId: string,
-  ): CumulativeAxisReadings | undefined {
-    const reader = this.#readPriorEmittedUsage;
-    if (reader === undefined) {
-      this.#emitResumeBaseUnavailable(
-        sessionId,
-        priorEmittedThreadId,
-        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not be rebuilt; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
-      );
-      return undefined;
-    }
-    try {
-      return reader(sessionId, priorEmittedThreadId);
-    } catch (error) {
-      // Swallowed on purpose, and recorded rather than rethrown: this runs
-      // inside the adoption invariant's window, where an escaping throw
-      // orphans a live provider process. Over-metering is recoverable from the
-      // record; an orphaned process is not.
-      this.#emitResumeBaseUnavailable(
-        sessionId,
-        priorEmittedThreadId,
-        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be rebuilt (${sanitizeFailureDetail(describeFailure(error))}); base registers start at zero, so the first post-resume reading meters pre-resume spend again`,
-      );
-      return undefined;
-    }
-  }
-
-  #emitResumeBaseUnavailable(
-    sessionId: SessionId,
-    priorEmittedThreadId: string,
-    dispositionReason: string,
-  ): void {
-    this.#diagnostics.emit({
-      provider: "claude",
-      kind: "usage_resume_base_unavailable",
-      rawWireType: null,
-      dispositionReason,
-      details: { sessionId, threadId: priorEmittedThreadId },
-    });
-  }
-
-  /**
-   * Re-route frames the router just released from its pending-registration
-   * hold, and DELIVER each decision to the released-frame consumer.
-   *
-   * The delivery is the whole point of the separate path. A frame routed inside
-   * the transport's observer call answers by return value; a released frame has
-   * no observer call in flight to answer, so a caller that only applied the
-   * decision would meter the frame and then drop it — silently shedding exactly
-   * the interactive request the carve-out exists to keep reachable.
-   */
-  #releaseHeldFrames(
-    band: ClaudeSessionRoutingBand,
-    sessionId: SessionId,
-    releasedFrames: readonly ClaudeRoutableFrame[],
-  ): void {
-    const nowMs = Date.now();
-    for (const releasedFrame of releasedFrames) {
-      const route = band.router.routeFrame(releasedFrame, nowMs);
-      this.#applyRouteDecision(band, sessionId, releasedFrame, route);
-      this.#onReleasedFrameRoute?.(sessionId, releasedFrame.observation, route);
-    }
-  }
-
-  /**
-   * Route one observed inbound frame and answer with the transport's decision.
-   *
-   * THE routing entry point, ahead of every projection decision. A
-   * `SubagentStart` registers its child BEFORE the announcing frame is routed —
-   * otherwise the announcement would be held pending the very registration it
-   * carries — and a `SubagentStop` completes the child AFTER its own frame has
-   * routed, so the stop frame is still suppressed as the child's rather than
-   * projected into the parent.
-   */
-  #observeInboundFrame(
-    band: ClaudeSessionRoutingBand,
-    sessionId: SessionId,
-    providerSessionId: string,
-    observation: ClaudeInboundFrameObservation,
-  ): ThreadFrameRoute {
-    const router = band.router;
-
-    // TWO TAPS, BOTH BESIDE THE ORDINARY ROUTE AND NEITHER A DIVERSION FROM IT.
-    // Every frame below still travels its ordinary path and still normalizes —
-    // a compaction boundary produces its `usage.context_compacted` row whether
-    // or not anyone is waiting on it, which is what makes "the operation failed
-    // and the compaction is still recorded" true by construction.
-    //
-    // Both are gated on the SESSION'S OWN THREAD. This provider carries no
-    // thread id, so an absent subagent identity IS the session's own thread; a
-    // child's handshake or a child's compaction says nothing about the parent
-    // binding, and recording either against the session would answer a palette
-    // read with a subagent's surface or settle a user's compaction on a
-    // boundary they did not ask for.
-    if (observation.subagentId === null) {
-      if (observation.handshake !== null) {
-        this.#observeHandshakeDeclaration(sessionId, providerSessionId, observation.handshake);
-      }
-      if (observation.compactionBoundary !== null) {
-        this.#pendingCompactions.observeBoundary(
-          sessionId,
-          observation.compactionBoundary.boundaryPosition,
-        );
-      }
-    }
-
-    const lifecycleSignal = observation.subagentLifecycle;
-    if (lifecycleSignal !== null && lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
-      const normalized = normalizeClaudeSubagentLifecycle(lifecycleSignal, providerSessionId);
-      if (normalized.announcement !== null) {
-        const registration = router.registerChildThread(normalized.announcement);
-        if (registration.registered) {
-          if (band.accountant.hasThread(registration.childThreadId)) {
-            // A SECOND announcement for a child already carrying a base. The
-            // router accepted it (re-registering a held identity is a no-op),
-            // but re-establishing would reset this child's register to zero
-            // mid-stream, so its next cumulative reading would re-meter every
-            // token it has already spent — double-counted spend on the receipt
-            // — and a second `subagent.started` would duplicate the child's
-            // only timeline presence. Recorded rather than returned on: the
-            // duplicate is a provider-side observation worth surfacing.
-            this.#diagnostics.emit({
-              provider: "claude",
-              kind: "thread_duplicate_child_announcement",
-              rawWireType: observation.frameKind,
-              dispositionReason:
-                "duplicate subagent announcement for an already-registered child; usage base retained and no second started emission",
-              details: { sessionId, childThreadId: registration.childThreadId },
-            });
-          } else {
-            // A registered child is a BRAND-NEW provider thread, so its base
-            // registers start at zero. Establishing it here rather than lazily
-            // is what makes the usage carve-out reachable at all: the
-            // accountant refuses an unestablished thread outright, so a child
-            // whose spend was never established would carve out of the parent's
-            // transcript and then be dropped on the floor — the child's cost
-            // vanishing rather than being scoped, which the routing rule
-            // forbids.
-            band.accountant.establishThread(registration.childThreadId, { mode: "fresh" });
-            this.#onSubagentLifecycle?.(sessionId, {
-              eventType: "subagent.started",
-              subagentId: normalized.subagentId,
-              parentReference: normalized.parentToolUseId,
-            });
-          }
-          // Released unconditionally on BOTH arms. A hold can only exist for an
-          // identity the router had not yet seen, so the duplicate arm releases
-          // an empty list — but making the release conditional would couple the
-          // hold's fate to a metering decision it has nothing to do with.
-          this.#releaseHeldFrames(band, sessionId, registration.releasedFrames);
-        }
-      }
-    }
-
-    const frame: ClaudeRoutableFrame = {
-      rawWireType: observation.frameKind,
-      familyClass: classifyClaudeFrameFamilyForRouting(observation.frameKind, observation),
-      // The derivation this provider's wire forces: no frame carries a thread
-      // id, so the subagent identity IS the child's identity axis and its
-      // absence marks the session's own thread.
-      threadId: observation.subagentId ?? providerSessionId,
-      observation,
-    };
-    const route = router.routeFrame(frame, Date.now());
-    this.#applyRouteDecision(band, sessionId, frame, route);
-    return route;
-  }
-
-  #applyRouteDecision(
-    band: ClaudeSessionRoutingBand,
-    sessionId: SessionId,
-    frame: ClaudeRoutableFrame,
-    route: ThreadFrameRoute,
-  ): void {
-    switch (route.decision) {
-      case "project":
-      case "route-connection-scoped":
-      case "carve-out-usage":
-        // The usage carve-out is applied AHEAD of suppression: a child's spend
-        // is metered even though a child's content is not.
-        this.#meterObservedUsage(band, sessionId, frame);
-        this.#completeChildOnStopSignal(band, sessionId, frame);
-        return;
-      case "suppress-child-transcript":
-        this.#completeChildOnStopSignal(band, sessionId, frame);
-        return;
-      case "carve-out-interactive-request":
-      case "held-pending-registration":
-      case "quarantined":
-        // The interactive-request carve-out needs no driver-side action here:
-        // the ask travels on the DECISION, not on a driver-side side effect,
-        // and every caller of this method delivers that decision — the observer
-        // path by returning it to the transport, the release path through
-        // `#releaseHeldFrames`. A child's ask therefore routes through the same
-        // approval pipeline as the parent's on either path. Held and
-        // quarantined frames are already recorded by the router; neither is a
-        // silent drop.
-        return;
-    }
-  }
-
-  #meterObservedUsage(
-    band: ClaudeSessionRoutingBand,
-    sessionId: SessionId,
-    frame: ClaudeRoutableFrame,
-  ): void {
-    const cumulativeUsage = frame.observation.cumulativeUsage;
-    if (cumulativeUsage === null) {
-      return;
-    }
-    const metered = band.accountant.meterReading({
-      threadId: frame.threadId,
-      namedTurnId: cumulativeUsage.namedTurnId,
-      cumulative: cumulativeUsage.cumulative,
-      declaredPerTurn: cumulativeUsage.declaredPerTurn ?? null,
-    });
-    if (metered !== null) {
-      this.#onMeteredUsage?.(sessionId, metered);
-    }
-  }
-
-  /**
-   * Close a child's `subagent.*` pair on its own `SubagentStop`.
-   *
-   * The stop signal is this provider's child terminal: Claude publishes no
-   * per-child result frame, so the lifecycle signal that opened the pair is
-   * also the only thing that can close it.
-   */
-  #completeChildOnStopSignal(
-    band: ClaudeSessionRoutingBand,
-    sessionId: SessionId,
-    frame: ClaudeRoutableFrame,
-  ): void {
-    const lifecycleSignal = frame.observation.subagentLifecycle;
-    if (lifecycleSignal === null || lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
-      return;
-    }
-    const attribution = band.router.childAttributionFor(lifecycleSignal.subagentId);
-    const completion = band.router.completeChildThread(lifecycleSignal.subagentId);
-    if (!completion.wasRegistered) {
-      return;
-    }
-    band.accountant.releaseThread(lifecycleSignal.subagentId);
-    if (attribution?.kind === "subagent") {
-      this.#onSubagentLifecycle?.(sessionId, {
-        eventType: "subagent.completed",
-        subagentId: attribution.subagentId,
-        parentReference: lifecycleSignal.parentToolUseId,
-      });
-    }
-  }
-
-  // Get-or-create, so the intent latch survives whichever of close and
-  // establishment reaches this session first.
-  #intendedCloseGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
+  // Get-or-create, so the intent latch survives whichever of close and establishment reaches the
+  // session first.
+  #intendedCloseGateFor(sessionId: SessionId): TerminalEmissionGate {
     const existing = this.#terminalEmissionGates.get(sessionId);
     if (existing !== undefined) {
       return existing;
     }
-    const gate = new ClaudeTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
     this.#terminalEmissionGates.set(sessionId, gate);
     return gate;
   }
 
-  // A slot yields a session only in the LIVE state. Establishing, closing, and
-  // quarantined slots deliberately answer `undefined`: no run may start in a
-  // process that is coming up, going down, or refusing to die.
+  // Only a live slot yields a session: no run may start in a process that is coming up, going down
+  // or refusing to die.
   #findLiveSession(sessionId: SessionId): LiveClaudeSession | undefined {
     const slot = this.#sessionSlots.get(sessionId);
     return slot?.state === "live" ? slot.session : undefined;
   }
 
-  // The ONE builder both spawn paths use — see `ClaudeSpawnBoundLegs`.
-  #buildSpawnBoundLegs(params: CreateSessionParams | ResumeSessionParams): ClaudeSpawnBoundLegs {
-    const subagentPolicy = params.subagentPolicy;
-    const realizedSubagents =
-      subagentPolicy === undefined ? undefined : realizeClaudeSubagentPolicy(subagentPolicy);
-    for (const withheldDefinition of realizedSubagents?.withheld ?? []) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "subagent_definition_disabled",
-        rawWireType: null,
-        dispositionReason: withheldDefinition.reason,
-        // UNTRUSTED caller-supplied text carried verbatim as data, so an
-        // operator can see WHICH definition was withheld.
-        details: { sessionId: params.sessionId, definitionName: withheldDefinition.name },
-      });
-    }
-    const posture = params.executionPosture;
-    const callbackToolServer = this.#resolveCallbackToolServer(params);
-    return {
-      sessionId: params.sessionId,
-      goalText: this.#sessionGoals.get(params.sessionId),
-      admittedCostCapCents: params.admittedCostCapCents,
-      executionPosture: posture,
-      sandboxSettings: posture === undefined ? undefined : composeClaudeSandboxSettings(posture),
-      // The registry the PROVIDER is offered is the one the descriptor serves,
-      // so a withholding sheds both together and neither can be shipped without
-      // the other.
-      callbackTools: callbackToolServer === undefined ? undefined : [...callbackToolServer.tools],
-      callbackToolServer,
-      subagentPolicy: realizedSubagents?.policy,
-      withheldSubagentDefinitions: realizedSubagents?.withheld ?? [],
-      subagentAdmission: this.#buildSubagentAdmission(params.sessionId, realizedSubagents?.policy),
-      outputSchema: params.outputSchema,
-      onCallbackToolCall: params.onCallbackToolCall,
-      onMcpServerStatus: params.onMcpServerStatus,
-      // The shared composer rather than a second `buildProviderSpawnEnv` call,
-      // so this path and the auth probe cannot come to hold different opt-outs —
-      // see `composeClaudeMandatedEnvironment`.
-      mandatedEnvironment: composeClaudeMandatedEnvironment(),
-      // Passed through UNVALIDATED against the declared level set. The static
-      // capability gate above this driver already refuses a level the provider
-      // does not publish; re-deciding it here would put a second admission rule
-      // behind the first, and the two would drift.
-      outputSpeed: params.outputSpeed,
-    };
-  }
-
-  /**
-   * The leg-3 fail-closed spawn rule: a registry is served only when the daemon
-   * can answer an invocation against it.
-   *
-   * TWO OWNERS, ONE DECISION EACH — see `CallbackToolHost`'s wiring note. The
-   * host owns admission (is there an approval seam? did the daemon offer
-   * tools?) and hands the composition root the admitted list; this driver owns
-   * the
-   * STRUCTURAL PAIRING it alone can enforce — a registry is advertised to the
-   * provider only when a dispatcher is bound to answer it. The two cannot
-   * disagree because they decide different questions, and the driver's check is
-   * the weaker one: everything the host withheld arrives here as an empty list.
-   *
-   * The reported reason is deliberately this band's OWN observation. The driver
-   * cannot distinguish a host with no approval seam from a composition root that
-   * never bound the dispatcher, so it names what it saw rather than borrowing
-   * the host's finer `CallbackToolRegistryWithholdingReason`.
-   *
-   * The registry is withheld rather than served-and-refused: a tool the model
-   * never learns exists costs it no turns.
-   *
-   * THE THIRD GATE — the transport's own declaration — is the one this band
-   * cannot derive. The first two questions (did the daemon offer tools? is a
-   * dispatcher bound?) are answerable from `params` alone; whether the model
-   * ever SEES the registry is answerable only by whichever transport writes the
-   * process arguments. See `ClaudeSessionTransport.realizesCallbackToolRegistration`
-   * and {@link CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL}.
-   */
-  #resolveCallbackToolServer(
-    params: CreateSessionParams | ResumeSessionParams,
-  ): ClaudeCallbackMcpServerDescriptor | undefined {
-    const requestedTools = params.callbackTools ?? [];
-    if (requestedTools.length === 0) {
-      return undefined;
-    }
-    if (params.onCallbackToolCall === undefined) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "callback_tool_registry_withheld",
-        rawWireType: null,
-        dispositionReason:
-          "no callback-tool dispatcher is bound for this spawn, so no invocation could be answered; the registry is withheld rather than offered unanswerable",
-        details: {
-          sessionId: params.sessionId,
-          reason: "no-dispatcher-bound",
-          withheldToolCount: requestedTools.length,
-        },
-      });
-      return undefined;
-    }
-    if (!this.#transport.realizesCallbackToolRegistration) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "callback_tool_registry_withheld",
-        rawWireType: null,
-        dispositionReason: CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
-        details: {
-          sessionId: params.sessionId,
-          reason: "transport-registration-unavailable",
-          withheldToolCount: requestedTools.length,
-        },
-      });
-      return undefined;
-    }
-    return composeClaudeCallbackMcpServer(requestedTools);
-  }
-
-  // One gate per spawn rather than per session: a relaunch is a new process
-  // whose subagents are new, and carrying the predecessor's held slots forward
-  // would hold a cap against calls that died with the old process.
-  #buildSubagentAdmission(
-    sessionId: SessionId,
-    policy: SubagentPolicy | undefined,
-  ): ClaudeSubagentAdmissionPort | undefined {
-    if (policy === undefined || !policy.enabled) {
-      return undefined;
-    }
-    return new ClaudeSubagentConcurrencyGate({
-      sessionId,
-      diagnostics: this.#diagnostics,
-      maxConcurrent: policy.maxConcurrent,
-    });
-  }
-
-  #buildSpawnBinding(params: CreateSessionParams | ResumeSessionParams): ClaudeSpawnBinding {
-    const outputSchema = params.outputSchema;
-    return {
-      admittedCostCapCents: params.admittedCostCapCents,
-      executionPosture: params.executionPosture,
-      outputSchemaDigest: outputSchema === undefined ? undefined : digestOutputSchema(outputSchema),
-    };
-  }
-
-  // Claude binds the cap, the posture, and the output schema AT SPAWN. A run
-  // admitted against a different realization must force a session-boundary
-  // relaunch — which is the daemon's decision — so the driver's job is to refuse
-  // rather than to start the run under whatever the process happens to carry.
-  // Never a start-in-uncapped, never a silent partial posture application.
-  //
-  // Each check is ONE-DIRECTIONAL, keyed on what the RUN declares. A run that
-  // declares nothing on an axis is not constrained on it.
-  #assertSpawnBoundRealization(params: StartRunParams, live: LiveClaudeSession): void {
-    // The cost-cap rule runs in exactly one direction: a native-cap run starts
-    // only inside a provider session spawned with the matching cap, so an
-    // existing uncapped (or differently-capped) process forces a capped
-    // relaunch and never a start inside an uncapped process. The converse — a
-    // run carrying NO cap inside a capped session — is deliberately not
-    // prohibited: the native cap is defense-in-depth beneath the daemon
-    // accountant and never the accountant itself, so the accountant is the
-    // enforcement, and a provider stop on such a run surfaces as an ordinary
-    // visible provider stop. Refusing it here would permanently strand every
-    // capless run in a capped session, forcing relaunches nothing asks for.
-    const runCostCapCents = params.admittedCostCapCents;
-    if (
-      runCostCapCents !== undefined &&
-      runCostCapCents !== live.spawnBinding.admittedCostCapCents
-    ) {
-      throw new ClaudeSessionUnavailableError("cost_cap_mismatch", {
-        sessionId: live.sessionId,
-        runId: params.runId,
-        detail: `Run cap ${String(runCostCapCents)}, session cap ${String(live.spawnBinding.admittedCostCapCents)}.`,
-      });
-    }
-
-    const runPosture = params.executionPosture;
-    if (runPosture !== undefined) {
-      const spawnPosture = live.spawnBinding.executionPosture;
-      if (spawnPosture === undefined) {
-        throw new ClaudeSessionUnavailableError("execution_posture_mismatch", {
-          sessionId: live.sessionId,
-          runId: params.runId,
-          detail: `The run declares execution posture ${runPosture.mode}, but the Claude session was spawned with none.`,
-        });
-      }
-      const divergentAxis = findPostureDivergence(runPosture, spawnPosture);
-      if (divergentAxis !== undefined) {
-        throw new ClaudeSessionUnavailableError("execution_posture_mismatch", {
-          sessionId: live.sessionId,
-          runId: params.runId,
-          detail: `Execution posture diverges on ${divergentAxis}.`,
-        });
-      }
-    }
-
-    const runOutputSchema = params.outputSchema;
-    if (runOutputSchema !== undefined) {
-      const spawnOutputSchemaDigest = live.spawnBinding.outputSchemaDigest;
-      if (spawnOutputSchemaDigest === undefined) {
-        throw new ClaudeSessionUnavailableError("output_schema_unbound", {
-          sessionId: live.sessionId,
-          runId: params.runId,
-        });
-      }
-      const runOutputSchemaDigest = digestOutputSchema(runOutputSchema);
-      if (runOutputSchemaDigest !== spawnOutputSchemaDigest) {
-        throw new ClaudeSessionUnavailableError("output_schema_mismatch", {
-          sessionId: live.sessionId,
-          runId: params.runId,
-          detail: `Run schema digest ${runOutputSchemaDigest.slice(0, 16)}, session schema digest ${spawnOutputSchemaDigest.slice(0, 16)}.`,
-        });
-      }
-    }
-  }
-
   #registerLiveSession(live: LiveClaudeSession): void {
-    // BAND, then SLOT, then listeners. The order is three separate claims.
-    //
-    // The band goes first because a listener registration can deliver a frame
-    // re-entrantly, and a frame reaching the observer with no band would have to
-    // be quarantined — refusing a frame from the very channel this method is in
-    // the middle of adopting. Built before the slot for the same reason it is
-    // built before `#bindSessionThread`: a frame arriving in that window names
-    // an unregistered thread, so the router HOLDS it, and the binding below
-    // releases it. Held-then-released is a delivery; quarantined is not.
-    //
-    // The slot goes before the listeners, reversing an earlier ordering. That
-    // ordering existed so a throwing `onTurnTerminal` would leave the slot unset
-    // for the caller's adoption guard to clean up — but it also left a window in
-    // which the channel was registered and the slot was not yet live, so the
-    // identity gate below refused frames from the channel it had just adopted.
-    // The window is closed by writing the slot first and RESTORING the previous
-    // slot value if a listener registration throws, which reaches the same
-    // end-state by an explicit rollback rather than by an ordering that has to
-    // be re-derived to be understood.
+    // Band, then slot, then listeners: listener registration can deliver a frame re-entrantly,
+    // which needs a band to hold it and a slot for the identity gate to accept the adopted channel.
+    // The previous slot is restored if a listener registration throws.
     const previousSlot = this.#sessionSlots.get(live.sessionId);
     const bandExistedBefore = this.#routingBands.has(live.sessionId);
     const band = this.#ensureRoutingBand(live.sessionId);
     this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
-    // The held command enumeration is discarded HERE, at the one point all three
-    // establishment paths converge on, and BEFORE the listeners are registered
-    // — a frame delivered re-entrantly during that registration must not find a
-    // predecessor's declaration.
-    //
-    // WHY ESTABLISHMENT AND NOT THE DISPOSAL PATHS. The property wanted is "a
-    // session that has just been registered has by definition not been read
-    // yet, so any declaration standing against its id belongs to a previous
-    // process". Stated here it is a property of establishment; inferred from the
-    // disposal call sites it is a coincidence of four of them, and the one
-    // replacement the read-side stamp below cannot catch is a RESUME: the
-    // identity gate refuses any resume whose announced id differs from the
-    // handle, so a successful resume announces the SAME `providerSessionId`
-    // its predecessor had and a record that outlived the predecessor by any
-    // route would compare EQUAL to the successor's stamp.
-    //
-    // HONEST REACHABILITY. No path reaches this line with a stale record today,
-    // and the mutation evidence says so: removing this clear breaks no test,
-    // because `#disposeHeldChannel` deletes on every close and a resume is only
-    // reachable from an EMPTY slot. It is retained as fail-closed defensive code
-    // on the same footing as `#soleLiveRunOn`'s two-run arm — the redundancy is
-    // deliberate and recorded rather than passed off as a repair.
-    //
-    // Deliberately NOT restored by the rollback arm below: a failed adoption has
-    // already disposed the channel the record was read from, and a live read
-    // that survives its process is the stale registry this design exists to
-    // avoid.
-    this.#handshakeBySession.delete(live.sessionId);
+    // Discarded where all establishment paths converge, before listeners register: a resume reuses
+    // its predecessor's `providerSessionId`, so a surviving record would match. Not restored on
+    // rollback, since a failed adoption already disposed its source.
+    this.#handshakes.forgetHandshake(live.sessionId);
     try {
       this.#registerLiveSessionHooks(band, live);
     } catch (error) {
-      // Restores rather than deletes. The previous value is the CALLER's claim
-      // — an `establishing` arm whose own settle path decides what EMPTY or
-      // LIVE means for this leg — and deleting it would publish an EMPTY slot
-      // that a rewind's predecessor-restore could no longer identify as its own.
+      // Restores rather than deletes: the previous value is the caller's `establishing` claim, and
+      // deleting it would publish an EMPTY slot a rewind could not recognize.
       if (previousSlot === undefined) {
         this.#sessionSlots.delete(live.sessionId);
       } else {
         this.#sessionSlots.set(live.sessionId, previousSlot);
       }
-      // Only a band THIS call created is released. A rewind adopts a successor
-      // into a session whose band is already carrying the predecessor's
-      // registers, and dropping those on a failed adoption would zero a session
-      // that is about to be restored and keep running.
+      // Only a band this call created is released: a rewind's successor joins the predecessor's
+      // band, and dropping it would zero registers about to be restored.
       if (!bandExistedBefore) {
         this.#routingBands.delete(live.sessionId);
       }
       throw error;
     }
-    // Released only on a registration that SUCCEEDED, so a failed
-    // adoption cannot lift a refusal the failed leg never replaced. The
-    // quarantine names a BINDING, not an identifier: a fresh channel now answers
-    // for this session id, so the refusal a prior trip installed has outlived
-    // the process it condemned.
-    this.#providerBindingQuarantine.releaseSession(live.sessionId);
+    // Only after a successful registration, so a failed adoption cannot lift a refusal it never
+    // replaced (the quarantine names a binding; a fresh channel now answers for this id).
+    this.#runtimeBindingQuarantine.releaseSession(live.sessionId);
   }
 
-  // The listener half of registration, separated so the slot rollback above has
-  // exactly one thing to guard.
+  // The listener half of registration, separated so the slot rollback has one thing to guard.
   #registerLiveSessionHooks(band: ClaudeSessionRoutingBand, live: LiveClaudeSession): void {
-    // Claude serializes turns per session, so "a terminal arrived on this
-    // channel" identifies the run without the transport naming it: the route
-    // pointing at this session IS the run that just ended. Registered here, the
-    // one place both establishment paths converge on.
-    //
-    // Retiring routes only — never the slot. The session stays LIVE and startable
-    // after a turn ends; it is the RUN that is over.
+    // Claude serializes turns per session, so the route pointing at this session is the run that
+    // just ended. Only routes retire, never the slot.
     const retireOnTurnTerminal = (terminalFrame: unknown): void => {
-      // Identity-gated. A channel that has been disposed, quarantined, or
-      // replaced can still fire — the driver holds no kill, so an undead process
-      // may emit a terminal long after the daemon stopped listening to it — and
-      // an ungated listener would then retire the routes of whatever session
-      // occupies this slot NOW. Only the channel that is currently live may
-      // retire, which also makes the listener a no-op during CLOSING (routes are
-      // already gone) rather than a second writer racing the close.
+      // Identity-gated: a disposed, quarantined or replaced channel can still fire (the driver
+      // holds no kill), and an ungated listener would retire the routes of the slot's current
+      // session. This also makes the listener a no-op during CLOSING.
       if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
         return;
       }
-      // Ruled BEFORE the retirement. The tripwire is keyed by run id, and
-      // `#retireRunRoutes` is what empties the map those ids are read from — so
-      // ruling after retiring would rule on nothing and let every swallowed turn
-      // through.
-      this.#ruleTextNeutralizationTripwire(live.sessionId, terminalFrame);
-      this.#retireRunRoutes(live.sessionId);
+      // Ruled before retirement: the tripwire is keyed by run id, and retirement empties the map
+      // those ids come from.
+      this.#textNeutralization.ruleTextNeutralizationTripwire(live.sessionId, terminalFrame);
+      this.#runRoutes.retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);
-    // Registered beside the terminal hook and for the same reason: this is the
-    // one place both establishment paths converge on. Identity-gated the same
-    // way — an undead channel that keeps emitting must not route frames into
-    // whatever session occupies this slot NOW — and fail-closed on that gate,
-    // because a frame from a channel the daemon no longer owns is precisely a
-    // frame that must not project.
+    // Identity-gated the same way, and fail-closed: a frame from a channel the daemon has released
+    // must not project.
     live.channel.onInboundFrame((observation): ThreadFrameRoute => {
       if (!this.#isChannelCurrentlyBound(live.sessionId, live.channel)) {
         return {
@@ -5002,59 +624,38 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
             "frame arrived on a channel this session no longer holds; refused rather than projected into whichever session occupies the slot now",
         };
       }
-      const boundBand = this.#routingBands.get(live.sessionId);
-      if (boundBand === undefined) {
-        // Fail-closed and unreachable by construction: registration builds the
-        // band before this listener exists, and only a close releases it. Held
-        // as a guard rather than an assertion because the alternative to an
-        // answer here is projecting a frame no router ever classified.
-        return {
-          decision: "quarantined",
-          reason:
-            "frame arrived while this session held no routing band; refused rather than classified against a registry that does not exist",
-        };
-      }
-      return this.#observeInboundFrame(
-        boundBand,
+      // The band this registration joined: while the channel is bound, the session's band is this
+      // one, since only a close or a failed registration releases it and both unbind the channel.
+      return this.#frameRouting.observeInboundFrame(
+        band,
         live.sessionId,
         live.providerSessionId,
         observation,
       );
     });
-    // Base registers and the session's own thread identity, established before
-    // any frame can be metered against them.
-    this.#bindSessionThread(band, live.sessionId, live.providerSessionId, live.establishment);
-    // Through the same accessor `closeSession` uses, so a close signalled while
-    // this establishment was in flight finds its latch still set rather than
-    // replaced by a fresh gate.
+    // Base registers and the session's own thread identity, before any frame can be metered.
+    this.#frameRouting.bindSessionThread(
+      band,
+      live.sessionId,
+      live.providerSessionId,
+      live.establishment,
+    );
+    // Through the accessor `closeSession` uses, so a close signaled during establishment finds its
+    // latch.
     this.#intendedCloseGateFor(live.sessionId);
   }
 
   /**
-   * Is this channel the one currently BOUND to this session, in any state from
-   * which the session can still continue?
-   *
-   * Wider than {@link ClaudeSessionLifecycle.#findLiveSession} on purpose, and
-   * only for frame routing. A rewind holds an `establishing` slot for the whole
-   * multi-second fork while the PREDECESSOR's process stays up and emitting; a
-   * live-only gate quarantined every one of those frames, and a rewind that then
-   * failed restored a session whose transcript had a hole in it for the length
-   * of the attempt — which contradicts the non-destructive-on-failure property
-   * the rewind path's own claim rests on.
-   *
-   * `closing` and `quarantined` deliberately stay refused. Those are the states
-   * a channel is in when the daemon has decided to stop owning it, and a frame
-   * from a process the daemon disowned is exactly the frame that must not
-   * project. Run STARTING keeps the narrower live-only gate: a run may not begin
-   * in a process that is coming up.
+   * Whether this channel is bound to this session in any state the session can continue from.
+   * Wider than `#findLiveSession`, for frame routing only: a rewind holds an `establishing` slot
+   * while the predecessor keeps emitting, and refusing those frames would leave a transcript hole.
    */
-  #isChannelCurrentlyBound(sessionId: SessionId, channel: ClaudeSessionChannel): boolean {
+  #isChannelCurrentlyBound(sessionId: SessionId, channel: ClaudeProviderProcess): boolean {
     const slot = this.#sessionSlots.get(sessionId);
     if (slot === undefined) {
       return false;
     }
-    // Exhaustive over the union: a new state is a new arm the compiler forces a
-    // routing decision for, rather than one silently defaulting to refused.
+    // Exhaustive: a new state forces a routing decision instead of defaulting to refused.
     switch (slot.state) {
       case "live":
         return slot.session.channel === channel;
@@ -5066,16 +667,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
   }
 
-  // Names the current holder of a session slot for a refusal detail, or
-  // `undefined` when the slot is free. One predicate, so the two entry points
-  // cannot drift into disagreeing about what "taken" means.
+  // Names the current holder of a session slot for a refusal detail, or `undefined` when the slot
+  // is free. One predicate, so the two entry points agree on what "taken" means.
   #describeSlotHolder(sessionId: SessionId): string | undefined {
     const slot = this.#sessionSlots.get(sessionId);
     if (slot === undefined) {
       return undefined;
     }
-    // Exhaustive over the union: adding a state without deciding what a create
-    // racing it should see stops compiling here.
+    // Exhaustive over the union: a new state must decide what a racing create sees.
     switch (slot.state) {
       case "live":
         return `A live Claude session is already bound to session ${sessionId};`;
@@ -5088,30 +687,26 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
   }
 
-  // Claims the slot synchronously, runs the establishment, and releases the claim
-  // however it settles. The claim is published BEFORE `establish` is awaited, so
-  // no other caller can observe a free slot while this one is spawning.
+  // Claims the slot synchronously, before `establish` is awaited, so no caller sees a free slot
+  // while it spawns; releases the claim however it settles.
   async #withSessionSlotClaimed<TEstablished>(
     sessionId: SessionId,
     establish: () => Promise<TEstablished>,
   ): Promise<TEstablished> {
     const establishment = establish();
-    // A rejection-swallowed view: chainers await this purely to sequence, and a
-    // stored promise that could reject would surface as an unhandled rejection
-    // whenever nobody closes the session.
+    // Rejection-swallowed: chainers await it only to sequence, and a stored rejecting promise would
+    // go unhandled.
     const settled = establishment.then(
       () => undefined,
       () => undefined,
     );
-    // No channel: a create or resume starts from EMPTY, so nothing is bound to
-    // this session for the duration of the claim.
+    // No channel: a create or resume starts from EMPTY.
     this.#sessionSlots.set(sessionId, { state: "establishing", settled, channel: undefined });
     try {
       return await establishment;
     } finally {
-      // A SUCCESSFUL establishment has already overwritten this slot with its
-      // LIVE arm, so only a failed one is cleared here. Identity-checked so this
-      // can never clear a claim that is not ours.
+      // A successful establishment has already overwritten the slot; only a failed one is cleared,
+      // and only if the claim is ours.
       const slot = this.#sessionSlots.get(sessionId);
       if (slot?.state === "establishing" && slot.settled === settled) {
         this.#sessionSlots.delete(sessionId);
@@ -5120,33 +715,22 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Claims a LIVE slot for a rewind and restores the predecessor if the rewind
-   * does not install a successor.
-   *
-   * Deliberately NOT `#withSessionSlotClaimed`. That helper clears the slot when
-   * an establishment fails, which is right for create and resume — both start
-   * from EMPTY, so clearing restores what was there. A rewind starts from LIVE,
-   * so clearing would publish an EMPTY slot for a session whose process is still
-   * running and startable: the next create would spawn a second process beside
-   * it, and nothing would ever close the first.
-   *
-   * The restore is identity-checked against this call's own claim, so a
-   * successful rewind (which overwrites the slot with its own LIVE arm) and a
-   * concurrent close (which moves the slot on) are both left alone.
+   * Claims a live slot for a rewind and restores the predecessor if it installs no successor.
+   * Unlike `#withSessionSlotClaimed` it must not clear on failure: a rewind starts from live, and
+   * an EMPTY slot for a running process would let the next create spawn a second one.
    */
   async #withRewindSlotClaimed(
     sessionId: SessionId,
     predecessor: LiveClaudeSession,
-    rewind: () => Promise<DriverRollbackResult>,
-  ): Promise<DriverRollbackResult> {
+    rewind: () => Promise<ForkConversationResult>,
+  ): Promise<ForkConversationResult> {
     const rewinding = rewind();
     const settled = rewinding.then(
       () => undefined,
       () => undefined,
     );
-    // The PREDECESSOR's channel stays bound for the whole claim. Its process is
-    // still up and still emitting, and the frames it emits belong to this
-    // session's transcript whether or not the fork beside it succeeds.
+    // The predecessor's channel stays bound: its process is still up and emitting frames that
+    // belong to this session's transcript.
     this.#sessionSlots.set(sessionId, {
       state: "establishing",
       settled,
@@ -5155,6 +739,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     try {
       return await rewinding;
     } finally {
+      // Identity-checked, so a successful rewind or a concurrent close is left alone.
       const slot = this.#sessionSlots.get(sessionId);
       if (slot?.state === "establishing" && slot.settled === settled) {
         this.#sessionSlots.set(sessionId, { state: "live", session: predecessor });
@@ -5162,315 +747,48 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
   }
 
-  // Drops every run route pointing at this session. Deliberately does NOT touch
-  // the slot: route retirement and slot transition are separate concerns, and
-  // fusing them is what previously let a close free the slot as a side effect of
-  // clearing routes.
   /**
-   * Rules the text-neutralization tripwire on a settling turn.
-   *
-   * Claude serializes turns per session and its terminal frame names no run, so
-   * the run that just ended is the one routed to this session — the same
-   * identity argument `#retireRunRoutes` already runs on.
-   *
-   * ONE terminal settles ONE turn, so exactly one run may consume this
-   * terminal's evidence: the oldest with a frame still awaiting settlement.
-   * Ordering is taken over PENDING FRAMES, not over routes, because the two
-   * sets genuinely differ — a run whose failed write was already ruled by
-   * `#ruleFailedOpeningFrame` on the dead-channel arm keeps its route, so that
-   * `findChannelForRun` refuses it loudly rather than answering `undefined`,
-   * while its registration is long consumed. Ordering by route would let that
-   * run consume the evidence a live one needed. Spreading one turn's evidence
-   * across every correlated run is the masking this tripwire exists to prevent:
-   * a good turn would vouch for text that never ran.
-   *
-   * Any FURTHER correlated run is ruled against no evidence at all, which trips
-   * it. That is not a guess: `#retireRunRoutes` destroys every route for this
-   * session on this same terminal, so a second correlated run's frame is, at
-   * this moment, provably never going to be confirmed — text written to the
-   * provider with no model turn attributable to it, which is exactly what the
-   * refusal says. The driver does not create that state; this is what it does
-   * if the state ever appears.
-   *
-   * One way that state now arises is worth naming: a frame RETAINED by
-   * `#ruleFailedOpeningFrame` on the serviceable-channel arm stays pending, so
-   * it holds position 0 here and a later run that wrote cleanly is ruled
-   * against no evidence. The trip is then attributed to the wrong run. That is
-   * the fail-closed direction and the deliberate price of retention — the
-   * alternative is a silent pass on a frame whose delivery is in doubt — and
-   * the session is quarantined and disposed either way.
-   *
-   * This band reads NO member of `terminalFrame`. It hands the value to the
-   * normalizer's classifier — the module that owns frame content — and acts on
-   * the classification alone.
-   */
-  #ruleTextNeutralizationTripwire(sessionId: SessionId, terminalFrame: unknown): void {
-    const correlatedRunIds = [...this.#sessionIdByRunId]
-      .filter(([, boundSessionId]) => boundSessionId === sessionId)
-      .map(([runId]) => runId)
-      .filter((runId) => this.#outboundFrameTripwire.hasPendingFrame(runId));
-    if (correlatedRunIds.length === 0) {
-      return;
-    }
-    const settlingClassification = classifyClaudeTurnEvidence(terminalFrame);
-    let tripped = false;
-    for (const [framePosition, runId] of correlatedRunIds.entries()) {
-      // With the session-serialization guard in startRun, at most one run can
-      // hold a pending frame per session, so every position past 0 is
-      // unreachable via startRun. The else-arm is retained fail-closed: if
-      // state ever drifts to two pending runs, crediting the terminal's real
-      // classification to both would let a swallowed frame ride a sibling's
-      // evidence.
-      const classification =
-        framePosition === 0 ? settlingClassification : UNRECOGNIZED_TURN_EVIDENCE;
-      const decision = this.#outboundFrameTripwire.settle(runId, classification);
-      if (!decision.tripped) {
-        continue;
-      }
-      if (!tripped) {
-        tripped = true;
-        // Quarantined FIRST, and on BOTH axes, so that a caller reacting
-        // synchronously to the failure cannot reach the process that just
-        // swallowed the text by either door. The run key alone is not enough:
-        // `startRun` resolves a SESSION, so a run-keyed refusal would leave the
-        // next run free to dispatch onto the same channel.
-        this.#providerBindingQuarantine.disposeSession(sessionId);
-      }
-      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
-      this.#reportTextNeutralizationFailure(
-        sessionId,
-        runId,
-        composeTextNeutralizationRunFailure(decision),
-      );
-    }
-    if (tripped) {
-      this.#disposeQuarantinedSession(sessionId);
-    }
-  }
-
-  /**
-   * Rules every frame a condemned binding leaves unsettled, fail-closed.
-   *
-   * The gap this closes is a SIBLING's, not the ruled run's. Both callers of
-   * {@link ClaudeSessionLifecycle.prototype} `#disposeQuarantinedSession` rule
-   * one run's frames before condemning the session, and only one of them rules
-   * the rest: the settlement path loops every correlated run holding a pending
-   * frame, so it arrives here with nothing left, while `#ruleFailedOpeningFrame`
-   * is deliberately FRAME-scoped — a sibling run whose delivery was never in
-   * doubt must not be tripped by another run's failed write. That scoping is
-   * right at the moment it acts and stops being right one line later, when the
-   * session is condemned and its channel disposed: the sibling's turn can no
-   * longer settle, the terminal listener is identity-gated to a live slot this
-   * teardown is about to vacate, and the frame would sit pending until some
-   * later close dropped it as occupancy. Silence, in the case that warrants the
-   * loudest answer.
-   *
-   * Ruled with `UNRECOGNIZED_TURN_EVIDENCE` because that is exactly what this
-   * driver knows — no settling envelope was ever seen — and it is the same
-   * classification both fail-closed arms beside it use. Exempt frames still
-   * pass: `#rule` answers on the frame before the classification.
-   *
-   * Reported at most ONCE per run. A run this driver already condemned has had
-   * its terminal composed from the ruling that condemned it, and the quarantine
-   * is the record of that, which is why it is consulted rather than a set built
-   * here.
-   *
-   * The failure carries the TRIP's cause rather than the superseded-delivery
-   * one, and the difference is the difference between the two paths: a supersede
-   * observed no swallow, while this binding is being condemned precisely because
-   * one was observed on it. A frame still riding that binding shares its verdict.
-   */
-  #ruleAbandonedFramesFailClosed(sessionId: SessionId): void {
-    const rulings = this.#outboundFrameTripwire.settleScope(sessionId, UNRECOGNIZED_TURN_EVIDENCE);
-    for (const ruling of rulings) {
-      if (!ruling.decision.tripped) {
-        continue;
-      }
-      const runId = this.#runIdBoundToSession(ruling.joinKey, sessionId);
-      if (runId === undefined || this.#providerBindingQuarantine.isRunDisposed(runId)) {
-        continue;
-      }
-      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
-      this.#reportTextNeutralizationFailure(
-        sessionId,
-        runId,
-        composeTextNeutralizationRunFailure(ruling.decision),
-      );
-    }
-  }
-
-  /**
-   * Tears down the channel a tripwire trip condemned.
-   *
-   * Reuses `#disposeHeldChannel` rather than inventing a second teardown: this
-   * is the same close every other disposal performs, so the slot transitions,
-   * the retained-channel quarantine on a process that will not exit, and the
-   * per-session band cleanup are the ones the rest of the driver already relies
-   * on. The promised recovery is a fresh spawn, which is what a close makes
-   * possible.
-   *
-   * Detached on purpose: the only caller runs inside a channel's synchronous
-   * terminal listener, which must neither wait on a child's death nor be
-   * unwound by one. The teardown is BEST-EFFORT and the refusal is not — the
-   * quarantine entry is installed before this runs, so every later resolution
-   * refuses whether or not the process actually exits.
+   * Tears down the channel a tripwire trip condemned, through `#disposeHeldChannel`. Detached: the
+   * only caller is a channel's synchronous terminal listener, which must not wait on a child's
+   * death; the refusal still holds, since the quarantine entry is installed first.
    */
   #disposeQuarantinedSession(sessionId: SessionId): void {
-    // BEFORE the liveness read and outside it, so the ruling does not depend on
-    // whether a channel is still there to dispose. The frames are owed an answer
-    // because the BINDING was condemned, which has already happened by the time
-    // any caller reaches this method.
-    this.#ruleAbandonedFramesFailClosed(sessionId);
+    // Outside the liveness read: the frames are owed an answer whether or not a channel is left.
+    this.#textNeutralization.ruleAbandonedFramesFailClosed(sessionId);
     const live = this.#findLiveSession(sessionId);
     if (live === undefined) {
       return;
     }
-    void this.#disposeHeldChannel(sessionId, live.channel).catch(() => {
-      // Swallowed HERE and recorded THERE: a rejected dispose has already moved
-      // the slot to `quarantined` with the channel retained, which is this
-      // driver's own record of a process that would not exit and the handle a
-      // later close retries through. Rethrowing would only surface as an
-      // unhandled rejection out of a channel's terminal listener.
+    // A rejected dispose has already moved the slot to `quarantined` with the channel kept for a
+    // later close; rethrowing would be an unhandled rejection out of a terminal listener.
+    void this.#disposeHeldChannel(sessionId, live.channel).catch((cause: unknown) => {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "quarantined_session_dispose_failed",
+        rawWireType: null,
+        dispositionReason: describeFailure(cause),
+        details: { sessionId },
+      });
     });
   }
 
-  // A throwing consumer must not become a second failure on top of the one being
-  // reported: the run terminal is the guarantee, and losing it because a listener
-  // threw would leave the swallowed turn with no record at all.
-  #reportTextNeutralizationFailure(
-    sessionId: SessionId,
-    runId: RunId,
-    failure: TextNeutralizationRunFailure,
-  ): void {
-    try {
-      this.#onTextNeutralizationFailure(sessionId, runId, failure);
-    } catch (error) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "text_neutralization_trip_report_failed",
-        rawWireType: null,
-        dispositionReason: describeFailure(error),
-        details: { sessionId, runId, providerFailureDetail: failure.providerFailureDetail },
-      });
-    }
-  }
-
   /**
-   * Fails the runs whose frames a REWIND superseded before the provider settled
-   * them.
-   *
-   * The visible-failure guarantee this closes: a user's text that
-   * provably may not have reached the model never silently vanishes. A rewind
-   * replaces the binding those frames were written on and keeps the session id
-   * live, so no terminal for them can ever arrive — the successor's terminal
-   * hook is identity-gated on ITS channel — and before this existed the frames
-   * were dropped with the scope's budget, leaving the run to look exactly like
-   * one whose words landed on a session that forked cleanly.
-   *
-   * Not ruled fail-closed, and not dropped either — the two arms this path used
-   * to have to choose between. A trip claims the provider swallowed the text,
-   * which nothing observed here; a drop claims nothing at all. `abandonScope`
-   * states the third thing, which is the true one: the answer became
-   * unreachable when the binding was superseded, and it will never arrive.
-   *
-   * Reported through the SAME seam a trip reports through, with a deliberately
-   * different cause on it — `composeSupersededDeliveryRunFailure` carries no
-   * dotted code and claims only what is known, where borrowing the trip's
-   * detail would publish a swallow nobody observed.
-   *
-   * Reported at most ONCE per run. This leg registers one frame per run and
-   * never re-keys, so the guard is cheap; it is kept because "one supersede is
-   * one cause" is the claim, not "one frame is one cause".
-   *
-   * The superseded runs are deliberately NOT quarantined. A quarantine condemns
-   * a binding, and this one is already gone — the fresh process is exactly where
-   * any future work on those runs belongs, and refusing them would take their
-   * interrupt and intervention controls away for nothing.
-   *
-   * A join key this leg cannot resolve to a bound run is unreachable rather than
-   * tolerated: `startRun` writes the route in the same synchronous block as the
-   * registration, and every path that deletes a route either forgets that run's
-   * LAST pending frame (`#ruleFailedOpeningFrame` on the unsent arm, which
-   * leaves the route standing while a sibling frame on the same key is still
-   * owed a ruling) or settles it (`#ruleTextNeutralizationTripwire`, which rules
-   * every correlated run holding a pending frame before `#retireRunRoutes`
-   * empties the map). The lookup is what produces the branded run id, not a
-   * filter on a case that happens.
+   * Releases a rewound predecessor once its successor is adopted, before its channel is disposed.
+   * The sweep runs before route retirement, which empties the run routes. Frames fail rather than
+   * drop, so an undelivered run never looks delivered.
    */
-  #failSupersededDeliveries(sessionId: SessionId): void {
-    const abandoned = this.#outboundFrameTripwire.abandonScope(sessionId);
-    const reportedRunIds = new Set<RunId>();
-    for (const frame of abandoned) {
-      const runId = this.#runIdBoundToSession(frame.joinKey, sessionId);
-      if (runId === undefined || reportedRunIds.has(runId)) {
-        continue;
-      }
-      reportedRunIds.add(runId);
-      this.#reportTextNeutralizationFailure(
-        sessionId,
-        runId,
-        composeSupersededDeliveryRunFailure(frame.detailOrigin),
-      );
-    }
-  }
+  #releaseSupersededPredecessor(sessionId: SessionId, predecessor: LiveClaudeSession): void {
+    this.#textNeutralization.failSupersededDeliveries(sessionId);
+    this.#runRoutes.retireRunRoutes(sessionId);
+    // Usually a no-op (the sweep consumed the registrations); the only budget release here.
+    this.#outboundFrameTripwire.forgetScope(sessionId);
 
-  /**
-   * The run a join key names, verified against the session it is bound to.
-   *
-   * Scanned rather than looked up because the map is keyed by the BRANDED run
-   * id and the tripwire's join key is a plain string — the scan is what turns
-   * one into the other, and the session comparison is what keeps a key from
-   * naming a run that has since moved to another binding.
-   */
-  #runIdBoundToSession(joinKey: string, sessionId: SessionId): RunId | undefined {
-    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
-      if (runId === joinKey && boundSessionId === sessionId) {
-        return runId;
-      }
-    }
-    return undefined;
-  }
-
-  #retireRunRoutes(sessionId: SessionId): void {
-    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
-      if (boundSessionId === sessionId) {
-        this.#sessionIdByRunId.delete(runId);
-      }
-    }
-  }
-
-  #buildResumeFailure(condition: RecoveryCondition, detail: string): DriverResumeResult {
-    return {
-      status: "failed",
-      recoveryCondition: condition,
-      recoverySpanClassification: CLAUDE_RESUME_SPAN_CLASSIFICATION,
-      providerFailureDetail: sanitizeFailureDetail(detail),
-    };
-  }
-
-  // Disposal of a channel we are refusing to adopt. The refusal is the
-  // load-bearing signal, so a disposal failure must not mask it — it is folded
-  // into the operator-visible detail instead of being swallowed or rethrown.
-  // Disposes a channel the driver is REFUSING to adopt, and answers with a note
-  // for the refusal text. The rejection is deliberately not rethrown: the caller
-  // is already failing for a better reason (the identity divergence), and
-  // replacing that with a teardown error would hide why the session was refused.
-  //
-  // Nothing is retained. That is a decision, not an oversight — the process
-  // belongs to a foreign provider session id, so holding the canonical slot for
-  // it would make create un-retryable after a divergence, and this band mints no
-  // reaper to revisit it. Ownership therefore passes to the transport under the
-  // obligation documented on `ClaudeSessionChannel.dispose`, which is where a
-  // transport implementation's review must check it.
-  async #disposeRefusedChannel(
-    channel: ClaudeSessionChannel,
-    reason: ClaudeChannelDisposalReason,
-  ): Promise<string> {
-    try {
-      await channel.dispose(reason);
-      return "";
-    } catch (error) {
-      return ` The refused provider channel could not be disposed: ${describeFailure(error)}`;
-    }
+    // Released after the successor is installed, so every earlier failure path is non-destructive.
+    // A disposal failure does not fail the fork.
+    predecessor.spawnBoundLegs.subagentAdmission?.dispose();
+    // The predecessor is going away, so its armed compaction waits can never see their evidence.
+    // None exist for the successor: this method holds the rewind slot claim, and `compactContext`
+    // needs a settled live slot.
+    this.#pendingCompactions.releaseBinding(sessionId);
   }
 }

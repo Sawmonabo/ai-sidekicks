@@ -1,0 +1,46 @@
+/* The Agents pane body's columns. Pane head and border belong to the shared chrome sheet.
+ * Two equal columns at body width, one when narrow. The breakpoint is on the container, not
+ * the viewport, because the pane may be half the layout wide or all of it.
+ */
+
+.meridian-agents {
+  container-type: inline-size;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  padding: var(--meridian-space-5);
+}
+
+.meridian-agents__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--meridian-space-5);
+  align-items: start;
+}
+
+@container (min-width: 45rem) {
+  .meridian-agents__columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.meridian-agents__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  padding: var(--meridian-space-4);
+}
+
+.meridian-agents__column-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}

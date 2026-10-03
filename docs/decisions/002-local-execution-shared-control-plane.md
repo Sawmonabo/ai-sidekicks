@@ -23,11 +23,11 @@ The system context, control-plane architecture, and runtime-node model all depen
 
 ## Decision
 
-We will keep code execution local to user-controlled runtime nodes and use a shared control plane for identity, the device registry, device liveness, relay, notifications, and shared metadata.
+We will keep code execution on the user's own machines, each session on the machine it was started on, and use the person's own control plane for identity, the account's statement chain and its device and machine registry, the relay between their devices and their machines, delivery of push notices each machine has already sealed, and shared metadata.
 
 ### Thesis — Why This Option
 
-This split matches the product goal directly. Local nodes retain filesystem, tool, and provider authority, while the control plane coordinates shared session state without becoming the code-execution authority. It also supports hosted and self-hosted control-plane topologies without forcing repo content and shell execution into one central service.
+This split matches the product goal directly. The machines retain filesystem, tool, and provider authority, while the control plane links devices and relays their sealed channels without seeing session content or becoming the code-execution authority. It also lets the person run their control plane on their own Cloudflare account or their own server without forcing repo content and shell execution into one central service.
 
 ### Antithesis — The Strongest Case Against
 
@@ -62,7 +62,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Users need local repo and tool execution to remain on their own machines. | `vision.md` requires the work to run on the machine that holds the repo. | Hosted execution might be more appropriate. |
-| 2 | Coordination metadata can be shared without centralizing execution. | System context, the user-and-device model, and the attach spec keep the device registry, device liveness, and node attachment separate from execution authority. | The control plane might need broader authority than intended. |
+| 2 | Coordination metadata can be shared without centralizing execution. | System context, the user-and-device model, and Spec-002 keep the device registry, the statement chain, and machine registration separate from execution authority. | The control plane might need broader authority than intended. |
 | 3 | The product can tolerate control-plane dependency for remote features. | Deployment topology includes `local-only` fallback for working on the machine itself. | Remote-control behavior could be too fragile under outages. |
 
 ## Failure Mode Analysis
@@ -70,15 +70,15 @@ Hosted execution fails the product's local-execution requirement and increases t
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Control-plane outage breaks remote control while local execution remains available | Med | High | Device-link, relay, or liveness operations fail | Preserve `local-only` continuity and explicit degraded mode |
-| Local nodes become hard to reach or reconnect | Med | Med | Liveness churn and repeated attach failures | Strong heartbeat, grace windows, and relay fallback |
-| Security boundary between control plane and local node erodes | Low | High | Unexpected remote execution authority or broad grants appear | Enforce daemon-side policy and explicit capability declaration |
+| Machines become hard to reach or reconnect | Med | Med | Machine cards read `Not reachable`, and the relay block of `sidekicks daemon status` shows reconnects climbing | One outbound relay connection per machine, one live connection per key, and reachability read from that connection |
+| Security boundary between control plane and machine erodes | Low | High | Unexpected remote execution authority or broad grants appear | Enforce daemon-side policy, and have every machine verify the statement chain itself |
 
 ## Reversibility Assessment
 
 - **Reversal cost:** High. It would affect deployment, trust, transport, storage, and operations.
-- **Blast radius:** Runtime-node attach, control-plane services, device linking, security, and recovery.
+- **Blast radius:** Machine registration, control-plane services, device linking, security, and recovery.
 - **Migration path:** Would require moving execution or coordination authority to a new deployment center and reworking all session flows.
-- **Point of no return:** After runtime-node attach, device linking, and storage flows all assume the split.
+- **Point of no return:** After machine registration, device linking, and storage flows all assume the split.
 
 ## Consequences
 
@@ -94,24 +94,16 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 ### Unknowns
 
-- How much relay complexity typical deployments will need in practice
+- How much of the relay's size budget one person's machines and devices use, which the relay's build measures against that budget and records as its baseline
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Local filesystem and tool execution remains Local Runtime Daemon-owned | 100% of execution paths | Architecture and security review | `2026-04-14` |
-| Control Plane remains free of direct code execution responsibilities | 100% of control-plane components | Architecture review | `2026-04-14` |
+| Local filesystem and tool execution remains Local Runtime Daemon-owned | 100% of execution paths | Architecture and security review | At every architecture and security review |
+| Control Plane remains free of direct code execution responsibilities | 100% of control-plane components | Architecture review | At every architecture review |
 
 ## References
 
@@ -131,14 +123,14 @@ Hosted execution fails the product's local-execution requirement and increases t
 ### Related Architecture Docs
 
 - [System Context](../architecture/system-context.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Security Architecture](../architecture/security-architecture.md)
 
 ### Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 
 ### Related ADRs
 

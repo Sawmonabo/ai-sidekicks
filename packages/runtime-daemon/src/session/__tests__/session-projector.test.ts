@@ -1,75 +1,33 @@
-// Bootstrap projection — a single `session.created` event yields a snapshot
-// naming the session's owner and carrying the main channel.
-//
-// Pure projector test — no SQLite, no service. Constructs a `StoredEvent`
-// in-memory and calls `replay()` directly. The projector reads the owner off
-// the envelope's `actor` and synthesizes the main channel from projector
-// defaults; the `session.created` payload itself does not need to enumerate
-// either.
+// `replay()` projects the owner from the bootstrap `session.created` event's `actor`, and refuses
+// an event log whose bootstrap is missing or not at sequence 0, since projecting from it would
+// present partial state as complete.
 
 import { describe, expect, it } from "vitest";
 
-import { deriveMainChannelId } from "@ai-sidekicks/contracts";
-
-import { projectEvent, replay } from "../session-projector.js";
-import type { DaemonSessionSnapshot, StoredEvent } from "../types.js";
-
-const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
-const OWNER_ACTOR_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
-const OCCURRED_AT: string = "2026-04-27T12:00:00.000Z";
-
-function makeCreatedEvent(): StoredEvent {
-  return {
-    id: "01J0EV0000NN5J5J5J5J5J5J5J",
-    sessionId: SESSION_ID,
-    sequence: 0,
-    occurredAt: OCCURRED_AT,
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: OWNER_ACTOR_ID,
-    payload: { sessionId: SESSION_ID, name: "test-session" },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  };
-}
+import { replay } from "../session-projector.js";
+import type { DaemonSessionRecord, StoredEvent } from "../types.js";
+import {
+  makeCreatedEvent,
+  OCCURRED_AT,
+  OWNER_ACTOR_ID,
+  SESSION_ID,
+} from "./stored-event.test-support.js";
 
 describe("session-projector — bootstrap projection", () => {
-  it("records the owner and synthesizes the main channel from a single session.created event", () => {
-    const snapshot: DaemonSessionSnapshot | null = replay([makeCreatedEvent()]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return; // type guard for TS
+  it("records the owner from a single session.created event", () => {
+    const record: DaemonSessionRecord | null = replay([makeCreatedEvent()]);
+    expect(record).not.toBeNull();
+    if (record === null) return; // type guard for TS
 
-    expect(snapshot.sessionId).toBe(SESSION_ID);
-    // A newly created session starts in `provisioning`; the
-    // `session.activated` handler that transitions it to `active` has not
-    // landed yet.
-    expect(snapshot.state).toBe("provisioning");
-    expect(snapshot.createdAt).toBe(OCCURRED_AT);
-    expect(snapshot.asOfSequence).toBe(0);
+    expect(record.sessionId).toBe(SESSION_ID);
+    expect(record.createdAt).toBe(OCCURRED_AT);
+    expect(record.asOfSequence).toBe(0);
 
-    // The owner is the bootstrap envelope's `actor` and nothing else.
-    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
-
-    // The main channel id is the shared deterministic `deriveMainChannelId`
-    // (`@ai-sidekicks/contracts`, RFC 9562 section 5.8 UUIDv8). The contracts
-    // `ChannelIdSchema` (the RFC 9562 predicate + `.brand<"ChannelId">()`)
-    // validates this shape at the IPC mapping seam, so a non-UUID id would
-    // be rejected there.
-    expect(snapshot.channels).toHaveLength(1);
-    const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
-    expect(snapshot.channels[0]).toEqual({
-      channelId: expectedMainChannelId,
-      name: "main",
-      createdAt: OCCURRED_AT,
-    });
+    expect(record.ownerActor).toBe(OWNER_ACTOR_ID);
   });
+});
 
-  it("returns null on an empty event list", () => {
-    expect(replay([])).toBeNull();
-  });
-
+describe("session-projector — bootstrap refusals", () => {
   it("rejects a first event that is not session.created", () => {
     const stranded: StoredEvent = {
       id: "01J0EV9999NN5J5J5J5J5J5J5J",
@@ -78,9 +36,9 @@ describe("session-projector — bootstrap projection", () => {
       occurredAt: OCCURRED_AT,
       monotonicNs: 1_000_000_000n,
       category: "session_lifecycle",
-      type: "channel.created",
+      type: "session.activated",
       actor: OWNER_ACTOR_ID,
-      payload: { channelId: "01970000-0000-7000-8000-00000000BEEF", name: "stranded" },
+      payload: { sessionId: SESSION_ID },
       correlationId: null,
       causationId: null,
       version: "1.0",
@@ -88,43 +46,8 @@ describe("session-projector — bootstrap projection", () => {
     expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
   });
 
-  it("reports ownerActor as null when the bootstrap envelope names no actor", () => {
-    // `actor: null` is legal on every wire variant, so a system-emitted
-    // bootstrap names nobody. The projector reports that rather than
-    // inventing an owner — there is no other signed place to read one from.
-    const systemEmitted: StoredEvent = { ...makeCreatedEvent(), actor: null };
-    const snapshot: DaemonSessionSnapshot | null = replay([systemEmitted]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    expect(snapshot.ownerActor).toBeNull();
-    // The main channel is synthesized regardless of who emitted the event.
-    expect(snapshot.channels).toHaveLength(1);
-  });
-
-  it("normalizes an empty-string actor to a null ownerActor", () => {
-    // An empty owner is an absent owner. Collapsing the two here means no
-    // reader has to check both.
-    const blankActor: StoredEvent = { ...makeCreatedEvent(), actor: "" };
-    const snapshot: DaemonSessionSnapshot | null = replay([blankActor]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    expect(snapshot.ownerActor).toBeNull();
-  });
-
-  // -----------------------------------------------------------------------
-  // replay() must reject a session.created at sequence > 0
-  // -----------------------------------------------------------------------
-  //
-  // The bootstrap path's sequence-0 invariant must match `projectEvent`'s
-  // in-stream `case "session.created"` guard — without the bootstrap-
-  // path check, a log opening with `session.created` at sequence > 0
-  // would be accepted as a valid bootstrap, masking lost/corrupted
-  // earlier events. SessionService.append accepts arbitrary sequence
-  // values today (the per-session strict-monotonicity is a producer
-  // contract, not a service-layer enforcement), so this projector-side
-  // assertion is the only line of defense that catches the case.
+  // A stored row can carry any sequence, so this projector check is the only guard against a log
+  // that opens at sequence > 0 and hides lost or corrupted earlier events.
 
   it("rejects a bootstrap session.created event at sequence > 0", () => {
     const nonZeroBootstrap: StoredEvent = {
@@ -135,207 +58,4 @@ describe("session-projector — bootstrap projection", () => {
       /bootstrap 'session\.created' must have sequence=0 \(got sequence=1\)/,
     );
   });
-
-  it("rejects a bootstrap session.created event at a far-future sequence (>0 covers the whole non-zero domain)", () => {
-    // Belt-and-braces: pin a non-adjacent sequence so a regression that
-    // accidentally compared `sequence < 1` (instead of `!== 0`) would
-    // also surface. Picks a value that sits in the realistic per-
-    // session range (well below Number.MAX_SAFE_INTEGER) so the test
-    // exercises the same code path as production.
-    const farFutureBootstrap: StoredEvent = {
-      ...makeCreatedEvent(),
-      sequence: 12345,
-    };
-    expect(() => replay([farFutureBootstrap])).toThrow(
-      /bootstrap 'session\.created' must have sequence=0 \(got sequence=12345\)/,
-    );
-  });
-});
-
-// --------------------------------------------------------------------------
-// An explicit channel.created with the synthesized main-channel id is a
-// no-op (the alreadyExists guard in applyChannelCreated is load-bearing).
-// --------------------------------------------------------------------------
-//
-// The bootstrap projection synthesizes the implicit main channel from
-// `session.created` rather than waiting for an explicit `channel.created`
-// envelope. A real audit-log flow may later emit an explicit
-// `channel.created` for the main channel — when that happens, the projector
-// MUST not double-create. This test pins the no-op invariant.
-
-describe("session-projector — main-channel projection invariants", () => {
-  it("treats a subsequent channel.created with the derived main-channel id as an idempotent no-op", () => {
-    const created: StoredEvent = makeCreatedEvent();
-    const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
-
-    // Construct an explicit `channel.created` envelope with the SAME id
-    // the bootstrap synthesizes. The alreadyExists guard MUST swallow it.
-    const explicitMain: StoredEvent = {
-      id: "01J0EV0001NN5J5J5J5J5J5J5J",
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-27T12:00:01.000Z",
-      monotonicNs: 1_500_000_000n,
-      category: "session_lifecycle",
-      type: "channel.created",
-      actor: null,
-      payload: { channelId: expectedMainChannelId, name: "main-renamed-by-explicit-event" },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    };
-
-    const snapshot: DaemonSessionSnapshot | null = replay([created, explicitMain]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    // Still exactly one channel; the explicit event's `name` is discarded
-    // (deliberately — the synthesized name is canonical until
-    // `channel.created` becomes authoritative for the main channel).
-    expect(snapshot.channels).toHaveLength(1);
-    expect(snapshot.channels[0]?.channelId).toBe(expectedMainChannelId);
-    expect(snapshot.channels[0]?.name).toBe("main");
-    // asOfSequence still advances to the latest event so `replay()` /
-    // resume markers work correctly.
-    expect(snapshot.asOfSequence).toBe(1);
-  });
-
-  // -----------------------------------------------------------------------
-  // applyChannelCreated must accept the wire-optional `name`
-  //
-  // The wire schema (`channelCreatedPayloadSchema` in
-  // `packages/contracts/src/event.ts`) declares
-  // `name: wireFreeFormString(...).optional()` — i.e. the key may be
-  // absent on a perfectly valid envelope. The daemon-side projection
-  // mirrors the optionality so wire-to-daemon coercion stays identity.
-  //
-  // The ordering of guards in `applyChannelCreated` is also load-bearing:
-  // the `alreadyExists` no-op MUST run BEFORE the optional-name validation
-  // so that a duplicate-main-channel event with omitted `name` is a
-  // clean idempotent no-op rather than a thrown crash on the
-  // optional-field check.
-  // -----------------------------------------------------------------------
-
-  it("accepts a channel.created envelope with an omitted name (wire-optional field)", () => {
-    const created: StoredEvent = makeCreatedEvent();
-    const initial: DaemonSessionSnapshot | null = replay([created]);
-    expect(initial).not.toBeNull();
-    if (initial === null) return;
-
-    const NEW_CHANNEL_ID: string = "01970000-0000-7000-8000-00000000ABCD";
-    const namelessChannel: StoredEvent = {
-      id: "01J0EV0010NN5J5J5J5J5J5J5J",
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-27T12:01:00.000Z",
-      monotonicNs: 2_000_000_000n,
-      category: "session_lifecycle",
-      type: "channel.created",
-      actor: null,
-      // `name` deliberately omitted — wire-valid per
-      // channelCreatedPayloadSchema.
-      payload: { channelId: NEW_CHANNEL_ID },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    };
-
-    const after: DaemonSessionSnapshot = projectEvent(initial, namelessChannel);
-
-    // Two channels: synthesized "main" + the newly-projected nameless one.
-    expect(after.channels).toHaveLength(2);
-    const projectedNew = after.channels.find((c) => c.channelId === NEW_CHANNEL_ID);
-    expect(projectedNew).toBeDefined();
-    if (projectedNew === undefined) return;
-    // `name` is OMITTED from the projection (mirrors the wire absence)
-    // — NOT coerced to null, NOT defaulted to a synthesized string.
-    // Treating absent-as-absent is the contract; the IPC mapping seam owns
-    // any UI-side fallback (e.g. label-by-channelId).
-    expect(projectedNew.name).toBeUndefined();
-    expect("name" in projectedNew).toBe(false);
-    expect(after.asOfSequence).toBe(1);
-
-    // The bootstrap-synthesized main channel's name is unaffected by the
-    // new channel's omitted-name semantics.
-    const main = after.channels.find((c) => c.channelId === deriveMainChannelId(SESSION_ID));
-    expect(main?.name).toBe("main");
-  });
-
-  it("treats a duplicate-main-channel event with omitted name as an idempotent no-op (alreadyExists check runs before optional-name validation)", () => {
-    // The failure mode in the original code: the validation throw at
-    // `payload.name must be a non-empty string` ran BEFORE the
-    // alreadyExists guard, so even a perfectly-valid duplicate
-    // envelope (matching id of the bootstrap-synthesized main channel)
-    // crashed projection if it omitted the wire-optional name. The
-    // post-fix ordering is alreadyExists → optional-name validation,
-    // which keeps duplicates a clean no-op.
-    const created: StoredEvent = makeCreatedEvent();
-    const expectedMainChannelId: string = deriveMainChannelId(SESSION_ID);
-    const duplicateMainOmittedName: StoredEvent = {
-      id: "01J0EV0011NN5J5J5J5J5J5J5J",
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-27T12:01:00.000Z",
-      monotonicNs: 2_500_000_000n,
-      category: "session_lifecycle",
-      type: "channel.created",
-      actor: null,
-      // SAME id as the bootstrap-synthesized main channel; `name` omitted.
-      payload: { channelId: expectedMainChannelId },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    };
-
-    const snapshot: DaemonSessionSnapshot | null = replay([created, duplicateMainOmittedName]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    // Still exactly one channel — the duplicate was no-op'd.
-    expect(snapshot.channels).toHaveLength(1);
-    expect(snapshot.channels[0]?.channelId).toBe(expectedMainChannelId);
-    // The bootstrap-synthesized name survives — the duplicate envelope's
-    // omitted name does NOT clear or overwrite it.
-    expect(snapshot.channels[0]?.name).toBe("main");
-    expect(snapshot.asOfSequence).toBe(1);
-  });
-
-  it("still rejects a channel.created envelope with a present-but-empty name", () => {
-    // The optional-but-when-present-non-empty stance mirrors
-    // `wireFreeFormString`'s whitespace-rejection: a present empty string
-    // is a producer bug (the producer should OMIT the key, not send "").
-    const created: StoredEvent = makeCreatedEvent();
-    const initial: DaemonSessionSnapshot | null = replay([created]);
-    expect(initial).not.toBeNull();
-    if (initial === null) return;
-
-    const NEW_CHANNEL_ID: string = "01970000-0000-7000-8000-00000000DEAD";
-    const emptyNameChannel: StoredEvent = {
-      id: "01J0EV0012NN5J5J5J5J5J5J5J",
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-27T12:01:00.000Z",
-      monotonicNs: 2_000_000_000n,
-      category: "session_lifecycle",
-      type: "channel.created",
-      actor: null,
-      payload: { channelId: NEW_CHANNEL_ID, name: "" },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    };
-
-    expect(() => projectEvent(initial, emptyNameChannel)).toThrow(
-      /payload\.name must be a non-empty string when present/,
-    );
-  });
-
-  // The shared `deriveMainChannelId` derivation itself (determinism,
-  // lowercase canonical v8 format, version/variant nibbles, distinct ids per
-  // session) is pinned authoritatively by the golden-vector suite in
-  // `packages/contracts/src/__tests__/channel-id.test.ts`. The daemon-side
-  // coverage that the projector USES that shared derivation is provided by the
-  // bootstrap-projection assertions above (each compares the projected
-  // main-channel id against `deriveMainChannelId(SESSION_ID)`), so this file
-  // does not re-test the contracts function.
 });

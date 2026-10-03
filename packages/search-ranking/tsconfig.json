@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.node.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  // Tests stay out of `dist/`; `tsconfig.test.json` typechecks them without emitting.
+  "exclude": ["dist", "node_modules", "src/**/__tests__/**"]
+}

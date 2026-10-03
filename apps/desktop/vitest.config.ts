@@ -1,143 +1,74 @@
-// Vitest 4.x config for @ai-sidekicks/desktop.
+// Vitest config for @ai-sidekicks/desktop.
 //
-// There is a renderer-unit-test surface alongside the main-process smoke test.
-// The two surfaces have fundamentally different runtime environments and
-// MUST NOT share a single `environment` setting:
+// The main-process projects and the renderer's tiers need different environments: the smoke suite
+// spawns a real Electron binary from Node, where DOM globals would be the wrong shape, while the
+// renderer's unit tier runs React under happy-dom. Every project's `include` globs are disjoint, so
+// nothing is discovered twice.
 //
-//   • main suite: existing `test/launch.smoke.test.ts` spawns a real Electron
-//     binary from a Node context — DOM/window globals would be wrong shape.
-//   • renderer suite: new `src/renderer/**/__tests__/**` exercises React
-//     components against `window.desktopBridge` — needs a DOM environment.
-//
-// Vitest's `projects` API (stable in Vitest 3+, present in 4.1.5) lets us
-// declare both inside a single config so `pnpm test` runs them in one
-// invocation. Per-project `include` globs are disjoint, so there is no
-// double-discovery risk.
-//
-// Renderer-untrusted boundary note: happy-dom is a
-// pure-JS DOM shim with no Node-IPC capabilities; it does NOT punch a hole
-// in the renderer's process isolation at test time. The bridge surface
-// (`window.desktopBridge`) is mocked per test (see SessionBootstrap.test.tsx)
-// rather than dispatched to the real preload — there is no `electron`
-// runtime in this test surface.
-//
-// The console's test tiers are all Vitest projects,
-// declared in `vitest/console-projects.ts` and spread below — there is no
-// `playwright.config.ts` anywhere in this repository, and the two tiers that
-// need a real Electron window do not want one: `console-e2e` and
-// `console-endurance` run in a NODE environment where the test file is the
-// DRIVER, and they launch the shell through `test/console/electron-harness.ts`,
-// which holds the single `_electron` call site. Playwright is a library on both
-// halves of this package rather than a second runner — browser mode drives it
-// for the three page tiers, and the harness drives it for the two window ones.
-// Every glob is disjoint — including the two NARROWINGS this phase makes to
-// pre-existing projects, which are load-bearing rather than tidying:
-//
-//   • `main`'s `test/**/*.test.ts` would otherwise swallow every console tier
-//     under `test/console/**` and run it in the smoke project's node
-//     environment. It becomes `test/*.test.ts`, which is exactly the three
-//     files directly under `test/` it has always meant.
-//   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
-//     `exclude` now names the console and shell subtrees so a test co-located
-//     under `src/renderer/src/console/**` or `src/renderer/src/shell/**`
-//     belongs to `console-unit` alone.
-import { defineConfig } from "vitest/config";
+// The renderer's tiers are declared in `vitest/tier-projects.ts` and spread below. Playwright is a
+// library here, not a second runner: browser mode drives it for the page tiers, and
+// `tests/helpers/electron-harness.ts` drives it for the window tiers.
+
+import { configDefaults, defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
-import { WORKSPACE_SOURCE_CONDITIONS } from "./vitest/browser-mode";
-import { CONSOLE_TIER_PROJECTS } from "./vitest/console-projects";
-import { iconCompilationPlugin } from "./vitest/icon-compilation";
+import { RENDERER_TESTS_OUTSIDE_SOURCE, TIER_PROJECTS } from "./vitest/tier-projects";
+import { PATH_ALIASES } from "./vitest/path-aliases";
 
 export default defineConfig({
   test: {
-    // Coverage measurement. Vitest 4 resolves `coverage` root-only when
-    // `projects` are declared, so this block sits beside `projects`, not
-    // inside one.
+    // Coverage is root-only in Vitest 4 when `projects` are declared, so this block sits beside
+    // `projects`, not inside one.
     //
-    // The denominator is deliberately the renderer sub-tree alone. The `main`
-    // project's one test spawns a real Electron binary as a child process
-    // (test/launch.smoke.test.ts); v8 coverage instruments this process, not
-    // that one, so `src/main/**` and `src/preload/**` would report ~0% and drag
-    // the package number toward a figure that measures the harness rather than
-    // the code. Widening this include is the correct move only once the main
-    // process is exercised in-process.
+    // The denominator is the renderer sub-tree alone: the `smoke` project's tests spawn a real
+    // Electron binary as a child process (`tests/launch.smoke.test.ts`), and v8 coverage
+    // instruments this process, not that one, so `src/main/**` and `src/preload/**` would report
+    // ~0% and drag the number toward a figure that measures the harness rather than the code. Widen
+    // the include only once the main process is exercised in-process.
     coverage: sharedCoverageOptions({
       include: ["src/renderer/**/*.{ts,tsx}"],
     }),
     projects: [
       {
+        resolve: { alias: PATH_ALIASES },
         test: {
-          name: "main",
+          name: "smoke",
           environment: "node",
-          // The three files directly under `test/`, and only those: the two
-          // Electron-spawning probes and the sidecar unit that has always sat
-          // beside them. Narrowed from `test/**/*.test.ts` so the console
-          // tiers under `test/console/**` are not
-          // double-discovered here in a node environment that would fail them
-          // for the wrong reason.
-          //
-          // NOTHING CHECKS THE COUNT — a reviewer does, on the diff that adds
-          // a file here. A pure unit that landed at this address paid the whole
-          // tier for two `process.kill(pid, 0)` assertions: the Electron
-          // download, the smoke bundle, and the serialized queue below. A file
-          // that does not spawn Electron belongs in `main-unit`.
-          include: ["test/*.test.ts"],
-          // Two files under this glob each spawn a full Electron/Chromium
-          // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.
-          // Vitest's default `fileParallelism: true` runs them CONCURRENTLY,
-          // and on a 4-vCPU hosted runner that is the documented cause of this
-          // suite's intermittent boot timeout: `lifecycle.gc.test.ts` drives 80
-          // forced stop-the-world full GCs over ~160 MB of allocation churn
-          // while `launch.smoke.test.ts` is trying to complete a cold Chromium
-          // boot against its spawn deadline, and both are also the runner's FIRST
-          // Electron launches, so they contend for the same cold per-`$HOME`
-          // Chromium initialisation (fontconfig cache build, NSS DB creation).
-          //
-          // Measured on the failing run (GitHub Actions run 33571210321):
-          // vitest reported `tests 41.32s` against a wall `Duration 27.58s`,
-          // so the two files provably overlapped by >=13.7 s of the smoke
-          // test's 15.08 s window; `lifecycle.gc.test.ts` took 26.04 s against
-          // its own header's ~5 s expectation, and the smoke boot — measured at
-          // 462-510 ms unloaded — never reached `did-finish-load`.
-          //
-          // Serialising costs ~14 s of wall time in this project and removes
-          // the contention outright. It is deliberately NOT a longer timeout —
-          // this change alters no budget. (`SPAWN_TIMEOUT_MS` was separately
-          // re-derived 15 s -> 30 s from the CI numbers this fix's own runs
-          // produced; see that constant's comment for why the two are not the
-          // same act.) The cross-PACKAGE half of the same contention — turbo
-          // scheduling this project beside the daemon suite — is removed in
-          // `.github/workflows/ci.yml`, not here.
+          // The files directly under `tests/`, and only those: the Electron-spawning probes.
+          // `tests/**/*.test.ts` would pull every tier under `tests/<tier>/**` into this node
+          // environment. A file that does not spawn Electron belongs in `main-unit`.
+          include: ["tests/*.test.ts"],
+          // Serial: `launch.smoke.test.ts` and `lifecycle.gc.test.ts` each spawn a full Electron
+          // process tree, and run together on a 4-vCPU runner the GC probe's forced full
+          // collections starve the smoke test's cold Chromium boot past its spawn deadline (the
+          // two contend for the same per-`$HOME` Chromium initialization). Serializing costs about
+          // 14 s here; a longer timeout would not remove the contention. The cross-package half is
+          // handled in `.github/workflows/ci.yml`.
           fileParallelism: false,
         },
       },
       {
-        // Named `main-unit` because `main` is already taken by the smoke
-        // project above — these are the in-process
-        // units for `src/main/**`, which neither existing project reaches.
-        //
-        // Deliberately NOT hung off `build:smoke` in `turbo.json`: these are
-        // plain-TypeScript units that need no `electron-vite` bundle, and
-        // hanging them off the smoke build would re-impose the ~25-30 s cost the
-        // two-project posture exists to avoid.
+        // The in-process units for `src/main/**` and the package's other Node code, which the smoke
+        // project above does not reach. Not hung off `build:smoke` in `turbo.json`: these are plain
+        // TypeScript units that need no `electron-vite` bundle, and hanging them off the smoke
+        // build would re-impose the ~25-30 s cost the two-project posture exists to avoid.
         define: {
-          // Mirrors the release substitution in `electron.vite.config.ts`, so
-          // `main/index.ts`'s probe branch is statically dead here exactly as it
-          // is in a release bundle. Without it the bare identifier is a
-          // ReferenceError the moment the ready continuation runs.
-          __SIDEKICKS_SMOKE_BUILD__: "false",
-          // `src/main/window-reveal.ts` reads both flags; substituted for the same
-          // reason as the one above.
-          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+          // Mirrors the release substitution in `electron.vite.config.ts`, so `main/index.ts`'s
+          // probe branch is statically dead here exactly as in a release bundle. Without it the
+          // bare identifier is a ReferenceError the moment the ready continuation runs.
+          __SMOKE_BUILD__: "false",
+          // `main/index.ts`'s fixture-launch check and `src/main/windows/window-reveal.ts`'s hidden
+          // windows; substituted for the same reason as above.
+          __FIXTURE_BUILD__: "false",
+          __TEST_TIER_BUILD__: "false",
         },
-        // `src/main/window.ts` imports `SessionIdSchema` from the contracts
-        // `./session` subpath as a VALUE, so this project must resolve the
-        // provider to TS source rather than a possibly-stale `dist/`. Node
-        // environment → the SSR resolver is the one that decides, but both are
-        // set for the same Vite-6 reason the renderer block below records.
-        // Conditions replace vitest's defaults, so `import` / `default` are
-        // re-listed.
+        // `src/main/**` imports contracts values, so this project must resolve the provider to TS
+        // source rather than a possibly stale `dist/`. In a node environment the SSR resolver
+        // decides, but both are set because Vite 6 can apply node conditions in either resolution
+        // pass (vitest-dev/vitest#8431). Conditions replace vitest's defaults, so `import` and
+        // `default` are re-listed.
         resolve: {
+          alias: PATH_ALIASES,
           conditions: ["@ai-sidekicks/source", "import", "default"],
         },
         ssr: {
@@ -148,100 +79,34 @@ export default defineConfig({
         test: {
           name: "main-unit",
           environment: "node",
-          // Disjoint from `test/*.test.ts` (the smoke project) and from
-          // `src/renderer/**/__tests__/**` (the renderer project), so the
-          // posture's no-double-discovery property still holds. `src/shared/**`
-          // joins the set because that subtree is imported by BOTH processes
-          // (see `src/shared/auxiliary-routes.ts`), and a shared module no test
-          // project reaches would be a subtree with no home for its own units.
-          // `src/preload/**` joins it on the same reasoning: `index.ts` is the
-          // expose call and holds nothing to check, but the modules beside it —
-          // `shell-signals.ts` is the first — are plain units over an injected
-          // receiver, and the environment they need is this project's rather
-          // than the renderer's.
-          // `build/**` and `scripts/**` are the package's two executable trees,
-          // and their units are co-located beside the executable exactly as
-          // `src/main/**`'s are; both are spawned as commands from a node
-          // environment, which is this project's.
-          // `test/helpers/**` joins them for the same reason: those suites drive
-          // the cross-process scaffolding — the managed Electron child, the
-          // process-tree readers, the bounded cleanup, the launch deadline — and
-          // the artifact readers driven with doubles, the heap-snapshot writer and
-          // the release fuse wire, which read a packaged artifact or a synthetic
-          // temp root of their own. All of it is Node code with no DOM, and none of
-          // it needs a renderer bundle behind it — which is the property this
-          // project's include list keys on. Read the directory rather than this
-          // sentence for the roster.
+          // Disjoint from `tests/*.test.ts` (the smoke project) and from the tiers, so nothing is
+          // discovered twice.
+          //
+          // `src/shared/**` is imported by both processes, and a shared module no test project
+          // reaches would have no home for its own units. `src/preload/**` follows the same
+          // reasoning: `index.ts` is the expose call and holds nothing to check, and a module
+          // beside it is a plain unit whose environment is this project's, not a DOM's. `build/**`
+          // and `scripts/**` are the package's two executable trees, with units co-located beside
+          // the executable as in `src/main/**`, spawned as commands from a node environment.
+          // `tests/helpers/**` joins them because a helper's own suite drives Node scaffolding with
+          // no DOM and no need for a renderer bundle. A helper test that needs the DOM runs in the
+          // renderer project and is excluded here.
           include: [
             "src/main/**/*.test.ts",
             "src/preload/**/*.test.ts",
             "src/shared/**/*.test.ts",
             "build/**/*.test.ts",
             "scripts/**/*.test.ts",
-            "test/helpers/**/*.test.ts",
+            "tests/helpers/**/*.test.ts",
           ],
+          exclude: [...configDefaults.exclude, ...RENDERER_TESTS_OUTSIDE_SOURCE],
         },
       },
-      {
-        // Resolve workspace *value* imports (e.g. `NotImplementedError`
-        // from @ai-sidekicks/contracts in SessionBootstrap.test.tsx) to TS source,
-        // not stale dist/, via the provider's `@ai-sidekicks/source` export
-        // condition. happy-dom is Vite's *client* environment → the knob is
-        // `resolve.conditions`; per vitest-dev/vitest#8431 (Vite 6 can wrongly apply
-        // node conditions in happy-dom resolution passes) we set `ssr.resolve.*` too.
-        // Conditions replace vitest's defaults, so `import`/`default` are re-listed.
-        // (The node `main` smoke project imports contracts type-only → erased →
-        // needs none. The `main-unit` project above DOES need them — see its
-        // own block.)
-        // A pre-console renderer component consumes the console's subject-scoped holder —
-        // `runtime-node-attach/NodeRoster.tsx` holds its roster per session and per
-        // transport — and that holder reaches the console's `core` door, which
-        // carries the tripwire module's fixture branch. So this project compiles
-        // console source even though it runs no console test, and the flag has to be
-        // substituted here for the same reason `main-unit` above substitutes it:
-        // without it the bare identifier is a ReferenceError at import time. `false`,
-        // matching the release bundle, so the branch is statically dead.
-        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
-        // And the console's icon resolver for the same reason: a pre-console
-        // component that reaches a console door reaches the glyph primitive
-        // with it, so this project compiles `~icons/*` specifiers even though
-        // it runs no console test.
-        plugins: [iconCompilationPlugin()],
-        resolve: {
-          conditions: WORKSPACE_SOURCE_CONDITIONS,
-        },
-        ssr: {
-          resolve: {
-            conditions: WORKSPACE_SOURCE_CONDITIONS,
-          },
-        },
-        test: {
-          name: "renderer",
-          environment: "happy-dom",
-          // Co-locate renderer unit tests under `src/renderer/**/__tests__/**`
-          // to mirror the per-package convention used by `packages/contracts`
-          // and `packages/client-sdk` (renderer is its own composite TS
-          // project; its tests live inside that project's source tree).
-          include: ["src/renderer/**/__tests__/**/*.test.{ts,tsx}"],
-          // The console owns its own tier; a console or shell test never runs here.
-          exclude: ["src/renderer/src/console/**", "src/renderer/src/shell/**"],
-          // `globals: true` populates `vi`, `expect`, `describe`, `it`,
-          // `afterEach` etc. on the global scope so the test file can rely
-          // on `vitest/globals` types (configured in
-          // `src/renderer/tsconfig.test.json` — kept separate from the
-          // production renderer `tsconfig.json` so vitest globals never leak
-          // into renderer production code's typegraph).
-          globals: true,
-        },
-      },
-
-      // --- Console test tiers ----------------------------------------------
+      // --- Renderer test tiers ---------------------------------------------
       //
-      // Declared in `vitest/console-projects.ts`, spread here. The tiers are one
-      // subject and this file composes rather than declares them, so the count
-      // lives there beside the projects it counts rather than here, where a reader
-      // would have to trust it.
-      ...CONSOLE_TIER_PROJECTS,
+      // Declared in `vitest/tier-projects.ts` and spread here. The tiers are one subject and this
+      // file composes rather than declares them, so the count lives beside the projects it counts.
+      ...TIER_PROJECTS,
     ],
   },
 });

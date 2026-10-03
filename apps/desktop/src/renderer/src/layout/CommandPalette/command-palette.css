@@ -1,0 +1,184 @@
+/*
+ * The command palette's chrome. Colors are Meridian tokens only, so the contrast tier can measure
+ * them. Entrances fade with a 2 px rise over `--meridian-motion-settle` and never overshoot;
+ * reduced motion is handled by the generated base sheet. Attention is steered by luminance: amber
+ * and red appear only in the empty-state block.
+ */
+
+.command-palette__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--meridian-ground);
+  opacity: 0.72;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.command-palette__backdrop[data-starting-style],
+.command-palette__backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+.command-palette__popup {
+  position: fixed;
+  /* Above center, so the first result is not below the gaze. */
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, calc(100vw - var(--meridian-space-8)));
+  max-height: min(30rem, 70vh);
+  overflow: hidden;
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  box-shadow: 0 1.5rem 3rem oklch(0% 0 0 / 22%);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  transition:
+    opacity var(--meridian-motion-settle) var(--meridian-ease-settle),
+    translate var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+.command-palette__popup[data-starting-style],
+.command-palette__popup[data-ending-style] {
+  opacity: 0;
+  translate: 0 2px;
+}
+
+/* The scope row: what the commands below act on. */
+.command-palette__scope {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.command-palette__scope-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--meridian-text-faint);
+}
+
+.command-palette__scope-value {
+  color: var(--meridian-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.command-palette__input {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--meridian-space-4);
+  border: 0;
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-family: inherit;
+  font-size: var(--meridian-text-lg);
+  line-height: 1.4;
+}
+
+.command-palette__input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+.command-palette__list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--meridian-space-2) 0;
+}
+
+.command-palette__group-label {
+  padding: var(--meridian-space-2) var(--meridian-space-4) var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.command-palette__item {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-left: var(--meridian-leading-edge) solid transparent;
+  color: var(--meridian-text-muted);
+  cursor: default;
+  scroll-margin: var(--meridian-space-2);
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.command-palette__item[data-highlighted] {
+  background: var(--meridian-surface);
+  border-left-color: var(--meridian-accent);
+  color: var(--meridian-text);
+}
+
+.command-palette__item-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Matched characters: luminance, never hue. */
+.command-palette__match {
+  color: var(--meridian-text);
+  font-weight: 640;
+}
+
+/*
+ * Why a listed row cannot be run. Faint and no attention hue: the banner over the frame carries
+ * the attention. The title stays at full contrast so the reason is not harder to read than the row.
+ */
+.command-palette__item-unavailable {
+  flex: 0 0 auto;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* Where the chord sits; the keycap itself is `ChordHint`, so this sets layout only. */
+.command-palette__chord {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.command-palette__recent-mark {
+  flex: 0 0 auto;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* The one empty state: the query matched nothing. */
+.command-palette__empty-state {
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.command-palette__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-top: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* The refused press, below the rows. */
+.command-palette__refusal {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-top: 1px solid var(--meridian-edge);
+}

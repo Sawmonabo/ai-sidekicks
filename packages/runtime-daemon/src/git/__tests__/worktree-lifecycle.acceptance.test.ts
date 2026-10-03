@@ -1,76 +1,7 @@
-// Worktree-lifecycle acceptance suite.
-//
-// The ACCEPTANCE tier for the Phase 2 git services: `../worktree-service.ts`,
-// `../ephemeral-clone-service.ts` and
-// `../../workspace/execution-root-service.ts`, driven over REAL git repositories
-// in temporary directories. The sibling unit suites assert what the services ASK
-// git to do by recording argv against a fake; this suite asserts what git
-// actually DID, which is the only tier where a modelling mistake in those fakes
-// can be caught.
-//
-// Two harness choices carry the evidential weight:
-//
-//   * The git seams of `WorktreeService` and `EphemeralCloneService` are left at
-//     their PRODUCTION defaults — `execFile` against the real `git` binary. The
-//     services are therefore exercised through the same process seam a daemon
-//     uses; nothing about the invocation is modelled here. `ExecutionRootService`
-//     takes its `git` / `filesystem` seams with no defaults, so this suite
-//     supplies real ones rather than stubs.
-//   * Every fixture repository is HOSTILE: sentinel hooks are installed in its
-//     `.git/hooks` before any service touches it, and each one records that it
-//     ran. Fixture-side git is itself hook-neutralized, so the presence of ANY
-//     marker is caused by a service invocation and nothing else. The negative
-//     control below runs one un-neutralized `worktree add` and asserts the
-//     markers DO appear — without it, "no hooks fired" would be satisfied by
-//     sentinels that were never armed.
-//
-// Several arms mutate the repository (branch creation, a real merge, a
-// pre-created colliding branch, a detached HEAD), and a shared repository
-// would let one case's refs decide another case's outcome. The cost is one
-// `git init` + commit per test.
-//
-// Coverage map (the cites are the contract, not just the ACs):
-//
-//   * the main checkout is never mutated as a hidden fallback. Asserted as GROUND
-//     TRUTH: a content hash of every working-tree file, plus HEAD's symbolic ref,
-//     HEAD's commit, `status --porcelain` and the branch roster, compared before and
-//     after every failure path in one pass.
-//   * : a writable run on a git repo defaults to worktree mode. Asserted at the
-//     capability projection AND end-to-end through `ExecutionRootService.prepare`,
-//     which materializes a real linked worktree.
-//   * : worktree creation failure blocks the run instead of mutating the main
-//     checkout. Both divergence arms (`refuse` and `suffix`) surface a typed
-//     refusal, mark the row `failed`, leave no root behind, and leave the checkout
-//     byte-identical.
-//   * : a reused worktree stays explicitly linked to its branch and prior run
-//     context — same worktree, same root, same `branch_contexts` row (id and
-//     `created_at` preserved), provenance intact.
-//
-// Verifies invariant:
-//
-//   * No path checks out, creates, switches or merges branches inside the
-//     mount's main checkout. The byte-identity pass is the ground truth; the
-//     merge arm shows that even a MERGED branch is observed as a git fact rather
-//     than produced by the daemon.
-//   * No silent mode substitution: a failed materialization refuses with the
-//     typed carrier and lands the workspace in `stale` with the failure
-//     recorded, rather than returning a lesser mode or a fallback root.
-//   * Explicit reuse only: a candidate binds solely via `reuseWorktreeId`, a
-//     dirty candidate needs `acknowledgeDirtyCandidate` as well, and a prepare
-//     that omits the id REFUSES rather than rebinding.
-//   * No repository-controlled code executes during provisioning: the
-//     hostile hooks never fire for any service invocation — the
-//     `hooks/`-resident sentinels `core.hooksPath` redirects away AND the
-//     config-named fsmonitor hook `-c core.fsmonitor=false` suppresses — and
-//     the neutralization directory the services point `core.hooksPath` at is
-//     empty.
-//   * Every observed lifecycle transition emits its mapped event: the
-//     full-sequence event assertions on the lifecycle walks
-//     (create→reuse→retire→cleanup, the failure arms, and the clone walk's
-//     empty sequence) are the evidence the emitter and its unit suite delegate
-//     to this tier — a thinned sequence assertion here breaks that hand-off.
+// The worktree and execution-root services over real git in hostile fixture repositories: what git
+// actually did, that the user's main checkout and branches are never touched, and that no
+// repository-controlled hook runs.
 
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -81,7 +12,6 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { mkdir } from "node:fs/promises";
@@ -91,24 +21,22 @@ import { join, relative } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SessionId } from "@ai-sidekicks/contracts";
-
 import { EventLogService } from "../../events/event-log-service.js";
-import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
+import { SessionService } from "../../session/session-service.js";
 import { ExecutionRootService } from "../../workspace/execution-root-service.js";
-import type {
-  ExecutionRootGitRunner,
-  WorkspaceLifecyclePrimitives,
-} from "../../workspace/execution-root-service.js";
+import type { WorkspaceLifecyclePrimitives } from "../../workspace/execution-root-service.js";
 import { WorkspaceEventEmitter } from "../../workspace/workspace-event-emitter.js";
+import {
+  buildFixtureEnvironment,
+  captureRejection,
+  requireWorkspaceRow,
+  spawnFixtureGit,
+  type FixtureGitResult,
+} from "../../workspace/__tests__/workspace.test-support.js";
 import { computeExecutionModeCapabilities } from "../../workspace/workspace-projector.js";
 import { WorkspaceService } from "../../workspace/workspace-service.js";
-import { EphemeralCloneService } from "../ephemeral-clone-service.js";
 import {
-  ClonePrepareFailedError,
   WorkspaceBranchMismatchError,
   WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
@@ -116,47 +44,37 @@ import {
   WorktreeReuseConflictError,
 } from "../worktree-errors.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
-import { WorktreeService, deriveWorktreeBranchName } from "../worktree-service.js";
+import { WorktreeService } from "../worktree-service.js";
+import { deriveWorktreeBranchName } from "../worktree-branch-name.js";
+import { runGitWithExecFile } from "../git-process.js";
 
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
 
-// Session, mount, workspace and worktree ids travel branded UUID schemas at the
-// emission boundary, so every fixture id is a real UUID.
+// Session, mount, workspace and worktree ids are parsed as branded UUIDs at the emission
+// boundary, so every fixture id is a real UUID.
 const SESSION_ID: string = "0191a2b0-1111-7c4a-9b1c-1b7c5b3e8f00";
 const REPO_MOUNT_ID: string = "0191a2b0-2222-7f7b-9a32-3d8e7c5f0b21";
-const DETACHED_REPO_MOUNT_ID: string = "0191a2b0-3333-7f7b-9a32-3d8e7c5f0b22";
 const WORKSPACE_ID: string = "0191a2b0-4444-7a8c-8b43-4e9f8d60c132";
-const CLONE_WORKSPACE_ID: string = "0191a2b0-5555-7a8c-8b43-4e9f8d60c133";
-const DETACHED_WORKSPACE_ID: string = "0191a2b0-6666-7a8c-8b43-4e9f8d60c134";
-const BRANCH_WORKSPACE_ID: string = "0191a2b0-8888-7a8c-8b43-4e9f8d60c135";
+const BOUND_ROOT_WORKSPACE_ID: string = "0191a2b0-8888-7a8c-8b43-4e9f8d60c135";
 const RUN_ID: string = "0191a2b0-7777-7b9d-9c54-5f0a9e71c243";
 
 const DEFAULT_BRANCH: string = "main";
 const EPOCH_MS: number = Date.UTC(2026, 7, 4, 0, 0, 0);
-const ONE_DAY_MS: number = 24 * 60 * 60 * 1000;
-
-/** Wall-clock ceiling for fixture-side git. Generous: these are cold processes. */
-const FIXTURE_GIT_TIMEOUT_MS: number = 30_000;
 
 /**
- * Per-test ceiling. Well above the observed cost of a fixture build plus a
- * handful of git processes, and far below anything that would let a hung child
- * stall the run — vitest's 5s default is not enough for a case that spawns a
- * clone.
+ * Per-test ceiling: well above a fixture build plus several git processes (vitest's 5s default is
+ * too short), and far below anything that would let a hung child stall the run.
  */
 const ACCEPTANCE_TEST_TIMEOUT_MS: number = 60_000;
 
 /**
- * The hooks installed in every fixture repository.
- *
- * Chosen for what a provisioning invocation would actually trip: `git worktree
- * add -b` writes a ref (`reference-transaction`) and populates a checkout
- * (`post-checkout`); `post-merge`, `pre-commit` and `post-commit` cover the
- * mutating verbs says are never issued at all. Each script exits 0 — a
- * `reference-transaction` hook that failed would abort the ref update and turn a
- * hook-neutralization case into a git-failure case.
+ * The hooks installed in every fixture repository. `git worktree add -b` trips
+ * `reference-transaction` (ref write) and `post-checkout` (checkout population); `post-merge`,
+ * `pre-commit` and `post-commit` cover mutating verbs the services never issue. Each script exits
+ * 0, since a failing `reference-transaction` hook would abort the ref update and turn a
+ * neutralization case into a git-failure case.
  */
 const SENTINEL_HOOK_NAMES: readonly string[] = [
   "post-checkout",
@@ -167,128 +85,21 @@ const SENTINEL_HOOK_NAMES: readonly string[] = [
 ];
 
 /**
- * The marker the config-named fsmonitor sentinel writes.
- *
- * Deliberately NOT a member of {@link SENTINEL_HOOK_NAMES}: those are
- * `hooks/`-resident files `core.hooksPath` redirects away, while the fsmonitor
- * hook is named by a repo-local `core.fsmonitor=<pathname>` that
- * `core.hooksPath` never governs. The services suppress it with
- * `-c core.fsmonitor=false`, and the mechanism-attribution control below is
- * what proves that second flag is load-bearing rather than decorative.
+ * The marker the config-named fsmonitor sentinel writes. It is not in {@link SENTINEL_HOOK_NAMES}:
+ * those are `hooks/`-resident files `core.hooksPath` redirects away, while the fsmonitor hook is
+ * named by a repo-local `core.fsmonitor=<pathname>` that `core.hooksPath` never governs. The
+ * services suppress it with `-c core.fsmonitor=false`.
  */
 const FSMONITOR_SENTINEL_MARKER: string = "fsmonitor-hook";
-
-/** A fixed-key signing source — enough for a suite that only ever signs. */
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
-
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 // ----------------------------------------------------------------------------
 // Real git, fixture side
 // ----------------------------------------------------------------------------
 
-interface FixtureGitResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
 /**
- * Build the environment fixture git runs under.
- *
- * Hermetic by construction: system and global configuration are switched off,
- * `HOME` and `XDG_CONFIG_HOME` point inside the fixture, and every discovery
- * redirector inherited from the ambient environment is stripped. These fixtures
- * are built while the process working directory is the repository under
- * development, and a `GIT_DIR` leaking in from the harness would point fixture
- * commands at THAT repository.
- */
-function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_PARAMETERS",
-  ]) {
-    delete environment[key];
-  }
-  environment["HOME"] = fixtureRoot;
-  environment["XDG_CONFIG_HOME"] = join(fixtureRoot, "xdg");
-  environment["GIT_CONFIG_NOSYSTEM"] = "1";
-  environment["GIT_CONFIG_GLOBAL"] = join(fixtureRoot, "absent-global-gitconfig");
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  environment["GIT_AUTHOR_NAME"] = "Fixture Author";
-  environment["GIT_AUTHOR_EMAIL"] = "fixture@example.invalid";
-  environment["GIT_COMMITTER_NAME"] = "Fixture Author";
-  environment["GIT_COMMITTER_EMAIL"] = "fixture@example.invalid";
-  return environment;
-}
-
-/**
- * Spawn git and RESOLVE on any exit status, rejecting only when there was no
- * exit status at all.
- *
- * The distinction matters for the assertions built on top: `merge-base
- * --is-ancestor` reports its answer as an exit code, so a helper that threw on
- * non-zero could not ask the question. A missing binary or a killed process
- * carries a string `code` (or none) instead, and that is a harness fault rather
- * than an answer.
- */
-function spawnGit(
-  argv: readonly string[],
-  environment: NodeJS.ProcessEnv,
-  cwd: string,
-): Promise<FixtureGitResult> {
-  return new Promise<FixtureGitResult>((resolve, reject) => {
-    execFile(
-      "git",
-      [...argv],
-      { encoding: "utf8", env: environment, cwd, timeout: FIXTURE_GIT_TIMEOUT_MS },
-      (error, stdout, stderr) => {
-        if (error === null) {
-          resolve({ exitCode: 0, stdout, stderr });
-          return;
-        }
-        // `ExecFileException.code` admits `null` as well as the string codes a
-        // spawn failure carries; only a NUMBER is an exit status.
-        const reportedCode: number | string | null | undefined = error.code;
-        if (typeof reportedCode !== "number") {
-          reject(new Error(`fixture git ${argv.join(" ")} did not run: ${String(error.message)}`));
-          return;
-        }
-        resolve({ exitCode: reportedCode, stdout, stderr });
-      },
-    ).on("error", reject);
-  });
-}
-
-/**
- * One real git repository under a temporary root, plus the sentinel-hook
- * apparatus that makes assertable.
- *
- * Fixture-side invocations are hook-neutralized by DEFAULT, the same way the
- * services neutralize theirs. That is what gives the marker directory its
- * meaning: a marker can only have been written by an invocation this class did
- * not issue — i.e. by a service — or by the one deliberate negative control that
- * asks for hooks to run.
+ * One real git repository under a temporary root, plus the sentinel-hook apparatus. Fixture-side
+ * invocations are hook-neutralized by default, like the services', so a marker can only come from
+ * a service or from the arming probe that asks for hooks to run.
  */
 class FixtureRepository {
   readonly root: string;
@@ -321,7 +132,7 @@ class FixtureRepository {
 
   /** Hook-neutralized invocation; the caller inspects the exit status itself. */
   gitCapturing(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
-    return spawnGit(
+    return spawnFixtureGit(
       [
         "-c",
         `core.hooksPath=${this.#hookNeutralizationDirectory}`,
@@ -335,40 +146,18 @@ class FixtureRepository {
   }
 
   /**
-   * The first escape hatch: an invocation that lets the repository's own hooks
-   * run. Reserved for the controls that prove the sentinels are armed.
+   * Escape hatch: lets the repository's own hooks run. For the controls that prove the sentinels
+   * are armed.
    */
   gitWithHooksLive(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
-    return spawnGit([...argv], this.#environment, cwd);
+    return spawnFixtureGit([...argv], this.#environment, cwd);
   }
 
   /**
-   * The second escape hatch: `core.hooksPath` neutralized, `core.fsmonitor`
-   * left alone. Reserved for the mechanism-attribution control — the
-   * config-named fsmonitor hook fires through this form and through nothing
-   * {@link gitCapturing} issues, which is what pins the services' second flag
-   * as load-bearing.
-   */
-  gitWithHooksPathOnly(
-    argv: readonly string[],
-    cwd: string = this.root,
-  ): Promise<FixtureGitResult> {
-    return spawnGit(
-      ["-c", `core.hooksPath=${this.#hookNeutralizationDirectory}`, ...argv],
-      this.#environment,
-      cwd,
-    );
-  }
-
-  /**
-   * Install the `hooks/`-resident sentinels plus the fsmonitor sentinel script,
-   * and return the pathname the repo-local `core.fsmonitor` must point at —
-   * config the CALLER writes, because this method spawns nothing.
-   *
-   * The fsmonitor script answers the hook protocol honestly: `/` on stdout is
-   * the valid "consider everything changed" reply, so a consulted sentinel
-   * leaves git CORRECT and merely slower — a sentinel that broke `status` would
-   * turn a neutralization case into a git-failure case.
+   * Installs the `hooks/`-resident sentinels and the fsmonitor sentinel script, and returns the
+   * pathname the repo-local `core.fsmonitor` must point at (the caller writes that config; this
+   * method spawns nothing). The fsmonitor script answers `/` on stdout, the valid "everything
+   * changed" reply, so a consulted sentinel leaves git correct and only slower.
    */
   installSentinelHooks(): string {
     const hooksDirectory = join(this.root, ".git", "hooks");
@@ -403,15 +192,10 @@ class FixtureRepository {
 }
 
 /**
- * Create a repository with one commit and the sentinel hooks installed.
- *
- * `git init` followed by `symbolic-ref HEAD` rather than `git init -b main`: the
- * hermetic environment above switches off the configuration that would otherwise
- * name a default branch, and this repository has no ratified minimum git version
- * to lean on for the newer flag. The initial commit is not optional — a `create`
- * against an unborn HEAD resolves a base ref that names no commit, and
- * `worktree add` would then fail for a reason that has nothing to do with the
- * case under test.
+ * Creates a repository with one commit and the sentinel hooks installed. `git init` plus
+ * `symbolic-ref HEAD` stands in for `git init -b main`, so the fixture does not depend on a git
+ * version new enough for that flag. The initial commit is required: `worktree add` against an
+ * unborn HEAD fails for reasons unrelated to the case under test.
  */
 async function buildFixtureRepository(options: {
   readonly parentDirectory: string;
@@ -446,17 +230,12 @@ async function buildFixtureRepository(options: {
 }
 
 /**
- * Assert that THIS repository's sentinels really fire, then undo the trigger.
- *
- * "No hook ran" is only evidence if a hook could have run, and the negative
- * control below uses a throwaway repository of its own — so a mount fixture that
- * silently failed to install its hooks would satisfy every assertion vacuously.
- * A ref update is the smallest un-neutralized trigger available for the
- * `hooks/`-resident sentinels: it fires `reference-transaction` and leaves
- * nothing behind once the branch is deleted. The fsmonitor sentinel needs its
- * own arming probe because no `hooks/`-resident trigger reaches it — an
- * un-neutralized `status` refreshes the index and must consult the repo-local
- * `core.fsmonitor` pathname.
+ * Asserts that this repository's sentinels really fire, then undoes the trigger. "No hook ran" is
+ * evidence only if a hook could have run, so a mount fixture that failed to install its hooks would
+ * otherwise pass every assertion vacuously. A branch
+ * create is the smallest un-neutralized trigger for the `hooks/`-resident sentinels
+ * (`reference-transaction`). The fsmonitor sentinel needs its own probe, an un-neutralized
+ * `status`, because no `hooks/`-resident trigger reaches it.
  */
 async function proveSentinelsAreArmed(repository: FixtureRepository): Promise<void> {
   const armingProbe = await repository.gitWithHooksLive(["branch", "sentinel-arming-probe"]);
@@ -485,13 +264,9 @@ interface MainCheckoutSnapshot {
 }
 
 /**
- * Hash the working tree, skipping `.git`.
- *
- * `.git` is excluded deliberately: a lawful `worktree add` DOES write
- * administrative files there, and the claim is about the CHECKOUT — the files a
- * user has open and the branch they are on. The ref roster and HEAD are
- * captured separately, through git, so ref-level changes are still in the
- * comparison without dragging worktree bookkeeping into it.
+ * Hashes the working tree, skipping `.git`. A lawful `worktree add` writes administrative files
+ * there, and the claim is about the checkout; ref-level changes are still compared through the
+ * ref roster and HEAD captured separately.
  */
 function hashWorkingTree(root: string): readonly string[] {
   const entries: string[] = [];
@@ -519,10 +294,9 @@ async function snapshotMainCheckout(repository: FixtureRepository): Promise<Main
     "--format=%(refname) %(objectname)",
     "refs/heads",
   ]);
-  // `--quiet` turns detachment into a plain exit 1 instead of a fatal 128, so
-  // the ONE snapshot helper serves attached and detached checkouts alike — a
-  // null here doubles as the detachment premise the branch-mode refusal case
-  // asserts on before exercising the seam.
+  // `--quiet` makes a detached HEAD a plain exit 1 instead of a fatal 128, so one helper serves
+  // attached and detached checkouts; a null result is also the detachment premise the bound-root
+  // refusal case asserts on.
   const headSymbolicRefProbe = await repository.gitCapturing(["symbolic-ref", "--quiet", "HEAD"]);
   return {
     workingTree: hashWorkingTree(repository.root),
@@ -551,7 +325,6 @@ interface AcceptanceContext {
   db: DatabaseType;
   workspaces: WorkspaceService;
   worktrees: WorktreeService;
-  clones: EphemeralCloneService;
   executionRoots: ExecutionRootService;
   currentInstantMs: number;
 }
@@ -566,45 +339,10 @@ function advanceClock(milliseconds: number): void {
   ctx.currentInstantMs += milliseconds;
 }
 
-/**
- * `ExecutionRootService`'s git seam, wired to the real binary.
- *
- * Unlike the two git services, this one takes its seam with NO default, so the
- * composition root — here, the suite — has to supply it. The seam reports an
- * exit code because `branch` mode's `symbolic-ref --quiet` answers "detached
- * HEAD" by exiting 1 with empty output, which is a legitimate answer rather than
- * a failure.
- */
-function buildExecutionRootGitRunner(environment: NodeJS.ProcessEnv): ExecutionRootGitRunner {
-  return (argv, options) =>
-    new Promise((resolve, reject) => {
-      execFile(
-        "git",
-        [...argv],
-        { encoding: "utf8", env: environment, timeout: options.timeoutMs },
-        (error, stdout, stderr) => {
-          if (error === null) {
-            resolve({ exitCode: 0, stdout, stderr });
-            return;
-          }
-          // `ExecFileException.code` admits `null` as well as the string codes a
-          // spawn failure carries; only a NUMBER is an exit status.
-          const reportedCode: number | string | null | undefined = error.code;
-          if (typeof reportedCode !== "number") {
-            reject(new Error(`git ${argv.join(" ")} did not run: ${String(error.message)}`));
-            return;
-          }
-          resolve({ exitCode: reportedCode, stdout, stderr });
-        },
-      ).on("error", reject);
-    });
-}
-
 beforeEach(async () => {
-  // `realpathSync` because macOS hands out `/var/...` symlinks for the temporary
-  // directory while git reports the resolved `/private/var/...` form. Comparing
-  // a service-minted path against `git worktree list` output needs both sides
-  // resolved.
+  // `realpathSync` because macOS hands out `/var/...` symlinks for the temporary directory while
+  // git reports the resolved `/private/var/...`; comparing service-minted paths with
+  // `git worktree list` needs both resolved.
   const fixtureRoot: string = realpathSync(
     mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-acceptance-")),
   );
@@ -626,45 +364,37 @@ beforeEach(async () => {
   const db: DatabaseType = openDatabase(join(fixtureRoot, "acceptance.db"));
   const eventLog = new EventLogService({
     db,
-    signingKeySource: new FixedDaemonSigningKeySource(),
   });
 
   const workspaces = new WorkspaceService({
     database: db,
     events: new WorkspaceEventEmitter({ sessionEvents: eventLog }),
+    sessions: new SessionService(db),
     now: clock,
   });
-  // The `git` seam is deliberately OMITTED on both services: omitting it is what
-  // selects the production `execFile` runner, which is the whole point of this
-  // tier.
+  // The worktree service's `git` seam is omitted on purpose: that selects the production `execFile`
+  // runner.
   const worktrees = new WorktreeService({
     database: db,
     events: new WorktreeEventEmitter({ sessionEvents: eventLog }),
     executionRootsDirectory,
     now: clock,
   });
-  const clones = new EphemeralCloneService({
-    database: db,
-    executionRootsDirectory,
-    beginWorkspaceReprovision: (workspaceId, targetMode) =>
-      workspaces.beginReprovision(workspaceId, targetMode),
-    now: clock,
-  });
   const workspacePrimitives: WorkspaceLifecyclePrimitives = {
     assertWritable: (workspaceId) => workspaces.assertWritable(workspaceId),
-    beginReprovision: (workspaceId, targetMode) =>
-      workspaces.beginReprovision(workspaceId, targetMode),
-    completeReprovision: (workspaceId, fsRoot) =>
-      workspaces.completeReprovision(workspaceId, fsRoot),
-    failReprovision: (workspaceId, detail) => workspaces.failReprovision(workspaceId, detail),
+    beginRootPreparation: (workspaceId, targetMode) =>
+      workspaces.beginRootPreparation(workspaceId, targetMode),
+    completeRootPreparation: (workspaceId, fsRoot) =>
+      workspaces.completeRootPreparation(workspaceId, fsRoot),
+    failRootPreparation: (workspaceId, detail) =>
+      workspaces.failRootPreparation(workspaceId, detail),
   };
   const executionRoots = new ExecutionRootService({
     database: db,
     workspaces: workspacePrimitives,
     worktrees,
-    clones,
     executionRootsDirectory,
-    git: buildExecutionRootGitRunner(environment),
+    git: runGitWithExecFile,
     filesystem: {
       createDirectory: async (path: string): Promise<void> => {
         await mkdir(path, { recursive: true });
@@ -683,7 +413,6 @@ beforeEach(async () => {
     db,
     workspaces,
     worktrees,
-    clones,
     executionRoots,
     currentInstantMs: EPOCH_MS,
   };
@@ -692,9 +421,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a MODULE SINGLETON — a case that left a queue
-  // entry behind would stall the next case on the same session id.
-  __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
   }
@@ -710,23 +436,19 @@ function insertMount(repoMountId: string, canonicalRoot: string): void {
   ctx.db
     .prepare(
       `INSERT INTO repo_mounts (
-         id, session_id, node_id, local_path, canonical_root, state, attached_at, updated_at
-       ) VALUES (?, ?, 'node-1', ?, ?, 'attached', ?, ?)`,
+         id, node_id, local_path, canonical_root, state, attached_at, updated_at
+       ) VALUES (?, 'node-1', ?, ?, 'attached', ?, ?)`,
     )
-    .run(repoMountId, SESSION_ID, canonicalRoot, canonicalRoot, clock(), clock());
+    .run(repoMountId, canonicalRoot, canonicalRoot, clock(), clock());
 }
 
 /**
- * Seed a workspace directly.
- *
- * Raw INSERT rather than `WorkspaceService.bind` suite: binding resolves a
- * directory through the trust envelope, which is the subject, not this
- * suite's. Every case that cares about a TRANSITION still drives the real
- * primitives through the service under test.
+ * Seeds a workspace directly. A raw INSERT rather than `WorkspaceService.bind`, which lands
+ * `preparing` with no root; these cases start from a workspace that already has one. Cases about a
+ * transition still drive the real primitives through the service under test.
  */
 function insertWorkspace(options: {
   readonly workspaceId: string;
-  readonly repoMountId?: string;
   readonly executionMode: string;
   readonly fsRoot: string;
   readonly state?: string;
@@ -741,7 +463,7 @@ function insertWorkspace(options: {
     .run({
       id: options.workspaceId,
       session_id: SESSION_ID,
-      repo_mount_id: options.repoMountId ?? REPO_MOUNT_ID,
+      repo_mount_id: REPO_MOUNT_ID,
       execution_mode: options.executionMode,
       fs_root: options.fsRoot,
       state: options.state ?? "ready",
@@ -784,32 +506,10 @@ function readWorktreeRows(): readonly WorktreeTestRow[] {
     .all();
 }
 
-interface WorkspaceTestRow {
-  readonly id: string;
-  readonly execution_mode: string;
-  readonly fs_root: string | null;
-  readonly state: string;
-  readonly metadata: string;
-}
-
-function readWorkspaceRow(workspaceId: string): WorkspaceTestRow {
-  const row = ctx.db
-    .prepare<
-      [string],
-      WorkspaceTestRow
-    >(`SELECT id, execution_mode, fs_root, state, metadata FROM workspaces WHERE id = ?`)
-    .get(workspaceId);
-  if (row === undefined) {
-    throw new Error(`expected a workspaces row for ${workspaceId}`);
-  }
-  return row;
-}
-
 interface BranchContextTestRow {
   readonly id: string;
   readonly workspace_id: string;
   readonly worktree_id: string | null;
-  readonly ephemeral_clone_id: string | null;
   readonly base_branch: string;
   readonly head_branch: string;
   readonly created_at: string;
@@ -818,32 +518,10 @@ interface BranchContextTestRow {
 function readBranchContexts(): readonly BranchContextTestRow[] {
   return ctx.db
     .prepare<[], BranchContextTestRow>(
-      `SELECT id, workspace_id, worktree_id, ephemeral_clone_id, base_branch, head_branch, created_at
+      `SELECT id, workspace_id, worktree_id, base_branch, head_branch, created_at
          FROM branch_contexts ORDER BY id ASC`,
     )
     .all();
-}
-
-interface CloneTestRow {
-  readonly id: string;
-  readonly workspace_id: string;
-  readonly clone_root: string;
-  readonly branch_name: string;
-  readonly state: string;
-  readonly cleaned_at: string | null;
-}
-
-function readCloneRow(cloneId: string): CloneTestRow {
-  const row = ctx.db
-    .prepare<[string], CloneTestRow>(
-      `SELECT id, workspace_id, clone_root, branch_name, state, cleaned_at
-         FROM ephemeral_clones WHERE id = ?`,
-    )
-    .get(cloneId);
-  if (row === undefined) {
-    throw new Error(`expected an ephemeral_clones row for ${cloneId}`);
-  }
-  return row;
 }
 
 function readEventTypes(): readonly string[] {
@@ -855,15 +533,6 @@ function readEventTypes(): readonly string[] {
     .map((row) => row.type);
 }
 
-async function captureRejection(work: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await work();
-  } catch (rejection) {
-    return rejection;
-  }
-  throw new Error("expected the call to reject, but it resolved");
-}
-
 /** Unwrap an optional the case has already established must be present. */
 function requireValue(value: string | undefined, label: string): string {
   if (value === undefined) {
@@ -872,7 +541,7 @@ function requireValue(value: string | undefined, label: string): string {
   return value;
 }
 
-/** The happy-path create layer, with `refuse` (the wire posture). */
+/** The happy-path create layer; the collision policy defaults to `refuse`. */
 function createWorktree(branchName: string, onCollision: "refuse" | "suffix" = "refuse") {
   return ctx.worktrees.create({
     repoMountId: REPO_MOUNT_ID,
@@ -884,20 +553,14 @@ function createWorktree(branchName: string, onCollision: "refuse" | "suffix" = "
 }
 
 // ----------------------------------------------------------------------------
-// A writable run on a git mount lands in worktree mode
+// A run on a git mount lands in provisioned-worktree mode
 // ----------------------------------------------------------------------------
 
-describe("a writable run on a git repository defaults to worktree mode", () => {
-  it("projects worktree as the default mode for a git mount", () => {
-    const capabilities = computeExecutionModeCapabilities({ vcsType: "git" });
-
-    expect(capabilities.defaultMode).toBe("worktree");
-    expect(capabilities.availableModes).toEqual([
-      "read-only",
-      "branch",
-      "worktree",
-      "ephemeral clone",
-    ]);
+describe("a run on a git repository defaults to provisioned-worktree mode", () => {
+  it("projects provisioned-worktree as the default mode for a git mount", () => {
+    expect(computeExecutionModeCapabilities({ vcsType: "git" }).defaultMode).toBe(
+      "provisioned-worktree",
+    );
   });
 
   it(
@@ -905,7 +568,7 @@ describe("a writable run on a git repository defaults to worktree mode", () => {
     async () => {
       insertWorkspace({
         workspaceId: WORKSPACE_ID,
-        executionMode: "worktree",
+        executionMode: "provisioned-worktree",
         fsRoot: ctx.repository.root,
       });
       const branchName = deriveWorktreeBranchName({
@@ -920,15 +583,14 @@ describe("a writable run on a git repository defaults to worktree mode", () => {
         runId: RUN_ID,
       });
 
-      // The dispatched mode is the requested one, and the root is path rather
-      // than any fallback.
-      expect(prepared.executionMode).toBe("worktree");
+      // The dispatched mode is the requested one, and the root is the worktree path, not a
+      // fallback.
+      expect(prepared.executionMode).toBe("provisioned-worktree");
       expect(prepared.branchName).toBe(branchName);
       const worktreeId = requireValue(prepared.worktreeId, "prepared.worktreeId");
       expect(prepared.executionRoot).toBe(
         join(ctx.executionRootsDirectory, REPO_MOUNT_ID, "worktrees", worktreeId),
       );
-      expect(prepared.ephemeralCloneId).toBeUndefined();
 
       // Real git is the authority for the next three claims.
       expect(existsSync(prepared.executionRoot)).toBe(true);
@@ -949,13 +611,12 @@ describe("a writable run on a git repository defaults to worktree mode", () => {
       expect(contexts[0]).toMatchObject({
         workspace_id: WORKSPACE_ID,
         worktree_id: worktreeId,
-        ephemeral_clone_id: null,
         base_branch: DEFAULT_BRANCH,
         head_branch: branchName,
       });
 
-      expect(readWorkspaceRow(WORKSPACE_ID)).toMatchObject({
-        execution_mode: "worktree",
+      expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID)).toMatchObject({
+        execution_mode: "provisioned-worktree",
         fs_root: prepared.executionRoot,
         state: "ready",
       });
@@ -1017,8 +678,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
     "reports a dirty checkout only with acknowledgement, and never writes the dirty state",
     async () => {
       const created = await createWorktree("feature/login");
-      // A real uncommitted change in the real checkout — `status --porcelain`
-      // reads it, nothing is modelled.
+      // A real uncommitted change in the real checkout; `status --porcelain` reads it.
       writeFileSync(join(created.fsRoot, "scratch-notes.txt"), "work in progress\n");
 
       // The unacknowledged candidate REFUSES.
@@ -1043,13 +703,12 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       expect(acknowledged.createdBySessionId).toBe(SESSION_ID);
       expect(acknowledged.createdByRunId).toBe(RUN_ID);
 
-      // The adjudicated boundary: dirtiness is REPORTED, never recorded. The
-      // `-> dirty` row transition and its event belong to the Phase 3 binder.
+      // Dirtiness is reported, never recorded: `validateReuse` writes no `-> dirty` row transition
+      // or event.
       expect(readWorktreeRow(created.worktreeId).state).toBe("ready");
       expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
 
-      // Committing the work makes the same call report a clean candidate — the
-      // negative control for the dirty arm.
+      // Committing the work makes the same call report a clean candidate (negative control).
       await ctx.repository.git(["add", "-A"], created.fsRoot);
       await ctx.repository.git(["commit", "-q", "-m", "work in progress"], created.fsRoot);
       const clean = await ctx.worktrees.validateReuse({
@@ -1070,8 +729,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       await ctx.repository.git(["add", "-A"], created.fsRoot);
       await ctx.repository.git(["commit", "-q", "-m", "add login"], created.fsRoot);
 
-      // The MERGE is performed by the fixture, standing in for the human or the
-      // Phase 3 binder. No service merges anything.
+      // The fixture performs the merge; no service merges anything.
       await ctx.repository.git(["merge", "--no-ff", "-m", "merge login", "feature/login"]);
 
       // "Merged" as git answers it, not as a row claims it.
@@ -1083,10 +741,9 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
       ]);
       expect(ancestry.exitCode).toBe(0);
 
-      // The row is untouched by the merge: the `-> merged` transition belongs to
-      // the binder, and the branch is still HELD by a live worktree...
+      // The merge leaves the row untouched, and a live worktree still holds the branch...
       expect(readWorktreeRow(created.worktreeId).state).toBe("ready");
-      // ...which is why a second create on the same branch still collides.
+      // ...so a second create on the same branch still collides.
       const collision = await captureRejection(() => createWorktree("feature/login"));
       expect(collision).toBeInstanceOf(WorktreeBranchCollisionError);
       expect(collision).toMatchObject({ branchName: "feature/login" });
@@ -1134,7 +791,7 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
     async () => {
       insertWorkspace({
         workspaceId: WORKSPACE_ID,
-        executionMode: "worktree",
+        executionMode: "provisioned-worktree",
         fsRoot: ctx.repository.root,
       });
       const prepared = await ctx.executionRoots.prepare({
@@ -1167,69 +824,6 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
 
 describe("no repository-controlled code executes during provisioning", () => {
   it(
-    "negative control: an un-neutralized worktree add DOES fire the repository's hooks",
-    async () => {
-      // Without this case, every "no hooks fired" assertion below is satisfied by
-      // sentinels that were never armed. It runs in a THROWAWAY repository so the
-      // ref and worktree registration it leaves behind cannot perturb anything.
-      const hostileRepository = await buildFixtureRepository({
-        parentDirectory: ctx.fixtureRoot,
-        name: "hook-control-repository",
-        environment: ctx.environment,
-        hookNeutralizationDirectory: ctx.fixtureHookNeutralizationDirectory,
-      });
-      expect(hostileRepository.firedHooks()).toEqual([]);
-
-      const added = await hostileRepository.gitWithHooksLive([
-        "worktree",
-        "add",
-        "-b",
-        "control/branch",
-        join(ctx.fixtureRoot, "hook-control-worktree"),
-        DEFAULT_BRANCH,
-      ]);
-      expect(added.exitCode).toBe(0);
-      expect(hostileRepository.firedHooks()).toContain("post-checkout");
-      expect(hostileRepository.firedHooks()).toContain("reference-transaction");
-      // The checkout population also consults the config-named fsmonitor hook —
-      // the leg `core.hooksPath` cannot reach.
-      expect(hostileRepository.firedHooks()).toContain(FSMONITOR_SENTINEL_MARKER);
-
-      // `core.hooksPath` alone suppresses the `hooks/`-resident sentinels and
-      // NOTHING else: the fsmonitor sentinel still fires, exactly alone. This is
-      // the arm that pins the services' second flag as load-bearing rather than
-      // decorative.
-      hostileRepository.clearFiredHooks();
-      const hooksPathOnly = await hostileRepository.gitWithHooksPathOnly([
-        "worktree",
-        "add",
-        "-b",
-        "control/second-branch",
-        join(ctx.fixtureRoot, "hook-control-second-worktree"),
-        DEFAULT_BRANCH,
-      ]);
-      expect(hooksPathOnly.exitCode).toBe(0);
-      expect(hostileRepository.firedHooks()).toEqual([FSMONITOR_SENTINEL_MARKER]);
-
-      // And the full service prefix — both flags — fires nothing: the A/B/C
-      // that attributes each suppression to its mechanism rather than to
-      // coincidence.
-      hostileRepository.clearFiredHooks();
-      const neutralized = await hostileRepository.gitCapturing([
-        "worktree",
-        "add",
-        "-b",
-        "control/third-branch",
-        join(ctx.fixtureRoot, "hook-control-third-worktree"),
-        DEFAULT_BRANCH,
-      ]);
-      expect(neutralized.exitCode).toBe(0);
-      expect(hostileRepository.firedHooks()).toEqual([]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
     "runs no hook across a whole worktree lifecycle, and points core.hooksPath at an empty directory",
     async () => {
       await proveSentinelsAreArmed(ctx.repository);
@@ -1246,37 +840,9 @@ describe("no repository-controlled code executes during provisioning", () => {
       await ctx.worktrees.cleanupPass();
 
       expect(ctx.repository.firedHooks()).toEqual([]);
-      // An EMPTY directory is the mechanism: `core.hooksPath` pointing at a
-      // directory with no hooks in it is what makes every lookup miss.
+      // An empty directory is the mechanism: `core.hooksPath` pointing at a directory with no hooks
+      // makes every lookup miss.
       expect(existsSync(ctx.hookNeutralizationDirectory)).toBe(true);
-      expect(readdirSync(ctx.hookNeutralizationDirectory)).toEqual([]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "runs no hook across a clone preparation",
-    async () => {
-      await proveSentinelsAreArmed(ctx.repository);
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
-
-      await ctx.clones.prepare({
-        workspaceId: CLONE_WORKSPACE_ID,
-        branchName: "sidekicks/clone-work",
-      });
-
-      // Weaker evidence than the `worktree add` arm above and deliberately so: a
-      // local clone consults the SOURCE repository's hooks for nothing, and the
-      // clone's own hooks come from the init templates rather than from the
-      // source. The source's config-named executables are walled by git itself —
-      // the clone-service header records the probes. The discriminating hook
-      // case is the one with the negative control; this is the corroborating
-      // sweep over the clone path.
-      expect(ctx.repository.firedHooks()).toEqual([]);
       expect(readdirSync(ctx.hookNeutralizationDirectory)).toEqual([]);
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
@@ -1284,6 +850,7 @@ describe("no repository-controlled code executes during provisioning", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Derived-name collisions
 // ----------------------------------------------------------------------------
 
 describe("derived-name collisions against real git", () => {
@@ -1318,24 +885,58 @@ describe("derived-name collisions against real git", () => {
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
-
   it(
-    "refuses instead of suffixing when the wire posture is refuse",
+    "suffixes past a branch git still holds after its worktree was removed",
     async () => {
       const derivedName = deriveWorktreeBranchName({
         sessionId: SESSION_ID,
         runId: RUN_ID,
         taskSummary: "Fix login",
       });
-      await createWorktree(derivedName);
+      const first = await createWorktree(derivedName, "suffix");
+      await ctx.worktrees.retire(first.worktreeId);
+      await ctx.worktrees.cleanupPass();
+      expect(existsSync(first.fsRoot)).toBe(false);
 
-      const collision = await captureRejection(() => createWorktree(derivedName));
+      const second = await createWorktree(derivedName, "suffix");
 
-      expect(collision).toBeInstanceOf(WorktreeBranchCollisionError);
-      expect(collision).toMatchObject({ repoMountId: REPO_MOUNT_ID, branchName: derivedName });
-      // Refused BEFORE git: exactly one worktree, one branch, one pair of events.
-      expect(readWorktreeRows()).toHaveLength(1);
-      expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
+      expect(second.branchName).toBe(`${derivedName}-2`);
+    },
+    ACCEPTANCE_TEST_TIMEOUT_MS,
+  );
+});
+
+// ----------------------------------------------------------------------------
+// A branch name git refuses
+// ----------------------------------------------------------------------------
+
+describe("a branch name git refuses", () => {
+  it(
+    "refuses an option-like name with git's line and deletes no branch",
+    async () => {
+      // `worktree add -b -D <path> feature` would hand `-D` to git as an option and delete
+      // `feature`; git's own name check refuses it before any worktree command runs.
+      await ctx.repository.git(["branch", "feature"]);
+
+      const failure = await captureRejection(() =>
+        ctx.worktrees.create({
+          repoMountId: REPO_MOUNT_ID,
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          branchName: "-D",
+          onCollision: "refuse",
+          baseRef: "feature",
+        }),
+      );
+
+      expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
+      expect(failure).toMatchObject({
+        reason: "branch_name_invalid",
+        message: "fatal: '-D' is not a valid branch name",
+      });
+      const branches = await ctx.repository.git(["for-each-ref", "--format=%(refname:short)"]);
+      expect(branches.split("\n")).toContain("feature");
+      expect(readWorktreeRows()).toEqual([]);
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
@@ -1349,10 +950,8 @@ describe("a branch free in the index but taken in git", () => {
   it(
     "surfaces a creation failure rather than a branch collision under refuse",
     async () => {
-      // The divergence: a branch that real git holds and the index has never
-      // heard of. This is the recorded outcome of the residual on
-      // `../worktree-service.ts` — the honest answer would be a 409 branch
-      // collision, and what the caller actually sees is a 500 creation failure.
+      // A branch real git holds that the index has never heard of: the caller sees a creation
+      // failure (`git_invocation_failed`), not a branch collision.
       await ctx.repository.git(["branch", "feature/taken"]);
 
       const failure = await captureRejection(() => createWorktree("feature/taken"));
@@ -1361,8 +960,8 @@ describe("a branch free in the index but taken in git", () => {
       expect(failure).not.toBeInstanceOf(WorktreeBranchCollisionError);
       expect(failure).toMatchObject({ reason: "git_invocation_failed" });
 
-      // Fail-closed: the row records the failure, no root survives, and the
-      // creation event is the only one — `-> failed` emits nothing.
+      // Fail-closed: the row records the failure, no root survives, and `-> failed` emits no event,
+      // so creation is the only one.
       const rows = readWorktreeRows();
       expect(rows).toHaveLength(1);
       const failedRow = rows[0];
@@ -1372,46 +971,20 @@ describe("a branch free in the index but taken in git", () => {
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
-
-  it(
-    "cannot advance the ordinal under suffix either",
-    async () => {
-      await ctx.repository.git(["branch", "feature/taken"]);
-
-      const failure = await captureRejection(() => createWorktree("feature/taken", "suffix"));
-
-      // The second half of the same residual: the ordinal loop retries only on a
-      // SQLite UNIQUE violation, and this failure never reaches the database — so
-      // `suffix` refuses exactly where `refuse` does, on the bare name.
-      expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
-      expect(failure).toMatchObject({ reason: "git_invocation_failed" });
-      const rows = readWorktreeRows();
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ state: "failed", branch_name: "feature/taken" });
-      // No `-2` was ever attempted.
-      const roster = await ctx.repository.git(["for-each-ref", "--format=%(refname:short)"]);
-      expect(roster.split("\n")).not.toContain("feature/taken-2");
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
 });
 
 // ----------------------------------------------------------------------------
+// The main checkout across every failure path
 // ----------------------------------------------------------------------------
 
 describe("the main checkout across every failure path", () => {
   it(
     "leaves the working tree, HEAD and the branch roster byte-identical",
     async () => {
-      // Setup for the five failure paths (a)-(e), all of it BEFORE the snapshot.
+      // Setup for the three failure paths (a)-(c), all before the snapshot.
       await ctx.repository.git(["branch", "feature/taken"]);
       const live = await createWorktree("feature/live");
       writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
 
       const before = await snapshotMainCheckout(ctx.repository);
 
@@ -1419,20 +992,7 @@ describe("the main checkout across every failure path", () => {
       expect(await captureRejection(() => createWorktree("feature/taken"))).toBeInstanceOf(
         WorktreeCreateFailedError,
       );
-      // (b) the same divergence under the suffix posture.
-      expect(
-        await captureRejection(() => createWorktree("feature/taken", "suffix")),
-      ).toBeInstanceOf(WorktreeCreateFailedError);
-      // (c) a clone preparation refused because the head branch already exists.
-      expect(
-        await captureRejection(() =>
-          ctx.clones.prepare({
-            workspaceId: CLONE_WORKSPACE_ID,
-            branchName: DEFAULT_BRANCH,
-          }),
-        ),
-      ).toBeInstanceOf(ClonePrepareFailedError);
-      // (d) an unacknowledged dirty reuse.
+      // (b) an unacknowledged dirty reuse.
       expect(
         await captureRejection(() =>
           ctx.worktrees.validateReuse({
@@ -1442,7 +1002,7 @@ describe("the main checkout across every failure path", () => {
           }),
         ),
       ).toBeInstanceOf(WorktreeReuseConflictError);
-      // (e) a reuse whose branch disagrees, acknowledgement notwithstanding.
+      // (c) a reuse whose branch disagrees, acknowledgement notwithstanding.
       expect(
         await captureRejection(() =>
           ctx.worktrees.validateReuse({
@@ -1471,7 +1031,7 @@ describe("the main checkout across every failure path", () => {
       await ctx.repository.git(["branch", "feature/taken"]);
       insertWorkspace({
         workspaceId: WORKSPACE_ID,
-        executionMode: "worktree",
+        executionMode: "provisioned-worktree",
         fsRoot: ctx.repository.root,
       });
       const before = await snapshotMainCheckout(ctx.repository);
@@ -1484,10 +1044,10 @@ describe("the main checkout across every failure path", () => {
         }),
       );
 
-      // The run is BLOCKED with the original typed cause — no lesser mode, no
-      // fallback root — and the workspace records why.
+      // The run is blocked with the original typed cause (no lesser mode, no fallback root), and
+      // the workspace records why.
       expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
-      const workspace = readWorkspaceRow(WORKSPACE_ID);
+      const workspace = requireWorkspaceRow(ctx.db, WORKSPACE_ID);
       expect(workspace.state).toBe("stale");
       expect(workspace.metadata).toContain("worktree.create_failed");
       expect(readBranchContexts()).toEqual([]);
@@ -1507,7 +1067,7 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
     async () => {
       insertWorkspace({
         workspaceId: WORKSPACE_ID,
-        executionMode: "worktree",
+        executionMode: "provisioned-worktree",
         fsRoot: ctx.repository.root,
       });
       const first = await ctx.executionRoots.prepare({
@@ -1568,7 +1128,7 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
     async () => {
       insertWorkspace({
         workspaceId: WORKSPACE_ID,
-        executionMode: "worktree",
+        executionMode: "provisioned-worktree",
         fsRoot: ctx.repository.root,
       });
       const first = await ctx.executionRoots.prepare({
@@ -1578,8 +1138,8 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
       });
       const worktreeId = requireValue(first.worktreeId, "the first prepare's worktreeId");
 
-      // The same branch, no `reuseWorktreeId`. An implicit-reuse implementation
-      // would hand back the existing worktree says it refuses.
+      // The same branch with no `reuseWorktreeId`: an implicit-reuse implementation would hand back
+      // the existing worktree.
       const refusal = await captureRejection(() =>
         ctx.executionRoots.prepare({
           workspaceId: WORKSPACE_ID,
@@ -1591,339 +1151,21 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
       expect(refusal).toBeInstanceOf(WorktreeBranchCollisionError);
       expect(readWorktreeRow(worktreeId).state).toBe("ready");
       expect(readBranchContexts()).toHaveLength(1);
-      expect(readWorkspaceRow(WORKSPACE_ID).state).toBe("stale");
+      expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID).state).toBe("stale");
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
 });
 
 // ----------------------------------------------------------------------------
-// The ephemeral-clone lifecycle
-// ----------------------------------------------------------------------------
-
-describe("the ephemeral-clone lifecycle on real git", () => {
-  /** The loose object file backing the fixture's HEAD commit. */
-  async function headObjectRelativePath(repository: FixtureRepository): Promise<string> {
-    const headCommit = (await repository.git(["rev-parse", "HEAD"])).trim();
-    return join(".git", "objects", headCommit.slice(0, 2), headCommit.slice(2));
-  }
-
-  it(
-    "clones with --no-hardlinks: the object store is copied, not shared with the mount",
-    async () => {
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
-      const objectRelativePath = await headObjectRelativePath(ctx.repository);
-      const sourceObjectPath = join(ctx.repository.root, objectRelativePath);
-      expect(statSync(sourceObjectPath).nlink).toBe(1);
-
-      const prepared = await ctx.clones.prepare({
-        workspaceId: CLONE_WORKSPACE_ID,
-        branchName: "sidekicks/clone-work",
-      });
-
-      // The same object is present in the clone — a real local clone copies the
-      // object store rather than re-deriving it...
-      const clonedObjectPath = join(prepared.cloneRoot, objectRelativePath);
-      expect(existsSync(clonedObjectPath)).toBe(true);
-      const sourceObject = statSync(sourceObjectPath);
-      const clonedObject = statSync(clonedObjectPath);
-      // ...and it is a DISTINCT file. `(dev, ino)` rather than `ino` alone,
-      // because inode numbers are only unique within a device.
-      expect([clonedObject.dev, clonedObject.ino]).not.toEqual([
-        sourceObject.dev,
-        sourceObject.ino,
-      ]);
-      // The assertion that actually excludes hardlinking: a link count still at
-      // 1 means nothing else in the filesystem names the mount's object.
-      expect(sourceObject.nlink).toBe(1);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "negative control: a hardlinking clone shares the mount's object inode",
-    async () => {
-      // Without this, "distinct inodes" is satisfied by any clone at all and says
-      // nothing about `--no-hardlinks`. Runs in its own test so the link count it
-      // raises on the source object cannot reach the case above.
-      //
-      // The one ENVIRONMENT premise in this suite: git hardlinks a local clone's
-      // object store when source and target share a filesystem, and both sit
-      // under a single `mkdtemp` root here so they always do. A failure of THIS
-      // case means the host declined to hardlink — the control has stopped
-      // discriminating — rather than that the service regressed.
-      const objectRelativePath = await headObjectRelativePath(ctx.repository);
-      const sourceObjectPath = join(ctx.repository.root, objectRelativePath);
-      expect(statSync(sourceObjectPath).nlink).toBe(1);
-
-      const hardlinkedCloneRoot = join(ctx.fixtureRoot, "hardlinked-control-clone");
-      await ctx.repository.git(
-        ["clone", "--quiet", ctx.repository.root, hardlinkedCloneRoot],
-        ctx.fixtureRoot,
-      );
-
-      const sourceObject = statSync(sourceObjectPath);
-      const clonedObject = statSync(join(hardlinkedCloneRoot, objectRelativePath));
-      expect([clonedObject.dev, clonedObject.ino]).toEqual([sourceObject.dev, sourceObject.ino]);
-      expect(sourceObject.nlink).toBeGreaterThanOrEqual(2);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "records the base branch observed in the clone before the head branch is cut",
-    async () => {
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
-
-      const prepared = await ctx.clones.prepare({
-        workspaceId: CLONE_WORKSPACE_ID,
-        branchName: "sidekicks/clone-work",
-      });
-
-      expect(prepared.baseBranch).toBe(DEFAULT_BRANCH);
-      // The durable git facts behind the reported value: the clone still holds
-      // the base branch, HEAD is the freshly cut one, and the cut descends from
-      // the base.
-      const cloneHead = await ctx.repository.git(
-        ["symbolic-ref", "--short", "HEAD"],
-        prepared.cloneRoot,
-      );
-      expect(cloneHead.trim()).toBe("sidekicks/clone-work");
-      const cloneRoster = await ctx.repository.git(
-        ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
-        prepared.cloneRoot,
-      );
-      expect(cloneRoster.split("\n")).toEqual(
-        expect.arrayContaining([DEFAULT_BRANCH, "sidekicks/clone-work"]),
-      );
-      const ancestry = await ctx.repository.gitCapturing(
-        ["merge-base", "--is-ancestor", DEFAULT_BRANCH, "sidekicks/clone-work"],
-        prepared.cloneRoot,
-      );
-      expect(ancestry.exitCode).toBe(0);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  /**
-   * A source whose HEAD is detached at a commit NO branch points at.
-   *
-   * The extra commit is what makes the shape reachable: a local clone copies the
-   * whole object store and then resolves the source's HEAD, so detaching at a
-   * commit that a branch still names leaves the clone on THAT branch (the case
-   * below). Only an unreferenced HEAD commit produces a detached clone.
-   */
-  async function buildDetachedHeadRepository(name: string): Promise<FixtureRepository> {
-    const repository = await buildFixtureRepository({
-      parentDirectory: ctx.fixtureRoot,
-      name,
-      environment: ctx.environment,
-      hookNeutralizationDirectory: ctx.fixtureHookNeutralizationDirectory,
-    });
-    await repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-    writeFileSync(join(repository.root, "detached-work.txt"), "committed off any branch\n");
-    await repository.git(["add", "-A"]);
-    await repository.git(["commit", "-q", "-m", "commit on a detached HEAD"]);
-    return repository;
-  }
-
-  it(
-    "reports no base branch when the clone's HEAD lands detached",
-    async () => {
-      const detachedRepository = await buildDetachedHeadRepository("detached-repository");
-      const detachedCommit = (await detachedRepository.git(["rev-parse", "HEAD"])).trim();
-
-      // The seam contract this service leans on, re-pinned against real git as
-      // `../ephemeral-clone-service.ts` asks: on a detached clone HEAD,
-      // `branch --show-current` EXITS 0 with empty stdout — an answer the runner
-      // can carry — while `symbolic-ref` exits non-zero, which the runner would
-      // surface as an opaque rejection indistinguishable from a real failure.
-      const controlCloneRoot = join(ctx.fixtureRoot, "detached-head-control-clone");
-      await detachedRepository.git(
-        ["clone", "--quiet", "--no-hardlinks", detachedRepository.root, controlCloneRoot],
-        ctx.fixtureRoot,
-      );
-      const showCurrent = await detachedRepository.gitCapturing(
-        ["branch", "--show-current"],
-        controlCloneRoot,
-      );
-      expect(showCurrent.exitCode).toBe(0);
-      expect(showCurrent.stdout.trim()).toBe("");
-      const symbolicRef = await detachedRepository.gitCapturing(
-        ["symbolic-ref", "HEAD"],
-        controlCloneRoot,
-      );
-      expect(symbolicRef.exitCode).not.toBe(0);
-
-      insertMount(DETACHED_REPO_MOUNT_ID, detachedRepository.root);
-      insertWorkspace({
-        workspaceId: DETACHED_WORKSPACE_ID,
-        repoMountId: DETACHED_REPO_MOUNT_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: detachedRepository.root,
-      });
-
-      const prepared = await ctx.clones.prepare({
-        workspaceId: DETACHED_WORKSPACE_ID,
-        branchName: "sidekicks/clone-work",
-      });
-
-      // ABSENT, not `undefined`-valued: the contract distinguishes them, and the
-      // preparation SUCCEEDS — a lawful detached source is not a failed read.
-      expect("baseBranch" in prepared).toBe(false);
-      expect(prepared.state).toBe("ready");
-      const cloneHead = await detachedRepository.git(
-        ["symbolic-ref", "--short", "HEAD"],
-        prepared.cloneRoot,
-      );
-      expect(cloneHead.trim()).toBe("sidekicks/clone-work");
-      // The cut still descends from what the source had checked out.
-      const cutCommit = await detachedRepository.git(["rev-parse", "HEAD"], prepared.cloneRoot);
-      expect(cutCommit.trim()).toBe(detachedCommit);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "still reports a base branch when the source is detached at a branch tip",
-    async () => {
-      // The narrowing this tier exists to find: absence tracks the CLONE's HEAD,
-      // not the source's. A source detached at a commit some branch still names
-      // clones onto that branch, so the base branch is readable and reported.
-      const detachedRepository = await buildFixtureRepository({
-        parentDirectory: ctx.fixtureRoot,
-        name: "detached-at-tip-repository",
-        environment: ctx.environment,
-        hookNeutralizationDirectory: ctx.fixtureHookNeutralizationDirectory,
-      });
-      await detachedRepository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-      insertMount(DETACHED_REPO_MOUNT_ID, detachedRepository.root);
-      insertWorkspace({
-        workspaceId: DETACHED_WORKSPACE_ID,
-        repoMountId: DETACHED_REPO_MOUNT_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: detachedRepository.root,
-      });
-
-      const prepared = await ctx.clones.prepare({
-        workspaceId: DETACHED_WORKSPACE_ID,
-        branchName: "sidekicks/clone-work",
-      });
-
-      expect(prepared.baseBranch).toBe(DEFAULT_BRANCH);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "refuses a head branch the clone already carries",
-    async () => {
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
-
-      const failure = await captureRejection(() =>
-        ctx.clones.prepare({
-          workspaceId: CLONE_WORKSPACE_ID,
-          branchName: DEFAULT_BRANCH,
-        }),
-      );
-
-      // The recorded outcome of the residual on `../ephemeral-clone-service.ts`:
-      // the source's own default branch is REFUSED rather than bound, and the
-      // failure is queryable on the row because a clone emits nothing.
-      expect(failure).toBeInstanceOf(ClonePrepareFailedError);
-      expect(failure).toMatchObject({ reason: "head_branch_unavailable" });
-      const rows = ctx.db
-        .prepare<
-          [],
-          { id: string; state: string }
-        >(`SELECT id, state FROM ephemeral_clones ORDER BY id ASC`)
-        .all();
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.state).toBe("failed");
-      expect(readEventTypes()).toEqual([]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "returns an expired clone's workspace to provisioning, never to stale, and sweeps the root",
-    async () => {
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
-      const prepared = await ctx.executionRoots.prepare({
-        workspaceId: CLONE_WORKSPACE_ID,
-        branchName: "sidekicks/clone-run",
-        runId: RUN_ID,
-      });
-      const cloneId = requireValue(prepared.ephemeralCloneId, "prepared.ephemeralCloneId");
-      expect(prepared.executionMode).toBe("ephemeral clone");
-      expect(existsSync(prepared.executionRoot)).toBe(true);
-
-      // An unexpired clone survives a tick — the negative control for the TTL leg.
-      const earlyTick = await ctx.clones.cleanupTick();
-      expect(earlyTick.retiredCloneIds).toEqual([]);
-      expect(existsSync(prepared.executionRoot)).toBe(true);
-
-      advanceClock(ONE_DAY_MS + 60_000);
-      const tick = await ctx.clones.cleanupTick();
-
-      expect(tick.retiredCloneIds).toEqual([cloneId]);
-      expect(tick.returnedToProvisioningWorkspaceIds).toEqual([CLONE_WORKSPACE_ID]);
-      expect(tick.cleanedCloneIds).toEqual([cloneId]);
-      // back to `provisioning`, never `stale`.
-      expect(readWorkspaceRow(CLONE_WORKSPACE_ID).state).toBe("provisioning");
-      // The row survives its own cleanup, stamped and queryable.
-      const cloneRow = readCloneRow(cloneId);
-      expect(cloneRow.state).toBe("retired");
-      expect(cloneRow.cleaned_at).not.toBeNull();
-      expect(existsSync(prepared.executionRoot)).toBe(false);
-      expect(ctx.repository.firedHooks()).toEqual([]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-});
-
-// ----------------------------------------------------------------------------
-// Ambient GIT_OBJECT_DIRECTORY — strip both services inherit
+// Ambient GIT_OBJECT_DIRECTORY
 // ----------------------------------------------------------------------------
 //
-// THIS TIER OR NOWHERE. Both services build their child environment inside their
-// default `execFile` runner, and their git seam is `(argv, {timeoutMs})` — it
-// carries no environment at all. The sibling unit suites inject a fake runner
-// for every case, which bypasses that builder entirely, so a strip assertion
-// written there could only ever observe the fake. This suite is the one place
-// the seams are left at their production defaults, which makes it the only place
-// the environment the child actually receives is on the table.
-//
-// The variable is `GIT_OBJECT_DIRECTORY`, and it is NOT a discovery redirector
-// in the `GIT_DIR` sense: git substitutes it into its own is-this-a-repository
-// predicate, so a value naming nothing accessible makes every candidate fail
-// that predicate and every invocation refuse with `not a git repository` at exit
-// 128 (git 2.50.1). Both services strip it because they share
-// `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` with `../../workspace/repo-root-resolver.ts`,
-// which is where the full observation and its mechanism note live.
-//
-// ORDER IS LOAD-BEARING in each case below. The fixture environment is captured
-// by `buildFixtureEnvironment` in `beforeEach`, BEFORE any stub, so fixture-side
-// git keeps a clean environment throughout and the read-back assertions are
-// never themselves running under the hijack. The services read `process.env` at
-// CALL time, so the stub reaches them and nothing else.
-describe("ambient GIT_OBJECT_DIRECTORY cannot reach either service's git", () => {
+// Only this real-git tier exercises the environment the service's default runner builds. An
+// ambient `GIT_OBJECT_DIRECTORY` naming nothing makes every git call exit 128 (`not a git
+// repository`, git 2.50.1); the runner strips it with the repo-root resolver's discovery keys. The
+// fixture environment is captured in `beforeEach`, before the stub, so only the services see it.
+describe("ambient GIT_OBJECT_DIRECTORY cannot reach the worktree service's git", () => {
   /** A path that names nothing — the shape that blinds git's predicate. */
   function poisonedObjectDirectory(): string {
     return join(ctx.fixtureRoot, "absent-object-directory");
@@ -1938,22 +1180,6 @@ describe("ambient GIT_OBJECT_DIRECTORY cannot reach either service's git", () =>
       vi.unstubAllEnvs();
     }
   }
-
-  it("negative control — raw git IS blinded by GIT_OBJECT_DIRECTORY", async () => {
-    // Without this, the two cases below are satisfied by a variable that never
-    // mattered. `spawnGit` takes the environment explicitly, so this control
-    // poisons the fixture environment rather than `process.env`.
-    const blinded = await spawnGit(
-      ["-C", ctx.repository.root, "rev-parse", "--show-toplevel"],
-      { ...ctx.environment, GIT_OBJECT_DIRECTORY: poisonedObjectDirectory() },
-      ctx.fixtureRoot,
-    );
-
-    // git's fatal exit, and the wording every blinded invocation below would
-    // otherwise have drawn.
-    expect(blinded.exitCode).toBe(128);
-    expect(blinded.stderr).toContain("not a git repository");
-  });
 
   it(
     "creates a real linked worktree with GIT_OBJECT_DIRECTORY exported",
@@ -1980,84 +1206,52 @@ describe("ambient GIT_OBJECT_DIRECTORY cannot reach either service's git", () =>
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
-
-  it(
-    "prepares a real ephemeral clone with GIT_OBJECT_DIRECTORY exported",
-    async () => {
-      insertWorkspace({
-        workspaceId: CLONE_WORKSPACE_ID,
-        executionMode: "ephemeral clone",
-        fsRoot: ctx.repository.root,
-      });
-
-      const prepared = await withPoisonedObjectDirectory(() =>
-        ctx.clones.prepare({
-          workspaceId: CLONE_WORKSPACE_ID,
-          branchName: "sidekicks/clone-work",
-        }),
-      );
-
-      // The clone leg spans `clone` plus the base-branch observation and the
-      // head-branch cut, so a surviving hijack fails it at the first invocation.
-      expect(prepared.baseBranch).toBe(DEFAULT_BRANCH);
-      expect(
-        (await ctx.repository.git(["symbolic-ref", "--short", "HEAD"], prepared.cloneRoot)).trim(),
-      ).toBe("sidekicks/clone-work");
-      expect(existsSync(poisonedObjectDirectory())).toBe(false);
-      expect(ctx.repository.firedHooks()).toEqual([]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
 });
 
 // ----------------------------------------------------------------------------
-// Branch mode against real git
+// Bound-root mode against real git
 // ----------------------------------------------------------------------------
 
-describe("branch mode — the main checkout as the execution root", () => {
+describe("bound-root mode — the main checkout as the execution root", () => {
   it(
     "binds the mount's own checkout and mutates nothing",
     async () => {
-      // The one writable mode whose execution root IS the user's checkout —
-      // the exact blast radius this tier polices — driven through the real
-      // bracket: `assertWritable` → bind-verify (real `symbolic-ref`) →
-      // `beginReprovision` → `completeReprovision`.
+      // The one mode whose execution root is the user's checkout, driven through the real bracket:
+      // `assertWritable` → bind-verify (real `symbolic-ref`) → `beginRootPreparation` →
+      // `completeRootPreparation`.
       const before = await snapshotMainCheckout(ctx.repository);
       insertWorkspace({
-        workspaceId: BRANCH_WORKSPACE_ID,
-        executionMode: "branch",
+        workspaceId: BOUND_ROOT_WORKSPACE_ID,
+        executionMode: "bound-root",
         fsRoot: ctx.repository.root,
       });
 
       const prepared = await ctx.executionRoots.prepare({
-        workspaceId: BRANCH_WORKSPACE_ID,
+        workspaceId: BOUND_ROOT_WORKSPACE_ID,
         branchName: DEFAULT_BRANCH,
         runId: RUN_ID,
       });
 
-      expect(prepared.executionMode).toBe("branch");
+      expect(prepared.executionMode).toBe("bound-root");
       expect(prepared.executionRoot).toBe(ctx.repository.root);
-      expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
-      // The context row fills NEITHER root column (the branch-mode arm) and
-      // self-anchors — branch mode cuts nothing, so there is no cut point to
-      // record.
+      expect(requireWorkspaceRow(ctx.db, BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
+      // The context row fills no worktree column and self-anchors: bound-root cuts nothing, so
+      // there is no cut point to record.
       const contextRow = ctx.db
         .prepare<
           [string],
           {
             worktree_id: string | null;
-            ephemeral_clone_id: string | null;
             base_branch: string;
             head_branch: string;
           }
         >(
-          `SELECT worktree_id, ephemeral_clone_id, base_branch, head_branch
+          `SELECT worktree_id, base_branch, head_branch
              FROM branch_contexts WHERE workspace_id = ?`,
         )
-        .get(BRANCH_WORKSPACE_ID);
+        .get(BOUND_ROOT_WORKSPACE_ID);
       expect(contextRow).toMatchObject({
         worktree_id: null,
-        ephemeral_clone_id: null,
         base_branch: DEFAULT_BRANCH,
         head_branch: DEFAULT_BRANCH,
       });
@@ -2071,27 +1265,24 @@ describe("branch mode — the main checkout as the execution root", () => {
   it(
     "refuses a detached main checkout as a mismatch through real git's exit status",
     async () => {
-      // The seam contract `#verifyBranchModeBind` discriminates on — detached
-      // HEAD means `symbolic-ref --quiet --short HEAD` exits 1 with empty
-      // stdout — pinned here against real git, the treatment the clone side's
-      // `branch --show-current` contract already gets in this suite. Any other
-      // exit status would surface as the anonymous invariant carrier instead
-      // of the ratified `workspace.branch_mismatch` refusal.
+      // The seam contract `#verifyBoundRootBranch` discriminates on, pinned against real git: a
+      // detached HEAD makes `symbolic-ref --quiet --short HEAD` exit 1 with empty stdout. Any other
+      // exit status would surface as the anonymous invariant error instead of
+      // `workspace.branch_mismatch`.
       insertWorkspace({
-        workspaceId: BRANCH_WORKSPACE_ID,
-        executionMode: "branch",
+        workspaceId: BOUND_ROOT_WORKSPACE_ID,
+        executionMode: "bound-root",
         fsRoot: ctx.repository.root,
       });
       await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-      // Premise check: the shared helper's `headSymbolicRef` is null exactly
-      // when `symbolic-ref --quiet` exits non-zero — the same exit-status
-      // contract `#verifyBranchModeBind` reads.
+      // Premise check: `headSymbolicRef` is null exactly when `symbolic-ref --quiet` exits
+      // non-zero, the contract `#verifyBoundRootBranch` reads.
       const before = await snapshotMainCheckout(ctx.repository);
       expect(before.headSymbolicRef).toBeNull();
 
       const rejection = await captureRejection(() =>
         ctx.executionRoots.prepare({
-          workspaceId: BRANCH_WORKSPACE_ID,
+          workspaceId: BOUND_ROOT_WORKSPACE_ID,
           branchName: DEFAULT_BRANCH,
           runId: RUN_ID,
         }),
@@ -2104,7 +1295,7 @@ describe("branch mode — the main checkout as the execution root", () => {
       });
       // Bind-only verification: the refusal switched no branch, wrote no row,
       // and left the detached checkout exactly as it found it.
-      expect(readWorkspaceRow(BRANCH_WORKSPACE_ID).state).toBe("ready");
+      expect(requireWorkspaceRow(ctx.db, BOUND_ROOT_WORKSPACE_ID).state).toBe("ready");
       expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
       expect(ctx.repository.firedHooks()).toEqual([]);
     },

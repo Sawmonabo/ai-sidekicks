@@ -1,0 +1,74 @@
+/*
+ * Two button treatments several features share, each a class a control wears beside its own.
+ *
+ * `meridian-action-button` is a button that does something. The base holds only what every such
+ * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer.
+ * Sizes: `--regular` is the small text step with roomy side padding; `--small` is the smallest
+ * text step with tight padding, laid out for a glyph beside the label. Faces: `--outline` is the
+ * page surface under the strong edge; `--raised` is the raised surface under the quiet edge,
+ * which strengthens on hover. A size or face no other control shares stays in that control's
+ * class.
+ *
+ * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
+ * it (a details toggle, a message's Copy) and holds the whole treatment.
+ *
+ * The base and modifiers sit inside `:where()` so they carry no specificity: a control's own
+ * class, state and variant win whichever sheet loads first. A global sheet, loaded through
+ * `global-sheets.ts`; every value is a Meridian token.
+ */
+
+/* --- the action button ------------------------------------------------------- */
+
+:where(.meridian-action-button) {
+  font: inherit;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+:where(.meridian-action-button--regular) {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-size: var(--meridian-text-sm);
+}
+
+:where(.meridian-action-button--small) {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+:where(.meridian-action-button--outline) {
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border-color: var(--meridian-edge-strong);
+}
+
+:where(.meridian-action-button--raised) {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border-color: var(--meridian-edge);
+}
+
+:where(.meridian-action-button--raised:hover:enabled) {
+  border-color: var(--meridian-edge-strong);
+}
+
+/* --- the disclosure trigger -------------------------------------------------- */
+
+.meridian-disclosure-trigger {
+  padding: var(--meridian-space-1) 0;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.meridian-disclosure-trigger:hover {
+  color: var(--meridian-text);
+}

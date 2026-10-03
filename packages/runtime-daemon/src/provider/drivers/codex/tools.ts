@@ -1,108 +1,39 @@
-// Codex per-tool metadata declaration.
+// Per-tool metadata for the Codex driver, and its only source of a tool's `idempotency_class`, so
+// crash recovery can dispatch on a class without asking the provider.
 //
-// This module is the Codex driver's ONLY source of per-tool
-// `idempotency_class` metadata. `DriverCapabilitiesWriter` explodes the
-// declared array into `driver_tools` rows so the daemon's two-phase
-// command-receipt protocol can dispatch crash recovery on a tool's class
-// WITHOUT round-tripping the provider.
-//
-// -- The tool-name namespace, and why it is the ThreadItem discriminant --
-//
-// The `codex app-server` protocol at the pinned build publishes NO census of
-// the model-facing built-in tool names: regenerating the JSON Schema per
-// the pinned Codex wire census yields a `Tool` definition whose
-// `name` is an open `string` (the MCP-style descriptor), a `ToolsV2` config
-// object carrying a single `web_search` toggle, and a
-// `GuardianCommandSource` enum — none of which enumerates the tools an agent
-// turn can invoke. The ONE closed, wire-verified enumeration of invocation
-// identities the protocol does publish is the `ThreadItem` `type`
-// discriminant, and that is also precisely the identity the daemon OBSERVES:
-// a Codex tool invocation reaches this daemon as an `item/started` /
-// `item/completed` notification carrying that discriminant and nothing more
-// specific. Keying `driver_tools` on any other namespace would therefore
-// produce rows that the recovery dispatcher's lookup can never hit — a
-// silently vacuous class table. So the namespace here is the observed one.
-//
-// `CODEX_TOOL_NAMES` is exported as a `const` tuple (and `CodexToolName` as
-// its derived union) SPECIFICALLY so event normalizer imports the identity
-// rather than restating string literals: a namespace change becomes a compile
-// error at the consumer instead of a dead database lookup at recovery time.
-// This is the seam must consume.
-//
-// -- is structural, not documented --
-//
-// Every entry leaves this module as a `NormalizedProviderToolMetadata`, whose
-// `idempotency_class` is REQUIRED. The only constructor of that shape here is
-// `closeCodexToolDeclaration`, which substitutes
-// `DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS` (`manual_reconcile_only`) for an
-// unannotated entry. An author who adds a tool and forgets to classify it
-// therefore gets the conservative floor BY CONSTRUCTION — there is no code
-// path that emits an unclassified tool, and no comment anyone has to obey.
-// This is defense in depth over the contract-level realization
-// (`ProviderToolMetadataSchema`'s `.optional().default(...)`), not a
-// replacement for it: the two guard different boundaries (authoring here, the
-// untyped write seam there).
-//
-// The mutating tools below are deliberately authored WITHOUT an
-// `idempotency_class` so the floor is exercised by the shipped census itself
-// rather than only by a test fixture. Annotating them
-// `manual_reconcile_only` explicitly would read identically and prove
-// nothing.
-//
-// -- Classification basis --
-//
-// `idempotent` is claimed ONLY where re-execution after a crash changes no
-// state the session or any external system can observe ("safe to
-// re-execute... either a pure read... Each such claim carries its one-line
-// rationale inline. No Codex built-in qualifies as `compensable` — that
-// class requires a remote side honoring a client-supplied idempotency key,
-// and none of these invocations exposes one — so the class is absent here by
-// evidence, not by oversight.
-//
-// -- Deliberate omissions (each is a decision, not a gap) --
-//
-//   * Declaring a single `"mcpToolCall"` row would assert a class for an
-//     identity no receipt ever records.
-//   * `dynamicToolCall` — the daemon-curated callback-tool path. Those tools
-//     are registered per session (`SessionCallbackTool`), so their classes
-//     come from the session registry, never from this static declaration.
-//   * `subAgentActivity` — an activity record emitted BESIDE a peer-agent run,
-//     not an invocation the recovery dispatcher can replay or halt.
-//   * Non-invocation `ThreadItem` arms (`userMessage`, `hookPrompt`,
-//     `agentMessage`, `plan`, `reasoning`, `enteredReviewMode`,
-//     `exitedReviewMode`, `contextCompaction`) are message/lifecycle rows and
-//     carry no tool identity at all.
-//
-// SCOPE BOUNDARY: this task declares the census only.
-//
-// Invariant from the pinned Codex wire census (wire surface at
-// the pinned `codex-cli` build; regenerate-don't-transcribe).
+// - Tool names are `ThreadItem.type` discriminants: `codex app-server` (codex-cli 0.150.1)
+//   publishes no list of model-facing tool names, and that type is all the daemon observes.
+// - `closeCodexToolDeclaration` gives an unannotated entry the conservative floor; the mutating
+//   tools are left unannotated on purpose. No built-in is `compensable`: that needs a remote
+//   honoring a client idempotency key.
+// - Left out: `mcpToolCall` and `dynamicToolCall` (their classes come from the MCP floor and the
+//   session registry), `subAgentActivity`, and the message and lifecycle arms.
 
-import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
 import type {
   IdempotencyClass,
   McpServerStatus,
-  McpServerStatusEmission,
   NormalizedProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 
-/**
- *
- * Exported so a consumer asserting the floor names the same constant this
- * module defaults with, rather than restating the literal.
- */
-export const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+import {
+  boundMcpServerStatusEmission,
+  type McpServerStatusIngestRejection,
+  type McpServerStatusIngestResult,
+} from "../mcp-server-status-ingest.js";
+import type { McpServerStatusEmission } from "../../provider-driver.js";
 
-/**
- * The Codex tool-identity namespace: `ThreadItem.type` discriminants for the
- * arms that represent an invocation whose crash-recovery disposition matters.
- *
- * Ordered deliberately — mutating (floor) entries first, then the classified
- * read-only ones — so a reader sees the conservative bulk before the
- * exceptions. Order is not load-bearing for correctness: `driver_tools` is
- * keyed by `(driver_name, tool_name)`.
- */
-export const CODEX_TOOL_NAMES = [
+/** The class an unannotated Codex tool closes to. */
+const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+
+/** Codex's own tools in the names a person picks for an agent's allowlist. */
+export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
+  "shell",
+  "apply_patch",
+  "web_search",
+]);
+
+/** `ThreadItem.type` arms for an invocation whose crash-recovery disposition matters. */
+const CODEX_TOOL_NAMES = [
   "commandExecution",
   "fileChange",
   "collabAgentToolCall",
@@ -112,73 +43,50 @@ export const CODEX_TOOL_NAMES = [
   "sleep",
 ] as const;
 
-/** The closed union of Codex tool identities — normalizer's seam. */
+/** The closed union of Codex tool identities. */
 export type CodexToolName = (typeof CODEX_TOOL_NAMES)[number];
 
-/**
- * A tool as AUTHORED in this module.
- *
- * `idempotency_class` is OPTIONAL here and REQUIRED on the way out: that
- * asymmetry IS invariant expressed in the type system rather than in prose.
- * `description` is required because an operator reconciling a halted
- * `manual_reconcile_only` receipt reads it, and an unexplained row is a worse
- * default than a verbose one.
- */
+/** `description` is required: the person reconciling a halted receipt reads it. */
 interface CodexToolDeclaration {
   readonly idempotency_class?: IdempotencyClass;
   readonly description: string;
 }
 
-/**
- * The census. `Record<CodexToolName, ...>` makes the set TOTAL by
- * construction: adding a name to `CODEX_TOOL_NAMES` without classifying it
- * here is a compile error, so the two never drift.
- */
 const CODEX_TOOL_DECLARATIONS: Record<CodexToolName, CodexToolDeclaration> = {
-  // Unannotated -> floor: an arbitrary shell command with an arbitrary,
-  // undeclared effect; the protocol exposes no dedup handle for a re-run.
+  // Unannotated -> floor: an arbitrary shell command with an undeclared effect; the protocol
+  // exposes no dedup handle for a re-run.
   commandExecution: {
     description: "Executes a shell command in the thread's working directory.",
   },
-  // Unannotated -> floor: patch application is order- and content-sensitive;
-  // re-applying an already-applied change corrupts the working tree.
+  // Unannotated -> floor: re-applying an already-applied patch corrupts the working tree.
   fileChange: {
     description: "Applies file creations, edits, and deletions to the working tree.",
   },
-  // Unannotated -> floor: spawns, resumes, or feeds a peer agent; a replay
-  // duplicates another agent's run and its entire downstream effect.
+  // Unannotated -> floor: a replay duplicates another agent's run and its downstream effect.
   collabAgentToolCall: {
     description: "Spawns, messages, resumes, waits on, or closes a peer agent thread.",
   },
-  // Unannotated -> floor: a billable remote generation that is not
-  // reproducible — a replay returns a DIFFERENT artifact, so the receipt's
-  // recorded output would no longer describe what exists.
+  // Unannotated -> floor: a billable remote generation whose replay yields a different artifact.
   imageGeneration: {
     description: "Generates an image through the provider's remote model.",
   },
-  // Rationale: a read-only query against an external index — it mutates no
-  // local or remote state, so a recovery replay is observationally inert.
+  // Rationale: a read-only query against an external index; a replay changes nothing.
   webSearch: {
     idempotency_class: "idempotent",
     description: "Runs a read-only web search and returns results to the model.",
   },
-  // Rationale: reads an image from a path into model context; a pure read.
+  // Rationale: a pure read of a file into model context.
   imageView: {
     idempotency_class: "idempotent",
     description: "Reads an image file at a path into the model's context.",
   },
-  // Rationale: a wall-clock delay with no local or remote effect; replaying it
-  // costs time and changes nothing else.
+  // Rationale: a wall-clock delay with no effect; a replay costs time and nothing else.
   sleep: {
     idempotency_class: "idempotent",
     description: "Pauses the turn for a fixed duration.",
   },
 };
 
-/**
- * The single constructor of an emitted tool row. Its REQUIRED
- * `idempotency_class` return field is what closes the set.
- */
 function closeCodexToolDeclaration(
   name: CodexToolName,
   declaration: CodexToolDeclaration,
@@ -190,249 +98,25 @@ function closeCodexToolDeclaration(
   };
 }
 
-/**
- * The frozen, fully-classified Codex tool census.
- *
- * Frozen at both levels so a consumer that reads (rather than copies) cannot
- * corrupt every later capability declaration through a shared reference.
- * Callers building a `GetCapabilitiesResult` use `getCodexToolMetadata()`,
- * which hands back fresh, mutable rows.
- */
+/** The frozen, fully classified tool list; callers use {@link getCodexToolMetadata}. */
 export const CODEX_TOOL_METADATA: readonly NormalizedProviderToolMetadata[] = Object.freeze(
   CODEX_TOOL_NAMES.map((name) =>
     Object.freeze(closeCodexToolDeclaration(name, CODEX_TOOL_DECLARATIONS[name])),
   ),
 );
 
-/**
- * A fresh, independently-mutable copy of the census.
- *
- * `GetCapabilitiesResult.tools` is a mutable array on a contract that crosses
- * the driver boundary; handing out the module constant would let one caller's
- * mutation corrupt every later declaration (the defensive-clone doctrine
- * `provider-registry.ts` applies to the flags snapshot).
- */
+/** A fresh mutable copy: `GetCapabilitiesResult.tools` is mutable across the driver boundary. */
 export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
   return CODEX_TOOL_METADATA.map((tool) => ({ ...tool }));
 }
 
-// ==========================================================================
-// MCP idempotency floor + MCP server-status census
-// ==========================================================================
-//
-// Three additions, each scoped to what and assign to the DRIVER side:
-//
-//   1. The MCP idempotency floor: an MCP-discovered tool is ALWAYS
-//      `manual_reconcile_only`, and the class is NEVER derived from MCP
-//      `ToolAnnotations` self-claims (readOnlyHint / idempotentHint). The
-//      only upgrade path is the operator-governed assignment surface —
-//      which lives outside this driver, not here.
-//   2. The durable-task-handle seam: where an MCP call is dispatched
-//      task-augmented (MCP 2025-11-25 Tasks utility), the receiver-generated
-//      `taskId` from the `CreateTaskResult` acceptance is the handle recovery
-//      polls instead of halting. This module OBSERVES the handle at dispatch
-//      and does not store it; the storage half is
-//      `provider/mcp-task-handle-recorder.ts`, the sole writer of
-//      `command_receipts.mcp_task_id` (on the column its own migration
-//      lands). The split is deliberate and survives activation: parsing an
-//      acceptance is provider-shaped, persisting a handle is not. A dispatch
-//      whose handle is absent, malformed, or refused by the recorder stores
-//      nothing, and recovery for that receipt stays on the
-//      `manual_reconcile_only` halt.
-//   3. The MCP server-status census normalizers: `mcpServerStatus/list` rows
-//      and `mcpServer/startupStatus/updated` notifications, normalized into
-//      the closed `McpServerStatus` enum and Zod-bounded
-//      (`McpServerStatusEmissionSchema` — `serverName` is untrusted provider
-//      output) BEFORE anything reaches the daemon-injected
-//      `onMcpServerStatus` producer. SERVERS ONLY — no per-server tool-list
-//      assumption (support is not visibility). Producer-only: the consumer
-//      is the `McpStatusNormalizer`.
-//
-// Wire grounding (first-party, generated JSON Schema at the pinned codex-cli
-// `0.150.1` — regenerate per the pinned Codex wire census):
-//   * `McpServerStatus` list row: required `name` + `authStatus`
-//     (`unknown | unsupported | notLoggedIn | bearerToken | oAuth`), optional
-//     `runtimeStatus` (`McpServerConnectionStatus`: `notStarted | starting |
-//     connected | authenticationRequired | failed | cancelled | disabled`),
-//     null "when unavailable or the configuration changed".
-//   * `McpServerStatusUpdatedNotification`: required `name` + `status`
-//     (`McpServerStartupState`: `starting | ready | failed | cancelled`),
-//     optional `failureReason` (`reauthenticationRequired`) and `error`.
+// MCP server-status normalizers: status rows and notifications become the closed
+// `McpServerStatus` enum, bounded because `serverName` is untrusted. Wire shapes are from
+// codex-cli 0.150.1; `runtimeStatus` is null when unavailable or the configuration changed.
 
 /**
- * The class of EVERY MCP-discovered tool.
- *
- * Exported as its own constant — rather than reusing
- * {@link DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS} at call sites — because the two
- * rules are different: the default is what an UNANNOTATED builtin closes to;
- * this is what an MCP tool is REGARDLESS of annotation. They share a value by
- * spec, and the test pins that identity so a future divergence is loud.
- */
-export const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
-
-/**
- * The MCP `ToolAnnotations` self-claims a server may attach to a tool
- * (MCP 2025-11-25 Tools). Modeled here ONLY so the floor's signature can name
- * what it deliberately ignores — the negative test drives this function with
- * every hint set to its most permissive value and asserts the floor holds.
- */
-export interface McpToolAnnotationHints {
-  readonly readOnlyHint?: boolean | undefined;
-  readonly idempotentHint?: boolean | undefined;
-  readonly destructiveHint?: boolean | undefined;
-  readonly openWorldHint?: boolean | undefined;
-}
-
-/**
- * Classify an MCP-discovered tool's `idempotency_class`.
- *
- * The `annotations` parameter is accepted and IGNORED — that is the contract,
- * not an oversight: MCP 2025-11-25 binds clients to treat `ToolAnnotations`
- * as untrusted unless from trusted servers, and forbids deriving the class
- * from them at MUST strength. A `readOnlyHint: true` / `idempotentHint: true`
- * self-claim therefore has NO effect on recovery dispatch.
- */
-export function classifyMcpDiscoveredTool(
-  annotations?: McpToolAnnotationHints | undefined,
-): IdempotencyClass {
-  // The parameter is intentionally unread. Void it so the intent is explicit
-  // to both the reader and the linter: consulted-never-derived.
-  void annotations;
-  return MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS;
-}
-
-// --------------------------------------------------------------------------
-// Durable-task-handle seam (observation half)
-// --------------------------------------------------------------------------
-//
-// `observeMcpTaskAcceptance` no longer discards: replaced the no-op sink this
-// seam was born with by the real writer in
-// `provider/mcp-task-handle-recorder.ts`, which stores the handle on the
-// dispatch's `command_receipts` row so recovery can poll `tasks/get` /
-// `tasks/result` instead of halting.
-//
-// What is missing is the CALLER. Nothing in the daemon issues a task-augmented
-// MCP call, and no plan task owns one — owns this observation half owns the
-// write half owns the read, and the dispatch itself is unassigned. moreover
-// holds that the provider CLIs are the MCP clients and "the daemon never joins
-// the MCP wire", which is in tension with the `CreateTaskResult`-at-dispatch
-// observation this seam performs; the method string `tools/call` appears
-// nowhere in the corpus or the code. Resolve that before wiring a caller here —
-// see the header of `provider/mcp-task-handle-recorder.ts` for the full
-// statement.
-
-/**
- * The identity of one task-augmented MCP dispatch, as the observation seam
- * needs it.
- *
- * `(serverName, toolName)` is the MCP identity namespace and names no storable
- * row; `commandId` is the client-supplied idempotency key on the dispatch's
- * `command_receipts` row, and it is what makes the observation writable. Grouped
- * into an object rather than trailing three positional strings — three
- * same-typed parameters in a row is an argument-order bug waiting for a
- * refactor.
- */
-export interface McpTaskDispatchIdentity {
-  readonly commandId: string;
-  readonly serverName: string;
-  readonly toolName: string;
-}
-
-/**
- * A task-augmented MCP dispatch whose acceptance carried a receiver-generated
- * `taskId`: the dispatch's identity plus the handle itself. This is the value
- * `McpTaskHandleRecorder` persists into `command_receipts.mcp_task_id`.
- */
-export interface McpTaskHandleObservation extends McpTaskDispatchIdentity {
-  readonly mcpTaskId: string;
-}
-
-/**
- * Where an observed task handle lands. The shipped binding is
- * `McpTaskHandleRecorder.asSink()` (`provider/mcp-task-handle-recorder.ts`).
- *
- * Returns `void` deliberately: the recorder bounds, stores, and diagnoses on
- * its own, and a driver's dispatch path must not fail a turn because a recovery
- * handle could not be stored.
- */
-export type McpTaskHandleSink = (observation: McpTaskHandleObservation) => void;
-
-/**
- * Extract the receiver-generated `taskId` from a task-augmented dispatch's
- * acceptance response (MCP 2025-11-25 Tasks `CreateTaskResult`: the id lives
- * at `task.taskId` and exists only once the receiver ACCEPTS).
- *
- * Tolerant by design — the utility is experimental upstream and the response
- * is untrusted wire input, so anything not carrying a non-empty string at
- * that path yields `undefined`, which keeps the receipt on the floor's halt
- * (a crash before a durably-stored acceptance leaves no handle; an absent
- * handle must never be fabricated).
- */
-export function extractMcpTaskId(acceptanceResult: unknown): string | undefined {
-  if (typeof acceptanceResult !== "object" || acceptanceResult === null) {
-    return undefined;
-  }
-  const task = (acceptanceResult as Record<string, unknown>)["task"];
-  if (typeof task !== "object" || task === null) {
-    return undefined;
-  }
-  const taskId = (task as Record<string, unknown>)["taskId"];
-  if (typeof taskId !== "string" || taskId.length === 0) {
-    return undefined;
-  }
-  return taskId;
-}
-
-/**
- * The dispatch-seam observation step: parse the acceptance, and hand the sink
- * an observation ONLY when a handle actually exists. No handle → no call —
- * the sink never has to distinguish "no task" from "malformed acceptance",
- * and the floor's halt is the default for both.
- */
-export function observeMcpTaskAcceptance(
-  sink: McpTaskHandleSink,
-  dispatch: McpTaskDispatchIdentity,
-  acceptanceResult: unknown,
-): void {
-  const mcpTaskId = extractMcpTaskId(acceptanceResult);
-  if (mcpTaskId === undefined) {
-    return;
-  }
-  sink({ ...dispatch, mcpTaskId });
-}
-
-// --------------------------------------------------------------------------
-// MCP server-status census normalization
-// --------------------------------------------------------------------------
-
-/**
- * A raw row or notification this normalizer could not turn into a bounded
- * emission. Rejections are RETURNED, never dropped: the wiring seam routes
- * them to the driver diagnostic surface so a malformed row is visible instead
- * of a silent census gap. (This module stays dependency-free of the
- * diagnostic module — the census is pure normalization.)
- */
-export interface McpServerStatusIngestRejection {
-  readonly reason: string;
-}
-
-/** The outcome of normalizing one raw wire payload into bounded emissions. */
-export interface McpServerStatusIngestResult {
-  readonly emissions: readonly McpServerStatusEmission[];
-  readonly rejections: readonly McpServerStatusIngestRejection[];
-}
-
-/**
- * `McpServerConnectionStatus` (list-row `runtimeStatus`) → unified enum.
- *
- * The mapping is total over the schema-published vocabulary; a value outside
- * it lands at `unknown` (the honest floor — an unrecognized state is not an
- * observation of anything). Two entries deserve their rationale:
- *   * `cancelled` → `failed`: startup was attempted and terminated without a
- *     connection — a terminal not-connected state, not an absent observation.
- *   * `disabled` → `unknown`: deliberately not running; there IS no live
- *     connection state. The enabled/disabled semantics live on the CONSUMER's
- *     inventory entry, never in this enum.
+ * `McpServerConnectionStatus` to the unified enum; unlisted is `unknown`. `cancelled` is `failed`
+ * (startup ended without a connection); `disabled` is `unknown` (deliberately not running).
  */
 const CODEX_CONNECTION_STATUS_MAP: Readonly<Record<string, McpServerStatus>> = {
   notStarted: "starting",
@@ -444,7 +128,7 @@ const CODEX_CONNECTION_STATUS_MAP: Readonly<Record<string, McpServerStatus>> = {
   disabled: "unknown",
 };
 
-/** `McpServerStartupState` (startup notification `status`) → unified enum. */
+/** `McpServerStartupState` (startup notification `status`) to the unified enum. */
 const CODEX_STARTUP_STATE_MAP: Readonly<Record<string, McpServerStatus>> = {
   starting: "starting",
   ready: "connected",
@@ -453,44 +137,10 @@ const CODEX_STARTUP_STATE_MAP: Readonly<Record<string, McpServerStatus>> = {
 };
 
 /**
- * Bound one (serverName, status) pair through the CONTRACT schema.
+ * Normalizes `mcpServerStatus/list` rows; a non-array yields one rejection. A null `runtimeStatus`
+ * is `needs-auth` only for `authStatus` `notLoggedIn`, else `unknown` (other modes say nothing).
  *
- * `McpServerStatusEmissionSchema` is the trust boundary the plan names:
- * `serverName` is untrusted provider output and is `wireFreeFormString`-
- * bounded (length 1..128, non-whitespace, no NUL) HERE, before the emission
- * can reach the daemon-injected producer.
- */
-function boundEmission(
-  serverName: unknown,
-  status: McpServerStatus,
-): { emission?: McpServerStatusEmission; rejection?: McpServerStatusIngestRejection } {
-  const parsed = McpServerStatusEmissionSchema.safeParse({ serverName, status });
-  if (parsed.success) {
-    return { emission: parsed.data };
-  }
-  return {
-    rejection: {
-      reason: `MCP server-status emission rejected at the wire bound: ${parsed.error.issues
-        .map((issue) => issue.message)
-        .join("; ")}`,
-    },
-  };
-}
-
-/**
- * Normalize a `mcpServerStatus/list` response's `data` rows into bounded
- * emissions — the per-session init census.
- *
- * Status resolution per row (first-party schema semantics):
- *   1. `runtimeStatus` present → the connection-status map above.
- *   2. `runtimeStatus` null/absent ("unavailable or the configuration
- *      changed") → `authStatus === "notLoggedIn"` is still a definite
- *      needs-auth observation; anything else is honestly `unknown` — an auth
- *      MODE (`bearerToken`, `oAuth`, `unsupported`) says nothing about
- *      whether the server is up.
- *
- * Accepts the raw `data` array (unknown — untrusted wire). A non-array input
- * yields one rejection and no emissions.
+ * @consumedBy the Codex driver's MCP server status reads
  */
 export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerStatusIngestResult {
   if (!Array.isArray(rawRows)) {
@@ -516,7 +166,7 @@ export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerSt
     } else {
       status = row["authStatus"] === "notLoggedIn" ? "needs-auth" : "unknown";
     }
-    const bounded = boundEmission(row["name"], status);
+    const bounded = boundMcpServerStatusEmission(row["name"], status);
     if (bounded.emission !== undefined) {
       emissions.push(bounded.emission);
     }
@@ -528,14 +178,10 @@ export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerSt
 }
 
 /**
- * Normalize one `mcpServer/startupStatus/updated` notification into a bounded
- * emission — the live status-change feed.
+ * Normalizes one `mcpServer/startupStatus/updated` notification; a `failed` startup for
+ * `reauthenticationRequired` becomes `needs-auth`, the one state a person can fix.
  *
- * One refinement beyond the state map: a `failed` startup whose
- * `failureReason` is `reauthenticationRequired` is a needs-auth observation,
- * not a generic failure — the schema publishes exactly that one reason, and
- * collapsing it into `failed` would hide the one state an operator can
- * actually fix from the census.
+ * @consumedBy the Codex driver's MCP server status reads
  */
 export function normalizeCodexMcpServerStatusNotification(
   rawNotification: unknown,
@@ -559,7 +205,7 @@ export function normalizeCodexMcpServerStatusNotification(
   if (status === "failed" && notification["failureReason"] === "reauthenticationRequired") {
     status = "needs-auth";
   }
-  const bounded = boundEmission(notification["name"], status);
+  const bounded = boundMcpServerStatusEmission(notification["name"], status);
   return {
     emissions: bounded.emission !== undefined ? [bounded.emission] : [],
     rejections: bounded.rejection !== undefined ? [bounded.rejection] : [],

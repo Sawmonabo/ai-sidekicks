@@ -1,0 +1,66 @@
+/* The new-session draft and its buttons. */
+
+.meridian-new-session__open,
+.meridian-new-session__discard,
+.meridian-new-session__recheck,
+.meridian-new-session__send {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+/* Dimmed, not refused: disabled while the draft is empty or a create answered unreadably.
+   Left in place so the row does not reflow when the first message is typed. */
+.meridian-new-session__send:disabled {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-new-session {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-new-session__first-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text);
+}
+
+/* `font: inherit` because a textarea's UA default is monospace, and this field holds prose. */
+.meridian-new-session__first-turn-input {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  resize: vertical;
+}
+
+/* What already exists after a partial send. Muted: a fact beside the refusal, not a fault. */
+.meridian-new-session__completed {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+/* The words typed after the press that a completed send did not carry. Muted: nothing failed. */
+.meridian-new-session__unsent {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-new-session__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+}

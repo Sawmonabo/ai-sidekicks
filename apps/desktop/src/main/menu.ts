@@ -1,228 +1,28 @@
-// The application menu.
-//
-// Main owes a platform-appropriate menu bar (macOS app menu; Windows/Linux
-// window menu). This module builds it from a template of platform-default roles
-// plus a `Window` submenu whose auxiliary
-// entries come from the SHARED bare-launchable route list in
-// `../shared/auxiliary-routes.ts` — never from the route type, and never from
-// the wider implemented set. The menu-bar path is the one that ships first
-// because it needs no new bridge namespace: opening an auxiliary window is a
-// main-process act, so nothing here crosses the preload boundary. A
-// renderer-initiated detach rides the `window` bridge namespace, whose handlers
-// `./auxiliary-window-ipc.ts` registers.
-//
-// Copy follows the console's rules: sentence case, no exclamation marks, no
-// capability claimed that the code does not implement.
-//
-// Bare-launchable-set-derived, and the narrower set is the point. Every entry
-// this menu builds calls `createAuxiliaryWindow({ route })` with NO context, so
-// the question it must answer is not "does this route have a body" but "can a
-// window opened with nothing be given a subject". Those are two claims, and
-// `../shared/auxiliary-routes.ts` now holds them as two lists: a route body
-// landing puts a route in the implemented set, which is what the detach path
-// needs, and only a read that a context-less window can actually reach puts it
-// in `BARE_LAUNCHABLE_AUXILIARY_ROUTES`, which is what this menu reads.
-//
-// An entry offered without either is the same defect in two shapes. Before a
-// route body exists it opens a hash route with nothing behind it — a blank frame
-// the user has to close. With a body but no reachable read it opens the context
-// picker, which finds an empty store registry and a refused session directory
-// and stops at the honest not-checked absence — a window that works and can
-// never be given a subject. Both claim a capability nothing implements, which
-// the console's copy rules forbid, so this menu renders no auxiliary entry
-// while the bare-launchable list is empty, and each
-// entry appears in the same commit as the read that makes its bare launch
-// answerable.
-//
-// Both lists are shared rather than a main-process registry for the reason their
-// module's header gives: a renderer route module cannot register itself into
-// main-process state, so a registry is a gate nothing ever opens.
-//
-// The `Window` submenu itself is NOT omitted when that list is empty. Its
-// other items are `minimize` / `zoom` / `front` / `close` — platform window
-// commands that have nothing to do with auxiliary routes and work today.
-// Dropping the submenu to hide two entries would take Minimize and Close off
-// the menu bar as collateral, which is a regression in a surface none of this
-// touches. What an empty implemented set removes is exactly the auxiliary
-// entries and the separator that introduces them, so the submenu never renders a
-// leading or doubled divider around nothing.
-//
-// Every entry opens the BARE route — `createAuxiliaryWindow({ route })` with no
-// pane context. A menu bar has no pane to read a session or agent from, and
-// guessing one (the most recent session, say) would put a window on a subject
-// the user did not choose. That is exactly why membership is gated on the
-// bare-launchable list: the auxiliary renderer's context picker has landed, and
-// what it still lacks is a candidate source a context-less window can reach.
-//
-// `registerMenuSection` is the second seam. An owning family EXTENDs this menu with
-// its own section rather than editing this template — the onboarding family registers
-// the `Session` section's _Set up providers_ entry through it. Sections are a
-// RUNTIME registry where routes are a static list, and the difference is not
-// stylistic: a
-// section's registrant is a main-process module (the onboarding walkthrough
-// host), so it can call in, whereas a renderer route module cannot. A section
-// whose owner has nothing to offer registers no items and renders nothing —
-// the same absent-not-disabled rule, applied one level up.
+// One static template of Electron's own role menus; the platform supplies the verbs and
+// accelerators.
 
 import { Menu, type MenuItemConstructorOptions } from "electron";
 
-import { AUXILIARY_MENU_CHORDS, electronAcceleratorFor } from "../shared/auxiliary-menu-chords.js";
-import {
-  AUXILIARY_ROUTE_LABELS,
-  BARE_LAUNCHABLE_AUXILIARY_ROUTES,
-} from "../shared/auxiliary-routes.js";
-import { createAuxiliaryWindow } from "./auxiliary-window.js";
-
 const IS_MACOS = process.platform === "darwin";
 
-// The accelerator table used to live here, on the reasoning that "an accelerator is
-// meaningless to the renderer bundle". It is not: Electron consumes a menu
-// accelerator BEFORE the renderer's key-binding table sees the keystroke, so a chord
-// the menu owns is one no renderer binding can run — and while the table was
-// main-private the renderer's own audit had no way to say so, which is how
-// `CmdOrCtrl+Shift+T` came to sit on top of the ledger's live `$mod+Shift+t`. It is
-// now declared once in `../shared/auxiliary-menu-chords.ts`, in the console's chord
-// grammar, and rendered into Electron's spelling here — the one caller that needs
-// that spelling.
-
 /**
- * A top-level submenu an owning plan contributes.
- *
- * `id` is the replace key, so a module that registers on every activation (or on
- * every hot reload) updates its section rather than stacking duplicates of it.
- * `items` is the owner's own list: a section that has nothing to offer registers
- * an empty one and is not rendered at all, which is how an owner applies the
- * absent-not-disabled rule to its own entries without this module knowing
- * anything about them.
+ * Builds and installs the application menu. Call once, inside `app.whenReady()`, after the
+ * renderer protocol is installed, so no accelerator can fire against an uninstalled scheme.
  */
-export interface MenuSection {
-  readonly id: string;
-  readonly label: string;
-  readonly items: readonly MenuItemConstructorOptions[];
-}
-
-/**
- * The section registry and the installed-menu state, encapsulated.
- *
- * A class with private fields rather than a module-level `Map` plus a
- * module-level `let`, because the two are ONE piece of state: whether a
- * registration must rebuild the menu bar depends on whether the menu is already
- * installed, and holding that pair as two free module bindings lets any later
- * edit update one without the other. The class also makes the ordering
- * guarantee legible in one place: `Map` iteration is insertion-ordered, and
- * main-process composition is one sequential act, so registration order is a
- * deterministic order rather than a race.
- *
- * Exactly one instance exists, held in a `const` below. It is module-private:
- * the exported surface is `registerMenuSection` / `installApplicationMenu`, so
- * no caller can reach past them into the registry itself.
- */
-class ApplicationMenuRegistry {
-  readonly #sections = new Map<string, MenuSection>();
-  #installed = false;
-
-  /**
-   * Records (or replaces) one section, rebuilding the menu bar when one is
-   * already installed.
-   *
-   * `Menu.setApplicationMenu` is the only way to change an installed template,
-   * so a section registered after startup must trigger a rebuild or it never
-   * reaches the menu bar. Before install this only records, so a composition
-   * root may register in any order.
-   */
-  public register(section: MenuSection): void {
-    this.#sections.set(section.id, section);
-    if (this.#installed) {
-      this.install();
-    }
-  }
-
-  /** Builds a fresh template and installs it. */
-  public install(): void {
-    this.#installed = true;
-    Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate()));
-  }
-
-  /** The registered sections as menu items, in registration order. */
-  public sectionMenuItems(): MenuItemConstructorOptions[] {
-    const items: MenuItemConstructorOptions[] = [];
-    for (const section of this.#sections.values()) {
-      // A section with no entries renders nothing — not an empty submenu, which
-      // would be a menu title that opens onto nothing.
-      if (section.items.length === 0) {
-        continue;
-      }
-      items.push({ label: section.label, submenu: [...section.items] });
-    }
-    return items;
-  }
-}
-
-const applicationMenuRegistry = new ApplicationMenuRegistry();
-
-/**
- * Registers (or replaces) one top-level section.
- *
- * The exported seam the onboarding family registers through; see
- * {@link ApplicationMenuRegistry} for the rebuild rule.
- */
-export function registerMenuSection(section: MenuSection): void {
-  applicationMenuRegistry.register(section);
-}
-
-function buildAuxiliaryMenuItems(): MenuItemConstructorOptions[] {
-  const items: MenuItemConstructorOptions[] = BARE_LAUNCHABLE_AUXILIARY_ROUTES.map((route) => ({
-    label: AUXILIARY_ROUTE_LABELS[route],
-    accelerator: electronAcceleratorFor(AUXILIARY_MENU_CHORDS[route]),
-    click: () => {
-      createAuxiliaryWindow({ route });
-    },
-  }));
-
-  // The separator introduces the auxiliary block, so it belongs to the block
-  // and not to the submenu: with nothing to introduce, it is not emitted.
-  return items.length === 0 ? [] : [{ type: "separator" }, ...items];
-}
-
-function buildMenuTemplate(): MenuItemConstructorOptions[] {
+export function installApplicationMenu(): void {
   const template: MenuItemConstructorOptions[] = [];
 
-  // The macOS application menu (about / services / hide / quit) has no analog on
-  // Windows or Linux, where `role: "fileMenu"` carries Quit instead.
+  // Windows and Linux have no application menu; `fileMenu` carries Quit there.
   if (IS_MACOS) {
     template.push({ role: "appMenu" });
   }
 
-  template.push({ role: "fileMenu" }, { role: "editMenu" }, { role: "viewMenu" });
+  template.push(
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  );
 
-  template.push(...applicationMenuRegistry.sectionMenuItems());
-
-  // Replaces `role: "windowMenu"`, which would supply the platform defaults but
-  // no way to add the auxiliary-window entries alongside them.
-  template.push({
-    label: "Window",
-    submenu: [
-      { role: "minimize" },
-      ...(IS_MACOS ? [{ role: "zoom" } as const] : []),
-      ...buildAuxiliaryMenuItems(),
-      { type: "separator" },
-      ...(IS_MACOS ? [{ role: "front" } as const] : [{ role: "close" } as const]),
-    ],
-  });
-
-  return template;
-}
-
-/**
- * Builds and installs the application menu. Called once, inside
- * `app.whenReady()`, after the renderer protocol is installed and before the
- * main window is created — so a menu accelerator can never fire against an
- * uninstalled scheme.
- *
- * Idempotent with respect to state: it installs a freshly built template every
- * time and holds no subscription, so a second call cannot stack listeners or
- * leave a handle behind.
- */
-export function installApplicationMenu(): void {
-  applicationMenuRegistry.install();
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

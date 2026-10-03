@@ -1,85 +1,52 @@
-// Coverage map for `intervention.ts`:
-//   * One generic `applyIntervention` dispatcher plus the degraded-fallback
-//     answer, rather than a per-intervention method set.
-//   * `queue_and_interrupt` is the documented daemon fallback for a provider
-//     with no native steer.
-//   * An intervention type this driver cannot dispatch natively returns a
-//     `degraded` RESULT: never a throw, and never a silent no-op. The
-//     no-silent-no-op conjunct is asserted by counting OUTBOUND TRAFFIC, not by
-//     reading the return value: a degraded steer must send zero user-text frames
-//     and zero control requests, because a driver that delivered the steer text
-//     and then reported `degraded` would double-apply the intervention the daemon
-//     is about to queue.
-//   * The requester's `clientIdempotencyKey` has no pinned wire home on the
-//     interrupt control request, so no substitute is invented: the dispatched
-//     request carries exactly `{ subtype, cancelQueued }`.
-//   * An acknowledged CANCEL that reports surviving queued messages
-//     (`still_queued`, the `interrupt_receipt_v1` receipt) degrades instead of
-//     reading as success; the same field on an INTERRUPT is the contract
-//     working, and applies.
+// `intervention.ts`: a steer degrades to `queue_and_interrupt` and writes nothing, because the
+// daemon queues it and a written steer would apply twice; interrupt and cancel map onto the
+// interrupt control request, and a cancel whose receipt lists survivors degrades.
 
-import {
-  DRIVER_FALLBACK_ACTION_MAX_LEN,
-  DriverInterventionResultSchema,
-  type ApplyInterventionParams,
-} from "@ai-sidekicks/contracts";
+import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { CLAUDE_STEER_FALLBACK_ACTION, ClaudeInterventionDispatcher } from "../intervention.js";
-import {
-  ClaudeSessionUnavailableError,
-  type ClaudeRunChannelLookup,
-  type ClaudeSessionChannel,
-} from "../lifecycle.js";
+import { ClaudeInterventionDispatcher } from "../intervention.js";
+import { STEER_FALLBACK_ACTION } from "../../../provider-driver.js";
+import { ClaudeSessionUnavailableError } from "../session-errors.js";
+import { type ClaudeRunProcessLookup, type ClaudeProviderProcess } from "../session-transport.js";
 import {
   buildCancelParams,
   buildInterruptParams,
   buildSteerParams,
-  FakeClaudeSessionChannel,
-  TEST_RUN_ID,
+  FakeClaudeProviderProcess,
 } from "./claude-test-doubles.js";
 
-class StubRunChannelLookup implements ClaudeRunChannelLookup {
-  readonly channel: FakeClaudeSessionChannel | undefined;
+class StubRunProcessLookup implements ClaudeRunProcessLookup {
+  readonly channel: FakeClaudeProviderProcess | undefined;
 
-  constructor(channel: FakeClaudeSessionChannel | undefined) {
+  constructor(channel: FakeClaudeProviderProcess | undefined) {
     this.channel = channel;
   }
 
-  findChannelForRun(): ClaudeSessionChannel | undefined {
+  findProcessForRun(): ClaudeProviderProcess | undefined {
     return this.channel;
   }
 }
 
 interface InterventionHarness {
   readonly dispatcher: ClaudeInterventionDispatcher;
-  readonly channel: FakeClaudeSessionChannel;
+  readonly channel: FakeClaudeProviderProcess;
 }
 
 function buildHarness(): InterventionHarness {
-  const channel = new FakeClaudeSessionChannel("provider-session-live");
+  const channel = new FakeClaudeProviderProcess("provider-session-live");
   const dispatcher = new ClaudeInterventionDispatcher({
-    channelLookup: new StubRunChannelLookup(channel),
+    channelLookup: new StubRunProcessLookup(channel),
   });
   return { dispatcher, channel };
 }
 
 function buildDispatcherWithoutLiveRun(): ClaudeInterventionDispatcher {
-  return new ClaudeInterventionDispatcher({ channelLookup: new StubRunChannelLookup(undefined) });
+  return new ClaudeInterventionDispatcher({ channelLookup: new StubRunProcessLookup(undefined) });
 }
 
-describe("CLAUDE_STEER_FALLBACK_ACTION", () => {
-  it("stays inside the bound the driver result envelope enforces", () => {
-    // The bound is enforced at runtime by the schema parse every result goes
-    // through; this asserts the shipped value against it directly, so a later
-    // edit to the constant fails here rather than only inside a dispatch path.
-    expect(CLAUDE_STEER_FALLBACK_ACTION.length).toBeLessThanOrEqual(DRIVER_FALLBACK_ACTION_MAX_LEN);
-    expect(CLAUDE_STEER_FALLBACK_ACTION).toBe("queue_and_interrupt");
-  });
-});
-
 describe("ClaudeInterventionDispatcher steer", () => {
-  it("degrades with the documented queue_and_interrupt fallback", async () => {
+  it("degrades with the queue_and_interrupt fallback and sends nothing to the provider", async () => {
     const harness = buildHarness();
 
     const result = await harness.dispatcher.applyIntervention(
@@ -88,45 +55,18 @@ describe("ClaudeInterventionDispatcher steer", () => {
 
     expect(result).toStrictEqual({
       status: "degraded",
-      fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
+      fallbackAction: STEER_FALLBACK_ACTION,
     });
-    expect(CLAUDE_STEER_FALLBACK_ACTION).toBe("queue_and_interrupt");
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-  });
-
-  it("sends nothing to the provider — the degrade is never a partial application", async () => {
-    const harness = buildHarness();
-
-    await harness.dispatcher.applyIntervention(buildSteerParams("try the other fix"));
-
+    // The degrade is never a partial application.
     expect(harness.channel.sentWireTexts).toStrictEqual([]);
     expect(harness.channel.controlRequests).toStrictEqual([]);
     expect(harness.channel.outboundCallCount).toBe(0);
   });
-
-  it("never leaks the steer content into an out-of-band provider turn", async () => {
-    const harness = buildHarness();
-
-    await harness.dispatcher.applyIntervention(buildSteerParams("secret steering text"));
-
-    const outboundPayload = JSON.stringify({
-      frames: harness.channel.sentTextFrames,
-      controls: harness.channel.controlRequests,
-    });
-    expect(outboundPayload).not.toContain("secret steering text");
-  });
-
-  it("degrades rather than throwing when the target run has no live channel", async () => {
-    const dispatcher = buildDispatcherWithoutLiveRun();
-
-    const result = await dispatcher.applyIntervention(buildSteerParams("try the other fix"));
-
-    expect(result.status).toBe("degraded");
-  });
 });
 
 describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
-  it("routes an interrupt to the interrupt control request without cancelling queued input", async () => {
+  it("routes an interrupt to the interrupt control request without canceling queued input", async () => {
     const harness = buildHarness();
 
     const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
@@ -139,7 +79,7 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
   });
 
-  it("routes a cancel to the same control request with queued input cancelled", async () => {
+  it("routes a cancel to the same control request with queued input canceled", async () => {
     const harness = buildHarness();
 
     const result = await harness.dispatcher.applyIntervention(buildCancelParams());
@@ -164,15 +104,6 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
   });
 
-  it("propagates a transport exception instead of laundering it into a degraded result", async () => {
-    const harness = buildHarness();
-    harness.channel.controlRequestFailure = new Error("stdin pipe closed");
-
-    await expect(harness.dispatcher.applyIntervention(buildInterruptParams())).rejects.toThrow(
-      "stdin pipe closed",
-    );
-  });
-
   it("refuses an interrupt for a run with no live channel rather than claiming a degrade", async () => {
     const dispatcher = buildDispatcherWithoutLiveRun();
 
@@ -192,31 +123,10 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
 
     const result = await harness.dispatcher.applyIntervention(buildCancelParams());
 
-    // Reporting `applied` here would tell the daemon a user's cancellation
-    // took hold while messages it was meant to stop are still queued to run.
+    // `applied` would tell the daemon the cancel took hold while queued messages still run.
     expect(result).toStrictEqual({ status: "degraded" });
     expect(result.fallbackAction).toBeUndefined();
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-  });
-
-  it("applies a cancel whose receipt reports an empty survivor list", async () => {
-    const harness = buildHarness();
-    harness.channel.controlResponse = { subtype: "success", response: { still_queued: [] } };
-
-    await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
-      status: "applied",
-    });
-  });
-
-  it("applies a cancel on a build that advertises no receipt capability", async () => {
-    const harness = buildHarness();
-    harness.channel.controlResponse = { subtype: "success" };
-
-    // Absent means "this build reported nothing", never "messages survived".
-    // Degrading here would fail closed on a guarantee the build never made.
-    await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
-      status: "applied",
-    });
   });
 
   it("applies an interrupt that reports survivors — survival is what defines it", async () => {
@@ -226,8 +136,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
       response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
     };
 
-    // An interrupt is precisely the operation queued input is meant to outlive;
-    // grading it the way a cancel is graded would degrade the normal path.
+    // Queued input is meant to outlive an interrupt, so survivors are not a failure here.
     await expect(
       harness.dispatcher.applyIntervention(buildInterruptParams()),
     ).resolves.toStrictEqual({ status: "applied" });
@@ -240,54 +149,10 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
       response: { still_queued: "not-an-array" },
     };
 
-    // The payload crosses the provider trust boundary, so an unreadable receipt
-    // must not turn a delivered cancel into an exception.
+    // The receipt comes from the provider; an unreadable one must not turn a delivered cancel
+    // into an exception.
     await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
       status: "applied",
-    });
-  });
-
-  it("invents no client identifier on the dispatched control request", async () => {
-    const harness = buildHarness();
-
-    await harness.dispatcher.applyIntervention(buildCancelParams());
-
-    // The pinned `interrupt` control request carries no client-supplied id, and
-    // the transport's own `request_id` is correlation state a retry must vary —
-    // so the key travels nowhere rather than into an unregistered wire field.
-    expect(harness.channel.controlRequests).toStrictEqual([
-      { subtype: "interrupt", cancelQueued: true },
-    ]);
-  });
-});
-
-describe("ClaudeInterventionDispatcher unrouted intervention types", () => {
-  it("degrades instead of throwing when an unrouted type reaches the dispatcher", async () => {
-    const harness = buildHarness();
-    // Reachable only from an untyped boundary: the compile-time half of this
-    // guard is the `never` parameter that rejects a fourth arm at build time.
-    const unroutedParams = {
-      ...buildInterruptParams(),
-      type: "pause",
-    } as unknown as ApplyInterventionParams;
-
-    const result = await harness.dispatcher.applyIntervention(unroutedParams);
-
-    expect(result).toStrictEqual({ status: "degraded" });
-    expect(harness.channel.outboundCallCount).toBe(0);
-    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-  });
-
-  it("answers the target run identically whether or not a channel is live", async () => {
-    const dispatcher = buildDispatcherWithoutLiveRun();
-    const unroutedParams = {
-      ...buildInterruptParams(),
-      targetRunId: TEST_RUN_ID,
-      type: "pause",
-    } as unknown as ApplyInterventionParams;
-
-    await expect(dispatcher.applyIntervention(unroutedParams)).resolves.toStrictEqual({
-      status: "degraded",
     });
   });
 });

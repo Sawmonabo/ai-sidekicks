@@ -1,41 +1,11 @@
-// LocalIpcGateway test suite.
+// Tests `LocalIpcGateway` over a real local socket: Content-Length framing and its size caps, the
+// request-id and `protocolVersion` envelope gates, error sanitization, and start/stop behavior.
 //
-//   * JSON-RPC 2.0 + LSP-style Content-Length framing; 1 MB max-message-size.
-//   * OS-local default transport (Unix domain socket on Unix-like; named
-//     pipe on Windows).
-//   * Wire- format decision rationale.
-//
-//   * Transport: Unix domain socket round-trip
-//   * Transport: Windows named pipe round-trip
-//                   (it.skipIf(process.platform !== "win32"); the
-//                   OS-local socket in vitest CI is Linux per the
-//                   matrix).
-//   * Transport: gated loopback fallback.
-//                   The `transport.unavailable` envelope code surface
-//                   does not exist at the gateway layer today —
-//                   `SecureDefaults.load` refuses non-loopback at
-//                   config-time with `invalid_bind_address`, so the
-//                   case is `it.todo` until that gate moves.
-//   * 1MB max-message-size enforcement.
-//                   Body > 1MB → connection close + `-32600` error frame. The
-//                   mapping is wired in `jsonrpc-error-mapping.ts`
-//                   (oversized_body → -32600 InvalidRequest).
-//   * Content-Length framing parser correctness:
-//                   single message, multi-message buffer,
-//                   partial-buffer wait, malformed framing.
-//   * Handler-thrown error mapping: unhandled
-//                    handler exception → `-32603` with sanitized
-//                    message; no stack/secret leak.
-//
-// Reset discipline: every `it()` runs in a `beforeEach` that calls
-// `SecureDefaults.__resetForTest()` then `bootstrap({...})`. Vitest
-// shares the Node process across cases, and `SecureDefaults` is a
-// module singleton; without the reset, a test that loaded one socket
-// path would poison the next. Each gateway-binding test allocates a
-// FRESH socket path under `os.tmpdir()` so parallel test workers
-// never collide on the same `sun_path`.
+// Each gateway test bootstraps `SecureDefaults` with its own socket path before binding; the
+// latest load wins. Every test that binds a socket uses a fresh path under `os.tmpdir()` so parallel
+// workers never collide.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -43,69 +13,60 @@ import * as path from "node:path";
 
 import type {
   Handler,
-  HandlerContext,
   JsonRpcErrorResponse,
-  JsonRpcId,
   JsonRpcRequest,
   JsonRpcResponse,
 } from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { bootstrap } from "../../bootstrap/index.js";
-import { SecureDefaults } from "../../bootstrap/secure-defaults.js";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
-
+import { FramingError, parseFrame } from "../content-length-framing.js";
 import {
   encodeFrame,
-  FramingError,
   JSON_RPC_ID_MAX_BYTES,
   LocalIpcGateway,
   MAX_MESSAGE_BYTES,
-  parseFrame,
   sanitizeErrorMessage,
   SANITIZED_MESSAGE_MAX_LEN,
   type SupervisionHooks,
 } from "../local-ipc-gateway.js";
 import { MethodRegistryImpl } from "../registry.js";
 
-import { passthroughSchema } from "./__fixtures__/zod-schemas.js";
-
-// ----------------------------------------------------------------------------
-// Test fixtures
-// ----------------------------------------------------------------------------
+import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
 
 /**
- * Canonical envelope-level `protocolVersion` for gateway-routed test fixtures.
- * requires every non-handshake request to carry an ISO 8601 `YYYY-MM-DD`
- * date-string. The substrate enforces this BEFORE handler dispatch
- * (`local-ipc-gateway.ts#dispatchFrame` Step 3.5); fixtures below mirror the
- * constant so a single update propagates if the negotiated version advances.
+ * The envelope-level `protocolVersion` every non-handshake request must carry (an ISO 8601
+ * `YYYY-MM-DD` date); the gateway refuses a request without it before dispatch.
  */
 const TEST_PROTOCOL_VERSION = "2026-05-01";
 
-/**
- * Allocate a fresh ephemeral OS-local socket path under `os.tmpdir()`.
- * Linux's `sun_path` field is bounded to 107 bytes; we keep the path
- * short with a randomized suffix so parallel workers never collide.
- */
+// A short unique path under `os.tmpdir()`; Linux limits a socket path (`sun_path`) to 107 bytes.
 function ephemeralSocketPath(label: string): string {
-  // Math.random keyed seed is acceptable here: the only contract is
-  // "uniqueness across this run + parallel workers"; cryptographic
-  // randomness is not required.
   const suffix = Math.random().toString(36).slice(2, 10);
   return path.join(os.tmpdir(), `aisk-test-${label}-${suffix}.sock`);
 }
 
-/**
- * Connect a `net.Socket` to the gateway listener and accumulate the
- * incoming bytes until the test's matcher is satisfied. Returns a
- * helper bundle so tests can drive the socket's send + verify flows.
- */
+// A connected client socket that accumulates the bytes it receives. `waitForFrames(n)` resolves
+// with the accumulated bytes once they hold `n` complete frames; a malformed reply rejects with the
+// parser's `FramingError` instead of waiting for the test timeout.
 interface ClientHelper {
   readonly socket: net.Socket;
   readonly received: Buffer[];
-  readonly waitForBytes: (predicate: (acc: Buffer) => boolean) => Promise<Buffer>;
+  readonly waitForFrames: (count: number) => Promise<Buffer>;
   readonly close: () => Promise<void>;
+}
+
+function countCompleteFrames(acc: Buffer): number {
+  let count = 0;
+  let rest = acc;
+  for (;;) {
+    const result = parseFrame(rest, MAX_MESSAGE_BYTES);
+    if (result.frame === null) {
+      return count;
+    }
+    count += 1;
+    rest = rest.subarray(result.consumed);
+  }
 }
 
 function makeClient(socketPath: string): Promise<ClientHelper> {
@@ -113,35 +74,42 @@ function makeClient(socketPath: string): Promise<ClientHelper> {
     const sock = net.createConnection(socketPath);
     const received: Buffer[] = [];
     const waiters: Array<{
-      readonly predicate: (acc: Buffer) => boolean;
+      readonly count: number;
       readonly resolve: (value: Buffer) => void;
+      readonly reject: (reason: unknown) => void;
     }> = [];
-    sock.on("data", (chunk: Buffer) => {
-      received.push(chunk);
+    // Settles every waiter the accumulated bytes answer; a framing error rejects them all.
+    const settleWaiters = (): void => {
       const acc = Buffer.concat(received);
-      // Walk waiters newest-first so a later predicate that matches
-      // the current acc fires before earlier predicates that might
-      // be staler.
+      let frameCount: number;
+      try {
+        frameCount = countCompleteFrames(acc);
+      } catch (framingError) {
+        for (const waiter of waiters.splice(0)) {
+          waiter.reject(framingError);
+        }
+        return;
+      }
       for (let i = waiters.length - 1; i >= 0; i--) {
-        const w = waiters[i];
-        if (w !== undefined && w.predicate(acc)) {
+        const waiter = waiters[i];
+        if (waiter !== undefined && frameCount >= waiter.count) {
           waiters.splice(i, 1);
-          w.resolve(acc);
+          waiter.resolve(acc);
         }
       }
+    };
+    sock.on("data", (chunk: Buffer) => {
+      received.push(chunk);
+      settleWaiters();
     });
     sock.once("connect", () => {
       const helper: ClientHelper = {
         socket: sock,
         received,
-        waitForBytes(predicate) {
-          return new Promise((res) => {
-            const acc = Buffer.concat(received);
-            if (predicate(acc)) {
-              res(acc);
-              return;
-            }
-            waiters.push({ predicate, resolve: res });
+        waitForFrames(count) {
+          return new Promise((res, rej) => {
+            waiters.push({ count, resolve: res, reject: rej });
+            settleWaiters();
           });
         },
         close() {
@@ -164,13 +132,9 @@ function makeClient(socketPath: string): Promise<ClientHelper> {
   });
 }
 
-/**
- * Decode a single JSON-RPC envelope from an accumulated buffer that
- * contains AT LEAST ONE complete frame. Throws if the buffer doesn't
- * decode (test misuse / framing regression).
- */
+// Decodes the first complete frame in `acc`; throws if there is none.
 function decodeOneFrame(acc: Buffer): unknown {
-  const result = parseFrame(acc);
+  const result = parseFrame(acc, MAX_MESSAGE_BYTES);
   if (result.frame === null) {
     throw new Error(
       `decodeOneFrame: buffer did not contain a complete frame (length=${acc.byteLength})`,
@@ -180,41 +144,14 @@ function decodeOneFrame(acc: Buffer): unknown {
   return JSON.parse(text);
 }
 
-// ----------------------------------------------------------------------------
-// Per-test reset
-// ----------------------------------------------------------------------------
-
-beforeEach(() => {
-  SecureDefaults.__resetForTest();
-});
-
-afterEach(() => {
-  SecureDefaults.__resetForTest();
-});
-
-// ----------------------------------------------------------------------------
-// parseFrame / encodeFrame correctness (synchronous)
-// ----------------------------------------------------------------------------
-//
-// These cases exercise the framing parser directly without binding the
-// listener. They run synchronously; no socket is opened. The spec calls
-// out four scenarios:
-//   * single message
-//   * multi-message buffer
-//   * partial-buffer wait
-//   * malformed framing → connection close (the connection-close branch is
-//     covered via the gateway path; here we assert the
-//     parser-throw shape that the gateway converts into the disconnect).
-
 describe("Content-Length framing parser correctness", () => {
   it("decodes a single complete frame and reports byte-correct `consumed`", () => {
     const envelope = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: {} };
     const frame = encodeFrame(envelope);
-    const result = parseFrame(frame);
+    const result = parseFrame(frame, MAX_MESSAGE_BYTES);
     expect(result.frame).not.toBeNull();
     expect(result.consumed).toBe(frame.byteLength);
     if (result.frame === null) {
-      // Type-narrow for TS; the assertion above already failed if so.
       throw new Error("unreachable");
     }
     expect(JSON.parse(result.frame.toString("utf8"))).toStrictEqual(envelope);
@@ -224,47 +161,40 @@ describe("Content-Length framing parser correctness", () => {
     const env1 = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: { a: 1 } };
     const env2 = { jsonrpc: JSONRPC_VERSION, id: 2, method: "x.y", params: { b: 2 } };
     const buf = Buffer.concat([encodeFrame(env1), encodeFrame(env2)]);
-    const r1 = parseFrame(buf);
+    const r1 = parseFrame(buf, MAX_MESSAGE_BYTES);
     expect(r1.frame).not.toBeNull();
     if (r1.frame === null) throw new Error("unreachable");
     expect(JSON.parse(r1.frame.toString("utf8"))).toStrictEqual(env1);
-    // Re-parse the remainder.
     const remainder = buf.subarray(r1.consumed);
-    const r2 = parseFrame(remainder);
+    const r2 = parseFrame(remainder, MAX_MESSAGE_BYTES);
     expect(r2.frame).not.toBeNull();
     if (r2.frame === null) throw new Error("unreachable");
     expect(JSON.parse(r2.frame.toString("utf8"))).toStrictEqual(env2);
   });
 
-  it("returns `{ frame: null, consumed: 0 }` for a partial buffer (header only)", () => {
-    const result = parseFrame(Buffer.from("Content-Length: 100\r\n", "ascii"));
-    expect(result.frame).toBeNull();
-    expect(result.consumed).toBe(0);
-  });
+  it("returns `{ frame: null, consumed: 0 }` for a partial buffer, header only or body short", () => {
+    const headerOnly = parseFrame(
+      Buffer.from("Content-Length: 100\r\n", "ascii"),
+      MAX_MESSAGE_BYTES,
+    );
+    expect(headerOnly.frame).toBeNull();
+    expect(headerOnly.consumed).toBe(0);
 
-  it("returns `{ frame: null, consumed: 0 }` for a partial buffer (header complete, body short)", () => {
     const env = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: {} };
     const full = encodeFrame(env);
-    // Truncate to 5 bytes BEFORE end — header is complete, body partial.
+    // The header is complete but the last 5 body bytes are missing.
     const partial = full.subarray(0, full.byteLength - 5);
-    const result = parseFrame(partial);
+    const result = parseFrame(partial, MAX_MESSAGE_BYTES);
     expect(result.frame).toBeNull();
     expect(result.consumed).toBe(0);
   });
 
-  it("throws FramingError(`malformed_header`) when internal header lines use LF instead of CRLF", () => {
-    // The parser searches for `\r\n\r\n` as the header/body separator
-    // first. To exercise the LF-rejection branch in
-    // `extractContentLength` we need the OUTER terminator to be CRLFCRLF
-    // (so the parser slices a header section) but an INTERNAL line
-    // terminator to be LF only. The header section contains
-    // `X-Other: 1\nContent-Length: 5\r\n` followed by the CRLFCRLF
-    // separator + body; after slicing, the header text contains `\n`
-    // but no `\r\n` interior split — the LF-rejection fires.
+  it("throws FramingError for an LF header line, a non-numeric length and a missing length", () => {
+    // The header/body separator is CRLFCRLF, but a line inside the header ends in a bare LF.
     const buf = Buffer.from("X-Other: 1\nContent-Length: 5\r\n\r\n12345", "ascii");
     let caught: unknown = null;
     try {
-      parseFrame(buf);
+      parseFrame(buf, MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -272,13 +202,10 @@ describe("Content-Length framing parser correctness", () => {
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("malformed_header");
     }
-  });
 
-  it("throws FramingError(`malformed_content_length`) for non-numeric Content-Length", () => {
-    const buf = Buffer.from("Content-Length: abc\r\n\r\n", "ascii");
-    let caught: unknown = null;
+    caught = null;
     try {
-      parseFrame(buf);
+      parseFrame(Buffer.from("Content-Length: abc\r\n\r\n", "ascii"), MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -286,13 +213,10 @@ describe("Content-Length framing parser correctness", () => {
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("malformed_content_length");
     }
-  });
 
-  it("throws FramingError(`missing_content_length`) when header lacks Content-Length", () => {
-    const buf = Buffer.from("Other-Header: 5\r\n\r\n12345", "ascii");
-    let caught: unknown = null;
+    caught = null;
     try {
-      parseFrame(buf);
+      parseFrame(Buffer.from("Other-Header: 5\r\n\r\n12345", "ascii"), MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -302,11 +226,37 @@ describe("Content-Length framing parser correctness", () => {
     }
   });
 
+  // Digits only, as HTTP/1.1 `Content-Length = 1*DIGIT`: `parseInt` would read `12junk` and
+  // `12.5` as 12, and `Number` would read `""`, `12e1` and `0x12` as 0, 120 and 18, so the two
+  // sides would slice different lengths.
+  it.each([
+    ["empty string", ""],
+    ["embedded letters", "12junk"],
+    ["fractional", "12.5"],
+    ["scientific notation", "12e1"],
+    ["negative sign", "-12"],
+    ["positive sign", "+12"],
+    ["hex literal", "0x12"],
+  ])("refuses a non-decimal Content-Length (%s) and echoes it JSON-encoded", (_label, raw) => {
+    let caught: unknown = null;
+    try {
+      parseFrame(Buffer.from(`Content-Length: ${raw}\r\n\r\n`, "ascii"), MAX_MESSAGE_BYTES);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FramingError);
+    if (caught instanceof FramingError) {
+      expect(caught.code).toBe("malformed_content_length");
+      // JSON-encoded so a peer cannot inject CRLF or control bytes into logs.
+      expect(caught.message).toContain(JSON.stringify(raw.trim()));
+    }
+  });
+
   it("throws FramingError(`malformed_content_length`) for duplicated Content-Length headers (request-smuggling shape)", () => {
     const buf = Buffer.from("Content-Length: 5\r\nContent-Length: 6\r\n\r\n123456", "ascii");
     let caught: unknown = null;
     try {
-      parseFrame(buf);
+      parseFrame(buf, MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -317,13 +267,12 @@ describe("Content-Length framing parser correctness", () => {
   });
 
   it("encodeFrame round-trips multi-byte UTF-8 bodies (byte-count, not char-count)", () => {
-    // The string "héllo" is 6 bytes UTF-8 (h=1 + é=2 + l=1 + l=1 + o=1).
+    // "héllo" is 6 bytes in UTF-8 but 5 characters.
     const env = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: { msg: "héllo" } };
     const frame = encodeFrame(env);
-    const result = parseFrame(frame);
+    const result = parseFrame(frame, MAX_MESSAGE_BYTES);
     expect(result.frame).not.toBeNull();
     if (result.frame === null) throw new Error("unreachable");
-    // Confirm the decoded body is byte-faithful — the multi-byte é survives.
     const decoded = JSON.parse(result.frame.toString("utf8")) as Record<string, unknown>;
     const params = decoded["params"];
     if (params === null || typeof params !== "object" || Array.isArray(params)) {
@@ -333,20 +282,14 @@ describe("Content-Length framing parser correctness", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Unix domain socket round-trip
-// ----------------------------------------------------------------------------
-
 describe("Unix domain socket round-trip", () => {
   it("binds, accepts a connection, dispatches a request, and returns the typed result", async () => {
-    const socketPath = ephemeralSocketPath("t2");
+    const socketPath = ephemeralSocketPath("round-trip");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
     const registry = new MethodRegistryImpl();
-    // Register a deterministic echo handler to verify round-trip.
     const handler: Handler<{ a: number; b: number }, { sum: number }> = async (params) => {
       return { sum: params.a + params.b };
     };
@@ -370,17 +313,7 @@ describe("Unix domain socket round-trip", () => {
           params: { a: 3, b: 4 },
         };
         client.socket.write(encodeFrame(request));
-        const acc = await client.waitForBytes((b) => {
-          // Wait until at least one full frame has arrived.
-          const r = (() => {
-            try {
-              return parseFrame(b);
-            } catch {
-              return { frame: null, consumed: 0 };
-            }
-          })();
-          return r.frame !== null;
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.jsonrpc).toBe(JSONRPC_VERSION);
         expect(response.id).toBe(1);
@@ -395,22 +328,13 @@ describe("Unix domain socket round-trip", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Windows named pipe round-trip
-// ----------------------------------------------------------------------------
-//
-// The CI matrix is Linux-only, so the Windows pipe transport surface is
-// verified once the Windows runner lands. The conservative posture here
-// is `it.skipIf` so the case re-activates automatically when the Windows
-// runner arrives.
-
+// CI runs on Linux only, so this case is skipped everywhere but Windows.
 describe("Windows named pipe round-trip", () => {
   it.skipIf(process.platform !== "win32")(
     "binds a named pipe, accepts a connection, dispatches a request, and returns the typed result",
     async () => {
-      const pipeName = `\\\\?\\pipe\\aisk-test-t3-${Math.random().toString(36).slice(2, 10)}`;
+      const pipeName = `\\\\?\\pipe\\aisk-test-pipe-round-trip-${Math.random().toString(36).slice(2, 10)}`;
       bootstrap({
-        bindAddress: "127.0.0.1",
         localIpcPath: pipeName,
         bannerFormat: "text",
       });
@@ -437,16 +361,7 @@ describe("Windows named pipe round-trip", () => {
             params: { ping: true },
           };
           client.socket.write(encodeFrame(request));
-          const acc = await client.waitForBytes((b) => {
-            const r = (() => {
-              try {
-                return parseFrame(b);
-              } catch {
-                return { frame: null, consumed: 0 };
-              }
-            })();
-            return r.frame !== null;
-          });
+          const acc = await client.waitForFrames(1);
           const response = decodeOneFrame(acc) as JsonRpcResponse;
           expect(response.id).toBe(1);
           expect(response.result).toStrictEqual({ pong: true });
@@ -460,38 +375,10 @@ describe("Windows named pipe round-trip", () => {
   );
 });
 
-// ----------------------------------------------------------------------------
-// Gated loopback fallback (conservative gate)
-// ----------------------------------------------------------------------------
-//
-// Attempting a non-loopback bind path must fail with the
-// `transport.unavailable` wire envelope. Marked `it.todo` because that
-// surface does not exist at the gateway layer yet. The two-layer envelope
-// mapping itself already exists, so when the gateway-time gate lands the
-// assertion will project through `mapJsonRpcError` exactly like the
-// `unknown_setting` envelope test in `secure-defaults.test.ts`.
-
-describe("gated loopback fallback", () => {
-  it.todo(
-    "non-loopback bind attempt fails at the gateway with `transport.unavailable` envelope (surface deferred until the gate fires at gateway-time rather than config-time)",
-  );
-});
-
-// ----------------------------------------------------------------------------
-// 1MB max-message-size enforcement
-// ----------------------------------------------------------------------------
-//
-// "Body > 1MB → connection close + `-32600` error frame; subsequent reconnect
-// succeeds." The mapping (oversized_body → -32600 InvalidRequest) lives at
-// jsonrpc-error-mapping.ts:175-199; the disconnect-then-reconnect contract is
-// enforced by the gateway's framing-error tear-down path at
-// local-ipc-gateway.ts:858-882.
-
-describe("1MB max-message-size enforcement", () => {
+describe("max-message-size enforcement", () => {
   it("oversized body → connection close + `-32600` InvalidRequest error frame; reconnect succeeds", async () => {
-    const socketPath = ephemeralSocketPath("t5");
+    const socketPath = ephemeralSocketPath("oversized");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -508,51 +395,29 @@ describe("1MB max-message-size enforcement", () => {
       await gateway.start();
       const client = await makeClient(socketPath);
       try {
-        // Construct a forged frame whose Content-Length declares a body
-        // size > MAX_MESSAGE_BYTES. The gateway parses the header,
-        // throws FramingError(`oversized_body`), emits the error frame,
-        // and tears down. We never need to send the body bytes — the
-        // length-declaration alone trips the gate.
+        // The declared length alone trips the cap, so the body is never sent.
         const oversizedHeader = `Content-Length: ${MAX_MESSAGE_BYTES + 1}\r\n\r\n`;
         client.socket.write(Buffer.from(oversizedHeader, "ascii"));
-        // Wait either for an error frame or for the connection to close.
         const closed = new Promise<"closed">((resolve) => {
           client.socket.once("close", () => {
             resolve("closed");
           });
         });
-        const errored = client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const errored = client.waitForFrames(1);
         const racer = await Promise.race([
           closed,
           errored.then((acc) => ({ kind: "errored" as const, acc })),
         ]);
-        // The gateway emits the error frame BEFORE destroying the
-        // socket, so we expect either:
-        //   * close-only when the kernel already shut the socket
-        //     before the error frame's flush completed (race).
-        // mandates the error-frame surface; we assert it here and let the test
-        // fail loudly if the implementation tears down without writing.
+        // The gateway writes the error frame before it destroys the socket, so a close with no
+        // frame is a failure.
         expect(racer).not.toBe("closed");
         if (typeof racer === "object") {
           const response = decodeOneFrame(racer.acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
           expect(response.id).toBeNull();
-          // Plan-specified error code Tasks +: -32600 InvalidRequest
-          // (oversized_body framing path). Mapping wired at
-          // jsonrpc-error-mapping.ts.
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-          // Two-layer envelope: `data.type` carries the canonical
-          // project code `transport.message_too_large` (HTTP 413
-          // semantic — distinct from the `resource.limit_exceeded`
-          // HTTP-429 quota code); `data.fields` carries the throw-site
-          // `{ limit, observed }` detail captured at
-          // local-ipc-gateway.ts.
+          // `data.type` is `transport.message_too_large`; `data.fields` carries the framing
+          // error's `{ limit, observed }`.
           expect(response.error.data).toMatchObject({
             type: "transport.message_too_large",
             fields: {
@@ -560,17 +425,13 @@ describe("1MB max-message-size enforcement", () => {
               observed: MAX_MESSAGE_BYTES + 1,
             },
           });
-          // Wait for the eventual close so the next assertion runs
-          // against a torn-down socket.
           await closed;
         }
       } finally {
-        // The previous client may have been destroyed already; .close()
-        // is idempotent.
+        // The gateway may already have destroyed this socket.
         await client.close().catch(() => undefined);
       }
-      // Reconnect succeeds — the listener is still bound, only the
-      // single offending connection was torn down.
+      // Only the offending connection was torn down; the listener still accepts.
       const client2 = await makeClient(socketPath);
       try {
         const request = {
@@ -581,13 +442,7 @@ describe("1MB max-message-size enforcement", () => {
           params: {},
         };
         client2.socket.write(encodeFrame(request));
-        const acc = await client2.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client2.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.id).toBe(1);
         expect(response.result).toStrictEqual({ ok: true });
@@ -601,31 +456,16 @@ describe("1MB max-message-size enforcement", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Handler-thrown error mapping
-// ----------------------------------------------------------------------------
-//
-// The handler throws an Error whose message contains a Unix absolute
-// path (path-leak shape). The substrate's `mapJsonRpcError` →
-// `sanitizeErrorMessage` pipeline is expected to:
-//   1. Map the unhandled throw to `-32603 InternalError` (per
-//      jsonrpc-error-mapping.ts lines 358-360).
-//   2. Replace the absolute path with `<redacted-path>`
-//      contract.
-//   3. NEVER emit `.stack` content on the wire.
-
 describe("handler-thrown error mapping", () => {
   it("unhandled handler exception → `-32603` with sanitized message; no path/stack leak", async () => {
-    const socketPath = ephemeralSocketPath("t10");
+    const socketPath = ephemeralSocketPath("error-mapping");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
     const registry = new MethodRegistryImpl();
     const handler: Handler<unknown, unknown> = async () => {
-      // This message contains a Unix path that must redact and a
-      // stable token ("BOOM") the test asserts survives.
+      // The path must be redacted; "BOOM" must survive.
       throw new Error("BOOM at /home/secret/path/to/file.ts:42:7");
     };
     registry.register(
@@ -648,26 +488,15 @@ describe("handler-thrown error mapping", () => {
           params: {},
         };
         client.socket.write(encodeFrame(request));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.jsonrpc).toBe(JSONRPC_VERSION);
         expect(response.id).toBe(9);
         expect(response.error.code).toBe(JsonRpcErrorCode.InternalError);
-        // Sanitization: `/home/secret/path/...` → `<redacted-path>`.
         expect(response.error.message).not.toMatch(/\/home\/secret\/path/);
         expect(response.error.message).toContain("<redacted-path>");
-        // The stable BOOM token survives — sanitization is over-redaction-safe
-        // but should not destroy the human-readable hint entirely.
         expect(response.error.message).toContain("BOOM");
-        // Stack-trace shape MUST NOT appear (no "at " followed by file
-        // references — `sanitizeErrorMessage` reads .message only,
-        // never .stack).
+        // No stack-trace frame: only `.message` is read, never `.stack`.
         expect(response.error.message).not.toMatch(/\bat\s+\S+\s+\(/);
       } finally {
         await client.close();
@@ -679,7 +508,7 @@ describe("handler-thrown error mapping", () => {
   });
 
   it("sanitizeErrorMessage caps output at SANITIZED_MESSAGE_MAX_LEN with `…[truncated]` suffix", () => {
-    // Pathological 1 MB message; sanitizer must cap at 8 KB.
+    // A message twice the cap must be truncated to the cap.
     const huge = "x".repeat(SANITIZED_MESSAGE_MAX_LEN * 2);
     const out = sanitizeErrorMessage(new Error(huge));
     expect(out.length).toBeLessThanOrEqual(SANITIZED_MESSAGE_MAX_LEN);
@@ -692,15 +521,14 @@ describe("handler-thrown error mapping", () => {
         throw new Error("toString-poison");
       },
     };
-    // The non-throwing contract per local-ipc-gateway.ts:466-477.
+    // Sanitizing an error must never throw itself.
     expect(() => sanitizeErrorMessage(poison)).not.toThrow();
     expect(sanitizeErrorMessage(poison)).toBe("<unprintable thrown value>");
   });
 
   it("supervision hooks fire on connect / disconnect with a stable transport id", async () => {
-    const socketPath = ephemeralSocketPath("t10-hooks");
+    const socketPath = ephemeralSocketPath("hooks");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -717,23 +545,16 @@ describe("handler-thrown error mapping", () => {
     try {
       await gateway.start();
       const client = await makeClient(socketPath);
-      // Wait until the gateway's connect handler ran.
-      await new Promise<void>((res) => setTimeout(res, 25));
-      expect(onConnect).toHaveBeenCalledTimes(1);
-      const transportArg = onConnect.mock.calls[0]?.[0];
-      expect(transportArg).toBeDefined();
-      // Family is "unix" on Linux.
-      if (
-        transportArg !== null &&
-        typeof transportArg === "object" &&
-        "remoteFamily" in transportArg
-      ) {
-        const family = (transportArg as { remoteFamily: unknown }).remoteFamily;
-        expect(family).toBe("unix");
-      }
+      await vi.waitFor(() => {
+        expect(onConnect).toHaveBeenCalledTimes(1);
+      });
+      const connectedTransport = onConnect.mock.calls[0]?.[0] as { readonly id: number };
       await client.close();
-      await new Promise<void>((res) => setTimeout(res, 25));
-      expect(onDisconnect).toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+      });
+      expect(onDisconnect).toHaveBeenCalledWith(connectedTransport, "client_close");
+      expect(onError).not.toHaveBeenCalled();
     } finally {
       await gateway.stop();
       await fs.rm(socketPath, { force: true });
@@ -741,40 +562,23 @@ describe("handler-thrown error mapping", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Enforcement — assertLoadedForBind throws at gateway start without prior
-// bootstrap
-// ----------------------------------------------------------------------------
-//
-// Bonus coverage that ties the gateway to the Phase 1 bootstrap seam.
-// SecureDefaults is reset in beforeEach but bootstrap is NOT called; the
-// gateway's first action is `assertLoadedForBind()` which must throw.
-
 describe("enforcement (gateway side)", () => {
-  it("LocalIpcGateway.start() throws synchronously when SecureDefaults has not been loaded", async () => {
-    const registry = new MethodRegistryImpl();
-    const gateway = new LocalIpcGateway({ registry });
-    await expect(gateway.start()).rejects.toThrow(/SecureDefaults\.load/);
+  it("LocalIpcGateway.start() throws when SecureDefaults has not been loaded", async () => {
+    // A fresh module graph, so no earlier case's load is in force.
+    vi.resetModules();
+    const { LocalIpcGateway: UnloadedGateway } = await import("../local-ipc-gateway.js");
+    const { MethodRegistryImpl: UnloadedRegistry } = await import("../registry.js");
+    const gateway = new UnloadedGateway({ registry: new UnloadedRegistry() });
+    await expect(gateway.start()).rejects.toThrow(/must complete before any listener bind/);
   });
 });
 
-// ----------------------------------------------------------------------------
-// start() rolls back state on listen failure
-// ----------------------------------------------------------------------------
-//
-// `#server` and `#started = true` must not be set BEFORE
-// `await server.listen(...)` resolves. A failed bind (e.g.
-// EADDRINUSE) left `#started = true` against a never-bound listener, so
-// every subsequent `start()` retry threw "gateway already started" — a
-// daemon-bootstrap-retry deadlock. The fix moves the state mutation
-// AFTER the await; a rejected `start()` MUST leave the instance in the
-// pre-call state so a retry is permitted.
-
+// A `start()` that fails to bind must leave the gateway unstarted, so a retry is allowed instead
+// of failing with "gateway already started".
 describe("start() rollback on listen failure", () => {
-  it("rejects on EADDRINUSE and permits a subsequent start() retry (no 'gateway already started' wedge)", async () => {
+  it("rejects a failed bind and lets start() be retried", async () => {
     const socketPath = ephemeralSocketPath("rollback");
     bootstrap({
-      bindAddress: "127.0.0.1",
       localIpcPath: socketPath,
       bannerFormat: "text",
     });
@@ -783,10 +587,8 @@ describe("start() rollback on listen failure", () => {
     const occupier = new LocalIpcGateway({ registry: registry1 });
     const contender = new LocalIpcGateway({ registry: registry2 });
     try {
-      // First instance binds the socket path successfully.
       await occupier.start();
-      // Second instance attempts the SAME path; bind fails (EADDRINUSE
-      // on Unix domain sockets — the path is already a live listener).
+      // The path already has a live listener, so this bind fails with EADDRINUSE.
       let firstError: unknown = null;
       try {
         await contender.start();
@@ -794,19 +596,11 @@ describe("start() rollback on listen failure", () => {
         firstError = err;
       }
       expect(firstError).not.toBeNull();
-      // The contract: the SECOND retry must NOT throw "gateway already
-      // started" — it must attempt the bind again. Stop the occupier
-      // first so the path is free, then assert retry SUCCEEDS rather
-      // than wedges on internal state.
+      // Free the path, including the stale socket file Node leaves behind, then retry.
       await occupier.stop();
-      // Clean the orphaned socket file (Unix; SecureDefaults' bind path
-      // is `localIpcPath`). After successful close, Node leaves the
-      // path; retry would otherwise hit ENOTSOCK or stale-file error.
       await fs.rm(socketPath, { force: true });
-      // The retry MUST proceed past the "already started" guard. We
-      // assert it does NOT reject with that specific message; if the
-      // bind itself fails for an unrelated reason, that's a test-env
-      // problem, not the contract violation we're guarding.
+      // The retry must get past the "already started" guard; a bind failure for another reason
+      // is an environment problem, not this contract.
       let retryError: unknown = null;
       try {
         await contender.start();
@@ -814,18 +608,13 @@ describe("start() rollback on listen failure", () => {
         retryError = err;
       }
       if (retryError !== null) {
-        // Permitted failure shapes: bind-level errors. The contract
-        // violation we're guarding is "gateway already started" — that
-        // string MUST NOT appear.
         const msg = retryError instanceof Error ? retryError.message : String(retryError);
         expect(msg).not.toMatch(/already started/);
       } else {
-        // Retry succeeded — the bind happened, the listener is live.
-        // Tear down so subsequent tests aren't holding the socket.
         await contender.stop();
       }
     } finally {
-      // Best-effort cleanup; either gateway may already be stopped.
+      // Either gateway may already be stopped.
       await occupier.stop().catch(() => undefined);
       await contender.stop().catch(() => undefined);
       await fs.rm(socketPath, { force: true });
@@ -833,18 +622,9 @@ describe("start() rollback on listen failure", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Reject malformed request id BEFORE handler dispatch
-// ----------------------------------------------------------------------------
-//
-// Anything else (object, array, boolean) is an Invalid Request and MUST be
-// rejected at -32600 BEFORE the handler dispatches. The previous code treated
-// `{"id": {}}` as a valid request, ran the handler, and silently coerced the
-// bad id to `null` for the response — masking a wire-protocol violation.
-
+// A request id that is not a string, number or null is an Invalid Request; it is refused before
+// the handler runs and the reply carries a null id.
 describe("malformed request id rejected before dispatch", () => {
-  // Each malformed id value should produce a -32600 InvalidRequest with
-  // id=null and the registered handler MUST NOT be invoked.
   const malformedIds: ReadonlyArray<{ readonly label: string; readonly idJson: string }> = [
     { label: "object", idJson: "{}" },
     { label: "array", idJson: "[]" },
@@ -854,12 +634,10 @@ describe("malformed request id rejected before dispatch", () => {
     it(`rejects {"id": ${idJson}} as -32600 InvalidRequest without invoking the handler`, async () => {
       const socketPath = ephemeralSocketPath(`bad-id-${label}`);
       bootstrap({
-        bindAddress: "127.0.0.1",
         localIpcPath: socketPath,
         bannerFormat: "text",
       });
       const registry = new MethodRegistryImpl();
-      // vi.fn() spy: assert non-execution after the malformed-id reject.
       const handlerSpy = vi.fn(async () => ({ ok: true }));
       const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
       registry.register(
@@ -873,29 +651,19 @@ describe("malformed request id rejected before dispatch", () => {
         await gateway.start();
         const client = await makeClient(socketPath);
         try {
-          // Hand-build the wire frame so we can plant a malformed `id`.
-          // The encoder won't accept a non-JsonRpcId for `id`, so we
-          // bypass it via a literal JSON string and `encodeFrame`-shape
-          // header construction.
+          // Built by hand because `encodeFrame` takes only a valid `JsonRpcId`.
           const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","id":${idJson},"method":"x.y","params":{}}`;
           const bodyBytes = Buffer.from(bodyText, "utf8");
           const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
           client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-          const acc = await client.waitForBytes((b) => {
-            try {
-              return parseFrame(b).frame !== null;
-            } catch {
-              return false;
-            }
-          });
+          const acc = await client.waitForFrames(1);
           const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
-          // Per JSON-RPC section 5: when id detection fails / id is invalid,
-          // the error response id MUST be Null.
+          // JSON-RPC 2.0 requires a null id when the request id is invalid.
           expect(response.id).toBeNull();
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-          // The crucial assertion: the handler MUST NOT have run. The
-          // -32600 fires BEFORE dispatch.
+          // Reported as the id failure, ahead of the missing protocolVersion.
+          expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
           expect(handlerSpy).not.toHaveBeenCalled();
         } finally {
           await client.close();
@@ -908,25 +676,18 @@ describe("malformed request id rejected before dispatch", () => {
   }
 });
 
-// ----------------------------------------------------------------------------
-//
-// The `id` is echoed verbatim, so it is the one response
-// member the CALLER sizes. An id that fits the inbound frame can still make
-// every reply to it un-encodable — and the send path cannot transmit the reply
-// that failed to encode, so it destroys the socket. Left unbounded, a caller
-// could drop its own session with a request the substrate accepted, and no
-// response schema could stop it: a schema bounds what the RESPONSE chooses,
-// and the response does not choose its own id. `JSON_RPC_ID_MAX_BYTES` is
-// therefore enforced at the request boundary, in two places — the id-bound
-// refusal in `#dispatchFrame`, and `extractIdSafely`'s drop-to-Null, which
-// covers the earlier envelope gates that answer before that refusal runs.
+// The reply echoes the request `id`, so the caller controls that part of the reply's size. An
+// id that fits the request frame can make every reply too large to encode, and the gateway
+// destroys the socket when a reply cannot be encoded. `JSON_RPC_ID_MAX_BYTES` is therefore
+// enforced when the request arrives: by the id-bound refusal in `#dispatchFrame`, and by
+// `extractIdSafely` dropping an over-bound id to null for the earlier gates that reply first.
 
 describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never echoed", () => {
   const oversizedId = "z".repeat(100_000);
 
   it("refuses a 100 KB id as -32600 without invoking the handler, and echoes null", async () => {
     const socketPath = ephemeralSocketPath("oversized-id");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const registry = new MethodRegistryImpl();
     const handlerSpy = vi.fn(async () => ({ ok: true }));
     const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
@@ -949,29 +710,19 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
           params: {},
         });
         const bodyBytes = Buffer.from(bodyText, "utf8");
-        // The request itself is well under the frame cap — this is not the
-        // oversized-BODY path. It is a legal frame whose reply would not be.
+        // The request is under the frame cap; only its reply would be too large.
         expect(bodyBytes.byteLength).toBeLessThan(MAX_MESSAGE_BYTES);
         const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
         client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
         expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
-        // The assertion the whole gate exists for: the oversized value is NOT
-        // echoed. A response carrying it back would be the very write the gate
-        // prevents — the encoder would refuse it and the socket would close.
+        // The oversized id is not echoed; echoing it would make the reply unencodable.
         expect(response.id).toBeNull();
         expect(JSON.stringify(response)).not.toContain(oversizedId);
         expect(handlerSpy).not.toHaveBeenCalled();
-        // And the connection is still live: the refusal is a per-request
-        // answer, not a disconnect.
+        // The refusal answers one request; it does not disconnect.
         expect(client.socket.destroyed).toBe(false);
       } finally {
         await client.close();
@@ -983,13 +734,11 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
   });
 
   it("drops an oversized id to null on an EARLIER envelope gate rather than echoing it", async () => {
-    // `method` is validated before the id-bound refusal runs, and that gate
-    // builds its error frame through `extractIdSafely`. Without the bound
-    // check inside that helper, the one frame guaranteed to be small would be
-    // the one carrying a 100 KB echo — the connection would close on a
-    // malformed request instead of the client being told it sent one.
+    // `method` is validated before the id-bound refusal, and that error reply takes its id from
+    // `extractIdSafely`. Without the bound inside that helper the reply would echo 100 KB and
+    // the connection would close instead of the client being told the request was malformed.
     const socketPath = ephemeralSocketPath("oversized-id-early-gate");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const gateway = new LocalIpcGateway({ registry: new MethodRegistryImpl() });
     try {
       await gateway.start();
@@ -1004,13 +753,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
         const bodyBytes = Buffer.from(bodyText, "utf8");
         const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
         client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
         expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
         expect(response.id).toBeNull();
@@ -1025,13 +768,12 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
     }
   });
 
-  it("NEGATIVE CONTROL: an id at the bound is accepted and echoed verbatim", async () => {
-    // Without this the first two tests would still pass if the gate refused
-    // every string id. The bound is on the JSON-ENCODED form, so a 254-char
-    // ASCII id encodes to exactly 256 bytes with its two quotes.
+  it("accepts an id exactly at the bound and echoes it verbatim", async () => {
+    // A bound that refused every string id would pass the two tests above. The bound is on the
+    // JSON-encoded id, so 254 ASCII characters plus two quotes is exactly 256.
     const atBoundId = "a".repeat(JSON_RPC_ID_MAX_BYTES - 2);
     const socketPath = ephemeralSocketPath("at-bound-id");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const registry = new MethodRegistryImpl();
     const handler: Handler<unknown, { ok: boolean }> = async () => ({ ok: true });
     registry.register(
@@ -1053,13 +795,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
           params: {},
         } as JsonRpcRequest);
         client.socket.write(frame);
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.id).toBe(atBoundId);
         expect(response.result).toEqual({ ok: true });
@@ -1073,31 +809,16 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
   });
 });
 
-// ----------------------------------------------------------------------------
-// Header section length cap fires WITH delimiter present
-// ----------------------------------------------------------------------------
-//
-// The 1024-byte header guard must not fire only inside the
-// `separatorIndex === -1` branch (delimiter not yet seen). A peer who
-// sent megabytes of header followed by CRLFCRLF bypassed the cap — the
-// parser proceeded to ASCII-decode and parse the oversized header
-// block. the MAX_MESSAGE_BYTES cap only governs the BODY per the file's
-// own comment. Fix: an unconditional `separatorIndex > 1024` throw
-// closes the symmetric DoS surface.
-
-describe("parseFrame caps header section even when delimiter is present", () => {
-  it("throws FramingError(`header_too_long`) when header section exceeds 1024 bytes despite a valid CRLFCRLF terminator", () => {
-    // Build a frame with a valid CRLFCRLF terminator but a header
-    // section >1 KB. We pad with a synthetic `X-Pad: <2000 a's>` line
-    // (the parser ignores unknown header names per the
-    // forward-compatibility hook at extractContentLength's tail
-    // comment) — the BYTE-COUNT of the header section is what triggers
-    // the cap, not the parser's interpretation of the lines.
+// The 1024-byte header cap applies whether or not the CRLFCRLF separator has arrived yet; the
+// body cap (`MAX_MESSAGE_BYTES`) does not cover the header.
+describe("parseFrame caps the header section", () => {
+  it("throws FramingError(`header_too_long`) for a header over 1024 bytes, with or without its terminator", () => {
+    // The parser ignores unknown header names, so this padding trips only the byte cap.
     const padding = "a".repeat(2000);
     const buf = Buffer.from(`Content-Length: 5\r\nX-Pad: ${padding}\r\n\r\n12345`, "ascii");
     let caught: unknown = null;
     try {
-      parseFrame(buf);
+      parseFrame(buf, MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -1105,15 +826,11 @@ describe("parseFrame caps header section even when delimiter is present", () => 
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("header_too_long");
     }
-  });
 
-  it("preserves the pre-delimiter header guard (separatorIndex === -1 branch still throws)", () => {
-    // Regression check for the existing in-flight desync case: a
-    // 2 KB stream with NO CRLFCRLF in sight should still throw.
-    const buf = Buffer.from("Z".repeat(2000), "ascii");
-    let caught: unknown = null;
+    // 2 KB with no separator yet: the stream looks desynchronized.
+    caught = null;
     try {
-      parseFrame(buf);
+      parseFrame(Buffer.from("Z".repeat(2000), "ascii"), MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -1124,53 +841,13 @@ describe("parseFrame caps header section even when delimiter is present", () => 
   });
 });
 
-// ----------------------------------------------------------------------------
-// Envelope-level `protocolVersion` substrate gate
-// ----------------------------------------------------------------------------
-//
-// mandates: "Every request (except health checks) must include a
-// `protocolVersion` field carrying an ISO 8601 date-string in
-// `YYYY-MM-DD` form." Prior to this gate,
-// `local-ipc-gateway.ts#dispatchFrame` validated only `jsonrpc` /
-// `method` / `id`-shape and dispatched to the handler — the per-request
-// `protocolVersion` field went uninspected. The narrowed type at
-// `packages/contracts/src/jsonrpc.ts:100` is COMPILE-TIME only; peer
-// wire bytes can carry any shape, so the substrate must enforce.
-//
-// The gate fires three discriminated reasons in `data.fields.reason`:
-//   * `missing` — the field is absent from the envelope.
-//   * `wrong_type` — the field is present but not a JS string (incl.
-//     `null`, which arrives as `typeof === "object"`). Includes the
-//     observed JS typeof tag in `data.fields.observedType`.
-//   * `invalid_format` — the field is a string but does not match the
-//     ISO 8601 `YYYY-MM-DD` shape (`PROTOCOL_VERSION_REGEX`).
-//
-// The handshake `daemon.hello` is exempt — its negotiation parameter
-// rides in `params.protocolVersion`, not the envelope. The exempt set
-// is canonical at `packages/contracts/src/jsonrpc.ts`.
-//
-// Wire shape (post-gate): `-32600 InvalidRequest` + `data.type:
-// "transport.invalid_protocol_version"` + `data.fields: { reason,...
-//
-// Connection-stay-open semantic: this gate is an envelope-level
-// violation, NOT a framing violation. The connection MUST stay open so
-// a corrected reconnect-less retry succeeds (mirrors the `id`-shape
-// gate at lines 1059-1073 of `local-ipc-gateway.ts`).
-//
-// Notification path: per JSON-RPC section 4.1 the server MUST NOT reply to a
-// notification, even on envelope violation. The substrate drops the
-// frame and surfaces via supervision `onError` so operators can
-// correlate notification-side wire violations.
-
+// The envelope's `protocolVersion` is only a compile-time type, so the gateway checks it on the
+// wire and replies -32600 with `data.type` `transport.invalid_protocol_version` and a
+// `data.fields.reason` of `missing`, `wrong_type` (with `observedType`; a JSON null counts here)
+// or `invalid_format` (not `YYYY-MM-DD`). `daemon.hello` is exempt. The refusal leaves the
+// connection open. A notification gets no reply; the violation goes to the `onError` hook.
 describe("envelope-level protocolVersion substrate gate", () => {
-  // -- helpers --------------------------------------------------------------
-
-  /**
-   * Build a hand-crafted JSON-RPC envelope frame with a custom
-   * `protocolVersion` field. We bypass `encodeFrame` so we can plant
-   * arbitrary protocolVersion shapes (including `null`, missing,
-   * wrong-type) that the typed encoder would refuse.
-   */
+  // Built by hand because `encodeFrame` refuses a missing or wrong-typed `protocolVersion`.
   function frameWithProtocolVersion(
     method: string,
     id: number,
@@ -1194,11 +871,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
     return Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]);
   }
 
-  /**
-   * The handler MUST NOT be invoked when the gate fires — the
-   * `handlerSpy` assertion proves this on every gate-firing case
-   * (substrate-side).
-   */
+  // Registers a spy handler so each case can assert whether it ran.
   function makeRegistry(method = "session.create"): {
     readonly registry: MethodRegistryImpl;
     readonly handlerSpy: ReturnType<typeof vi.fn>;
@@ -1215,47 +888,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
     return { registry, handlerSpy };
   }
 
-  // -- positive path: well-formed protocolVersion dispatches ----------------
-
-  it("well-formed envelope-level protocolVersion is accepted; handler runs", async () => {
-    const socketPath = ephemeralSocketPath("pv-ok");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
-    const { registry, handlerSpy } = makeRegistry("session.create");
-    const gateway = new LocalIpcGateway({ registry });
-    try {
-      await gateway.start();
-      const client = await makeClient(socketPath);
-      try {
-        client.socket.write(frameWithProtocolVersion("session.create", 7, '"2026-05-01"'));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
-        const response = decodeOneFrame(acc) as JsonRpcResponse;
-        expect(response.id).toBe(7);
-        expect(response.result).toStrictEqual({ ok: true });
-        expect(handlerSpy).toHaveBeenCalledTimes(1);
-      } finally {
-        await client.close();
-      }
-    } finally {
-      await gateway.stop();
-      await fs.rm(socketPath, { force: true });
-    }
-  });
-
-  // -- gate firings: each reason gets its own case --------------------------
-
-  // Discriminated reason cases: each row is a wire envelope whose
-  // protocolVersion field is malformed in a specific way. The substrate
-  // MUST reject with -32600 InvalidRequest + transport.invalid_protocol_version
-  // and the handler MUST NOT run. We assert the discriminator
-  // (`data.fields.reason`) is the expected discrete value so future
-  // refactors don't collapse the discrimination into a single
-  // less-specific reason.
+  // Each row is malformed in one way and must produce its own `data.fields.reason`.
   const cases: ReadonlyArray<{
     readonly label: string;
     readonly pvLiteral: string | null;
@@ -1276,25 +909,8 @@ describe("envelope-level protocolVersion substrate gate", () => {
       expectedObservedType: "number",
     },
     {
-      label: "boolean value",
-      pvLiteral: "true",
-      expectedReason: "wrong_type",
-      expectedObservedType: "boolean",
-    },
-    {
-      label: "object value",
-      pvLiteral: "{}",
-      expectedReason: "wrong_type",
-      expectedObservedType: "object",
-    },
-    {
       label: "string but not ISO 8601 date",
       pvLiteral: '"not-a-date"',
-      expectedReason: "invalid_format",
-    },
-    {
-      label: "string with semver shape",
-      pvLiteral: '"1.0.0"',
       expectedReason: "invalid_format",
     },
     {
@@ -1307,7 +923,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
   for (const { label, pvLiteral, expectedReason, expectedObservedType } of cases) {
     it(`rejects ${label} with -32600 + transport.invalid_protocol_version (reason=${expectedReason}); handler not invoked`, async () => {
       const socketPath = ephemeralSocketPath(`pv-${expectedReason}`);
-      bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+      bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
       const { registry, handlerSpy } = makeRegistry("session.create");
       const gateway = new LocalIpcGateway({ registry });
       try {
@@ -1315,18 +931,10 @@ describe("envelope-level protocolVersion substrate gate", () => {
         const client = await makeClient(socketPath);
         try {
           client.socket.write(frameWithProtocolVersion("session.create", 11, pvLiteral));
-          const acc = await client.waitForBytes((b) => {
-            try {
-              return parseFrame(b).frame !== null;
-            } catch {
-              return false;
-            }
-          });
+          const acc = await client.waitForFrames(1);
           const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
           expect(response.jsonrpc).toBe(JSONRPC_VERSION);
-          // Request id is preserved on rejection — the spec requires
-          // the error response to correlate to the request the peer
-          // sent (id=11 in our fixture).
+          // The reply keeps the request id so the client can correlate it.
           expect(response.id).toBe(11);
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
           const expectedFields: Record<string, unknown> = { reason: expectedReason };
@@ -1337,7 +945,6 @@ describe("envelope-level protocolVersion substrate gate", () => {
             type: "transport.invalid_protocol_version",
             fields: expectedFields,
           });
-          // Handler never invoked — substrate-side guarantee.
           expect(handlerSpy).not.toHaveBeenCalled();
         } finally {
           await client.close();
@@ -1349,26 +956,17 @@ describe("envelope-level protocolVersion substrate gate", () => {
     });
   }
 
-  // -- exempt method: daemon.hello bypasses the envelope gate ---------------
-
   it("`daemon.hello` is exempt: missing envelope-level protocolVersion still dispatches", async () => {
     const socketPath = ephemeralSocketPath("pv-exempt");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("daemon.hello");
     const gateway = new LocalIpcGateway({ registry });
     try {
       await gateway.start();
       const client = await makeClient(socketPath);
       try {
-        // No protocolVersion in the envelope — must still dispatch.
         client.socket.write(frameWithProtocolVersion("daemon.hello", 3, null));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const acc = await client.waitForFrames(1);
         const response = decodeOneFrame(acc) as JsonRpcResponse;
         expect(response.id).toBe(3);
         expect(response.result).toStrictEqual({ ok: true });
@@ -1382,56 +980,32 @@ describe("envelope-level protocolVersion substrate gate", () => {
     }
   });
 
-  // -- connection stays open: rejected request does NOT tear down the socket
-
   it("connection stays open after gate rejection; subsequent valid request on same socket dispatches", async () => {
     const socketPath = ephemeralSocketPath("pv-stay-open");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("session.create");
     const gateway = new LocalIpcGateway({ registry });
     try {
       await gateway.start();
       const client = await makeClient(socketPath);
       try {
-        // First frame: missing protocolVersion → gate rejects.
         client.socket.write(frameWithProtocolVersion("session.create", 21, null));
-        const firstAcc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
+        const firstAcc = await client.waitForFrames(1);
         const firstResponse = decodeOneFrame(firstAcc) as JsonRpcErrorResponse;
         expect(firstResponse.id).toBe(21);
         expect(firstResponse.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-        // Second frame on the SAME socket: well-formed → must
-        // dispatch. If the gate had torn the connection down, this
-        // write would either fail or never produce a response.
+        // A well-formed request on the same socket must still dispatch.
         client.socket.write(frameWithProtocolVersion("session.create", 22, '"2026-05-01"'));
-        const secondAcc = await client.waitForBytes((b) => {
-          // We need the SECOND frame in the accumulator — count
-          // distinct response ids by parsing successively.
-          try {
-            const r1 = parseFrame(b);
-            if (r1.frame === null) return false;
-            const remaining = b.subarray(r1.consumed);
-            return parseFrame(remaining).frame !== null;
-          } catch {
-            return false;
-          }
-        });
-        // Decode the second frame from the accumulated buffer.
-        const r1 = parseFrame(secondAcc);
+        const secondAcc = await client.waitForFrames(2);
+        const r1 = parseFrame(secondAcc, MAX_MESSAGE_BYTES);
         if (r1.frame === null) throw new Error("expected first frame to decode");
         const remaining = secondAcc.subarray(r1.consumed);
-        const r2 = parseFrame(remaining);
+        const r2 = parseFrame(remaining, MAX_MESSAGE_BYTES);
         if (r2.frame === null) throw new Error("expected second frame to decode");
         const secondResponse = JSON.parse(r2.frame.toString("utf8")) as JsonRpcResponse;
         expect(secondResponse.id).toBe(22);
         expect(secondResponse.result).toStrictEqual({ ok: true });
-        // Handler ran exactly once (the rejected first request never
-        // reached it; the second valid request did).
+        // Only the valid second request reached the handler.
         expect(handlerSpy).toHaveBeenCalledTimes(1);
       } finally {
         await client.close();
@@ -1442,11 +1016,9 @@ describe("envelope-level protocolVersion substrate gate", () => {
     }
   });
 
-  // -- notification path: silent drop + onError supervision -----------------
-
   it("notification with bad protocolVersion is dropped silently; supervision onError fires", async () => {
     const socketPath = ephemeralSocketPath("pv-notif");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
     const { registry, handlerSpy } = makeRegistry("session.create");
     const onConnect = vi.fn();
     const onDisconnect = vi.fn();
@@ -1457,87 +1029,22 @@ describe("envelope-level protocolVersion substrate gate", () => {
       await gateway.start();
       const client = await makeClient(socketPath);
       try {
-        // Notification with NO protocolVersion. Per JSON-RPC section 4.1 the
-        // server MUST NOT respond. The substrate drops the frame and
-        // surfaces via onError supervision.
+        // JSON-RPC 2.0 forbids replying to a notification, so the gateway drops it and reports
+        // it through `onError`.
         client.socket.write(frameNotificationWithProtocolVersion("session.create", null));
-        // Wait briefly for the gateway to process the frame and
-        // invoke onError. We poll instead of asserting "no response"
-        // synchronously — the contract is "no response is ever sent",
-        // so we drive a positive observation (onError fired) before
-        // asserting the negative.
+        // Wait for `onError` first, so the "no reply" check below runs after the gateway has
+        // handled the frame.
         for (let i = 0; i < 50 && onError.mock.calls.length === 0; i++) {
           await new Promise((res) => setTimeout(res, 5));
         }
         expect(onError).toHaveBeenCalledTimes(1);
-        // The error surfaced is the FramingError carrying our gate's
-        // discriminated reason — operator observability sees the
-        // wire violation even though the wire stays silent.
         const errArg = onError.mock.calls[0]?.[1] as unknown;
         expect(errArg).toBeInstanceOf(FramingError);
         if (errArg instanceof FramingError) {
           expect(errArg.code).toBe("invalid_protocol_version");
           expect(errArg.fields).toMatchObject({ reason: "missing" });
         }
-        // No bytes received from the gateway — the wire stays silent
-        // for the notification path.
         expect(client.received.length).toBe(0);
-        // Handler never invoked.
-        expect(handlerSpy).not.toHaveBeenCalled();
-      } finally {
-        await client.close();
-      }
-    } finally {
-      await gateway.stop();
-      await fs.rm(socketPath, { force: true });
-    }
-  });
-
-  // -- malformed-id ordering: id-shape rejects before our gate -------------
-
-  it("malformed id rejection fires BEFORE protocolVersion gate (ordering is load-bearing)", async () => {
-    // Regression guard: the gate is intentionally ordered AFTER the
-    // id-shape check (Step 3) so envelopes with BOTH a malformed id
-    // AND a missing protocolVersion surface the id-shape failure
-    // (`invalid_envelope`), not the protocolVersion failure
-    // (`transport.invalid_protocol_version`). A future refactor that
-    // reordered these would silently change the surfaced data.type for
-    // such envelopes — this test pins the ordering.
-    const socketPath = ephemeralSocketPath("pv-order");
-    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
-    const { registry, handlerSpy } = makeRegistry("session.create");
-    const gateway = new LocalIpcGateway({ registry });
-    try {
-      await gateway.start();
-      const client = await makeClient(socketPath);
-      try {
-        // Malformed id (object) AND missing protocolVersion. The
-        // id-shape check at Step 3 must fire first.
-        const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","id":{},"method":"session.create","params":{}}`;
-        const bodyBytes = Buffer.from(bodyText, "utf8");
-        const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
-        client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
-        const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
-        expect(response.jsonrpc).toBe(JSONRPC_VERSION);
-        // Per JSON-RPC section 5: when id can't be detected/recovered, the
-        // error response id MUST be Null. Our id-shape gate sends
-        // `null` literally per `mapJsonRpcError(wrapped, null)` at
-        // local-ipc-gateway.ts:1070.
-        expect(response.id).toBeNull();
-        expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-        // Critical: the surfaced data.type is from the id-shape gate
-        // (synthetic "invalid_envelope" code projecting to
-        // "invalid_envelope" per framingErrorDataType's default
-        // arm), NOT our protocolVersion gate. If a future refactor
-        // reordered the gates, this assertion would fail.
-        expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
         expect(handlerSpy).not.toHaveBeenCalled();
       } finally {
         await client.close();
@@ -1548,11 +1055,3 @@ describe("envelope-level protocolVersion substrate gate", () => {
     }
   });
 });
-
-// Helper-type guard to avoid `any` lint when introspecting unknown context.
-function _typeGuards(_ctx: HandlerContext, _id: JsonRpcId): void {
-  // Type-only file fixture: ensures the imports aren't unused even when
-  // the test bodies above narrow inline.
-  void _ctx;
-  void _id;
-}

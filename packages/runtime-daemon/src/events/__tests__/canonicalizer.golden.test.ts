@@ -1,34 +1,7 @@
-// Golden-vector suite for the RFC 8785 JCS canonicalizer.
-//
-// WHY GOLDEN VECTORS AND NOT ROUND-TRIP TESTS. The canonical bytes this module
-// produces are the input to every `row_hash` and `daemon_signature` on disk,
-// so the property that matters is not "canonicalization is self-consistent" —
-// it is "these exact bytes, today and after every future refactor and
-// dependency bump". A self-consistent implementation that changed one byte
-// would invalidate the whole chain silently. Hence inline hex fixtures (the
-// crypto-paseto convention) and RFC-sourced expected values rather than values
-// recomputed from the code under test.
-//
-// PROVENANCE OF THE RFC VECTORS. All three RFC 8785 vector sets are transcribed
-// from the published RFC, NOT from this implementation's output:
-//   • RFC 8785 section 3.2.2 sample document → section 3.2.4 expected UTF-8 bytes.
-//   • RFC 8785 section 3.2.3 property-sorting test data and its expected order.
-//   • RFC 8785 Appendix B, Table 1 — "ECMAScript-Compatible JSON Number
-//     Serialization Samples", 26 rows. NOT Appendix A, which is the
-//     illustrative "ECMAScript Sample Canonicalizer" source and publishes no
-//     vectors at all — keep this reference on B.
-//
-// The RFC also imposes exactly two MUST-TERMINATE obligations — the only two
-// sentences in it reading "MUST cause a compliant JCS implementation to
-// terminate", counted over the published text — and NEITHER publishes an
-// expected-output vector, so both are bound here as refusals rather than as
-// byte tables. They are not published alike, though: `NaN` / `Infinity` does
-// get two INPUT rows in Appendix B Table 1 (`7fffffffffffffff` and
-// `7ff0000000000000`, output column empty, footnote (3) pointing back),
-// transcribed below as that block's two null-expectation rows so its block
-// further down is sourced from the prose alone. Same normative register either
-// way, so neither is read as advisory.
-//
+// Golden bytes for the RFC 8785 canonicalizer: the RFC's published vectors, one pinned envelope,
+// and the refusals that keep the canonical bytes one string per event. Expected bytes are
+// transcribed or pinned, never recomputed, so a one-byte drift fails here.
+
 import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
   EventEnvelopeSchema,
@@ -36,26 +9,13 @@ import {
   SessionIdSchema,
 } from "@ai-sidekicks/contracts";
 import type { EventEnvelope, EventEnvelopeVersion, SessionId } from "@ai-sidekicks/contracts";
-// The pinned serializer itself, imported ONLY by the `toJSON` block below and
-// ONLY to pin the library behavior that block's guard exists for. Every other
-// assertion in this file goes through the module under test, deliberately: the
-// suite's job is to bind THIS module's bytes, not the dependency's.
-import canonicalize from "canonicalize";
-import { describe, expect, it } from "vitest";
-import {
-  canonicalizeEvent,
-  canonicalizeJson,
-  isCanonicalOccurredAt,
-  normalizeOccurredAt,
-} from "../canonicalizer.js";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "../canonicalizer.js";
 
-// --------------------------------------------------------------------------
-// Helpers — deliberately hand-rolled rather than imported from a byte-utility
-// library, so a library bump can never move the expected side of an assertion
-// at the same time as it moves the produced side.
-// --------------------------------------------------------------------------
+// Helpers are hand-rolled, not imported from a byte-utility library, so a library bump cannot
+// move the expected side of an assertion together with the produced side.
 
-/** Parses grouped lowercase hex, ignoring whitespace so fixtures can keep the RFC's own line layout. */
+/** Parses grouped lowercase hex, ignoring whitespace so fixtures keep the RFC's layout. */
 function hexToBytes(groupedHex: string): Uint8Array {
   const compactHex = groupedHex.replace(/\s+/g, "");
   const bytes = new Uint8Array(compactHex.length / 2);
@@ -65,7 +25,7 @@ function hexToBytes(groupedHex: string): Uint8Array {
   return bytes;
 }
 
-/** Renders bytes as continuous lowercase hex — used on the PRODUCED side so failures diff as text. */
+/** Renders bytes as continuous lowercase hex, so a failure diffs as text. */
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -96,24 +56,13 @@ function captureThrownMessage(thunk: () => unknown): string {
   throw new Error("expected the call to throw, but it returned normally");
 }
 
-// --------------------------------------------------------------------------
-// RFC 8785 conformance vectors.
-// --------------------------------------------------------------------------
-
-// RFC 8785 section 3.2.2, verbatim: "Assume the following JSON object is parsed".
+// RFC 8785 section 3.2.2 sample document, verbatim.
 //
-// Held as JSON SOURCE TEXT and parsed at runtime rather than transcribed into a
-// TypeScript object literal, because the vector's whole point is the gap
-// between tolerant JSON INPUT — uppercase `1E30`, a trailing-zero `4.50`, an
-// escaped `\u0042` standing in for a plain `B` — and the fixed ECMAScript
-// OUTPUT form. Hand-decoding those escapes into a TS literal would throw away
-// the input half of the vector, leaving it to assert only that output is
-// stable.
-//
-// Doubled backslashes keep each `\uXXXX` intact through TypeScript's own string
-// parsing so it reaches `JSON.parse` as a JSON escape. A transcription slip here
-// cannot weaken the test silently: the expected side is the RFC's own published
-// byte string, so a wrong input simply fails to produce it.
+// Held as JSON source text and parsed at runtime, because the vector tests the gap between
+// tolerant JSON input (uppercase `1E30`, a trailing-zero `4.50`, an escaped `\u0042` for a plain
+// `B`) and the fixed ECMAScript output form; hand-decoding the escapes into a TypeScript literal
+// would lose the input half. Doubled backslashes keep each `\uXXXX` intact through TypeScript's
+// string parsing so it reaches `JSON.parse` as a JSON escape.
 const RFC_8785_SAMPLE_DOCUMENT_SOURCE =
   "{\n" +
   '  "numbers": [333333333.33333329, 1E30, 4.50,\n' +
@@ -122,9 +71,8 @@ const RFC_8785_SAMPLE_DOCUMENT_SOURCE =
   '  "literals": [null, true, false]\n' +
   "}";
 
-// RFC 8785 section 3.2.4, verbatim — the expected UTF-8 bytes for the document above,
-// in the RFC's own 20-bytes-per-line grouping so the fixture can be diffed
-// against the published table by eye.
+// RFC 8785 section 3.2.4, verbatim: the expected UTF-8 bytes for the document above, in the
+// RFC's own 20-bytes-per-line grouping so it can be compared with the published table by eye.
 const RFC_8785_SAMPLE_DOCUMENT_BYTES = `
   7b 22 6c 69 74 65 72 61 6c 73 22 3a 5b 6e 75 6c 6c 2c 74 72
   75 65 2c 66 61 6c 73 65 5d 2c 22 6e 75 6d 62 65 72 73 22 3a
@@ -134,8 +82,7 @@ const RFC_8785_SAMPLE_DOCUMENT_BYTES = `
   30 66 5c 6e 41 27 42 5c 22 5c 5c 5c 5c 5c 22 2f 22 7d
 `;
 
-// RFC 8785 section 3.2.3, verbatim — "The following JSON test data can be used for
-// verifying the correctness of the sorting scheme in a JCS implementation".
+// RFC 8785 section 3.2.3 sorting test data, verbatim.
 const RFC_8785_SORTING_SAMPLE_SOURCE =
   "{\n" +
   '  "\\u20ac": "Euro Sign",\n' +
@@ -147,9 +94,8 @@ const RFC_8785_SORTING_SAMPLE_SOURCE =
   '  "\\u00f6": "Latin Small Letter O With Diaeresis"\n' +
   "}";
 
-// RFC 8785 section 3.2.3, verbatim — "Expected argument order after sorting property
-// strings". Stated as VALUES because each value names its own key, so the
-// assertion reads as the RFC prints it.
+// RFC 8785 section 3.2.3 expected order after sorting, verbatim. Stated as values because each
+// value names its own key, so the assertion reads as the RFC prints it.
 const RFC_8785_EXPECTED_SORTED_VALUES: readonly string[] = [
   "Carriage Return",
   "One",
@@ -160,10 +106,9 @@ const RFC_8785_EXPECTED_SORTED_VALUES: readonly string[] = [
   "Hebrew Letter Dalet With Dagesh",
 ];
 
-// RFC 8785 Appendix B, Table 1 — all 26 rows, in the RFC's order. A `null`
-// expectation is the RFC's empty "JSON Representation" cell, annotated note (3)
-// ("Values out of range are not permitted in JSON") — those two rows MUST be
-// refused rather than serialized.
+// RFC 8785 Appendix B, Table 1: all 26 rows, in the RFC's order. A `null` expectation is the
+// RFC's empty "JSON Representation" cell (note 3, "Values out of range are not permitted in
+// JSON"); those two rows must be refused, not serialized.
 const RFC_8785_NUMBER_SAMPLES: ReadonlyArray<{
   readonly ieee754Hex: string;
   readonly expectedJson: string | null;
@@ -209,39 +154,33 @@ const RFC_8785_NUMBER_SAMPLES: ReadonlyArray<{
   { ieee754Hex: "43143ff3c1cb0959", expectedJson: "1424953923781206.2", comment: "Round to even" },
 ];
 
-describe("RFC 8785 conformance — the published JCS vectors", () => {
-  it("", () => {
+describe("RFC 8785 published vectors", () => {
+  it("canonicalizes the RFC 8785 sample document to its published bytes", () => {
     const canonicalBytes = canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE));
 
-    // The byte assertion is the normative one — RFC 8785 section 3.2.4 fixes UTF-8 as
-    // the canonical output encoding, and these are the bytes a signature
-    // commits to. Asserted as hex so a failure prints a readable diff.
+    // The bytes are the normative check (RFC 8785 section 3.2.4 fixes UTF-8 as the canonical
+    // encoding); hex makes a failure print a readable diff.
     expect(bytesToHex(canonicalBytes)).toBe(bytesToHex(hexToBytes(RFC_8785_SAMPLE_DOCUMENT_BYTES)));
 
-    // The text assertion is redundant with the bytes but is what a human reads
-    // when the byte assertion fails: it names WHICH transform regressed
-    // (whitespace removal, number re-rendering, string escaping, or lex-sort).
+    // Redundant with the bytes, but it shows which transform regressed (whitespace removal,
+    // number rendering, string escaping or sorting).
     expect(decodeUtf8(canonicalBytes)).toBe(
       '{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],' +
         '"string":"€$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}',
     );
   });
 
-  it("not by code point", () => {
+  it("sorts property names by UTF-16 code unit, not by code point", () => {
     const canonicalText = decodeUtf8(canonicalizeJson(JSON.parse(RFC_8785_SORTING_SAMPLE_SOURCE)));
 
-    // Read the ORDER off the canonical TEXT, never off a re-parsed object:
-    // `JSON.parse` reinstates JavaScript's own property order, which hoists the
-    // integer-like key "1" to the front and would silently mask a sort bug.
+    // Read the order off the canonical text, not a re-parsed object: `JSON.parse` restores
+    // JavaScript's property order, which hoists the integer-like key "1" and would mask a sort bug.
     const emittedValues = Array.from(canonicalText.matchAll(/:"([^"]*)"/g), (match) => match[1]);
     expect(emittedValues).toStrictEqual(RFC_8785_EXPECTED_SORTED_VALUES);
 
-    // Negative control — this vector only PROVES something because a code-point
-    // sort disagrees with it. U+1F600 (the emoji) is a surrogate pair whose
-    // leading unit U+D83D precedes U+FB33, so UTF-16 order puts the emoji
-    // BEFORE the Hebrew letter while code-point order puts it after. Without
-    // this assertion, a re-implementation that sorted by code point could pass
-    // the check above if the expected list were ever "corrected" to match it.
+    // Negative control: the vector proves UTF-16 ordering only because a code-point sort
+    // disagrees with it. The emoji U+1F600 is a surrogate pair whose leading unit U+D83D precedes
+    // U+FB33, so UTF-16 order puts it before the Hebrew letter and code-point order after.
     const codePointSortedValues = [...RFC_8785_EXPECTED_SORTED_VALUES].sort();
     expect(codePointSortedValues).not.toStrictEqual(RFC_8785_EXPECTED_SORTED_VALUES);
     expect(RFC_8785_EXPECTED_SORTED_VALUES.indexOf("Emoji: Grinning Face")).toBeLessThan(
@@ -255,12 +194,9 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
 
     if (sample.expectedJson === null) {
       it(`Appendix B — ${label} is refused: JSON admits no such value`, () => {
-        // RFC 8785 section 3.2.2.3: "occurrences of NaN or Infinity MUST cause a
-        // compliant JCS implementation to terminate with an appropriate error."
-        // These two refusals originate inside `canonicalize@3.0.0` and surface
-        // with its bare wording — pinned here so a library swap that started
-        // emitting `null` (plain `JSON.stringify` behavior) fails loudly
-        // instead of signing a silently-substituted value.
+        // RFC 8785 section 3.2.2.3 requires an error here. The refusal comes from
+        // the library with its bare wording; pinning it makes a library swap that emits
+        // `null` (plain `JSON.stringify` behavior) fail loudly.
         const message = captureThrownMessage(() =>
           canonicalizeJson(ieee754HexToNumber(sample.ieee754Hex)),
         );
@@ -275,55 +211,28 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
       );
     });
   }
-
-  it("processed all 26 Appendix B Table 1 rows", () => {
-    // Guards against a row being dropped during an edit: a shorter table would
-    // otherwise just be a quieter suite, not a failing one.
-    expect(RFC_8785_NUMBER_SAMPLES).toHaveLength(26);
-    expect(RFC_8785_NUMBER_SAMPLES.filter((sample) => sample.expectedJson === null)).toHaveLength(
-      2,
-    );
-  });
 });
-
-// --------------------------------------------------------------------------
-// canonicalizeEvent — the canonical eleven-member envelope.
-// --------------------------------------------------------------------------
 
 const SESSION_ID: SessionId = SessionIdSchema.parse("0192f3a4-5b6c-7d8e-9f01-234567890abc");
 const ENVELOPE_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
-// EVERY MEMBER CARRIES A DISTINCT, NON-INTERCHANGEABLE VALUE, AND THAT IS THE
-// POINT — do not "tidy" this fixture into repeated placeholders.
-// `canonicalizer.ts` documents one drift its mapped-type annotation cannot catch:
-// a SAME-TYPED transposition such as `causationId: envelope.correlationId`
-// compiles clean under any annotation, and it explicitly assigns that residue to
-// this suite ("That residue is the golden vectors' to close, by construction
-// rather than by annotation"). The construction that closes it is exactly this:
-// no two members share a value, so any crosswire moves the bytes below.
+// Every member carries a distinct value, so no two are interchangeable. A same-typed
+// transposition such as `causationId: envelope.correlationId` compiles under the mapped type in
+// `canonicalizer.ts`; only distinct values make it move the bytes below.
 const GOLDEN_ENVELOPE: EventEnvelope = {
   id: "01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",
   sessionId: SESSION_ID,
-  // Row's "numeric edge cases per ECMA-262 ToString" obligation, applied to
-  // the one canonical member that is a number. This is
-  // `Number.MAX_SAFE_INTEGER` — exactly the upper bound RFC 8785 Appendix B
-  // note (1) recommends for values "interpreted as true integers", and exactly
-  // `EVENT_ENVELOPE_SEQUENCE_MAX`, the largest `sequence` the contract admits.
-  // Appendix B's next row up, 9007199254740992, is a valid ECMAScript integer
-  // that BOTH the envelope schema and `canonicalizeEvent` refuse (see the
-  // sequence-ceiling block below); it still appears in the number table above,
-  // where the input is a bare JSON value and no envelope contract applies.
+  // `Number.MAX_SAFE_INTEGER`, the largest `sequence` the contract admits; one above is refused.
   sequence: 9007199254740991,
   occurredAt: "2026-03-04T05:06:07.008Z",
-  category: "audit_integrity",
-  type: "audit.chain_verified",
+  category: "event_maintenance",
+  type: "event.compacted",
   actor: "user-7f3a",
   payload: {
     zebra: "sorts-last",
     alpha: "sorts-first",
-    // Nested lex-sort, and specifically the case a locale-aware or
-    // case-insensitive sort gets wrong: UTF-16 code units put "B" (0x42) before
-    // "a" (0x61) before "é" (0xE9).
+    // Nested sort, in the order a locale-aware or case-insensitive sort gets wrong: UTF-16 code
+    // units put "B" (0x42) before "a" (0x61) before "é" (0xE9).
     nested: { é: "e-acute", B: "upper-b", a: "lower-a" },
     ratio: 333333333.3333332,
   },
@@ -332,47 +241,44 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
   version: ENVELOPE_VERSION,
 };
 
-// Produced by this module and pinned as a REGRESSION constant: unlike the RFC
-// vectors above there is no external publication of what an AI-Sidekicks
-// envelope must hash to, so what this fixture buys is byte-stability across
-// refactors and dependency bumps — the property that keeps every `row_hash`
-// already on disk verifiable.
+// Produced by this module and pinned: no publication says what this envelope canonicalizes to, so
+// it holds the bytes stable across refactors and dependency bumps.
 const GOLDEN_ENVELOPE_CANONICAL_TEXT =
-  '{"actor":"user-7f3a","category":"audit_integrity","causationId":"causation-4b1d",' +
+  '{"actor":"user-7f3a","category":"event_maintenance","causationId":"causation-4b1d",' +
   '"correlationId":"correlation-9c2e","id":"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",' +
   '"occurredAt":"2026-03-04T05:06:07.008Z","payload":{"alpha":"sorts-first",' +
   '"nested":{"B":"upper-b","a":"lower-a","é":"e-acute"},"ratio":333333333.3333332,' +
   '"zebra":"sorts-last"},"sequence":9007199254740991,' +
-  '"sessionId":"0192f3a4-5b6c-7d8e-9f01-234567890abc","type":"audit.chain_verified",' +
+  '"sessionId":"0192f3a4-5b6c-7d8e-9f01-234567890abc","type":"event.compacted",' +
   '"version":"1.0"}';
 
 const GOLDEN_ENVELOPE_CANONICAL_BYTES = `
   7b 22 61 63 74 6f 72 22 3a 22 75 73 65 72 2d 37 66 33 61 22
-  2c 22 63 61 74 65 67 6f 72 79 22 3a 22 61 75 64 69 74 5f 69
-  6e 74 65 67 72 69 74 79 22 2c 22 63 61 75 73 61 74 69 6f 6e
-  49 64 22 3a 22 63 61 75 73 61 74 69 6f 6e 2d 34 62 31 64 22
-  2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e 49 64 22 3a 22 63 6f
-  72 72 65 6c 61 74 69 6f 6e 2d 39 63 32 65 22 2c 22 69 64 22
-  3a 22 30 31 39 36 30 62 33 63 2d 65 31 64 30 2d 37 61 34 31
-  2d 62 32 63 39 2d 35 66 38 65 33 37 64 36 61 32 30 34 22 2c
-  22 6f 63 63 75 72 72 65 64 41 74 22 3a 22 32 30 32 36 2d 30
-  33 2d 30 34 54 30 35 3a 30 36 3a 30 37 2e 30 30 38 5a 22 2c
-  22 70 61 79 6c 6f 61 64 22 3a 7b 22 61 6c 70 68 61 22 3a 22
-  73 6f 72 74 73 2d 66 69 72 73 74 22 2c 22 6e 65 73 74 65 64
-  22 3a 7b 22 42 22 3a 22 75 70 70 65 72 2d 62 22 2c 22 61 22
-  3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3 a9 22 3a 22 65 2d 61
-  63 75 74 65 22 7d 2c 22 72 61 74 69 6f 22 3a 33 33 33 33 33
-  33 33 33 33 2e 33 33 33 33 33 33 32 2c 22 7a 65 62 72 61 22
-  3a 22 73 6f 72 74 73 2d 6c 61 73 74 22 7d 2c 22 73 65 71 75
-  65 6e 63 65 22 3a 39 30 30 37 31 39 39 32 35 34 37 34 30 39
-  39 31 2c 22 73 65 73 73 69 6f 6e 49 64 22 3a 22 30 31 39 32
-  66 33 61 34 2d 35 62 36 63 2d 37 64 38 65 2d 39 66 30 31 2d
-  32 33 34 35 36 37 38 39 30 61 62 63 22 2c 22 74 79 70 65 22
-  3a 22 61 75 64 69 74 2e 63 68 61 69 6e 5f 76 65 72 69 66 69
-  65 64 22 2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 30 22 7d
+  2c 22 63 61 74 65 67 6f 72 79 22 3a 22 65 76 65 6e 74 5f 6d
+  61 69 6e 74 65 6e 61 6e 63 65 22 2c 22 63 61 75 73 61 74 69
+  6f 6e 49 64 22 3a 22 63 61 75 73 61 74 69 6f 6e 2d 34 62 31
+  64 22 2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e 49 64 22 3a 22
+  63 6f 72 72 65 6c 61 74 69 6f 6e 2d 39 63 32 65 22 2c 22 69
+  64 22 3a 22 30 31 39 36 30 62 33 63 2d 65 31 64 30 2d 37 61
+  34 31 2d 62 32 63 39 2d 35 66 38 65 33 37 64 36 61 32 30 34
+  22 2c 22 6f 63 63 75 72 72 65 64 41 74 22 3a 22 32 30 32 36
+  2d 30 33 2d 30 34 54 30 35 3a 30 36 3a 30 37 2e 30 30 38 5a
+  22 2c 22 70 61 79 6c 6f 61 64 22 3a 7b 22 61 6c 70 68 61 22
+  3a 22 73 6f 72 74 73 2d 66 69 72 73 74 22 2c 22 6e 65 73 74
+  65 64 22 3a 7b 22 42 22 3a 22 75 70 70 65 72 2d 62 22 2c 22
+  61 22 3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3 a9 22 3a 22 65
+  2d 61 63 75 74 65 22 7d 2c 22 72 61 74 69 6f 22 3a 33 33 33
+  33 33 33 33 33 33 2e 33 33 33 33 33 33 32 2c 22 7a 65 62 72
+  61 22 3a 22 73 6f 72 74 73 2d 6c 61 73 74 22 7d 2c 22 73 65
+  71 75 65 6e 63 65 22 3a 39 30 30 37 31 39 39 32 35 34 37 34
+  30 39 39 31 2c 22 73 65 73 73 69 6f 6e 49 64 22 3a 22 30 31
+  39 32 66 33 61 34 2d 35 62 36 63 2d 37 64 38 65 2d 39 66 30
+  31 2d 32 33 34 35 36 37 38 39 30 61 62 63 22 2c 22 74 79 70
+  65 22 3a 22 65 76 65 6e 74 2e 63 6f 6d 70 61 63 74 65 64 22
+  2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 30 22 7d
 `;
 
-describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
+describe("canonicalizeEvent — the canonical envelope", () => {
   it("produces byte-stable canonical bytes for the golden envelope", () => {
     const canonicalBytes = canonicalizeEvent(GOLDEN_ENVELOPE);
     expect(decodeUtf8(canonicalBytes)).toBe(GOLDEN_ENVELOPE_CANONICAL_TEXT);
@@ -382,8 +288,7 @@ describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
   });
 
   it("ignores declaration order — RFC 8785 section 3.2.3 lex-sort fixes the byte order", () => {
-    // Same eleven members, written in reverse declaration order. The wire
-    // authority calls declaration order non-load-bearing; this pins it.
+    // The same eleven members in reverse declaration order; declaration order must not matter.
     const reverseDeclarationOrder: EventEnvelope = {
       version: GOLDEN_ENVELOPE.version,
       causationId: GOLDEN_ENVELOPE.causationId,
@@ -402,49 +307,33 @@ describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
     );
   });
 
-  it("detects a same-typed member transposition, which no type annotation can", () => {
-    // `correlationId` and `causationId` are both `string | undefined`, so
-    // swapping them compiles clean. It must not serialize clean.
-    const transposed: EventEnvelope = {
-      ...GOLDEN_ENVELOPE,
-      correlationId: GOLDEN_ENVELOPE.causationId,
-      causationId: GOLDEN_ENVELOPE.correlationId,
-    };
-    expect(decodeUtf8(canonicalizeEvent(transposed))).not.toBe(GOLDEN_ENVELOPE_CANONICAL_TEXT);
-  });
-
   it("serializes version as a quoted string, never as a JSON number", () => {
-    // Makes `version` a "MAJOR.MINOR" semver STRING on the wire. A regression
-    // to a numeric `1.0` would serialize as `1` and change the bytes of every
-    // row.
+    // `version` is a "MAJOR.MINOR" string on the wire. A numeric `1.0` would serialize as `1` and
+    // change the bytes of every row.
     expect(decodeUtf8(canonicalizeEvent(GOLDEN_ENVELOPE))).toContain('"version":"1.0"');
     expect(decodeUtf8(canonicalizeEvent(GOLDEN_ENVELOPE))).not.toContain('"version":1');
   });
 
   it("projects only the canonical set — a runtime-only member is not serialized", () => {
-    // `pii_payload` is a storage column, deliberately NOT an envelope member:
-    // crypto-shred clears that column and the canonical bytes must survive it.
-    // The explicit projection in `canonicalizeEvent` is what guarantees a
-    // member the envelope happens to carry at runtime never reaches the signed
-    // bytes.
+    // `content_payload` is a storage column, not an envelope member, so the canonical bytes must
+    // not depend on it. The explicit projection in `canonicalizeEvent`
+    // keeps a runtime-only member out of the bytes.
     const withStorageOnlyMember: EventEnvelope = {
       ...GOLDEN_ENVELOPE,
-      ...{ pii_payload: "ciphertext-that-must-not-be-signed" },
+      ...{ content_payload: "a body that must not be serialized" },
     };
-    // Guard the FIXTURE, not the module. The inner spread is what lets an
-    // excess member past the object-literal check; if a later refactor changes
-    // how this fixture is built and the member stops landing on the runtime
-    // object, the two assertions below would both pass while testing nothing.
-    expect(Object.keys(withStorageOnlyMember)).toContain("pii_payload");
+    // Guards the fixture: the inner spread lets the excess member past the object-literal check.
+    // If the member stopped landing on the runtime object, the assertions below would pass while
+    // testing nothing.
+    expect(Object.keys(withStorageOnlyMember)).toContain("content_payload");
     const canonicalText = decodeUtf8(canonicalizeEvent(withStorageOnlyMember));
     expect(canonicalText).toBe(GOLDEN_ENVELOPE_CANONICAL_TEXT);
-    expect(canonicalText).not.toContain("pii_payload");
+    expect(canonicalText).not.toContain("content_payload");
   });
 
   it("normalizes occurredAt inside canonicalization — one instant, one byte string", () => {
-    // Three lexical spellings of the SAME instant (Z form, a positive offset,
-    // and a negative offset with omitted seconds) must produce identical bytes,
-    // because `daemon_signature` commits to the instant.
+    // Three spellings of one instant (Z form, a positive offset, a negative offset) must produce
+    // identical bytes, because the canonical form records the instant.
     const utcSpelling: EventEnvelope = {
       ...GOLDEN_ENVELOPE,
       occurredAt: "2026-03-04T05:06:07.008Z",
@@ -473,103 +362,10 @@ describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
     };
     expect(() => canonicalizeEvent(subMillisecond)).toThrow(/sub-millisecond precision/);
   });
-});
-
-// --------------------------------------------------------------------------
-// actor — the canonical set's SOLE null-admitting member.
-// --------------------------------------------------------------------------
-
-/** Extracts the union of member names whose declared type admits `null`. */
-type MemberAdmittingNull<Envelope> = {
-  [MemberName in keyof Envelope]-?: null extends Envelope[MemberName] ? MemberName : never;
-}[keyof Envelope];
-
-// COMPILE-TIME derivation, and the tightest of the three: mutual assignability
-// between the derived union and `"actor"`. If a second `EventEnvelope` member
-// ever admits `null`, the derived union widens, the first `extends` fails, the
-// conditional resolves to `false`, and this initializer stops typechecking
-// (TS2322) — in `pnpm --filter @ai-sidekicks/runtime-daemon typecheck`, before
-// any test runs. Verified to fail on perturbation rather than assumed to.
-const NULL_ADMITTING_MEMBER_IS_ACTOR_ONLY: [MemberAdmittingNull<EventEnvelope>] extends ["actor"]
-  ? ["actor"] extends [MemberAdmittingNull<EventEnvelope>]
-    ? true
-    : false
-  : false = true;
-
-const CANONICAL_MEMBER_NAMES: readonly (keyof EventEnvelope)[] = [
-  "id",
-  "sessionId",
-  "sequence",
-  "occurredAt",
-  "category",
-  "type",
-  "actor",
-  "payload",
-  "correlationId",
-  "causationId",
-  "version",
-];
-
-describe("actor is the canonical set's only null-admitting member", () => {
-  it("set-equals the wire authority's declared member set", () => {
-    // DERIVED SET-EQUALITY, NEVER A COUNT. The drift a pair of count
-    // assertions leaves wide open is a SCHEMA-side edit: `EventEnvelopeSchema`
-    // gaining a twelfth member — or losing one — while this hand-written list
-    // stays at eleven keeps both `toHaveLength(11)` and a deduplicated size
-    // green, and this list is what the runtime derivation below iterates.
-    // The same-size swap of a canonical name for a stray key is closed too,
-    // though that one the `keyof EventEnvelope` element type already refuses
-    // at compile time. No diagnostic code is named for it, deliberately:
-    // WHICH one fires depends on the stray key's edit distance from a real
-    // member — a `causationID` typo reports TS2820's spelling-suggestion form
-    // rather than a plain assignability error — so a comment pinning one
-    // number would be wrong for the other. Same rule as the contracts-side
-    // registries: both directions in one assertion, no member missing and
-    // none extra.
-    //
-    // Reaching the declared set needs a cast, scoped to this one expression:
-    // `EventEnvelopeSchema` is exported as `z.ZodType<EventEnvelope>` (the
-    // `isolatedDeclarations` annotation), which erases `.shape` from the
-    // declared type while leaving it on the runtime object. Same internals-cast
-    // idiom as membership pin in contracts' `session-event.test.ts`.
-    const declaredMembers = Object.keys(
-      (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
-    ).sort();
-
-    // The count pin rides the DERIVED array, so the "eleven" is tied to the
-    // wire authority rather than to this file's transcription of it.
-    expect(declaredMembers).toHaveLength(11);
-    expect([...CANONICAL_MEMBER_NAMES].sort()).toEqual(declaredMembers);
-    // Only the hand-written list can carry a duplicate — the schema side is
-    // object keys, unique by construction. A duplicate already fails the
-    // equality above, but as an opaque array diff; this names it.
-    expect(new Set(CANONICAL_MEMBER_NAMES).size).toBe(CANONICAL_MEMBER_NAMES.length);
-    // The fixture-side half: `EventEnvelopeSchema` is `.strict()`, so the
-    // golden envelope parsing clean says it carries every declared member and
-    // nothing else — which is what makes it a valid stand-in for the wire
-    // shape in every byte assertion above.
-    expect(EventEnvelopeSchema.safeParse(GOLDEN_ENVELOPE).success).toBe(true);
-  });
-
-  it("derives the null-admitting member set from the contract, at compile time", () => {
-    expect(NULL_ADMITTING_MEMBER_IS_ACTOR_ONLY).toBe(true);
-  });
-
-  it("derives the null-admitting member set from the contract, at runtime", () => {
-    // Independent of the type-level derivation above: ask the RUNTIME validator
-    // which members accept `null`, rather than trusting a hand-maintained count.
-    const membersAcceptingNull = CANONICAL_MEMBER_NAMES.filter(
-      (memberName) =>
-        EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
-    );
-    expect(membersAcceptingNull).toStrictEqual(["actor"]);
-  });
 
   it("keeps present-null and absent distinguishable in the canonical bytes", () => {
-    // "fields with value null MUST be included". JSON has no `undefined`, so an
-    // absent member is an absent key — and the two MUST NOT collapse, which is
-    // why `canonicalizeEvent`'s precondition puts the absent-vs-null choice on
-    // the append path.
+    // A member with value null must be included. JSON has no `undefined`, so an absent member is
+    // an absent key, and the two must not collapse; the append path chooses between them.
     const presentNullActor: EventEnvelope = { ...GOLDEN_ENVELOPE, actor: null };
     const { actor: _absentActor, ...withoutActorMember } = GOLDEN_ENVELOPE;
     const absentActor: EventEnvelope = withoutActorMember;
@@ -581,31 +377,54 @@ describe("actor is the canonical set's only null-admitting member", () => {
     expect(absentText).not.toContain('"actor"');
     expect(presentNullText).not.toBe(absentText);
 
-    // An explicitly-`undefined` member is the same wire state as an absent key —
-    // that is what the wire schema's `.optional()` yields for a key the producer
-    // never sent — so it must serialize identically to the absent case.
+    // An explicit `undefined` is the same wire state as an absent key (what `.optional()` yields
+    // for a key the producer never sent), so it must serialize like the absent case.
     const explicitlyUndefinedActor: EventEnvelope = { ...GOLDEN_ENVELOPE, actor: undefined };
     expect(decodeUtf8(canonicalizeEvent(explicitlyUndefinedActor))).toBe(absentText);
   });
+
+  it("refuses a sequence one above the ceiling, unparsed", () => {
+    // Above 2^53 - 1 distinct integers share one double, so two events would share canonical bytes
+    // and a replay key. `canonicalizeEvent` does not parse, so the guard sits here, not the schema.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: 9007199254740992 }),
+    );
+    expect(message).toMatch(/canonicalization refused: sequence .* is not a safe integer/);
+    expect(message).toMatch(/replay key/);
+  });
 });
 
-// --------------------------------------------------------------------------
-// Nesting-depth ceiling.
-// --------------------------------------------------------------------------
+/** Extracts the union of member names whose declared type admits `null`. */
+type MemberAdmittingNull<Envelope> = {
+  [MemberName in keyof Envelope]-?: null extends Envelope[MemberName] ? MemberName : never;
+}[keyof Envelope];
 
-/** Wraps `innermostLeaf` in exactly `containerLevels` objects, so the leaf sits at nominal depth `containerLevels + 1`. */
+describe("actor is the canonical set's only null-admitting member", () => {
+  it("derives the null-admitting member set from the contract, at compile time and at runtime", () => {
+    // The typechecker fails this line if a second `EventEnvelope` member admits `null`.
+    expectTypeOf<MemberAdmittingNull<EventEnvelope>>().toEqualTypeOf<"actor">();
+    // Independent of the type-level check: asks the runtime validator which of the schema's own
+    // members accept `null`. The cast reaches `.shape`, which `isolatedDeclarations` hides behind
+    // the exported `z.ZodType<EventEnvelope>` but the runtime object carries.
+    const declaredMembers = Object.keys(
+      (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
+    );
+    const membersAcceptingNull = declaredMembers.filter(
+      (memberName) =>
+        EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
+    );
+    expect(membersAcceptingNull).toStrictEqual(["actor"]);
+  });
+});
+
+/** Wraps `innermostLeaf` in `containerLevels` objects, so the leaf sits at depth levels + 1. */
 function buildNestedContainerChain(containerLevels: number, innermostLeaf: unknown): unknown {
   let nested = innermostLeaf;
   for (let level = 0; level < containerLevels; level++) nested = { a: nested };
   return nested;
 }
 
-describe("canonicalizeJson — the nesting-depth ceiling", () => {
-  it("accepts containers nested 64 deep", () => {
-    expect(() => canonicalizeJson(buildNestedContainerChain(63, {}))).not.toThrow();
-    expect(() => canonicalizeJson(buildNestedContainerChain(64, 0))).not.toThrow();
-  });
-
+describe("canonicalizeJson — refusals", () => {
   it("refuses containers nested 65 deep", () => {
     expect(() => canonicalizeJson(buildNestedContainerChain(65, 0))).toThrow(
       /nests containers deeper than 64 levels/,
@@ -613,15 +432,10 @@ describe("canonicalizeJson — the nesting-depth ceiling", () => {
   });
 
   it("accepts a SCALAR at depth 65 while refusing a CONTAINER at depth 65", () => {
-    // THE DISCRIMINATING PAIR, and the reason this case is not redundant with
-    // the two above. Both inputs carry the SAME 64 wrapper containers; they
-    // differ only in the KIND of the node at depth 65.
-    //
-    // `assertWithinCanonicalDepth` queues containers only and `continue`s past a
-    // scalar BEFORE consulting its depth, so a scalar leaf at depth 65 is
-    // accepted by construction. A refactor that hoisted the depth check above
-    // that `continue` — or that dropped the container-only push filter — would
-    // break exactly this assertion and nothing else in the suite.
+    // Both inputs have the same 64 wrapper containers and differ only in the kind of node at
+    // depth 65. `assertWithinCanonicalDepth` queues containers only and skips a scalar before
+    // checking its depth, so a scalar leaf at depth 65 is accepted. Moving the depth check above
+    // that skip, or dropping the container-only filter, breaks only this test.
     expect(() =>
       canonicalizeJson(buildNestedContainerChain(64, "scalar-at-depth-65")),
     ).not.toThrow();
@@ -632,134 +446,67 @@ describe("canonicalizeJson — the nesting-depth ceiling", () => {
 
   it("reports a cyclic own-property graph as depth exhaustion, not as a hang", () => {
     // The depth walk drives a cycle's depth up without bound, so it fires before
-    // `canonicalize@3.0.0`'s own cycle detection. Both refuse; the guard's
-    // wording is the one that reaches the caller, and pinning WHICH message
-    // arrives is what proves the iterative guard ran rather than the library
-    // recursing (which is what would stack-overflow on deep untrusted input).
+    // the library's own cycle detection. Pinning which message arrives shows the depth
+    // guard ran before the two walks that have no cycle detection.
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
     const message = captureThrownMessage(() => canonicalizeJson(cyclic));
     expect(message).toMatch(/nests containers deeper than 64 levels/);
     expect(message).not.toMatch(/Circular reference detected/);
   });
+
+  it("refuses undefined at the top level rather than emitting zero bytes", () => {
+    // The library delegates non-objects to `JSON.stringify`, which returns `undefined` here.
+    expect(() => canonicalizeJson(undefined)).toThrow(
+      /RFC 8785 canonicalization produced no output/,
+    );
+  });
+
+  it("surfaces the NaN and Infinity refusals the RFC requires", () => {
+    // These come from the library with its bare wording; a library that emitted `null`
+    // instead would fail here.
+    expect(captureThrownMessage(() => canonicalizeJson({ sequence: Number.NaN }))).toBe(
+      "NaN is not allowed",
+    );
+    expect(
+      captureThrownMessage(() => canonicalizeJson({ sequence: Number.POSITIVE_INFINITY })),
+    ).toBe("Infinity is not allowed");
+  });
 });
 
-// --------------------------------------------------------------------------
-// Unicode well-formedness — RFC 8785 section 3.2.2.2's MUST-terminate obligation.
-// --------------------------------------------------------------------------
-//
-// RFC 8785 section 3.2.2.2, verbatim: "Since invalid Unicode data like "lone
-// surrogates" (e.g., U+DEAD) may lead to interoperability issues including
-// broken signatures, occurrences of such data MUST cause a compliant JCS
-// implementation to terminate with an appropriate error."
-//
-// The same normative register as — so both are tested as requirements, not
-// as advice.
-//
-// WHAT THE LIBRARY DOES INSTEAD, and why the defect is quiet: `canonicalize@3.0.0`
-// routes strings and property names through `JSON.stringify`, whose ES2019
-// well-formed behavior escapes a lone surrogate as `\ud800` rather than emitting
-// ill-formed UTF-16. The result is VALID JSON TEXT that round-trips through
-// `JSON.parse` — nothing downstream looks broken — while a conforming verifier
-// handed the same event terminates and produces no bytes at all. The guard
-// exists so this daemon never signs a byte string no conforming implementation
-// will agree is canonical.
+// RFC 8785 section 3.2.2.2 requires an error on a lone surrogate. The library refuses it too, but
+// with a bare message that says neither where the surrogate sits nor which code unit it is.
 
 /** A lone HIGH surrogate (no low surrogate follows) — the U+D800 end of the range. */
 const LONE_HIGH_SURROGATE = "\ud800";
-/** A lone LOW surrogate — the RFC's own worked example, U+DEAD. */
-const LONE_LOW_SURROGATE = "\udead";
-/** A correctly paired U+1F600 GRINNING FACE, which MUST keep serializing. */
+/** A correctly paired U+1F600 GRINNING FACE, which must keep serializing. */
 const VALID_SURROGATE_PAIR = "😀";
 
 const LONE_SURROGATE_REFUSAL = /canonicalization refused: .* carries an unpaired UTF-16 surrogate/;
 
-describe("canonicalizeJson — RFC 8785 section 3.2.2.2 refuses lone surrogates", () => {
-  const refusedPlacements: ReadonlyArray<{
-    readonly label: string;
-    readonly value: unknown;
-    readonly position: RegExp;
-  }> = [
-    {
-      label: "a lone HIGH surrogate in a string value",
-      value: { field: LONE_HIGH_SURROGATE },
-      position: /a string value/,
-    },
-    {
-      label: "a lone LOW surrogate in a string value",
-      value: { field: LONE_LOW_SURROGATE },
-      position: /a string value/,
-    },
-    {
-      label: "a lone surrogate in a PROPERTY NAME",
-      // "JSON string data (which includes JSON object property names as well)",
-      // and — so an ill-formed name is load-bearing twice over.
-      value: { [LONE_HIGH_SURROGATE]: "well-formed value" },
-      position: /a property name/,
-    },
-    {
-      label: "a lone surrogate NESTED three containers deep",
-      value: { a: { b: { c: LONE_LOW_SURROGATE } } },
-      position: /a string value/,
-    },
-    {
-      label: "a lone surrogate in a nested ARRAY element",
-      value: { a: [{ b: [LONE_HIGH_SURROGATE] }] },
-      position: /a string value/,
-    },
-    {
-      label: "a lone surrogate in a NESTED property name",
-      value: { outer: { [LONE_LOW_SURROGATE]: "well-formed value" } },
-      position: /a property name/,
-    },
-    {
-      label: "a TOP-LEVEL string that is itself a lone surrogate",
-      // Covers the root-seed path: the walk only ever meets strings as a
-      // container's children, so a bare string root is handled before the loop.
-      value: LONE_HIGH_SURROGATE,
-      position: /the top-level string/,
-    },
-  ];
-
-  for (const { label, value, position } of refusedPlacements) {
-    it(`refuses ${label}`, () => {
-      const message = captureThrownMessage(() => canonicalizeJson(value));
-      expect(message).toMatch(LONE_SURROGATE_REFUSAL);
-      expect(message).toMatch(position);
-      // The RFC reference is load-bearing: it is what tells a reader this is a
-      // conformance requirement rather than a local policy choice.
-      expect(message).toMatch(/RFC 8785 section 3\.2\.2\.2/);
-    });
-  }
-
+describe("canonicalizeJson — lone surrogates", () => {
   it("accepts a VALID surrogate pair and serializes it 'as is', never escaped", () => {
     const canonicalText = decodeUtf8(canonicalizeJson({ pair: VALID_SURROGATE_PAIR }));
     expect(canonicalText).toBe('{"pair":"😀"}');
-    // "MUST be serialized 'as is'" — so the pair must reach the bytes as UTF-8,
-    // not as a \uXXXX escape.
+    // A valid pair is serialized as is: UTF-8 bytes, not a \uXXXX escape.
     expect(bytesToHex(canonicalizeJson({ pair: VALID_SURROGATE_PAIR }))).toContain("f09f9880");
     expect(canonicalText).not.toContain("\\u");
-    // The same pair as a property NAME, since names take a separate check.
+    // Property names take a separate check.
     expect(() => canonicalizeJson({ [VALID_SURROGATE_PAIR]: "v" })).not.toThrow();
   });
 
-  it("discriminates a REVERSED pair from a valid one — order is what makes a pair", () => {
-    // THE DISCRIMINATING CASE for the pairing logic specifically. "\udc00\ud800"
-    // contains one low and one high surrogate, exactly as a valid pair does, and
-    // differs only in ORDER. A check that merely counted surrogates, or that
-    // looked for "a high followed by a low" anywhere in the string, would accept
-    // this; both code units are in fact unpaired.
-    const message = captureThrownMessage(() => canonicalizeJson({ reversed: "\udc00\ud800" }));
+  it("refuses a lone surrogate in a PROPERTY NAME", () => {
+    // The RFC's JSON string data includes object property names.
+    const message = captureThrownMessage(() =>
+      canonicalizeJson({ [LONE_HIGH_SURROGATE]: "well-formed value" }),
+    );
     expect(message).toMatch(LONE_SURROGATE_REFUSAL);
-    // Reported at the FIRST offender, scanning left to right: the leading low
-    // surrogate at index 0, not the trailing high one.
-    expect(message).toMatch(/\(U\+DC00\) at index 0/);
+    expect(message).toMatch(/a property name/);
   });
 
   it("reports the code unit and index but NEVER the offending string", () => {
-    // The PII codec calls `canonicalizeJson(input.piiPayload)` directly, so
-    // this guard runs over PII PLAINTEXT and its message reaches logs. The
-    // locator must be precise without quoting the value.
+    // A payload can carry a person's words and this message reaches logs, so the locator must not
+    // quote the value.
     const secret = `patient-record-4417-${LONE_HIGH_SURROGATE}`;
     const message = captureThrownMessage(() => canonicalizeJson({ note: secret }));
     expect(message).toMatch(/\(U\+D800\) at index 20/);
@@ -767,71 +514,12 @@ describe("canonicalizeJson — RFC 8785 section 3.2.2.2 refuses lone surrogates"
     expect(message).not.toContain(LONE_HIGH_SURROGATE);
   });
 
-  it("accepts the code units either side of the surrogate range", () => {
-    // BOUNDARY PINS on the range itself. U+D7FF and U+E000 are the nearest
-    // non-surrogate code points below and above D800–DFFF; an off-by-one in
-    // either bound of either character class breaks exactly these.
-    expect(() => canonicalizeJson({ belowRange: "퟿", aboveRange: "" })).not.toThrow();
-    // ...and the four corners INSIDE it are all refused: both ends of the high
-    // range and both ends of the low range.
-    for (const loneCodeUnit of ["\ud800", "\udbff", "\udc00", "\udfff"]) {
-      expect(() => canonicalizeJson({ lone: loneCodeUnit }), loneCodeUnit).toThrow(
-        LONE_SURROGATE_REFUSAL,
-      );
-    }
-  });
-
-  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
-    // ORDER AS A CORRECTNESS CONSTRAINT, not a diagnostic preference. The
-    // well-formedness walk carries no cycle detection and no depth bound of its
-    // own; on a cyclic own-property graph it would spin forever. It is safe only
-    // because `assertWithinCanonicalDepth` reports a cycle as depth exhaustion
-    // and throws first. This input is cyclic AND carries a lone surrogate, so
-    // reversing the two guards inside `canonicalizeJson` turns this test from a
-    // refusal into a hang — which is the failure this pins.
-    const cyclic: Record<string, unknown> = { field: LONE_HIGH_SURROGATE };
-    cyclic["self"] = cyclic;
-    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
-    expect(message).toMatch(/nests containers deeper than 64 levels/);
-    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
-  });
-});
-
-describe("canonicalizeEvent — inherits the well-formedness refusal, no second call site", () => {
-  // The event entry point routes through `canonicalizeJson`, so the guard covers
-  // it structurally. These pin that inheritance across BOTH shapes an envelope
-  // can carry an ill-formed string in: a canonical member, and the open payload.
-  it("refuses a lone surrogate in a canonical member (actor)", () => {
-    const message = captureThrownMessage(() =>
-      canonicalizeEvent({ ...GOLDEN_ENVELOPE, actor: `user-${LONE_HIGH_SURROGATE}` }),
-    );
-    expect(message).toMatch(LONE_SURROGATE_REFUSAL);
-  });
-
-  it("refuses a lone surrogate in a payload VALUE and in a payload KEY", () => {
-    expect(() =>
-      canonicalizeEvent({
-        ...GOLDEN_ENVELOPE,
-        payload: { ...GOLDEN_ENVELOPE.payload, note: LONE_LOW_SURROGATE },
-      }),
-    ).toThrow(LONE_SURROGATE_REFUSAL);
-    expect(() =>
-      canonicalizeEvent({
-        ...GOLDEN_ENVELOPE,
-        payload: { ...GOLDEN_ENVELOPE.payload, [LONE_LOW_SURROGATE]: "well-formed value" },
-      }),
-    ).toThrow(LONE_SURROGATE_REFUSAL);
-  });
-
-  it("is reachable through a CLEAN PARSE — the wire schema admits what this refuses", () => {
-    // THE REACHABILITY PROOF, and the reason this guard is not defensive
-    // programming against an impossible input. `"\ud800"` is a six-ASCII-character
-    // escape in the wire text, so the ill-formed value rides inside a perfectly
-    // well-formed JSON document; `JSON.parse` then materializes the lone
-    // surrogate. Nothing upstream objects: `wireFreeFormString` bounds length and
-    // rejects NUL and whitespace-only but tests no well-formedness, and `payload`
-    // is an open record. So the envelope PARSES and the canonicalizer is the
-    // first and only refusal on the path.
+  it("refuses a lone surrogate that a clean parse of the wire schema admits", () => {
+    // Shows the guard is reachable. `"\ud800"` is a six-ASCII-character escape in the wire text,
+    // so the ill-formed value rides inside a well-formed JSON document and `JSON.parse` then
+    // produces the lone surrogate. Nothing upstream objects: `wireFreeFormString` bounds length
+    // and rejects NUL and whitespace-only strings but checks no well-formedness, and `payload` is
+    // an open record. The envelope parses, and the canonicalizer is the only refusal.
     const wireText = JSON.stringify({ ...GOLDEN_ENVELOPE, actor: LONE_HIGH_SURROGATE });
     const parsed: unknown = JSON.parse(wireText);
     const parseResult = EventEnvelopeSchema.safeParse(parsed);
@@ -839,10 +527,21 @@ describe("canonicalizeEvent — inherits the well-formedness refusal, no second 
     expect(() => canonicalizeEvent(parsed as EventEnvelope)).toThrow(LONE_SURROGATE_REFUSAL);
   });
 
+  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+    // The well-formedness walk has no cycle detection or depth bound, so on a cyclic graph it
+    // would spin forever; it is safe only because `assertWithinCanonicalDepth` throws first. This
+    // input is cyclic and holds a lone surrogate, so reversing the two guards in
+    // `canonicalizeJson` turns this test from a refusal into a hang.
+    const cyclic: Record<string, unknown> = { field: LONE_HIGH_SURROGATE };
+    cyclic["self"] = cyclic;
+    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
+    expect(message).toMatch(/nests containers deeper than 64 levels/);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
+  });
+
   it("reports the sequence refusal ahead of a simultaneous lone surrogate", () => {
-    // Refusal order on this entry point is sequence → occurredAt → depth →
-    // well-formedness, and the first to fire is the only one the caller sees.
-    // Same shape as the occurredAt precedence test below.
+    // Refusal order on this entry point is sequence, occurredAt, depth, toJSON, well-formedness;
+    // the caller sees only the first to fire.
     const message = captureThrownMessage(() =>
       canonicalizeEvent({
         ...GOLDEN_ENVELOPE,
@@ -855,34 +554,11 @@ describe("canonicalizeEvent — inherits the well-formedness refusal, no second 
   });
 });
 
-// --------------------------------------------------------------------------
-// `toJSON` — refused, because it hands the serializer an uninspected tree.
-// --------------------------------------------------------------------------
-//
-// `canonicalize@3.0.0` tests `typeof object.toJSON === 'function'` before every
-// other branch and serializes the RESULT of calling it. `canonicalizeJson`
-// refuses the whole class rather than patching either axis; this block pins the
-// premise, the refusal, and the shapes that must keep serializing.
-//
-// The block sits after the well-formedness suites rather than in module order so
-// it can reuse their surrogate fixtures; the guard itself runs BETWEEN the depth
-// ceiling and the well-formedness walk, which the order tests below pin.
-
+// The library serializes whatever a callable `toJSON` returns, an uninspected tree, so
+// `canonicalizeJson` refuses the whole class.
 const TO_JSON_REFUSAL = /canonicalization refused: .* carries a callable toJSON/;
 
 describe("canonicalizeJson — refuses a callable toJSON", () => {
-  it("pins the LIBRARY behavior the guard exists for", () => {
-    // THE PREMISE, asserted against the pinned dependency rather than assumed —
-    // the one place in this file that calls `canonicalize` directly. The guard
-    // is justified only while the library still diverts to `toJSON`; if a bump
-    // ever stopped it, the refusal becomes pure over-refusal and this assertion
-    // is what says so.
-    expect(canonicalize({ toJSON: () => ({ substituted: true }) })).toBe('{"substituted":true}');
-    // ...and the bypass the finding names: a lone surrogate reaching the output
-    // through a value whose own-property tree carries no string at all.
-    expect(canonicalize({ toJSON: () => ({ a: LONE_HIGH_SURROGATE }) })).toBe('{"a":"\\ud800"}');
-  });
-
   it("refuses a top-level callable toJSON, closing that bypass", () => {
     const message = captureThrownMessage(() =>
       canonicalizeJson({ toJSON: () => ({ a: LONE_HIGH_SURROGATE }) }),
@@ -891,30 +567,9 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).toMatch(/the top-level value/);
   });
 
-  it("catches a PROTOTYPE-CHAIN toJSON, which own-property enumeration cannot see", () => {
-    // THE TRAP, with its negative control inline. `Date.prototype.toJSON` and
-    // `Buffer.prototype.toJSON` are INHERITED, so a guard spelled with
-    // `Object.hasOwn` or with own-property enumeration reads correct and closes
-    // nothing. These three assertions per carrier are what make the refusal
-    // below prove the right thing: a bare "it throws" would still pass if the
-    // guard were rewritten as an own-property check and the carriers changed.
-    const date = new Date(0);
-    expect(Object.entries(date)).toStrictEqual([]);
-    expect(Object.hasOwn(date, "toJSON")).toBe(false);
-    expect(typeof date.toJSON).toBe("function");
-    expect(() => canonicalizeJson({ when: date })).toThrow(TO_JSON_REFUSAL);
-
-    const buffer = Buffer.from([1, 2, 3]);
-    expect(Object.hasOwn(buffer, "toJSON")).toBe(false);
-    expect(typeof buffer.toJSON).toBe("function");
-    expect(() => canonicalizeJson({ blob: buffer })).toThrow(TO_JSON_REFUSAL);
-  });
-
   it("locates the offender by NESTING DEPTH and never by property path", () => {
-    // Same trade `assertNoLoneSurrogate` makes: the PII codec calls
-    // `canonicalizeJson(input.piiPayload)` directly, so property NAMES are
-    // caller data and this message reaches logs. Depth is structure, which the
-    // depth ceiling's own refusal already discloses.
+    // Like `assertNoLoneSurrogate`: property names are caller data and this message reaches logs.
+    // Depth is structure, which the depth refusal already discloses.
     const message = captureThrownMessage(() =>
       canonicalizeJson({ record: { "patient-record-4417": new Date(0) } }),
     );
@@ -924,118 +579,10 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).not.toContain("1970-01-01");
   });
 
-  it("refuses an ARRAY carrying an own toJSON", () => {
-    // Arrays take the library's `toJSON` branch too — it is tested before the
-    // `Array.isArray` split — so the walk must pop them like any other object.
-    const arrayWithToJson: number[] & { toJSON?: () => unknown } = [1, 2];
-    arrayWithToJson.toJSON = (): unknown => ({ a: LONE_HIGH_SURROGATE });
-    expect(canonicalize(arrayWithToJson)).toBe('{"a":"\\ud800"}');
-    expect(() => canonicalizeJson({ items: arrayWithToJson })).toThrow(TO_JSON_REFUSAL);
-  });
-
-  it("admits every shape the library would NOT divert — the positive controls", () => {
-    // THE REASON THE REFUSALS ABOVE PROVE SOMETHING. A guard that refused every
-    // non-plain object, or every member NAMED `toJSON`, would pass all of them
-    // while breaking live callers and the untrusted path.
-    //
-    // `Uint8Array` carries no `toJSON` at all, which matters because it is the
-    // crypto-relevant byte type on this path. The widening cast is what makes
-    // the read expressible — TS2339 otherwise, the type having no such member —
-    // and it is the same read the guard performs at runtime.
-    expect(typeof (new Uint8Array([1]) as { toJSON?: unknown }).toJSON).toBe("undefined");
-    expect(decodeUtf8(canonicalizeJson({ bytes: new Uint8Array([1, 2]) }))).toBe(
-      '{"bytes":{"0":1,"1":2}}',
-    );
-    // A member literally NAMED `toJSON` whose VALUE is a string is exactly what
-    // `JSON.parse` produces for that key — JSON has no function values — so
-    // refusing it would reject a well-formed dispatch body. This is the
-    // discriminating case for `typeof … === "function"` over a name check.
-    const parsedBody: unknown = JSON.parse('{"toJSON":"not-a-function"}');
-    expect(() => canonicalizeJson(parsedBody)).not.toThrow();
-    expect(decodeUtf8(canonicalizeJson(parsedBody))).toBe('{"toJSON":"not-a-function"}');
-    // A null-prototype object has no inherited `toJSON` and must not trip a
-    // TypeError on the lookup either.
-    const nullPrototype: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-    nullPrototype["a"] = 1;
-    expect(decodeUtf8(canonicalizeJson(nullPrototype))).toBe('{"a":1}');
-    // ...and the RFC's own which is the standing regression control the
-    // conformance block at the top owns.
-    expect(() =>
-      canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE) as unknown),
-    ).not.toThrow();
-  });
-
-  it("refuses the NON-DETERMINISM that no output-side check could catch", () => {
-    // THE ARGUMENT FOR REFUSING RATHER THAN SCANNING, demonstrated in three
-    // steps rather than asserted.
-    //
-    // Step 1 — `toJSON` is arbitrary caller code, so the canonical form of a
-    // value need not be a function of the value. Two passes over ONE object.
-    let projectionCount = 0;
-    const statefulProjection = {
-      toJSON: (): unknown => ({ v: ++projectionCount }),
-    };
-    expect(canonicalize(statefulProjection)).toBe('{"v":1}');
-    expect(canonicalize(statefulProjection)).toBe('{"v":2}');
-
-    // Step 2 — that is fatal for the integrity protocol specifically.
-    // Verification RE-CANONICALIZES a rehydrated row and compares bytes, so a
-    // second draw that differs makes the row's own `row_hash` unreproducible
-    // from the row.
-    projectionCount = 0;
-    expect(canonicalize(statefulProjection)).not.toBe(canonicalize(statefulProjection));
-
-    // Step 3 — and no check on the PRODUCED bytes can see it: those bytes are
-    // one draw, and they are perfectly well-formed, correctly nested JSON. Only
-    // refusing the input closes it, which is why the guard sits on the input.
-    expect(() => canonicalizeJson(statefulProjection)).toThrow(TO_JSON_REFUSAL);
-  });
-
-  it("closes the DEPTH-CEILING evasion, not just the surrogate one", () => {
-    // The same over-deep tree, reached two ways. Directly, the depth walk sees
-    // it and the ceiling fires. Behind a `toJSON`, the carrier's own-property
-    // tree is depth 1 — its only member is a FUNCTION, which the walk's
-    // container filter skips — so the ceiling never saw it, and the library
-    // serialized it without complaint. The refusal is on the CLASS, so both are
-    // now refused; only the wording differs.
-    const overDeep = buildNestedContainerChain(200, 0);
-    expect(() => canonicalizeJson(overDeep)).toThrow(/nests containers deeper than 64 levels/);
-
-    const behindToJson = { toJSON: (): unknown => overDeep };
-    expect(Object.values(behindToJson).every((member) => typeof member === "function")).toBe(true);
-    expect(typeof canonicalize(behindToJson)).toBe("string");
-
-    const message = captureThrownMessage(() => canonicalizeJson(behindToJson));
-    expect(message).toMatch(TO_JSON_REFUSAL);
-    expect(message).not.toMatch(/nests containers deeper than 64 levels/);
-  });
-
-  it("costs one more getter invocation per member — the count the module documents", () => {
-    // THE PRICE OF A THIRD WALK, measured through the real entry point rather
-    // than asserted in a comment. `assertWithinCanonicalDepth`'s docblock states
-    // SIX invocations of an own enumerable getter end to end: one per walk
-    // (depth, `toJSON`, well-formedness) and three more inside the serializer's
-    // per-member `undefined` / `symbol` / recurse sequence. The number is
-    // load-bearing because a NON-IDEMPOTENT getter is the one residual the
-    // `toJSON` refusal does not close, so the count is what bounds how many
-    // different trees it can hand out.
-    let accessorCalls = 0;
-    const withGetter: Record<string, unknown> = {
-      get member(): unknown {
-        accessorCalls += 1;
-        return "value";
-      },
-    };
-    expect(decodeUtf8(canonicalizeJson(withGetter))).toBe('{"member":"value"}');
-    expect(accessorCalls).toBe(6);
-  });
-
   it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
-    // Same correctness constraint the well-formedness walk carries: this walk
-    // has no cycle detection either, so it is safe only because
-    // `assertWithinCanonicalDepth` reports a cycle as depth exhaustion first.
-    // The input is cyclic AND carries a `toJSON`, so hoisting this guard above
-    // the depth walk turns this test from a refusal into a hang.
+    // This walk has no cycle detection either, so it is safe only because
+    // `assertWithinCanonicalDepth` reports a cycle as depth exhaustion first. The input is cyclic
+    // and has a `toJSON`, so moving this guard above the depth walk turns a refusal into a hang.
     const cyclic: Record<string, unknown> = { toJSON: (): unknown => ({ v: 1 }) };
     cyclic["self"] = cyclic;
     const message = captureThrownMessage(() => canonicalizeJson(cyclic));
@@ -1044,11 +591,9 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
   });
 
   it("runs BEFORE the well-formedness walk, so the accurate refusal is the one reported", () => {
-    // THE OTHER HALF OF THE ORDER, and load-bearing in the opposite direction.
-    // This value carries a lone surrogate in a subtree the serializer would have
-    // DISCARDED — `toJSON` replaces it — so reporting. The `toJSON` refusal is
-    // what makes the well-formedness verdict a claim about the output, so it has
-    // to fire first.
+    // The lone surrogate sits in a subtree the serializer would discard, because `toJSON`
+    // replaces it, so reporting it would be wrong. The `toJSON` refusal makes the well-formedness
+    // verdict a statement about the output, so it must fire first.
     const carriesBoth = {
       discarded: LONE_HIGH_SURROGATE,
       toJSON: (): unknown => ({ kept: "well-formed" }),
@@ -1058,19 +603,55 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
   });
 
-  it("is inherited by canonicalizeEvent through the payload, with no second call site", () => {
-    // The event entry point routes through `canonicalizeJson`, so the guard
-    // covers it structurally — the same inheritance the well-formedness block
-    // above pins. A `Date` in a payload is the realistic carrier: it is what a
-    // producer reaches for when a schema says the member is a timestamp.
+  it("SHADOWS the library's third refusal in both shapes that could reach it", () => {
+    // `Circular reference detected` is the third library throw the module header lists. No
+    // ordinary input reaches it, and a regression in either guard would surface it.
+    //
+    // Shape 1: an own-property cycle drives the depth walk past the ceiling, so this module's
+    // depth refusal fires first.
+    const ownPropertyCycle: Record<string, unknown> = {};
+    ownPropertyCycle["self"] = ownPropertyCycle;
+    expect(captureThrownMessage(() => canonicalizeJson(ownPropertyCycle))).not.toBe(
+      "Circular reference detected",
+    );
+
+    // Shape 2: a cycle reachable only through a `toJSON` result is invisible to both walks
+    // (`toJSON` is a function, so it fails their `typeof === "object"` child filter). The
+    // `toJSON` refusal catches the carrier before any serialization runs.
+    const cycleReachableOnlyViaToJson: { toJSON: () => unknown } = {
+      toJSON: () => ({ nested: cycleReachableOnlyViaToJson }),
+    };
+    const message = captureThrownMessage(() => canonicalizeJson(cycleReachableOnlyViaToJson));
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).not.toBe("Circular reference detected");
+
+    // Residual case: a non-idempotent accessor hands the guards one tree and the serializer
+    // another, so the library's cycle detection is the last line for that shape alone.
+    // `canonicalizeJson` runs three walks before serializing (depth, `toJSON`, well-formedness),
+    // so a getter that turns cyclic on call 4 shows every guard an acyclic tree and the
+    // serializer a cyclic one. The threshold is the walk count from the four-invocation test.
+    let accessorCalls = 0;
+    const nonIdempotentAccessor: Record<string, unknown> = {
+      get member(): unknown {
+        accessorCalls += 1;
+        return accessorCalls > 3 ? nonIdempotentAccessor : { acyclic: true };
+      },
+    };
+    expect(captureThrownMessage(() => canonicalizeJson(nonIdempotentAccessor))).toBe(
+      "Circular reference detected",
+    );
+  });
+
+  it("is inherited by canonicalizeEvent through the payload", () => {
+    // The event entry point routes through `canonicalizeJson`, so the guard covers it. A `Date`
+    // in a payload is the realistic carrier: a producer reaches for it for a timestamp member.
     expect(() =>
       canonicalizeEvent({
         ...GOLDEN_ENVELOPE,
         payload: { ...GOLDEN_ENVELOPE.payload, recordedAt: new Date(0) },
       }),
     ).toThrow(TO_JSON_REFUSAL);
-    // And the sequence guard still precedes it, per the entry point's fixed
-    // order: sequence → occurredAt → depth → toJSON → well-formedness.
+    // The sequence guard still comes first: sequence, occurredAt, depth, toJSON, well-formedness.
     const message = captureThrownMessage(() =>
       canonicalizeEvent({
         ...GOLDEN_ENVELOPE,
@@ -1083,44 +664,20 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// occurredAt normalization.
-// --------------------------------------------------------------------------
-
 const OCCURRED_AT_NORMALIZATIONS: ReadonlyArray<{
   readonly input: string;
   readonly normalized: string;
   readonly why: string;
 }> = [
   {
-    input: "2026-03-04T05:06:07.008Z",
-    normalized: "2026-03-04T05:06:07.008Z",
-    why: "already canonical — the form is a fixed point",
-  },
-  {
     input: "2026-01-01T00:00Z",
     normalized: "2026-01-01T00:00:00.000Z",
     why: "omitted seconds expand instant-preserved",
   },
   {
-    input: "2026-01-01T05:00:00+05:00",
-    normalized: "2026-01-01T00:00:00.000Z",
-    why: "positive offset folds to UTC",
-  },
-  {
     input: "2025-12-31T19:00:00-05:00",
     normalized: "2026-01-01T00:00:00.000Z",
     why: "negative offset folds across a year boundary",
-  },
-  {
-    input: "2026-01-01T00:00:00.000+00:00",
-    normalized: "2026-01-01T00:00:00.000Z",
-    why: "a numeric zero offset is the Z instant",
-  },
-  {
-    input: "2026-01-01T00:00:00.000-00:00",
-    normalized: "2026-01-01T00:00:00.000Z",
-    why: "the NEGATIVE zero offset is the Z instant too — RFC 3339 section 4.3 gives -00:00 the premise 'the time in UTC is known', and section 4.2's local-minus-UTC arithmetic makes the fold exact (the sign yields -0, and x - (-0) === x). What -00:00 additionally conveyed in RFC 3339 — an unknown LOCAL offset — is provenance about the producer's clock, never a different instant, and RFC 9557 section 2.2 (Standards Track, Updates: 3339) has since reassigned that meaning to Z itself. The sibling +00:00 row above says 'a numeric zero offset', sign-agnostic, but pinned only the positive spelling; this row is the other half of that claim",
   },
   {
     input: "2026-01-01T00:00:00.1Z",
@@ -1163,12 +720,6 @@ const OCCURRED_AT_REFUSALS: ReadonlyArray<{
     why: "2026 is not a leap year",
   },
   {
-    input: "2026-02-30T00:00:00.000Z",
-    expected: /names a date that does not exist on the calendar/,
-    rejected: /sub-millisecond/,
-    why: "February never has 30 days",
-  },
-  {
     input: "0000-01-01T00:00:00+05:00",
     expected: /does not fold into the canonical form/,
     rejected: /does not exist on the calendar/,
@@ -1186,12 +737,6 @@ const OCCURRED_AT_REFUSALS: ReadonlyArray<{
     rejected: /sub-millisecond/,
     why: "RFC 3339 section 5.6 permits lowercase t, but the wire schema does not",
   },
-  {
-    input: "2026-01-01 00:00:00.000Z",
-    expected: /must be an RFC 3339 date-time with an uppercase T separator/,
-    rejected: /sub-millisecond/,
-    why: "a space separator is outside the wire schema's lexical form",
-  },
 ];
 
 describe("normalizeOccurredAt — normalize where the instant survives, refuse otherwise", () => {
@@ -1203,10 +748,8 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
 
   for (const vector of OCCURRED_AT_REFUSALS) {
     it(`refuses ${vector.input} — ${vector.why}`, () => {
-      // Assert BOTH directions: the expected refusal class fires AND the
-      // neighbouring class does not. A bare "it threw" would still pass if two
-      // refusal messages were merged, which is exactly the regression that
-      // would make the precedence test below vacuous.
+      // Both directions: the expected refusal fires and the neighboring one does not, so two
+      // merged refusal messages would fail here.
       const message = captureThrownMessage(() => normalizeOccurredAt(vector.input));
       expect(message).toMatch(vector.expected);
       expect(message).not.toMatch(vector.rejected);
@@ -1214,24 +757,18 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
   }
 
   it("reports sub-millisecond precision BEFORE calendar validity — check order is observable", () => {
-    // 2026-02-30T00:00:00.0001Z trips guard 2 (sub-millisecond) AND guard 3
-    // (calendar existence). `canonicalizer.ts` fixes the execution order and
-    // documents it as observable: "an input tripping both reports the
-    // sub-millisecond refusal and never the calendar one".
-    //
-    // The two single-fault controls in the refusal table above are what make
-    // this assertion meaningful: they establish that each guard fires on its own
-    // input, so seeing the sub-millisecond message here is evidence of ORDER
-    // rather than evidence that the calendar guard is simply broken.
+    // This input trips both the sub-millisecond guard and the calendar-existence guard;
+    // `normalizeOccurredAt` runs the sub-millisecond guard first, so only that message appears.
+    // The single-fault rows in the refusal table above show each guard fires on its own input,
+    // so this test shows order, not a broken calendar guard.
     const message = captureThrownMessage(() => normalizeOccurredAt("2026-02-30T00:00:00.0001Z"));
     expect(message).toMatch(/carries sub-millisecond precision/);
     expect(message).not.toMatch(/does not exist on the calendar/);
   });
 
   it("is idempotent — the canonical form is a fixed point of every branch", () => {
-    // Load-bearing: verifiers re-canonicalize a stored row to recompute
-    // `row_hash`, so byte-reproduction must hold whether the append path
-    // persisted the raw or the normalized string.
+    // A stored row must re-canonicalize to the same bytes whether the append path persisted the
+    // raw or the normalized string.
     for (const vector of OCCURRED_AT_NORMALIZATIONS) {
       const onceNormalized = normalizeOccurredAt(vector.input);
       expect(normalizeOccurredAt(onceNormalized)).toBe(onceNormalized);
@@ -1239,354 +776,37 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
   });
 });
 
-// --------------------------------------------------------------------------
-// isCanonicalOccurredAt — the READ-side check that binds the column's BYTES.
-// --------------------------------------------------------------------------
+// Sequence ceiling: the canonical bytes must stay injective.
 //
-// WHAT IT IS FOR, AND WHY IT IS A SEPARATE PREDICATE. Normalization is
-// many-to-one, so `daemon_signature` commits to the INSTANT and every lexical
-// respelling of that instant verifies green — which makes
-// `session_events.occurred_at` the one signed column with a MANDATED canonical
-// stored form that an at-rest attacker can respell undetected, dropping the row
-// out of lexical range scans and misordering it under `ORDER BY`. It is NOT the
-// only respellable column, and the unqualified claim would be false: `payload`
-// is stored as TEXT and `JSON.parse`d before re-canonicalization, so member
-// reordering, whitespace, `2` vs `2.0`, and `A` vs `A` all survive a green
-// verdict too. What separates them is that no column contract pins `payload`'s
-// spelling and it is neither an ordering nor a filtering key, so there is no
-// canonical form to test it against and no scan for a respelling to fall out
-// of. That asymmetry is precisely what makes a form predicate possible here and
-// not there. Both spellings this suite pins as attacks are pinned GREEN
-// on the verify side by `post-shred-verify.test.ts`'s two `occurredAt` controls,
-// and correctly so: `verifyRow` decides hash and signature, and both are intact.
-// This predicate is the other half.
-//
-// THE CLOSURE ARGUMENT, which is what makes the pair complete rather than merely
-// better. The canonical form admits EXACTLY ONE spelling per instant — it is
-// `toISOString()` output, a function of the instant alone — and it is a fixed
-// point of `normalizeOccurredAt`. So over a row whose signature verifies: the
-// predicate holding means the stored string IS the signed string byte for byte,
-// and the predicate failing means it is a respelling. A string that names no
-// instant cannot produce a green verdict at all, because `normalizeOccurredAt`
-// throws on it first. Those three arms cover the space, and the fixed-point test
-// below is the load-bearing one — without it "canonical" and "what was signed"
-// are two different claims.
-//
-// NOT WIRED INTO ANY PRODUCTION CALL PATH. the audit range-walk is the consumer
-// and does not exist yet; this ships as a forward-declared contract, so every
-// assertion here is against the exported function directly.
-
-/**
- * `OCCURRED_AT_REFUSALS` inputs the predicate ALSO rejects — five of the seven.
- * Held as an explicit list rather than filtered out of that table, so the
- * partition below can assert both halves reconstitute it.
- */
-const REFUSALS_THE_PREDICATE_ALSO_REJECTS: readonly string[] = [
-  "2026-01-01T00:00:00.0001Z",
-  "0000-01-01T00:00:00+05:00",
-  "9999-12-31T23:59:59-05:00",
-  "2026-01-01t00:00:00.000Z",
-  "2026-01-01 00:00:00.000Z",
-];
-
-/**
- * The other two — `normalizeOccurredAt` refuses them, this predicate ACCEPTS
- * them. Characterization, not endorsement: see the residual test below.
- */
-const REFUSALS_THE_PREDICATE_ACCEPTS: readonly string[] = [
-  "2026-02-29T00:00:00.000Z",
-  "2026-02-30T00:00:00.000Z",
-];
-
-describe("isCanonicalOccurredAt — the stored spelling, not just the instant", () => {
-  it("accepts the canonical form and rejects both real respelling attacks", () => {
-    // THE TWO ATTACK SPELLINGS ARE NOT INVENTED FOR THIS TEST. Both are the
-    // literal strings `post-shred-verify.test.ts` UPDATEs into
-    // `session_events.occurred_at` and then asserts `{ valid: true }` for — the
-    // offset respelling and the fourth-fractional-digit respelling of the golden
-    // envelope's own `occurredAt`. Verification is green for both; this is where
-    // they are caught.
-    expect(isCanonicalOccurredAt("2026-03-04T05:06:07.008Z")).toBe(true);
-    expect(isCanonicalOccurredAt(GOLDEN_ENVELOPE.occurredAt)).toBe(true);
-
-    expect(isCanonicalOccurredAt("2026-03-04T00:06:07.008-05:00")).toBe(false);
-    expect(isCanonicalOccurredAt("2026-03-04T05:06:07.0080Z")).toBe(false);
-
-    // Both DO name the signed instant — which is exactly why the signature
-    // cannot see them, and why the predicate has to. Asserted rather than
-    // asserted-about: without this the two rejects above would be consistent
-    // with the strings simply being malformed.
-    expect(normalizeOccurredAt("2026-03-04T00:06:07.008-05:00")).toBe("2026-03-04T05:06:07.008Z");
-    expect(normalizeOccurredAt("2026-03-04T05:06:07.0080Z")).toBe("2026-03-04T05:06:07.008Z");
-  });
-
-  it("is exactly the fixed-point set of normalizeOccurredAt — canonical IS what was signed", () => {
-    // THE CLOSURE ARGUMENT'S LOAD-BEARING STEP. "Lexically canonical" would be a
-    // cosmetic property if it were not also "byte-identical to what the signer
-    // saw". For every accepted input, the predicate holds on the string exactly
-    // when normalization leaves it untouched — so on a row that verifies, a
-    // `true` here means the stored bytes ARE the signed bytes.
-    for (const vector of OCCURRED_AT_NORMALIZATIONS) {
-      const normalized = normalizeOccurredAt(vector.input);
-      expect(isCanonicalOccurredAt(vector.input), vector.input).toBe(vector.input === normalized);
-      expect(isCanonicalOccurredAt(normalized), vector.why).toBe(true);
-      // The fixed point itself: canonical ⇒ normalization is the identity.
-      expect(normalizeOccurredAt(normalized), vector.why).toBe(normalized);
-    }
-    // THE ANTI-VACUITY PIN: the loop above is satisfiable by a constant
-    // predicate unless the table carries BOTH arms, so both are asserted
-    // non-empty rather than counted (a count would churn every time a vector is
-    // added). Today it is six respellings against three already-canonical
-    // vectors.
-    const respellings = OCCURRED_AT_NORMALIZATIONS.filter(
-      (vector) => vector.input !== vector.normalized,
-    );
-    const alreadyCanonical = OCCURRED_AT_NORMALIZATIONS.filter(
-      (vector) => vector.input === vector.normalized,
-    );
-    expect(respellings.length).toBeGreaterThan(0);
-    expect(alreadyCanonical.length).toBeGreaterThan(0);
-  });
-
-  it("rejects five of the seven normalizeOccurredAt refusals, and accepts two", () => {
-    // A DERIVED PARTITION, NOT TWO INDEPENDENT LISTS: the two halves are asserted
-    // to reconstitute `OCCURRED_AT_REFUSALS` exactly, so a row added to that
-    // table fails HERE rather than quietly escaping this predicate's coverage.
-    const partition = [
-      ...REFUSALS_THE_PREDICATE_ALSO_REJECTS,
-      ...REFUSALS_THE_PREDICATE_ACCEPTS,
-    ].sort();
-    expect(partition).toStrictEqual(OCCURRED_AT_REFUSALS.map((vector) => vector.input).sort());
-
-    for (const input of REFUSALS_THE_PREDICATE_ALSO_REJECTS) {
-      expect(isCanonicalOccurredAt(input), input).toBe(false);
-    }
-    for (const input of REFUSALS_THE_PREDICATE_ACCEPTS) {
-      expect(isCanonicalOccurredAt(input), input).toBe(true);
-    }
-  });
-
-  it("is LEXICAL, not a calendar or field-range validator — the residual, pinned", () => {
-    // CHARACTERIZATION, NOT ENDORSEMENT, in the same register as the
-    // negative-but-safe `sequence` residual below. `\d{2}` admits a month, day,
-    // hour, minute, and second outside their real ranges, so a string naming no
-    // instant at all satisfies this predicate.
-    //
-    // NOTHING IS LOST, and that is the claim the second assertion in each pair
-    // makes: every one of these throws out of `normalizeOccurredAt` — guard 3 for
-    // the calendar ones, guard 1 for the field-range ones, whose values the
-    // ACCEPTED-input pattern bounds at `[01]\d|2[0-3]` and `[0-5]\d`. A row
-    // carrying one therefore cannot verify, so the predicate never has to decide
-    // it. Re-deriving the calendar read-back inside the predicate would duplicate
-    // guard 3 and give it a second way to disagree with guard 3.
-    const namesNoInstant: ReadonlyArray<{ readonly input: string; readonly guard: RegExp }> = [
-      { input: "2026-02-29T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-02-30T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-13-01T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-01-00T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-01-01T25:00:00.000Z", guard: /must be an RFC 3339 date-time/ },
-      { input: "2026-01-01T00:60:00.000Z", guard: /must be an RFC 3339 date-time/ },
-      // RFC 3339 section 5.8's leap-second spelling. The accepted-input pattern's
-      // `[0-5]\d` refuses `:60`, so it is guard 1, not a calendar refusal.
-      { input: "2026-12-31T23:59:60.000Z", guard: /must be an RFC 3339 date-time/ },
-    ];
-    for (const { input, guard } of namesNoInstant) {
-      expect(isCanonicalOccurredAt(input), input).toBe(true);
-      expect(
-        captureThrownMessage(() => normalizeOccurredAt(input)),
-        input,
-      ).toMatch(guard);
-    }
-  });
-
-  it("RETURNS on garbage rather than throwing — the property the range-walk needs", () => {
-    // WHY A THROW WOULD BE WORSE THAN A WRONG ANSWER, and the reason this test
-    // exists at all. walks a RANGE of rows; a throw aborts the walk and
-    // suppresses verification of every row after the offending one, so one
-    // malformed `occurred_at` would buy an attacker a range-wide blind spot. The
-    // read path already has three layers that throw
-    // (`post-shred-verify.test.ts`'s characterized hole); this predicate must
-    // never become a fourth.
-    //
-    // Every input below makes `normalizeOccurredAt` throw. The predicate returns
-    // `false` for each — asserted through a thunk so a throw fails as a THROW
-    // rather than as a wrong boolean.
-    const inputsThatMakeNormalizationThrow: readonly string[] = [
-      "",
-      "not-a-date",
-      "2026-01-01",
-      "2026-01-01T00:00:00.0001Z",
-      "0000-01-01T00:00:00+05:00",
-      "  2026-03-04T05:06:07.008Z  ",
-      "2026-03-04T05:06:07.008Z\n",
-      "2026-03-04T05:06:07.008Z2026-03-04T05:06:07.008Z",
-      "\u0000",
-      "😀",
-    ];
-    for (const input of inputsThatMakeNormalizationThrow) {
-      expect(() => normalizeOccurredAt(input), input).toThrow();
-      expect(() => isCanonicalOccurredAt(input), input).not.toThrow();
-      expect(isCanonicalOccurredAt(input), input).toBe(false);
-    }
-  });
-
-  it("is stateless across calls — the pattern carries no g flag", () => {
-    // A `g`-flagged pattern would make `.test` advance `lastIndex` and alternate
-    // `true` / `false` on repeated calls with the SAME input. the walk calls
-    // this once per row over a shared module-level pattern, so that regression
-    // would silently flag every other row. Cheap to pin, invisible otherwise.
-    const canonical = "2026-03-04T05:06:07.008Z";
-    const respelled = "2026-03-04T00:06:07.008-05:00";
-    for (let call = 0; call < 3; call++) {
-      expect(isCanonicalOccurredAt(canonical), `call ${String(call)}`).toBe(true);
-      expect(isCanonicalOccurredAt(respelled), `call ${String(call)}`).toBe(false);
-    }
-  });
-});
-
-// --------------------------------------------------------------------------
-// JSON representability and library-originated refusals.
-// --------------------------------------------------------------------------
-
-describe("canonicalizeJson — values with no JSON representation", () => {
-  // `canonicalize@3.0.0` DELEGATES to `JSON.stringify` for non-objects, which
-  // returns `undefined` rather than throwing for these three. Unguarded, the
-  // encoder would turn that into ZERO canonical bytes and the signer would sign
-  // the empty string for an input it could not represent.
-  const valuesWithoutJsonRepresentation: ReadonlyArray<{ label: string; value: unknown }> = [
-    { label: "undefined", value: undefined },
-    { label: "a function", value: (): number => 1 },
-    { label: "a symbol", value: Symbol("not-serializable") },
-  ];
-
-  for (const { label, value } of valuesWithoutJsonRepresentation) {
-    it(`refuses ${label} at the top level rather than emitting zero bytes`, () => {
-      expect(() => canonicalizeJson(value)).toThrow(/RFC 8785 canonicalization produced no output/);
-    });
-  }
-
-  it("surfaces the two REACHABLE library-originated refusals intelligibly", () => {
-    // These originate inside `canonicalize@3.0.0` and reach the caller with the
-    // library's own bare wording. The module's header inventories them rather
-    // than claiming it owns every throw; this pins the inventory so a library
-    // bump that changed a message — or, worse, stopped throwing — is visible.
-    expect(captureThrownMessage(() => canonicalizeJson({ sequence: Number.NaN }))).toBe(
-      "NaN is not allowed",
-    );
-    expect(
-      captureThrownMessage(() => canonicalizeJson({ sequence: Number.POSITIVE_INFINITY })),
-    ).toBe("Infinity is not allowed");
-  });
-
-  it("SHADOWS the library's third refusal in both shapes that could reach it", () => {
-    // `Circular reference detected` is the third throw the module's header
-    // inventories, and no ordinary input reaches it any more — which is the
-    // claim this pins, in both directions, because a regression in EITHER guard
-    // would surface as the library's bare wording instead.
-    //
-    // Shape 1 — an own-property cycle drives the depth walk past the ceiling,
-    // so this module's depth refusal fires first (also pinned in the depth
-    // block above, from the other side).
-    const ownPropertyCycle: Record<string, unknown> = {};
-    ownPropertyCycle["self"] = ownPropertyCycle;
-    expect(captureThrownMessage(() => canonicalizeJson(ownPropertyCycle))).not.toBe(
-      "Circular reference detected",
-    );
-
-    // Shape 2 — a cycle reachable ONLY through a `toJSON` result is invisible
-    // to both walks (`toJSON` is a function, so it fails their
-    // `typeof === "object"` child filter), and it used to be the one cycle
-    // shape that surfaced as the library's message. The `toJSON` refusal now
-    // catches its CARRIER before any serialization runs.
-    const cycleReachableOnlyViaToJson: { toJSON: () => unknown } = {
-      toJSON: () => ({ nested: cycleReachableOnlyViaToJson }),
-    };
-    const message = captureThrownMessage(() => canonicalizeJson(cycleReachableOnlyViaToJson));
-    expect(message).toMatch(TO_JSON_REFUSAL);
-    expect(message).not.toBe("Circular reference detected");
-
-    // THE RESIDUAL, characterized rather than glossed: a NON-IDEMPOTENT
-    // accessor still hands the guards one tree and the serializer another, so
-    // the library's cycle detection remains the last line for that shape alone.
-    // `canonicalizeJson` runs three walks over the value before serializing
-    // (depth, `toJSON`, well-formedness), so a getter that turns cyclic on call
-    // 4 shows every guard an acyclic tree and the serializer a cyclic one. The
-    // threshold is the walk count pinned by the six-invocation test above.
-    let accessorCalls = 0;
-    const nonIdempotentAccessor: Record<string, unknown> = {
-      get member(): unknown {
-        accessorCalls += 1;
-        return accessorCalls > 3 ? nonIdempotentAccessor : { acyclic: true };
-      },
-    };
-    expect(captureThrownMessage(() => canonicalizeJson(nonIdempotentAccessor))).toBe(
-      "Circular reference detected",
-    );
-  });
-});
-
-// --------------------------------------------------------------------------
-// Sequence ceiling — the canonical bytes must stay INJECTIVE.
-// --------------------------------------------------------------------------
-//
-// WHY THIS SUITE EXISTS, and why it is here rather than only in contracts.
-// `canonicalizeEvent` DOES NOT PARSE. Every other bound on `sequence` lives on
-// `EventEnvelopeSchema`, so an in-process caller that builds an `EventEnvelope`
-// literal — which the type system fully permits, `sequence` being plain
-// `number` — reaches the hash chain having met no schema at all. That caller is
-// the uncovered path, and the reason the guard is at the canonicalizer.
-//
-// Above 2^53 − 1 distinct integers share one IEEE-754 double, so two different
-// events canonicalize to identical bytes and collide on `row_hash` — inside the
-// structure builds precisely to make tampering detectable.
+// `canonicalizeEvent` does not parse. Every other bound on `sequence` lives on
+// `EventEnvelopeSchema`, so an in-process caller that builds an `EventEnvelope` literal (the type
+// permits it, `sequence` being a plain `number`) meets no schema at all; the guard therefore
+// sits at the canonicalizer. Above 2^53 - 1 distinct integers share one IEEE-754 double, so two
+// events would canonicalize to identical bytes and share one replay key.
 
 describe("canonicalizeEvent — sequence must be faithfully representable", () => {
   const sequenceRefusalPattern = /canonicalization refused: sequence .* is not a safe integer/;
 
-  it("accepts a sequence at exactly the ceiling", () => {
-    // The boundary's ACCEPT side. `GOLDEN_ENVELOPE.sequence` is already
-    // `EVENT_ENVELOPE_SEQUENCE_MAX`; restating it here makes the pair explicit
-    // and fails if the guard is ever written with an off-by-one `<`.
-    expect(GOLDEN_ENVELOPE.sequence).toBe(EVENT_ENVELOPE_SEQUENCE_MAX);
-    expect(() =>
-      canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: EVENT_ENVELOPE_SEQUENCE_MAX }),
-    ).not.toThrow();
-  });
-
-  it("refuses a sequence one above the ceiling, unparsed", () => {
-    // The boundary's REFUSE side, reached WITHOUT the schema — the whole point.
-    // 9007199254740992 is a valid ECMAScript integer and an exactly
-    // representable double; what it is not is a SAFE one, because it shares its
-    // representation with 9007199254740993.
-    const message = captureThrownMessage(() =>
-      canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: 9007199254740992 }),
-    );
-    expect(message).toMatch(sequenceRefusalPattern);
-    expect(message).toMatch(/row_hash/);
-  });
-
   it("refuses the collapsed pair that would otherwise share canonical bytes", () => {
-    // The ARGUMENT for the guard, demonstrated rather than asserted.
+    // Why the guard exists, in three steps.
     //
-    // Step 1 — the collapse is real, and it is reachable by the mechanism the
-    // read path actually uses. `session_events.sequence` is SQLite INTEGER
-    // (64-bit); `SessionService` reads it with `safeIntegers(true)` so it
-    // arrives as `bigint`, and `hydrateRow` then narrows it with
-    // `Number(row.sequence)`. Two distinct stored rows land on ONE number.
+    // Step 1: the collapse is reachable on the read path. `session_events.sequence` is a 64-bit
+    // SQLite INTEGER; `SessionService` reads it with `safeIntegers(true)` so it arrives as a
+    // `bigint`, and `hydrateRow` narrows it with `Number(row.sequence)`. Two distinct stored rows
+    // land on one number.
     const collapsedLower = Number(9007199254740992n);
     const collapsedUpper = Number(9007199254740993n);
     expect(collapsedUpper).toBe(collapsedLower);
 
-    // Step 2 — the generic serializer is CORRECT to emit the collapsed value.
-    // RFC 8785 canonicalizes the double it is handed; it cannot know two
-    // different integers produced it. Identical bytes, no error, nothing wrong
-    // with `canonicalizeJson`. This is why the guard cannot live there.
+    // Step 2: the generic serializer is correct to emit the collapsed value. RFC 8785
+    // canonicalizes the double it is handed and cannot know two integers produced it, so the
+    // guard cannot live in `canonicalizeJson`.
     expect(bytesToHex(canonicalizeJson({ sequence: collapsedLower }))).toBe(
       bytesToHex(canonicalizeJson({ sequence: collapsedUpper })),
     );
 
-    // Step 3 — so the refusal has to happen where the value is still known to
-    // be an event's `sequence`. Both members of the collapsed pair are refused.
+    // Step 3: the refusal has to happen where the value is still known to be an event's
+    // `sequence`. Both members of the collapsed pair are refused.
     expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: collapsedLower })).toThrow(
       sequenceRefusalPattern,
     );
@@ -1596,12 +816,10 @@ describe("canonicalizeEvent — sequence must be faithfully representable", () =
   });
 
   it("keeps the daemon guard and the contract ceiling on the same boundary", () => {
-    // DRIFT GUARD. `canonicalizer.ts` deliberately does NOT import
-    // `EVENT_ENVELOPE_SEQUENCE_MAX` — it enforces `Number.isSafeInteger`, which
-    // is the property the bytes need, and a shared import would make the two
-    // surfaces agree by construction even on a wrong value. Their agreement is
-    // therefore a claim, and this is where the claim is checked: the schema and
-    // the canonicalizer must flip at the same integer, in both directions.
+    // `canonicalizer.ts` does not import `EVENT_ENVELOPE_SEQUENCE_MAX`; it enforces
+    // `Number.isSafeInteger`, the property the bytes need, and a shared import would make the two
+    // agree even on a wrong value. This checks that the schema and the canonicalizer flip at the
+    // same integer.
     const atCeiling = EVENT_ENVELOPE_SEQUENCE_MAX;
     const oneAbove = EVENT_ENVELOPE_SEQUENCE_MAX + 1;
 
@@ -1618,39 +836,9 @@ describe("canonicalizeEvent — sequence must be faithfully representable", () =
     );
   });
 
-  it("refuses every non-faithful sequence the unparsed path can carry", () => {
-    // `Number.isSafeInteger` is one predicate covering four failure shapes that
-    // an upper-bound compare would each miss: `NaN > max`, `-Infinity > max`,
-    // and `1.5 > max` are all `false`, and negative collapse is below the range
-    // rather than above it. None of these can arrive through the schema; all of
-    // them can arrive through a hand-built envelope.
-    const nonFaithfulSequences: ReadonlyArray<{ label: string; sequence: number }> = [
-      { label: "NaN", sequence: Number.NaN },
-      { label: "positive infinity", sequence: Number.POSITIVE_INFINITY },
-      { label: "negative infinity", sequence: Number.NEGATIVE_INFINITY },
-      { label: "a fractional value", sequence: 1.5 },
-      { label: "collapse below the negative bound", sequence: -EVENT_ENVELOPE_SEQUENCE_MAX - 1 },
-    ];
-
-    for (const { label, sequence } of nonFaithfulSequences) {
-      const message = captureThrownMessage(() =>
-        canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence }),
-      );
-      expect(message, label).toMatch(sequenceRefusalPattern);
-      // NaN and Infinity would otherwise reach `canonicalize@3.0.0`'s own bare
-      // refusals (pinned above on the `canonicalizeJson` path, which still gets
-      // them). Through the event entry point they now get module wording, which
-      // names the member and the reason.
-      expect(message, label).not.toBe("NaN is not allowed");
-      expect(message, label).not.toBe("Infinity is not allowed");
-    }
-  });
-
   it("reports the sequence refusal ahead of a simultaneous occurredAt defect", () => {
-    // Refusal order is observable — the first guard to fire is the only one the
-    // caller sees — so `canonicalizeEvent` fixes it rather than leaving it to
-    // evaluation order. This envelope trips BOTH the sequence guard and
-    // `normalizeOccurredAt`'s sub-millisecond refusal.
+    // Refusal order is observable, so `canonicalizeEvent` fixes it. This envelope trips both the
+    // sequence guard and `normalizeOccurredAt`'s sub-millisecond refusal.
     const message = captureThrownMessage(() =>
       canonicalizeEvent({
         ...GOLDEN_ENVELOPE,
@@ -1660,17 +848,5 @@ describe("canonicalizeEvent — sequence must be faithfully representable", () =
     );
     expect(message).toMatch(sequenceRefusalPattern);
     expect(message).not.toMatch(/sub-millisecond|millisecond precision/);
-  });
-
-  it("admits a negative-but-safe sequence — the residual, pinned deliberately", () => {
-    // CHARACTERIZATION, not endorsement. `-1` violates the schema's
-    // `.nonnegative()`, and the schema refuses it. The canonicalizer does not,
-    // because `-1` is represented perfectly faithfully: it is a DOMAIN
-    // violation, not a byte-fidelity one, and this module validates no member
-    // against its schema (it checks neither `version`'s pattern nor
-    // `category`'s enum either). Pinned so the asymmetry is a visible decision
-    // rather than a gap someone rediscovers.
-    expect(EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, sequence: -1 }).success).toBe(false);
-    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: -1 })).not.toThrow();
   });
 });

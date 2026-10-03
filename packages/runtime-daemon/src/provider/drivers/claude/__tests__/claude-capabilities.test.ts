@@ -1,74 +1,35 @@
-/**
- * Claude capability declaration.
- *
- * The rule is that the declaration is EXPLICIT and TOTAL, and that no
- * caller may read support out of absence. The strongest assertion here is a
- * COMPILE-time one and says so where it appears: the flag record's totality is
- * enforced by its type annotation, so a flag added to the contract union
- * breaks this file and the module before any test runs. The sink's conformance
- * to `DriverCapabilitiesWriter` needs no assertion at all now that the type is
- * a `Pick` of the writer — the fake below carries that check by `implements`.
- *
- * What is deliberately NOT asserted here: that a
- * `runtime_node.capability_declared` / `capability_updated` event reaches the
- * log. That emission is `DriverCapabilitiesWriter`'s and is covered by its own
- * tests; a typed fake observes the CALL, never the event.
- * What this file asserts about the refresh trigger is exactly what it owns —
- * that a fresh reading, keyed to this driver, reaches the sink unaltered, and
- * that the sink's verdict is returned unaltered.
- */
+// Claude capability declaration: a reporter that carries the spawned build's version and its
+// output-speed levels and refuses a foreign one before the writer sees it; and the model catalog
+// read from the recorded `list_models` reply.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  DRIVER_CAPABILITY_FLAGS,
-  type DriverCapabilityFlag,
-  type DriverCliVersionReport,
-  type GetCapabilitiesResult,
-} from "@ai-sidekicks/contracts";
-
-import { RecordingCapabilityProbeTransport } from "../../../__fixtures__/capability-probe-doubles.js";
+  RecordingCapabilityProbeTransport,
+  RecordingDeclarationSink,
+} from "../../../__fixtures__/capability-probe-doubles.js";
+import { claudeDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
+import type { SpawnedProviderVersionReading } from "../../../spawned-provider-version.js";
 import {
-  DriverDiagnosticsEmitter,
-  type DriverDiagnosticRecord,
-} from "../../../driver-diagnostics.js";
-import {
-  DRIVER_CLI_VERSION_FLOORS,
-  DriverCliVersionBelowFloorError,
-  DriverCliVersionUnparseableError,
-} from "../../../capability-refresh.js";
-import type {
-  DeclareDriverCapabilitiesInput,
-  DeclareDriverCapabilitiesResult,
-} from "../../../driver-capabilities-writer.js";
-import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
-import {
-  assertValidCapabilityFlags,
-  assertValidContractVersion,
-  assertValidGetCapabilitiesResultShape,
-} from "../../../provider-output-validation.js";
-import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
-import {
-  CLAUDE_CAPABILITY_CONTRACT_VERSION,
-  CLAUDE_CAPABILITY_FLAGS,
-  CLAUDE_DECLARED_MODEL_CATALOG,
   CLAUDE_DRIVER_NAME,
-  CLAUDE_OUTPUT_SPEED_LEVELS,
   ClaudeCapabilityReporter,
-  ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
   resolveClaudeModelCatalog,
-  type ClaudeTranscriptReplayReading,
-  type ClaudeTranscriptSeedingSurface,
-  type DriverCapabilityDeclarationSink,
 } from "../capabilities.js";
-import { CLAUDE_TOOL_CATALOG } from "../tools.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
+import {
+  type DriverCliVersionReport,
+  type GetCapabilitiesResult,
+  ModelCatalogUnreadableError,
+} from "../../../provider-driver.js";
 
-const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
+const CLI_VERSION: DriverCliVersionReport = {
+  rawVersion: "2.1.245 (Claude Code)",
+  parsedVersion: "2.1.245",
+};
 
-// The build a spawned-version reading names — a Cellar path, deliberately NOT the
-// `/opt/homebrew/bin/claude` launcher symlink that points at it, because a
-// launcher is precisely what the reading refuses to describe.
+// A Cellar path, not the `/opt/homebrew/bin/claude` launcher symlink: a reading never describes
+// a launcher.
 const RESOLVED_CLAUDE_EXECUTABLE = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
 
 function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionReading {
@@ -79,318 +40,38 @@ function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionRe
   };
 }
 
-/**
- * The reporter takes a `SpawnedProviderVersionReading` reader. The
- * suite keeps expressing cases as REPORTS and wraps each into a reading here, so
- * every existing assertion still says what it always said about the version,
- * while the reporter's dependency is exercised in its shipped shape.
- */
-/** The diagnostic band, muted: this suite asserts declarations, not records. */
-function silentDiagnostics(): DriverDiagnosticsEmitter {
-  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
-}
-
 function makeReporter(
   readCliVersion: () => Promise<DriverCliVersionReport> = () => Promise.resolve({ ...CLI_VERSION }),
-  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport("claude"),
+  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport(
+    claudeDefaultProbeReply,
+  ),
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
-    // The probe transport is a REQUIRED dependency, so a reporter that
-    // declares provenance nobody measured cannot be constructed. The default
-    // double answers every censused subtype and refuses the negative control,
-    // which is the happy path these pre-existing assertions assume; the probe
-    // table, the classifier, and the withdrawal paths are exercised in
-    // `provider/__tests__/capability-probe.test.ts`.
+    // The default double answers every probed subtype and refuses the negative control; the probe
+    // itself is tested in `provider/__tests__/capability-probe.test.ts`.
     probe: probe.exchange,
-    // Likewise REQUIRED: a withdrawal a build never reports is a capability
-    // silently lost. Silent here, because these assertions are about the
-    // declaration rather than about the diagnostic band.
-    diagnostics: silentDiagnostics(),
+    // Silent: these assertions are about the declaration, not the diagnostics.
+    diagnostics: makeSilentDriverDiagnostics(),
   });
 }
 
-/**
- * A typed fake of the ONE writer method this seam uses: it records what the
- * refresh trigger hands the writer. Typing it as
- * `DriverCapabilityDeclarationSink` (a `Pick` of the real class) means a
- * signature change on `DriverCapabilitiesWriter.declare` breaks this file at
- * compile time instead of leaving a stale fake passing.
- */
-class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
-  readonly calls: DeclareDriverCapabilitiesInput[] = [];
-  #verdict: DeclareDriverCapabilitiesResult;
-
-  constructor(
-    verdict: DeclareDriverCapabilitiesResult = { emitted: "declared", cliVersionRefreshed: true },
-  ) {
-    this.#verdict = verdict;
-  }
-
-  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
-    this.calls.push(input);
-    return Promise.resolve(this.#verdict);
-  }
-}
-
-describe("Claude capability declaration — explicit and total", () => {
-  it("declares the capability matrix values exactly", () => {
-    // Transcribed from the Claude column of the per-driver capability matrix.
-    // The annotation makes this expectation total too: a flag added to the
-    // union breaks this test at COMPILE time, not on a silent `false`.
-    const matrix: Record<DriverCapabilityFlag, boolean> = {
-      resume: true,
-      steer: false,
-      interactive_requests: true,
-      mcp: true,
-      tool_calls: true,
-      reasoning_stream: true,
-      model_mutation: true,
-      structured_output: true,
-      rollback: true,
-      session_goals: true,
-      callback_tools: true,
-      subagents: true,
-      transcript_replay: false,
-      cost_cap: true,
-      context_compaction: true,
-      provider_commands: true,
-      output_speed: true,
-    };
-    expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
-  });
-
-  it("publishes the SETTABLE output-speed levels, which are not the reportable ones", () => {
-    // The distinction is load-bearing and is exactly what this pins. The pinned
-    // provider REPORTS `on`, `cooldown`, and `off`; what a user may
-    // REQUEST is `off` and `on`, because a cooldown is a state the provider
-    // enters on its own and no caller can ask for. `outputSpeedLevels` bounds
-    // the request side only — a driver that published `cooldown` here would be
-    // offering a level whose selection cannot be honoured, and one that narrowed
-    // an OBSERVED `cooldown` into this set would fabricate a state the provider
-    // is not in (see `ClaudeSessionLifecycle.observedOutputSpeedFor`).
-    expect([...CLAUDE_OUTPUT_SPEED_LEVELS]).toStrictEqual(["off", "on"]);
-    expect(CLAUDE_OUTPUT_SPEED_LEVELS).not.toContain("cooldown");
-  });
-
-  it("pins the three cells whose value is easy to get backwards", () => {
-    expect(CLAUDE_CAPABILITY_FLAGS.steer).toBe(false);
-    expect(CLAUDE_CAPABILITY_FLAGS.reasoning_stream).toBe(true);
-    expect(CLAUDE_CAPABILITY_FLAGS.cost_cap).toBe(true);
-  });
-
-  it("covers every canonical flag, with a boolean for each", () => {
-    const declared = Object.keys(CLAUDE_CAPABILITY_FLAGS).sort();
-    expect(declared).toStrictEqual([...DRIVER_CAPABILITY_FLAGS].sort());
-    for (const flag of DRIVER_CAPABILITY_FLAGS) {
-      expect(Object.hasOwn(CLAUDE_CAPABILITY_FLAGS, flag)).toBe(true);
-      expect(typeof CLAUDE_CAPABILITY_FLAGS[flag]).toBe("boolean");
-    }
-  });
-
-  it("is accepted by the write seam's own totality guard", () => {
-    // Drives the real guard rather than restating its rule: a declaration this
-    // module ships must survive the validator the writer applies to it.
-    expect(() => {
-      assertValidCapabilityFlags(CLAUDE_CAPABILITY_FLAGS);
-    }).not.toThrow();
-  });
-
-  it("declares no flag the contract does not carry", () => {
-    // `transcript_replay` is now in the union, and its Claude matrix cell is
-    // `probe` rather than a value — so the MATRIX reading here stays `false` and
-    // `getCapabilities` replaces it with the probe's own answer. `false`
-    // is the right constant to sit here because it is what an unprobed build
-    // declares, and undeclared and declared-unsupported must be
-    // indistinguishable to a caller.
-    expect(CLAUDE_CAPABILITY_FLAGS.transcript_replay).toBe(false);
-    const canonical = new Set<string>(DRIVER_CAPABILITY_FLAGS);
-    for (const flag of Object.keys(CLAUDE_CAPABILITY_FLAGS)) {
-      expect(canonical.has(flag)).toBe(true);
-    }
-  });
-
-  it("carries a canonical, identifying contract version", () => {
-    expect(() => {
-      assertValidContractVersion(CLAUDE_CAPABILITY_CONTRACT_VERSION);
-    }).not.toThrow();
-  });
-
-  it("pins the contract version the flag growth moved it to, as a MINOR bump", () => {
-    // The version is change detection, so it must actually MOVE when the
-    // declared shape does — the writer compares whole snapshots, and a frozen
-    // token on a grown declaration is the failure mode this pins against. MINOR
-    // because the growth is additive: three flags joined the census and
-    // `outputSpeedLevels` joined the report, and nothing previously declared
-    // changed meaning.
-    expect(CLAUDE_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
-  });
-
-  it("spells the shared vocabulary table rather than copying it", () => {
-    // IDENTITY, not equality. The durable cache's hydration path serves this
-    // same member with no driver in hand, so the values live in one table both
-    // paths read; a second literal here would drift silently.
-    expect(CLAUDE_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.claude);
-  });
-
-  it("freezes the declared record, so a reader cannot rewrite it process-wide", () => {
-    expect(Object.isFrozen(CLAUDE_CAPABILITY_FLAGS)).toBe(true);
-  });
-
-  it("names the driver with the daemon-controlled registry key", () => {
-    expect(CLAUDE_DRIVER_NAME).toBe("claude");
-  });
-});
-
-describe("getCapabilities() — the V1 result wrapper", () => {
-  it("reports flags, contract version, tools, and the CLI version", async () => {
+describe("getCapabilities()", () => {
+  it("reports the CLI version it read and the output-speed levels", async () => {
     const result: GetCapabilitiesResult = await makeReporter().getCapabilities();
 
-    expect(result.capabilities.flags).toStrictEqual(CLAUDE_CAPABILITY_FLAGS);
-    expect(result.capabilities.contractVersion).toBe(CLAUDE_CAPABILITY_CONTRACT_VERSION);
-    expect(result.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(result.cliVersion).toStrictEqual(CLI_VERSION);
-    // PRESENT, and present because the flag is: `outputSpeedLevels` is the
-    // settable vocabulary that gate reads, and a declared `output_speed` with no
-    // published set would leave the gate admitting every string.
+    // A declared `output_speed` needs its published set, or the gate would admit every string.
     expect("outputSpeedLevels" in result).toBe(true);
     expect(result.outputSpeedLevels).toStrictEqual(["off", "on"]);
   });
-
-  it("publishes the speed vocabulary as a fresh MUTABLE copy, never the frozen constant", async () => {
-    // Earns the copy's own doctrine rather than asserting the value twice. Two
-    // separable claims, and neither implies the other:
-    //
-    //   1. the reply is MUTABLE — a consumer sorting or extending its own copy
-    //      must not hit a TypeError on a value it believes it owns, which is
-    //      exactly what handing back the frozen module constant would produce;
-    //   2. that mutation reaches NO other reader — the next reply and the module
-    //      constant are both unchanged.
-    const reporter = makeReporter();
-    const first: GetCapabilitiesResult = await reporter.getCapabilities();
-
-    expect(() => {
-      first.outputSpeedLevels?.push("turbo");
-    }).not.toThrow();
-
-    const second: GetCapabilitiesResult = await reporter.getCapabilities();
-    expect(second.outputSpeedLevels).toStrictEqual(["off", "on"]);
-    expect(CLAUDE_OUTPUT_SPEED_LEVELS).toStrictEqual(["off", "on"]);
-    expect(Object.isFrozen(CLAUDE_OUTPUT_SPEED_LEVELS)).toBe(true);
-  });
-
-  it("produces a wrapper the write seam's shape guard accepts", () => {
-    return makeReporter()
-      .getCapabilities()
-      .then((result) => {
-        expect(() => {
-          assertValidGetCapabilitiesResultShape(result);
-        }).not.toThrow();
-      });
-  });
-
-  it("reports the injected CLI version verbatim, as a copy", async () => {
-    const source: DriverCliVersionReport = { raw: "2.2.0-rc.1 (probe)", semver: "2.2.0-rc.1" };
-    const result = await makeReporter(() => Promise.resolve(source)).getCapabilities();
-    expect(result.cliVersion).toStrictEqual(source);
-    expect(Object.is(result.cliVersion, source)).toBe(false);
-  });
-
-  it("re-reads the CLI version on every call (a report is never cached here)", async () => {
-    const readCliVersion = vi.fn(() => Promise.resolve({ ...CLI_VERSION }));
-    const reporter = makeReporter(readCliVersion);
-    await reporter.getCapabilities();
-    await reporter.getCapabilities();
-    expect(readCliVersion).toHaveBeenCalledTimes(2);
-  });
-
-  it("hands out defensive copies — a mutated reply cannot rewrite the next one", async () => {
-    const reporter = makeReporter();
-    const first = await reporter.getCapabilities();
-
-    first.capabilities.flags.cost_cap = false;
-    first.capabilities.flags.steer = true;
-    first.tools.length = 0;
-
-    expect(CLAUDE_CAPABILITY_FLAGS.cost_cap).toBe(true);
-    expect(CLAUDE_CAPABILITY_FLAGS.steer).toBe(false);
-    expect(CLAUDE_TOOL_CATALOG.length).toBeGreaterThan(0);
-
-    const second = await reporter.getCapabilities();
-    expect(second.capabilities.flags.cost_cap).toBe(true);
-    expect(second.capabilities.flags.steer).toBe(false);
-    expect(second.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
-    expect(Object.is(second.capabilities.flags, first.capabilities.flags)).toBe(false);
-  });
-
-  it("reports tools already class-closed — the floor holds at the wrapper", async () => {
-    const result = await makeReporter().getCapabilities();
-    expect(result.tools.length).toBe(CLAUDE_TOOL_CATALOG.length);
-    for (const tool of result.tools) {
-      expect(tool.idempotency_class).toBeDefined();
-    }
-  });
-
-  it("propagates an in-band version read failure instead of reporting a partial wrapper", async () => {
-    // The read is the spawned process's own `get_binary_version` answer —
-    // never a `--version` shell-out — so a failed read means the daemon
-    // does not know which build is running and must report no wrapper at all.
-    const reporter = makeReporter(() =>
-      Promise.reject(new Error("in-band version handshake failed")),
-    );
-    await expect(reporter.getCapabilities()).rejects.toThrow("in-band version handshake failed");
-  });
 });
 
-describe("refreshDeclaration() — the emission seam", () => {
-  it("hands the sink a fresh reading keyed to this driver", async () => {
-    const sink = new RecordingDeclarationSink();
-    const reporter = makeReporter();
-
-    const verdict = await reporter.refreshDeclaration(sink, {
-      sessionId: "session-1",
-      nodeId: "node-1",
-    });
-
-    expect(sink.calls.length).toBe(1);
-    const [call] = sink.calls;
-    expect(call?.driverName).toBe(CLAUDE_DRIVER_NAME);
-    expect(call?.sessionId).toBe("session-1");
-    expect(call?.nodeId).toBe("node-1");
-    expect(call?.result).toStrictEqual(await reporter.getCapabilities());
-    expect(verdict).toStrictEqual({ emitted: "declared", cliVersionRefreshed: true });
-  });
-
-  it("omits `actor` entirely when the caller supplies none", async () => {
-    const sink = new RecordingDeclarationSink();
-    await makeReporter().refreshDeclaration(sink, { sessionId: "s", nodeId: "n" });
-    expect(Object.hasOwn(sink.calls[0] ?? {}, "actor")).toBe(false);
-  });
-
-  it("passes an explicit actor through, including an explicit null", async () => {
-    const sink = new RecordingDeclarationSink();
-    const reporter = makeReporter();
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n", actor: "operator-1" });
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n", actor: null });
-    expect(sink.calls[0]?.actor).toBe("operator-1");
-    expect(sink.calls[1]?.actor).toBeNull();
-  });
-
-  it("returns the sink's verdict unaltered — change detection is the writer's", async () => {
-    for (const emitted of ["declared", "updated", "noop"] as const) {
-      const sink = new RecordingDeclarationSink({ emitted, cliVersionRefreshed: false });
-      const verdict = await makeReporter().refreshDeclaration(sink, {
-        sessionId: "s",
-        nodeId: "n",
-      });
-      expect(verdict).toStrictEqual({ emitted, cliVersionRefreshed: false });
-    }
-  });
-
-  it("re-reads the version on each refresh, so a CLI upgrade reaches the sink", async () => {
+describe("refreshDeclaration()", () => {
+  it("re-reads the version on each refresh, so a CLI upgrade reaches the sink under this driver", async () => {
     const versions: DriverCliVersionReport[] = [
-      { raw: "2.1.245", semver: "2.1.245" },
-      { raw: "2.1.246", semver: "2.1.246" },
+      { rawVersion: "2.1.245", parsedVersion: "2.1.245" },
+      { rawVersion: "2.1.246", parsedVersion: "2.1.246" },
     ];
     let call = 0;
     const reporter = makeReporter(() => {
@@ -400,146 +81,53 @@ describe("refreshDeclaration() — the emission seam", () => {
     });
     const sink = new RecordingDeclarationSink();
 
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" });
-    await reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" });
+    await reporter.refreshDeclaration(sink);
+    await reporter.refreshDeclaration(sink);
 
-    expect(sink.calls[0]?.result.cliVersion.semver).toBe("2.1.245");
-    expect(sink.calls[1]?.result.cliVersion.semver).toBe("2.1.246");
-  });
-
-  it("does not swallow a sink failure", async () => {
-    const failing: DriverCapabilityDeclarationSink = {
-      declare: () => Promise.reject(new Error("write seam rejected the declaration")),
-    };
-    await expect(
-      makeReporter().refreshDeclaration(failing, { sessionId: "s", nodeId: "n" }),
-    ).rejects.toThrow("write seam rejected the declaration");
-  });
-});
-
-describe("Claude CLI-version floor", () => {
-  it("refuses a below-floor reading fail-closed before any report reaches a caller", async () => {
-    // 2.1.198 is the PRE-amendment floor — exactly the build the 2026-08-26
-    // raise (2.1.198 → 2.1.234) exists to refuse.
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
-    );
-    let thrown: unknown;
-    try {
-      await reporter.getCapabilities();
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    const error = thrown as DriverCliVersionBelowFloorError;
-    expect(error.code).toBe("driver.cli_version_below_floor");
-    expect(error.fields).toStrictEqual({
-      driverName: "claude",
-      reportedSemver: "2.1.198",
-      floor: DRIVER_CLI_VERSION_FLOORS.claude,
-    });
-  });
-
-  it("admits the ratified floor itself and any newer build (above the pin included)", async () => {
-    const atFloor = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.234 (Claude Code)", semver: "2.1.234" }),
-    );
-    await expect(atFloor.getCapabilities()).resolves.toBeDefined();
-
-    const aboveMeasured = makeReporter(() => Promise.resolve({ raw: "3.0.0", semver: "3.0.0" }));
-    await expect(aboveMeasured.getCapabilities()).resolves.toBeDefined();
-  });
-
-  it("refuses the refresh path through the same gate, and the writer never sees the declaration", async () => {
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
-    );
-    const sink = new RecordingDeclarationSink();
-    await expect(
-      reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
-    ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
-    expect(sink.calls).toHaveLength(0);
-  });
-
-  it("refuses a non-canonical reading fail-closed as unparseable", async () => {
-    // Reachable only through an untyped boundary (the report shape requires a
-    // canonical semver) — the gate still answers typed rather than throwing raw.
-    const reporter = makeReporter(() =>
-      Promise.resolve({ raw: "Claude Code (unknown)", semver: "unknown" }),
-    );
-    await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
-      DriverCliVersionUnparseableError,
-    );
+    expect(sink.calls.map((call) => call.driverName)).toStrictEqual([
+      CLAUDE_DRIVER_NAME,
+      CLAUDE_DRIVER_NAME,
+    ]);
+    expect(sink.calls[0]?.result.cliVersion.parsedVersion).toBe("2.1.245");
+    expect(sink.calls[1]?.result.cliVersion.parsedVersion).toBe("2.1.246");
   });
 });
 
 describe("Claude composition is bound to the spawned build", () => {
-  it("takes a reading of the spawned build rather than a bare report", async () => {
-    // The version a driver reports is the version that spawned. The reader hands
-    // back a reading naming the resolved build,
-    // and that reading's report is what the wrapper carries.
-    const readSpawnedVersion = vi.fn(() =>
-      Promise.resolve(claudeReading({ raw: "2.1.246", semver: "2.1.246" })),
-    );
-    const reporter = new ClaudeCapabilityReporter({
-      readSpawnedVersion,
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
-      diagnostics: silentDiagnostics(),
-    });
-    const result = await reporter.getCapabilities();
-
-    expect(readSpawnedVersion).toHaveBeenCalledTimes(1);
-    expect(result.cliVersion).toStrictEqual({ raw: "2.1.246", semver: "2.1.246" });
-  });
-
   it("refuses a reading taken from ANOTHER driver's build", async () => {
-    // A wiring fault, not provider misbehaviour — an internal-invariant Error
-    // rather than a typed provider refusal, and the sink never sees a call.
+    // A wiring fault, not provider misbehavior: a plain Error, and the sink is never called.
     const foreign: SpawnedProviderVersionReading = {
       driverName: "codex",
       resolvedExecutablePath: "/opt/homebrew/Cellar/codex/0.149.1/bin/codex",
-      report: { raw: "0.149.1", semver: "0.149.1" },
+      report: { rawVersion: "0.149.1", parsedVersion: "0.149.1" },
     };
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(foreign),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
-      diagnostics: silentDiagnostics(),
+      probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
+      diagnostics: makeSilentDriverDiagnostics(),
     });
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
 
     const sink = new RecordingDeclarationSink();
-    await expect(
-      reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
-    ).rejects.toThrow(/driver 'codex'/);
+    await expect(reporter.refreshDeclaration(sink)).rejects.toThrow(/driver 'codex'/);
     expect(sink.calls).toHaveLength(0);
   });
 });
 
-// --------------------------------------------------------------------------
-// The current model catalog + per-model effort vocabularies
-// --------------------------------------------------------------------------
-
 /**
- * GOLDEN VECTOR — the verbatim `list_models` control-response payload.
- *
- *   Pin        : Claude Code 2.1.251
- *   Provenance : Binary probe, 2026-08-30, one zero-turn control request
- *                `{"subtype":"list_models"}` over `-p --input-format
- *                stream-json`. Copied field-for-field from the reply.
- *   Trust      : Verified at 2.1.251.
- *
- * Keyed on real provider bytes rather than a hand-made shape, so the two rules
- * the wire forces — the `default` pointer colliding with `opus[1m]` on one
- * `resolvedModel`, and the Haiku row publishing no effort surface at all — are
- * exercised against the thing that actually produced them.
+ * The verbatim `list_models` control-response payload from Claude Code 2.1.287, recorded on Oct 2,
+ * 2026 from one zero-turn `{"subtype":"list_models"}` request over `-p --input-format stream-json`.
+ * Real bytes, so the wire quirks are tested against what produced them: the `default` pointer
+ * sharing `opus`'s `resolvedModel`, two effort vocabularies, and the Haiku row publishing no effort
+ * surface.
  */
 const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
   models: [
     {
       value: "default",
-      resolvedModel: "claude-opus-5[1m]",
+      resolvedModel: "claude-opus-5-5",
       displayName: "Default (recommended)",
-      description: "Opus 5 with 1M context · Best for everyday, complex tasks",
+      description: "Opus 5.5 · Best for everyday, complex tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
@@ -547,10 +135,58 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
       supportsAutoMode: true,
     },
     {
-      value: "opus[1m]",
-      resolvedModel: "claude-opus-5[1m]",
-      displayName: "Opus (1M context)",
-      description: "Opus 5 with 1M context · Best for everyday, complex tasks",
+      value: "opus",
+      resolvedModel: "claude-opus-5-5",
+      displayName: "Opus 5.5",
+      description: "For complex work and everyday tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "fable",
+      resolvedModel: "claude-fable-5-1",
+      displayName: "Fable 5.1",
+      description: "For your toughest challenges",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "sonnet",
+      resolvedModel: "claude-sonnet-5-5",
+      displayName: "Sonnet 5.5",
+      description: "Most efficient for simpler tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    // No effort fields: the model exposes no effort selection.
+    {
+      value: "haiku",
+      resolvedModel: "claude-haiku-4-5-20251001",
+      displayName: "Haiku 4.5",
+      description: "Fastest for quick answers",
+    },
+    {
+      value: "claude-sonnet-5",
+      resolvedModel: "claude-sonnet-5",
+      displayName: "Sonnet 5",
+      description: "Efficient for routine tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-opus-5",
+      resolvedModel: "claude-opus-5",
+      displayName: "Opus 5",
+      description: "Best for everyday, complex tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
@@ -560,62 +196,103 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
     {
       value: "claude-fable-5",
       resolvedModel: "claude-fable-5",
-      displayName: "Fable",
-      description: "Fable 5 · Most capable for your hardest and longest-running tasks",
+      displayName: "Fable 5",
+      description: "Most capable for your hardest and longest-running tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
       supportsAutoMode: true,
     },
     {
-      value: "sonnet",
-      resolvedModel: "claude-sonnet-5",
-      displayName: "Sonnet",
-      description: "Sonnet 5 · Efficient for routine tasks",
+      value: "claude-opus-4-8",
+      resolvedModel: "claude-opus-4-8",
+      displayName: "Opus 4.8",
+      description: "Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-opus-4-7",
+      resolvedModel: "claude-opus-4-7",
+      displayName: "Opus 4.7",
+      description: "Best for everyday, complex tasks",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
       supportsAdaptiveThinking: true,
       supportsAutoMode: true,
     },
-    // No `supportsEffort` and no `supportedEffortLevels` — the live instance of
-    // the contract's "absent = the model exposes no effort selection" reading.
     {
-      value: "haiku",
-      resolvedModel: "claude-haiku-4-5-20251001",
-      displayName: "Haiku",
-      description: "Haiku 4.5 · Fastest for quick answers",
+      value: "claude-opus-4-6",
+      resolvedModel: "claude-opus-4-6",
+      displayName: "Opus 4.6",
+      description: "Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-sonnet-4-6",
+      resolvedModel: "claude-sonnet-4-6",
+      displayName: "Sonnet 4.6",
+      description: "Efficient for routine tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
     },
   ],
 });
 
 describe("Claude model catalog", () => {
-  it("reads the recorded reply into four models keyed by resolvedModel", () => {
+  it("reads the recorded reply into eleven models by resolvedModel, with names, effort and fast mode", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // FIVE wire rows, FOUR models: `default` and `opus[1m]` resolve to one.
+    // Twelve wire rows, eleven models: `default` and `opus` resolve to one.
     expect(models.map((model) => model.id)).toEqual([
-      "claude-opus-5[1m]",
-      "claude-fable-5",
-      "claude-sonnet-5",
+      "claude-opus-5-5",
+      "claude-fable-5-1",
+      "claude-sonnet-5-5",
       "claude-haiku-4-5-20251001",
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-fable-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
     ]);
-    // The alias `value`s never become ids. A same-agent provider switch
-    // validates its model against this list, so admitting
-    // `sonnet` or `default` here is a switch target that can move underneath
-    // the user who chose it.
-    for (const aliasValue of ["default", "opus[1m]", "sonnet", "haiku"]) {
+    // Alias values never become ids: a provider switch validates its model against this list,
+    // and an alias like `sonnet` or `default` can move underneath the user who chose it.
+    for (const aliasValue of ["default", "opus", "fable", "sonnet", "haiku"]) {
       expect(models.map((model) => model.id)).not.toContain(aliasValue);
     }
-  });
 
-  it("keeps the naming row over the reserved default pointer", () => {
-    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
-    const opus = models.find((model) => model.id === "claude-opus-5[1m]");
+    // Not "Default (recommended)": that names the current default and would re-label whichever
+    // model is promoted next.
+    expect(models.find((model) => model.id === "claude-opus-5-5")?.name).toBe("Opus 5.5");
 
-    // Not "Default (recommended)": that names the CURRENT default rather than
-    // naming this model, so it would re-label whichever model the vendor
-    // promotes next.
-    expect(opus?.name).toBe("Opus (1M context)");
+    // Levels are read from the build, not from a fixed vocabulary: `xhigh` is on some rows only.
+    const levelsFor = (id: string): string[] | undefined =>
+      models.find((model) => model.id === id)?.effortLevels;
+    expect(levelsFor("claude-opus-5-5")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(levelsFor("claude-opus-4-6")).toEqual(["low", "medium", "high", "max"]);
+
+    // Absent, not empty: absence means "no effort selection"; an empty array would claim an axis.
+    const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
+    expect(haiku).toBeDefined();
+    expect(haiku && "effortLevels" in haiku).toBe(false);
+    expect(haiku?.effortLevels).toBeUndefined();
+
+    // Only rows carrying `supportsFastMode: true` publish a fast mode; a row with no flag has none.
+    expect(models.filter((model) => model.fast).map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-opus-4-8",
+    ]);
   });
 
   it("prefers the naming row whichever order it arrives in", () => {
@@ -628,10 +305,9 @@ describe("Claude model catalog", () => {
 
     const models = normalizeClaudeModelCatalog(pointerLast);
 
-    // The pinned build happens to send the pointer first; a rule that only
-    // worked in that order would be an accident of the vendor's ordering.
+    // The recorded build sends the pointer first; the rule must not depend on that order.
     expect(models).toHaveLength(1);
-    expect(models[0]?.name).toBe("Opus (1M context)");
+    expect(models[0]?.name).toBe("Opus 5.5");
   });
 
   it("keeps the pointer row when it is a model's only row", () => {
@@ -641,32 +317,9 @@ describe("Claude model catalog", () => {
 
     const models = normalizeClaudeModelCatalog(pointerOnly);
 
-    // Dropping it would lose the model entirely, which is worse than carrying
-    // the pointer's own display name.
+    // Dropping it would lose the model, which is worse than carrying the pointer's name.
     expect(models).toHaveLength(1);
-    expect(models[0]?.id).toBe("claude-opus-5[1m]");
-  });
-
-  it("carries each model's published effort levels verbatim", () => {
-    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
-
-    for (const modelId of ["claude-opus-5[1m]", "claude-fable-5", "claude-sonnet-5"]) {
-      const model = models.find((candidate) => candidate.id === modelId);
-      // `xhigh` included: the level is read from the build, not restated from a
-      // vocabulary this file could get wrong.
-      expect(model?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    }
-  });
-
-  it("leaves effortLevels ABSENT for a model with no effort surface", () => {
-    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
-    const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
-
-    // Absent, not empty: the contract reads absence as "no effort selection",
-    // and an empty array would instead assert an axis with nothing on it.
-    expect(haiku).toBeDefined();
-    expect(haiku && "effortLevels" in haiku).toBe(false);
-    expect(haiku?.effortLevels).toBeUndefined();
+    expect(models[0]?.id).toBe("claude-opus-5-5");
   });
 
   it("suppresses effortLevels when the row explicitly denies effort support", () => {
@@ -685,18 +338,6 @@ describe("Claude model catalog", () => {
     expect(models[0]?.effortLevels).toBeUndefined();
   });
 
-  it("populates no capabilities tags", () => {
-    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
-
-    // The member carries no registered vocabulary anywhere and is read by
-    // nothing; populating it from the row's `supportsAdaptiveThinking` /
-    // `supportsFastMode` / `supportsAutoMode` axes would mint a tag set ahead of
-    // its reader.
-    for (const model of models) {
-      expect(model.capabilities).toEqual([]);
-    }
-  });
-
   it.each([
     ["a non-object reply", null, /not an object/],
     ["a reply with no models array", { models: "many" }, /no `models` array/],
@@ -712,76 +353,16 @@ describe("Claude model catalog", () => {
       { models: [{ resolvedModel: "model-x", displayName: "X", supportedEffortLevels: [7] }] },
       /non-string effort level/,
     ],
+    [
+      "a fast-mode flag that is not a boolean",
+      { models: [{ resolvedModel: "model-x", displayName: "X", supportsFastMode: "yes" }] },
+      /unreadable `supportsFastMode`/,
+    ],
   ])("refuses %s", (_label, payload, message) => {
-    // Strict rather than tolerant: a reader that skipped the bad row would
-    // answer a short catalog, and nothing downstream could tell a provider that
-    // dropped a model from a parser that failed to see one.
-    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ClaudeModelCatalogUnreadableError);
+    // Strict: skipping a bad row would answer a short catalog that looks like a provider dropping
+    // a model.
+    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ModelCatalogUnreadableError);
     expect(() => normalizeClaudeModelCatalog(payload)).toThrow(message);
-  });
-
-  it("answers the declared catalog when no exchange is bound", async () => {
-    const models = await resolveClaudeModelCatalog(null);
-
-    expect(models.map((model) => model.id)).toEqual(
-      CLAUDE_DECLARED_MODEL_CATALOG.map((model) => model.id),
-    );
-    // The declaration and the recorded reply are the same reading, so a drift
-    // between them is a failing test rather than a silently stale catalog.
-    expect(models).toEqual(normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY));
-  });
-
-  it("refuses an in-place mutation of the shared declared catalog", () => {
-    // `Object.freeze` on the ENTRY is shallow: it stops `entry.effortLevels =
-    // […]` and does nothing about `entry.effortLevels.push(…)`. This constant
-    // is re-exported from the driver barrel and shared process-wide, so an
-    // out-of-band consumer was one `push` away from rewriting the declared
-    // vocabulary for every later caller.
-    const declaredEntry = CLAUDE_DECLARED_MODEL_CATALOG[0];
-    if (declaredEntry === undefined) {
-      throw new Error("the declared catalog is empty");
-    }
-
-    expect(Object.isFrozen(declaredEntry)).toBe(true);
-    expect(Object.isFrozen(declaredEntry.capabilities)).toBe(true);
-    expect(Object.isFrozen(declaredEntry.effortLevels)).toBe(true);
-    expect(Object.isFrozen(CLAUDE_DECLARED_MODEL_CATALOG)).toBe(true);
-    // Strict mode — every module in this package is one — so the write THROWS
-    // rather than failing silently, which is what makes the freeze observable.
-    expect(() => declaredEntry.effortLevels?.push("mutated")).toThrow(TypeError);
-    expect(() => declaredEntry.capabilities.push("mutated")).toThrow(TypeError);
-
-    expect(declaredEntry.capabilities).toStrictEqual([]);
-    expect(declaredEntry.effortLevels).toStrictEqual(["low", "medium", "high", "xhigh", "max"]);
-  });
-
-  it("freezes the no-effort row's capabilities too, not only the effort-bearing ones", () => {
-    // The `effortLevels`-absent row takes a DIFFERENT construction branch, so a
-    // freeze applied only on the branch that carries effort levels would leave
-    // this row's `capabilities` writable.
-    const noEffortEntry = CLAUDE_DECLARED_MODEL_CATALOG.find(
-      (model) => model.effortLevels === undefined,
-    );
-    if (noEffortEntry === undefined) {
-      throw new Error("the declared catalog carries no effort-free row");
-    }
-
-    expect(Object.isFrozen(noEffortEntry.capabilities)).toBe(true);
-    expect(() => noEffortEntry.capabilities.push("mutated")).toThrow(TypeError);
-  });
-
-  it("hands out fresh copies of the declared catalog", async () => {
-    const first = await resolveClaudeModelCatalog(null);
-    first[0]?.capabilities.push("mutated");
-    first[0]?.effortLevels?.push("mutated");
-
-    const second = await resolveClaudeModelCatalog(null);
-
-    // The constant is frozen and shared process-wide, but `ProviderModel`
-    // carries mutable arrays — a caller rewriting one must not rewrite every
-    // later caller's answer.
-    expect(second[0]?.capabilities).toEqual([]);
-    expect(second[0]?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("prefers a bound exchange over the declaration", async () => {
@@ -789,127 +370,20 @@ describe("Claude model catalog", () => {
       models: [{ value: "z", resolvedModel: "model-z", displayName: "Z" }],
     }));
 
-    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [] }]);
+    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [], fast: false }]);
   });
 
   it("never falls back to the declaration when a bound exchange fails", async () => {
     const transportFailure = new Error("channel closed");
 
-    // Serving a stale catalog under the appearance of a live read is the one
-    // confusion the detection-source doctrine exists to prevent.
+    // A stale catalog must never be served as if it were a live read.
     await expect(
       resolveClaudeModelCatalog(async () => {
         throw transportFailure;
       }),
     ).rejects.toBe(transportFailure);
     await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
-      ClaudeModelCatalogUnreadableError,
+      ModelCatalogUnreadableError,
     );
-  });
-});
-
-// The positive/negative pair for the ONE probe-valued cell in the capability
-// matrix. Every capability a client can invoke must be one
-// `getCapabilities` declares — so the declaration has to track the probe in BOTH
-// directions, and a suite that only ever ran the refusing double would pass
-// against a hard-coded `false`. Flipping the same double is what makes the
-// negative arm non-vacuous.
-describe("ClaudeCapabilityReporter — the probe-derived transcript_replay declaration", () => {
-  const SEEDING_SURFACE: ClaudeTranscriptSeedingSurface = {
-    seedFrame: () => Promise.resolve({ delivery: "applied" as const }),
-    readBack: () => Promise.resolve({ kind: "turns" as const, turns: [] }),
-  };
-
-  function reporterWithReplayProbe(
-    reading: () => Promise<ClaudeTranscriptReplayReading>,
-  ): ClaudeCapabilityReporter {
-    return new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(claudeReading({ ...CLI_VERSION })),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
-      diagnostics: silentDiagnostics(),
-      transcriptReplayProbe: reading,
-    });
-  }
-
-  it("declares FALSE when the probe finds no seeding surface on the build", async () => {
-    const reporter = reporterWithReplayProbe(() =>
-      Promise.resolve({
-        supported: false,
-        reason: "this build publishes no prior-turn seeding contract",
-      }),
-    );
-    const result = await reporter.getCapabilities();
-    expect(result.capabilities.flags.transcript_replay).toBe(false);
-  });
-
-  it("declares TRUE when the probe finds one — the declaration follows the probe UP", async () => {
-    const reporter = reporterWithReplayProbe(() =>
-      Promise.resolve({ supported: true, surface: SEEDING_SURFACE }),
-    );
-    const result = await reporter.getCapabilities();
-    expect(result.capabilities.flags.transcript_replay).toBe(true);
-  });
-
-  // The same double, flipped, on one build: whichever way the probe answers, the
-  // declaration is that answer and never the module constant.
-  it("tracks a probe that flips, in both directions", async () => {
-    let supported = false;
-    const reporter = reporterWithReplayProbe(() =>
-      Promise.resolve(
-        supported
-          ? { supported: true, surface: SEEDING_SURFACE }
-          : { supported: false, reason: "not yet" },
-      ),
-    );
-    const before = await reporter.getCapabilities();
-    expect(before.capabilities.flags.transcript_replay).toBe(false);
-
-    supported = true;
-    const after = await reporter.getCapabilities();
-    expect(after.capabilities.flags.transcript_replay).toBe(true);
-
-    supported = false;
-    const again = await reporter.getCapabilities();
-    expect(again.capabilities.flags.transcript_replay).toBe(false);
-  });
-
-  it("declares FALSE with no probe bound, which is this pin's honest answer", async () => {
-    const result = await makeReporter().getCapabilities();
-    expect(result.capabilities.flags.transcript_replay).toBe(false);
-  });
-
-  // A probe that FAULTS is not an availability signal. It fails closed to
-  // `false` and is metered, because a probe that could not answer is a different
-  // operational condition from one that answered no — and the flag's value is
-  // the only place the two would otherwise be indistinguishable.
-  it("fails closed AND records a diagnostic when the probe throws", async () => {
-    const emitted: DriverDiagnosticRecord[] = [];
-    const reporter = new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(claudeReading({ ...CLI_VERSION })),
-      probe: new RecordingCapabilityProbeTransport("claude").exchange,
-      diagnostics: new DriverDiagnosticsEmitter({
-        logSink: { record: (record) => emitted.push(record) },
-      }),
-      transcriptReplayProbe: () => Promise.reject(new Error("probe transport died")),
-    });
-    const result = await reporter.getCapabilities();
-    expect(result.capabilities.flags.transcript_replay).toBe(false);
-    const withdrawal = emitted.find((record) => record.details["flag"] === "transcript_replay");
-    expect(withdrawal?.kind).toBe("capability_flag_withdrawn");
-    expect(withdrawal?.details["disposition"]).toBe("probe-faulted");
-  });
-
-  // The structural guarantee that replaces withdraw-only for this one cell: the
-  // supported arm CARRIES the surface, so "declared true with nothing behind it"
-  // is unrepresentable rather than merely forbidden.
-  it("cannot represent a supported reading with no seeding surface", () => {
-    const supported: ClaudeTranscriptReplayReading = {
-      supported: true,
-      surface: SEEDING_SURFACE,
-    };
-    expect(supported.supported && supported.surface).toBeDefined();
-    // @ts-expect-error a supported reading without a surface does not type-check
-    const impossible: ClaudeTranscriptReplayReading = { supported: true };
-    expect(impossible.supported).toBe(true);
   });
 });

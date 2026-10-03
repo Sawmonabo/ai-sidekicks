@@ -1,39 +1,24 @@
-// Compile-time icon resolution — one plugin, one weight, three consumers.
+// Compile-time icon resolution, one plugin for every consumer. `~icons/tabler/<name>` and
+// `~icons/signature/<name>` both resolve here, are compiled to a React component by `@svgr`, and
+// leave with the same stroke contract.
 //
-// The Tabler set is admitted through `unplugin-icons` with our own signature
-// glyphs in the same collection, compiled at build time. This module is the whole of that wiring: `~icons/tabler/<name>` and
-// `~icons/signature/<name>` both resolve here, both are compiled to a React
-// component by `@svgr`, and both leave carrying the same stroke contract.
+// The renderer is compiled by the build (`electron.vite.config.ts`) and by every Vitest tier
+// (`tier-projects.ts`), and both call this function with no options of their own. An icon that
+// resolved in one and not the other would fail at import with an unplaceable specifier, and two
+// copies of the stroke contract would drift silently, since a face is legible at any weight.
 //
-// WHY ONE MODULE AND NOT THREE BLOCKS. The renderer is compiled in three
-// places — `electron.vite.config.ts` builds it, every console Vitest tier
-// resolves it, and the root `renderer` project compiles console source for the
-// Pre-console components that reach it — and an icon that resolved in one and not in
-// another would fail at import with a specifier no reader could place. Worse,
-// three copies of the stroke contract would drift silently: a face is legible
-// at any weight, so nothing goes red when one of the three is edited and the
-// others are not. So the three consumers call this function and hold no
-// options of their own.
+// The stroke contract is applied here, not at the call site. `styles/glyphs.ts` fixes one
+// geometry for every icon: stroked at `GLYPH_STROKE_WIDTH` in a `GLYPH_VIEWBOX_SIZE` box, round
+// caps and joins, never filled. Tabler draws in a 24-unit box with a 2-unit stroke and puts those
+// attributes on the drawing elements, not the root `<svg>`, so a root attribute cannot override
+// them. `withoutDrawnPresentation` removes them from the body and `strokeContractFor` puts the
+// app's own on the root, scaled to the collection's box so the rendered weight matches.
 //
-// THE STROKE CONTRACT, AND WHY IT IS APPLIED HERE RATHER THAN AT THE CALL SITE.
-// `tokens/glyphs.ts` rule 1 fixes one geometry for the whole family: stroked at
-// `GLYPH_STROKE_WIDTH` in a `GLYPH_VIEWBOX_SIZE` box, round caps and joins,
-// never filled. Tabler draws at a 24-unit box and a 2-unit stroke and puts
-// those attributes on the DRAWING elements, not on the root `<svg>` — so a root
-// attribute cannot override them and `Glyph.tsx` cannot impose the family's
-// weight the way it did over hand-authored path strings. Both halves of the fix
-// live below: `withoutDrawnPresentation` takes the presentation attributes off
-// the body, and `strokeContractFor` puts the family's own back on the root,
-// scaled to that collection's box so 1.5 px at 16 px is what a reader sees
-// whichever collection the face came from.
-//
-// BOTH COLLECTIONS ARE CUSTOM COLLECTIONS, and that is load-bearing rather than
-// incidental. `unplugin-icons` applies `transform` only to a custom collection
-// (measured: `@iconify/utils`' `getCustomIcon` is its only caller), so routing
-// Tabler through `ExternalPackageIconLoader` — the loader the plugin publishes
-// for exactly this — is what lets one normalization reach both. The signature
-// faces arrive through `FileSystemIconLoader` over the directory beside
-// `Glyph.tsx`, so adding one is adding a file.
+// Both collections are custom collections on purpose: `unplugin-icons` applies `transform` only to
+// a custom collection (measured: `@iconify/utils`' `getCustomIcon` is its only caller), so loading
+// Tabler through `ExternalPackageIconLoader` lets one normalization reach both. Signature faces
+// load through `FileSystemIconLoader` over `src/renderer/src/assets/icons/signature`, so adding
+// one is adding a file.
 
 import { fileURLToPath } from "node:url";
 
@@ -43,26 +28,14 @@ import { ExternalPackageIconLoader, FileSystemIconLoader } from "unplugin-icons/
 import Icons from "unplugin-icons/vite";
 import type { Plugin } from "vitest/config";
 
-import {
-  GLYPH_STROKE_WIDTH,
-  GLYPH_VIEWBOX_SIZE,
-} from "../src/renderer/src/console/tokens/glyphs.js";
+import { GLYPH_STROKE_WIDTH, GLYPH_VIEWBOX_SIZE } from "../src/renderer/src/styles/glyphs.js";
 
 /**
- * The `@svgr` JSX emitter as a VALUE, with the package's own mis-declaration corrected.
- *
- * `@svgr/plugin-jsx@8.1.0`'s `dist/index.js` ends in `module.exports = jsxPlugin` — a
- * bare CommonJS assignment with no `__esModule` marker — so a default import of it
- * yields the plugin FUNCTION under Node's interop and under a bundler's alike. Its
- * `dist/index.d.ts` declares `export { jsxPlugin as default }` instead, which
- * `nodenext` reads as `module.exports = { default: … }`, a shape the emitted file never
- * has. Read verbatim the value types as the module NAMESPACE, which is the one thing it
- * is not.
- *
- * So the cast is a correction rather than a convenience — and it is checked rather than
- * asserted, because a cast that outlives the fact it rests on is how a package's next
- * release becomes a silent miscompile. A release that moves to `exports.default` fails
- * here, by name, when the config loads.
+ * The `@svgr` JSX emitter as a value, correcting the package's mis-declaration.
+ * `@svgr/plugin-jsx@8.1.0` ends in `module.exports = jsxPlugin` with no `__esModule` marker, so a
+ * default import yields the function, but its `index.d.ts` declares `export { jsxPlugin as
+ * default }`, which `nodenext` types as the module namespace. The cast is checked when the config
+ * loads, so a release that moves to `exports.default` fails here, by name.
  */
 function resolveSvgrJsxPlugin(): SvgrPlugin {
   if (typeof jsxPluginModule !== "function") {
@@ -82,25 +55,19 @@ const SVGR_JSX_PLUGIN: SvgrPlugin = resolveSvgrJsxPlugin();
 /** The collection name our own faces answer to: `~icons/signature/<name>`. */
 const SIGNATURE_ICON_COLLECTION = "signature";
 
-/** The Iconify package the borrowed half of the family is drawn from. */
+/** The Iconify package the borrowed icons are drawn from. */
 const TABLER_ICON_PACKAGE = "@iconify-json/tabler";
 
 /**
- * The box Tabler draws in.
- *
- * Read from the set rather than assumed: `@iconify-json/tabler@1.2.38` declares
- * `width: 24, height: 24` at the set level and no icon overrides it. It is a
- * constant here because the scale below needs a number before any icon is
- * loaded — `iconCustomizer` is handed a collection and a name and never the
- * icon's own geometry — and `glyph-faces.test.ts` reads the compiled `viewBox`
- * back off every face, so a set that moved its box fails there rather than
- * shipping a family drawn at two weights.
+ * The box Tabler draws in: `@iconify-json/tabler@1.2.38` declares `width: 24, height: 24` at the
+ * set level and no icon overrides it. It is a constant because the scale needs a number before any
+ * icon loads (`iconCustomizer` is given a collection and a name, never the icon's geometry).
  */
 const TABLER_VIEWBOX_SIZE = 24;
 
 /** The directory holding one `.svg` per signature face. */
 const SIGNATURE_FACE_DIRECTORY = fileURLToPath(
-  new URL("../src/renderer/src/console/primitives/figures/glyph-faces/signature", import.meta.url),
+  new URL("../src/renderer/src/assets/icons/signature", import.meta.url),
 );
 
 /** The box each collection draws in, which is what the stroke scale divides by. */
@@ -110,48 +77,34 @@ const COLLECTION_VIEWBOX_SIZES: Readonly<Record<string, number>> = {
 };
 
 /**
- * The presentation attributes the family owns, wherever an icon set put them.
- *
- * All five INHERIT, which is why taking them off the body works at all: a
- * `<path>` with none of them draws with whatever the root `<svg>` declares.
- * `fill` is on the list for rule 1's sake — a face that fills reads heavier
- * than its neighbours at 16 px, so stripping it is the enforcement of that rule
- * rather than a formatting preference.
+ * The presentation attributes the app owns, wherever an icon set put them. All five inherit,
+ * so a `<path>` with none draws with whatever the root `<svg>` declares. `fill` is listed because
+ * a filled face reads heavier than its neighbors at 16 px.
  */
 const DRAWN_PRESENTATION_ATTRIBUTE =
   /\s(?:fill|stroke|stroke-width|stroke-linecap|stroke-linejoin)="[^"]*"/g;
 
 /**
- * The same SVG with the drawing elements' presentation attributes removed.
- *
- * Only the body is touched: the root tag is sliced off first and put back
- * unchanged, because that is where {@link strokeContractFor}'s answer lands and
- * stripping it there would leave the face with no weight at all.
+ * The SVG with the drawing elements' presentation attributes removed. The root tag is kept
+ * unchanged, because {@link strokeContractFor}'s answer lands there.
  */
 function withoutDrawnPresentation(svg: string): string {
   const rootTagEnd = svg.indexOf(">");
-  if (rootTagEnd < 0) {
-    return svg;
-  }
   const rootTag = svg.slice(0, rootTagEnd + 1);
   const body = svg.slice(rootTagEnd + 1);
   return `${rootTag}${body.replace(DRAWN_PRESENTATION_ATTRIBUTE, "")}`;
 }
 
 /**
- * The family's geometry as root attributes, for one collection's box.
- *
- * The stroke width is a RATIO carried across boxes rather than a number per
- * collection: `GLYPH_STROKE_WIDTH` units in a `GLYPH_VIEWBOX_SIZE` box is the
- * same rendered weight as that ratio's share of any other box, so tightening
- * the family is one edit in `tokens/glyphs.ts` and both collections follow.
+ * The icons' geometry as root attributes for one collection's box. The stroke width is a ratio
+ * carried across boxes, so tightening every icon is one edit in `styles/glyphs.ts`.
  */
 function strokeContractFor(collection: string, iconName: string): Record<string, string> {
   const viewBoxSize = COLLECTION_VIEWBOX_SIZES[collection];
   if (viewBoxSize === undefined) {
     throw new Error(
-      `The console draws no icons from "${collection}" (asked for "${iconName}"). ` +
-        `Add the collection's own viewBox size beside the ones the console already draws.`,
+      `The app draws no icons from "${collection}" (asked for "${iconName}"). ` +
+        `Add the collection's own viewBox size beside the ones the app already draws.`,
     );
   }
   return {
@@ -170,35 +123,16 @@ function faceComponentName(collection: string, iconName: string): string {
 }
 
 /**
- * One loaded SVG, compiled to a React component by `@svgr`.
+ * One loaded SVG compiled to a React component by `@svgr`. The imported plugin is passed as a
+ * value, not by the string `compiler: "jsx"` uses, which `@svgr/core` resolves with a bare
+ * `require`. That makes the dependency visible to the dead-code gate, which would report
+ * `@svgr/plugin-jsx` unused when reached only through a string (the gate admits no
+ * dependency exemption), and it stops resolution depending on pnpm's hoisted layout. `raw` was
+ * rejected because it can only be rendered through `dangerouslySetInnerHTML`.
  *
- * THE OPTIONS ARE `unplugin-icons`' OWN, and the difference is one line: the
- * plugin's built-in `compiler: "jsx"` names `@svgr/plugin-jsx` as a STRING that
- * `@svgr/core` then resolves with a bare `require` at build time, and this
- * passes the imported plugin as a VALUE. Two things follow, and both are why the
- * indirection is taken rather than the option:
- *
- *   • The dependency becomes visible. `@svgr/plugin-jsx` is a peer of nothing —
- *     it is reached only through that string — so under a name-resolved
- *     reference the dead-code gate reports it unused, and `apps/desktop/
- *     AGENTS.md` admits no `ignoreDependencies` entry to say otherwise. An
- *     import is the honest answer to "is this dependency used": it is, and now
- *     the compiler checks it.
- *   • The resolution stops depending on the installer's layout. A bare `require`
- *     from inside `@svgr/core` finds this plugin only because pnpm hoists the
- *     store into a directory Node's ancestor walk happens to cross; nothing in
- *     either package declares that edge.
- *
- * `raw` was rejected outright for a different reason: it hands back a string a
- * caller can only render through `dangerouslySetInnerHTML`.
- *
- * THE EMITTER IS ASKED FOR NOTHING IT IS NOT READ FOR. `@svgr`'s `ref` and
- * `titleProp` options each add machinery to EVERY generated face — a `forwardRef`
- * wrapper, and a `title` / `titleId` pair with the `aria-labelledby` and conditional
- * `<title>` that go with them. `Glyph.tsx` forwards no ref and names a glyph through
- * `aria-label` rather than through a `<title>` element, so both would be paid for
- * thirty-six times over and read zero times. An option enabled ahead of its reader is
- * the same defect as an export with no consumer; it is just measured in bytes.
+ * `ref` and `titleProp` are left off: they add a `forwardRef` wrapper and a `title` prop with
+ * `aria-labelledby` to every face, and `Glyph.tsx` uses neither, naming a glyph through
+ * `aria-label`.
  */
 async function compileFaceToReactComponent(
   svg: string,
@@ -213,17 +147,14 @@ async function compileFaceToReactComponent(
 }
 
 /**
- * The `~icons/*` resolver, compiled to React components at build time.
- *
- * Called once per consuming configuration rather than shared as a value: a Vite
- * plugin instance belongs to the config that installs it, and three projects
- * sharing one object would share whatever state the plugin caches per build.
+ * The `~icons/*` resolver, compiled to React components at build time. It is called once per
+ * consuming configuration: a Vite plugin instance belongs to the config that installs it, and
+ * projects sharing one object would share whatever state it caches.
  */
 export function iconCompilationPlugin(): Plugin | Plugin[] {
   return Icons({
-    // The `@svgr` path — see the compiler above for the one respect in which it
-    // is spelled out rather than named. `extension` is what makes the resolved specifier end in
-    // `.jsx`, so the bundler applies its JSX transform to what comes back.
+    // `extension` makes the resolved specifier end in `.jsx`, so the bundler applies its JSX
+    // transform to what comes back.
     compiler: { compiler: compileFaceToReactComponent, extension: "jsx" },
     customCollections: {
       ...ExternalPackageIconLoader(TABLER_ICON_PACKAGE),

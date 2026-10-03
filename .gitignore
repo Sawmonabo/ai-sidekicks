@@ -18,8 +18,8 @@ docs/tmp/
 *.cer
 *.mobileprovision
 
-# Cloudflare Workers local-development secrets — never commit live values
-# (per Cloudflare Workers Secrets docs: ".dev.vars and .env should not be committed to git")
+# Cloudflare Workers local-development secrets: never commit live values (.dev.vars and .env stay
+# out of git).
 .dev.vars
 .dev.vars.*
 # Exempt the committed example template from the wildcard above
@@ -56,6 +56,8 @@ node_modules/
 dist/
 build/
 coverage/
+.stryker/
+stryker-setup-*.js
 *.tsbuildinfo
 vite.svg
 
@@ -75,11 +77,10 @@ venv/
 # Playwright MCP
 .playwright-mcp/
 
-# Browser-mode and Playwright run artifacts.
-#
-# The console screenshot captures are local QA aids a developer writes to look at a
-# surface, compared against nothing, so no reference image is versioned here.
-apps/desktop/test/console/screenshot/__screenshots__/
+# Browser-mode and Playwright run artifacts. The console screenshot captures are local QA aids a
+# developer writes to look at a view, compared against nothing, so no reference image is versioned
+# here.
+apps/desktop/tests/screenshot/__screenshots__/
 .vitest-attachments/
 playwright-report/
 test-results/
@@ -100,14 +101,14 @@ tmp/
 # Claude Code scheduled-wakeup runtime lockfile (ephemeral; per-session)
 .claude/scheduled_tasks.lock
 
-# Per-project + per-machine Claude settings (autoMemoryDirectory pointer for agent-brain)
+# Per-machine Claude Code settings
 .claude/settings.local.json
 
-# Per-machine Claude Code settings (e.g. agent-brain autoMemoryDirectory opt-in)
+# Per-machine Claude Code settings
 .claude/settings.local.json
 
-# Cross-tool agent transient artifacts (provider-neutral; convention documented in AGENTS.md)
-# Subagent findings + other transient agent scratch drafted under .agents/tmp/<category>/, citations surfaced forward into consuming docs, files deleted before commit.
+# Cross-tool agent transient artifacts (provider-neutral): subagent findings and other scratch
+# drafted under .agents/tmp/<category>/, deleted before commit.
 .agents/tmp/
 
 # Local git worktrees (per-session isolated workspaces; never shared via origin)
@@ -116,5 +117,5 @@ tmp/
 # Superpowers plugin scratch (brainstorm mockups, per-plan review workspaces)
 .superpowers/
 
-# Rust build artifacts — Plan-022 sidecar crate (per cargo workspace at repo root)
+# Rust build artifacts (the cargo workspace at the repo root)
 target/

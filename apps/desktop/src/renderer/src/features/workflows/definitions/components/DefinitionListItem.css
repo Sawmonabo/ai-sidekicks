@@ -1,0 +1,39 @@
+/* A definition's row in the definitions list, imported by `DefinitionListItem.tsx`. */
+
+.meridian-definition-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-definition-row__name {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  text-align: start;
+}
+
+/*
+ * The open control is the name itself: a separate button beside it would be a second visible
+ * control on the row.
+ */
+.meridian-definition-row__open {
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-definition-row__open:hover {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-definition-row__version {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

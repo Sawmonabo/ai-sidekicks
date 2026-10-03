@@ -1,0 +1,60 @@
+/*
+ * The lease line: who holds the write lease and the control that asks for it.
+ *
+ * No literal color; every value comes from a custom property. One of the terminal feature's
+ * three sheets, each imported only from `pane/terminal-pane-body.ts`, so the bundler sees one
+ * edge into each and the styles stay out of the initial document.
+ *
+ * Cyan is spent only on the interactive take control, and motion settles with no overshoot.
+ */
+
+.meridian-lease-line {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block-end: var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-lease-line__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  flex-wrap: wrap;
+}
+
+.meridian-lease-line__holder {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-lease-line__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* The one accent-bordered control on the line. Cyan goes on its boundary, not behind its
+   label: `--meridian-accent` is a non-text token held only to the 3:1 boundary floor, so the
+   label uses `--meridian-accent-text`, which clears 4.5:1 against every ground. */
+.meridian-lease-line__take {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface);
+  border-color: var(--meridian-accent);
+  transition:
+    background var(--meridian-motion-quick) var(--meridian-ease-settle),
+    opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-lease-line__take:hover:enabled {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-lease-line__take:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}

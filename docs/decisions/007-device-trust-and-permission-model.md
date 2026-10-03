@@ -11,11 +11,11 @@
 
 ## Context
 
-One user drives a session from any of their linked devices, and the work executes on a runtime node that user owns. That creates a security challenge no single flat check answers: which device may act as the user, which machine may execute for the user, and what an agent may do once a run is under way are related but not identical. A flat trust model would either let anything holding the account credential execute anywhere, or turn every agent action into a prompt.
+One user drives a session from any of their linked devices, and the work executes on the machine the session was started on. That creates a security challenge no single flat check answers: which device may act as the user, and what an agent may do once a run is under way, are related but not identical. A flat trust model would either let anything holding the account credential act on every machine, or turn every agent action into a prompt.
 
 ## Problem Statement
 
-How should the system separate device trust, runtime-node trust, and approval scopes?
+How should the system separate device trust from what an agent may do?
 
 ### Trigger
 
@@ -23,13 +23,15 @@ The security architecture and approvals spec need a durable model for trust and 
 
 ## Decision
 
-We will use a layered trust model that separates device trust (which device, acting for the account, may call at all), runtime-node trust, run-level approval policy, and tool- or resource-level permission grants.
+We will use a layered trust model that separates device trust — which device, acting for the account, may call at all — from what an agent may do: the session's permission level, which decides whether anything asks at all; approval rules, which the providers keep and which answer an ask for one subject at the session's or the project's scope; and trust, which is given per project and never per machine.
 
-Run-control interventions — `steer`, `interrupt`, `cancel`, `rollback` — sit in the device-trust layer and are not scoped by run authorship: any non-revoked device of the owning account may intervene in any run of that session ([Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-003](../specs/003-queue-steer-pause-resume.md)). An intervention against a run hosted on another of the user's machines is still admitted only under that node's per-dispatch approval ([Spec-022](../specs/022-cross-node-dispatch-and-approval.md)).
+Device trust is the account's statement chain. Every machine verifies the chain itself and trusts a key only when a path of `runtimenode.added`, `device.linked` and `passkey.added` statements reaches it from its own machine key, each signed while its signer was still trusted at that point in the chain. A `device.revoked`, `runtimenode.removed` or `passkey.removed` ends the key it names at that point: a statement that key signs afterward is refused, and what it signed before stands, so every device, machine and passkey it added stays trusted. An ended key is never trusted again. Every linked device reads and acts on everything: there is no per-device permission and no view-only device, and a device that should not act is revoked.
+
+Run-control interventions — `steer`, `interrupt`, `cancel` and `faster_model_retry` — sit in the device-trust layer and are not scoped by run authorship: any non-revoked device of the owning account may intervene in any run of that session ([Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-003](../specs/003-queue-steer-pause-resume.md)). A run always executes on its session's own machine, so no intervention reaches another machine.
 
 ### Thesis — Why This Option
 
-Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A runtime node can be trusted to execute for its owner without thereby bypassing action-level approvals. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool an agent might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
+Layering matches the real boundary structure of the system. A device can be linked to the account and drive a session without being trusted to execute anything — it executes nothing at all. A machine executes for its owner and holds no trust of its own, so nothing about the machine bypasses the session's permission level or its approval rules. Holding the account credential lets the user manage their own devices without that being a standing grant over every tool an agent might reach for. This model is strict enough to preserve local-machine trust and flexible enough to drive a session from a phone.
 
 ### Antithesis — The Strongest Case Against
 
@@ -37,13 +39,13 @@ Multiple permission layers risk confusing users and implementers. A simpler mode
 
 ### Synthesis — Why It Still Holds
 
-The simpler flat model is unacceptable because it collapses account authentication into machine trust: a stolen phone would be an execution grant on every machine the account owns. The fully explicit model is safer but too friction-heavy for real coding workflows. Layered trust gives a principled middle path: durable device and node identity plus explicit action scopes with auditable remembered grants where appropriate.
+The simpler flat model is unacceptable because it collapses account authentication into device trust: anything holding the account's sign-in would drive every machine the account owns. Here a device acts only with a key the chain trusts, which every machine checks in the handshake, and a stolen phone is revoked from any other device. The fully explicit model is safer but too friction-heavy for real coding workflows. Layered trust gives a principled middle path: durable device identity on the chain, plus the session's permission level and auditable approval rules kept by the providers, with trust given per project.
 
 ## Alternatives Considered
 
-### Option A: Layered Device + Node + Action Trust (Chosen)
+### Option A: Layered Device + Action Trust (Chosen)
 
-- **What:** Separate device trust, node trust, and action-level approvals.
+- **What:** Separate device trust from the session's permission level, approval rules, and trust given per project.
 - **Steel man:** Preserves the true trust boundaries of remotely driven local execution.
 - **Weaknesses:** More concepts to teach and implement.
 
@@ -63,8 +65,8 @@ The simpler flat model is unacceptable because it collapses account authenticati
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Device trust and machine trust are not the same thing. | Vision and security docs explicitly separate driving a session from executing it locally. | A flatter model could be enough. |
-| 2 | Users need bounded remembered grants for practical workflows. | Approval and queue semantics assume repeated interactions over long sessions. | Per-action-only approval might be acceptable. |
+| 1 | Trusting a device to drive a session is not the same as allowing an agent's action. | Vision and security docs explicitly separate driving a session from executing it locally. | A flatter model could be enough. |
+| 2 | Users need bounded approval rules for practical workflows. | Approval and queue semantics assume repeated interactions over long sessions. | Per-action-only approval might be acceptable. |
 | 3 | The Local Runtime Daemon can reliably enforce local permission checks. | Local Runtime Daemon is the execution authority in the architecture. | Enforcement would need to move elsewhere. |
 
 ## Failure Mode Analysis
@@ -72,15 +74,15 @@ The simpler flat model is unacceptable because it collapses account authenticati
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | Users misunderstand which scope granted an action | Med | Med | Approval audit and UI mismatch reports | Keep approval surfaces explicit and auditable |
-| Remembered grants drift beyond intended scope | Med | High | Actions succeed unexpectedly under old grants | Require revocation paths and trust-change invalidation |
-| Device trust and node trust accidentally collapse in implementation | Low | High | Execution becomes possible on a node that never accepted the session | Enforce daemon-side policy checks and security review |
+| Approval rules drift beyond intended scope | Med | High | Actions succeed unexpectedly under old rules | Keep a revoke per rule in the session inspector and on Settings › Providers, reading the providers' own files; a session rule ends with its session |
+| A linked device's reach is mistaken for an agent's permission in implementation | Low | High | An agent action runs that no permission level, approval rule or answer allowed | Enforce daemon-side policy checks and security review |
 
 ## Reversibility Assessment
 
-- **Reversal cost:** High. It would affect security, approvals, runtime attach, audit, and user expectations.
-- **Blast radius:** Device model, runtime-node attach, local daemon policy, UI approval flows, and operations.
+- **Reversal cost:** High. It would affect security, approvals, device linking, audit, and user expectations.
+- **Blast radius:** Device model, the statement chain, local daemon policy, UI approval flows, and operations.
 - **Migration path:** Introduce a new authorization model, migrate stored grants, and potentially invalidate historic assumptions.
-- **Point of no return:** After approval records, node trust, and device identity are stored and enforced through one shared model.
+- **Point of no return:** After approval records, approval rules, and device identity are stored and enforced through one shared model.
 
 ## Consequences
 
@@ -96,24 +98,16 @@ The simpler flat model is unacceptable because it collapses account authenticati
 
 ### Unknowns
 
-- How much remembered-grant customization organizations will want beyond the base model
+- How much approval-rule customization the person will want beyond the base model
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Device trust alone never authorizes local execution on a node that has not accepted the session | 100% of execution checks | Security and integration tests | `2026-04-14` |
-| Approval records clearly identify granted scope | 100% of approval records | Audit review | `2026-04-14` |
+| Device trust alone never authorizes an agent action that the session's permission level, an approval rule or a person's answer has not allowed | 100% of execution checks | Security and integration tests | Each run of the security and integration tests |
+| Approval records clearly identify granted scope | 100% of approval records | Audit review | At every audit review |
 
 ## References
 
@@ -122,7 +116,7 @@ The simpler flat model is unacceptable because it collapses account authenticati
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | `specs/010-approvals-permissions-and-trust-boundaries.md` | Canonical spec | Approval and permission scopes are part of the core product contract | [specs/010-approvals-permissions-and-trust-boundaries.md](../specs/010-approvals-permissions-and-trust-boundaries.md) |
-| `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows device identity, node trust, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
+| `architecture/security-architecture.md` | Canonical architecture doc | Security boundary follows device identity, the session's permission level, and transport separation | [architecture/security-architecture.md](../architecture/security-architecture.md) |
 
 ### Related Domain Docs
 
@@ -133,12 +127,12 @@ The simpler flat model is unacceptable because it collapses account authenticati
 ### Related Architecture Docs
 
 - [Security Architecture](../architecture/security-architecture.md)
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
+- [Daemon Architecture](../architecture/daemon.md)
 
 ### Related Specs
 
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-machine-registration.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
 
 ### Related ADRs

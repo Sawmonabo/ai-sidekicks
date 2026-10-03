@@ -1,30 +1,14 @@
 #!/usr/bin/env node
-// coverage-report — renders the per-package v8 coverage numbers produced by
-// `turbo run test:coverage` as one markdown table, written to
-// $GITHUB_STEP_SUMMARY when running under GitHub Actions and to stdout
-// otherwise.
+// Renders the per-package v8 coverage numbers from `turbo run test:coverage` as one markdown table,
+// written to $GITHUB_STEP_SUMMARY under GitHub Actions and to stdout otherwise.
 //
-// Why first-party rather than a marketplace coverage-comment action
-// (BL-123 Stage 1):
-//   - The action updates one marker-keyed PR comment. That makes the reporting
-//     surface order-dependent across concurrent jobs, and it constrains the CI
-//     shape to whatever avoids the race — a constraint with no local
-//     reproduction, paid on every future change to the job layout.
-//   - The usual action's headline feature is threshold icons, which it derives
-//     by regex-scanning a package's vitest config. Stage 1 deliberately sets no
-//     thresholds and defines coverage in the repo-root `vitest.shared.ts`
-//     factory, so that feature would find nothing to read.
-//   - A PR comment needs `pull-requests: write`. `.github/workflows/ci.yml`
-//     grants `contents: read` and nothing else today; a job summary keeps it
-//     that way, and keeps third-party code out of the workflow that carries the
-//     required `ci-gate`.
-// Inline PR-comment rendering is the named upgrade if the summary tab proves
-// too far from where reviewers look.
+// First-party rather than a coverage-comment action: a job summary needs no `pull-requests: write`
+// (`.github/workflows/ci.yml` grants `contents: read` only), keeps third-party code out of the
+// workflow that carries `ci-gate`, and avoids one PR comment raced by concurrent jobs. The usual
+// action also reads thresholds from a package's vitest config, and `vitest.shared.ts` sets none.
 //
-// Fail-closed, in the shape of tools/run-node-tests.mjs: a root that declares a
-// `test:coverage` script but produced no report is an error, not an omitted
-// table row. Otherwise a package silently dropping out of the run would show up
-// as a shorter table in a green job.
+// Fails closed like `tools/run-node-tests.mjs`: a root that declares `test:coverage` but produced
+// no report is an error, not a missing table row.
 
 import { existsSync, readFileSync, readdirSync, appendFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -91,8 +75,7 @@ function main() {
   const lines = [
     "## Coverage (informational)",
     "",
-    "Measurement substrate only — no thresholds are enforced. Per BL-123 exit criteria (b)-(d)",
-    "the per-package floors are derived from a >=5-PR sample before any number gates a merge.",
+    "Measurement only: no threshold is enforced, and no number here gates a merge.",
     "",
     "| Package | Statements | Branches | Functions | Lines | Files |",
     "| --- | --- | --- | --- | --- | --- |",

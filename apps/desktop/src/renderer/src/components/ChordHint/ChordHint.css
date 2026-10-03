@@ -1,0 +1,38 @@
+/* Keycaps a shortcut is drawn as. Values come from the runtime-generated sheet. */
+
+.meridian-chord {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-chord__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.meridian-chord__key {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.25rem;
+  block-size: 1.25rem;
+  padding-inline: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge-strong);
+  /* The keycap lip. */
+  border-block-end-width: 2px;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+}
+
+.meridian-chord__then {
+  margin-inline: var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}

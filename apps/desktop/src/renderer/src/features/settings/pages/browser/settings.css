@@ -1,0 +1,127 @@
+/*
+ * The settings page: the policy rows, a switch, a label, and the sentence that says what
+ * turning it on stops enforcing.
+ *
+ * No literal color: every value comes from a Meridian custom property.
+ *
+ * This sheet enters at `browser-settings-page-body.ts`, the chunk root, so it loads with the
+ * page rather than at launch.
+ */
+
+/* ------------------------------------------------------------ settings page */
+
+.meridian-browser-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-6);
+  max-inline-size: 52rem;
+  padding: var(--meridian-space-5);
+  color: var(--meridian-text);
+}
+
+.meridian-browser-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-browser-settings__section-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------------------- policy rows */
+
+.meridian-browser-policy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * Grid rather than flex: the switch column holds one width down the list, so rows with
+ * different label lengths do not put their switches at different positions.
+ */
+.meridian-browser-policy__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  align-items: start;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-browser-policy__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+.meridian-browser-policy__label {
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-browser-policy__consequence {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-policy__default {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* ----------------------------------------------------------------- switch */
+
+/*
+ * The Base UI switch under Meridian tokens. The track is a boundary, not a filled block,
+ * until it is on.
+ */
+.meridian-browser-switch {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  inline-size: 2.25rem;
+  block-size: 1.25rem;
+  padding: 2px;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: 999px;
+  background: var(--meridian-surface-sunken);
+  cursor: default;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-browser-switch[data-checked] {
+  border-color: var(--meridian-accent);
+  background: var(--meridian-accent);
+}
+
+.meridian-browser-switch[data-disabled] {
+  opacity: 0.55;
+}
+
+.meridian-browser-switch__thumb {
+  display: block;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border-radius: 999px;
+  background: var(--meridian-surface);
+  transition: translate var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-browser-switch[data-checked] .meridian-browser-switch__thumb {
+  translate: 1rem 0;
+  background: var(--meridian-accent-text);
+}

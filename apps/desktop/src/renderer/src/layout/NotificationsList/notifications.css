@@ -1,0 +1,105 @@
+/* The notifications list: its heading over two groups, each a header over one-line entries. */
+
+.meridian-attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-attention__head {
+  display: flex;
+  align-items: center;
+}
+
+.meridian-attention__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-attention__items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-attention__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attention__group-title {
+  display: flex;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 400;
+  color: var(--meridian-text-faint);
+}
+
+/* One line in both forms. The button form resets the platform chrome so a pressable entry and a
+   plain one share a shape. */
+.meridian-attention__row {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  text-align: start;
+}
+
+.meridian-attention__row--open {
+  cursor: pointer;
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-attention__row--open:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-attention__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-attention__state {
+  flex: none;
+  color: var(--meridian-text-muted);
+}
+
+/* The dot is sized from the line's own text. */
+.meridian-attention__dot {
+  flex: none;
+  box-sizing: border-box;
+  inline-size: 0.5em;
+  block-size: 0.5em;
+  border-radius: 50%;
+}
+
+.meridian-attention__dot--waiting {
+  background: var(--meridian-amber-mark);
+}
+
+.meridian-attention__dot--failed {
+  background: var(--meridian-red-mark);
+}
+
+.meridian-attention__dot--done {
+  border: 1px solid var(--meridian-text-faint);
+}

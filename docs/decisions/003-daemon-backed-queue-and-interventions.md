@@ -71,7 +71,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | --- | --- | --- | --- | --- |
 | Queue persistence is unavailable | Low | High | Queue creation fails and runtime health degrades | Block new queued work explicitly and expose repair state |
 | Concurrent clients race on the same queue | Med | Med | Duplicate or conflicting intervention outcomes appear | Use daemon-owned receipts and serialized queue mutation |
-| Intervention outcome is hidden from UI | Med | Med | Timeline and run state diverge from operator expectation | Make intervention results canonical events |
+| Intervention outcome is hidden from UI | Med | Med | Timeline and run state diverge from what the person expects | Make intervention results canonical events |
 
 ## Reversibility Assessment
 
@@ -98,20 +98,12 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Queue state survives daemon restart | 100% of persisted queue items | Recovery test suite | `2026-04-14` |
-| Intervention outcomes are visible in canonical history | 100% of accepted or rejected interventions | Audit log review | `2026-04-14` |
+| Queue state survives daemon restart | 100% of persisted queue items | Recovery test suite | Each run of the recovery test suite |
+| Intervention outcomes are visible in canonical history | 100% of accepted or rejected interventions | Audit log review | At every audit log review |
 
 ## References
 
@@ -121,17 +113,17 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | --- | --- | --- | --- |
 | `specs/003-queue-steer-pause-resume.md` | Canonical spec | Queue and intervention state belongs to runtime truth | [specs/003-queue-steer-pause-resume.md](../specs/003-queue-steer-pause-resume.md) |
 | `domain/queue-and-intervention-model.md` | Canonical domain doc | Queue items and interventions are durable runtime-controlled records rather than client-local state | [domain/queue-and-intervention-model.md](../domain/queue-and-intervention-model.md) |
-| `architecture/component-architecture-local-daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/component-architecture-local-daemon.md](../architecture/component-architecture-local-daemon.md) |
+| `architecture/daemon.md` | Canonical architecture doc | Daemon is the local execution authority | [architecture/daemon.md](../architecture/daemon.md) |
 
 ### Related Domain Docs
 
 - [Queue And Intervention Model](../domain/queue-and-intervention-model.md)
 - [Run State Machine](../domain/run-state-machine.md)
-- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+- [Agent And Run Model](../domain/agent-and-run-model.md)
 
 ### Related Architecture Docs
 
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 
 ### Related Specs

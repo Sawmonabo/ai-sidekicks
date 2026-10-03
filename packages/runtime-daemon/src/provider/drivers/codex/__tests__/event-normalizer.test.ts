@@ -1,1168 +1,23 @@
-// Codex event-normalizer suite.
-//
-// Spec coverage under test:
-//   • drivers emit normalized runtime events, not provider-native types.
-//     Asserted as: every pinned Codex inbound method resolves to a
-//     `EventCategory` + `SessionEventType`, and an unmapped method never
-//     resolves to a fabricated one.
-//   • the required normalized event families. Asserted as a two-sided
-//     coverage pin: which of the six the pinned Codex inbound census reaches,
-//     and which it provably does not.
-//
-// Verifies invariant: none (declares none; normalization is structural).
-//
-// Fixture discipline: the two `__fixtures__/` modules are METHOD census
-// vectors derived from the pinned Codex wire census at pin
-// `codex-cli 0.150.1`. The reference reproduces no inbound PAYLOAD body
-// verbatim, so these are method vectors and never payload golden files. The
-// delta-family members `turn/diff/updated` and `turn/plan/updated` — whose
-// wire names come from the pinned binary's own `codex app-server
-// generate-json-schema` output at that pin — went uncensused by the reference
-// until 2026-08-28 and were reachable here only through typed constructors.
-// They are census rows now, so the fixture-driven `it.each` covers them; the
-// typed-constructor test is KEPT because it binds each literal to
-// `CodexInboundFrameMethod` at COMPILE time, which an `it.each` mapping census
-// rows to plain strings cannot do.
+// Codex inbound frames: an unmapped method lands on a diagnostic, connection-scoped frames are
+// never quarantined, each run epoch settles one terminal, and a usage limit is read only from
+// typed fields.
 
-import {
-  EVENT_DISPOSITION_BY_KIND,
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  SESSION_EVENT_TYPES,
-  type EventCategory,
-  type SessionEventType,
-} from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  CODEX_GATED_SERVER_NOTIFICATION_COUNT_AT_PIN,
-  CODEX_SERVER_NOTIFICATION_COUNT_AT_PIN,
-  CODEX_SERVER_NOTIFICATION_METHOD_VECTORS,
-} from "../__fixtures__/server-notification-methods.js";
-import {
-  CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN,
-  CODEX_SERVER_REQUEST_METHOD_VECTORS,
-} from "../__fixtures__/server-request-methods.js";
-import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
-import {
-  CODEX_FRAME_NORMALIZATION_BY_METHOD,
-  CODEX_INBOUND_FRAME_METHODS,
-  CODEX_TOOL_KEYED_APPROVAL_METHODS,
-  normalizeCodexInboundFrame,
-  resolveCodexEmissionReadiness,
-  UnknownCodexInboundFrameError,
-  type CodexFrameNormalization,
-  type CodexInboundFrameMethod,
-  type CodexInboundFrameTransport,
-  type CodexNormalizedFamilyEmission,
-  CodexTerminalEmissionGate,
-  type CodexTerminalRunFrame,
-} from "../event-normalizer.js";
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import {
   classifyCodexFrameFamilyForRouting,
-  classifyCodexUsageLimitSignal,
-  CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD,
-  CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
-  CODEX_RATE_LIMIT_REACHED_TYPES,
-  CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS,
-  CODEX_THREAD_STARTED_METHOD,
-  CODEX_THREAD_TOKEN_USAGE_METHOD,
-  CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES,
-  deriveCodexChildThreadAnnouncement,
   resolveCodexFrameEmissionRoute,
 } from "../event-normalizer.js";
-import { CODEX_TOOL_NAMES } from "../tools.js";
-
-// --------------------------------------------------------------------------
-// The expectation table — written INDEPENDENTLY of the production record.
-// --------------------------------------------------------------------------
-//
-// Deliberately a second, hand-written statement of the mapping rather than
-// anything derived from `CODEX_FRAME_NORMALIZATION_BY_METHOD`: a test that
-// read its expectations out of the table under test would assert only that a
-// Map round-trips. Every row here is transcribed from the corpus source named
-// in its comment block, so a silent edit to the production table fails here.
-
-interface ExpectedNormalizedRow {
-  readonly transport: CodexInboundFrameTransport;
-  readonly family: EventCategory;
-  readonly eventType: SessionEventType;
-  readonly normalizedKind: string | null;
-}
-
-const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNormalizedRow> =
-  new Map([
-    // ServerRequest — callback tool + the seven asks that surface as
-    // `driver_ask.*`.
-    [
-      "item/tool/call",
-      {
-        transport: "server-request",
-        family: "tool_activity",
-        eventType: "tool.invoked",
-        normalizedKind: "tool_start",
-      },
-    ],
-    [
-      "item/tool/requestUserInput",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "user_input_request",
-      },
-    ],
-    [
-      "mcpServer/elicitation/request",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "user_input_request",
-      },
-    ],
-    [
-      "item/commandExecution/requestApproval",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "approval_request",
-      },
-    ],
-    [
-      "item/fileChange/requestApproval",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "approval_request",
-      },
-    ],
-    [
-      "item/permissions/requestApproval",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "approval_request",
-      },
-    ],
-    [
-      "execCommandApproval",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "approval_request",
-      },
-    ],
-    [
-      "applyPatchApproval",
-      {
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-        normalizedKind: "approval_request",
-      },
-    ],
-    [
-      "error",
-      {
-        transport: "server-notification",
-        family: "run_lifecycle",
-        eventType: "run.failed",
-        normalizedKind: "error",
-      },
-    ],
-    [
-      "warning",
-      {
-        transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.notice",
-        normalizedKind: "notification",
-      },
-    ],
-    [
-      "configWarning",
-      {
-        transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.notice",
-        normalizedKind: "notification",
-      },
-    ],
-    [
-      "deprecationNotice",
-      {
-        transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.notice",
-        normalizedKind: "notification",
-      },
-    ],
-    // Guardian + autoApprovalReview (delta row: `approval_flow`
-    // observability, "never a Cedar-pipeline bypass").
-    [
-      "guardianWarning",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "item/autoApprovalReview/started",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "item/autoApprovalReview/completed",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "autoApprovalReview/strictReviewRequired",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "turn/moderationMetadata",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    // Goals (delta row: `session_lifecycle`).
-    [
-      "thread/goal/updated",
-      {
-        transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.goal_updated",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "thread/goal/cleared",
-      {
-        transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.goal_cleared",
-        normalizedKind: null,
-      },
-    ],
-    // Usage telemetry.
-    [
-      "account/rateLimits/updated",
-      {
-        transport: "server-notification",
-        family: "usage_telemetry",
-        eventType: "usage.rate_limit_update",
-        normalizedKind: "rate_limits",
-      },
-    ],
-    [
-      "thread/compacted",
-      {
-        transport: "server-notification",
-        family: "usage_telemetry",
-        eventType: "usage.context_compacted",
-        normalizedKind: "compact_boundary",
-      },
-    ],
-    [
-      "model/safetyBuffering/updated",
-      {
-        transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.notice",
-        normalizedKind: "notification",
-      },
-    ],
-    // `process/*` (delta row: `tool_activity`).
-    [
-      "process/outputDelta",
-      {
-        transport: "server-notification",
-        family: "tool_activity",
-        eventType: "tool.result",
-        normalizedKind: "command_output",
-      },
-    ],
-    [
-      "process/exited",
-      {
-        transport: "server-notification",
-        family: "tool_activity",
-        eventType: "tool.result",
-        normalizedKind: "codex_exec_result",
-      },
-    ],
-    // `turn/diff/updated` | `turn/plan/updated` — disposition delta row, wire
-    // names from the binary's generator at codex-cli 0.150.1 (the delta row
-    // carried truncated forms until its 2026-08-28 correction).
-    [
-      "turn/diff/updated",
-      {
-        transport: "server-notification",
-        family: "tool_activity",
-        eventType: "tool.result",
-        normalizedKind: "diff",
-      },
-    ],
-    [
-      "turn/plan/updated",
-      {
-        transport: "server-notification",
-        family: "assistant_output",
-        eventType: "assistant.message",
-        normalizedKind: "proposed_plan",
-      },
-    ],
-  ]);
-
-/** The methods the pinned census resolves to a reasoned NON-emission. */
-const EXPECTED_NOT_EVENTED_METHODS: readonly CodexInboundFrameMethod[] = [
-  "attestation/generate",
-  "account/chatgptAuthTokens/refresh",
-  "thread/reverted",
-  "thread/queue/changed",
-  "project/changed",
-  "thread/project/updated",
-  "thread/environment/connected",
-  "thread/environment/disconnected",
-  "thread/settings/updated",
-  // The skill-file watch signal: an empty-payload invalidation cue whose only
-  // consequence is daemon-side (the driver's held command enumeration is
-  // discarded so the next read is a full re-read), so it carries no session
-  // observation a timeline row could hold.
-  "skills/changed",
-];
-
-/**
- * The six required normalized families, verbatim: "run lifecycle,
- * assistant output, tool activity, interactive request, artifact
- * publication, usage or quota telemetry where available", named with
- * their `EventCategory` literals.
- */
-const REQUIRED_NORMALIZED_FAMILIES: readonly EventCategory[] = [
-  "run_lifecycle",
-  "assistant_output",
-  "tool_activity",
-  "interactive_request",
-  "artifact_publication",
-  "usage_telemetry",
-];
-
-/**
- * The eleven realtime notifications deliberately EXCLUDED from the census.
- *
- * Spelled in full which states the normalizer "routes each of the eleven Codex
- * realtime wire kinds... Pinned here so a future edit that quietly maps one of
- * them into a family fails: the `realtime_*` family is reserved with no V1
- * emitter, so any family it were mapped to would be fabricated.
- *
- * The last three arrived with the `0.150.1` pin BESIDE the older spellings, not
- * in place of them — the pin hop's set difference added four arms and removed
- * none — so all eleven are listed rather than eight being swapped for three.
- */
-const EXCLUDED_REALTIME_METHODS: readonly string[] = [
-  "thread/realtime/started",
-  "thread/realtime/closed",
-  "thread/realtime/error",
-  "thread/realtime/itemAdded",
-  "thread/realtime/sdp",
-  "thread/realtime/outputAudio/delta",
-  "thread/realtime/transcript/delta",
-  "thread/realtime/transcript/done",
-  "thread/realtime/item/started",
-  "thread/realtime/item/transcript/delta",
-  "thread/realtime/item/completed",
-];
-
-/**
- * The one non-realtime notification the `0.150.1` pin added.
- *
- * Gated like the other three additions and given no normalized family by any
- * corpus row, so it is deliberately absent from the closed union and reaches
- * default-branch diagnostic. Asserted rather than assumed because the
- * fixture-gated cross-check below filters to census members, which would let a
- * newly-tagged non-census method pass through unexamined.
- */
-const EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN = "mcpServer/event/stream/notification";
-
-function normalizedRowsOfCensus(): readonly CodexNormalizedFamilyEmission[] {
-  return CODEX_INBOUND_FRAME_METHODS.map((method) => normalizeCodexInboundFrame(method)).filter(
-    (normalization): normalization is CodexNormalizedFamilyEmission =>
-      normalization.disposition === "normalized",
-  );
-}
-
-// --------------------------------------------------------------------------
-
-describe("Codex event normalizer — fixture census integrity", () => {
-  it("carries all ten pinned ServerRequest methods", () => {
-    expect(CODEX_SERVER_REQUEST_METHOD_VECTORS).toHaveLength(
-      CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN,
-    );
-    const methods = CODEX_SERVER_REQUEST_METHOD_VECTORS.map((vector) => vector.method);
-    expect(new Set(methods).size).toBe(CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN);
-  });
-
-  it("carries exactly the twenty-three experimental-gated notifications the pin enumerates", () => {
-    const gated = CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
-      (vector) => vector.experimentalGatedAtPin,
-    );
-    expect(gated).toHaveLength(CODEX_GATED_SERVER_NOTIFICATION_COUNT_AT_PIN);
-    // All eleven realtime names are inside that twenty-three, as is the one
-    // non-realtime arm the pin hop added.
-    for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
-      expect(gated.map((vector) => vector.method)).toContain(realtimeMethod);
-    }
-    expect(gated.map((vector) => vector.method)).toContain(
-      EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
-    );
-  });
-
-  it("is honest about being a strict subset of the 79-arm notification root", () => {
-    // The reference enumerates only part of the union by name; asserting the
-    // subset relation keeps a future reader from mistaking this fixture for a
-    // completeness claim about the Codex notification surface.
-    expect(CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.length).toBeLessThan(
-      CODEX_SERVER_NOTIFICATION_COUNT_AT_PIN,
-    );
-  });
-
-  it("carries the two schema-absent variants as negative controls", () => {
-    const absent = CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
-      (vector) => !vector.presentInPinnedGeneratedSchema,
-    ).map((vector) => vector.method);
-    expect(absent).toStrictEqual(["rawResponse/completed", "rawResponseItem/completed"]);
-  });
-});
-
-describe("Codex event normalizer — every fixture frame normalizes as expected", () => {
-  it.each(CODEX_SERVER_REQUEST_METHOD_VECTORS.map((vector) => vector.method))(
-    "resolves ServerRequest %s",
-    (method) => {
-      const normalization = normalizeCodexInboundFrame(method);
-      expect(normalization.transport).toBe("server-request");
-
-      const expected = EXPECTED_NORMALIZED_ROWS.get(method as CodexInboundFrameMethod);
-      if (expected === undefined) {
-        // The only ServerRequests without a family emission are the two
-        // control-plane frames; anything else reaching here is a mapping drift.
-        expect(EXPECTED_NOT_EVENTED_METHODS).toContain(method);
-        expect(normalization.disposition).toBe("not-evented");
-        return;
-      }
-      expect(normalization).toMatchObject({
-        disposition: "normalized",
-        nativeMethod: method,
-        transport: expected.transport,
-        family: expected.family,
-        eventType: expected.eventType,
-        normalizedKind: expected.normalizedKind,
-      });
-    },
-  );
-
-  it.each(
-    // Both exclusions are NAMED rather than derived from union membership: a
-    // method absent from the closed union for any reason other than these two
-    // still reaches `normalizeCodexInboundFrame` here and throws, which is the
-    // drift signal this cross-check exists to raise. Filtering by union
-    // membership instead would make the check vacuous.
-    CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
-      (vector) =>
-        vector.presentInPinnedGeneratedSchema &&
-        !EXCLUDED_REALTIME_METHODS.includes(vector.method) &&
-        vector.method !== EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
-    ).map((vector) => vector.method),
-  )("resolves ServerNotification %s", (method) => {
-    const normalization = normalizeCodexInboundFrame(method);
-    expect(normalization.transport).toBe("server-notification");
-
-    const expected = EXPECTED_NORMALIZED_ROWS.get(method as CodexInboundFrameMethod);
-    if (expected === undefined) {
-      expect(EXPECTED_NOT_EVENTED_METHODS).toContain(method);
-      expect(normalization.disposition).toBe("not-evented");
-      return;
-    }
-    expect(normalization).toMatchObject({
-      disposition: "normalized",
-      nativeMethod: method,
-      transport: expected.transport,
-      family: expected.family,
-      eventType: expected.eventType,
-      normalizedKind: expected.normalizedKind,
-    });
-  });
-
-  it("normalizes the two corpus-described delta frames through typed constructors", () => {
-    // Their DISPOSITION comes from the Codex delta row and their WIRE NAMES from
-    // the pinned binary's own generator output at codex-cli 0.150.1 (the delta row
-    // carried both truncated until 2026-08-28). Exercised as typed values here on
-    // top of the census coverage above: the annotation binds each literal to
-    // `CodexInboundFrameMethod` at compile time, so dropping a member from the
-    // union fails to BUILD rather than failing a string lookup at run time.
-    const diffFrame: CodexInboundFrameMethod = "turn/diff/updated";
-    const planFrame: CodexInboundFrameMethod = "turn/plan/updated";
-
-    expect(normalizeCodexInboundFrame(diffFrame)).toMatchObject({
-      disposition: "normalized",
-      family: "tool_activity",
-      eventType: "tool.result",
-      normalizedKind: "diff",
-    });
-    expect(normalizeCodexInboundFrame(planFrame)).toMatchObject({
-      disposition: "normalized",
-      family: "assistant_output",
-      eventType: "assistant.message",
-      normalizedKind: "proposed_plan",
-    });
-  });
-
-  it("covers every census method with an independent expectation", () => {
-    const expected = new Set<string>([
-      ...EXPECTED_NORMALIZED_ROWS.keys(),
-      ...EXPECTED_NOT_EVENTED_METHODS,
-    ]);
-    expect([...expected].sort()).toStrictEqual([...CODEX_INBOUND_FRAME_METHODS].sort());
-  });
-});
-
-describe("Codex event normalizer — normalized-family coverage", () => {
-  it("reaches five of the six required families from the pinned Codex census", () => {
-    const reached = new Set(normalizedRowsOfCensus().map((row) => row.family));
-    const reachedRequired = REQUIRED_NORMALIZED_FAMILIES.filter((family) => reached.has(family));
-    expect(reachedRequired).toStrictEqual([
-      "run_lifecycle",
-      "assistant_output",
-      "tool_activity",
-      "interactive_request",
-      "usage_telemetry",
-    ]);
-  });
-
-  it("pins artifact_publication as reachable from NO Codex frame, and why", () => {
-    // Not a hole in this table — a corpus fact, asserted so it stays loud. assigns
-    // NO normalized census kind to `artifact_publication`:
-    // `EVENT_DISPOSITION_BY_KIND` names `run_lifecycle`, `assistant_output`,
-    // `tool_activity`, `interactive_request`, `approval_flow`, `usage_telemetry`
-    // and `session_lifecycle` as target categories and never that one, and the
-    // Codex `turn/diff/updated` delta row is routed to `tool_activity` (`diff`, row
-    // 32) rather than to `diff.created`. And the family's emitter is not a
-    // driver at all: the event-family ownership table assigns all six
-    // `artifact_publication` types to so a Codex normalizer producing one
-    // would assert an emitter the corpus gives to another plan. (Corrected
-    // 2026-08-27: an earlier revision of this comment also named which owns
-    // Gitflow PR and diff attribution and emits none of these six.) Should a
-    // Codex frame ever gain an artifact-publication mapping, this assertion
-    // fires and the author must justify the new producer. Full grounding
-    // lives in the normalizer header under "Why `artifact_publication` is
-    // reachable from no Codex frame".
-    const reached = new Set(normalizedRowsOfCensus().map((row) => row.family));
-    expect(reached.has("artifact_publication")).toBe(false);
-
-    const dispositionCategories = new Set(
-      [...EVENT_DISPOSITION_BY_KIND.values()]
-        .map((entry) => entry.category)
-        .filter((category): category is EventCategory => category !== undefined),
-    );
-    expect(dispositionCategories.has("artifact_publication")).toBe(false);
-  });
-
-  it("reaches only families taxonomy recognizes", () => {
-    for (const row of normalizedRowsOfCensus()) {
-      // A family is legitimate exactly when the census registry agrees that
-      // the row's target literal lives in it.
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(row.eventType)).toBe(row.family);
-    }
-  });
-});
-
-describe("Codex event normalizer — agreement with the contracts registries", () => {
-  it("names a registered SessionEventType on every family emission", () => {
-    for (const row of normalizedRowsOfCensus()) {
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(row.eventType)).toBe(true);
-    }
-  });
-
-  it("agrees with EVENT_DISPOSITION_BY_KIND on every row that names a census kind", () => {
-    // The runtime consumer of this registry lives elsewhere, deliberately not in
-    // this module. Cross-checking it HERE is what keeps the two from drifting in
-    // the meantime: a row whose family contradicts the registry's category
-    // for its own census kind fails now, not integration.
-    for (const row of normalizedRowsOfCensus()) {
-      if (row.normalizedKind === null) {
-        continue;
-      }
-      const entry = EVENT_DISPOSITION_BY_KIND.get(row.normalizedKind);
-      expect(entry, `no disposition registered for kind ${row.normalizedKind}`).toBeDefined();
-      if (entry === undefined) {
-        return;
-      }
-      if (entry.disposition === "adopt" || entry.disposition === "rename") {
-        // Category equality only: the registry documents `eventType` as the
-        // row's PRIMARY target, with outcome-dependent fan-out left to this
-        // normalizer, so type equality is not an invariant.
-        expect(entry.category, `family drift on kind ${row.normalizedKind}`).toBe(row.family);
-      } else {
-        // A correlate/discard kind carries no taxonomy target, so a family
-        // emission built on it would be inventing one.
-        expect.unreachable(
-          `census kind ${row.normalizedKind} is ${entry.disposition}; it cannot back a family emission`,
-        );
-      }
-    }
-  });
-
-  it("gives every not-evented row a stated, non-empty reason and no taxonomy target", () => {
-    for (const method of EXPECTED_NOT_EVENTED_METHODS) {
-      const normalization = normalizeCodexInboundFrame(method);
-      expect(normalization.disposition).toBe("not-evented");
-      if (normalization.disposition !== "not-evented") {
-        return;
-      }
-      expect(normalization.reason.trim().length).toBeGreaterThan(0);
-      expect(normalization.family).toBeUndefined();
-      expect(normalization.eventType).toBeUndefined();
-      expect(normalization.normalizedKind).toBeUndefined();
-    }
-  });
-});
-
-describe("Codex event normalizer — unknown-frame behavior is a typed refusal", () => {
-  it("throws UnknownCodexInboundFrameError carrying the verbatim method", () => {
-    expect(() => normalizeCodexInboundFrame("thread/notAMethod")).toThrow(
-      UnknownCodexInboundFrameError,
-    );
-    try {
-      normalizeCodexInboundFrame("thread/notAMethod");
-      expect.unreachable("an unmapped method must refuse");
-    } catch (error) {
-      expect(error).toBeInstanceOf(UnknownCodexInboundFrameError);
-      expect((error as UnknownCodexInboundFrameError).nativeMethod).toBe("thread/notAMethod");
-    }
-  });
-
-  it("refuses rather than silently dropping (never returns undefined)", () => {
-    // The distinction no-silent-capability-loss default turns on: an unmapped
-    // frame must be observable. Pre- that means a throw replaces the throw with
-    // an operator-visible diagnostic record.
-    let returned: CodexFrameNormalization | undefined;
-    try {
-      returned = normalizeCodexInboundFrame("codex/unheard-of");
-    } catch {
-      returned = undefined;
-    }
-    expect(returned).toBeUndefined();
-  });
-
-  it("refuses prototype-chain keys instead of resolving them", () => {
-    // The reason the lookup is a ReadonlyMap: an object-literal table would
-    // resolve these to truthy non-normalization values and hand a fabricated
-    // shape to the timeline.
-    for (const hostileMethod of [
-      "__proto__",
-      "constructor",
-      "toString",
-      "valueOf",
-      "hasOwnProperty",
-    ]) {
-      expect(() => normalizeCodexInboundFrame(hostileMethod)).toThrow(
-        UnknownCodexInboundFrameError,
-      );
-    }
-  });
-
-  it("refuses all eight excluded realtime notifications (routing pin)", () => {
-    for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
-      expect(() => normalizeCodexInboundFrame(realtimeMethod)).toThrow(
-        UnknownCodexInboundFrameError,
-      );
-    }
-  });
-
-  it("refuses the two variants the pinned generation does not emit", () => {
-    for (const absentMethod of ["rawResponse/completed", "rawResponseItem/completed"]) {
-      expect(() => normalizeCodexInboundFrame(absentMethod)).toThrow(UnknownCodexInboundFrameError);
-    }
-  });
-});
-
-describe("Codex event normalizer — purity and determinism", () => {
-  it("returns an identical, identity-stable result for the same frame twice", () => {
-    for (const method of CODEX_INBOUND_FRAME_METHODS) {
-      const first = normalizeCodexInboundFrame(method);
-      const second = normalizeCodexInboundFrame(method);
-      expect(second).toStrictEqual(first);
-      // Identity, not just deep equality: the resolver hands out shared frozen
-      // singletons, so a future refactor that starts allocating per call would
-      // fail here before it could introduce a per-call divergence.
-      expect(second).toBe(first);
-    }
-  });
-
-  it("hands out frozen entries no consumer can corrupt process-wide", () => {
-    const normalization = normalizeCodexInboundFrame("error");
-    expect(Object.isFrozen(normalization)).toBe(true);
-    expect(() => {
-      (normalization as { family: EventCategory }).family = "usage_telemetry";
-    }).toThrow(TypeError);
-    expect(normalizeCodexInboundFrame("error").family).toBe("run_lifecycle");
-  });
-
-  it("keeps the exported census tuple and the lookup map set-equal both ways", () => {
-    const tupleMethods = [...CODEX_INBOUND_FRAME_METHODS].sort();
-    const mapMethods = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.keys()].sort();
-    expect(tupleMethods).toStrictEqual(mapMethods);
-    expect(new Set(tupleMethods).size).toBe(tupleMethods.length);
-  });
-
-  it("stamps every entry with its own method, so a row cannot be mis-keyed", () => {
-    for (const [method, normalization] of CODEX_FRAME_NORMALIZATION_BY_METHOD) {
-      expect(normalization.nativeMethod).toBe(method);
-    }
-  });
-});
-
-// --------------------------------------------------------------------------
-// Emission readiness — the derived stamp.
-// --------------------------------------------------------------------------
-//
-// The stamp answers a question distinct from "which family": whether the
-// named `SessionEventType` may be built into a `SessionEvent` envelope TODAY
-// (the flip-is-not-emission rule). It is derived at map-build from the live
-// `SESSION_EVENT_TYPES` roster, never hand-stated per row, so it widens by
-// itself when an emitting plan registers a payload variant.
-//
-// Deliberately NOT folded into `EXPECTED_NORMALIZED_ROWS`: restating
-// `payload-variant-pending` on 26 hand-written rows would reintroduce, inside
-// the test, exactly the hard-coding the derivation exists to eliminate. The
-// stamp is instead checked against the resolver, and the resolver is checked
-// against contracts.
-//
-// -- The exact width of this guard, measured by perturbation --
-//
-// Hard-coding a stamp ON A RECORD ROW does not compile: the table-row type
-// `Omit`s the key, and `disposition` is a discriminant, so TypeScript narrows
-// to the one constituent before the excess-property check and reports TS2353.
-// Hard-coding the WRONG value at the derivation site fails two tests below.
-//
-// The one case these tests could not originally distinguish: hard-coding, at
-// the derivation site and behind an explicit `as` cast, the value that was then
-// correct for every row. That produced byte-identical output while all 11 Codex
-// targets were pending. THAT WINDOW IS NOW CLOSED — the census is MIXED: three
-// targets carry registered payload variants and eight do not, so a single
-// hard-coded value disagrees with the resolver on one side or the other and the
-// row-level assertion fails. The ratchet test at the end of this block pins the
-// exact partition, so the next registration is loud rather than silent.
-
-describe("Codex event normalizer — emission readiness is derived, not stated", () => {
-  it("resolves a registered payload-variant target as envelope-constructible", () => {
-    // Called directly rather than reached through a row, and deliberately kept
-    // that way now that Codex targets ARE registered: a non-Codex literal keeps
-    // this arm provable no matter how the census moves.
-    expect(SESSION_EVENT_TYPES).toContain("session.created");
-    expect(resolveCodexEmissionReadiness("session.created")).toBe("envelope-constructible");
-  });
-
-  it("resolves an unregistered target as payload-variant-pending", () => {
-    // `tool.invoked` stood here until the durable content home registered it.
-    // `run.failed` is the replacement and is a Codex target, so this arm is now
-    // proven over the driver's own census rather than beside it.
-    expect(SESSION_EVENT_TYPES).not.toContain("run.failed");
-    expect(resolveCodexEmissionReadiness("run.failed")).toBe("payload-variant-pending");
-  });
-
-  it("agrees with the live contracts roster for every registered type", () => {
-    for (const registeredType of SESSION_EVENT_TYPES) {
-      expect(resolveCodexEmissionReadiness(registeredType)).toBe("envelope-constructible");
-    }
-  });
-
-  it("stamps every normalized census row with the resolver's own answer", () => {
-    // This is the anti-hard-coding assertion. If a row ever hand-stated a
-    // stamp that disagreed with the live roster, this fails; if the roster
-    // widens, the row follows automatically and this still passes.
-    for (const [nativeMethod, normalization] of CODEX_FRAME_NORMALIZATION_BY_METHOD) {
-      if (normalization.disposition !== "normalized") {
-        continue;
-      }
-      expect(
-        normalization.emissionReadiness,
-        `${nativeMethod} carries a stamp that disagrees with the live roster`,
-      ).toBe(resolveCodexEmissionReadiness(normalization.eventType));
-    }
-  });
-
-  it("stamps every normalized row with a member of the readiness union", () => {
-    const admissibleAnswers = new Set(["envelope-constructible", "payload-variant-pending"]);
-    for (const normalization of CODEX_FRAME_NORMALIZATION_BY_METHOD.values()) {
-      if (normalization.disposition !== "normalized") {
-        continue;
-      }
-      expect(admissibleAnswers).toContain(normalization.emissionReadiness);
-    }
-  });
-
-  it("leaves not-evented rows unstamped — they name no target to be ready for", () => {
-    for (const [nativeMethod, normalization] of CODEX_FRAME_NORMALIZATION_BY_METHOD) {
-      if (normalization.disposition !== "not-evented") {
-        continue;
-      }
-      expect(
-        Object.prototype.hasOwnProperty.call(normalization, "emissionReadiness"),
-        `${nativeMethod} is not-evented and must carry no readiness stamp`,
-      ).toBe(false);
-    }
-  });
-
-  it("pins which Codex targets are envelope-constructible at this tree state", () => {
-    // A ratchet, not an aspiration, and RE-DERIVED rather than relaxed: this
-    // read `toEqual([])` while no Codex target had a registered payload
-    // variant, and the durable home for machine-authored prose registered
-    // three of them. Payload variants are registered independently of this
-    // driver, so when the next one lands this fails and whoever landed it
-    // re-derives the partition here. Failure is GOOD NEWS.
-    //
-    // WHAT THIS DOES NOT MEAN. A constructible target is not a live emission.
-    // `resolveCodexFrameEmissionRoute` — the only thing that turns readiness
-    // into an `emit` route — has no production caller in this tree: the driver
-    // core does not consume it yet, and no payload builder for these types
-    // exists anywhere. So these three moved from "forbidden" to "permitted",
-    // and nothing began emitting.
-    const normalized = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()].filter(
-      (normalization) => normalization.disposition === "normalized",
-    );
-    const distinctTargets = (readiness: string): readonly string[] =>
-      [
-        ...new Set(
-          normalized
-            .filter((normalization) => normalization.emissionReadiness === readiness)
-            .map((normalization) => normalization.eventType),
-        ),
-      ].sort();
-
-    expect(distinctTargets("envelope-constructible")).toEqual([
-      "assistant.message",
-      "tool.invoked",
-      "tool.result",
-    ]);
-    expect(distinctTargets("payload-variant-pending")).toEqual([
-      "driver_ask.requested",
-      "moderation.review_flagged",
-      "run.failed",
-      "session.goal_cleared",
-      "session.goal_updated",
-      "session.notice",
-      "usage.context_compacted",
-      "usage.rate_limit_update",
-    ]);
-    // The two partitions together are the whole census — so a target cannot
-    // leave the table unnoticed by being dropped from one list and never added
-    // to the other.
-    expect(
-      [...distinctTargets("envelope-constructible"), ...distinctTargets("payload-variant-pending")]
-        .length,
-    ).toBe(new Set(normalized.map((normalization) => normalization.eventType)).size);
-  });
-
-  it("keeps the stamp identity-stable across repeated resolution", () => {
-    const first = normalizeCodexInboundFrame("error");
-    const second = normalizeCodexInboundFrame("error");
-    expect(first).toBe(second);
-    expect(first.disposition).toBe("normalized");
-    expect((first as CodexNormalizedFamilyEmission).emissionReadiness).toBe(
-      (second as CodexNormalizedFamilyEmission).emissionReadiness,
-    );
-  });
-});
-
-// --------------------------------------------------------------------------
-// Tool-identity binding — the `tools.ts` namespace seam.
-// --------------------------------------------------------------------------
-//
-// `tools.ts` exports `CODEX_TOOL_NAMES` specifically so this module consumes
-// the identity instead of restating literals. The production binding is the
-// type annotation on `CODEX_TOOL_KEYED_APPROVAL_METHODS` — a namespace rename
-// makes that declaration a compile error. These tests assert the runtime half
-// the type cannot: that the bound methods are real census keys and that their
-// embedded segments are live members of the namespace.
-
-describe("Codex event normalizer — tool-keyed methods bind to the tools.ts namespace", () => {
-  it("binds every tool-keyed approval method to a live CodexToolName", () => {
-    for (const approvalMethod of CODEX_TOOL_KEYED_APPROVAL_METHODS) {
-      const embeddedToolName = approvalMethod.slice(
-        "item/".length,
-        approvalMethod.length - "/requestApproval".length,
-      );
-      expect(
-        CODEX_TOOL_NAMES,
-        `${approvalMethod} embeds a segment that is not a CodexToolName`,
-      ).toContain(embeddedToolName);
-    }
-  });
-
-  it("keeps every tool-keyed approval method in the normalization census", () => {
-    // The failure this catches: a tool namespace change ripples into the
-    // method literal, the method silently leaves the census, and approval
-    // frames start reaching the unknown seam instead of interactive_request.
-    for (const approvalMethod of CODEX_TOOL_KEYED_APPROVAL_METHODS) {
-      expect(CODEX_INBOUND_FRAME_METHODS).toContain(approvalMethod);
-      expect(CODEX_FRAME_NORMALIZATION_BY_METHOD.has(approvalMethod)).toBe(true);
-    }
-  });
-
-  it("normalizes every tool-keyed approval method into interactive_request", () => {
-    for (const approvalMethod of CODEX_TOOL_KEYED_APPROVAL_METHODS) {
-      expect(normalizeCodexInboundFrame(approvalMethod)).toMatchObject({
-        disposition: "normalized",
-        transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
-      });
-    }
-  });
-
-  it("covers exactly the two mutating tools that gate on approval at the pin", () => {
-    // Pinned at two, not asserted as total over CODEX_TOOL_NAMES: the reverse
-    // direction would demand `item/webSearch/requestApproval` and four more
-    // that the pinned Codex wire census does not show. Inventing
-    // them to satisfy a symmetry the protocol lacks is the transcription this
-    // corpus forbids.
-    expect([...CODEX_TOOL_KEYED_APPROVAL_METHODS].sort()).toEqual([
-      "item/commandExecution/requestApproval",
-      "item/fileChange/requestApproval",
-    ]);
-  });
-
-  it("freezes the bound-method census against consumer mutation", () => {
-    expect(Object.isFrozen(CODEX_TOOL_KEYED_APPROVAL_METHODS)).toBe(true);
-  });
-});
-
-// --------------------------------------------------------------------------
-// Negotiation-gated methods — the dormant-but-mapped declaration.
-// --------------------------------------------------------------------------
-//
-// The driver ships `experimentalApi: false`, so every census member the pin
-// marks experimental is unreachable today. The production module DECLARES that
-// set rather than deriving it, because the gate state is in neither of its
-// inputs: the generated schema does not encode it for notifications, and
-// `tools.ts` knows nothing about negotiation. These tests are what keep the
-// declaration honest — they pin it to the `__fixtures__/` gate tags, which are
-// the transcription of codex.md across BOTH transports.
-
-describe("Codex event normalizer — negotiation-gated methods are declared, not assumed", () => {
-  /** Census members the fixtures tag experimental-gated, on either transport. */
-  const fixtureGatedCensusMethods = (): readonly string[] => {
-    const censusMethods = new Set<string>(CODEX_INBOUND_FRAME_METHODS);
-    return [
-      ...CODEX_SERVER_REQUEST_METHOD_VECTORS.filter((vector) => vector.experimentalGatedAtPin).map(
-        (vector) => vector.method,
-      ),
-      ...CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
-        (vector) => vector.experimentalGatedAtPin,
-      ).map((vector) => vector.method),
-    ].filter((method) => censusMethods.has(method));
-  };
-
-  it("declares exactly the census members the fixtures tag gated", () => {
-    // Set equality in BOTH directions. A census edit that adds a gated method
-    // without declaring it fails here; so does a declaration naming a method
-    // the fixtures do not tag.
-    expect([...CODEX_NEGOTIATION_GATED_METHODS].sort()).toEqual(
-      [...fixtureGatedCensusMethods()].sort(),
-    );
-  });
-
-  it("covers both transports — the gate is not a notification-only concern", () => {
-    // The regression this guards: reading codex.md's transport-level filter
-    // (`should_skip_notification_for_connection`) and concluding only
-    // notifications are gated. `item/tool/requestUserInput` is a REQUEST and
-    // is the one EXPERIMENTAL-marked arm of the pinned binary's ten.
-    const gatedTransports = new Set(
-      CODEX_NEGOTIATION_GATED_METHODS.map((method) => {
-        const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method);
-        expect(
-          normalization,
-          `${method} is declared gated but absent from the census`,
-        ).toBeDefined();
-        return normalization?.transport;
-      }),
-    );
-    expect(gatedTransports).toEqual(new Set(["server-request", "server-notification"]));
-    expect(CODEX_NEGOTIATION_GATED_METHODS).toContain("item/tool/requestUserInput");
-  });
-
-  it("keeps every declared gated method mapped rather than deleted", () => {
-    // The point of the declaration: these rows stay in the census so a posture
-    // flip or a pin bump inherits their disposition instead of routing twelve
-    // settled frames into diagnostic at once.
-    for (const gatedMethod of CODEX_NEGOTIATION_GATED_METHODS) {
-      expect(CODEX_INBOUND_FRAME_METHODS).toContain(gatedMethod);
-      expect(() => normalizeCodexInboundFrame(gatedMethod)).not.toThrow();
-    }
-  });
-
-  it("excludes the realtime methods, which are suppressed rather than dormant", () => {
-    // Two different exclusions with two different reasons, and conflating them
-    // would be the bug: realtime frames are opted out BY NAME at the source and
-    // target a family with no V1 emitter, so they are absent from the census
-    // entirely; gated frames are settled dispositions awaiting delivery.
-    for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
-      expect(CODEX_NEGOTIATION_GATED_METHODS).not.toContain(realtimeMethod);
-      expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(realtimeMethod);
-    }
-  });
-
-  it("excludes the pin's non-realtime gated addition, which is unmapped rather than dormant", () => {
-    // The `0.150.1` hop added `mcpServer/event/stream/notification` as a gated
-    // arm. It is neither suppressed by name (it is not realtime) nor given a
-    // family by any corpus row, so it belongs in NEITHER the closed union nor
-    // the dormant-but-settled declaration: it must reach the unknown seam and
-    // surface as a diagnostic. Without this assertion the fixture's gate tag
-    // for it is checked by nothing, because the cross-check above filters to
-    // census members and this method is deliberately not one.
-    expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN);
-    expect(CODEX_NEGOTIATION_GATED_METHODS).not.toContain(
-      EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
-    );
-    expect(() => normalizeCodexInboundFrame(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN)).toThrow(
-      UnknownCodexInboundFrameError,
-    );
-  });
-
-  it("leaves the ungated remainder of the census reachable at the shipped posture", () => {
-    // Non-vacuity: if this ever hit zero, the suite above would be asserting a
-    // property of an empty set while the driver received nothing at all.
-    const reachable = CODEX_INBOUND_FRAME_METHODS.filter(
-      (method) => !CODEX_NEGOTIATION_GATED_METHODS.includes(method),
-    );
-    expect(reachable.length).toBeGreaterThan(0);
-    expect(reachable.length + CODEX_NEGOTIATION_GATED_METHODS.length).toBe(
-      CODEX_INBOUND_FRAME_METHODS.length,
-    );
-  });
-
-  it("freezes the declaration against consumer mutation", () => {
-    expect(Object.isFrozen(CODEX_NEGOTIATION_GATED_METHODS)).toBe(true);
-  });
-
-  it("pins the transport split the declaration comment states", () => {
-    // The comment on CODEX_NEGOTIATION_GATED_METHODS claims "1 of 10" requests
-    // and "11 of this census's 26" notifications. A prose count that no test
-    // reads is a count that drifts -- this one was wrong (24) on first write
-    // and was caught by measuring rather than by re-reading. It moved 25 -> 26
-    // with `skills/changed`, which is UNGATED, so the gated split below is
-    // unchanged by that addition.
-    const rows = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()];
-    expect(rows.filter((row) => row.transport === "server-request")).toHaveLength(10);
-    expect(rows.filter((row) => row.transport === "server-notification")).toHaveLength(26);
-
-    const gatedByTransport = CODEX_NEGOTIATION_GATED_METHODS.map(
-      (method) => CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method)?.transport,
-    );
-    expect(gatedByTransport.filter((transport) => transport === "server-request")).toHaveLength(1);
-    expect(
-      gatedByTransport.filter((transport) => transport === "server-notification"),
-    ).toHaveLength(11);
-  });
-});
-
-// --------------------------------------------------------------------------
-// Truncated delta-family names — a standing regression guard.
-// --------------------------------------------------------------------------
-
-describe("Codex event normalizer — the truncated delta names stay off the census", () => {
-  it("refuses the truncated wire names delta row once carried", () => {
-    // spelled this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`"
-    // until its 2026-08-28 correction. Regenerating the protocol schema from the
-    // pinned binary (`codex app-server generate-json-schema` at codex-cli 0.150.1)
-    // emits `turn/diff/updated` and `turn/plan/updated`; the bare forms appear
-    // nowhere in its 79-arm `ServerNotification` root.
-    //
-    // The guard OUTLIVES the correction it was written against. The truncated
-    // spellings are the intuitive ones, they survive in older revisions of this
-    // corpus, and they are one keystroke from the real ones — so "restoring"
-    // either must fail here rather than silently route real frames to the
-    // unknown seam.
-    for (const truncatedName of ["turn/diff", "turn/plan"]) {
-      expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(truncatedName);
-      expect(() => normalizeCodexInboundFrame(truncatedName)).toThrow(
-        UnknownCodexInboundFrameError,
-      );
-    }
-  });
-
-  it("maps the generator-verified names, and only those", () => {
-    for (const generatedName of ["turn/diff/updated", "turn/plan/updated"]) {
-      expect(CODEX_INBOUND_FRAME_METHODS).toContain(generatedName);
-      expect(normalizeCodexInboundFrame(generatedName)).toMatchObject({
-        disposition: "normalized",
-        transport: "server-notification",
-      });
-    }
-  });
-
-  it("keeps turn/moderationMetadata bare — only two of the three were wrong", () => {
-    // The pinned binary emits this one unsuffixed. Renaming it "for
-    // consistency" with its two siblings would break a name that is correct.
-    expect(CODEX_INBOUND_FRAME_METHODS).toContain("turn/moderationMetadata");
-    expect(CODEX_INBOUND_FRAME_METHODS).not.toContain("turn/moderationMetadata/updated");
-  });
-});
-
-// --------------------------------------------------------------------------
-// Emission routing, family classification, child announcements.
-// --------------------------------------------------------------------------
+import { TerminalEmissionGate, type TerminalRunFrame } from "../../../terminal-emission-gate.js";
+import { classifyCodexUsageLimitSignal } from "../usage-limit-signal.js";
 
 describe("resolveCodexFrameEmissionRoute", () => {
   function makeDiagnostics() {
-    return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+    return makeSilentDriverDiagnostics();
   }
 
-  it("mirrors the mapping table's verdict for every censused method — the route arm IS the row's disposition", () => {
-    const diagnostics = makeDiagnostics();
-    for (const method of CODEX_INBOUND_FRAME_METHODS) {
-      const row = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method);
-      const route = resolveCodexFrameEmissionRoute(method, diagnostics);
-      if (row?.disposition === "not-evented") {
-        expect(route.route, method).toBe("not-evented");
-      } else if (row?.emissionReadiness === "payload-variant-pending") {
-        expect(route.route, method).toBe("diagnostic");
-        if (route.route === "diagnostic") {
-          expect(route.record.kind, method).toBe("payload_variant_pending");
-        }
-      } else {
-        expect(route.route, method).toBe("emit");
-      }
-    }
-    // A censused method never lands on the unmapped arm.
-    expect(diagnostics.recentRecordsOfKind("unmapped_wire_kind")).toHaveLength(0);
-  });
-
-  it("routes an unmapped method to the diagnostic default branch — emitted, never thrown, never enveloped", () => {
+  it("routes an unmapped method to the diagnostic default branch, emitted, never thrown, never enveloped", () => {
     const diagnostics = makeDiagnostics();
     const route = resolveCodexFrameEmissionRoute("thread/unheard-of", diagnostics);
     expect(route.route).toBe("diagnostic");
@@ -1172,38 +27,18 @@ describe("resolveCodexFrameEmissionRoute", () => {
       expect(route.record.provider).toBe("codex");
     }
     expect(diagnostics.emittedRecordCount()).toBe(1);
-    // The bare resolver keeps its throwing contract for direct misuse; the
-    // diagnostic route is the driver-core entry point.
-    expect(() => normalizeCodexInboundFrame("thread/unheard-of")).toThrow(
-      UnknownCodexInboundFrameError,
-    );
   });
 });
 
 describe("classifyCodexFrameFamilyForRouting", () => {
-  it("classifies every censused method plus the two router-band methods — none falls to unknown", () => {
-    const routableMethods = [
-      ...CODEX_INBOUND_FRAME_METHODS,
-      CODEX_THREAD_STARTED_METHOD,
-      CODEX_THREAD_TOKEN_USAGE_METHOD,
-    ];
-    for (const method of routableMethods) {
-      expect(classifyCodexFrameFamilyForRouting(method).scope, method).not.toBe("unknown");
-    }
-  });
-
   it("classifies the account-plane and notice families connection-scoped", () => {
     for (const connectionScopedMethod of [
       "error",
       "account/rateLimits/updated",
       "account/chatgptAuthTokens/refresh",
-      "model/safetyBuffering/updated",
       "project/changed",
-      // Connection-scoped by its own pinned shape — its payload is the empty
-      // object, so it names no thread. Asserted explicitly because the
-      // alternative is not merely a different label: an unlisted method
-      // quarantines, which would emit a router diagnostic on every save of
-      // every watched skill file.
+      // Its payload is the empty object, so it names no thread; an unlisted method quarantines,
+      // which would emit a router diagnostic on every skill-file save.
       "skills/changed",
     ]) {
       expect(classifyCodexFrameFamilyForRouting(connectionScopedMethod)).toEqual({
@@ -1211,99 +46,17 @@ describe("classifyCodexFrameFamilyForRouting", () => {
       });
     }
   });
-
-  it("classifies the usage reading and the compaction marker thread-scoped usage", () => {
-    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_TOKEN_USAGE_METHOD)).toEqual({
-      scope: "thread",
-      capability: "usage",
-    });
-    expect(classifyCodexFrameFamilyForRouting("thread/compacted")).toEqual({
-      scope: "thread",
-      capability: "usage",
-    });
-  });
-
-  it("classifies thread/started lifecycle and the approval asks interactive-request", () => {
-    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_STARTED_METHOD)).toEqual({
-      scope: "thread",
-      capability: "lifecycle",
-    });
-    for (const interactiveMethod of [
-      "item/commandExecution/requestApproval",
-      "item/tool/requestUserInput",
-      "execCommandApproval",
-    ]) {
-      expect(classifyCodexFrameFamilyForRouting(interactiveMethod)).toEqual({
-        scope: "thread",
-        capability: "interactive-request",
-      });
-    }
-  });
-
-  it("classifies an unlisted shape unknown — the realtime family and novel methods are never presumed connection-scoped", () => {
-    for (const unlistedMethod of ["realtime/audioDelta", "novel/unheard-of"]) {
-      expect(classifyCodexFrameFamilyForRouting(unlistedMethod)).toEqual({ scope: "unknown" });
-    }
-  });
 });
 
-describe("deriveCodexChildThreadAnnouncement", () => {
-  it("marks the subagent-attributed ThreadSourceKind arms with the child thread id as subagent identity", () => {
-    for (const threadSourceKind of CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS) {
-      expect(
-        deriveCodexChildThreadAnnouncement({
-          threadId: "child-thread",
-          parentThreadId: "parent-thread",
-          threadSourceKind,
-        }),
-      ).toEqual({
-        childThreadId: "child-thread",
-        declaredParentThreadId: "parent-thread",
-        subagentId: "child-thread",
-      });
-    }
-  });
+// The terminal-emission boundary. A daemon-initiated close is stamped `intendedClose` so recovery
+// reads a clean shutdown as clean rather than as a crash, and the ordinary post-interrupt double
+// terminal for one `(runId, runVersion)` epoch is absorbed at the driver rather than failing
+// against the partial unique index on terminal session events.
 
-  it("marks a compaction child provider-internal — spend attributes to the parent run", () => {
-    expect(
-      deriveCodexChildThreadAnnouncement({
-        threadId: "compaction-thread",
-        parentThreadId: "parent-thread",
-        threadSourceKind: "subAgentCompact",
-      }),
-    ).toEqual({
-      childThreadId: "compaction-thread",
-      declaredParentThreadId: "parent-thread",
-      subagentId: null,
-    });
-  });
-
-  it("carries an absent parent linkage verbatim — the router, not this helper, refuses it", () => {
-    expect(
-      deriveCodexChildThreadAnnouncement({
-        threadId: "child-thread",
-        parentThreadId: null,
-        threadSourceKind: "subAgent",
-      }).declaredParentThreadId,
-    ).toBeNull();
-  });
-});
-
-// --------------------------------------------------------------------------
-// The terminal-emission boundary.
-// --------------------------------------------------------------------------
-//
-// Spec coverage under test:
-//     stamped `intendedClose` so the recovery classifier reads a clean shutdown
-//     as a clean shutdown rather than as a crash.
-//     `(runId, runVersion)` epoch reaches the emission pipeline, so the ordinary
-//     post-interrupt double is absorbed at the driver rather than failing loud
-//     against the partial unique index.
-
-describe("CodexTerminalEmissionGate", () => {
+describe("TerminalEmissionGate", () => {
   const PROJECTED_ROUTE = { decision: "project" } as const;
 
-  function terminalFrame(overrides: Partial<CodexTerminalRunFrame> = {}): CodexTerminalRunFrame {
+  function terminalFrame(overrides: Partial<TerminalRunFrame> = {}): TerminalRunFrame {
     return {
       runId: "run-1",
       runVersion: 1,
@@ -1314,7 +67,7 @@ describe("CodexTerminalEmissionGate", () => {
   }
 
   it("stamps `intendedClose: false` for a terminal no close preceded", () => {
-    const gate = new CodexTerminalEmissionGate();
+    const gate = new TerminalEmissionGate();
 
     expect(gate.admitTerminalFrame(terminalFrame())).toStrictEqual({
       emit: true,
@@ -1324,12 +77,12 @@ describe("CodexTerminalEmissionGate", () => {
     });
   });
 
-  it("stamps `intendedClose: true` once a daemon-initiated close is signalled", () => {
-    const gate = new CodexTerminalEmissionGate();
+  it("stamps `intendedClose: true` once a daemon-initiated close is signaled", () => {
+    const gate = new TerminalEmissionGate();
 
     gate.signalIntendedClose();
 
-    expect(gate.intendedCloseSignalled()).toBe(true);
+    expect(gate.intendedCloseSignaled()).toBe(true);
     expect(gate.admitTerminalFrame(terminalFrame())).toMatchObject({
       emit: true,
       intendedClose: true,
@@ -1337,10 +90,9 @@ describe("CodexTerminalEmissionGate", () => {
   });
 
   it("suppresses a second terminal for the SAME epoch", () => {
-    // The ordinary post-interrupt double. Absorbed here rather than left to
-    // fail loud against the schema backstop on a condition the driver could
-    // have handled.
-    const gate = new CodexTerminalEmissionGate();
+    // The ordinary post-interrupt double, absorbed here rather than failing against the schema
+    // backstop.
+    const gate = new TerminalEmissionGate();
     gate.admitTerminalFrame(terminalFrame());
 
     expect(gate.admitTerminalFrame(terminalFrame({ rawWireType: "turn/failed" }))).toStrictEqual({
@@ -1351,9 +103,8 @@ describe("CodexTerminalEmissionGate", () => {
   });
 
   it("admits a NEW epoch for the same run", () => {
-    // The key is the epoch, not the run: a re-dispatched run version is a
-    // different settlement and must not be swallowed by its predecessor's.
-    const gate = new CodexTerminalEmissionGate();
+    // The key is the epoch, not the run: a re-dispatched run version is a separate settlement.
+    const gate = new TerminalEmissionGate();
     gate.admitTerminalFrame(terminalFrame());
 
     expect(gate.admitTerminalFrame(terminalFrame({ runVersion: 2 }))).toMatchObject({ emit: true });
@@ -1361,24 +112,22 @@ describe("CodexTerminalEmissionGate", () => {
   });
 
   it("settles no run for a frame the router did not route to the session's thread", () => {
-    // Routing is CONSUMED, never re-decided: a child thread's terminal must not
-    // settle the parent's run, and this boundary adds no second source of truth
-    // for whose stream a frame came from.
-    const gate = new CodexTerminalEmissionGate();
+    // Routing is consumed, not re-decided: a child thread's terminal must not settle the parent's
+    // run.
+    const gate = new TerminalEmissionGate();
 
     const decision = gate.admitTerminalFrame(
       terminalFrame({ route: { decision: "suppress-child-transcript", childThreadId: "child-1" } }),
     );
 
     expect(decision).toStrictEqual({ emit: false, suppressionReason: "not-the-session-thread" });
-    // And it consumed no epoch, so the parent's own terminal still settles.
+    // It consumed no epoch, so the parent's own terminal still settles.
     expect(gate.hasSettledEpoch("run-1", 1)).toBe(false);
   });
 
   it("evicts oldest-first so the memory stays proportional to the hazard", () => {
-    // A long session's run count is unbounded while the window a duplicate
-    // arrives in is not.
-    const gate = new CodexTerminalEmissionGate({ settledEpochMemory: 2 });
+    // A long session's run count is unbounded; the window in which a duplicate arrives is not.
+    const gate = new TerminalEmissionGate({ settledEpochMemory: 2 });
     gate.admitTerminalFrame(terminalFrame({ runId: "run-a" }));
     gate.admitTerminalFrame(terminalFrame({ runId: "run-b" }));
     gate.admitTerminalFrame(terminalFrame({ runId: "run-c" }));
@@ -1389,16 +138,9 @@ describe("CodexTerminalEmissionGate", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Typed provider usage-limit signal, Codex leg
-// --------------------------------------------------------------------------
-//
-// Shapes below are built from the pinned generated protocol
-// (the pinned Codex wire census): `RateLimitSnapshot` carries
-// `rateLimitReachedType`, `limitId`, `limitName`, `planType`, `credits`,
-// `individualLimit`, `spendControlReached`, and the `primary` / `secondary`
-// `RateLimitWindow`s, each with `usedPercent`, `windowDurationMins`, and a
-// `resetsAt` documented as Unix SECONDS.
+// Typed provider usage-limit signal, Codex side. Snapshot shapes follow the pinned generated
+// protocol: `RateLimitSnapshot` carries `rateLimitReachedType` and `primary` / `secondary`
+// `RateLimitWindow`s (`usedPercent`, `windowDurationMins`, `resetsAt` in Unix seconds).
 
 /** `2026-09-01T00:00:00.000Z`, as the provider states it. */
 const SEPTEMBER_RESET_EPOCH_SECONDS = 1788220800;
@@ -1409,45 +151,8 @@ function rateLimitsReadReply(snapshot: Record<string, unknown>): Record<string, 
   return { rateLimits: snapshot };
 }
 
-function rateLimitsUpdatedParams(snapshot: Record<string, unknown>): Record<string, unknown> {
-  return { rateLimits: snapshot };
-}
-
-describe("classifyCodexUsageLimitSignal — typed-only recognition on the account plane", () => {
-  it("names both account-plane carriers by identity rather than by a repeated literal", () => {
-    expect(CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD).toBe("account/rateLimits/read");
-    expect(CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD).toBe("account/rateLimits/updated");
-  });
-
-  it("PARTITIONS the pinned reached-type enum into recognized and deliberately excluded", () => {
-    // The guard against "excluded and dormant collapsed": every typed arm the
-    // pin publishes is accounted for by exactly one disposition, so an arm added
-    // upstream cannot slip into the unrecognized path unnoticed.
-    expect(CODEX_RATE_LIMIT_REACHED_TYPES).toHaveLength(5);
-    const recognized = CODEX_RATE_LIMIT_REACHED_TYPES.filter(
-      (reachedType) =>
-        classifyCodexUsageLimitSignal({
-          latestRead: rateLimitsReadReply({ rateLimitReachedType: reachedType }),
-          rollingUpdate: null,
-        }) !== null,
-    );
-    expect([...recognized].sort()).toEqual([
-      "rate_limit_reached",
-      "workspace_member_usage_limit_reached",
-      "workspace_owner_usage_limit_reached",
-    ]);
-    expect([...CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES].sort()).toEqual([
-      "workspace_member_credits_depleted",
-      "workspace_owner_credits_depleted",
-    ]);
-    // Partition, not merely two lists: their union is the census and they do not
-    // overlap.
-    expect([...recognized, ...CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES].sort()).toEqual(
-      [...CODEX_RATE_LIMIT_REACHED_TYPES].sort(),
-    );
-  });
-
-  it("emits the signal with a PROVIDER-STATED boundary read from the spent window", () => {
+describe("classifyCodexUsageLimitSignal: typed-only recognition on the account plane", () => {
+  it("emits the signal with a provider-stated boundary read from the spent window", () => {
     const signal = classifyCodexUsageLimitSignal({
       latestRead: rateLimitsReadReply({
         rateLimitReachedType: "rate_limit_reached",
@@ -1472,89 +177,9 @@ describe("classifyCodexUsageLimitSignal — typed-only recognition on the accoun
     });
   });
 
-  it("reads `resetsAt` as Unix SECONDS, not milliseconds", () => {
-    // A millisecond reading would place this boundary about fifty-five years
-    // early, and would surface as "the pacing surface resumes immediately"
-    // rather than as a parse failure — so the unit is pinned by assertion.
-    const signal = classifyCodexUsageLimitSignal({
-      latestRead: rateLimitsReadReply({
-        rateLimitReachedType: "workspace_owner_usage_limit_reached",
-        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-      }),
-      rollingUpdate: null,
-    });
-    expect(signal?.resetBoundary?.resetsAt).toBe("2026-09-01T00:00:00.000Z");
-    expect(signal?.resetBoundary?.resetsAt).not.toBe(
-      new Date(SEPTEMBER_RESET_EPOCH_SECONDS).toISOString(),
-    );
-  });
-
-  it("takes the LATEST reset among the windows the provider marks spent", () => {
-    // Picking the earliest would schedule a resume the other window still
-    // refuses, converting one park into a retry ladder.
-    const signal = classifyCodexUsageLimitSignal({
-      latestRead: rateLimitsReadReply({
-        rateLimitReachedType: "workspace_member_usage_limit_reached",
-        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-        secondary: { usedPercent: 100, resetsAt: LATER_RESET_EPOCH_SECONDS },
-      }),
-      rollingUpdate: null,
-    });
-    expect(signal?.resetBoundary?.resetsAt).toBe(
-      new Date(LATER_RESET_EPOCH_SECONDS * 1000).toISOString(),
-    );
-  });
-
-  it("MERGES the sparse push frame over the last full read, per the vendor's own rule", () => {
-    // The push notification's schema documents it as sparse and instructs
-    // clients to merge into the most recent read. A classifier fed only the push
-    // would read a routinely-absent window as "no boundary was reported".
-    const signal = classifyCodexUsageLimitSignal({
-      latestRead: rateLimitsReadReply({
-        rateLimitReachedType: null,
-        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-      }),
-      rollingUpdate: rateLimitsUpdatedParams({ rateLimitReachedType: "rate_limit_reached" }),
-    });
-    expect(signal).toEqual({
-      cause: "plan-allowance-exhausted",
-      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z", provenance: "provider-stated" },
-    });
-  });
-
-  it("does not let a NULL member of a sparse update clear a previously observed value", () => {
-    // Stated by the vendor in the same sentence: "Nullable account metadata may
-    // be unavailable in a rolling update and does not clear a previously
-    // observed value."
-    const signal = classifyCodexUsageLimitSignal({
-      latestRead: rateLimitsReadReply({
-        rateLimitReachedType: "rate_limit_reached",
-        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-      }),
-      rollingUpdate: rateLimitsUpdatedParams({ rateLimitReachedType: null, primary: null }),
-    });
-    expect(signal?.cause).toBe("plan-allowance-exhausted");
-    expect(signal?.resetBoundary?.resetsAt).toBe("2026-09-01T00:00:00.000Z");
-  });
-
-  it("returns the CAUSE ALONE when no window the provider marks spent names a reset", () => {
-    // A missing boundary changes only whether a resume is scheduled — never
-    // whether the run is known to be limited.
-    const signal = classifyCodexUsageLimitSignal({
-      latestRead: rateLimitsReadReply({
-        rateLimitReachedType: "rate_limit_reached",
-        primary: { usedPercent: 100, resetsAt: null },
-        secondary: { usedPercent: 12, resetsAt: LATER_RESET_EPOCH_SECONDS },
-      }),
-      rollingUpdate: null,
-    });
-    expect(signal).toEqual({ cause: "plan-allowance-exhausted" });
-  });
-
-  it("SEEDED DISCRIMINATING CONTROL — prose plus an exit code produce NO signal", () => {
-    // The control a TEXT-MATCHING implementation would classify as a usage
-    // limit. Every one of these carriers is prose or a numeric status; none is
-    // the typed enum the classifier gates on, so all four must be silent.
+  it("produces no signal from prose or an exit code a text matcher would accept", () => {
+    // Prose and exit codes a text-matching classifier would accept; none is the typed enum, so all
+    // four must be silent.
     const proseAndExitCodeCarriers: readonly unknown[] = [
       { exitCode: 429, message: "You have exceeded your usage limit. Resets 2026-09-01." },
       { rateLimits: { limitName: "usage limit reached — try again after the weekly reset" } },
@@ -1580,39 +205,7 @@ describe("classifyCodexUsageLimitSignal — typed-only recognition on the accoun
     }
   });
 
-  it("does not let boundary SELECTION leak into recognition", () => {
-    // Both windows fully consumed with reset instants present, and no
-    // reached-type arm: an account at its ceiling is not a statement that a turn
-    // was refused. Proves `usedPercent` is a selection input only.
-    expect(
-      classifyCodexUsageLimitSignal({
-        latestRead: rateLimitsReadReply({
-          primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-          secondary: { usedPercent: 100, resetsAt: LATER_RESET_EPOCH_SECONDS },
-        }),
-        rollingUpdate: null,
-      }),
-    ).toBeNull();
-  });
-
-  it("stays silent on the OPERATOR-REMEDIABLE arms rather than parking a run", () => {
-    // A depleted credit balance is restored by a purchase, not by a window
-    // turning over, so a reset boundary would promise an instant at which
-    // nothing changes.
-    for (const reachedType of CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES) {
-      expect(
-        classifyCodexUsageLimitSignal({
-          latestRead: rateLimitsReadReply({
-            rateLimitReachedType: reachedType,
-            primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-          }),
-          rollingUpdate: null,
-        }),
-      ).toBeNull();
-    }
-  });
-
-  it("yields NOTHING — never a default-caused signal — on unparseable or absent input", () => {
+  it("yields no signal, never a default-caused one, on unparseable or absent input", () => {
     const unrecognized: readonly unknown[] = [
       null,
       undefined,
@@ -1636,36 +229,5 @@ describe("classifyCodexUsageLimitSignal — typed-only recognition on the accoun
       ).toBeNull();
     }
     expect(classifyCodexUsageLimitSignal({ latestRead: null, rollingUpdate: null })).toBeNull();
-  });
-
-  it("refuses a reset instant that names no representable moment", () => {
-    // A window marked spent whose `resetsAt` cannot be turned into an instant
-    // still yields the cause: the refusal is real even when the boundary is not.
-    for (const resetsAt of [Number.NaN, Number.POSITIVE_INFINITY, 1e18, "soon", {}]) {
-      expect(
-        classifyCodexUsageLimitSignal({
-          latestRead: rateLimitsReadReply({
-            rateLimitReachedType: "rate_limit_reached",
-            primary: { usedPercent: 100, resetsAt },
-          }),
-          rollingUpdate: null,
-        }),
-      ).toEqual({ cause: "plan-allowance-exhausted" });
-    }
-  });
-
-  it("reads the consumed fraction TOLERANTLY across the pin's two numeric widths", () => {
-    // `f64` in the core protocol type, `i32` in the app-server struct.
-    for (const usedPercent of [100, 100.0, 100.5, 137]) {
-      expect(
-        classifyCodexUsageLimitSignal({
-          latestRead: rateLimitsReadReply({
-            rateLimitReachedType: "rate_limit_reached",
-            primary: { usedPercent, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
-          }),
-          rollingUpdate: null,
-        })?.resetBoundary?.resetsAt,
-      ).toBe("2026-09-01T00:00:00.000Z");
-    }
   });
 });

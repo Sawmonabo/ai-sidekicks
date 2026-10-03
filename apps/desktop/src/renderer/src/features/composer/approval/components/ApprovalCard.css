@@ -1,0 +1,155 @@
+/* The approval card's sheet. Colors, spaces and radii are tokens; the amber and red marks come
+   through `Chip` and `Refusal`. The scope choice and the actions wear the shared action button
+   from `styles/action-buttons.css`, so this sheet adds only the actions' disabled state. */
+
+.meridian-approval-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-approval-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.meridian-approval-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+/* Who asked, from which run, the scope and when read on one screen; what was asked for sits
+   behind a disclosure. */
+.meridian-approval-card__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+}
+
+.meridian-approval-card__fact {
+  min-width: 0;
+}
+
+.meridian-approval-card__fact dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-approval-card__fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-approval-card__disclosure-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-approval-card__resource {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  margin: 0;
+}
+
+.meridian-approval-card__resource-member {
+  display: contents;
+}
+
+.meridian-approval-card__resource dt,
+.meridian-approval-card__resource dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-approval-card__resource dt {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-approval-card__resource-empty {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-approval-card__remember-note {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-approval-card__opt-in {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-approval-card__checkbox {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-approval-card__checkbox-mark {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--meridian-accent);
+  border-radius: 1px;
+}
+
+.meridian-approval-card__scope-popup {
+  padding: var(--meridian-space-1);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-approval-card__scope-item {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+/* One filled primary action per card: approve wears `meridian-accent-fill`. Reject stays quiet
+   and never red, because a rejection is the console working. */
+.meridian-approval-card__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-approval-card__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

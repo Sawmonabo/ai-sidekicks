@@ -1,0 +1,50 @@
+/* The inline artifact card a transcript row carries. Meridian tokens only. */
+
+.meridian-artifact-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-artifact-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-artifact-card__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-artifact-card__id {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-artifact-card__body {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+.meridian-artifact-card__face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}

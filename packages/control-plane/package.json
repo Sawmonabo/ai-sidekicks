@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Control Plane services and shared-session coordination logic.",
+  "description": "The control plane's gated Cloudflare Worker and its Postgres schema runner.",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.16.0"
   },
   "exports": {
     ".": {
@@ -30,20 +30,16 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
-    "@ai-sidekicks/crypto-paseto": "workspace:*",
-    "@trpc/server": "^11.17.0",
-    "pg": "^8.20.0",
-    "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30",
-    "zod": "^4.3.6"
+    "@trpc/server": "^11.19.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.4.4",
-    "@types/pg": "^8.15.6",
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/pg": "^8.23.1",
     "@vitest/coverage-v8": "catalog:testing",
-    "eslint": "^10.2.1",
-    "typescript": "^5.9.3",
+    "eslint": "^10.11.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "catalog:testing",
-    "wrangler": "^4.86.0"
+    "wrangler": "^4.145.0"
   }
 }

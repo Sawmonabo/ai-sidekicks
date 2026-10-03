@@ -1,101 +1,27 @@
-// `test:changed`, with the base ref where `--changed` can actually see it.
+// `pnpm run test:changed <base-ref> [vitest args...]`: the unit tiers over what changed since a
+// base ref. Each rule below stops a run that selects nothing from exiting 0, which a person would
+// read as "my changes are covered".
 //
-// THE BUG THIS EXISTS TO REMOVE
-// -----------------------------
-// The script line was `vitest run --project=console-unit --changed --maxWorkers=2`,
-// and a lane ran it as `pnpm run test:changed <base-ref>`. pnpm APPENDS the
-// caller's arguments, so the ref landed after `--maxWorkers=2` — and `--changed`
-// takes an OPTIONAL argument, which `--maxWorkers=2` had already terminated. The
-// ref therefore arrived as a positional FILE FILTER. A branch name matches no
-// test file, so vitest selected nothing, and selecting nothing is not an error:
-// the run exited 0 and the lane read a green result as "my changes are covered".
-// A verification step that cannot fail is worse than one that is missing, because
-// somebody is relying on it.
+// - The ref is the first argument and is attached as `--changed=<ref>`. pnpm appends the caller's
+//   arguments after the script's own, and a separate ref landed after `--maxWorkers=2` as a
+//   positional file filter that matched no test.
+// - A missing ref refuses: bare `--changed` compares the uncommitted state, which is empty on a
+//   committed branch, and running everything buries the mistake. Refusals exit
+//   `MISUSE_EXIT_CODE`, distinct from the `1` of a failing test.
+// - A ref that names no commit refuses: `--changed=<unknown>` prints "No test files found" and
+//   exits 0. The ref is resolved as `<ref>^{commit}` because a tree or blob cannot be diffed.
+// - Forwarded files choose their own projects instead of a fixed one, because a file owned by an
+//   unselected project matches nothing and exits 0. Which project claims a file is asked of the
+//   real `TestProject` instances (`project.matchesTestGlob`), since a matcher written here could
+//   disagree with the config.
+// - `--changed` intersects with a positional filter, so it is dropped once files are named:
+//   forwarding a module's test names a file the ref does not list, and the empty intersection
+//   exits 0. The ref is still required and resolved so a stale one is reported.
+// - Which arguments are files is asked of vitest's own `parseCLI`, not judged by shape: the
+//   operand of `--testNamePattern "x"` or `--reporter verbose` would read as a path.
 //
-// So the ref is this script's FIRST ARGUMENT, and it is attached to `--changed`
-// with `=` rather than left beside it — the `=` form admits no question about
-// where the option's argument ends, which is the exact ambiguity above. Anything
-// the caller passes after the ref is forwarded to vitest untouched.
-//
-// A CALL WITH NO REF REFUSES
-// --------------------------
-// The two things it could do instead are both wrong. Falling back to bare
-// `--changed` compares against the working tree's uncommitted state, which on a
-// committed branch is empty — the silent zero-test run again, one layer down.
-// Running the whole tier ignores what the caller asked for and buries the
-// mistake under a green wall. The refusal exits `MISUSE_EXIT_CODE`, which is
-// distinct from the `1` vitest itself exits with on a failing test, so a caller
-// can tell "you invoked me wrongly" from "your tests failed".
-//
-// AND A REF THAT DOES NOT RESOLVE REFUSES FOR THE SAME REASON
-// -----------------------------------------------------------
-// A NONEMPTY ref passes the check above and can still name nothing — a typo, a
-// remote branch that was deleted, a `origin/develop` on a clone that has never
-// fetched. `--changed=<unknown>` is not an error to vitest: it resolves no
-// revision, selects no file, prints "No test files found" and EXITS 0. That is
-// byte for byte the false green the argument-position bug produced, arriving
-// through the other door — and it is the likelier of the two now that the
-// position is fixed, because a stale ref is an ordinary thing for a lane to
-// hold. So the ref is resolved here, before vitest is spawned, and a ref that
-// names no commit is a misuse rather than a passing run. It is resolved to a
-// COMMIT (`<ref>^{commit}`) rather than merely dereferenced, because a name that
-// resolves to a tree or a blob is a name `--changed` cannot diff either.
-//
-// AND ONE PROJECT COULD NOT RUN THE FILE IT WAS HANDED
-// -----------------------------------------------------
-// The selection was the literal `--project=console-unit`, and the lane workflow
-// this script exists to serve forwards the files the lane AUTHORED after the
-// ref. A `main-unit` file — `src/main/**`, `src/shared/**`, `build/**`, and
-// this script's own test under `scripts/**` — is owned by a project that
-// selection excludes, so vitest was handed a filter naming a real test file,
-// matched it in no selected project, and exited 0. The third door onto the same
-// false green, and the one a lane walks through while doing exactly what the
-// documented workflow tells it to.
-//
-// The same reading settles what `--changed` may still narrow. It INTERSECTS
-// with a positional filter, so a lane that edits a module and forwards that
-// module's test — a change and its coverage being two files — names a file the
-// ref does not list, and vitest selects the empty intersection and exits 0. So
-// the ref decides the selection only when nothing was named; a caller who names
-// files has stated it, and the ref is still required and still resolved so a
-// stale one is still reported.
-//
-// AND WHICH ARGUMENTS ARE FILES IS ASKED OF VITEST
-// --------------------------------------------------
-// Deciding that by shape — "anything not starting with `-` is a file" — reads an
-// option's separate-value operand as one. `--testNamePattern "palette opens"`
-// and `--reporter verbose` are both documented forms, and both were resolved as
-// paths, claimed by no project, and refused with the misuse code: a valid
-// invocation this script would not run, which is the opposite failure from the
-// three above and just as bad. `vitest/node` exports `parseCLI`, which is the
-// parser the child runs, so the answer here and the child's selection cannot
-// disagree — and no arity table of ours can go stale against vitest's own.
-//
-// So the projects are DERIVED from what was forwarded rather than fixed. Which
-// project claims a file is a question only the runner can answer — brace
-// expansion, whether `**` spans zero segments, how `exclude` composes with
-// `include` — so it is asked of the real `TestProject` instances through
-// `createVitest`. A matcher written here could agree with the config and
-// still disagree with the run, which is the class of defect this whole file is
-// about.
-//
-// A resolution under `test/` could not be shared with this one anyway:
-// `tsconfig.scripts.json` roots at `scripts/`, so a script importing from
-// `test/` is outside the program that typechecks it. What would be shared is a
-// four-line `createVitest` call rather than a rule — the RULE is
-// `project.matchesTestGlob`, which is vitest's own and is the only matcher this
-// file runs.
-//
-// NO `import.meta` ANYWHERE, DELIBERATELY
-// ---------------------------------------
-// `tools/__tests__/entry-guard.test.mjs` derives its subject set as the scripts
-// that read BOTH `import.meta.url` and `process.argv` — the pair that means a
-// module discriminates "imported" from "invoked". This one reads argv and never
-// its own path, so it is outside that set by the classifier's own definition
-// rather than by an exemption, and it needs no entry guard: it exports nothing,
-// nothing imports it, and its own test spawns it as a command. Module resolution
-// therefore anchors on the package root, which is where a package script's cwd
-// already is — the seam `scripts/materialize-electron.ts` measures and records.
+// It uses no `import.meta`: it reads argv but never its own path, so it needs no entry guard.
+// Module resolution anchors on the package root, the cwd of a package script.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -109,42 +35,27 @@ const USAGE =
   "usage: pnpm --filter @ai-sidekicks/desktop run test:changed <base-ref> [vitest args...]";
 
 /**
- * What a misuse exits with, chosen so it is not what a test failure exits with.
- *
- * vitest exits `1` when a test fails and `0` when none does. A refusal that
- * exited `1` would be indistinguishable from a red suite in CI output, and one
- * that exited `0` would be the silent success this script was written to end.
+ * What a misuse exits with. vitest exits `1` on a failing test, so a refusal exiting `1` would
+ * look like a red suite, and one exiting `0` would be the silent success this script ends.
  */
 const MISUSE_EXIT_CODE = 2;
 
 /**
- * The projects a lane's changed-file verification may run, as a closed set.
- *
- * The criterion is one property and not a taste: a project here runs from a
- * clean checkout with no prior `pnpm build`. That is what keeps this script
- * something a lane can invoke at any moment. `console-assets` and
- * `console-bundle` read `out/**`, `main`, `console-e2e` and `console-endurance`
- * launch Electron, and the three browser-mode tiers need a real browser — none
- * of them belongs in a command a lane runs against its own uncommitted work,
- * and a file owned by one of them is REFUSED here rather than silently skipped.
- *
- * The names are held against the resolved project set below, so a project
- * renamed in `vitest.config.ts` fails this script rather than quietly shrinking
- * what it verifies.
+ * The projects the changed-file run may use. Each runs from a clean checkout with
+ * no prior `pnpm build`: `bundle` reads `out/**`, `smoke`, `e2e` and `endurance` launch Electron,
+ * and the browser-mode tiers need a real browser. A file owned by one of those is refused, not
+ * skipped. The names are checked against the resolved project set, so a rename in the vitest
+ * config fails this script instead of shrinking what it verifies.
  */
-const CHANGED_TIER_PROJECTS: readonly string[] = ["renderer", "main-unit", "console-unit"];
+const CHANGED_TIER_PROJECTS: readonly string[] = ["main-unit", "renderer"];
 
 /** Held here rather than in the script line, which is what the caller appends to. */
 const CHANGED_TIER_WORKERS = "2";
 
 /**
- * The vitest CLI entry point, resolved rather than shelled to.
- *
- * `node_modules/.bin/vitest` is a shim — a shell script on POSIX and a `.CMD`
- * on Windows — so spawning it by name makes the call platform-shaped. The
- * package's `bin` field names the real module, and running it under
- * `process.execPath` is the same form `scripts/materialize-electron.ts` uses to
- * run Electron's own `install.js`.
+ * The vitest CLI entry point, resolved rather than spawned by name: `node_modules/.bin/vitest` is
+ * a shell script on POSIX and a `.CMD` on Windows, so the package's `bin` module runs under
+ * `process.execPath`.
  */
 function resolveVitestEntryPoint(packageRoot: string): string {
   const resolveFrom = createRequire(path.join(packageRoot, "package.json"));
@@ -161,19 +72,9 @@ function resolveVitestEntryPoint(packageRoot: string): string {
 }
 
 /**
- * Refuse unless `baseRef` names a commit this repository can actually diff.
- *
- * `git rev-parse --verify --quiet <ref>^{commit}` is the whole check: `--verify`
- * demands exactly one object, the `^{commit}` peel demands that object be a
- * commit, and `--quiet` keeps git's own diagnostic off a stream this script's
- * caller reads as this script's voice. Both of git's streams are captured for
- * the same reason — a refusal must be THIS script speaking, and a run that
- * succeeds must leave stderr empty.
- *
- * A git that could not run at all is reported separately from a ref that did not
- * resolve. They are different repairs — install or fix the toolchain, versus
- * pass a ref that exists — and collapsing them would send a reader looking for a
- * branch that was never the problem.
+ * Refuses unless `baseRef` names a commit git can diff. Both git streams are captured so a refusal
+ * is this script speaking and a success leaves stderr empty. A git that could not run is reported
+ * apart from a ref that did not resolve, since the repairs differ.
  */
 function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void {
   const resolved = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`], {
@@ -198,19 +99,11 @@ function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void
 }
 
 /**
- * The unit projects that would DISCOVER each forwarded file, asked of the runner.
- *
- * Resolving costs about two hundred milliseconds and runs nothing: the config is
- * loaded and the `TestProject` instances are constructed, no suite is collected
- * and no browser is launched. `vitest/node` is loaded lazily HERE AND IN THE
- * CLASSIFIER ABOVE, and both short-circuit before reaching for it, so the two
- * invocations that need neither — the ordinary `--changed`-only run, which
- * forwards nothing, and the `--help` probe — still pay none of it.
- *
- * A forwarded file no unit project claims is a REFUSAL and never a narrowing.
- * Vitest treats a filter that matches nothing as an empty selection and exits
- * 0, so admitting it would report a run that never happened as a passing one —
- * this script's whole subject, arriving through a third door.
+ * The unit projects that would discover each forwarded file, asked of the runner. Resolving loads
+ * the config and builds the `TestProject` instances (about 200 ms) without collecting a suite or
+ * launching a browser, and `vitest/node` is imported lazily so a `--changed`-only run or a
+ * `--help` probe pays none of it. A file no unit project claims is refused, because vitest treats
+ * such a filter as an empty selection and exits 0.
  */
 async function unitProjectsClaiming(
   files: readonly string[],
@@ -259,46 +152,21 @@ async function unitProjectsClaiming(
 }
 
 /**
- * The two spellings vitest's parser answers by PRINTING rather than by parsing.
- *
- * `--help` and `-h` make cac write the whole option list — measured at 9383
- * bytes on `vitest@4.1.5` — to the CURRENT process's stdout and return an empty
- * filter. Asking it about such an invocation would therefore put a second copy of
- * vitest's help above the child's own, so the classification is skipped: a run
- * that only asks for help selects no file and there is nothing to derive.
- * `--version` is deliberately absent, having been measured to print nothing.
+ * The spellings vitest's parser answers by printing. `--help` and `-h` make cac write the option
+ * list (9917 bytes on vitest 4.1.11) to this process's stdout and return an empty filter, which
+ * would put a second copy of vitest's help above the child's. `--version` prints nothing, so it is
+ * absent.
  */
 const PARSER_ANSWERS_BY_PRINTING: readonly string[] = ["--help", "-h"];
 
 /**
- * Which forwarded arguments vitest would read as FILE FILTERS, asked of VITEST.
- *
- * NOT A CLASSIFIER OF OUR OWN, and that is the whole of the fix. The rule this
- * replaced was "anything beginning with `-` is an option", which reads an
- * option's SEPARATE-VALUE operand as a file: `--testNamePattern "palette opens"`
- * and `--reporter verbose` are both documented forms, and both handed
- * `unitProjectsClaiming()` a value it resolved as a path, matched to no project,
- * and refused with the misuse code — a valid invocation this script would not
- * run. Any arity table written here would be a second parser holding a copy of
- * vitest's own option list, which is the drift the shared-code rule in `AGENTS.md` forbids
- * and which no test could keep current.
- *
- * `parseCLI` is vitest's parser, exported from `vitest/node`, so what it calls a
- * filter is what the spawned run will select — including the cases where that is
- * surprising. `--update foo.test.ts` yields no filter because `--update` takes an
- * OPTIONAL argument and eats the operand; an unrecognized `--flag value` eats it
- * the same way. Neither is a false green: the file was never going to be a filter
- * in the child either, so the selection this derives and the selection the run
- * performs cannot disagree.
- *
- * A parse REFUSAL is this script's refusal. cac rejects a space-separated value
- * for an optional-argument option (`--silent foo.test.ts`) by throwing, naming
- * the ambiguity and the attached form that resolves it — so the caller is told
- * what to write rather than handed a run that would refuse further downstream.
- *
- * The options this script adds itself cannot perturb the reading: they are all
- * written in the attached `--name=value` form, which terminates its own argument
- * and can consume no operand of the caller's.
+ * Which forwarded arguments vitest would read as file filters, asked of vitest's own `parseCLI`
+ * so this script and the child cannot disagree and no arity table here can go stale. A shape rule
+ * would read the operand of `--testNamePattern "x"` or `--reporter verbose` as a file.
+ * `--update foo.test.ts` yields no filter because `--update` takes an optional argument and eats
+ * the operand, as it does in the child. A parse failure, such as cac rejecting `--silent
+ * foo.test.ts`, is reported as this script's refusal. The options this script adds use the
+ * attached `--name=value` form and cannot consume a caller's operand.
  */
 async function forwardedFileFilters(forwarded: readonly string[]): Promise<readonly string[]> {
   if (forwarded.length === 0 || forwarded.some(asksForHelp)) {
@@ -333,14 +201,11 @@ async function runChangedTier(): Promise<void> {
   }
 
   const packageRoot = process.cwd();
-  // Before the vitest entry point is even resolved: this refusal is about the
-  // caller's argument, and a run that reports "vitest publishes no bin" over a
-  // ref that never existed has named the wrong repair.
+  // Before the vitest entry point is resolved: the refusal is about the caller's argument, and
+  // "vitest publishes no bin" would name the wrong repair.
   refuseUnlessBaseRefResolves(baseRef, packageRoot);
-  // Every unit project when nothing was forwarded, because `--changed` is then
-  // the whole selection and a lane's commit reaches any of them; the claiming
-  // subset when files were, because a file's own project is the only one that
-  // can run it and the others would each report an empty selection.
+  // Every unit project when nothing was forwarded, because `--changed` is then the whole
+  // selection; otherwise only the claiming ones, since the others would each select nothing.
   const fileFilters = await forwardedFileFilters(forwarded);
   const projects =
     fileFilters.length === 0
@@ -352,14 +217,8 @@ async function runChangedTier(): Promise<void> {
       resolveVitestEntryPoint(packageRoot),
       "run",
       ...projects.map((project) => `--project=${project}`),
-      // AND `--changed` IS DROPPED THE MOMENT A FILE IS NAMED, because the two
-      // INTERSECT. A lane that edits a module and forwards that module's test —
-      // the ordinary shape, since a change and its coverage are two files —
-      // names a file `--changed` does not list, and the intersection is empty:
-      // vitest reports no test files and exits 0, which is this script's whole
-      // subject arriving through the last door. A caller who names files has
-      // stated the selection, so the ref has nothing left to decide; it is still
-      // required and still resolved, so a stale one is still reported.
+      // `--changed` is dropped once a file is named, because the two intersect and an empty
+      // intersection exits 0. The ref is still required and resolved.
       ...(fileFilters.length === 0 ? [`--changed=${baseRef}`] : []),
       `--maxWorkers=${CHANGED_TIER_WORKERS}`,
       ...forwarded,
@@ -371,8 +230,7 @@ async function runChangedTier(): Promise<void> {
     process.stderr.write(`${LOG_PREFIX} could not run vitest: ${result.error.message}\n`);
     process.exit(1);
   }
-  // A signalled run reports a null status, and exiting 0 on it would report a
-  // killed suite as a passing one — the same false success as the defect above.
+  // A signaled run has a null status; exiting 0 would report a killed suite as passing.
   if (result.status === null) {
     process.stderr.write(`${LOG_PREFIX} vitest was terminated by ${String(result.signal)}.\n`);
     process.exit(1);

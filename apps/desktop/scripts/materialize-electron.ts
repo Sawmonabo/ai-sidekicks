@@ -1,72 +1,24 @@
-// Materializes the Electron binary at install time.
+// Downloads the Electron binary at install time. It runs as `apps/desktop`'s `postinstall` and
+// from `test:smoke`, so it lives in `scripts/` (invoked by name) rather than `build/` (steps that
+// run during `pnpm build`).
 //
-// WHY IT IS IN `scripts/` AND NOT `build/`
-// ----------------------------------------
-// `build/` holds executables that run DURING `pnpm build` (`assert-webprefs.ts`);
-// `scripts/` holds executables invoked BY NAME from a package script. This one
-// is called by `postinstall` and by `test:smoke`, never by `build`, so it lives
-// here. It is TypeScript run under `node --experimental-strip-types`, the same
-// shape as its `build/` sibling — the package has one script language, not two,
-// and no `.mjs` + hand-written `.d.mts` pair anywhere.
+// Why: since Electron 42 the `electron` package has no `postinstall` and ignores
+// `ELECTRON_SKIP_BINARY_DOWNLOAD`; it downloads 120-160 MB on the first `require('electron')`.
+// That lands inside a test's clock, or a developer's first `pnpm test`, where a download reads as
+// a hang. Downloading at install puts it where it belongs.
 //
-// WHY IT EXISTS
-// -------------
-// Electron 44 publishes NO `scripts` field — and the change is 42.0's, which 44
-// merely inherits: Electron's own breaking-changes notes for 42.0
-// record both that `electron` "no longer downloads itself via `postinstall`
-// script" and that `ELECTRON_SKIP_BINARY_DOWNLOAD` "is no longer supported, as
-// its primary purpose was to prevent the `postinstall` script from running".
-// Every line through 41.6.1 shipped `"postinstall": "node install.js"`; every
-// registry manifest from 42 through 45 has no scripts at all, and binary
-// acquisition moved to module scope in the package's `index.js`, which
-// downloads on the first `require('electron')` if `path.txt` or the executable
-// under `dist/` is missing.
+// The seam: pnpm runs a workspace project's `postinstall` on a full install but not on a scoped
+// install that excludes the project (the daemon-only CI legs), and `allowBuilds` gates only
+// dependencies' scripts. The root `prepare` script was rejected because it runs on every install.
 //
-// Left alone, that pushes a 120-160 MB download into whatever first needs
-// Electron. For CI that is a test's clock; for a developer on a cold cache it
-// is the first `pnpm test`, inside a vitest timeout, where a download reads as
-// a hang and a slow network reads as a broken repo. An install-time download is
-// a download in the place a download belongs.
+// The skip escape is ours: 41.6.1's `install.js` honored `ELECTRON_SKIP_BINARY_DOWNLOAD` and
+// 44.5.1's does not. Honoring it here restores the contract CI recipes and Dockerfiles assume.
 //
-// This runs as `apps/desktop`'s `postinstall`. That seam is not a guess:
-// measured 2026-09-01 on pnpm 10.33.2, a full `pnpm install` runs a workspace
-// project's `postinstall` with cwd set to that project, and a scoped install
-// that excludes the project (`--filter "@ai-sidekicks/runtime-daemon..."`, the
-// `native-prebuilds` CI job) does not run it at all — so the daemon-only legs
-// stay fast without needing an opt-out. The root `prepare` script was rejected
-// for exactly that reason: it runs on every install, including those legs.
+// The presence check mirrors upstream's `isInstalled()` (same three conditions, same order) as a
+// fast path only: `install.js` performs the same check itself and repairs a partial dist.
 //
-// `pnpm-workspace.yaml`'s `allowBuilds` does not gate this. That setting
-// governs DEPENDENCY packages' install scripts; a workspace project's own
-// lifecycle scripts always run. (Verified in the same measurement — the probe
-// postinstall fired with `better-sqlite3` denied in the same file.)
-//
-// THE SKIP ESCAPE IS OURS, NOT THE VENDOR'S
-// -----------------------------------------
-// 41.6.1's `install.js` opened with `if (process.env.ELECTRON_SKIP_BINARY_DOWNLOAD) process.exit(0)`.
-// 44.1.0's does not — the escape went out with the postinstall. Honouring it
-// here restores the contract every CI recipe and Dockerfile in the ecosystem
-// already assumes, and it is the only reason a caller can opt out at all now.
-//
-// IDEMPOTENCE
-// -----------
-// The presence check below mirrors upstream's own `isInstalled()` — the same
-// three conditions, in the same order — rather than inventing a definition of
-// "installed" that could disagree with the code that does the installing. It is
-// a FAST PATH and not the correctness boundary: `install.js` performs the same
-// check itself and no-ops, so a partially extracted dist is repaired by running
-// it rather than skipped by us.
-//
-// NO ARGUMENTS, NO ENTRY GUARD, DELIBERATELY
-// ------------------------------------------
-// This script reads no `process.argv` and is never imported, so it carries no
-// "invoked vs imported" discrimination and needs none — which also keeps it out
-// of `tools/__tests__/entry-guard.test.mjs`'s derived set by the classifier's
-// own definition rather than by an exemption. The bug that file pins requires
-// comparing `import.meta.url` against `process.argv[1]`; a script that never
-// reads argv cannot have it. Module resolution here goes through
-// `createRequire(import.meta.url)`, which is the encoding-correct form by
-// construction.
+// It reads no `process.argv` and is never imported, so it needs no entry guard, and the symlinked
+// path mismatch a hand-written guard can hit cannot occur.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -77,16 +29,8 @@ const SKIP_DOWNLOAD_VARIABLE = "ELECTRON_SKIP_BINARY_DOWNLOAD";
 const LOG_PREFIX = "[materialize-electron]";
 
 /**
- * Locate the installed `electron` package, or report that it is absent.
- *
- * Absent is NOT an error. A production install (`--prod`, or `NODE_ENV=production`)
- * links no devDependencies, so `electron` legitimately is not there and this
- * script's job — "if Electron is here, make its binary usable" — is vacuously
- * done. Failing the install in that case would be this script inventing a
- * requirement the package.json does not state.
- *
- * Every OTHER resolution failure is fatal, so a genuinely broken tree is not
- * quietly waved through by the same branch.
+ * Locates the installed `electron` package, or returns null when it is absent. Absent is not an
+ * error: a production install links no devDependencies. Every other resolution failure is fatal.
  */
 function findElectronPackageRoot(): string | null {
   const requireFromThisScript = createRequire(import.meta.url);
@@ -100,11 +44,13 @@ function findElectronPackageRoot(): string | null {
   }
 }
 
+/** The read failures that mean a file is not there. */
+const MISSING_FILE_CODES: readonly unknown[] = ["ENOENT", "ENOTDIR"];
+
 /**
- * Upstream's `isInstalled()`, re-expressed: the recorded dist version matches
- * the package version, `path.txt` exists, and the executable it names is on
- * disk. Any read failure means "not installed", which is also how upstream
- * treats it.
+ * Upstream's `isInstalled()`: the recorded dist version matches the package version, `path.txt`
+ * exists, and the executable it names is on disk. A missing file means "not installed"; any other
+ * read failure is thrown, since a download would not repair it.
  */
 function isBinaryMaterialized(packageRoot: string): boolean {
   try {
@@ -120,16 +66,19 @@ function isBinaryMaterialized(packageRoot: string): boolean {
     }
     const executableRelativePath = readFileSync(path.join(packageRoot, "path.txt"), "utf8");
     return existsSync(path.join(packageRoot, "dist", executableRelativePath));
-  } catch {
-    return false;
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && MISSING_FILE_CODES.includes(error.code)) {
+      return false;
+    }
+    throw error;
   }
 }
 
 function materializeElectron(): void {
   const skipRequest = process.env[SKIP_DOWNLOAD_VARIABLE];
   if (skipRequest !== undefined && skipRequest !== "") {
-    // Named, not silent: a later "Electron binary not materialized" refusal is
-    // otherwise a mystery to whoever set this three layers up in a Dockerfile.
+    // Named, so a later "binary not materialized" refusal is not a mystery to whoever set this in
+    // a Dockerfile.
     process.stdout.write(`${LOG_PREFIX} skipped — ${SKIP_DOWNLOAD_VARIABLE} is set.\n`);
     return;
   }
@@ -147,8 +96,8 @@ function materializeElectron(): void {
 
   const installEntryPoint = path.join(packageRoot, "install.js");
   if (!existsSync(installEntryPoint)) {
-    // The vendor's own entry point is what we run; we do not reimplement the
-    // download, the checksum verification, or the rosetta-arch fixup.
+    // Run the vendor's entry point; the download, checksum and rosetta-arch fixup are not
+    // reimplemented.
     process.stderr.write(`${LOG_PREFIX} electron ships no install.js at ${installEntryPoint}.\n`);
     process.exit(1);
   }
@@ -173,9 +122,7 @@ function materializeElectron(): void {
     process.exit(1);
   }
 
-  // Fail closed. `install.js` exiting 0 is not evidence the binary is on disk —
-  // reporting success here on an absent binary would restore exactly the
-  // failure this script exists to remove, one layer further from its cause.
+  // Fail closed: `install.js` exiting 0 does not prove the binary is on disk.
   if (!isBinaryMaterialized(packageRoot)) {
     process.stderr.write(
       `${LOG_PREFIX} install.js exited 0 but the binary is still absent under ` +

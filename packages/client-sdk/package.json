@@ -5,7 +5,7 @@
   "description": "Typed client SDK used by desktop renderer and CLI.",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22.14.0"
+    "node": ">=24.16.0"
   },
   "exports": {
     ".": {
@@ -28,12 +28,9 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@ai-sidekicks/control-plane": "workspace:*",
-    "@electric-sql/pglite": "^0.4.4",
-    "@trpc/server": "^11.17.0",
     "@vitest/coverage-v8": "catalog:testing",
     "vitest": "catalog:testing"
   }

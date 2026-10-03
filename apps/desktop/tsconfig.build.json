@@ -1,30 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates `build/` — the code that runs DURING `pnpm build`
-  // (`assert-webprefs.ts`) — without emitting. The production `tsconfig.json`
-  // has `rootDir: ./src` and does not cover it; this sibling mirrors the
-  // `tsconfig.test.json` pattern (noEmit + isolated buildinfo) so it is
-  // typechecked without polluting the project-references graph or the
-  // production `dist/` layout.
+  // Type-validates `build/` (the release artifact's fuse check) without emitting. The production
+  // `tsconfig.json` has `rootDir: ./src` and does not cover it; this sibling mirrors
+  // `tsconfig.test.json` (noEmit, isolated buildinfo) so it stays out of the project-references
+  // graph and the production `dist/` layout.
   //
-  // ONE OWNER PER DIRECTORY. This config once covered `scripts/` too, and was
-  // narrowed back when `tsconfig.scripts.json` was authored to own that
-  // directory. The overlap was not merely redundant: the
-  // two configs disagreed about `allowImportingTsExtensions`, which the
-  // `scripts/` harnesses require because `node --experimental-strip-types`
-  // resolves the extension it is given and rewrites no specifier. So the
-  // directory typechecked green under the config that owns it and red under the
-  // one that happened to also include it, and every explanation either file gave
-  // of its own scope was false. A second project over one directory is a second
-  // set of compiler options over it.
-  "extends": "../../tsconfig.node22.json",
+  // One owner per directory: `scripts/` belongs to `tsconfig.scripts.json`, whose harnesses need
+  // `allowImportingTsExtensions` because `node --experimental-strip-types` rewrites no specifier.
+  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
-    // `isolatedDeclarations` (inherited from base) requires either `declaration`
-    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
-    // the typechecker honors `isolatedDeclarations` constraints without writing
-    // files (see TS5069). `composite: false` and a null buildinfo prevent this
-    // config from polluting the project-references graph.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph.
     "composite": false,
     "declaration": true,
     "declarationMap": false,

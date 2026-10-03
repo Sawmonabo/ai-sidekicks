@@ -1,16 +1,14 @@
 # Cloudflare Workers config for the control-plane bootstrap.
 #
-# Dual-gate enforcement: this file deliberately OMITS top-level [vars] so neither
-# `CONTROL_PLANE_BOOTSTRAP_ENABLED` nor `ENVIRONMENT="development"` reaches any
-# deployable surface. Both keys live in the gitignored `.dev.vars` file, which
-# `wrangler dev` reads for local workerd development but `wrangler deploy` never
-# consults..
+# Dual-gate enforcement: this file deliberately omits top-level [vars] so neither
+# `CONTROL_PLANE_BOOTSTRAP_ENABLED` nor `ENVIRONMENT="development"` reaches any deployable surface.
+# Both keys live in the gitignored `.dev.vars` file, which `wrangler dev` reads for local workerd
+# development but `wrangler deploy` never consults.
 #
-# `[env.production.vars]` carries `ENVIRONMENT="production"` so `wrangler deploy
-# --env production` publishes a Worker whose dev-environment allow-list gate
-# (`env.ENVIRONMENT === 'development'`) returns false even if a hypothetical
-# `wrangler secret put CONTROL_PLANE_BOOTSTRAP_ENABLED 1` is run after deploy.
-#
+# `[env.production.vars]` carries `ENVIRONMENT="production"` so `wrangler deploy --env production`
+# publishes a Worker whose dev-environment allow-list gate (`env.ENVIRONMENT === 'development'`)
+# returns false even if a hypothetical `wrangler secret put CONTROL_PLANE_BOOTSTRAP_ENABLED 1` is
+# run after deploy.
 
 name = "ai-sidekicks-control-plane"
 main = "src/server/host.ts"

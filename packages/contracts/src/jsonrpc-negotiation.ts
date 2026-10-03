@@ -1,153 +1,37 @@
-// JSON-RPC protocol-negotiation contracts — the `DaemonHello` / `DaemonHelloAck`
-// wire envelopes.
-//
-// This file owns the CROSS-PACKAGE wire shape every protocol-negotiation
-// user agrees on. The runtime IMPLEMENTATION (the registry registration,
-// per-connection state machine, and mutating-op gate) lives in
-// `packages/runtime-daemon/src/ipc/protocol-negotiation.ts` (sibling).
-//
-//   * "Local IPC must support protocol version negotiation before
-//     mutating operations are accepted."
-//   * "If version negotiation fails, read-only compatibility may continue,
-//     but mutating operations must be blocked until versions are
-//     compatible."
-//   * "`DaemonHello` and `DaemonHelloAck` must perform version negotiation."
-//
-// Invariants this file's interface enforces (canonical text through):
-//   * Schema validation runs before handler dispatch. The
-//     `DaemonHelloRequestSchema` / `DaemonHelloAckSchema` are registered
-//     against the registry surface so the standard schema-validates-before-
-//     dispatch path applies to the negotiation envelopes themselves.
-//
-// What this file does NOT define (deferred to sibling files):
-//   * Per-connection negotiation state, the mutating-op gate, the
-//     `wrap(registry)` middleware, and the `daemon.hello` handler — all
-//     owned by `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`.
-//   * The negotiation algorithm constants (`DAEMON_SUPPORTED_PROTOCOL_VERSIONS`)
-//     — daemon-internal; declared in the runtime file, not exported on the wire.
-//   * JSON-RPC numeric error code mapping for negotiation failures.
-//
-// Schema-placement decision (scope extension):
-//   The DAG task contract names ONLY
-//   `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`. This file is
-//   a SCOPE EXTENSION — runtime-daemon's
-//   `package.json` deliberately does NOT depend on `zod` (per
-//   jsonrpc-registry.ts JSDoc comment "Runtime-daemon's package.json
-//   deliberately does NOT list zod"). The negotiation Zod schemas
-//   therefore CANNOT live in the daemon package without adding zod as a
-//   runtime dep. Cross-package wire-envelope schemas live in
-//   `packages/contracts/` alongside `JsonRpcRequest` / `JsonRpcResponse`.
-//
-// `protocolVersion` ratified as ISO 8601 `YYYY-MM-DD` date-string):. The
-// same date-string shape rides on `DaemonHello.protocolVersion`,
-// `DaemonHello.supportedProtocols[]`, and
-// `DaemonHelloAck.protocolVersion`. Format follows the MCP precedent
-// (modelcontextprotocol.io); the negotiation algorithm uses lex-sort to
-// find max version (lex order ≡ chronological for ISO 8601).
+// The `daemon.hello` handshake, `DaemonHello` and `DaemonHelloAck`, shared by the daemon and its
+// clients. A `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date, so lexical order is chronological.
 
 import { z } from "zod";
 
-// --------------------------------------------------------------------------
-// Method-name constant
-// --------------------------------------------------------------------------
-
-/**
- * Canonical JSON-RPC method name for the negotiation handshake. The
- * `daemon.hello` string conforms to the dotted-camelCase canonical format
- * — registration succeeds register-time regex check.
- */
+/** The JSON-RPC method name of the negotiation handshake. */
 export const DAEMON_HELLO_METHOD = "daemon.hello" as const;
+/** The type of {@link DAEMON_HELLO_METHOD}. */
 export type DaemonHelloMethod = typeof DAEMON_HELLO_METHOD;
 
-// --------------------------------------------------------------------------
-// Per-field length caps — defense-in-depth bounds
-// --------------------------------------------------------------------------
-//
-// The framing layer (`MAX_MESSAGE_BYTES = 1_000_000`, declared in
-// `./jsonrpc.ts` and enforced by `local-ipc-gateway.ts`) is authoritative
-// on overall body size; these caps are a SECOND line of defense bounding
-// individual fields. Mirrors the pattern in `error.ts` / `event.ts`.
-
 /**
- * Cap on free-form string fields inside the negotiation envelopes
- * (`clientId`, `reason`, capability tags). 256 chars is well above any
- * legitimate identifier (e.g. `cli/0.1.0+a1b2c3d`) but bounded against
- * pathological inputs. Pulled in line with the conservative inline cap
- * pattern in error.ts.
+ * The longest a free-form negotiation string (`clientId`, a capability tag) may be. The framing
+ * limit bounds the whole frame; this bounds each field.
  */
 export const NEGOTIATION_FIELD_MAX_LEN = 256;
 
-/**
- * Cap on the size of the `supportedProtocols` array in `DaemonHello`. A
- * client cannot legitimately advertise more than a handful of protocol
- * versions — the cap prevents a pathological client from sending an
- * array large enough to dominate the framing layer's body budget.
- */
+/** The most entries any protocol-version or capability list in the handshake may carry. */
 export const SUPPORTED_PROTOCOLS_MAX_LEN = 32;
 
-// --------------------------------------------------------------------------
-// protocolVersion — ISO 8601 date-string:)
-// --------------------------------------------------------------------------
-
 /**
- * The canonical regex for an ISO 8601 `YYYY-MM-DD` date-string. Exported so the
- * substrate's envelope-level enforcement gate (per- request `protocolVersion`
- * field, see `local-ipc-gateway.ts#dispatchFrame`) shares the EXACT shape that
- * `ProtocolVersionSchema` validates inside `daemon.hello` payloads — a single
- * source of truth prevents drift between the wire-frame gate (substrate) and the
- * negotiation handler (registry). The Zod schema below wraps this regex; do not
- * redeclare it.
+ * The shape of a `protocolVersion`: `YYYY-MM-DD`. The gateway's per-request check and
+ * `ProtocolVersionSchema` both use it, so the two cannot drift.
  */
 export const PROTOCOL_VERSION_REGEX: RegExp = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * The `protocolVersion` field type — ISO 8601 `YYYY-MM-DD` date-string):.
- * The regex (`PROTOCOL_VERSION_REGEX`) enforces the calendar- date shape
- * negotiation algorithm uses lex-sort over conforming strings (lex order ≡
- * chronological for ISO 8601), so no semver parser is needed.
- */
+/** A protocol version: a `YYYY-MM-DD` date string. */
 export const ProtocolVersionSchema: z.ZodString = z.string().regex(PROTOCOL_VERSION_REGEX);
 
-// --------------------------------------------------------------------------
-// DaemonHello (client → daemon)
-// --------------------------------------------------------------------------
-
-/**
- * Free-form bounded string — used for optional `clientId` and capability
- * tags. The per-field length cap is the only defense the wire layer applies;
- * the daemon-side handler MAY apply additional shape-checks (e.g. URL-form
- * for `clientId`) at the application layer.
- */
+/** A non-empty free-form string, at most `NEGOTIATION_FIELD_MAX_LEN` long. */
 const NegotiationFreeFormString = z.string().min(1).max(NEGOTIATION_FIELD_MAX_LEN);
 
 /**
- * `DaemonHello` request envelope. Sent by the client (CLI / desktop shell /
- * future SDK consumer) as the FIRST mutating-gated call on every connection.
- *
- * Required fields:
- *   * `protocolVersion` — the client's PRIMARY proposed protocol version
- *     (per-request requirement). The daemon uses this as a fallback when
- *     `supportedProtocols` is absent.
- *
- * Optional fields:
- *   * `supportedProtocols` — the full set of protocol versions the client
- *     can speak. Required by the negotiation algorithm
- *     (`max(client.supportedProtocols ∩ daemon.supported)`); when absent,
- *     the daemon falls back to treating `protocolVersion` as a singleton
- *     `[protocolVersion]`. Capped at `SUPPORTED_PROTOCOLS_MAX_LEN`
- *     entries.
- *   * `clientId` — opaque client identifier (e.g. `"cli/0.1.0"`,
- *     `"electron/0.1.0"`). The daemon MAY log it; downstream observability
- *     consumers correlate. Free-form bounded string.
- *   * `capabilities` — opaque tag list the client advertises to the daemon
- *     (e.g. feature gates the client supports). The daemon MAY consult to
- *     decide what `serverCapabilities` to advertise back. Each tag is a
- *     bounded string; the array length is capped to mirror
- *     `supportedProtocols`.
- *
- * `.strict()` rejects unknown top-level fields — a client sending an
- * unknown field is a versioning anomaly the daemon should refuse rather
- * than silently ignore.
+ * The `daemon.hello` request, the first call on a connection: the client's preferred
+ * `protocolVersion` and its full `supportedProtocols` set, which defaults to `[protocolVersion]`.
  */
 export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
   .object({
@@ -163,10 +47,8 @@ export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
   .strict() as unknown as z.ZodType<DaemonHello>;
 
 /**
- * The `DaemonHello` request payload. Cast through `unknown` because Zod's
- * inferred type for an object with optional fields under
- * `exactOptionalPropertyTypes: true` does not match the explicit
- * `readonly`-keyed shape we want consumers to see.
+ * The `DaemonHello` request payload. Declared by hand, with the schema cast to it, because zod's
+ * inferred type does not match this `readonly` shape under `exactOptionalPropertyTypes`.
  */
 export interface DaemonHello {
   readonly protocolVersion: string;
@@ -175,58 +57,29 @@ export interface DaemonHello {
   readonly capabilities?: ReadonlyArray<string>;
 }
 
-// --------------------------------------------------------------------------
-// DaemonHelloAck (daemon → client)
-// --------------------------------------------------------------------------
-
 /**
- * Discriminated reason field for an INCOMPATIBLE handshake. distinguishes
- * "client too old" (`version.floor_exceeded`) from "client too new"
- * (`version.ceiling_exceeded`). The reason ALSO surfaces if the handshake
- * fired twice on the same connection
- * (`protocol.handshake_already_completed`) — the conservative "fail-second"
- * posture.
- *
- * All three are dotted-namespace project codes and surface as
- * `DaemonHelloAck.reason` (NOT as a JSON-RPC numeric — the Ack itself is
- * a successful response that carries `compatible: false`).
+ * Why a handshake is incompatible: the client is too old (`version.floor_exceeded`), too new
+ * (`version.ceiling_exceeded`), or a second handshake arrived on the connection
+ * (`protocol.handshake_already_completed`). They ride in `DaemonHelloAck.reason`, not as a JSON-RPC
+ * error code, because the ack itself is a successful response.
  */
 export const NEGOTIATION_REASON_FLOOR_EXCEEDED = "version.floor_exceeded" as const;
+/** Ack reason: the client is too new for the daemon. */
 export const NEGOTIATION_REASON_CEILING_EXCEEDED = "version.ceiling_exceeded" as const;
+/** Ack reason: this connection already completed a handshake. */
 export const NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED =
   "protocol.handshake_already_completed" as const;
 
+/** The reasons a `DaemonHelloAck` may give for `compatible: false`. */
 export type NegotiationIncompatibleReason =
   | typeof NEGOTIATION_REASON_FLOOR_EXCEEDED
   | typeof NEGOTIATION_REASON_CEILING_EXCEEDED
   | typeof NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED;
 
 /**
- * `DaemonHelloAck` response envelope. The substrate's contract for the
- * mutating-op gate is `compatible: boolean`:
- *
- *   * `compatible === true`  → all dispatches allowed (read + mutating)
- *   * `compatible === false` → read-only dispatches allowed; mutating
- *
- * Required fields:
- *   * `compatible` — the gate's primary read.
- *   * `protocolVersion` — the daemon's CHOSEN version. On `compatible: true`,
- *     the negotiated `max(client.supportedProtocols ∩ daemon.supported)`.
- *     On `compatible: false`, the daemon's PREFERRED version (the highest
- *     version the daemon supports) so the client can decide whether to
- *     abort or retry.
- *
- * Optional fields:
- *   * `reason` — populated only when `compatible: false`. Names the
- *     specific failure mode (floor/ceiling/repeated-handshake) per the
- *     canonical dotted-namespace strings.
- *   * `serverCapabilities` — opaque tag list mirroring the client's
- *     `capabilities`. Phase 3 handlers populate; the substrate emits an
- *     empty array if no capabilities are advertised.
- *   * `daemonSupportedProtocols` — the daemon's full supported-version
- *     list, surfaced to the client when `compatible: false` so the client
- *     can decide which version to retry with. Capped at
- *     `SUPPORTED_PROTOCOLS_MAX_LEN` entries to mirror `DaemonHello`.
+ * The `daemon.hello` result. When `compatible` is false only read-only calls are allowed, and
+ * `protocolVersion` is the daemon's newest rather than the negotiated one; `reason` and
+ * `daemonSupportedProtocols` appear only on an incompatible first handshake.
  */
 export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
   .object({
@@ -250,9 +103,7 @@ export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
   })
   .strict() as unknown as z.ZodType<DaemonHelloAck>;
 
-/**
- * The `DaemonHelloAck` response payload.
- */
+/** The `DaemonHelloAck` result payload. */
 export interface DaemonHelloAck {
   readonly compatible: boolean;
   readonly protocolVersion: string;

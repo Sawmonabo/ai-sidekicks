@@ -1,0 +1,22 @@
+/*
+ * Attaching a repository, and re-attaching one whose identity has drifted. The shared dialog
+ * shape is in `../mount-controls.css`, which must load before this sheet. The block name carries
+ * its feature (`meridian-repo-attach`), so sheets loaded into one document never share a BEM
+ * block.
+ */
+
+.meridian-repo-attach__minted,
+.meridian-reattach__subject {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-reattach {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}

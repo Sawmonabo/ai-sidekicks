@@ -1,0 +1,58 @@
+/* The cancel button wears the shared action button (`styles/action-buttons.css`) at its small
+   size in the raised face; this sheet adds only the pending state the queue alone has. */
+
+.meridian-queue__cancel:disabled {
+  color: var(--meridian-text-muted);
+  cursor: progress;
+}
+
+.meridian-queue__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-queue__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-queue__identity,
+.meridian-queue__figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+}
+
+.meridian-queue__figure {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-queue__figure dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-queue__figure dd {
+  margin: 0;
+}
+
+.meridian-queue__withheld {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

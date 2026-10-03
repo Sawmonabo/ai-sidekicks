@@ -1,0 +1,76 @@
+/* The composer: the message box and its toolbar cluster in one column. */
+
+.meridian-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+/* The only place a person types, so it gets the room and the raised ground. */
+.meridian-composer__send {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(var(--meridian-space-8) * 2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* Grows to the row cap in `composer-bounds.ts`, then scrolls inside its own box. */
+.meridian-composer__line {
+  width: 100%;
+  min-height: calc(var(--meridian-space-5) + var(--meridian-space-2));
+  padding: var(--meridian-space-2);
+  color: var(--meridian-text);
+  font: inherit;
+  font-family: var(--meridian-font-sans);
+  background: var(--meridian-ground);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  resize: none;
+}
+
+/* Focus marks the whole card; the message box draws none of its own. */
+.meridian-composer__send:focus-within {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-composer__line:focus {
+  outline: none;
+}
+
+.meridian-composer__line[readonly] {
+  color: var(--meridian-text-muted);
+  background: var(--meridian-surface-sunken);
+}
+
+/* Send sits at the right end of the row under the line. */
+.meridian-composer__send-row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: var(--meridian-space-2);
+}
+
+/* The one primary action, so it alone carries the accent. Accent boundary and ink rather than a
+   fill: `accent-text` on the `accent` fill fails WCAG 1.4.3 in both schemes. This label measures
+   6.38:1 light and 11.49:1 dark; the boundary clears the 3:1 non-text floor against the send box
+   (4.17:1 light, 7.77:1 dark). Shares the action button class from `styles/action-buttons.css`;
+   these rules add its size and face. */
+.meridian-composer__primary {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface);
+  border-color: var(--meridian-accent);
+}
+
+.meridian-composer__primary[disabled] {
+  cursor: progress;
+  opacity: 0.6;
+}

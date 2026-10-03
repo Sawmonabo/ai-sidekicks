@@ -1,0 +1,110 @@
+/* The question card (`QuestionCard`). */
+
+.meridian-input-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-input-ask__question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-input-ask__header {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-input-ask__prompt {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meridian-input-ask__heading {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.meridian-input-ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * The label is what the answer carries; the description is the agent's. The row wraps
+ * rather than truncating either.
+ */
+.meridian-input-ask__option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  width: 100%;
+  background: none;
+  border-color: var(--meridian-edge);
+  color: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  text-align: start;
+}
+
+.meridian-input-ask__option[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-input-ask__option-description {
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * Every answer control dims while an answer is on the wire or taken; a refusal leaves its
+ * control pressable.
+ */
+.meridian-input-ask__option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.meridian-input-ask__free-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-input-ask__field {
+  width: 100%;
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  resize: vertical;
+}
+
+.meridian-input-ask__field:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.meridian-input-ask__send {
+  background: none;
+  border-color: var(--meridian-edge);
+  color: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+.meridian-input-ask__send:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

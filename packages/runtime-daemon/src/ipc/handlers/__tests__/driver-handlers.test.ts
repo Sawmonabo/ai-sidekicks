@@ -1,71 +1,34 @@
-// The `driver.*` JSON-RPC handler suite
-//
-// Everything here drives the REAL `MethodRegistryImpl` and, for the streaming
-// method, the REAL `StreamingPrimitive`. A mock registry would prove only that
-// the handler bodies run; the properties this suite is for — that malformed
-// params never reach a handler, that a duplicate binding is refused at
-// register-time, that a result is validated before it reaches the wire, that the
-// four lifecycle operations are unreachable — are all properties OF the registry
-// binding, and asserting them against a double would assert nothing.
-//
-// The four things worth stating up front, because they are the reason this file
-// is long:
-//   * DECISION #2 IS ENFORCED BY ABSENCE. `driver.createSession`,
-//     `driver.resumeSession`, `driver.startRun`, and `driver.closeSession` are
-//     registered nowhere, so a client that guesses the name gets
-//     `method_not_found` from the substrate. That is asserted directly, because
-//     "we did not write that code" is not a guarantee a future edit preserves.
-//   * PROVIDER-LAYER ERRORS MUST REACH THE WIRE AS THEIR REGISTERED CODES. The
-//     translation tests go one step past the thrown object and through
-//     `mapJsonRpcError`, because the whole point of the translation is what the
-//     CLIENT sees — and an untranslated `DriverUnavailableError` reaches it as a
-//     bare `-32603` that looks exactly like a daemon crash.
-//   * TWO OF THE NINE VERBS ARE IMPLEMENTED BY NEITHER SHIPPED DRIVER. That is
-//     the state at this task's landing, so the unimplemented-operation refusal
-//     is a live path rather than a defensive one.
-//   * THE EVENT FILTER IS A GUARANTEE, NOT A CONVENIENCE. A non-driver event
-//     parses cleanly against `SessionEventSchema`, so nothing on this side of
-//     the wire would notice one leaking onto a driver subscription. The SDK's
-//     `DriverEventSchema` catches such a leak, but by ENDING the subscription —
-//     that is the client's backstop against a broken daemon, not a reason this
-//     filter may relax.
-//
+// The `driver.*` handlers through the real method registry and streaming primitive. The four
+// lifecycle and four daemon-internal operations are registered nowhere. Refusals are read through
+// `mapJsonRpcError`, because the client sees the wire envelope: an untranslated provider error
+// would be a bare `-32603` that looks like a daemon crash.
 
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  AgentId,
   ApplyInterventionParams,
   DriverCapabilityFlag,
   DriverCapabilityReport,
-  GetCapabilitiesResult,
   HandlerContext,
   JsonRpcNotification,
   UserId,
   ProviderCommandBindingGroup,
-  ProviderDriver,
+  ProviderName,
   RunId,
   SessionEvent,
   SessionId,
 } from "@ai-sidekicks/contracts";
-import { DRIVER_CAPABILITY_FLAGS, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { DRIVER_CAPABILITY_FLAGS, JsonRpcErrorCode, PROVIDER_NAMES } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
-import {
-  MethodRegistryImpl,
-  RegistryDispatchError,
-  RegistryRegistrationError,
-} from "../../registry.js";
+import { MethodRegistryImpl, RegistryDispatchError } from "../../registry.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
 import {
   DriverCapabilityUnsupportedError,
   DriverUnavailableError,
   ProviderRegistry,
 } from "../../../provider/provider-registry.js";
-import {
-  CodexInterventionDispatcher,
-  type CodexSteerAcknowledgement,
-  type CodexSteerRunRequest,
-} from "../../../provider/drivers/codex/intervention.js";
 
 import {
   registerDriverApplyIntervention,
@@ -75,21 +38,16 @@ import {
   registerDriverListModels,
   registerDriverListModes,
   registerDriverListProviderCommands,
-  registerDriverRespondToRequest,
   type DriverCatalogDeps,
   type DriverCompactContextDeps,
   type DriverDispatchDeps,
-  type DriverListCapabilitiesDeps,
   type DriverListProviderCommandsDeps,
 } from "../driver-handlers.js";
 import {
   registerDriverSubscribeEvents,
   type DriverSubscribeEventsDeps,
 } from "../driver-subscribe.js";
-
-// ----------------------------------------------------------------------------
-// Fixtures
-// ----------------------------------------------------------------------------
+import type { GetCapabilitiesResult, ProviderDriver } from "../../../provider/provider-driver.js";
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as UserId;
@@ -99,27 +57,20 @@ const NO_TRANSPORT: HandlerContext = {};
 const TRANSPORT: HandlerContext = { transportId: 7 };
 
 /**
- * Build a partial driver as a `ProviderDriver`.
- *
- * The cast mirrors production rather than papering over it: BOTH shipped drivers
- * are `Pick`-narrowed classes registered into a registry typed on the full
- * eighteen-operation contract, so a partially-implemented driver instance is the
- * shape these handlers actually receive.
+ * A partial driver typed as a `ProviderDriver`. Both shipped drivers are `Pick`-narrowed classes
+ * registered as the full contract, so a partial driver is what the handlers really receive.
  */
 function driverDouble(operations: Partial<ProviderDriver>): ProviderDriver {
   return operations as ProviderDriver;
 }
 
-function capabilityReport(driverName: string): DriverCapabilityReport {
-  // Flags built from the declared set rather than hand-listed: the reply is
-  // validated against the REAL `ListCapabilitiesResultSchema`, whose flag record
-  // is total, so a partial literal would fail result validation and mask
-  // whatever the test was actually about.
+function capabilityReport(driverName: ProviderName): DriverCapabilityReport {
+  // The result schema's flag record is total, so a partial literal would fail validation.
   const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false])) as Record<
     DriverCapabilityFlag,
     boolean
   >;
-  return { driverName, capabilities: { flags, contractVersion: "1.0.0" } };
+  return { driverName, capabilities: { flags, contractVersion: "1.0.0" }, builtInTools: [] };
 }
 
 /** An `assistant_output` event — one of the seven driver categories. */
@@ -150,20 +101,27 @@ function buildNonDriverEvent(): SessionEvent {
     version: "1.0" as SessionEvent["version"],
     payload: {
       sessionId: TEST_SESSION_ID,
-      config: { resourceLimits: { sessions: 10 } },
-      metadata: { source: "cli" },
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444" as AgentId,
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-01-22T19:14:35.000Z",
+      },
     },
   };
 }
 
 /**
- * The `data` payload a thrown value projects into on the wire.
- *
- * The assertions go through the real mapper rather than reading `error.code` off
- * the thrown object, because the property under test is what the CLIENT sees: an
- * untranslated provider-layer error reaches it as a bare `-32603` with no
- * `data.type`, indistinguishable from a daemon crash, and only the mapper's
- * output can tell the two apart.
+ * The `data` payload a thrown value becomes on the wire. Read through the real mapper because
+ * the client sees that envelope: an untranslated provider-layer error is a bare `-32603` with no
+ * `data.type`.
  */
 function wireErrorData(thrown: unknown): { type?: string; fields?: Record<string, unknown> } {
   return (mapJsonRpcError(thrown, 1).error.data ?? {}) as {
@@ -173,17 +131,10 @@ function wireErrorData(thrown: unknown): { type?: string; fields?: Record<string
 }
 
 /**
- * Dispatch a method that MUST reject, and hand back the thrown value.
- *
- * The internal-error tests need this where the typed-code tests do not:
- * `mapJsonRpcError` projects ANY input — `undefined` from a resolved dispatch
- * included — onto a bare `-32603` envelope with no `data.type`, so the
- * `.then(() => undefined).catch(...)` idiom fed into "type is undefined, code
- * is InternalError" assertions passes IDENTICALLY when the guard under test is
- * deleted and the dispatch quietly succeeds. Requiring rejection here is what
- * makes those assertions falsifiable (proven by this file's negative
- * controls). A typed-code assertion (`type === "driver.unavailable"`) already
- * fails on a resolved dispatch, so those tests keep the plain idiom.
+ * Dispatches a method that must reject and returns the thrown value. `mapJsonRpcError` turns any
+ * input, including `undefined` from a dispatch that succeeded, into a bare `-32603`, so an
+ * internal-error assertion would pass even with the guard deleted. Typed-code assertions fail on
+ * a resolved dispatch anyway and use the plain `.then().catch()` idiom.
  */
 async function dispatchExpectingRejection(
   registry: MethodRegistryImpl,
@@ -200,21 +151,21 @@ async function dispatchExpectingRejection(
   return settlement.thrown;
 }
 
-function catalogDeps(drivers: Record<string, ProviderDriver>): DriverCatalogDeps {
+function catalogDeps(drivers: Partial<Record<ProviderName, ProviderDriver>>): DriverCatalogDeps {
   return {
     providerRegistry: {
-      listAvailable: () => Object.keys(drivers),
-      lookup: (driverId: string) => drivers[driverId],
+      listAvailable: () => PROVIDER_NAMES.filter((driverName) => drivers[driverName] !== undefined),
+      lookup: (driverId: ProviderName) => drivers[driverId],
     },
   };
 }
 
 function dispatchDeps(
-  drivers: Record<string, ProviderDriver>,
-  resolveDriverForRun: (runId: RunId) => string | undefined,
+  drivers: Partial<Record<ProviderName, ProviderDriver>>,
+  resolveDriverForRun: (runId: RunId) => ProviderName | undefined,
 ): DriverDispatchDeps {
   return {
-    providerRegistry: { lookup: (driverId: string) => drivers[driverId] },
+    providerRegistry: { lookup: (driverId: ProviderName) => drivers[driverId] },
     resolveDriverForRun,
   };
 }
@@ -224,16 +175,13 @@ const SECOND_SESSION_ID = "990e8400-e29b-41d4-a716-446655440003" as SessionId;
 const TEST_BINDING_ID = "binding-1";
 
 /**
- * The fail-closed capability gate as a double for the ADMITTING default paths:
- * `!== true` refuses with the registry's own error class, mirroring
- * `ProviderRegistry.checkCapability`. The two capability-REFUSAL tests do NOT
- * inject it — a double restating the guard it refuses with proves nothing
- * about the shipped gate, so they drive a real registry built by
- * `realProviderRegistry` instead.
+ * A capability gate double for the paths that admit: anything but `true` refuses, like
+ * `ProviderRegistry.checkCapability`. The refusal tests use `realProviderRegistry` instead, so
+ * the shipped gate is what refuses.
  */
 function capabilityGate(
   flagsByDriver: Record<string, Partial<Record<DriverCapabilityFlag, boolean>>>,
-): (driverId: string, flag: DriverCapabilityFlag) => void {
+): (driverId: ProviderName, flag: DriverCapabilityFlag) => void {
   return (driverId, flag) => {
     if (flagsByDriver[driverId]?.[flag] !== true) {
       throw new DriverCapabilityUnsupportedError(driverId, flag);
@@ -242,37 +190,35 @@ function capabilityGate(
 }
 
 /**
- * A REAL `ProviderRegistry`, seeded through its own `register()` round-trip.
- *
- * Injected by the two capability-refusal tests so the refusing gate under test
- * is the SHIPPED fail-close (`!== true`) inside `checkCapability` — a
- * `capabilityGate` double would keep those tests green if the real gate ever
- * went fail-open. Only `getCapabilities` carries seeding behavior (the one
- * member `register()` consumes); `operations` is the caller's dispatch spies,
- * so a dispatch that slipped past the real gate still fails the zero-call
- * assertions. The partial-driver cast is `driverDouble`'s own
- * production-mirroring idiom.
+ * A real `ProviderRegistry` seeded through its own `register()`, so the capability-refusal tests
+ * exercise the shipped fail-closed gate. `operations` are the caller's spies, so a dispatch that
+ * got past the gate still fails the zero-call assertions.
  */
 async function realProviderRegistry(
-  driverSeeds: Record<
-    string,
-    {
-      flags: Partial<Record<DriverCapabilityFlag, boolean>>;
-      operations: Partial<ProviderDriver>;
-    }
+  driverSeeds: Partial<
+    Record<
+      ProviderName,
+      {
+        flags: Partial<Record<DriverCapabilityFlag, boolean>>;
+        operations: Partial<ProviderDriver>;
+      }
+    >
   >,
 ): Promise<ProviderRegistry> {
   const providerRegistry = new ProviderRegistry();
-  for (const [driverName, seed] of Object.entries(driverSeeds)) {
-    // Total flag record derived from the declared set (the structural half
-    // of): undeclared flags are explicitly false, never absent.
+  for (const driverName of PROVIDER_NAMES) {
+    const seed = driverSeeds[driverName];
+    if (seed === undefined) {
+      continue;
+    }
+    // Undeclared flags are false, never absent.
     const flags = Object.fromEntries(
       DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, seed.flags[flag] ?? false]),
     ) as Record<DriverCapabilityFlag, boolean>;
     const capabilitiesResult: GetCapabilitiesResult = {
       capabilities: { flags, contractVersion: "1.0.0" },
       tools: [],
-      cliVersion: { raw: "test-provider-cli 0.0.1", semver: "0.0.1" },
+      cliVersion: { rawVersion: "test-provider-cli 0.0.1", parsedVersion: "0.0.1" },
     };
     await providerRegistry.register(
       driverName,
@@ -283,9 +229,9 @@ async function realProviderRegistry(
 }
 
 /**
- * Deps for `driver.compactContext` with a fully-admitting default path — a
- * session bound to this node, permitted caller, one live `claude` binding, the
- * capability declared — so each test overrides exactly the seam it is about.
+ * Deps for `driver.compactContext` that admit everything (a session bound to this node, a
+ * permitted caller, one live `claude` binding, the capability declared), so a test overrides
+ * only the seam it is about.
  */
 function compactContextDeps(
   drivers: Record<string, ProviderDriver>,
@@ -320,17 +266,15 @@ function listProviderCommandsDeps(
     resolveSessionAccess: () => true,
     resolveAgentBindings: () => ({
       kind: "bound",
-      // `providerAccountId: null` matches the null the `commandGroup` fixture
-      // stamps — the daemon's record and the driver's stamp describe the same
-      // accountless binding, so the honest path verifies clean.
+      // Matches the `null` account the `commandGroup` fixture stamps.
       bindings: [{ driverName: "claude", bindingId: TEST_BINDING_ID, providerAccountId: null }],
     }),
     ...overrides,
   };
 }
 
-/** One binding's group as its driver composes it — the handler must not touch it. */
-function commandGroup(driverName: string, complete = true): ProviderCommandBindingGroup {
+/** One binding's group as its driver composes it; the handler must pass it through untouched. */
+function commandGroup(driverName: ProviderName, complete = true): ProviderCommandBindingGroup {
   return {
     runId: TEST_RUN_ID,
     binding: { driverName, providerAccountId: null },
@@ -340,10 +284,6 @@ function commandGroup(driverName: string, complete = true): ProviderCommandBindi
     complete,
   };
 }
-
-// ----------------------------------------------------------------------------
-// Registration surface
-// ----------------------------------------------------------------------------
 
 describe("driver.* registration surface", () => {
   function bindAll(registry: MethodRegistryImpl): void {
@@ -362,10 +302,6 @@ describe("driver.* registration surface", () => {
       registry,
       dispatchDeps(drivers, () => "claude"),
     );
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps(drivers, () => "claude"),
-    );
     registerDriverCompactContext(registry, compactContextDeps(drivers));
     registerDriverListProviderCommands(registry, listProviderCommandsDeps(drivers));
     registerDriverSubscribeEvents(registry, {
@@ -374,32 +310,10 @@ describe("driver.* registration surface", () => {
     });
   }
 
-  it("binds exactly the nine client-facing names, with the ratified mutating flags", () => {
-    const registry = new MethodRegistryImpl();
-    bindAll(registry);
-
-    // `false` on the reads and on subscribe so a version-mismatched connection
-    // keeps read-only access; `true` on the four that drive a live run.
-    expect(registry.isMutating("driver.listCapabilities")).toBe(false);
-    expect(registry.isMutating("driver.listModels")).toBe(false);
-    expect(registry.isMutating("driver.listModes")).toBe(false);
-    expect(registry.isMutating("driver.listProviderCommands")).toBe(false);
-    expect(registry.isMutating("driver.subscribeEvents")).toBe(false);
-    expect(registry.isMutating("driver.interruptRun")).toBe(true);
-    expect(registry.isMutating("driver.applyIntervention")).toBe(true);
-    expect(registry.isMutating("driver.respondToRequest")).toBe(true);
-    expect(registry.isMutating("driver.compactContext")).toBe(true);
-  });
-
-  it("registers NONE of the four lifecycle operations NOR the four R8 parity operations", async () => {
-    // Enforced rather than documented: the lifecycle four establish, restore,
-    // start, or tear down a domain object, so a client reaching them would
-    // mint runtime state behind the orchestrator's back. The R8 parity four
-    // (the absence half) stay daemon-internal for the reason that decision
-    // records — each already has its own client route (rollback through the
-    // intervention path, goals through the surface, auth probes through the
-    // account plane), and a second route here would fork one operation's
-    // authority.
+  it("registers NONE of the four lifecycle operations NOR the four daemon-internal operations", async () => {
+    // The lifecycle four create, restore, start or end runtime state, so a client reaching them
+    // would bypass the orchestrator. The other four stay daemon-internal: the daemon forks the
+    // conversation on a resend, and goals and auth probes have their own routes.
     const registry = new MethodRegistryImpl();
     bindAll(registry);
 
@@ -408,7 +322,7 @@ describe("driver.* registration surface", () => {
       "driver.resumeSession",
       "driver.startRun",
       "driver.closeSession",
-      "driver.rollbackTo",
+      "driver.forkConversation",
       "driver.setSessionGoal",
       "driver.clearSessionGoal",
       "driver.probeAuth",
@@ -419,46 +333,14 @@ describe("driver.* registration surface", () => {
       );
     }
   });
-
-  it("REFUSES a duplicate binding at register-time", () => {
-    const registry = new MethodRegistryImpl();
-    const deps: DriverListCapabilitiesDeps = {
-      providerRegistry: { listAvailable: () => [] },
-      capabilityCache: { read: capabilityReport },
-    };
-    registerDriverListCapabilities(registry, deps);
-    expect(() => {
-      registerDriverListCapabilities(registry, deps);
-    }).toThrowError(RegistryRegistrationError);
-  });
-
-  it("REFUSES a duplicate binding of either console-parity verb", () => {
-    const registry = new MethodRegistryImpl();
-    const drivers = { claude: driverDouble({}) };
-    const compactDeps = compactContextDeps(drivers);
-    registerDriverCompactContext(registry, compactDeps);
-    expect(() => {
-      registerDriverCompactContext(registry, compactDeps);
-    }).toThrowError(RegistryRegistrationError);
-
-    const listDeps = listProviderCommandsDeps(drivers);
-    registerDriverListProviderCommands(registry, listDeps);
-    expect(() => {
-      registerDriverListProviderCommands(registry, listDeps);
-    }).toThrowError(RegistryRegistrationError);
-  });
 });
-
-// ----------------------------------------------------------------------------
-// driver.listCapabilities
-// ----------------------------------------------------------------------------
 
 describe("driver.listCapabilities", () => {
   it("serves the whole roster from the cache, sorted, with no driver round-trip", async () => {
     const registry = new MethodRegistryImpl();
     const read = vi.fn(capabilityReport);
     registerDriverListCapabilities(registry, {
-      // Deliberately UNSORTED, so the sort is observed rather than inherited.
+      // Unsorted on purpose, so the test sees the handler sort.
       providerRegistry: { listAvailable: () => ["codex", "claude"] },
       capabilityCache: { read },
     });
@@ -471,53 +353,17 @@ describe("driver.listCapabilities", () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
-  it("REFUSES a payload carrying a driver selector (before the handler runs)", async () => {
-    // The read is no-arg by ratified signature. The handler must never see the
-    // request at all — a caller who believed `{ driverName }` filtered the reply
-    // would otherwise get the whole roster and no indication it was ignored.
-    const registry = new MethodRegistryImpl();
-    const read = vi.fn(capabilityReport);
-    registerDriverListCapabilities(registry, {
-      providerRegistry: { listAvailable: () => ["claude"] },
-      capabilityCache: { read },
-    });
-
-    await expect(
-      registry.dispatch("driver.listCapabilities", { driverName: "claude" }, NO_TRANSPORT),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(read).not.toHaveBeenCalled();
-  });
-
-  it("fails the WHOLE read when one driver cannot be substantiated", async () => {
-    // Omitting the driver would read to a client as "that driver declares no
-    // capabilities", which is a different and false claim — the omission-versus-
-    // empty confusion exists to prevent.
+  it("fails the WHOLE read when one driver cannot be substantiated, with its registered wire code", async () => {
+    // Leaving the driver out would tell the client it declares no capabilities, which is false.
     const registry = new MethodRegistryImpl();
     registerDriverListCapabilities(registry, {
       providerRegistry: { listAvailable: () => ["claude", "codex"] },
       capabilityCache: {
-        read: (driverName: string) => {
+        read: (driverName: ProviderName) => {
           if (driverName === "codex") {
             throw new DriverUnavailableError(driverName);
           }
           return capabilityReport(driverName);
-        },
-      },
-    });
-
-    await expect(registry.dispatch("driver.listCapabilities", {}, NO_TRANSPORT)).rejects.toThrow();
-  });
-
-  it("projects a provider-layer refusal onto its REGISTERED wire code", async () => {
-    // The payoff of translating at this seam, asserted where it matters: without
-    // it the envelope is a bare `-32603` with no `data.type` and a client cannot
-    // tell an unavailable driver from a crashed daemon.
-    const registry = new MethodRegistryImpl();
-    registerDriverListCapabilities(registry, {
-      providerRegistry: { listAvailable: () => ["codex"] },
-      capabilityCache: {
-        read: (driverName: string) => {
-          throw new DriverUnavailableError(driverName);
         },
       },
     });
@@ -533,10 +379,6 @@ describe("driver.listCapabilities", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// driver.listModels / driver.listModes
-// ----------------------------------------------------------------------------
-
 describe("driver.listModels and driver.listModes", () => {
   it("groups each driver's catalog under its own name", async () => {
     const registry = new MethodRegistryImpl();
@@ -544,15 +386,23 @@ describe("driver.listModels and driver.listModes", () => {
       registry,
       catalogDeps({
         codex: driverDouble({
-          listModels: async () => [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [] }],
+          listModels: async () => [
+            { id: "gpt-5.6-luna", name: "Luna", capabilities: [], fast: true },
+          ],
         }),
         claude: driverDouble({
-          listModels: async () => [{ id: "claude-haiku-4-5", name: "Haiku", capabilities: [] }],
+          listModels: async () => [
+            { id: "claude-haiku-4-5", name: "Haiku", capabilities: [], fast: false },
+          ],
         }),
       }),
     );
 
-    const result = (await registry.dispatch("driver.listModels", {}, NO_TRANSPORT)) as {
+    const result = (await registry.dispatch(
+      "driver.listModels",
+      { sessionId: TEST_SESSION_ID },
+      NO_TRANSPORT,
+    )) as {
       drivers: { driverName: string; models: { id: string }[] }[];
     };
 
@@ -561,11 +411,8 @@ describe("driver.listModels and driver.listModes", () => {
   });
 
   it("REFUSES an operation the resolved driver does not implement", async () => {
-    // NOT hypothetical: neither shipped driver implements `listModes` at this
-    // task's landing. Without the guard the call is `TypeError: driver.listModes
-    // is not a function`, which reaches the client as a bare `-32603` — the
-    // daemon reporting a crash for a driver that simply does not offer the
-    // operation.
+    // Neither shipped driver implements `listModes`. Without the guard the call would be a
+    // `TypeError` and reach the client as a bare `-32603`, a crash report for a missing feature.
     const registry = new MethodRegistryImpl();
     registerDriverListModes(registry, catalogDeps({ claude: driverDouble({}) }));
 
@@ -594,31 +441,18 @@ describe("driver.listModels and driver.listModes", () => {
     );
 
     const thrown = await registry
-      .dispatch("driver.listModels", {}, NO_TRANSPORT)
+      .dispatch("driver.listModels", { sessionId: TEST_SESSION_ID }, NO_TRANSPORT)
       .then(() => undefined)
       .catch((error: unknown) => error);
 
     expect(wireErrorData(thrown).type).toBe("driver.unavailable");
   });
-
-  it("answers an empty roster with an empty group list", async () => {
-    const registry = new MethodRegistryImpl();
-    registerDriverListModels(registry, catalogDeps({}));
-    await expect(registry.dispatch("driver.listModels", {}, NO_TRANSPORT)).resolves.toStrictEqual({
-      drivers: [],
-    });
-  });
 });
-
-// ----------------------------------------------------------------------------
-// The three run-addressed verbs
-// ----------------------------------------------------------------------------
 
 describe("driver.interruptRun", () => {
   it("dispatches to the run's resolved driver and answers the empty ack", async () => {
-    // `{}` and not `undefined`: the registry `safeParse`s the RESULT, so a
-    // handler returning nothing would report a successful interrupt to the
-    // client as an internal error.
+    // The registry validates the result, so returning nothing would turn a successful
+    // interrupt into an internal error.
     const registry = new MethodRegistryImpl();
     const interruptRun = vi.fn(async () => undefined);
     registerDriverInterruptRun(
@@ -632,27 +466,9 @@ describe("driver.interruptRun", () => {
     expect(interruptRun).toHaveBeenCalledWith({ runId: TEST_RUN_ID });
   });
 
-  it("resolves the run ONCE per dispatch", async () => {
-    // The resolver reads live binding state, so two calls can disagree and a
-    // handler acting on one answer while reporting the other would attribute a
-    // refusal to the wrong driver.
-    const registry = new MethodRegistryImpl();
-    const resolveDriverForRun = vi.fn(() => "claude");
-    registerDriverInterruptRun(
-      registry,
-      dispatchDeps(
-        { claude: driverDouble({ interruptRun: async () => undefined }) },
-        resolveDriverForRun,
-      ),
-    );
-
-    await registry.dispatch("driver.interruptRun", { runId: TEST_RUN_ID }, NO_TRANSPORT);
-    expect(resolveDriverForRun).toHaveBeenCalledTimes(1);
-  });
-
   it("refuses an unresolvable run as run.not_found, BEFORE any availability check", async () => {
-    // Address first, availability second. Reporting a driver problem for a run
-    // id that never existed sends a caller to fix the wrong thing.
+    // A driver problem reported for a run that never existed would send the caller to fix the
+    // wrong thing.
     const registry = new MethodRegistryImpl();
     const lookup = vi.fn(() => undefined);
     registerDriverInterruptRun(registry, {
@@ -684,17 +500,6 @@ describe("driver.interruptRun", () => {
 
     expect(wireErrorData(thrown).type).toBe("driver.unavailable");
   });
-
-  it("REFUSES a non-UUID run id before the resolver is consulted", async () => {
-    const registry = new MethodRegistryImpl();
-    const resolveDriverForRun = vi.fn(() => "claude");
-    registerDriverInterruptRun(registry, dispatchDeps({}, resolveDriverForRun));
-
-    await expect(
-      registry.dispatch("driver.interruptRun", { runId: "run-1" }, NO_TRANSPORT),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(resolveDriverForRun).not.toHaveBeenCalled();
-  });
 });
 
 describe("driver.applyIntervention", () => {
@@ -707,9 +512,8 @@ describe("driver.applyIntervention", () => {
   };
 
   it("returns a DEGRADED envelope as data, not as an error", async () => {
-    // The reason this verb is not pre-gated by `checkCapability`: an unsupported
-    // intervention must reach the driver so it can answer with a usable fallback
-    // hint. A gate here would replace that hint with a refusal.
+    // No capability pre-gate: an unsupported intervention must reach the driver so it can
+    // answer with a fallback hint instead of a refusal.
     const registry = new MethodRegistryImpl();
     registerDriverApplyIntervention(
       registry,
@@ -731,89 +535,23 @@ describe("driver.applyIntervention", () => {
     ).resolves.toStrictEqual({ status: "degraded", fallbackAction: "queue_and_interrupt" });
   });
 
-  it("REFUSES a rollback arm before the driver is resolved", async () => {
-    const registry = new MethodRegistryImpl();
-    const resolveDriverForRun = vi.fn(() => "claude");
-    registerDriverApplyIntervention(registry, dispatchDeps({}, resolveDriverForRun));
+  // No driver resolves an attachment id to bytes, so the handler refuses a steer carrying
+  // attachments before the driver runs; otherwise the attachments would be dropped silently.
 
-    await expect(
-      registry.dispatch(
-        "driver.applyIntervention",
-        { ...steer, type: "rollback", payload: {} },
-        NO_TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(resolveDriverForRun).not.toHaveBeenCalled();
-  });
-
-  it("REFUSES a caller-chosen idempotency key that is not a UUID", async () => {
-    const registry = new MethodRegistryImpl();
-    registerDriverApplyIntervention(
-      registry,
-      dispatchDeps({}, () => "claude"),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.applyIntervention",
-        { ...steer, clientIdempotencyKey: "my-key" },
-        NO_TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-  });
-
-  // --------------------------------------------------------------------------
-  // The interim attachment refusal
-  // --------------------------------------------------------------------------
-  //
-  // The REAL `CodexInterventionDispatcher` sits behind the handler in these
-  // three, rather than a `vi.fn` answering `applied`. That is the whole point:
-  // the defect is that the dispatcher builds `steerRun` from `runId` /
-  // `content` / `expectedTurnId` / the idempotency key and never reads
-  // `payload.attachments`, so a double would have proved only that the double
-  // was not called. With the real module wired, `steerRun` NOT being called is
-  // the assertion that the attachments were never dropped on the floor — and
-  // deleting the guard turns the first case red twice over (the dispatch
-  // resolves `{ status: 'applied' }` and `steerRun` records a call).
-
-  /** A real Codex dispatcher whose only fake is the provider runtime port. */
-  function codexDriverWithSpiedSteer(): {
+  /** A driver whose `applyIntervention` applies and records each call. */
+  function driverWithSpiedIntervention(): {
     driver: ProviderDriver;
-    steerRun: ReturnType<typeof vi.fn>;
+    applyIntervention: ReturnType<typeof vi.fn>;
   } {
-    const steerRun = vi.fn(
-      async (request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
-        const targetedTurnId = request.expectedTurnId ?? "turn-live";
-        return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
-      },
-    );
-    const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
-      DriverCapabilityFlag,
-      boolean
-    >;
-    const dispatcher = new CodexInterventionDispatcher({
-      runtime: {
-        steerRun,
-        interruptRun: async (): Promise<void> => {},
-        textNeutralizationDecisionForTurn: (): { readonly refused: boolean } => ({
-          refused: false,
-        }),
-      },
-      readCapabilities: () => ({ flags, contractVersion: "1.0.0" }),
-    });
-    return {
-      driver: driverDouble({
-        applyIntervention: (params) => dispatcher.applyIntervention(params),
-      }),
-      steerRun,
-    };
+    const applyIntervention = vi.fn(async () => ({ status: "applied" as const }));
+    return { driver: driverDouble({ applyIntervention }), applyIntervention };
   }
 
   const ARTIFACT_ID = "018f3a4c-7b21-7e55-9c04-2b6d9f1e77a0";
 
   it("REFUSES a steer carrying attachment references, before any driver method runs", async () => {
     const registry = new MethodRegistryImpl();
-    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    const { driver, applyIntervention } = driverWithSpiedIntervention();
     registerDriverApplyIntervention(
       registry,
       dispatchDeps({ codex: driver }, () => "codex"),
@@ -824,8 +562,6 @@ describe("driver.applyIntervention", () => {
       payload: { content: "use the other branch", attachments: [ARTIFACT_ID] },
     });
 
-    // Asserted through the real mapper, not off the thrown object: the property
-    // under test is the code the CLIENT reads.
     expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InvalidRequest);
     const wireError = wireErrorData(thrown);
     expect(wireError.type).toBe("driver.capability_unsupported");
@@ -833,12 +569,12 @@ describe("driver.applyIntervention", () => {
       driverId: "codex",
       operation: "applyIntervention",
     });
-    expect(steerRun).not.toHaveBeenCalled();
+    expect(applyIntervention).not.toHaveBeenCalled();
   });
 
-  it("dispatches a steer whose attachment list is EMPTY", async () => {
+  it("dispatches a steer whose attachment list is EMPTY or omitted", async () => {
     const registry = new MethodRegistryImpl();
-    const { driver, steerRun } = codexDriverWithSpiedSteer();
+    const { driver, applyIntervention } = driverWithSpiedIntervention();
     registerDriverApplyIntervention(
       registry,
       dispatchDeps({ codex: driver }, () => "codex"),
@@ -851,91 +587,14 @@ describe("driver.applyIntervention", () => {
         NO_TRANSPORT,
       ),
     ).resolves.toStrictEqual({ status: "applied" });
-    expect(steerRun).toHaveBeenCalledTimes(1);
-  });
-
-  it("dispatches a steer that omits the attachment member entirely", async () => {
-    const registry = new MethodRegistryImpl();
-    const { driver, steerRun } = codexDriverWithSpiedSteer();
-    registerDriverApplyIntervention(
-      registry,
-      dispatchDeps({ codex: driver }, () => "codex"),
-    );
+    expect(applyIntervention).toHaveBeenCalledTimes(1);
 
     await expect(
       registry.dispatch("driver.applyIntervention", steer, NO_TRANSPORT),
     ).resolves.toStrictEqual({ status: "applied" });
-    expect(steerRun).toHaveBeenCalledTimes(1);
+    expect(applyIntervention).toHaveBeenCalledTimes(2);
   });
 });
-
-describe("driver.respondToRequest", () => {
-  it("forwards the answer and returns the empty ack", async () => {
-    const registry = new MethodRegistryImpl();
-    const respondToRequest = vi.fn(async () => undefined);
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps({ claude: driverDouble({ respondToRequest }) }, () => "claude"),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.respondToRequest",
-        { runId: TEST_RUN_ID, requestId: "req-42", response: { choice: "b" } },
-        NO_TRANSPORT,
-      ),
-    ).resolves.toStrictEqual({});
-    expect(respondToRequest).toHaveBeenCalledWith({
-      runId: TEST_RUN_ID,
-      requestId: "req-42",
-      response: { choice: "b" },
-    });
-  });
-
-  it("REFUSES a request that omits the answer, before the driver is consulted", async () => {
-    // A provider blocked on a structured question must not be handed "no
-    // answer" as though it were one.
-    const registry = new MethodRegistryImpl();
-    const respondToRequest = vi.fn(async () => undefined);
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps({ claude: driverDouble({ respondToRequest }) }, () => "claude"),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.respondToRequest",
-        { runId: TEST_RUN_ID, requestId: "req-42" },
-        NO_TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(respondToRequest).not.toHaveBeenCalled();
-  });
-
-  it("REFUSES the operation on a driver that does not implement it", async () => {
-    // Also not hypothetical — neither shipped driver implements this one either.
-    const registry = new MethodRegistryImpl();
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps({ claude: driverDouble({}) }, () => "claude"),
-    );
-
-    const thrown = await registry
-      .dispatch(
-        "driver.respondToRequest",
-        { runId: TEST_RUN_ID, requestId: "req-42", response: null },
-        NO_TRANSPORT,
-      )
-      .then(() => undefined)
-      .catch((error: unknown) => error);
-
-    expect(wireErrorData(thrown).type).toBe("driver.capability_unsupported");
-  });
-});
-
-// ----------------------------------------------------------------------------
-// driver.subscribeEvents
-// ----------------------------------------------------------------------------
 
 describe("driver.subscribeEvents", () => {
   function buildSubscribeHarness(
@@ -953,25 +612,14 @@ describe("driver.subscribeEvents", () => {
     return { registry, frames };
   }
 
-  /** Cross one `setImmediate` boundary — the flush point the handler schedules. */
+  /** Waits one `setImmediate`, the point where the handler flushes held events. */
   async function afterFlush(): Promise<void> {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
-  it("answers with the shared subscription ack", async () => {
-    const { registry } = buildSubscribeHarness(() => () => undefined);
-    const result = (await registry.dispatch(
-      "driver.subscribeEvents",
-      { runId: TEST_RUN_ID },
-      TRANSPORT,
-    )) as { subscriptionId: string };
-    expect(typeof result.subscriptionId).toBe("string");
-  });
-
   it("buffers events raised during setup and flushes them after the response", async () => {
-    // The upstream source is permitted to replay synchronously, so without the
-    // buffer those notify frames would reach the wire before the init response
-    // and the SDK would drop them against an unregistered subscription id.
+    // The source may replay synchronously; without the buffer the notify frames would precede
+    // the init response and the client would drop them as an unknown subscription id.
     const { registry, frames } = buildSubscribeHarness((_runId, onEvent) => {
       onEvent(buildDriverEvent(1));
       onEvent(buildDriverEvent(2));
@@ -986,12 +634,9 @@ describe("driver.subscribeEvents", () => {
   });
 
   it("DROPS events outside the seven driver categories, on both paths", async () => {
-    // A `session.created` event parses cleanly against `SessionEventSchema`, so
-    // a source wired to a session-wide feed would push lifecycle, approval,
-    // and audit rows onto a subscription opened for one run's driver activity
-    // and nothing on this side would notice. (A leak past this filter reaches
-    // the SDK's `DriverEventSchema`, which ends the subscription rather than
-    // delivering the row — a loud client-side failure, not a silent rescue.)
+    // A `session.created` event passes `SessionEventSchema`, so a source wired to a session-wide
+    // feed would push lifecycle rows onto a subscription for one run's driver activity, and only
+    // this filter would stop it.
     let live: ((event: SessionEvent) => void) | undefined;
     const { registry, frames } = buildSubscribeHarness((_runId, onEvent) => {
       onEvent(buildNonDriverEvent());
@@ -1027,9 +672,7 @@ describe("driver.subscribeEvents", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels the allocated subscription when setup throws, and projects the refusal", async () => {
-    // Without the atomicity guard the streaming-primitive entry would orphan in
-    // both of its maps until the transport closed.
+  it("projects a refusal thrown during setup onto its registered wire code and sends no frame", async () => {
     const { registry, frames } = buildSubscribeHarness(() => {
       throw new DriverUnavailableError("claude");
     });
@@ -1043,31 +686,7 @@ describe("driver.subscribeEvents", () => {
     await afterFlush();
     expect(frames).toHaveLength(0);
   });
-
-  it("refuses a call carrying no transport identity", async () => {
-    const { registry } = buildSubscribeHarness(() => () => undefined);
-    await expect(
-      registry.dispatch("driver.subscribeEvents", { runId: TEST_RUN_ID }, NO_TRANSPORT),
-    ).rejects.toThrow(/transportId/);
-  });
-
-  it("REFUSES an unknown key on the request", async () => {
-    const subscribeToDriverEvents = vi.fn(() => () => undefined);
-    const { registry } = buildSubscribeHarness(subscribeToDriverEvents);
-
-    await expect(
-      registry.dispatch(
-        "driver.subscribeEvents",
-        { runId: TEST_RUN_ID, afterCursor: "c1" },
-        TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(subscribeToDriverEvents).not.toHaveBeenCalled();
-  });
 });
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
 
 describe("driver.compactContext", () => {
   const request = { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID };
@@ -1076,35 +695,6 @@ describe("driver.compactContext", () => {
     const registry = new MethodRegistryImpl();
     const compactContext = vi.fn(
       async () => ({ status: "applied", boundaryPosition: 41 }) as const,
-    );
-    registerDriverCompactContext(
-      registry,
-      compactContextDeps({ claude: driverDouble({ compactContext }) }),
-    );
-
-    await expect(
-      registry.dispatch("driver.compactContext", request, NO_TRANSPORT),
-    ).resolves.toStrictEqual({ status: "applied", boundaryPosition: 41 });
-
-    // The DRIVER param shape is binding-addressed: the run id was the wire's
-    // addressing key and stops at the daemon — the driver receives the resolved
-    // binding and never re-derives what "this run's binding" means.
-    expect(compactContext).toHaveBeenCalledTimes(1);
-    expect(compactContext).toHaveBeenCalledWith({
-      sessionId: TEST_SESSION_ID,
-      bindingId: TEST_BINDING_ID,
-    });
-  });
-
-  it("admits the sole user's own session bound to this node and proceeds to run resolution", async () => {
-    // The solo path: one user, one session, hosted by the node executing the
-    // verb — the mask answers `true` for the addressed session id and the
-    // handler carries on to the run-binding resolution. Asserting the mask's
-    // ARGUMENT and the resolver's call proves the gate was passed rather than
-    // skipped: a handler that never called the mask would also reach dispatch.
-    const registry = new MethodRegistryImpl();
-    const compactContext = vi.fn(
-      async () => ({ status: "applied", boundaryPosition: 12 }) as const,
     );
     const resolveSessionAccess = vi.fn(() => true);
     const resolveRunBinding = vi.fn<DriverCompactContextDeps["resolveRunBinding"]>(() => ({
@@ -1122,21 +712,25 @@ describe("driver.compactContext", () => {
 
     await expect(
       registry.dispatch("driver.compactContext", request, NO_TRANSPORT),
-    ).resolves.toStrictEqual({ status: "applied", boundaryPosition: 12 });
+    ).resolves.toStrictEqual({ status: "applied", boundaryPosition: 41 });
 
+    // The access check ran on the asked-for session before the run was resolved.
     expect(resolveSessionAccess).toHaveBeenCalledTimes(1);
     expect(resolveSessionAccess).toHaveBeenCalledWith(TEST_SESSION_ID);
     expect(resolveRunBinding).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_RUN_ID);
+
+    // The run id stops at the daemon; the driver is addressed by the resolved binding.
     expect(compactContext).toHaveBeenCalledTimes(1);
+    expect(compactContext).toHaveBeenCalledWith({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
   });
 
   it("refuses a session not bound here BYTE-IDENTICALLY to an unknown session (no existence oracle)", async () => {
-    // One resolver answer covers both readings — a session that does not exist
-    // and one that is not bound to this node — because the mask deliberately
-    // collapses them. The assertion compares the WHOLE mapped envelopes rather
-    // than matching a code: byte-identity is the property, and two refusals
-    // that differed in message, fields, or numeric would leak which reading
-    // applied.
+    // One resolver answer stands for both a missing session and one not bound to this node, since
+    // the access check treats them alike. The whole envelopes are compared: a difference in
+    // message, fields or code would reveal which case applied.
     const registry = new MethodRegistryImpl();
     const compactContext = vi.fn();
     const resolveRunBinding = vi.fn();
@@ -1164,20 +758,17 @@ describe("driver.compactContext", () => {
     const notBoundHereEnvelope = mapJsonRpcError(notBoundHereRefusal, 7);
     expect(notBoundHereEnvelope).toStrictEqual(mapJsonRpcError(unknownSessionRefusal, 7));
     expect(notBoundHereEnvelope.error.message).toBe("Session does not exist or is not accessible");
-    // No `fields` key at all — a masked refusal that carried per-cause fields
-    // would stop being byte-identical the day either side added one.
+    // No `fields` key, so the two refusals cannot differ by one.
     expect(Object.hasOwn(wireErrorData(notBoundHereRefusal), "fields")).toBe(false);
 
-    // The mask ran FIRST: nothing downstream was consulted for either caller.
+    // The access check runs first; nothing after it was consulted.
     expect(resolveRunBinding).not.toHaveBeenCalled();
     expect(compactContext).not.toHaveBeenCalled();
   });
 
   it("settles an adjudicated deny as not_permitted DATA, with zero gate and zero driver calls", async () => {
-    // The adjudication precedes the capability gate AND the dispatch, and its
-    // deny is a RESOLVED value on the operation's own refused arm — a denied
-    // caller is answered, not mis-addressed. Zero calls on the double prove the
-    // ordering rather than assert it in prose.
+    // The permission check runs before the capability gate and the dispatch, and a deny is an
+    // ordinary result of the operation, not an error.
     const registry = new MethodRegistryImpl();
     const compactContext = vi.fn();
     const lookup = vi.fn();
@@ -1212,8 +803,7 @@ describe("driver.compactContext", () => {
       compactContextDeps(
         { claude: driverDouble({ compactContext }) },
         {
-          // A broken implementor answering neither literal must land on the
-          // refusing arm, never fall through to the dispatch.
+          // An evaluator that answers neither literal must be refused, not dispatched.
           evaluateInterveneAction: (() =>
             undefined) as unknown as DriverCompactContextDeps["evaluateInterveneAction"],
         },
@@ -1227,9 +817,8 @@ describe("driver.compactContext", () => {
   });
 
   it("refuses another session's run as run.not_found, before adjudication, with zero driver calls", async () => {
-    // The resolver is SESSION-SCOPED: the run is live under a different
-    // session, so within the addressed one it does not resolve — the address
-    // fails before the caller's permissions are even weighed.
+    // The resolver is scoped to the session: the run is live under a different one, so it does
+    // not resolve here, and the address fails before permissions are checked.
     const registry = new MethodRegistryImpl();
     const compactContext = vi.fn();
     const evaluateInterveneAction = vi.fn(() => "permit" as const);
@@ -1278,21 +867,17 @@ describe("driver.compactContext", () => {
 
     const wireError = wireErrorData(thrown);
     expect(wireError.type).toBe("driver.unavailable");
-    // Deliberately NO data.fields: the caller named this run in the very
-    // request being refused, and echoing it would mint a new fields shape on
-    // a registered code (documents none for this row).
+    // No `data.fields`: the caller already named the run, and this error code carries none.
     expect(Object.hasOwn(wireError, "fields")).toBe(false);
-    // Adjudication ran (its deny would have settled first); liveness refused
-    // after it, so a denied caller's answer never varies with binding state.
+    // The permission check ran first, so a denied caller's answer does not depend on binding
+    // state.
     expect(evaluateInterveneAction).toHaveBeenCalledTimes(1);
     expect(lookup).not.toHaveBeenCalled();
     expect(compactContext).not.toHaveBeenCalled();
   });
 
   it("refuses a declaring-false driver via driver.capability_unsupported, with zero dispatches", async () => {
-    // The refusing gate here is the SHIPPED `ProviderRegistry.checkCapability`
-    // over a registry seeded through its own `register()` — see
-    // `realProviderRegistry`.
+    // The refusal comes from the shipped `ProviderRegistry.checkCapability`.
     const registry = new MethodRegistryImpl();
     const compactContext = vi.fn();
     registerDriverCompactContext(
@@ -1317,45 +902,29 @@ describe("driver.compactContext", () => {
     expect(wireError.fields).toMatchObject({ driverId: "claude", flag: "context_compaction" });
     expect(compactContext).not.toHaveBeenCalled();
   });
-
-  it("REFUSES a request carrying a bindingId, before the handler runs", async () => {
-    // No binding member exists on the wire — a caller naming one believes it
-    // holds an addressing key the contract deliberately never published.
-    const registry = new MethodRegistryImpl();
-    const resolveSessionAccess = vi.fn(() => true);
-    registerDriverCompactContext(
-      registry,
-      compactContextDeps({ claude: driverDouble({}) }, { resolveSessionAccess }),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.compactContext",
-        { ...request, bindingId: TEST_BINDING_ID },
-        NO_TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(resolveSessionAccess).not.toHaveBeenCalled();
-  });
 });
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
 
 describe("driver.listProviderCommands", () => {
   const request = { sessionId: TEST_SESSION_ID, agentId: TEST_AGENT_ID };
 
   it("fans out across the agent's live bindings and merges by concatenation, in resolver order", async () => {
-    // ANY admitted caller reads — these deps carry no adjudication seam at
-    // all, which is the structural form of "the enumeration needs nothing
-    // beyond session access". Each group arrives as its driver composed it: the
-    // runId attribution, the routing pair on every entry, and the order are
-    // the drivers' own, concatenated and never re-shaped.
+    // These deps have no permission check: session access is enough. Each group keeps the run
+    // attribution, routing pair and order its driver gave it, and the groups are concatenated.
     const registry = new MethodRegistryImpl();
     const claudeGroup = commandGroup("claude");
     const codexGroup = commandGroup("codex");
     const claudeList = vi.fn(async () => ({ bindings: [claudeGroup] }));
     const codexList = vi.fn(async () => ({ bindings: [codexGroup] }));
+    const resolveSessionAccess = vi.fn(() => true);
+    const resolveAgentBindings = vi.fn<DriverListProviderCommandsDeps["resolveAgentBindings"]>(
+      () => ({
+        kind: "bound",
+        bindings: [
+          { driverName: "claude", bindingId: "binding-claude", providerAccountId: null },
+          { driverName: "codex", bindingId: "binding-codex", providerAccountId: null },
+        ],
+      }),
+    );
     registerDriverListProviderCommands(
       registry,
       listProviderCommandsDeps(
@@ -1374,13 +943,8 @@ describe("driver.listProviderCommands", () => {
               codex: { provider_commands: true },
             }),
           },
-          resolveAgentBindings: () => ({
-            kind: "bound",
-            bindings: [
-              { driverName: "claude", bindingId: "binding-claude", providerAccountId: null },
-              { driverName: "codex", bindingId: "binding-codex", providerAccountId: null },
-            ],
-          }),
+          resolveSessionAccess,
+          resolveAgentBindings,
         },
       ),
     );
@@ -1388,6 +952,11 @@ describe("driver.listProviderCommands", () => {
     await expect(
       registry.dispatch("driver.listProviderCommands", request, NO_TRANSPORT),
     ).resolves.toStrictEqual({ bindings: [claudeGroup, codexGroup] });
+
+    // The access check ran on the asked-for session before the agent was resolved.
+    expect(resolveSessionAccess).toHaveBeenCalledTimes(1);
+    expect(resolveSessionAccess).toHaveBeenCalledWith(TEST_SESSION_ID);
+    expect(resolveAgentBindings).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_AGENT_ID);
 
     expect(claudeList).toHaveBeenCalledWith({
       sessionId: TEST_SESSION_ID,
@@ -1399,52 +968,9 @@ describe("driver.listProviderCommands", () => {
     });
   });
 
-  it("passes a truncated group through with complete: false, untouched", async () => {
-    const registry = new MethodRegistryImpl();
-    const truncatedGroup = commandGroup("claude", false);
-    registerDriverListProviderCommands(
-      registry,
-      listProviderCommandsDeps({
-        claude: driverDouble({
-          listProviderCommands: async () => ({ bindings: [truncatedGroup] }),
-        }),
-      }),
-    );
-
-    const result = (await registry.dispatch(
-      "driver.listProviderCommands",
-      request,
-      NO_TRANSPORT,
-    )) as { bindings: { complete: boolean }[] };
-    expect(result.bindings[0]?.complete).toBe(false);
-  });
-
-  it("reads with no adjudication seam — none is even expressible on this verb", async () => {
-    // The compile-time half of "any admitted caller reads": unlike
-    // `DriverCompactContextDeps`, this deps type declares NO
-    // `evaluateInterveneAction` member, so a policy gate on the enumeration is
-    // not merely unwired but unrepresentable. Session access is the only
-    // admission this verb has.
-    const registry = new MethodRegistryImpl();
-    const enumeratedGroup = commandGroup("claude");
-    registerDriverListProviderCommands(
-      registry,
-      listProviderCommandsDeps({
-        claude: driverDouble({
-          listProviderCommands: async () => ({ bindings: [enumeratedGroup] }),
-        }),
-      }),
-    );
-
-    await expect(
-      registry.dispatch("driver.listProviderCommands", request, NO_TRANSPORT),
-    ).resolves.toStrictEqual({ bindings: [enumeratedGroup] });
-  });
-
   it("refuses the WHOLE read when ONE binding's driver declares provider_commands false, with zero dispatches", async () => {
-    // A partial group list would tell a caller the missing binding enumerates
-    // nothing — the omission-versus-empty confusion forbids. Both spies at
-    // zero prove every binding was gated before ANY was dispatched.
+    // A partial list would tell the caller the missing binding has no commands. Both spies at
+    // zero show every binding was gated before any was dispatched.
     const registry = new MethodRegistryImpl();
     const claudeList = vi.fn(async () => ({ bindings: [commandGroup("claude")] }));
     const codexList = vi.fn(async () => ({ bindings: [commandGroup("codex")] }));
@@ -1453,9 +979,8 @@ describe("driver.listProviderCommands", () => {
       listProviderCommandsDeps(
         {},
         {
-          // The refusing gate is the SHIPPED `checkCapability` over a real
-          // registry. `claude` declares true, so the refusal provably came
-          // from `codex`'s row and not from a gate that refuses everything.
+          // `claude` declares the flag, so the refusal comes from `codex`, not from a gate that
+          // refuses everything.
           providerRegistry: await realProviderRegistry({
             claude: {
               flags: { provider_commands: true },
@@ -1529,43 +1054,9 @@ describe("driver.listProviderCommands", () => {
 
     const wireError = wireErrorData(thrown);
     expect(wireError.type).toBe("driver.unavailable");
-    // NO data.fields, matching the run arm — one registered envelope shape.
+    // No `data.fields`, as for the run case.
     expect(Object.hasOwn(wireError, "fields")).toBe(false);
     expect(listProviderCommands).not.toHaveBeenCalled();
-  });
-
-  it("admits the sole user's own session bound to this node and proceeds to agent resolution", async () => {
-    // The solo path on the enumeration verb: the mask answers `true` for the
-    // addressed session id and the handler carries on to the agent-binding
-    // fan-out. The mask's argument and the resolver's call are both asserted,
-    // so passing the gate is proven rather than inferred from a successful
-    // reply a mask-skipping handler would also produce.
-    const registry = new MethodRegistryImpl();
-    const enumeratedGroup = commandGroup("claude");
-    const listProviderCommands = vi.fn(async () => ({ bindings: [enumeratedGroup] }));
-    const resolveSessionAccess = vi.fn(() => true);
-    const resolveAgentBindings = vi.fn<DriverListProviderCommandsDeps["resolveAgentBindings"]>(
-      () => ({
-        kind: "bound",
-        bindings: [{ driverName: "claude", bindingId: TEST_BINDING_ID, providerAccountId: null }],
-      }),
-    );
-    registerDriverListProviderCommands(
-      registry,
-      listProviderCommandsDeps(
-        { claude: driverDouble({ listProviderCommands }) },
-        { resolveSessionAccess, resolveAgentBindings },
-      ),
-    );
-
-    await expect(
-      registry.dispatch("driver.listProviderCommands", request, NO_TRANSPORT),
-    ).resolves.toStrictEqual({ bindings: [enumeratedGroup] });
-
-    expect(resolveSessionAccess).toHaveBeenCalledTimes(1);
-    expect(resolveSessionAccess).toHaveBeenCalledWith(TEST_SESSION_ID);
-    expect(resolveAgentBindings).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_AGENT_ID);
-    expect(listProviderCommands).toHaveBeenCalledTimes(1);
   });
 
   it("refuses a session not bound here BYTE-IDENTICALLY to an unknown session on this verb too", async () => {
@@ -1602,8 +1093,8 @@ describe("driver.listProviderCommands", () => {
   });
 
   it("fails the read as an internal error when a driver answers more than one group", async () => {
-    // A driver contract violation, not a refusal a caller can act on — and the
-    // alternative (silently flattening or picking one) would forge provenance.
+    // A driver contract violation, not a refusal the caller can act on; picking or flattening
+    // the groups would misattribute commands.
     const registry = new MethodRegistryImpl();
     const doubledGroup = commandGroup("claude");
     registerDriverListProviderCommands(
@@ -1626,12 +1117,9 @@ describe("driver.listProviderCommands", () => {
   });
 
   it("fails the read when a driver stamps its GROUP with another binding's routing pair", async () => {
-    // The lying-driver case doctrine exists for: the daemon resolved the
-    // dispatch onto `claude`'s accountless binding, and the driver answered one
-    // well-formed group stamped as `codex`. Structure passes (one group); the
-    // PAIR comparison against the resolution's own record must refuse —
-    // internal error, same class as the group-count check, because a driver
-    // violating its stamp contract is not a caller refusal.
+    // The daemon dispatched to `claude`'s binding and the driver answered one well-formed group
+    // stamped as `codex`. The stamp must be compared with the daemon's own record; a mismatch is
+    // an internal error like the group-count check, not a caller refusal.
     const registry = new MethodRegistryImpl();
     registerDriverListProviderCommands(
       registry,
@@ -1653,9 +1141,8 @@ describe("driver.listProviderCommands", () => {
   });
 
   it("fails the read when ONE ENTRY carries another binding's routing pair inside an honest group", async () => {
-    // Entries inline their own routing key by contract, so each is a carrier
-    // the daemon must verify — a clean group-level stamp must not launder a
-    // mis-stamped entry through to a renderer that would route by it.
+    // Each entry carries its own routing key, so each is checked; a correct group stamp must not
+    // let a mis-stamped entry through to a caller that routes by it.
     const registry = new MethodRegistryImpl();
     const groupWithForeignEntry = commandGroup("claude");
     registerDriverListProviderCommands(
@@ -1692,11 +1179,8 @@ describe("driver.listProviderCommands", () => {
   });
 
   it("fails the read when the driver's stamped ACCOUNT differs on a shared driver name", async () => {
-    // The account half of the pair alone must refuse: same driver name, the
-    // stamp names an account the daemon's record says is not this binding's.
-    // This is the arm a name-only comparison would silently pass — the exact
-    // half-verification the resolution's `providerAccountId` member exists to
-    // close.
+    // The account alone must refuse: same driver name, but an account the daemon's record does
+    // not give this binding. A name-only comparison would pass it.
     const registry = new MethodRegistryImpl();
     const accountStampedGroup: ProviderCommandBindingGroup = {
       ...commandGroup("claude"),
@@ -1719,54 +1203,5 @@ describe("driver.listProviderCommands", () => {
 
     expect(wireErrorData(thrown).type).toBeUndefined();
     expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InternalError);
-  });
-
-  it("refuses a bound-but-empty resolver answer as driver.unavailable with zero dispatches", async () => {
-    // The type forbids this shape (the bound arm is a non-empty tuple), so the
-    // resolver is cast past it — modeling an implementor bug. The runtime
-    // guard must land on the DOCUMENTED refusal, not on the result schema's
-    // `-32603` for an empty reply, and must dispatch nothing.
-    const registry = new MethodRegistryImpl();
-    const listProviderCommands = vi.fn();
-    registerDriverListProviderCommands(
-      registry,
-      listProviderCommandsDeps(
-        { claude: driverDouble({ listProviderCommands }) },
-        {
-          resolveAgentBindings: (() => ({
-            kind: "bound",
-            bindings: [],
-          })) as unknown as DriverListProviderCommandsDeps["resolveAgentBindings"],
-        },
-      ),
-    );
-
-    const thrown = await registry
-      .dispatch("driver.listProviderCommands", request, NO_TRANSPORT)
-      .then(() => undefined)
-      .catch((error: unknown) => error);
-
-    const wireError = wireErrorData(thrown);
-    expect(wireError.type).toBe("driver.unavailable");
-    expect(Object.hasOwn(wireError, "fields")).toBe(false);
-    expect(listProviderCommands).not.toHaveBeenCalled();
-  });
-
-  it("REFUSES a request carrying a bindingId, before the handler runs", async () => {
-    const registry = new MethodRegistryImpl();
-    const resolveSessionAccess = vi.fn(() => true);
-    registerDriverListProviderCommands(
-      registry,
-      listProviderCommandsDeps({ claude: driverDouble({}) }, { resolveSessionAccess }),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.listProviderCommands",
-        { ...request, bindingId: TEST_BINDING_ID },
-        NO_TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(resolveSessionAccess).not.toHaveBeenCalled();
   });
 });

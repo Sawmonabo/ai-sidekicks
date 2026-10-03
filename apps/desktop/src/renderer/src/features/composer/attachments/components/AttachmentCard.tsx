@@ -1,0 +1,188 @@
+// One attachment in the position the user put it: in flight (progress from `receivedBytes`),
+// complete (the daemon's derived name, type and size replace the advisory declaration), or
+// unresolved (a marker standing in the file's place). The label and the face read the same name
+// from `attachment-provenance.ts`, so a screen reader hears the identity a sighted user sees.
+
+import { Fragment } from "react";
+
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import {
+  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
+  attachmentMediaTypeReadings,
+  attachmentNameReading,
+} from "../attachment-provenance.js";
+import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../attachment-policy.js";
+import { isIngestStalled } from "../attachment-presentation.js";
+import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
+import type { AttachmentIngestEntry, AttachmentReading } from "../attachment-shapes.js";
+
+import "./attachments.css";
+
+/** Whose claim a name is, where the name shown is still the caller's own. */
+const DECLARED_NAME_TITLE = "Declared by the sender";
+
+/** Props for one attachment card. */
+export interface AttachmentCardProps {
+  readonly reading: AttachmentReading;
+  /** The instant the card rendered at. Ages move when it re-reads and never on a timer. */
+  readonly nowMilliseconds: number;
+  /** Send the refused stream again, per its own disposition. */
+  readonly onRetry?: ((localId: string) => void) | undefined;
+  /** Stop sending. There is no cancel call, so this is abandonment and says so. */
+  readonly onAbandon?: ((localId: string) => void) | undefined;
+}
+
+/** Renders one attachment reading as an in-flight, resolved, or unresolved card. */
+export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
+  const { reading } = props;
+  return (
+    <article className="meridian-attachment" aria-label={attachmentLabel(reading)}>
+      {reading.kind === "ingesting" ? renderIngesting(reading.entry, props) : null}
+      {reading.kind === "resolved" ? (
+        <div className="meridian-attachment__face">
+          <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
+          <WireFigure value={reading.derived.fileName} />
+          <Chip label={reading.derived.mimeType} mono />
+          <WireFigure
+            value={formatByteQuantity(reading.derived.sizeBytes).text}
+            title={String(reading.derived.sizeBytes)}
+          />
+          <span className="meridian-attachment__artifact-id">
+            <WireFigure value={reading.derived.artifactId} />
+          </span>
+        </div>
+      ) : null}
+      {reading.kind === "unresolved" ? renderUnresolved(reading.attachmentId) : null}
+    </article>
+  );
+}
+
+/** What a screen reader is told this card is about, in every arm. */
+function attachmentLabel(reading: AttachmentReading): string {
+  if (reading.kind === "ingesting") {
+    return `Attachment ${attachmentNameReading(reading.entry).name}`;
+  }
+  if (reading.kind === "resolved") {
+    return `Attachment ${reading.derived.fileName}`;
+  }
+  return `Attachment ${reading.attachmentId}`;
+}
+
+/**
+ * The in-flight arm: the declaration, progress, and the two controls. The declaration renders
+ * as a wire string labeled as declared; the resolved arm replaces it wholesale.
+ */
+function renderIngesting(
+  entry: AttachmentIngestEntry,
+  props: AttachmentCardProps,
+): React.JSX.Element {
+  const receivedFigure = formatByteQuantity(entry.receivedBytes);
+  const declaredFigure = formatByteQuantity(entry.declared.byteLength);
+  const nameReading = attachmentNameReading(entry);
+  return (
+    <>
+      <div className="meridian-attachment__face">
+        <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
+        {nameReading.provenance === "declared" ? (
+          <WireFigure value={nameReading.name} title={DECLARED_NAME_TITLE} />
+        ) : (
+          <WireFigure value={nameReading.name} />
+        )}
+        {/* Either reading earns the chip; where they disagree both show, derived first. Labeled
+            by provenance because color cannot say whose claim a media type is. */}
+        {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
+          <Fragment key={mediaTypeReading.provenance}>
+            {mediaTypeReading.provenance === "declared" ? (
+              <DerivedFigure text={ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL} />
+            ) : null}
+            <Chip
+              label={mediaTypeReading.mediaType}
+              mono
+              tone={mediaTypeReading.provenance === "derived" ? "accent" : "neutral"}
+            />
+          </Fragment>
+        ))}
+        <span className="meridian-attachment__bytes">
+          <WireFigure value={receivedFigure.text} title={String(entry.receivedBytes)} />
+          <DerivedFigure text="of" />
+          <WireFigure value={declaredFigure.text} title={String(entry.declared.byteLength)} />
+        </span>
+        <Chip label={entry.state} mono tone={entry.state === "refused" ? "failure" : "neutral"} />
+      </div>
+
+      {/* The raw counts are a measurement; the scaled pair above is what a reader sees. */}
+      <progress
+        className="meridian-attachment__progress"
+        max={Math.max(1, entry.declared.byteLength)}
+        value={entry.receivedBytes}
+        aria-label={`Uploaded ${receivedFigure.text} of ${declaredFigure.text}`}
+      />
+
+      {isIngestStalled(entry, props.nowMilliseconds) ? (
+        <p className="meridian-attachment__note" role="status">
+          This upload has gone quiet.
+        </p>
+      ) : null}
+
+      {entry.refusal === undefined ? null : (
+        <div className="meridian-attachment__refusal">
+          <InlineRefusal code={entry.refusal.code} detail={entry.refusal.detail} />
+          {entry.disposition === undefined ? null : (
+            <p className="meridian-attachment__note">
+              {INGEST_DISPOSITION_COPY[entry.disposition]}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="meridian-attachment__acts">
+        {props.onRetry === undefined || entry.state !== "refused" ? null : (
+          <button
+            type="button"
+            className="meridian-attachment__act"
+            onClick={() => props.onRetry?.(entry.declared.localId)}
+          >
+            {entry.disposition === "restart" ? "Upload again" : "Send again"}
+          </button>
+        )}
+        {props.onAbandon === undefined ||
+        entry.state === "complete" ||
+        entry.state === "abandoned" ? null : (
+          <button
+            type="button"
+            className="meridian-attachment__act"
+            title={INGEST_ABANDON_COPY}
+            onClick={() => props.onAbandon?.(entry.declared.localId)}
+          >
+            Stop sending
+          </button>
+        )}
+      </div>
+
+      {entry.state === "abandoned" ? (
+        <p className="meridian-attachment__note" role="status">
+          {INGEST_ABANDON_COPY}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** The unresolved arm: a marker in the file's own place, naming the attachment by its id. */
+function renderUnresolved(attachmentId: string): React.JSX.Element {
+  return (
+    <div className="meridian-attachment__unresolved">
+      <div className="meridian-attachment__face">
+        <Glyph name="alert" size={GLYPH_SIZE_ROW} />
+        <span className="meridian-attachment__artifact-id">
+          <WireFigure value={attachmentId} />
+        </span>
+      </div>
+    </div>
+  );
+}

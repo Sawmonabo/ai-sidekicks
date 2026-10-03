@@ -9,11 +9,11 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 - `RecoveryStatusRead` remains `blocked` because local persistence is unavailable
 - Local Runtime Daemon logs show SQLite open, lock, integrity, or WAL-related failure
 - Replay rebuild fails before projections become queryable
-- Scope and blast radius: one user node and the daemon-owned canonical local store for that node
+- Scope and blast radius: the machine's daemon-owned canonical local store
 
 ## Detection
 
-- Read `RecoveryStatusRead` and `FailureDetailRead` for the affected node before mutating any files.
+- Read `RecoveryStatusRead` and `sidekicks daemon status` on the machine before mutating any files.
 - Inspect Local Runtime Daemon logs for SQLite open failure, WAL replay failure, integrity error, or projection-rebuild failure.
 - Confirm whether the failure is limited to projection rebuild or whether the canonical SQLite store itself is unreadable or corrupt.
 
@@ -21,51 +21,29 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 - Access to the affected user machine and daemon-owned SQLite files
 - Permission to stop the Local Runtime Daemon
-- Access to the most recent known-good local persistence backup (daily backups are always available per [Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy) — 7-daily + 4-weekly retention; restore SLO ≤ 24h staleness)
+- Access to the most recent known-good backup, where the person turned backups on: `Back up automatically` on Settings › Runtime is off by default ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)). While it is on, 7 daily and 4 weekly database copies and one mirror of the session files are kept in `~/.ai-sidekicks/backups` or the folder the person picked (on a Windows computer whose service runs in WSL 2, the Windows home's `.ai-sidekicks\backups`), and a restore is at most 25 hours stale.
 
 ### Backup Constraints
 
-The daemon master key that wraps all `user_keys.encrypted_key_blob` entries has a deliberately-narrow custody model (see [Spec-020 §Daemon Master Key](../specs/020-data-retention-and-gdpr.md#daemon-master-key)). This creates backup constraints that diverge from normal database-backup hygiene.
+A backup is a plain copy of what it lists — the service's database, copied online; the machine's settings file; each chat session's workspace; each kept session's file checkpoint copies; each kept session's conversation files in every account home it ran in; and the agent memory folder ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)) — and holds no credential. The daemon keeps each secret as its own item in the operating system's credential store, never in its database or in a backup.
 
-**Separation rule**:
+**Restore**:
 
-- The plaintext daemon master key must never be present in any backup. It lives only in `sodium_mlock`-locked memory and is zeroed on shutdown or idle wipe.
-- The wrapped master key blob (tier 1 OS keystore or tier 2 `$XDG_DATA_HOME/ai-sidekicks/daemon-master.enc`) must be excluded from any backup that also captures the SQLite event log. Capturing both together would re-introduce the master key into the backup-recoverable state space after a credential destruction, defeating crypto-shred.
-- Operator responsibility:
-  - macOS: `tmutil addexclusion ~/Library/Keychains` and `tmutil addexclusion "$HOME/Library/Application Support/ai-sidekicks/daemon-master.enc"`.
-  - Linux: exclude `~/.local/share/keyrings/` (libsecret) and `$XDG_DATA_HOME/ai-sidekicks/daemon-master.enc` from the home-directory backup set.
-  - Windows: set the daemon master credential to `CRED_PERSIST_LOCAL_MACHINE` (not `CRED_PERSIST_ENTERPRISE`) so it is not roamed by File History or OneDrive Folder Backup; exclude `%APPDATA%\ai-sidekicks\daemon-master.enc` from the same mechanisms.
-
-**Restore recovery path (normal case)**:
-
-- When a host is restored from backup, the `user_keys` table is present but the daemon master key is NOT recovered from the backup (per separation rule above).
-- The daemon at startup attempts to read the wrapped master blob from tier 1 (OS keystore). Because keystores are host-local and were not backed up, tier 1 read fails on a restored host.
-- The daemon falls back to tier 2 (`$XDG_DATA_HOME/ai-sidekicks/daemon-master.enc`). Because this file was excluded from backup per the separation rule, tier 2 read also fails.
-- The daemon prompts the user for their credential (WebAuthn assertion or CLI passphrase). On first successful assertion, the daemon re-wraps the master under the restored credential and writes to tier 1 + tier 2. Normal operation resumes.
-- Operator must transfer the wrapped master blob from the source host to the restored host via an out-of-band channel before the user credential prompt can succeed. Typical channels: a fresh WebAuthn credential enrollment on the new host (for desktop), or a manual passphrase re-entry plus `daemon-master.enc` file copy (for CLI).
-
-**Restore failure mode (crypto-shred preservation)**:
-
-- If the source host is unavailable AND no out-of-band transfer of the wrapped master blob has occurred, the restored host cannot reconstitute the master key. The `user_keys.encrypted_key_blob` entries remain ciphertext under a master that no credential can unwrap.
-- **This is the correct crypto-shred outcome, not a recovery bug**. If the original master was rotated-and-destroyed due to a user deletion, a backup restore must not resurrect the pre-rotation state. The on-call engineer MUST NOT attempt to "fix" this by extracting the master from any other location. There is no other location; the master was designed to live only where a valid credential can reach it.
-- Operational signal: daemon logs `daemon_master_key_unavailable cause=restore_without_oob_transfer` at startup. On-call routes this to the Data Protection Officer, not to the SRE on-call, because the triage decision is policy (confirm crypto-shred was intended) not technical.
-- If the source host IS available and the operator intended to preserve user data across the restore, the operator re-enrolls the user credential on the restored host AND copies `daemon-master.enc` from the source host. The daemon then re-wraps the master under the new credential and resumes.
+- Restore the app's own backup: `Restore…` on Settings › Runtime, or `sidekicks db restore <backup>` on a machine with no app, refused while the service holds the data folder. Restoring on the machine that wrote it needs nothing more.
+- A restore on another computer reads the backup directly; the person then signs in to providers and links devices again ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)). A Windows computer is one machine whichever side runs its service, so a backup made on one side restores on the other as a same-machine restore.
 
 **Validation**:
 
-- After a successful restore, run `sidekicks daemon diagnose master-key` to verify:
-  - Tier 1 and tier 2 blobs are present and byte-identical.
-  - The master key unwraps under the current credential.
-  - A sample decrypt of one `user_keys` row succeeds.
+- After a successful restore, `sidekicks daemon status` reads the service as running with its store open, and a restored session opens with its history.
 
 ## Recovery Steps
 
 1. Stop the Local Runtime Daemon before modifying any SQLite, WAL, or SHM files.
 2. Create a timestamped backup copy of the current SQLite database, WAL, and SHM files before attempting repair or restore.
-3. Run a SQLite integrity check against the copied database to determine whether the canonical local store is structurally healthy.
+3. Start the service and read `sidekicks daemon status`: the service checks its store's integrity when it opens it and refuses to open a damaged one, and the status names that refusal. A store it opens is structurally healthy.
 4. If integrity is healthy, restart the daemon and run `ProjectionRebuild` from canonical events instead of replacing the database.
-5. If integrity fails, restore the last known-good SQLite, WAL, and SHM set from the backup tree at `$XDG_STATE_HOME/ai-sidekicks/backups/` (host) or the operator's bind-mounted backup path (container) per [Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy), then restart the daemon and allow replay rebuild to run.
-6. If integrity fails AND the backup tree is itself unreadable (catastrophic filesystem loss — not the normal case, since [Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy) guarantees daily backups by default), preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
+5. If integrity fails, restore the latest backup with `sidekicks db restore <backup>` (or `Restore…` on Settings › Runtime) from the backup folder — `~/.ai-sidekicks/backups` by default, or the folder the person picked — per [Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy); the restore replaces the database, the settings file, the workspaces, the checkpoint copies, the conversation files and the agent memory folder, starts the service again, and replay rebuild runs.
+6. If integrity fails AND there is no backup — backups are off until the person turns them on ([Spec-013 §Backup Policy](../specs/013-persistence-recovery-and-replay.md#backup-policy)) — or the backup folder is itself unreadable, preserve the broken files for later analysis, keep new mutable work blocked, and escalate rather than creating a fresh empty database.
 
 ## Validation
 
@@ -75,39 +53,29 @@ The daemon master key that wraps all `user_keys.encrypted_key_blob` entries has 
 
 ## Escalation
 
-- Escalate when integrity check fails and no viable backup exists, restore does not unblock replay, or repaired storage diverges again immediately after restart
+- Escalate when integrity check fails and no viable backup exists, restore does not unblock replay, or repaired storage diverges again immediately after restart: the store is reported to the project as a bug, with the daemon's logs and the preserved broken files attached.
+- The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
 
 ## CLI Commands
 
 ```bash
-sidekicks db status
-sidekicks db integrity-check
-sidekicks db backup --output <path>
-sidekicks db restore --from <path>
-sidekicks db wal-status
-sidekicks db vacuum
+sidekicks db restore <backup>
 ```
+
+A backup is taken with `Back up now` on Settings › Runtime; the service's health is read with `sidekicks daemon status`.
 
 ## SLOs and Thresholds
 
-| Metric                           | Target |
-| -------------------------------- | ------ |
-| SQLite integrity check           | < 30s  |
-| Backup restore                   | < 60s  |
-| Projection rebuild after restore | < 120s |
-| WAL checkpoint latency           | < 5s   |
-
-## On-Call Routing
-
-- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
-- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
-- **Severity 3** (warning): Log alert. Review during business hours.
-- **Domain routing**: Local persistence issues route to **platform on-call**.
+| Metric                                                | Target |
+| ----------------------------------------------------- | ------ |
+| The service's integrity check when it opens the store | < 30s  |
+| Backup restore                                        | < 60s  |
+| Projection rebuild after restore                      | < 120s |
 
 ## Related Architecture Docs
 
 - [Data Architecture](../architecture/data-architecture.md)
-- [Component Architecture Local Daemon](../architecture/component-architecture-local-daemon.md)
+- [Daemon Architecture](../architecture/daemon.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 
 ## Related Specs
@@ -119,5 +87,5 @@ sidekicks db vacuum
 ## Related Plans
 
 - [Session Core](../plans/001-session-core.md)
-- [Persistence Recovery And Replay](../plans/013-persistence-recovery-and-replay.md)
-- [Observability And Failure Recovery](../plans/018-observability-and-failure-recovery.md)
+- [Persistence Recovery And Replay](../plans/012-persistence-recovery-and-replay.md)
+- [Observability And Failure Recovery](../plans/017-observability-and-failure-recovery.md)

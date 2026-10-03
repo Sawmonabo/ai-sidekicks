@@ -1,25 +1,18 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates test files without emitting. The production `tsconfig.json`
-  // excludes `src/**/__tests__/**` so unit tests under `src/` don't ship in
-  // `dist/`; integration tests under `test/` are outside the production
-  // `include` glob entirely. This config covers BOTH via a `noEmit` typecheck
-  // pass — `rootDir` widens to the package root so `test/**/*` is in-scope
-  // (`test/transport/sse-roundtrip.test.ts`).
-  "extends": "../../tsconfig.node22.json",
+  // Type-validates test files without emitting. The production `tsconfig.json` excludes
+  // `src/**/__tests__/**` so tests don't ship in `dist/`; this config covers them with a `noEmit`
+  // pass.
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
-    // `isolatedDeclarations` (inherited from base) requires either `declaration`
-    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
-    // the typechecker honors `isolatedDeclarations` constraints without writing
-    // files (see TS5069). `composite: false` and a null buildinfo prevent this
-    // config from polluting the project-references graph.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph.
     "composite": false,
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["dist", "node_modules"]
 }

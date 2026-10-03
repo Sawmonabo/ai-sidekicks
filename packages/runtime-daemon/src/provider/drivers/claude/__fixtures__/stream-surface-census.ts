@@ -1,49 +1,11 @@
-// GOLDEN VECTOR - Claude stream-json surface census.
-//
-//   Pin             : Claude Code 2.1.251 (the native single-file build)
-//   Provenance      : Binary probe. The schema-constructor census these strings
-//                     were read from was taken at 2.1.245 on 2026-08-25 and is
-//                     CARRIED forward to the pin. On 2026-08-28 every string
-//                     below was re-verified PRESENT as a literal token in the
-//                     2.1.251 build (quoted or bare - four of them are emitted
-//                     unquoted as object keys in both builds, so a quoted-only
-//                     check would report a deletion that did not happen).
-//                     Nothing was restamped that the 2026-08-28 pass did not
-//                     re-measure: presence is what it establishes, and set
-//                     closure is not.
-//   Trust           : Verified present at 2.1.251 for every string below;
-//                     the result-subtype set and the init capability tokens are
-//                     additionally recorded unchanged at 2.1.246. Set-CLOSURE
-//                     is only Derived, since a string census cannot prove a set
-//                     is closed - which is why `CLAUDE_API_RETRY_TYPED_ERRORS`
-//                     below must never be used to REJECT an unrecognized
-//                     member.
-//   Derived by      : transcription of the census enumerations themselves.
-//                     NOTHING here is invented.
-//
-// WHAT THIS FIXTURE IS, AND WHAT IT IS NOT.
-//
-// It is a SUBTYPE and FIELD-NAME census, not a frame-body vector. The census
-// captured exactly one JSON body verbatim (the `mcp_set_servers` reconcile
-// answer, carried in `control-request-subtype-census.ts`); everywhere else it
-// records names, shapes, and vendor prose. A stream frame body cannot be added
-// here later by inspection alone: no authless protocol probe exists for this
-// provider, so there is no way to observe Claude's stream-json handshake
-// without a token.
-//
-// Regeneration: when the Claude pin moves, re-census the new binary the same
-// way and re-derive this file. Do not hand-edit a subtype string here to make
-// a test pass.
+// Golden vectors: Claude stream-json subtypes, recorded at Claude Code 2.1.251. Read from the
+// schema constructors in the 2.1.245 binary; each string still occurs as a literal at 2.1.251.
+// Names only: no authless probe records a stream frame body. When the pin moves, re-read the
+// new binary and re-derive this file; never hand-edit a subtype to make a test pass.
 
 /**
- * The five `result` subtypes at the pin, in the census's own order.
- *
- * The census records two consequences that belong to the driver read loop
- * rather than to the normalizer, and are restated here so a reader of this
- * fixture does not have to re-derive them: the `result` field is present ONLY
- * on `success`, and trailing events (it names `prompt_suggestion`) can arrive
- * AFTER `result`, so the read loop reads to EOF rather than breaking on
- * `result`.
+ * The five `result` subtypes. The `result` field is present only on `success`, and trailing
+ * events such as `prompt_suggestion` can arrive after `result`, so the read loop reads to EOF.
  */
 export const CLAUDE_RESULT_SUBTYPES: readonly string[] = Object.freeze([
   "success",
@@ -56,139 +18,8 @@ export const CLAUDE_RESULT_SUBTYPES: readonly string[] = Object.freeze([
 /** The single `result` subtype that carries a `result` field. */
 export const CLAUDE_RESULT_SUBTYPE_CARRYING_RESULT_FIELD = "success";
 
-/**
- * Adjacent stream subtypes present at the pin (Binary probe, Verified).
- *
- * Six strings, only two of which any disposition table covers
- * (`rate_limit_event` and `compact_boundary`). The other four are carried here
- * precisely so the normalizer's deliberate exclusion of them is a checkable
- * fact: they are Verified present on the wire AND absent from the 35-kind
- * census, which is the exact condition the driver's unrecognized-frame
- * diagnostic exists to surface.
- */
-export const CLAUDE_ADJACENT_STREAM_SUBTYPES: readonly string[] = Object.freeze([
-  "rate_limit_event",
-  "compact_boundary",
-  "command_lifecycle",
-  "queued_notification",
-  "model_refusal_fallback",
-  "model_refusal_no_fallback",
-] as const);
-
-/**
- * The `system/api_retry` frame's member names, from the shape the census
- * records verbatim:
- * `{ type: "system", subtype: "api_retry", attempt, max_retries,
- *    retry_delay_ms, error_status, error }`.
- *
- * Note `error_status` sits alongside the typed `error`; the census calls that
- * pairing out explicitly.
- */
-export const CLAUDE_API_RETRY_FRAME_MEMBERS: readonly string[] = Object.freeze([
-  "type",
-  "subtype",
-  "attempt",
-  "max_retries",
-  "retry_delay_ms",
-  "error_status",
-  "error",
-] as const);
-
-/**
- * The `api_retry` typed-error literals present in the binary at the pin.
- *
- * ADVISORY ONLY. The union's exact arity is only Derived, since a string
- * census cannot prove a set is closed, so this list may be used to RECOGNIZE a
- * member and must never be used to REJECT one: failing closed on
- * an unrecognized member would turn a set the evidence cannot close into an
- * enforced allow-list, dropping a capability-bearing retry the moment the
- * vendor adds a literal.
- */
-export const CLAUDE_API_RETRY_TYPED_ERRORS: readonly string[] = Object.freeze([
-  "authentication_failed",
-  "oauth_org_not_allowed",
-  "billing_error",
-  "rate_limit",
-  "overloaded",
-  "invalid_request",
-  "model_not_found",
-  "server_error",
-  "max_output_tokens",
-  "unknown",
-] as const);
-
-/**
- * The mapping arm the census states verbatim for the retry channel:
- * "the mapping arm is `system/api_error` -> `system/api_retry`".
- *
- * Carried as a pair so the normalizer's decision to give both frame kinds the
- * same family target is traceable to the census rather than to inference.
- */
+/** The binary maps `system/api_error` onto `system/api_retry`. */
 export const CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM: readonly [string, string] = Object.freeze([
   "system/api_error",
   "system/api_retry",
 ] as const);
-
-/**
- * The `system/init` `capabilities` tokens present as literals at the pin.
- *
- * The field is an OPEN set by the vendor's own statement: "Open set - ignore
- * unknown values; check each capability for exactly the behavior you use."
- * Which release each token first appeared in is only Documented, because a
- * census of one build cannot date a token's arrival.
- */
-export const CLAUDE_INIT_CAPABILITY_TOKENS: readonly string[] = Object.freeze([
-  "interrupt_receipt_v1",
-  "interrupt_cancel_queued_v1",
-  "queued_notifications",
-  "still_queued",
-  "queued_notification",
-  "msg_lifecycle_v1",
-] as const);
-
-/**
- * The `get_usage` response window keys at the pin, plus the two sibling fields
- * that gate reading them.
- *
- * Kept beside the stream census because `system/rate_limit_event` is the
- * PREFERRED carrier for the same account-plane quota data - a push channel that
- * does not require the experimental `get_usage` round trip - so a reader
- * comparing the two surfaces needs both in one place.
- */
-export const CLAUDE_GET_USAGE_RATE_LIMIT_WINDOW_KEYS: readonly string[] = Object.freeze([
-  "five_hour",
-  "seven_day",
-  "seven_day_oauth_apps",
-  "seven_day_opus",
-  "seven_day_sonnet",
-] as const);
-
-/** The `get_usage` response fields that must be read BEFORE `rate_limits`. */
-export const CLAUDE_GET_USAGE_GATING_FIELDS: readonly string[] = Object.freeze([
-  "rate_limits_available",
-  "subscription_type",
-] as const);
-
-/**
- * The `get_binary_version` response member names.
- *
- * The census records the in-band version channel returning `{ version,
- * buildTime }` for the build actually running, and warns that
- * `claude --version` reports the launcher's build instead - the two came apart
- * mid-census.
- */
-export const CLAUDE_GET_BINARY_VERSION_RESPONSE_MEMBERS: readonly [string, string] = Object.freeze([
-  "version",
-  "buildTime",
-] as const);
-
-/**
- * The pinned CLI version every vector in this directory is recorded against.
- *
- * NOT the build the schema-constructor census was extracted from - that was
- * `2.1.245`, and the header above says so. The distinction is deliberate: this
- * constant is what a consumer compares a running build against, so it has to
- * name the pin; the census provenance lives in prose where it cannot be
- * mistaken for a version to compare with.
- */
-export const CLAUDE_WIRE_PIN_VERSION = "2.1.251";

@@ -1,0 +1,77 @@
+/* The session screen: its grid, banners and composer region. */
+
+/*
+ * Head, pane layout, composer. `minmax(0, 1fr)` lets the panes scroll instead of pushing
+ * the composer off the bottom.
+ */
+.meridian-session-screen {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 100%;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+}
+
+/*
+ * The session header, its banners and the catching-up line in one box, so however many are
+ * up, none pushes the pane layout out of the growing row.
+ */
+.meridian-session-screen__head {
+  display: grid;
+  min-width: 0;
+}
+
+/* The catching-up line: a plain band, since nothing has been refused. */
+.meridian-session-screen__catch-up {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+/* A banner under the session header: small type and a tight band, since it reports a condition. */
+.meridian-session-screen__banner {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-3) var(--meridian-space-1)
+    var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-session-screen__banner-separator {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-session-screen__banner-dismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: auto;
+  padding: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-session-screen__banner-dismiss:hover,
+.meridian-session-screen__banner-dismiss:focus-visible {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+.meridian-session-screen__composer {
+  border-top: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+}

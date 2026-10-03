@@ -6,7 +6,7 @@ Define how the system exposes runtime truth for debugging, audit, replay, and op
 
 ## Scope
 
-This document covers logs, traces, metrics, canonical event visibility, replay, and failure diagnostics.
+This document covers logs, traces, health signals, canonical event visibility, replay, and failure diagnostics.
 
 ## Context
 
@@ -15,8 +15,8 @@ An agentic coding runtime is only operable if the user and their agents can unde
 ## Responsibilities
 
 - provide a canonical event history for replay and audit
-- expose live runtime status, traces, and metrics for local and shared services
-- support operator diagnosis of stuck runs, provider failures, and session desyncs
+- expose live runtime status and traces for the local daemon and the control plane
+- support the person's own diagnosis of provider failures and session desyncs on the machine, through the daemon's diagnostic logs and `sidekicks daemon status`
 - power user-facing timeline and attention surfaces from authoritative data
 
 ## Component Boundaries
@@ -24,29 +24,29 @@ An agentic coding runtime is only operable if the user and their agents can unde
 | Component | Responsibility |
 | --- | --- |
 | `Canonical Event Log` | Durable ordered history of session and run events. |
-| `Metrics Layer` | Runtime health, queue depth, run latency, failure-rate, and projection-lag metrics. |
+| `Health Signals` | Runtime health, queue state, and run latency and duration, given out in the daemon's diagnostic logs and `sidekicks daemon status`. |
 | `Tracing Layer` | Cross-component request and execution traces for local daemon and control-plane flows. |
-| `Audit Projection` | Human-readable history of approvals, interventions, artifacts, and device link / revoke events. |
+| `Audit Projection` | Human-readable history of approvals, interventions, and artifacts. A device's `device.linked`, `device.renamed` and `device.revoked` are statements on the account's statement chain, kept because the machines verify them and never shown as an activity list. |
 | `Replay Service` | Rebuilds or rehydrates projections from canonical events. |
 
 ## Data Flow
 
-1. Local daemon and control-plane components emit canonical events, metrics, and traces.
-2. Observability pipelines store or forward those signals to local and shared sinks.
+1. Local daemon and control-plane components emit canonical events, health signals, and traces.
+2. Each component stores its signals where they are produced; none is forwarded to a shared sink.
 3. Replay and audit projections derive structured views from the canonical event log.
-4. Clients and operators read those projections to understand live state and past actions.
+4. Clients read those projections to understand live state and past actions.
 
 ## Trust Boundaries
 
-- Audit data must preserve provenance and tamper visibility.
+- Audit data must preserve provenance.
 - Reasoning or tool-output observability must respect artifact visibility and permission policy.
-- Shared telemetry must not expose machine-local secrets that were never meant to leave the runtime node.
+- Diagnostic logs and traces stay where they are written, and none carries a machine-local secret off the runtime node.
 
 ## Failure Modes
 
-- Metrics and traces are healthy but canonical event projection is stale, producing misleading UI.
-- Replay cannot rebuild projections because event integrity is broken or retained history is incomplete.
-- Operator diagnostics on a hosted deployment expose session content the operator was never meant to see — the control plane holds ciphertext, and a diagnostic surface that decrypts or logs it breaks that boundary.
+- Health signals and traces look healthy but canonical event projection is stale, producing misleading UI.
+- Replay cannot rebuild projections because retained history is incomplete.
+- Diagnostics on the person's relay record more than the relay may see. The relay carries sealed channel frames and knows only ids, the channel profile, frame sizes and times; a diagnostic surface that logs anything beyond that breaks the boundary.
 
 ## Related Domain Docs
 

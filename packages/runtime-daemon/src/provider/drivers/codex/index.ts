@@ -1,213 +1,113 @@
-// Codex driver — entry point.
-//
-// Composes the two collaborators this chunk owns and exposes them behind the
-// slice of `ProviderDriver` they implement:
-//
-//   * `CodexLifecycleManager` — `createSession`, `resumeSession`,
-//     `startRun`, `interruptRun`, `closeSession`.
-//   * `CodexLifecycleManager` — `rollbackTo`, `setSessionGoal`,
-//     `clearSessionGoal`, the three R8 parity operations whose Codex mechanism
-//     is a request on the session's own connection (`thread/fork`,
-//     `thread/goal/set`, `thread/goal/clear`).
-//   * `CodexLifecycleManager` — `compactContext`, `listProviderCommands`,
-//     the two console-parity operations whose Codex mechanism is likewise a
-//     request on the session's own connection (`thread/compact/start`,
-//     `skills/list`).
-//
-// The three operations are NOT capability-gated here, and that is deliberate
-// rather than an omission: the static refusal is the registry's
-// `checkCapability`, which reads the snapshot captured at registration. A
-// second gate in this class would read a DIFFERENT snapshot through
-// `readCapabilities` — a live one — so the two could disagree about whether a
-// call that already passed the gate may proceed, and the driver would be
-// answering a question the registry has already answered.
-//
-// `implements Pick<ProviderDriver,...>` rather than a hand-written interface, so
-// each signature is checked against the canonical contract and drifts with it.
-// The canonical surface is EIGHTEEN operations and the `Pick` below names
-// FOURTEEN of them — both counted from their own declarations rather than carried
-// forward, because each side of that subtraction moved three times this phase:
-// the earlier "14-op" figure in this comment predated `exportTranscript` /
-// `replayTranscript` () and `compactContext` / `listProviderCommands`, while
-// `listModels` joined the `Pick` with the currency duty and
-// `replayTranscript` joined it with the replay leg. The four remaining
-// (`respondToRequest`, `listModes`, `getCapabilities`, `exportTranscript`) are
-// authored by the sibling Phase-3 tasks, and this class is widened to the full
-// `ProviderDriver` when they land, which the `Pick` makes a purely additive edit.
-// The enumeration above is re-derived from the type argument rather than
-// restated, so it cannot drift from what the class actually implements.
-//
-// ---------------------------------------------------------------------------
-// Why every collaborator is injected
-// ---------------------------------------------------------------------------
-//
-// The capability snapshot is read through an injected function rather than
-// imported from `capabilities.ts`. Two reasons, and the second is the real one:
-// the sibling module is authored in a parallel task and importing it would couple
-// two chunks at the file level, AND the snapshot must be read LIVE at each
-// dispatch so a refreshed capability record is honoured — a value captured at
-// construction would freeze the gate that depends on.
-//
-// The process substrate (`PtyHost`), the per-session subscription, the timeout
-// scheduler, and the binding-id minter are injected for the same reason the rest
-// of this package injects them (`runtime-binding-store.ts`): the composition root
-// owns lifetimes and identity minting, and tests drive the real code paths through
-// fakes instead of stubbing the code under test.
-//
+/**
+ * Codex driver entry point: composes `CodexLifecycleManager` (sessions, runs, fork, goals,
+ * compaction, provider commands) and `CodexInterventionDispatcher` behind the slice of
+ * `ProviderDriver` they implement.
+ *
+ * No operation is capability-gated here. The registry's `checkCapability` is the static refusal
+ * and reads the snapshot captured at registration; a second gate in this class would read a live
+ * snapshot and could disagree with the one that already admitted the call.
+ *
+ * `implements Pick<ProviderDriver, ...>` checks each signature against the canonical contract. The
+ * operations the `Pick` omits (`respondToRequest`, `listModes`, `getCapabilities`) are not
+ * implemented by this class.
+ *
+ * The capability snapshot is injected and read live at each dispatch, so a refreshed capability
+ * record is honored. The process substrate (`PtyHost`), the per-session subscription, the timeout
+ * scheduler and the binding-id minter are injected too: the composition root owns lifetimes and
+ * identity, and tests drive the real code through fakes.
+ */
 
 import type {
   ApplyInterventionParams,
+  DriverCompactionResult,
+  DriverInterventionResult,
+  InterruptRunParams,
+  ProviderCommandListResult,
+  ProviderModel,
+} from "@ai-sidekicks/contracts";
+
+import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
+import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
+import { CodexDriverConfigError } from "./session-errors.js";
+import { CodexLifecycleManager } from "./lifecycle.js";
+import {
+  resolveCodexTransportSelection,
+  type CodexTransportSelection,
+  type DriverTransportConfig,
+} from "./transport-selection.js";
+import { type CodexLifecycleOptions } from "./session-state.js";
+import type {
   ClearSessionGoalParams,
   CloseSessionParams,
   CompactContextParams,
   CreateSessionParams,
   DriverAuthProbeResult,
-  DriverCompactionResult,
-  DriverGoalResult,
-  DriverInterventionResult,
   DriverResumeResult,
-  DriverRollbackResult,
-  DriverTransportConfig,
-  InterruptRunParams,
+  ForkConversationResult,
   ListProviderCommandsParams,
-  ProviderCommandListResult,
-  DriverTranscriptReplayResult,
   ProviderDriver,
-  ReplayTranscriptParams,
-  ProviderModel,
   ProviderSessionHandle,
   ResumeSessionParams,
-  RollbackToParams,
+  ForkConversationParams,
   SetSessionGoalParams,
+  DriverGoalResult,
   StartRunParams,
-} from "@ai-sidekicks/contracts";
+} from "../../provider-driver.js";
 
-import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
-import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
-import {
-  CodexDriverConfigError,
-  CodexLifecycleManager,
-  resolveCodexTransportSelection,
-  type CodexLifecycleOptions,
-  type CodexTransportSelection,
-} from "./lifecycle.js";
-
+export { CodexAppServerConnection } from "./app-server-connection.js";
 export {
-  CodexAppServerConnection,
   CodexDriverConfigError,
-  CodexLifecycleManager,
   CodexLineTooLongError,
   CodexSessionAlreadyLiveError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
   CodexRewindBoundaryUnsupportedError,
   CodexTransportError,
-  CODEX_APP_SERVER_BIN_ENV_VAR,
+  normalizeProviderFailureDetail,
+} from "./session-errors.js";
+export { CodexLifecycleManager } from "./lifecycle.js";
+export {
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
-  CODEX_DEFAULT_EXECUTABLE_PATH,
-  CODEX_MAX_LINE_LENGTH,
-  CODEX_ROUTED_SERVER_REQUEST_METHODS,
-  CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
-  CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS,
-  composeCodexSubagentConfigOverrides,
-  composeCodexThreadPosture,
-  composeCodexThreadPostureConfig,
   composeCodexTransportArgv,
-  composeCodexTurnSandboxPolicy,
-  describeCodexPostureDivergence,
-  normalizeProviderFailureDetail,
-  parseCodexRunConfig,
-  parseCodexSessionConfig,
-  resolveCodexTransportSelection,
-  type CodexBearerCredentialResolver,
-  type CodexConnectionOptions,
-  type CodexCredentialEnvPolicyResolver,
-  type CodexDiagnosticSink,
-  type CodexLifecycleOptions,
-  type CodexPtySessionListeners,
-  type CodexPtySessionSubscriber,
-  type CodexRequestAttempt,
-  type CodexRequestDelivery,
-  type CodexRewindBoundaryUnsupportedFields,
-  type CodexRunConfig,
-  type CodexScheduleTimeout,
-  type CodexServerNotificationSink,
-  type CodexServerRequestDecision,
-  type CodexSessionServerRequest,
-  type CodexSessionServerRequestResponder,
-  type CodexSessionConfig,
-  type CodexSessionSlotState,
-  type CodexThreadPostureParams,
-  type CodexTransportDiagnostic,
   type CodexTransportSelection,
   type CodexWebsocketBearerCredential,
-  type CodexWebsocketTransportConnector,
-} from "./lifecycle.js";
-
-// The model-catalog symbols only — `listModels` is served by this class, so the
-// barrel advertises exactly what the driver object can answer. The declaration,
-// refresh, and probe symbols of `./capabilities.ts` stay unexported here because
-// no operation on this class serves them.
+} from "./transport-selection.js";
 export {
-  CODEX_DECLARED_MODEL_CATALOG,
-  CodexModelCatalogUnreadableError,
-  normalizeCodexModelCatalog,
-  resolveCodexModelCatalog,
-  type CodexModelCatalogExchange,
-} from "./capabilities.js";
-
+  CODEX_MAX_LINE_LENGTH,
+  type CodexServerRequestDecision,
+  type CodexSessionServerRequestResponder,
+} from "./server-requests.js";
 export {
-  CodexTerminalEmissionGate,
-  type CodexTerminalEmissionDecision,
-  type CodexTerminalRunFrame,
-  type CodexTerminalSuppressionReason,
-} from "./event-normalizer.js";
-
+  describeCodexPostureDivergence,
+  parseCodexSessionConfig,
+  type CodexSessionConfig,
+} from "./session-config.js";
+export { type CodexCredentialEnvPolicyResolver } from "./session-state.js";
 export {
-  CodexInterventionDispatcher,
-  CODEX_INTERVENTION_CAPABILITY_FLAGS,
-  CODEX_INTERVENTION_FALLBACK_ACTION,
-  type CodexCapabilitySnapshotReader,
-  type CodexInterventionOptions,
-  type CodexInterventionRuntime,
-} from "./intervention.js";
+  type CodexPtySessionListeners,
+  type CodexPtySessionSubscriber,
+  type CodexTransportDiagnostic,
+} from "./transport-diagnostics.js";
+
+// Only the model-catalog symbols: `listModels` is the one operation from `./capabilities.ts`.
+export { type CodexModelCatalogExchange } from "./capabilities.js";
+
+export { CodexInterventionDispatcher } from "./intervention.js";
 
 /** Construction inputs for the Codex driver. */
 export interface CodexDriverOptions extends CodexLifecycleOptions {
-  /** Read live at every intervention dispatch — see the note above. */
+  /** Read live at every intervention dispatch. */
   readonly readCapabilities: CodexCapabilitySnapshotReader;
   /**
-   * The daemon driver-registry transport config (leg 6). ABSENT is the V1
-   * default and means `stdio`; a present config selects `unix-socket` or
-   * `websocket` per its discriminated shape.
-   *
-   * Consumed HERE, at construction, and nowhere else. Resolving it once at the
-   * composition root is what makes it real configuration rather than a field
-   * the registry fills in and no code path reads: every connection this driver
-   * opens is handed the already-decided selection, so two connections of one
-   * driver cannot disagree about which process they reach.
+   * The driver-registry transport config. Absent means `stdio`; a present config selects
+   * `unix-socket` or `websocket`. Resolved once at construction, so every connection this driver
+   * opens gets the same selection.
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
-  /**
-   * The live `model/list` read backing `listModels()`, or an EXPLICIT
-   * `null` for a composition that binds none — in which case the driver
-   * answers the provenance-stamped declaration in `./capabilities.ts`.
-   *
-   * REQUIRED, on the same reasoning as `resolveCredentialEnvPolicy`: an
-   * optional arm would let a construction site that simply never bound it reach
-   * the declaration by accident rather than by decision, and a stale catalog
-   * served as though it were a reading is exactly the confusion the
-   * detection-source doctrine exists to prevent.
-   *
-   * NO PRODUCTION IMPLEMENTATION EXISTS YET, and that is a recorded residual
-   * rather than an oversight: no composition root constructs this driver, so
-   * there is no live connection for the read to ride. The exchange binds when
-   * the first composition root lands — beside the `resolveCredentialEnvPolicy`
-   * binding, which is unimplemented for the same reason.
-   */
-  readonly modelCatalogExchange: CodexModelCatalogExchange | null;
+  /** The live `model/list` read backing `listModels()`. */
+  readonly modelCatalogExchange: CodexModelCatalogExchange;
 }
 
 /** The Codex provider driver: lifecycle operations plus intervention dispatch. */
@@ -219,28 +119,23 @@ export class CodexDriver implements Pick<
   | "interruptRun"
   | "closeSession"
   | "applyIntervention"
-  | "rollbackTo"
+  | "forkConversation"
   | "setSessionGoal"
   | "clearSessionGoal"
   | "probeAuth"
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
-  | "replayTranscript"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
-  readonly #modelCatalogExchange: CodexModelCatalogExchange | null;
+  readonly #modelCatalogExchange: CodexModelCatalogExchange;
 
   readonly #transportSelection: CodexTransportSelection;
 
   constructor(options: CodexDriverOptions) {
-    // Selection first: a misconfigured transport fails the driver's
-    // CONSTRUCTION, not its first session. A registry that accepted a
-    // websocket arm with no resolver and only discovered it when a user
-    // started a run would have reported a healthy driver for the whole
-    // interval in between.
     this.#modelCatalogExchange = options.modelCatalogExchange;
+    // Selection first: a misconfigured transport fails construction, not the first session.
     this.#transportSelection = resolveCodexTransportSelection(options.transportConfig);
     if (this.#transportSelection.transport === "websocket") {
       if (options.resolveBearerCredential === undefined) {
@@ -261,82 +156,76 @@ export class CodexDriver implements Pick<
       transportSelection: this.#transportSelection,
     });
     this.#interventions = new CodexInterventionDispatcher({
-      // The manager structurally satisfies `CodexInterventionRuntime`; composing
-      // them here is what keeps the two modules free of a circular import.
+      // The manager structurally satisfies `CodexInterventionRuntime`; composing them here avoids
+      // a circular import.
       runtime: this.#lifecycle,
       readCapabilities: options.readCapabilities,
     });
   }
 
+  /** Spawns a provider process and starts a fresh thread for the session. */
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     return this.#lifecycle.createSession(params);
   }
 
+  /** Relaunches the session's process on its thread; a failure is the typed `failed` result. */
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     return this.#lifecycle.resumeSession(params);
   }
 
+  /** Starts one provider turn for the run. */
   startRun(params: StartRunParams): Promise<void> {
     return this.#lifecycle.startRun(params);
   }
 
+  /** Interrupts the run's live turn. */
   interruptRun(params: InterruptRunParams): Promise<void> {
     return this.#lifecycle.interruptRun(params);
   }
 
+  /** Unsubscribes and tears down the session's process; closing an unknown session resolves. */
   closeSession(params: CloseSessionParams): Promise<void> {
     return this.#lifecycle.closeSession(params);
   }
 
+  /** Routes a steer, interrupt or cancel onto the provider, or returns `degraded`. */
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     return this.#interventions.applyIntervention(params);
   }
 
-  rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
-    return this.#lifecycle.rollbackTo(params);
+  /** Forks the thread at a recorded turn boundary and moves the session onto the fork. */
+  forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
+    return this.#lifecycle.forkConversation(params);
   }
 
+  /** Sets the thread's goal on the provider. */
   setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
     return this.#lifecycle.setSessionGoal(params);
   }
 
+  /** Clears the thread's goal on the provider. */
   clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
     return this.#lifecycle.clearSessionGoal(params);
   }
 
+  /** Asks a throwaway process whether the credential is signed in; never throws. */
   probeAuth(): Promise<DriverAuthProbeResult> {
     return this.#lifecycle.probeAuth();
   }
 
-  /**
-   * The selectable model catalog.
-   *
-   * Delegates rather than deciding: `./capabilities.ts` owns both the declared
-   * catalog and the normalization of a live reply, so the wire shape and its
-   * provenance stamp sit in one place and this class stays a composition root.
-   */
+  /** The selectable model catalog, read live; `./capabilities.ts` owns the parsing. */
   listModels(): Promise<ProviderModel[]> {
     return resolveCodexModelCatalog(this.#modelCatalogExchange);
   }
 
+  /** Compacts the thread's context and settles on the provider's compaction frame. */
   compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     return this.#lifecycle.compactContext(params);
   }
 
+  /** The provider's commands and skills for the session, held until the provider signals change. */
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
     return this.#lifecycle.listProviderCommands(params);
-  }
-
-  /**
-   * Reconstitutes the canonical transcript into a fresh provider session.
-   *
-   * NOT capability-gated here, for the reason operations above are not: the
-   * static refusal is the registry's `checkCapability`, reading the snapshot
-   * captured at registration. A second gate in this class would read a live
-   * snapshot and could disagree with the one that already admitted the call.
-   */
-  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    return this.#lifecycle.replayTranscript(params);
   }
 
   /** The transport this driver reaches its provider processes over. */

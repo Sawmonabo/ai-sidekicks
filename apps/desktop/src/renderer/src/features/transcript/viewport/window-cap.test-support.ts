@@ -1,0 +1,75 @@
+// The synthetic logs both window-cap suites run over, and the conditions a prune is asked
+// under. Shared so the two suites cannot drift on what the window is shown. Ten thousand rows
+// because the properties that matter (children never trip the cap, a closure never orphans, a
+// held row survives however old) are invisible at a hundred.
+
+import { TranscriptWindow, type PruneConditions } from "./window-cap.js";
+import type { WindowRow } from "./window-cap.js";
+
+/** Top-level rows in the log {@link loadedWindow} is built over. */
+export const TOP_LEVEL_ROW_COUNT = 10_000;
+
+/** Children hanging from each run group in that log. */
+export const CHILDREN_PER_RUN_GROUP = 3;
+
+/** A log of run groups, each with children, oldest first. */
+export function syntheticWindowRows(topLevelCount: number): readonly WindowRow[] {
+  const rows: WindowRow[] = [];
+  for (let index = 0; index < topLevelCount; index += 1) {
+    const key = `run-group-${String(index)}`;
+    rows.push({ key, parentKey: undefined, rootCursor: `cursor-${String(index)}` });
+    for (let child = 0; child < CHILDREN_PER_RUN_GROUP; child += 1) {
+      rows.push({
+        key: `${key}-child-${String(child)}`,
+        parentKey: key,
+        rootCursor: `cursor-${String(index)}`,
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * A log of folded run groups as the transcript emits one: a header row keyed by the run, and the
+ * terminal receipt hanging from it, the shape `foldRunGroupHeaders` produces. It lives here
+ * because it exercises the cap's counting rule.
+ */
+export function foldedRunGroupLog(runGroupCount: number): readonly WindowRow[] {
+  const rows: WindowRow[] = [];
+  for (let index = 0; index < runGroupCount; index += 1) {
+    const runKey = `run-${String(index)}`;
+    rows.push({ key: runKey, parentKey: undefined, rootCursor: runKey });
+    rows.push({
+      key: `${runKey}-receipt`,
+      parentKey: runKey,
+      rootCursor: `cursor-${String(index)}`,
+    });
+  }
+  return rows;
+}
+
+/** A log whose every row names one run, and where no row IS that run. */
+export function runOnlyLog(entryCount: number): readonly WindowRow[] {
+  return Array.from({ length: entryCount }, (_unused, index) => ({
+    key: `run-1-entry-${String(index)}`,
+    parentKey: "run-1",
+    rootCursor: `cursor-${String(index)}`,
+  }));
+}
+
+/** Conditions under which nothing refuses a prune: the all-clear. */
+export const PRUNABLE: PruneConditions = {
+  hasActiveTurn: false,
+  scrollControllerVetoes: false,
+  revealDrainInFlight: false,
+  pinnedRootCursor: undefined,
+  heldRowKeys: [],
+  readingFloorRowKey: undefined,
+};
+
+/** A window holding the whole synthetic log, well over its own cap. */
+export function loadedWindow(): TranscriptWindow {
+  const window = new TranscriptWindow();
+  window.ingest(syntheticWindowRows(TOP_LEVEL_ROW_COUNT));
+  return window;
+}

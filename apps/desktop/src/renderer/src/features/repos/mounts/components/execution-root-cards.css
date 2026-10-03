@@ -1,0 +1,80 @@
+/*
+ * One execution-root card: a worktree row. These rules dress `WorktreeCard.tsx`;
+ * `execution-roots/` holds the dialogs for the acts, not the card an act produced.
+ */
+
+/* Branch, root and age sit in the same places on every card, so a scan reads them at a glance. */
+.meridian-root-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-root-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* The branch is a wire string, so the title is mono and truncates at the measure, not in the
+   string; two branches differing only in their tail never render alike. */
+.meridian-root-card__title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-root-card__summary,
+.meridian-root-card__detail-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+/* A filesystem root is long and its tail is the part that identifies it. */
+.meridian-root-card__path {
+  direction: rtl;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-root-card__detail-list {
+  padding-block-start: var(--meridian-space-2);
+}
+
+/* The pair is a grid subgrid row: label in the first column, value in the second. */
+.meridian-root-card__pair {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  min-inline-size: 0;
+}
+
+.meridian-root-card__pair dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-root-card__pair dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-root-card__detail-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

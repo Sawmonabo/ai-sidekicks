@@ -1,0 +1,91 @@
+import type { ReactNode } from "react";
+
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { formatDateTime, formatDuration, formatPercent } from "@renderer/lib/wire-figures.js";
+import { MILLISECONDS_PER_MINUTE } from "@renderer/lib/instant.js";
+import type { AccountQuotaRow } from "../quota-rows.js";
+
+/**
+ * The full-scale value a utilization bar is drawn against, and the clamp on its fill.
+ *
+ * A reading can exceed its limit and an over-full `<progress>` renders differently across
+ * engines, so the bar is clamped and the figure beside it is not: the bar answers "how full",
+ * which saturates, and the percentage answers "how much". One, because `Intl` takes a fraction.
+ */
+const UTILIZATION_BAR_FULL_SCALE = 1;
+
+/**
+ * One account's per-limit quota table, one row per limit the provider publishes.
+ *
+ * Keyed by limit, never by window length: three of a pinned provider's limits share one
+ * 10080-minute window. The limit identifier is a wire spelling and is never drawn; a row is
+ * named by the provider's label, or by its window length where none was published. The
+ * percentage is clamped for display and the wire figure is not, so over-consumption against a
+ * soft limit is still reported. A reading taken under an older credential generation says so:
+ * a credential-home rebuild does not clear stored readings, so such a row is true about the
+ * provider and behind this account.
+ */
+export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] }): ReactNode {
+  if (props.rows.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="inline"
+        title="No quota reading has been stored for this account."
+        detail="A reading is recorded when a run spends against the account or when a probe asks for one."
+      />
+    );
+  }
+  return (
+    <table className="meridian-accounts__quota">
+      <thead>
+        <tr>
+          <th scope="col">Limit</th>
+          <th scope="col">Window</th>
+          <th scope="col">Used</th>
+          <th scope="col">Resets</th>
+          <th scope="col">Observed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {props.rows.map(({ window, behindAccountGeneration }) => (
+          <tr key={window.limitId}>
+            <th scope="row">{window.label ?? <DerivedFigure text={windowLength(window)} />}</th>
+            <td>
+              <DerivedFigure text={windowLength(window)} />
+            </td>
+            <td>
+              <progress
+                className="meridian-accounts__quota-bar"
+                max={UTILIZATION_BAR_FULL_SCALE}
+                value={Math.min(window.usedPercent / 100, UTILIZATION_BAR_FULL_SCALE)}
+              />
+              <DerivedFigure text={formatPercent(window.usedPercent / 100)} />
+            </td>
+            <td>
+              {window.resetsAt === undefined ? (
+                <span className="meridian-settings-page__aside">Not published</span>
+              ) : (
+                <DerivedFigure text={formatDateTime(window.resetsAt)} />
+              )}
+            </td>
+            <td>
+              <DerivedFigure text={formatDateTime(window.observedAt)} />{" "}
+              <Chip label={window.source} mono />
+              {behindAccountGeneration ? (
+                <Chip label="Behind this account’s credential" tone="attention" glyph="alert" />
+              ) : null}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** How long a window runs, as the table draws it. */
+function windowLength(window: AccountQuotaRow["window"]): string {
+  return formatDuration(window.windowMins * MILLISECONDS_PER_MINUTE);
+}

@@ -1,19 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "../../tsconfig.node22.json",
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
   "include": ["src/**/*"],
-  // Test files are excluded from `tsc -b` so they don't ship in `dist/` (the
-  // package's `files` array is `["dist"]`). Test type-validation runs separately
-  // via `tsconfig.test.json` which includes tests with `noEmit: true`.
-  //
-  // `src/**/*.test-d.ts` (conditional-type tests sitting alongside the contract
-  // files they validate — e.g., `desktop-bridge.test-d.ts` next to
-  // `desktop-bridge.ts`) is excluded by the same rule: the negative type-test
-  // runs under `tsconfig.test.json` (noEmit) and never emits to `dist/`.
+  // Test files are excluded from `tsc -b` so they don't ship in `dist/` (the package's `files` is
+  // `["dist"]`); `tsconfig.test.json` type-validates them with `noEmit`. `src/**/*.test-d.ts`
+  // (conditional-type tests beside the contract files they validate, e.g. `run-control.test-d.ts`
+  // next to `run-control.ts`) is excluded by the same rule.
   "exclude": ["dist", "node_modules", "src/**/__tests__/**", "src/**/*.test-d.ts"]
 }

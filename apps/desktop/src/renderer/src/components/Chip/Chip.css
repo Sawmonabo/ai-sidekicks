@@ -1,0 +1,52 @@
+/*
+ * Composition only; values come from the sheet `styles/generate-css.ts` emits, as custom
+ * properties. `box-sizing` is set here because that sheet has no global border-box reset,
+ * and a fixed-height chip that grows by its border no longer shares a baseline with its text.
+ * Amber means a person is needed; red means something failed.
+ */
+.meridian-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  block-size: 1.375rem;
+  max-inline-size: 100%;
+  padding-inline: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.meridian-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meridian-chip--mono .meridian-chip__label {
+  font-family: var(--meridian-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* `neutral` is the base rule above: no color. */
+
+.meridian-chip--attention {
+  border-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-chip--failure {
+  border-color: var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+}
+
+.meridian-chip--accent {
+  border-color: var(--meridian-accent);
+  background: transparent;
+  color: var(--meridian-accent-text);
+}

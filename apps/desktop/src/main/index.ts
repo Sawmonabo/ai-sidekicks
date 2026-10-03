@@ -1,240 +1,116 @@
-// Electron main-process entrypoint.
-//
-// Today this is the single-instance lock, the renderer scheme registration, the
-// bundle handler, and the main window. Later work layers Sentry init, the
-// daemon supervisor (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK
-// handler (a different scheme from the renderer's), the auto-updater, the crash
-// reporter, and second-instance focus handling against this same surface.
-//
-// Startup order is load-bearing and is asserted by `startup-order.test.ts`:
-//
-//   module top level ......... registerRendererScheme()      (before app.ready)
-//   inside whenReady() ....... installRendererProtocol(...)  (before any window)
-//                              installApplicationMenu()
-//                              installAuxiliaryWindowControls()
-//                              createMainWindow()
-//
-// A scheme registered after ready is refused by Electron, and a window created
-// before the handler is installed would load against an unhandled scheme. When
-// the crash reporter lands it COMPOSES this order rather than re-authoring it,
-// taking the top-level slot immediately AFTER `registerRendererScheme()` — the
-// one named exception to its own crash-first rule, because Electron pins the
-// registration ahead of ready and the call touches no network, no file, and no
-// crash-relevant state. `startup-order.test.ts` therefore asserts the two
-// ORDERINGS (scheme before the first `whenReady()`, handler before the first
-// `BrowserWindow`) and deliberately does NOT assert that this module imports
-// `protocol.ts` first, which the crash reporter would break.
+// Electron main-process entrypoint. Startup order is load-bearing and `startup-order.test.ts`
+// asserts it: `registerRendererScheme()` at module top level, before `app.ready`; then inside
+// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`,
+// `installBridgeHandlers` and `createMainWindow`. Electron refuses a scheme registered after
+// ready, and a window created before the handler is installed loads against an unhandled scheme.
 
+import { totalmem } from "node:os";
 import path from "node:path";
 
-import { app, type BrowserWindow } from "electron";
-import { installAuxiliaryWindowControls } from "./auxiliary-window-ipc.js";
-import { watchAuxiliaryWindowsForComposerChord } from "./composer-focus.js";
-import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./diagnostic-log.js";
+import { app } from "electron";
+import { appFactsSwitches, supportedArch, supportedPlatform } from "@shared/app-facts.js";
+import { fixtureLaunchSwitches, type FixtureLaunch } from "@shared/fixture-launch.js";
+import { installBridgeHandlers } from "./bridge/install-bridge-handlers.js";
+import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
+import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./services/diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
-import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
-import { createMainWindow } from "./window.js";
-import { installActivationPolicy } from "./window-reveal.js";
-import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
+import { installRendererProtocol, registerRendererScheme } from "./services/renderer-protocol.js";
+import { createMainWindow } from "./windows/window.js";
+import { installActivationPolicy } from "./windows/window-reveal.js";
 
-// The `electron-vite` output layout puts the main bundle at `out/main/index.js`
-// and the renderer tree at `out/renderer/` (see `electron.vite.config.ts`
-// per-target `outDir`), so the renderer root is this module's sibling directory.
+// The build writes the main bundle to `out/main/` and the renderer to `out/renderer/`.
 const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 
-// This runs at module evaluation, which is strictly before `app.ready` fires —
-// Electron refuses `registerSchemesAsPrivileged` after ready, and a scheme that
-// is not `standard` has no origin and therefore no IndexedDB and no
-// `localStorage`, which is where the console persists layout, scroll position,
-// selection, pins, and expansion sets — UI state ONLY. Drafts are deliberately
-// NOT in that set: composer text, form values, paths, and code a user has
-// typed and not sent live in their window's in-memory store for that window's
-// lifetime and are gone when it closes, because user-authored content's
-// only durable homes are the daemon's encrypted, PII-mapped stores.
+// Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
+// ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
+// which hold the app's UI state.
 registerRendererScheme();
 
-// Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
-// this with the literal `true`; the default `electron-vite build` substitutes
-// it with the literal `false` (see `apps/desktop/electron.vite.config.ts`
-// `define` block). This is the production-safety mechanism — in release
-// bundles the value resolves to `false`, the entire smoke-probe branch
-// below short-circuits to dead code, and Rollup's tree-shaker eliminates
-// it from `out/main/index.js`. Empirically verifiable: grep the release
-// bundle for `SIDEKICKS_SMOKE_PROBE`, `executeJavaScript`, or `about:blank`
-// — all return zero matches (see commit message for the proof).
-declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
+// Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
+// build. In a release bundle the smoke branch folds away and Rollup drops the probe modules.
+declare const __SMOKE_BUILD__: boolean;
 
-// The console's fixture gate, substituted for this target by the same `define`
-// block. `electron-vite build --mode=fixtures` substitutes `true`; every other
-// mode, the release build included, substitutes `false`.
-declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
+// The fixture gate, substituted by the same `define` block: `true` in the development and
+// fixtures builds, `false` in every other, the release build included.
+declare const __FIXTURE_BUILD__: boolean;
 
 /**
- * Environment variable a fixture build names its scenario on.
- *
- * Set by `test/console/electron-harness.ts` for the two Electron tiers, and by a
- * developer running the fixtures build by hand. It is read in exactly one place —
- * below — and never reaches the renderer as an environment value: the renderer is
- * sandboxed and has no process environment, which is why this crosses the boundary
- * as a document-URL query instead.
+ * The fixture launch this command line asks for, checked, or `undefined` for a normal launch.
+ * The `if`/`else` shape lets a release bundle fold to the refusal alone: the catalog check,
+ * its dynamic import and the scenarios all go.
  */
-const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
-
-/**
- * The query parameter the renderer reads the id back off.
- *
- * Pinned to `SCENARIO_QUERY_PARAMETER` in
- * `src/renderer/src/console/bridge/scenario/selection.ts`, which cannot be
- * imported here: the renderer is untrusted, so `src/main/**` and the renderer
- * tree are separate programs by design, and a shared module would be bundled
- * into the renderer. The two ends are held together end-to-end instead — the
- * endurance tier launches with a scenario id and asserts the console is playing
- * that scenario, so a drift on either side fails a tier rather than silently
- * selecting nothing.
- */
-const FIXTURE_SCENARIO_QUERY_PARAMETER = "scenario";
-
-/**
- * The document-URL query a fixture build opens its window with, or `""`.
- *
- * `typeof` rather than a bare read of the define, and that is load-bearing: the
- * `main-unit` Vitest project evaluates this module with only the smoke define in
- * its substitution map, so a bare identifier would be a `ReferenceError` the
- * moment the ready continuation runs. Substitution happens before parsing, so a
- * release build reads `typeof false === "boolean" && false` — statically false,
- * with the environment read and the query behind it — and a fixtures build reads
- * `typeof true === "boolean" && true`.
- */
-function resolveFixtureScenarioQuery(): string {
-  if (!(typeof __SIDEKICKS_CONSOLE_FIXTURES__ === "boolean" && __SIDEKICKS_CONSOLE_FIXTURES__)) {
-    return "";
+async function resolveFixtureLaunch(): Promise<FixtureLaunch | undefined> {
+  const launch = parseFixtureLaunch(process.argv.slice(1));
+  if (launch === undefined) {
+    return undefined;
   }
-  const scenarioId = process.env[FIXTURE_SCENARIO_ENV_VAR];
-  if (scenarioId === undefined || scenarioId === "") {
-    return "";
+  if (__FIXTURE_BUILD__) {
+    await checkFixtureLaunchAgainstCatalog(launch);
+    return launch;
+  } else {
+    throw new Error(
+      "--fixture needs a development or fixtures build, and this build carries no scenarios",
+    );
   }
-  return `?${FIXTURE_SCENARIO_QUERY_PARAMETER}=${encodeURIComponent(scenarioId)}`;
 }
 
-// Without `requestSingleInstanceLock()`, a `sidekicks://` deep link arriving at a
-// second instance would race with the first instance's daemon state. The lock is the
-// correct pattern even before the deep-link handler ships.
+// One instance owns the profile and its state; a second launch quits.
 const gotTheLock = app.requestSingleInstanceLock();
 
-// The two probes live in `./probes/`, not here.
-//
-// `runSmokeProbe` boots the window, waits for the REAL renderer bundle's
-// `did-finish-load`, reads the hardening invariants plus the renderer-scheme
-// origin properties out of the renderer, fetches the served `index.html` to
-// read back its CSP header, prints one `[SIDEKICKS_SMOKE_PROBE]`-tagged JSON
-// line, and exits. `startGcProbe` drives the window-reachability loop and prints
-// one `[SIDEKICKS_GC_PROBE]`-tagged line. Each module's header carries its own
-// rationale; what belongs HERE is the startup order and the gates.
-//
-// Both gates are two-condition and the outer condition is the SAME
-// compile-time-static identifier. `electron-vite build --mode=smoke`
-// substitutes `__SIDEKICKS_SMOKE_BUILD__` with the literal `true`; a default
-// `electron-vite build` substitutes the literal `false`, Rollup collapses
-// `if (false && …)`, and — because the probe modules are then referenced by
-// nothing and declare no top-level side effects — drops both modules from
-// `out/main/index.js` entirely. Empirically: after a release build,
-// `grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js` and
-// `grep -c executeJavaScript out/main/index.js` both return 0, and
-// `about:blank` is absent from both bundles now that the blank-document arm is
-// retired. The inner condition is a per-invocation runtime env-var opt-in, so
-// even a smoke bundle never auto-runs a probe.
-//
-// "No test machinery in production binaries" follows from the two rules this
-// shell is built on: the renderer is untrusted, and a disabled sandbox or
-// enabled node integration in any window is a build-time error. A release binary
-// must not embed a path that weakens those guarantees, and a probe calling
-// `executeJavaScript` against the renderer is exactly such a path.
-
-// Module-scope handle for the BrowserWindow. Defensive consistency
-// with the canonical Electron main-process retention pattern. The
-// load-bearing reachability mechanism is actually Electron's
-// native-side `BaseWindow::self_ref_`
-// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
-// destruction) — a freshly constructed `BrowserWindow` is anchored
-// on the V8 root set without any user-side help. Keeping
-// `let mainWindow` is zero-cost insurance against future Electron
-// releases shifting `self_ref_` semantics (asymmetric risk: one
-// identifier vs. silent regression on a future Electron release).
-//
-// It is also READ, by exactly one caller: the composer chord an auxiliary window
-// answers needs the window the composer is in, and takes this as a getter rather
-// than a captured handle so a closed-and-reopened main window is the one it goes to
-// (see `./composer-focus.ts`).
-let mainWindow: BrowserWindow | null = null;
+// The probes live in `./probes/`. Both are gated twice: the compile-time
+// `__SMOKE_BUILD__` (a release bundle references nothing there, so Rollup drops the
+// modules) and a per-run env var, so even a smoke bundle never auto-runs one. A release binary
+// must not embed a path such as `executeJavaScript` against the renderer, which is untrusted.
 
 if (!gotTheLock) {
   app.quit();
 } else {
-  // The sidecar-cleanup handler MUST register BEFORE any other
-  // `app.on('will-quit', ...)` registration. Under Electron's
-  // EventEmitter semantics, listener invocation order equals
-  // registration order — late registration would let downstream
-  // handlers close resources the drain depends on, orphaning active
-  // PTY children to the global console (the `microsoft/node-pty#904`
-  // SIGABRT-on-exit failure mode).
-  //
-  // The PtyHost getter currently returns `null` — no daemon PtyHost is
-  // provisioned yet — and the registration still runs at position 0
-  // unconditionally so the FIFO-ordering guarantee holds the moment a
-  // PtyHost lands. See `sidecar-lifecycle.ts`'s `PtyHostGetter` doc
-  // comment for the lazy-getter rationale.
-  registerSidecarLifecycle(app, () => null);
-
   app
     .whenReady()
-    .then(() => {
-      // Test builds only, and only when the launching harness asked for it: the
-      // macOS accessory activation policy has to be in place before the first
-      // reveal could activate the application. A release bundle folds the call
-      // to nothing. See `./window-reveal.ts`.
+    .then(async () => {
+      // First, so a launch this build cannot play stops before anything is installed.
+      const fixtureLaunch = await resolveFixtureLaunch();
+
+      // Test builds only, and only when the harness asked: the macOS accessory activation
+      // policy must be in place before the first reveal could activate the application.
       installActivationPolicy(app);
-      // BEFORE any window: a `BrowserWindow` constructed ahead of the handler
-      // could begin a load against an unhandled scheme.
+      // Before any window: a window constructed ahead of the handler could load against an
+      // unhandled scheme.
       installRendererProtocol(RENDERER_ROOT);
       installApplicationMenu();
-      // BEFORE any window, for the protocol handler's own reason: a renderer that
-      // reached an unregistered channel would take `invoke`'s missing-handler
-      // rejection, which reads like a missing feature rather than a startup order
-      // that ran late. See `./auxiliary-window-ipc.ts`.
-      installAuxiliaryWindowControls();
+      installBridgeHandlers({ userData: app.getPath("userData") });
 
-      // Production-safety: the OUTER condition is the compile-time-static
-      // gate (Vite substitutes `false` in release bundles → Rollup
-      // eliminates the whole branch). The INNER condition is the runtime
-      // env-var opt-in so the probe never auto-runs even in a smoke
-      // bundle without explicit opt-in. Both must hold for the probe
-      // to execute.
-      const smokeProbeRequested =
-        __SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
+      // Read after ready because the locale is unknown before it. An unsupported platform or
+      // architecture stops the launch here rather than reaching a page as an unchecked value.
+      const appSwitches = appFactsSwitches({
+        version: app.getVersion(),
+        platform: supportedPlatform(process.platform),
+        arch: supportedArch(process.arch),
+        locale: app.getLocale(),
+        physicalMemoryBytes: totalmem(),
+      });
 
-      // Sampled before the factory call, not after it: the window this measures
-      // is the load's, and `createMainWindow` starts that load.
+      // Both conditions must hold: the compile-time smoke flag and the runtime opt-in.
+      const smokeProbeRequested = __SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
+
+      // Sampled before `createMainWindow`, which starts the load being timed.
       const probeStartedAt = Date.now();
 
-      // `did-finish-load` is registered through `beforeLoad` rather than on the
-      // returned window. The load starts inside the factory, so a listener
-      // attached afterwards is on time only because Electron happens to emit on
-      // a later tick — a property of the runtime, not of this code. See
-      // `WindowLoadOptions`.
-      const browserWindow = createMainWindow({
-        // Empty in every build but the fixtures one, where it names the scripted
-        // session this window plays. The renderer reads it once, before its first
-        // render, and never again.
-        documentQuery: resolveFixtureScenarioQuery(),
+      // `did-finish-load` is registered in `beforeLoad` because the load starts inside the
+      // factory; a listener attached afterward would depend on Electron's event timing.
+      createMainWindow({
+        // The app's facts and any fixture launch reach the window as renderer switches, which
+        // the preload reads once, before the page's first render.
+        additionalArguments:
+          fixtureLaunch === undefined
+            ? appSwitches
+            : [...appSwitches, ...fixtureLaunchSwitches(fixtureLaunch)],
         beforeLoad: (window) => {
           if (smokeProbeRequested) {
-            // Registered here, ahead of the load, so a boot that never reaches
-            // `did-finish-load` still says WHERE it stopped. The breadcrumb at
-            // the top of the callback below is what separates "never got here"
-            // from "got here and the probe round trip hung" — without it the
-            // two produce the identical observable, no probe line at all.
+            // Registered ahead of the load so a boot that never reaches `did-finish-load`
+            // still shows where it stopped.
             const traceReadiness = installReadinessBreadcrumbs(window, probeStartedAt);
             window.webContents.once("did-finish-load", () => {
               traceReadiness("did-finish-load");
@@ -244,40 +120,18 @@ if (!gotTheLock) {
           }
         },
       });
-      mainWindow = browserWindow;
-      browserWindow.on("closed", () => {
-        mainWindow = null;
-      });
 
-      // AFTER the main window exists, and that ordering is the exclusion:
-      // `browser-window-created` is an event rather than a registry, so the window
-      // that HAS the composer is never handed to this watcher and the chord stays
-      // free for the binding that moves the caret. Every window opened from here on
-      // — the auxiliary routes, which have no composer of their own — answers the
-      // chord by bringing this one forward.
-      watchAuxiliaryWindowsForComposerChord(app, () => mainWindow);
-
-      // The GC probe owns its own listener registration and its own deferral
-      // (see `./probes/gc-probe.ts#startGcProbe`), so nothing scheduled here
-      // closes over `browserWindow` and roots the window the probe measures.
-      if (
-        !smokeProbeRequested &&
-        __SIDEKICKS_SMOKE_BUILD__ &&
-        process.env["SIDEKICKS_GC_PROBE"] === "1"
-      ) {
+      // The GC probe registers its own listener and defers itself, so nothing scheduled here
+      // closes over the window it measures.
+      if (!smokeProbeRequested && __SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
         startGcProbe(app);
       }
     })
     .catch(async (startupFailure: unknown) => {
-      // Two records, because they reach two different readers and neither covers the
-      // other. stderr is what a developer running the binary sees; the JSONL log is
-      // what survives a launch nobody was watching, which is the only kind a startup
-      // failure usually is. Drained before the exit — a queued append does not
-      // survive `app.exit`.
-      //
-      // And if the second record did not land, that goes to the first: the log never
-      // throws at this handler, so an unread failure would leave a startup failure
-      // recorded nowhere at all while the exit path behaved as though it were.
+      // Two records for two readers: stderr for a developer watching, the JSONL log for a
+      // launch nobody watched. The log is drained before the exit because a queued append does
+      // not survive `app.exit`; the log never throws at this handler, so an unwritten one is
+      // reported to stderr.
       console.error("[ai-sidekicks/desktop] startup failed:", startupFailure);
       try {
         const startupLog = createMainDiagnosticLog(app.getPath("logs"));
@@ -291,29 +145,22 @@ if (!gotTheLock) {
           console.error(message);
         });
       } catch (loggingFailure) {
-        // The conditions that break a startup are the conditions that break the
-        // record of one — a read-only home, a revoked profile directory, a full
-        // disk — so this is the arm most likely to be taken on the launches this
-        // whole block exists for. `app.getPath` throws when a path cannot be
-        // resolved, and the directory has to be created before the first append.
+        // The conditions that break a startup (a read-only home, a full disk) also break
+        // its log, and `app.getPath` throws when a path cannot be resolved.
         console.error(
           "[ai-sidekicks/desktop] the startup log could not be written:",
           loggingFailure,
         );
       } finally {
-        // THE EXIT IS THE CONTRACT AND THE RECORD IS BEST-EFFORT, which is why it is
-        // here rather than after the record. This handler is the terminal one on the
-        // chain, so a rejection escaping it is an UNHANDLED one: the process dies
-        // through Node's own path instead of Electron's, `app.quit`'s hooks never
-        // run, and the sidecar drain registered at position 0 above is skipped — a
-        // startup failure orphaning the children a clean exit would have reaped.
+        // The exit is the contract and the record is best-effort. A rejection escaping this
+        // terminal handler would be unhandled: the process would die through Node's path and
+        // `app.quit`'s hooks would not run.
         app.exit(1);
       }
     });
 
   app.on("window-all-closed", () => {
-    // Quit on all platforms for now; macOS-specific dock-keep-alive behavior
-    // wires in once the full app lifecycle is wired.
+    // Quit on every platform, macOS included.
     app.quit();
   });
 }

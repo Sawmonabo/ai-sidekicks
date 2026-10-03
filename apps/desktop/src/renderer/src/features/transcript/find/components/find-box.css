@@ -1,0 +1,63 @@
+.meridian-find {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-find__field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 1 1 24ch;
+  min-width: 0;
+}
+
+/* The label names the field for assistive technology and is not repeated on
+   screen beside a search glyph that already says it. */
+
+.meridian-find__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.meridian-find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+}
+
+.meridian-find__step,
+.meridian-find__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--meridian-space-5);
+  height: var(--meridian-space-5);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-find__step:disabled {
+  color: var(--meridian-text-faint);
+  cursor: default;
+}

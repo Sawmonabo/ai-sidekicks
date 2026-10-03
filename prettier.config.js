@@ -1,5 +1,4 @@
-// Prettier 3 per ADR-022 §Decision row 5.
-// Defaults except a few project-wide preferences locked here so editors agree.
+// Prettier 3, defaults except a few project-wide preferences locked here so editors agree.
 /** @type {import("prettier").Config} */
 export default {
   semi: true,

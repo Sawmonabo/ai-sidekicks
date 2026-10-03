@@ -1,0 +1,30 @@
+/*
+ * The pane chrome's button, the feature's one button shape. No literal color: every value is
+ * read from a Meridian custom property.
+ */
+
+/*
+ * The five custom properties below set this button's arrangement. A bar that composes it into
+ * one centered row sets them on its own class; unset, the stacked shape is what `revert`
+ * restores. They are properties, not declarations, so one bar's arrangement never reaches a
+ * control that did not ask for it.
+ */
+.meridian-preview-action {
+  align-self: var(--meridian-preview-action-align-self, flex-start);
+  display: var(--meridian-preview-action-display, revert);
+  align-items: var(--meridian-preview-action-align-items, revert);
+  gap: var(--meridian-preview-action-gap, revert);
+  white-space: var(--meridian-preview-action-white-space, revert);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: default;
+}
+
+.meridian-preview-action:disabled {
+  opacity: 0.55;
+}

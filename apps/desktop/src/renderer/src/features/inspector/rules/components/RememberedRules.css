@@ -1,0 +1,42 @@
+/* The remembered rules' sheet. Revoke and cancel wear the shared action button from
+   `styles/action-buttons.css`. */
+
+.meridian-remembered-rules__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-remembered-rules__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-remembered-rules__line,
+.meridian-remembered-rules__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.meridian-remembered-rules__confirm-copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-remembered-rules__unreadable {
+  margin: 0;
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}

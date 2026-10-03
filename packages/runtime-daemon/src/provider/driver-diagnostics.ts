@@ -1,277 +1,129 @@
-// Driver diagnostics surface.
-//
-// The daemon diagnostic channel both event normalizers route to — the typed
-// `DriverDiagnosticRecord`, the emitter that lands each record on the
-// structured daemon log stream and on the metrics counters, and the bounded
-// reorder buffer whose overflow / pairing-timeout diagnostics are this
-// surface's own records (the reorder-and-diagnostics band is one band: the
-// buffer's entire OBSERVABLE contract is the diagnostics it emits, so the
-// producer lives beside the surface it reports through rather than minting a
-// fourth provider-level module Files census does not name).
-//
-// Nothing here mints a `session_events` envelope, and no record kind is
-// spelled `runtime_node.*` — that prefix is event namespace and these records
-// are operator diagnostics by design. A frame that
-// reaches this surface is never silently dropped and never forced into an
-// envelope: it becomes a structured log line plus a counter increment,
-// queryable through the diagnostics surfaces rather than through the event
-// timeline.
-//
-// Metrics: the counter NAMES below are the OpenTelemetry instrument names
-// (`driver.reorder_buffer.overflow` is pinned verbatim).
-//
+// The daemon diagnostic channel both event normalizers route to: the typed
+// `DriverDiagnosticRecord`, the emitter that lands each record on the daemon log and a counter,
+// and the bounded reorder buffer. These are diagnostics for the person, never `session_events`
+// envelopes; a frame that reaches this channel is never silently dropped.
 
-// --------------------------------------------------------------------------
-// Provider identity.
-// --------------------------------------------------------------------------
+import type { ProviderName } from "@ai-sidekicks/contracts";
 
 /**
- * The two pinned provider drivers. Defined here — the one provider-neutral
- * surface both normalizers already import — because no narrower home exists:
- * the drivers deliberately never import each other, and `provider-registry.ts`
- * keys drivers by runtime registration rather than by a closed name union.
- */
-export type DriverProviderName = "codex" | "claude";
-
-// --------------------------------------------------------------------------
-// The typed diagnostic record.
-// --------------------------------------------------------------------------
-
-/**
- * The closed set of diagnostic kinds this surface emits.
- *
- * Closed on purpose: the counter-name map below is keyed by this union, so a
- * new diagnostic kind added without a counter name is a compile error rather
- * than an unmetered record. Each kind is owned by a named leg:
- *
- *   - `unmapped_wire_kind` — the default branch: a wire kind outside the
- *     pinned census, or an interim `typePending` kind whose literal has not
- *     landed.
- *   - `payload_variant_pending` — the default branch's second arm: a censused kind whose
- *     target `SessionEventType` has no registered `SessionEventSchema` payload
- *     variant yet, so envelope construction is forbidden (the
- *     flip-is-not-emission rule).
- *   - `reorder_buffer_overflow` / `tool_pairing_timeout` — the bounded
- *     reorder buffer's two never-silent conditions.
- *   - `reorder_initiation_ledger_evicted` — that buffer's third bound: the seen-
- *     initiation ledger is per-provider-session state with no completion
- *     guarantee, so it is capped and evicted oldest-first. An eviction changes
- *     how a later completion for that call routes, so it is never silent.
- *   - `usage_delta_floor_hit` — the usage-delta rule: an observed decrease on
- *     a declared-cumulative axis is a falsified declaration, floored at zero
- *     and reported, never emitted as negative spend.
- *   - `usage_axis_reading_rejected` — a cumulative reading carrying a key
- *     outside the closed axis list or a non-finite value. Rejected BEFORE it
- *     reaches a base register: a NaN admitted into a register poisons every
- *     later delta on that axis (`NaN < 0` is false, so the floor arm never
- *     fires) and the poison is unrecoverable without a re-establishment.
- *   - `usage_resume_base_unavailable` — a resume or rewind whose prior-emitted
- *     cumulative sum could not be OBTAINED: no reader is bound, or the reader
- *     threw. Distinct from a reader that answers with nothing — a session that
- *     legitimately emitted no spend bases at zero correctly and records
- *     nothing. On the faulty arm the base starts at zero and the first reading
- *     re-meters the whole pre-resume total, so the overstatement is recorded
- *     rather than left to surface on a receipt.
- *   - `usage_cross_check_mismatch` — a wire-declared per-turn figure
- *     disagreeing with the derived interval; recorded, never substituted.
- *   - `usage_containment_identity_unconfirmed` — a token breakdown satisfying
- *     no containment identity, emitted unsubtracted (a conservative
- *     overstatement surfaced for repair, never a silent understatement).
- *   - `thread_frame_quarantined` / `thread_quarantine_shed` — the router's
- *     fail-closed refusal band: absent-or-unrecognized identity admissions and
- *     the bounded buffer's oldest-first sheds.
- *   - `thread_pending_hold_shed` — a present-but-unregistered identity whose
- *     registration never landed inside the declared timeout.
- *   - `thread_registration_refused` — a child announcement carrying no
- *     recognized parent linkage; recognition derives from declared lineage,
- *     never from arrival order.
- *   - `thread_duplicate_child_announcement` — a second announcement for a child
- *     whose usage base is already established. Distinct from a refusal: the
- *     router accepted the registration (re-registering an identity it already
- *     holds is a no-op), and what the driver declined is the RE-BASING and the
- *     duplicate `subagent.started`. Re-basing mid-stream would reset the
- *     child's register to zero and re-meter its whole spend on the next
- *     reading, so the announcement is recorded and the base retained.
- *   - `thread_child_transcript_suppressed` — first suppression of a registered
- *     child thread's transcript projection (deduplicated per thread so child
- *     content deltas do not flood the channel).
- *
- * Three are capability-refresh cadence and detection read that runs inside
- * it. They live here for the same reason as everything else on this union: a
- * scheduler-local callback would be a second diagnostic surface, and a
- * failure reported there is unmetered.
- *
- *   - `capability_refresh_failed` — a driver's capability re-declaration threw
- *     or exceeded its liveness deadline during a scheduled refresh.
- *   - `auth_probe_failed` — a driver's auth probe threw or exceeded its
- *     liveness deadline, so the node's auth state for that driver is unchanged
- *     rather than presumed authenticated.
- *   - `capability_flag_withdrawn` — a detection read that SUCCEEDED and
- *     withdrew a flag the driver's matrix declares: the probe channel answered,
- *     and this build turned out not to carry the surface behind that flag. The
- *     two kinds above cover only reads that FAILED, so without this one the
- *     node-visible outcome — a capability quietly lost between one refresh and
- *     the next — is the single capability-band condition that reaches an
- *     operator through no counter at all.
- *
- * The remaining eight are owned by named and legs (callback-tool hosting, leg 3;
- * `subagentPolicy` pass-through, leg 4). They live here rather than on a second
- * diagnostic surface because the closed-union-plus-counter-map pairing above is the
- * property worth keeping: a parallel record type would let a refusal go unmetered,
- * which is exactly what this union prevents.
- *
- *   - `callback_tool_seam_absent` — leg 3's runtime backstop: an invocation or
- *     a routed provider ask reached the host while no evaluation seam is
- *     registered. Answered refused, never completed-without-Cedar and never
- *     left unanswered.
- *   - `callback_tool_registry_withheld` — leg 3's fail-closed spawn rule: the
- *     callback-tool registry was withheld from the provider because the daemon
- *     could not guarantee every invocation would be adjudicated.
- *   - `callback_tool_invocation_refused` — an invocation naming no registered
- *     tool, carrying arguments the registered input schema rejects, or raised
- *     against a registry installation a later spawn has already superseded.
- *     Answered `failed` without ever reaching the approval pipeline.
- *   - `callback_tool_registry_superseded` — leg 3's spawn-scoping rule: a
- *     second spawn installed a registry for a session that still had one
- *     installed. Not itself a fault — a resume or relaunch reaches this
- *     legitimately — but it is the moment after which the superseded spawn's
- *     dispatcher and teardown stop acting on the session, so an operator
- *     reading either of those refusals needs this record to explain them.
- *   - `callback_tool_registry_release_ignored` — a superseded spawn's teardown
- *     ran after its registry had been replaced. The replacement is left
- *     installed and the release is recorded rather than silently honoured,
- *     because honouring it would tear down the LIVE spawn's registry.
- *   - `subagent_definition_disabled` — leg 4's fail-closed spawn rule: a
- *     subagent definition the daemon cannot boundary-mediate is disabled at
- *     spawn rather than admitted unenforceable.
- *   - `subagent_concurrency_breach` — leg 4's observability-only enforcement:
- *     concurrent subagents observed above the declared cap. A breach surfaces
- *     here and never fails the run.
- *   - `text_neutralization_trip_report_failed`: the tripwire ruled a
- *     provider-bound text frame swallowed, and the consumer the run terminal is
- *     reported to threw. The trip itself still stands and the binding is still
- *     disposed; what this records is that the operator-visible terminal may not
- *     have landed, which is the one part of a trip that a swallowed exception
- *     could make invisible.
- *
- * Three are console-parity surfaces. Each records a case where a caller's own
- * result is already honest about the outcome but says nothing about WHY — the
- * settlement carries a closed reason and the operator needs the terminal, the
- * count, or the wire text behind it.
- *
- *   - `compaction_wait_terminal` — a user-triggered compaction was
- *     dispatched and the wait for the provider's typed compaction frame reached
- *     a terminal that is not the frame: the declared per-driver bound elapsed,
- *     or the binding stopped being live. The caller already settles `failed`
- *     carrying the reason; what this records is WHICH terminal fired, since the
- *     two are the difference between a slow provider and a dead one. Never
- *     emitted on the applied path — a compaction that landed needs no record.
- *   - `provider_command_entries_truncated` — a binding's enumeration published
- *     more entries than the per-group cap admits, so the group's tail was
- *     dropped and its `complete` flag is `false`. The flag is the caller's
- *     signal; this is the operator's, and it carries both counts so the cap can
- *     be re-derived against a real provider rather than re-guessed.
- *   - `interactive_request_option_set_dropped` — a structured input ask
- *     published a choice set the cardinality cap refuses, or one no admissible
- *     option could be read from. The ask STILL NORMALIZES and still reaches the
- *     user as free text: dropping the ask would hang the turn, and
- *     carrying an unbounded set would let provider-authored strings size a
- *     client render. What is lost is the choice set, and losing it silently is
- *     what this forbids.
- *   - `mcp_task_handle_write_refused` — a task-augmented MCP dispatch produced
- *     a receiver-generated handle that could not be stored on its receipt row:
- *     the handle failed one of the column's bound conjuncts, it was not
- *     well-formed Unicode, the receipt row was absent, or the row already
- *     carried a DIFFERENT handle. The `dispositionReason` names which.
- *     Consequence-bearing rather than cosmetic: an unstored handle leaves the
- *     receipt on the `manual_reconcile_only` halt instead of the polling
- *     recovery path, so this is the only place a lost recovery optimization is
- *     visible. The handle itself is never carried — refusing an over-bound
- *     handle and then logging it would defeat the refusal.
- *   - `mcp_task_handle_write_failed` — the same handle write, but the handle
- *     was storable and the DATABASE refused it (a lock held past
- *     `busy_timeout`, a read-only or full filesystem, an I/O error, schema
- *     drift). Kept distinct from `..._write_refused` because the two route
- *     differently: a refusal is deterministic, caused by the remote peer, and
- *     unfixable locally, while a storage failure is a local fault almost
- *     certainly affecting writes well beyond this one. One counter for both
- *     would leave an operator unable to tell "a peer sent us garbage" from
- *     "our database is read-only". `dispositionReason` carries the SQLite
- *     result code (`SQLITE_BUSY`, `SQLITE_READONLY`, …); the error message is
- *     deliberately not carried, since it interpolates the offending SQL.
+ * The closed set of diagnostic kinds. The counter-name map is keyed by it, so a kind added
+ * without a counter is a compile error rather than an unmetered record.
  */
 export type DriverDiagnosticKind =
+  // A wire kind outside the pinned set, or one with no defined `SessionEventType`.
   | "unmapped_wire_kind"
+  // A known kind whose `SessionEventType` has no registered payload variant, so no envelope can
+  // be built.
   | "payload_variant_pending"
+  // The reorder buffer's never-silent conditions.
   | "reorder_buffer_overflow"
   | "tool_pairing_timeout"
-  | "reorder_initiation_ledger_evicted"
+  // The capped seen-initiation set evicted its oldest entry, which changes how a later
+  // completion for that call routes.
+  | "reorder_seen_initiation_evicted"
+  // A decrease on a cumulative axis is floored at zero, never emitted as negative spend.
   | "usage_delta_floor_hit"
+  // An unknown axis key or non-finite reading is rejected before it reaches a base register: a
+  // NaN there poisons every later delta, since `NaN < 0` is false and the floor never fires.
   | "usage_axis_reading_rejected"
+  // The prior-emitted sum for a resume or rewind was unobtainable, so the base starts at zero and
+  // the first reading re-meters the pre-resume total. A reader answering with nothing is not this.
   | "usage_resume_base_unavailable"
+  // A wire-declared per-turn figure disagrees with the derived interval; recorded, never
+  // substituted.
   | "usage_cross_check_mismatch"
+  // A token breakdown satisfying no containment identity is emitted unsubtracted, so the
+  // overstatement surfaces instead of a silent understatement.
   | "usage_containment_identity_unconfirmed"
+  // The router's fail-closed refusal of absent or unrecognized identities, and the bounded
+  // quarantine buffer's oldest-first sheds.
   | "thread_frame_quarantined"
   | "thread_quarantine_shed"
+  // A present but unregistered identity whose registration missed the declared timeout.
   | "thread_pending_hold_shed"
+  // A child announcement with no recognized parent linkage; recognition follows declared lineage,
+  // never arrival order.
   | "thread_registration_refused"
+  // A second announcement for a child whose usage base exists. The driver declines to re-base
+  // (that would re-meter the child's whole spend) and to emit a second `subagent.started`.
   | "thread_duplicate_child_announcement"
+  // The first suppression per thread of a child's transcript projection, so deltas do not flood.
   | "thread_child_transcript_suppressed"
+  // A capability re-declaration threw or missed its liveness deadline.
   | "capability_refresh_failed"
-  | "auth_probe_failed"
+  // A successful detection read withdrew a flag the matrix declares because this build lacks the
+  // surface; the failed-read kinds above do not cover a capability quietly lost between refreshes.
   | "capability_flag_withdrawn"
+  // An invocation or provider ask reached the host with no evaluation seam registered; answered
+  // refused, never completed without Cedar and never left unanswered.
   | "callback_tool_seam_absent"
+  // The registry was withheld at spawn because the daemon could not guarantee every invocation
+  // would be adjudicated.
   | "callback_tool_registry_withheld"
+  // An unregistered tool, arguments the schema rejects, or a superseded registry; answered
+  // `failed` without reaching the approval pipeline.
   | "callback_tool_invocation_refused"
+  // A resume or relaunch installed a second registry for the session; explains the superseded
+  // spawn's refusals.
   | "callback_tool_registry_superseded"
+  // A superseded spawn's teardown ran after replacement; honoring it would tear down the live
+  // registry.
   | "callback_tool_registry_release_ignored"
+  // The activity sink threw while recording an invocation that was already answered; the answer
+  // stands and only the activity row is missing.
+  | "callback_tool_activity_record_failed"
+  // A subagent definition the daemon cannot boundary-mediate is disabled at spawn.
   | "subagent_definition_disabled"
+  // Concurrent subagents above the declared cap; observability only, never fails the run.
   | "subagent_concurrency_breach"
+  // The tripwire swallowed a provider-bound text frame and the run-terminal consumer threw; the
+  // trip and the disposal stand, but the terminal the person sees may not have landed.
   | "text_neutralization_trip_report_failed"
+  // Disposing the channel a tripwire trip condemned failed; the slot stays quarantined with the
+  // channel kept for a later close.
+  | "quarantined_session_dispose_failed"
+  // The wait for the typed compaction frame ended without it (per-driver bound elapsed, or the
+  // binding stopped being live); records which fired. Never emitted when compaction applied.
   | "compaction_wait_terminal"
+  // Entries beyond the per-group cap were dropped and `complete` is false; carries both counts.
   | "provider_command_entries_truncated"
+  // An entry broke the contract's bounds; it is dropped and its siblings are unaffected.
   | "provider_command_entry_rejected"
+  // A declared output-speed state broke the bounds, so the binding reads as unobserved until the
+  // provider declares another. Details carry the field and lengths, never untrusted values.
   | "output_speed_state_rejected"
+  // A choice set over the cardinality cap or with no readable admissible option. The ask still
+  // reaches the user as free text; only the choice set is lost.
   | "interactive_request_option_set_dropped"
+  // A receiver-generated task handle could not be stored on its receipt row (over a column bound,
+  // ill-formed Unicode, absent row, or a different handle; `dispositionReason` names which). The
+  // receipt stays on the `manual_reconcile_only` halt, and the handle is never logged.
   | "mcp_task_handle_write_refused"
+  // The database refused a storable handle: a local fault, kept apart from the remote-caused
+  // refusal. `dispositionReason` carries the SQLite result code; the message interpolates SQL.
   | "mcp_task_handle_write_failed";
 
 /**
- * One operator-visible daemon diagnostic.
- *
- * The `{ provider, rawWireType, dispositionReason }` triple is the exact shape
- * Pinned for the default-branch record; `kind` discriminates the emitting
- * leg and selects the counter, and `details` carries the leg's structured
- * context (axis names, counts, thread identities) as flat JSON-safe primitives
- * so the log sink can serialize without walking a graph.
- *
- * `rawWireType` is `null` for records not caused by a single wire frame (a
- * buffer overflow aggregates many). Where present it is UNTRUSTED provider
- * output carried verbatim as data — never interpolated into anything that
- * executes.
+ * One daemon diagnostic the person sees; `details` is flat JSON-safe primitives. `rawWireType` is
+ * null when no single frame caused it, else untrusted provider output: never interpolate it into
+ * anything that executes.
  */
 export interface DriverDiagnosticRecord {
-  readonly provider: DriverProviderName;
+  readonly provider: ProviderName;
   readonly kind: DriverDiagnosticKind;
   readonly rawWireType: string | null;
   readonly dispositionReason: string;
   readonly details: Readonly<Record<string, string | number | boolean | null>>;
 }
 
-/**
- * The OpenTelemetry instrument name for each diagnostic kind.
- *
- * `driver.reorder_buffer.overflow` is pinned verbatim; the rest follow
- * its `driver.<band>.<condition>` shape. Keyed by the closed kind union so a
- * new kind without a counter is a compile error.
- */
+/** The OpenTelemetry instrument name per kind, shaped `driver.<band>.<condition>`. */
 export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKind, string>> =
   Object.freeze({
     unmapped_wire_kind: "driver.normalize.unmapped_wire_kind",
     payload_variant_pending: "driver.normalize.payload_variant_pending",
     reorder_buffer_overflow: "driver.reorder_buffer.overflow",
     tool_pairing_timeout: "driver.reorder_buffer.pairing_timeout",
-    reorder_initiation_ledger_evicted: "driver.reorder_buffer.initiation_ledger_evicted",
+    reorder_seen_initiation_evicted: "driver.reorder_buffer.seen_initiation_evicted",
     usage_delta_floor_hit: "driver.usage_delta.floor_hit",
     usage_axis_reading_rejected: "driver.usage_delta.axis_reading_rejected",
     usage_resume_base_unavailable: "driver.usage_delta.resume_base_unavailable",
@@ -284,16 +136,17 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_duplicate_child_announcement: "driver.thread_router.duplicate_child_announcement",
     thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
     capability_refresh_failed: "driver.capability_refresh.declaration_failed",
-    auth_probe_failed: "driver.capability_refresh.auth_probe_failed",
     capability_flag_withdrawn: "driver.capability_refresh.flag_withdrawn",
     callback_tool_seam_absent: "driver.callback_tool.seam_absent",
     callback_tool_registry_withheld: "driver.callback_tool.registry_withheld",
     callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",
     callback_tool_registry_superseded: "driver.callback_tool.registry_superseded",
     callback_tool_registry_release_ignored: "driver.callback_tool.registry_release_ignored",
+    callback_tool_activity_record_failed: "driver.callback_tool.activity_record_failed",
     subagent_definition_disabled: "driver.subagent.definition_disabled",
     subagent_concurrency_breach: "driver.subagent.concurrency_breach",
     text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
+    quarantined_session_dispose_failed: "driver.session.quarantined_dispose_failed",
     compaction_wait_terminal: "driver.compaction.wait_terminal",
     provider_command_entries_truncated: "driver.provider_commands.entries_truncated",
     provider_command_entry_rejected: "driver.provider_commands.entry_rejected",
@@ -303,43 +156,24 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     mcp_task_handle_write_failed: "driver.mcp_task_handle.write_failed",
   });
 
-// --------------------------------------------------------------------------
-// Sinks — the two injected halves of the diagnostic channel.
-// --------------------------------------------------------------------------
-
 /** Lands one record on the structured daemon log stream. */
 export interface DriverDiagnosticLogSink {
   record(record: DriverDiagnosticRecord): void;
 }
 
-/**
- * Increments one metrics counter. measurement substrate binds an
- * OpenTelemetry-backed implementation behind this seam; until it lands, the
- * default in-memory sink keeps exact totals so the counters stay queryable.
- */
+/** Increments one metrics counter; the default in-memory sink keeps exact totals. */
 export interface DriverDiagnosticCounterSink {
   increment(counterName: string, attributes: Readonly<Record<string, string>>): void;
 }
 
-/**
- * The default log sink: one `console.warn` line per record, a stable
- * `driver-diagnostic` prefix plus the record as JSON. The daemon carries no
- * structured logger yet; its modules log through `console` (the pty and ipc
- * subsystems establish the idiom), and the single-line JSON body is what makes
- * the stream machine-parseable when a real logger replaces the sink.
- */
-export class ConsoleDriverDiagnosticLogSink implements DriverDiagnosticLogSink {
+/** The default log sink: one `console.warn` line per record as `driver-diagnostic <json>`. */
+class ConsoleDriverDiagnosticLogSink implements DriverDiagnosticLogSink {
   record(record: DriverDiagnosticRecord): void {
     console.warn(`driver-diagnostic ${JSON.stringify(record)}`);
   }
 }
 
-/**
- * The default counter sink: exact in-memory totals keyed by counter name plus
- * serialized attributes. This is what makes an overflow "queryable via those
- * diagnostics/metrics surfaces" before substrate binds OpenTelemetry
- * behind the same interface.
- */
+/** The default counter sink: exact totals keyed by counter name plus serialized attributes. */
 export class InMemoryDriverDiagnosticCounterSink implements DriverDiagnosticCounterSink {
   readonly #totalsByCounterKey = new Map<string, number>();
 
@@ -371,23 +205,13 @@ export class InMemoryDriverDiagnosticCounterSink implements DriverDiagnosticCoun
   }
 }
 
-// --------------------------------------------------------------------------
-// The emitter.
-// --------------------------------------------------------------------------
-
 /**
- * The single emission path onto the daemon diagnostic channel.
- *
- * Every leg routes through one instance of this class: it freezes the record,
- * lands it on the log sink, increments the kind's counter, and retains it in a
- * bounded most-recent ring so the channel is queryable in-process. Nothing
- * here throws on a sink failure — a diagnostic surface that can take down the
- * normalizer it reports for would invert the containment the PR-A `#ingest`
- * delegate already ships, so sink errors are swallowed after a best-effort
- * fallback line.
+ * The single emission path onto the diagnostic channel: freezes the record, logs it, increments
+ * its counter and keeps it in a bounded ring. A sink failure never propagates.
  */
 export class DriverDiagnosticsEmitter {
-  static readonly DEFAULT_RECENT_RECORD_CAPACITY = 256;
+  /** Records retained for in-process queries when the caller declares no capacity. */
+  static readonly #DEFAULT_RECENT_RECORD_CAPACITY = 256;
 
   readonly #logSink: DriverDiagnosticLogSink;
   readonly #counterSink: DriverDiagnosticCounterSink;
@@ -403,9 +227,10 @@ export class DriverDiagnosticsEmitter {
     this.#logSink = options?.logSink ?? new ConsoleDriverDiagnosticLogSink();
     this.#counterSink = options?.counterSink ?? new InMemoryDriverDiagnosticCounterSink();
     this.#recentRecordCapacity =
-      options?.recentRecordCapacity ?? DriverDiagnosticsEmitter.DEFAULT_RECENT_RECORD_CAPACITY;
+      options?.recentRecordCapacity ?? DriverDiagnosticsEmitter.#DEFAULT_RECENT_RECORD_CAPACITY;
   }
 
+  /** Emits one record; a throwing sink is contained and never reaches the caller. */
   emit(record: DriverDiagnosticRecord): void {
     const frozenRecord = Object.freeze({
       ...record,
@@ -419,20 +244,15 @@ export class DriverDiagnosticsEmitter {
     try {
       this.#logSink.record(frozenRecord);
     } catch {
-      // A failing log sink must not take the normalize boundary down with it.
+      // A failing log sink must not take down the normalize boundary.
     }
     try {
       this.#counterSink.increment(DRIVER_DIAGNOSTIC_COUNTER_NAMES[frozenRecord.kind], {
         provider: frozenRecord.provider,
       });
     } catch {
-      // Same containment for the metrics half.
+      // Same containment for the counter sink.
     }
-  }
-
-  /** Most-recent records, oldest first, bounded by the retention capacity. */
-  recentRecords(): readonly DriverDiagnosticRecord[] {
-    return [...this.#recentRecords];
   }
 
   /** Total records emitted over the emitter's lifetime (sheds not subtracted). */
@@ -446,17 +266,9 @@ export class DriverDiagnosticsEmitter {
   }
 }
 
-// --------------------------------------------------------------------------
-// The bounded reorder buffer.
-// --------------------------------------------------------------------------
-
 /**
- * One buffered normalized event awaiting its pair.
- *
- * `toolCallId` is the canonical pairing key — the provider `tool_use_id`
- * normalized into `payload.toolCallId` — carried verbatim. `pairingRole`
- * states which half of a tool pair the event is; an `unpaired` event never
- * waits and flows straight through in arrival order.
+ * One buffered normalized event awaiting its pair. `toolCallId` is the provider `tool_use_id`
+ * carried verbatim; an `unpaired` event never waits.
  */
 export interface ReorderBufferedEvent<TEvent> {
   readonly toolCallId: string | null;
@@ -465,46 +277,15 @@ export interface ReorderBufferedEvent<TEvent> {
 }
 
 /**
- * The bounded reorder buffer for a normalize boundary that pairs tool events
- *.
- *
- * Constructed by the EMISSION PIPELINE, not by a driver lifecycle band: pairing
- * operates on normalized events, and the lifecycle bands hand raw frames to
- * that pipeline rather than producing events of their own. Stated so the class
- * is not read as already carried by a driver.
- *
- * Per-run arrival order is preserved; the single reordering it performs
- * is holding a tool COMPLETION that arrived before its INITIATION until the
- * initiation lands, so tool events pair by `toolCallId` for downstream
- * consumers. No global causal-order guarantee across aggregates is attempted.
- *
- * Two never-silent conditions, each a `DriverDiagnosticRecord` plus a counter
- * (a silent flush would degrade to invisible reordering, so the paired
- * diagnostic + metric is load-bearing, not advisory):
- *
- *   - OVERFLOW (`maxBufferedEvents` exceeded): every held event flushes in
- *     arrival order and `driver.reorder_buffer.overflow` increments.
- *   - PAIRING TIMEOUT (an unpaired `toolCallId` held past `pairingTimeoutMs`):
- *     the expired event flushes in arrival order and
- *     `driver.reorder_buffer.pairing_timeout` increments.
- *
- * A third bound covers the SEEN-INITIATION LEDGER, which is not a buffer of
- * events but of identities. It grows once per tool call for the life of a
- * provider session, and no wire guarantees a completion ever arrives, so an
- * unbounded ledger is a leak on the longest-lived object in the driver. It is
- * capped at `maxSeenInitiationIds`, drained on pairing (a paired call needs no
- * further ledger entry), and evicted oldest-first with the never-silent
- * `driver.reorder_buffer.initiation_ledger_evicted` diagnostic — eviction
- * changes how a later completion for that call routes, so it is reported.
- *
- * The clock is caller-supplied (`nowMs` on every admitting call) so the buffer
- * is deterministic under test and owns no timer.
+ * The bounded reorder buffer for a boundary that pairs tool events by `toolCallId`: the only
+ * reordering is holding a completion that arrives before its initiation. Overflow and pairing
+ * timeout flush in arrival order, each with a diagnostic; the clock is caller-supplied (`nowMs`).
  */
 export class NormalizedEventReorderBuffer<TEvent> {
-  /** Ledger cap when the caller declares none. */
+  /** Seen-initiation cap when the caller declares none. */
   static readonly DEFAULT_MAX_SEEN_INITIATION_IDS = 1024;
 
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #maxBufferedEvents: number;
   readonly #pairingTimeoutMs: number;
@@ -513,11 +294,12 @@ export class NormalizedEventReorderBuffer<TEvent> {
     readonly buffered: ReorderBufferedEvent<TEvent>;
     readonly heldAtMs: number;
   }[] = [];
-  /** Insertion-ordered, so the eviction sweep takes the oldest entry first. */
+  // Capped and drained on pairing: one identity is added per tool call and no completion is
+  // guaranteed, so unbounded it would leak. Insertion-ordered, so eviction takes the oldest.
   readonly #seenInitiationToolCallIds = new Set<string>();
 
   constructor(options: {
-    readonly provider: DriverProviderName;
+    readonly provider: ProviderName;
     readonly diagnostics: DriverDiagnosticsEmitter;
     readonly maxBufferedEvents: number;
     readonly pairingTimeoutMs: number;
@@ -531,14 +313,7 @@ export class NormalizedEventReorderBuffer<TEvent> {
       options.maxSeenInitiationIds ?? NormalizedEventReorderBuffer.DEFAULT_MAX_SEEN_INITIATION_IDS;
   }
 
-  /**
-   * Admit one event; returns the events released by this admission, in order.
-   *
-   * An initiation or unpaired event releases immediately (plus any completion
-   * that was waiting for that initiation). A completion whose initiation has
-   * not been seen is held. Overflow flushes everything in arrival order with
-   * the overflow diagnostic.
-   */
+  /** Admits one event; returns the events it releases, in order. */
   admit(buffered: ReorderBufferedEvent<TEvent>, nowMs: number): readonly TEvent[] {
     const released: TEvent[] = [...this.#releaseExpired(nowMs)];
 
@@ -550,8 +325,6 @@ export class NormalizedEventReorderBuffer<TEvent> {
         }
         return released;
       }
-      // The pair is closed: the ledger entry has no further reader, so drop it
-      // rather than retaining one identity per tool call for the session.
       this.#seenInitiationToolCallIds.delete(buffered.toolCallId);
       released.push(buffered.event);
       return released;
@@ -572,19 +345,9 @@ export class NormalizedEventReorderBuffer<TEvent> {
     return released;
   }
 
-  /** Release held events whose pairing timeout has expired, with diagnostics. */
+  /** Releases held events whose pairing timeout has expired, emitting a diagnostic for each. */
   flushExpired(nowMs: number): readonly TEvent[] {
     return this.#releaseExpired(nowMs);
-  }
-
-  /** The number of events currently held awaiting a pair. */
-  heldEventCount(): number {
-    return this.#heldCompletions.length;
-  }
-
-  /** Identities currently retained in the seen-initiation ledger. */
-  seenInitiationCount(): number {
-    return this.#seenInitiationToolCallIds.size;
   }
 
   #admitSeenInitiation(toolCallId: string): void {
@@ -597,10 +360,10 @@ export class NormalizedEventReorderBuffer<TEvent> {
       this.#seenInitiationToolCallIds.delete(oldestEntry.value);
       this.#diagnostics.emit({
         provider: this.#provider,
-        kind: "reorder_initiation_ledger_evicted",
+        kind: "reorder_seen_initiation_evicted",
         rawWireType: null,
         dispositionReason:
-          "seen-initiation ledger exceeded its declared cap; oldest identity evicted, so a later completion for it holds instead of pairing",
+          "seen-initiation set exceeded its declared cap; oldest identity evicted, so a later completion for it holds instead of pairing",
         details: {
           toolCallId: oldestEntry.value,
           maxSeenInitiationIds: this.#maxSeenInitiationIds,

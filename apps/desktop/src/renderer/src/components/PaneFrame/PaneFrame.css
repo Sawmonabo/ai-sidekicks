@@ -1,0 +1,132 @@
+/* The pane frame: one sheet for every pane kind. */
+
+/* `flex: 1 1 auto` because a pane is a flex child as often as a grid one: the pane layout is a
+   column flex chain (`pane-layout.css`), where the initial `0 1 auto` would size the pane by its
+   content. `flex` is inert on a grid item. `tests/browser/pane-layout-pane-fill.test.tsx` holds
+   both. `height: 100%` would break under a parent that is not full height. */
+.meridian-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+}
+
+/* Quiet chrome: the head is a boundary, not a title bar. */
+.meridian-pane__head {
+  display: flex;
+  gap: var(--meridian-space-3);
+  align-items: center;
+  min-height: 34px;
+  /* Block padding and type size come from the pane layout's rhythm, with fallbacks for a pane
+     mounted outside one. */
+  padding: var(--meridian-pane-head-padding-block, 0) var(--meridian-space-2)
+    var(--meridian-pane-head-padding-block, 0) var(--meridian-space-3);
+  font-size: var(--meridian-pane-head-font-size, inherit);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-pane__kind {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  color: var(--meridian-text-muted);
+}
+
+/* The breadcrumb takes the row's slack; the crumbs inside it decide what is lost. */
+.meridian-pane__breadcrumb {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.meridian-pane__crumbs {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+/*
+ * A long address loses its outermost crumbs, not the pane's name: address crumbs may shrink and
+ * ellipse, the current crumb may not. Shrink factors, not `direction: rtl`, which renders the
+ * trail backwards.
+ */
+.meridian-pane__crumb,
+.meridian-pane__crumb-absent {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meridian-pane__crumb-absent {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}
+
+/* The pane's own name; it never shrinks, since an ellipsed name cannot tell panes apart. */
+.meridian-pane__heading {
+  flex: 0 0 auto;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+.meridian-pane__controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: var(--meridian-space-1);
+  align-items: center;
+}
+
+/* Quiet until reached: no border or fill at rest; a 26 px target holding a 14 px glyph. */
+.meridian-pane__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-pane__control:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+/*
+ * No padding: the body's feature decides. It scrolls so a body with no scroll container of its
+ * own is reachable rather than clipped by the frame's `overflow: hidden`.
+ */
+.meridian-pane__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}

@@ -1,0 +1,91 @@
+/* The axis field, drawn by `AxisCombobox.tsx` (provider axes) and `AccountAxisField.tsx`
+ * (provider account). Every selector is `.meridian-axis-field*`, so the rules are this
+ * control's alone. Tokens only: no literal color or length. */
+
+.meridian-axis-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-axis-field__overridden {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-axis-field__trigger,
+.meridian-axis-field__text,
+.meridian-axis-field__input {
+  font: inherit;
+  color: var(--meridian-text);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  min-width: 0;
+  text-align: start;
+}
+
+.meridian-axis-field__popup {
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  padding: var(--meridian-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-axis-field__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.meridian-axis-field__option {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+/* An account row carries the person's label and the opaque id, so the row is a column and
+   the label leads it. */
+.meridian-axis-field__option-label {
+  display: block;
+  font-family: var(--meridian-font-sans);
+  color: var(--meridian-text);
+}
+
+.meridian-axis-field__advisories {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-axis-field__clear {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+}
+
+.meridian-axis-field__option[data-highlighted] {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-axis-field__empty,
+.meridian-axis-field__advisory {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

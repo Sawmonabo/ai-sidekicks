@@ -1,0 +1,84 @@
+/* The composer's attachment strip and its chips. One-line chips, not cards, so a staged list
+   does not push the message line off the screen. The drag state is an edge and a ground shift,
+   not a hue: color is kept for identity and attention. */
+
+.meridian-composer-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-composer-attachments--drag {
+  border-color: var(--meridian-edge-strong);
+  border-style: dashed;
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-composer-attachments__hold {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-composer-attachments__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* --- One attachment ------------------------------------------------------ */
+
+.meridian-composer-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-composer-attachment__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-composer-attachment__qualifier,
+.meridian-composer-attachment__note {
+  color: var(--meridian-text-muted);
+}
+
+/* Text, not a button ground: two grounded controls per chip would read as a toolbar. */
+.meridian-composer-attachment__act {
+  padding: 0;
+  font: inherit;
+  color: var(--meridian-text);
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+/* What to do about a refused upload, and what the × does. Full text color so the one line that
+   names an act is not muted; a line of its own because a tooltip is unreachable by touch and
+   keyboard. */
+.meridian-composer-attachment__remedy {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-composer-attachment__progress {
+  inline-size: calc(var(--meridian-space-5) * 2);
+  block-size: var(--meridian-space-1);
+}

@@ -1,165 +1,26 @@
 /**
- * Repo-mount lifecycle service — the daemon-side owner of the `repo_mounts`
- * table.
+ * Repo-mount lifecycle service, the daemon-side owner of the `repo_mounts` table. A mount belongs
+ * to the machine, not a session: attach stamps the daemon's node id, writes no workspace and
+ * appends no event.
  *
- * ## Attach composes the two-closure creation, and the order is the contract
- *
- * `WorkspaceService.createDefaultWorkspace` returns a `DefaultWorkspaceCreation`
- * (`./workspace-service.js`) split in two halves precisely so this module can
- * commit the mount row and its default workspace row in ONE transaction:
- *
- * ```ts
- * const creation = workspaces.createDefaultWorkspace({ ... });
- * await events.emitRepoAttached({
- *   sessionId, repoMountId,
- *   transactionalPrelude: () => { insertMountRow(); creation.insertRow(); },
- * });
- * await creation.emitReady();
- * ```
- *
- * Do not reorder it. makes `defaultWorkspaceId` REQUIRED on the ATTACH response —
- * `RepoMountReadResponse` carries no such field, so the read side is not what
- * forces this. The contract states the reason directly
- * (`packages/contracts/src/repo.ts`, at `RepoAttachResponse.defaultWorkspaceId`):
- * optionality "would make 'attached, but no workspace' representable, and the
- * persistence model never produces it". A mount row committed without its
- * workspace row is exactly that unrepresentable state made durable. Both INSERTs
- * ride the `repo.attached` append's prelude so it cannot arise.
- *
- * The residual windows are the survivable ones, and both are post-commit:
- *
- *   * CRASH after the commit — both rows present and consistent,
- *     `workspace.ready` missing.
- *   * THROW from `creation.emitReady()` — same durable state, but the caller
- *     also gets a rejection while the mount is attached and holding its entry in
- *     `idx_repo_mounts_active_root`. A caller that reads the rejection as "the
- *     attach failed" and retries does NOT double-attach: the retry hits the
- *     index and surfaces `repo.already_attached` carrying
- *     `conflictingRepoMountId`, which names the mount the first call created.
- *     That is how the caller recovers the id the throw denied it.
- *
- * ## Attach refuses in a fixed order, and each position is load-bearing
- *
- * 1. **Session existence, before anything else.** names
- *    `SessionService.replay(sessionId)` returning `null` as the daemon's
- *    session-existence predicate, and attach refuses on `null` BEFORE resolving
- *    or persisting anything. Resolving first would spawn a `git` subprocess
- *    against an operator-supplied path on behalf of a session that does not
- *    exist; persisting first would leave a mount row (and its workspace, and two
- *    events) parented to nothing — `repo_mounts.session_id` carries no foreign
- *    key, so the database would not catch it.
- * 2. **Canonical-root resolution.** the resolver throws typed
- *    `repo.root_resolution_failed` on every non-resolution. Nothing has been
- *    written at this point, so the "persists nothing" half of that invariant
- *    is structural rather than a promise.
- * 3. **Active-root uniqueness.** Enforced by `idx_repo_mounts_active_root`
- *    inside the write transaction, NOT by a read-then-insert check — see below.
- *
- * ## NO containment check fires at attach
- *
- * This is the one place where a path is accepted without being tested against
- * the session's trust envelope, and it is deliberate: defines the envelope AS
- * the set of attached mount roots, and "envelope admission is the explicit
- * `RepoAttach` action; no path enters the envelope implicitly". Validating an
- * attach against the envelope would make the first attach of a session
- * impossible (an empty envelope contains nothing) and every later one a
- * subdirectory-only operation. Containment is the job at BIND time, against the
- * roots this method admitted.
- *
- * ## Duplicate detection is the index, not a pre-read
- *
- * A `SELECT`-then-`INSERT` uniqueness check would be a TOCTOU window: two
- * attaches of the same root interleaving at either `await` would both read
- * "free" and both insert, and the second would fail the index anyway — with the
- * failure surfacing as an anonymous internal error rather than
- * `repo.already_attached`. So the INSERT runs unguarded and its constraint
- * failure is translated INSIDE the prelude, by looking up the row that actually
- * holds the root. That lookup is also the discrimination: a constraint failure
- * with no conflicting active mount is some OTHER constraint (a minted-id
- * collision, say) and is rethrown untranslated.
- *
- * The translation throws, which aborts the transaction — so the refused attach
- * takes the `repo.attached` event row with it. Note WHERE it throws: the mount
- * INSERT is the FIRST statement in the prelude, so on the duplicate-root path
- * `creation.insertRow()` is never reached and no workspace row was written to
- * roll back. The rollback still matters for the event row, and for any prelude
- * failure that happens after both INSERTs. Either way, nothing lands.
- *
- * ## Detach reads its dependents inside the transaction that flips the mount
- *
- * The bind INSERT is conditional on `state = 'attached'`, which closes the
- * bind-vs-detach race from the BIND side: a bind that passes over an
- * about-to-detach mount writes zero rows and aborts. This module closes it from
- * the detach side, and the two halves only compose if the dependent-set read,
- * the archive writes, and the mount flip all happen in ONE transaction. Reading
- * the dependents outside it would let a bind commit a `ready` workspace in the
- * window between the read and the flip: the bind's own guard would pass (the
- * mount is still `attached`), and the cascade would then archive a set computed
- * before that workspace existed, leaving a live execution root on a detached
- * mount — exactly hole the bind-side predicate was added to close.
- *
- * The mount flip is a compare-and-swap on `state = 'attached'`. Zero rows
- * changed means a concurrent detach won; the transaction aborts and the loser
- * returns the winner's outcome rather than appending a second `repo.detached`
- * for one transition.
- *
- * ## Detach's event order, and the crash window it accepts
- *
- * `repo.detached` is appended FIRST — it is the append whose prelude carries
- * every row write — and each `workspace.archived` follows, one per workspace the
- * cascade actually transitioned. The alternative (archived events first) is not
- * merely a different order: those events would have to be appended BEFORE their
- * rows moved, so a crash mid-sequence would leave `workspace.archived` events
- * for workspaces still sitting `ready`. Events describing transitions that never
- * happened are a strictly worse breach than events missing for transitions that
- * did.
- *
- * The accepted window is therefore: all rows durable, `repo.detached` durable,
- * some `workspace.archived` events missing. The same survivable class as the
- * attach window above.
- *
- * Two things reach that window, and they differ in what the caller learns. A
- * CRASH mid-loop is silent. A THROWING append is not: the loop attempts every
- * remaining announcement anyway — one bad append must not strand the events
- * after it, and independent appends carry no information about each other — and
- * the call then rejects with `detach_notification_incomplete`.
- *
- * Neither is repairable by calling `detach` again. The mount is already
- * `detached`, so a second call takes the no-op path and announces nothing; and
- * re-announcing would require distinguishing "this append failed" from "this
- * append landed and I failed to observe it", which nothing here can do. What
- * survives is what matters: the `archived` rows are the truth, and a projector
- * rebuilding from them reaches the correct end state regardless of which
- * announcements landed.
- *
- * Ratified append receipts as UNEXAMINED (this module never reads `.sequence`,
- * `.id`, or anything else off one), so the emitted event's id is not available
- * to name as a cause without breaking that seam. The caller's `correlationId` is
- * threaded through every event of the cascade instead, which is what makes them
- * collatable.
- *
- * ## The Windows `git` seam
- *
- * records that libuv searches a bare executable name in the SPAWNING process's
- * current directory before `PATH` on Windows — so spawning bare `git` can
- * execute a `git.exe` sitting in the daemon's own working directory (the
- * resolver passes no `cwd`; its header carries the libuv `search_path`
- * authority). the resolver takes an injectable `gitExecutablePath` for exactly
- * this, and this service exposes it through
- * {@link RepoMountServiceDeps.gitExecutablePath} so the daemon-config surface
- * can supply an ABSOLUTE path on `win32` without this module having to know
- * where the daemon keeps its configuration. Supplying both a ready-made
- * `resolver` and a `gitExecutablePath` is a construction-time error rather than
- * a silent precedence rule: silently ignoring an absolute git path is the exact
- * hazard the seam exists to prevent.
+ * - Attach has no containment check: attaching a path is what admits it to the trust envelope.
+ * - A duplicate root is caught by `idx_repo_mounts_active_root` on the INSERT; a pre-read races.
+ * - Detach reads, archives and flips the mount in one `IMMEDIATE` transaction, then appends
+ *   `workspace.archived` events, so a crash leaves rows durable and events missing.
+ * - On Windows bare `git` resolves from the working directory first, so config supplies an
+ *   absolute `gitExecutablePath`.
  */
 
-import type { Database, Statement } from "better-sqlite3";
+import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
+  NodeIdSchema,
   RepoAttachResponseSchema,
-  RepoDetachResponseSchema,
-  RepoMountReadResponseSchema,
+  RepoMountIdSchema,
+  RepoMountStateSchema,
+  VcsTypeSchema,
+  WorkspaceIdSchema,
+  type NodeId,
   type RepoAttachRequest,
   type RepoAttachResponse,
   type RepoDetachRequest,
@@ -170,75 +31,36 @@ import {
   type WorkspaceState,
 } from "@ai-sidekicks/contracts";
 
-import { SessionNotFoundError } from "../ipc/session-errors.js";
-
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
   RepoMountNotFoundError,
 } from "./repo-errors.js";
 import { RepoRootResolver } from "./repo-root-resolver.js";
-import {
-  DEFAULT_DIRECTORY_READABILITY_PROBE,
-  type DirectoryReadabilityProbe,
-} from "./trust-envelope.js";
+import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { computeRepoMountHealth, type FilesystemPathProbe } from "./workspace-projector.js";
-import type { FilesystemPathProbeFn, WorkspaceService } from "./workspace-service.js";
+import { createDefaultPathProbe, type FilesystemPathProbeFn } from "./workspace-row-guards.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
-// --------------------------------------------------------------------------
-// Error carriers
-// --------------------------------------------------------------------------
-
 /**
- * The two daemon-internal failure classes this module can raise.
- *
- * One error class with a discriminant rather than two classes, mirroring
- * `WorkspaceServiceInvariantError`: both are the same wire outcome (an
- * anonymous internal error) and differ only in what an operator should go
- * inspect.
+ * The daemon-internal failure classes of this module, one class with a discriminant. All reach
+ * the wire as an anonymous internal error.
  */
 export type RepoMountServiceInvariantKind =
-  /**
-   * A mount row — stored, or about to be — cannot be projected onto its wire
-   * shape: an identifier the contracts schemas refuse, a `state` or `vcs_type`
-   * outside the ratified vocabulary, an `attached_at` that is not ISO-8601. DB
-   * corruption, or an id source that does not mint real UUIDs. The row is the
-   * thing to inspect.
-   */
+  /** A mount row cannot be projected through the contract schemas (corruption or a bad id). */
   | "repo_mount_row_unprojectable"
   /**
-   * A write inside the detach transaction matched no row when the transaction
-   * guaranteed it would — the cascade read a workspace as non-`archived` and
-   * then failed to archive it, with no interleaving writer possible. The write
-   * path is the defect, not the row.
-   */
-  | "detach_cascade_diverged"
-  /**
-   * The detach COMMITTED — every dependent is archived and the mount is
-   * `detached` — but one or more of the post-commit `workspace.archived`
-   * appends failed, so the log under-reports what the rows already did.
-   *
-   * Unlike its two siblings this is not necessarily a bug: an append can fail
-   * on a signing-key outage or a disk error. It shares the carrier because it
-   * shares the defining property — there is no registered wire code for "the
-   * write succeeded but the announcement did not". The rows are the truth; see
-   * {@link RepoMountService.detach} for what a caller can and cannot recover.
+   * The detach committed but a post-commit `workspace.archived` append failed, so the log
+   * under-reports the archived rows. No wire code exists for this.
    */
   | "detach_notification_incomplete";
 
 /**
- * A daemon-internal failure with no registered wire code.
- *
- * Deliberately NOT a `DaemonDomainError`, for the reason
- * `WorkspaceServiceInvariantError` documents at length: minting an unregistered
- * `repo.*` code is banned by the error-contract registry, and borrowing a
- * registered one would misreport the cause. Reaching the IPC boundary as an
- * anonymous `-32603` is the correct outcome for corruption and bugs.
+ * A daemon-internal failure with no wire code. Not a `DaemonDomainError` (unregistered `repo.*`
+ * codes are banned), so it reaches IPC as an anonymous `-32603`.
  */
 export class RepoMountServiceInvariantError extends Error {
-  /** What broke. See {@link RepoMountServiceInvariantKind}. */
   readonly kind: RepoMountServiceInvariantKind;
   /** The mount this failure attaches to, or `null` when no mount is implicated. */
   readonly repoMountId: string | null;
@@ -252,48 +74,25 @@ export class RepoMountServiceInvariantError extends Error {
     },
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    // The class name comes from the constructor that ran, as on both sibling
-    // carriers (`DaemonDomainError`, `WorkspaceServiceInvariantError`).
     this.name = new.target.name;
     this.kind = options.kind;
     this.repoMountId = options.repoMountId ?? null;
   }
 }
 
-/**
- * Module-private abort signal for {@link RepoMountService.detach}'s in-prelude
- * compare-and-swap on the mount state.
- *
- * The append path runs the prelude and then INSERTs the event row
- * UNCONDITIONALLY — only a throw rolls the transaction back. A prelude that
- * merely recorded "my flip matched no row" and returned would still commit a
- * `repo.detached` event for a transition that did not happen, which is duplicate
- * the compare-and-swap exists to prevent. Throwing is the only way to say
- * "abort, but this is not an error".
- *
- * Modelled on `./workspace-service.js`'s `StaleTransitionRaceError`, and
- * unexported for the same reason: it never escapes this module, and it names an
- * internal concurrency event rather than anything a caller did wrong.
- */
+/** Aborts the detach transaction when the mount flip matches no row; `detach` catches it. */
 class MountDetachRaceError extends Error {
   constructor(repoMountId: string) {
     super(
       `RepoMountService.detach: repo mount ${repoMountId} left the attached state between the ` +
-        `read and the write transaction; aborting so no second repo.detached event is appended ` +
-        `for one transition.`,
+        `read and the detach transaction; rolling back the archives this transaction wrote.`,
     );
     this.name = "MountDetachRaceError";
   }
 }
 
-// --------------------------------------------------------------------------
-// Row and dependency shapes
-// --------------------------------------------------------------------------
-
-/** The `repo_mounts` columns this service reads. */
 interface RepoMountRow {
   readonly id: string;
-  readonly session_id: string;
   readonly node_id: string;
   readonly local_path: string;
   readonly canonical_root: string;
@@ -302,171 +101,88 @@ interface RepoMountRow {
   readonly attached_at: string;
 }
 
-/** The `workspaces` columns the detach cascade reads. */
 interface DependentWorkspaceRow {
   readonly id: string;
+  readonly session_id: string;
   readonly state: string;
-}
-
-/**
- * The one question this service asks the session domain: does this session
- * exist?
- *
- * Structural and minimal on purpose — the same stance the emitter takes on
- * its append seam. `SessionService.replay(sessionId)` satisfies it, and names
- * that method as the daemon's session-existence predicate: `null` means "no
- * such session".
- *
- * The return type is `unknown` because only the `null` / non-`null`
- * discrimination is read here. Widening it to the real snapshot type would
- * couple this module to the session projection's shape for no gain, and would
- * invite a future reader to start branching on session CONTENT — which is the
- * session domain's authority, not this one's.
- *
- * A `replay` that THROWS (a corrupt event chain whose first event is not
- * `session.created`) propagates unchanged. That is not "session not found": the
- * session exists and its log is damaged, and reporting a 404 for it would send
- * an operator to create a session that is already there.
- */
-export interface SessionExistenceReader {
-  replay(sessionId: string): unknown;
+  /** 1 while a run started in this workspace has not released its execution root. */
+  readonly has_running_agent: 0 | 1;
 }
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface RepoMountServiceDeps {
-  /**
-   * Open daemon database. Statements are prepared once, in the constructor.
-   *
-   * MUST be the same connection the event log behind {@link events} appends
-   * through. The attach dual-write and the detach cascade run as
-   * `transactionalPrelude`s, and a statement prepared on a different connection
-   * does not join the event transaction — the row/event atomicity rests on
-   * would silently vanish, with no exception anywhere. Nothing here can verify
-   * handle identity (the event log sits behind the emitter seam), so the
-   * composition root owns the constraint; the plan's Phase-3 wiring obligation
-   * records it.
-   */
+  /** Open daemon database; every write commits alone, so it need not be the event log's handle. */
   readonly database: Database;
-  /** The single seam through which repo/workspace lifecycle events are appended. */
+  /** The seam through which the detach cascade's `workspace.archived` events are appended. */
   readonly events: WorkspaceEventEmitter;
-  /** Owner of the `workspaces` table. Attach's default workspace is created through it. */
-  readonly workspaces: WorkspaceService;
-  /** Session-existence predicate. See {@link SessionExistenceReader}. */
-  readonly sessions: SessionExistenceReader;
-  /**
-   * Defaults to a stock `RepoRootResolver`. Mutually exclusive with {@link
-   * gitExecutablePath} — see the header.
-   */
+  /** The daemon's own node id, stamped on every mount it attaches. */
+  readonly nodeId: NodeId;
+  /** Defaults to a stock `RepoRootResolver`; mutually exclusive with {@link gitExecutablePath}. */
   readonly resolver?: RepoRootResolver;
   /**
-   * Absolute path to the `git` executable, forwarded to the default resolver.
-   * REQUIRED on `win32` — and ENFORCED there, not merely documented: omitting
-   * it while also omitting {@link resolver} is a construction-time `TypeError`.
-   * The daemon-config surface supplies it.
+   * Absolute `git` path for the default resolver. Required on `win32` unless {@link resolver} is
+   * given.
    */
   readonly gitExecutablePath?: string;
   /**
-   * Effective platform for the win32 `git`-pinning requirement. Defaults to
-   * `process.platform`.
-   *
-   * Injected for the reason `./repo-root-resolver.js` gives for deriving
-   * win32-ness from its injected `path` module: a guard keyed off the REAL
-   * platform is exercised only on a Windows runner, so "the branch that matters
-   * most on an V1 tier" would ship untested. The pty package takes the same
-   * seam (`platform: partial.platform ??
-   *
-   * Not a bypass: a caller who wants no pinning can already pass its own
-   * {@link resolver}, which this guard deliberately accepts. The guard exists to
-   * catch an OMISSION by the composition root, not to fence off a hostile
-   * caller — so making its input injectable costs nothing it was protecting.
+   * Platform for the win32 `git`-pinning guard; defaults to `process.platform`. The guard catches
+   * an omission by the composition root, not a hostile caller.
    */
   readonly platform?: NodeJS.Platform;
   /**
-   * Reachability probe for {@link RepoMountService.read}'s health projection.
-   * Defaults to a composition of `DEFAULT_DIRECTORY_READABILITY_PROBE` with the
-   * wall clock, reading the clock BEFORE the probe so `checkedAt` is never newer
-   * than the observation it timestamps.
+   * Reachability probe for {@link RepoMountService.read}. The default reads the clock before the
+   * probe, so `checkedAt` is never newer than the observation it timestamps.
    */
   readonly probePath?: FilesystemPathProbeFn;
-  /** ISO-8601 wall clock for `attached_at` / `updated_at`. Defaults to `new Date().toISOString()`. */
+  /** ISO-8601 wall clock for `attached_at` and `updated_at`. */
   readonly now?: () => string;
-  /**
-   * Mount-id source. Defaults to the daemon-wide `mintUuidV7`
-   * (`ids/uuid-v7.ts`). Injected ids still pass through `RepoMountIdSchema` on
-   * the attach response, so a test source must mint real UUIDs rather than
-   * counters.
-   */
+  /** Mount-id source, default `mintUuidV7`. Ids are still parsed by `RepoMountIdSchema`. */
   readonly newRepoMountId?: () => string;
 }
 
-/** Inputs for {@link RepoMountService.attach}. */
-export interface AttachRepoMountInput extends RepoAttachRequest {
-  /** Envelope actor; defaults to the system actor. */
-  readonly actor?: string | null;
-  /** Envelope linkage, threaded onto `repo.attached` AND the default workspace's `workspace.ready`. */
-  readonly correlationId?: string | null;
-}
+/** The path arm of `repo.attach`; folder tokens are resolved to paths before this service. */
+export type RepoAttachPathRequest = Extract<RepoAttachRequest, { localPath: string }>;
+
+/**
+ * One mount's row facts with a freshly probed health verdict. The `repo.mountRead` reply adds the
+ * folder's origin, project name and sessions using it.
+ */
+export type RepoMountRecord = Omit<RepoMountReadResponse, "origin" | "displayName" | "usedBy">;
+
+/**
+ * What a detach did to the mount and its workspaces. The `repo.detach` reply adds the forgotten
+ * project and archived sessions.
+ */
+export type RepoMountDetachOutcome = Omit<
+  RepoDetachResponse,
+  "archivedSessionIds" | "forgottenProjectId"
+>;
 
 /** Inputs for {@link RepoMountService.detach}. */
 export interface DetachRepoMountInput extends RepoDetachRequest {
   /** Envelope actor; defaults to the system actor. */
   readonly actor?: string | null;
-  /** Envelope linkage, threaded onto `repo.detached` AND every cascaded `workspace.archived`. */
+  /** Envelope linkage, threaded onto every cascaded `workspace.archived`. */
   readonly correlationId?: string | null;
 }
 
-// --------------------------------------------------------------------------
-// Constants
-// --------------------------------------------------------------------------
-
-// All four are `satisfies`-pinned to the contracts unions rather than left as
-// inferred literals, matching `./workspace-service.js`'s constants. These
-// strings are interpolated straight into SQL literals below, where a typo would
-// otherwise produce a statement that silently matches nothing — a detach that
-// archives zero rows rather than a compile error. The `satisfies` keeps the
-// literal type (so the SQL text stays exact) while making the contracts union
-// the authority on the vocabulary.
-
-// The state every attach writes, and the sole legal predecessor of
-// `detached`.
+// The state literals are `satisfies`-pinned to the contracts unions: they are interpolated into
+// SQL below, where a typo would silently match nothing.
 const ATTACHED_MOUNT_STATE = "attached" satisfies RepoMountState;
 
-// The terminal state a successful detach writes. There is no `detached ->
-// attached` transition; re-attaching the same canonical root creates a NEW row,
-// which the partial index permits precisely because it is scoped to `attached`.
 const DETACHED_MOUNT_STATE = "detached" satisfies RepoMountState;
 
-// The workspace state the detach cascade writes, and the one state that is
-// already terminal — an `archived` dependent is skipped rather than re-archived,
-// so one real transition produces one `workspace.archived`.
 const ARCHIVED_WORKSPACE_STATE = "archived" satisfies WorkspaceState;
 
-// The workspace state that REFUSES a detach outright: a run holds this
-// workspace, and V1 has no force-detach.
 const BUSY_WORKSPACE_STATE = "busy" satisfies WorkspaceState;
 
-// --------------------------------------------------------------------------
-// RepoMountService
-// --------------------------------------------------------------------------
-
 /**
- * Owns every read and write of the `repo_mounts` table.
- *
- * The workspace half of every operation is delegated to {@link WorkspaceService}
- * where a primitive exists for it. The detach cascade is the one exception: its
- * dependent `SELECT` and archive `UPDATE` against `workspaces` live here,
- * because both MUST execute inside the same transaction as the mount flip, and
- * a `WorkspaceService.archive()` that opened its own append could not
- * participate in one. See {@link detach}.
- *
- * The sibling's class docstring carries the matching scope: it owns every
- * workspace LIFECYCLE transition and every statement against the table except
- * this cascade's, and it names this module as the exception.
+ * Owns every read and write of the `repo_mounts` table. The detach cascade also archives the
+ * mount's `workspaces` rows here, because they must share a transaction with the mount flip.
  */
 export class RepoMountService {
   readonly #events: WorkspaceEventEmitter;
-  readonly #workspaces: WorkspaceService;
-  readonly #sessions: SessionExistenceReader;
+  readonly #nodeId: NodeId;
   readonly #resolver: RepoRootResolver;
   readonly #probePath: FilesystemPathProbeFn;
   readonly #now: () => string;
@@ -478,16 +194,18 @@ export class RepoMountService {
   readonly #selectDependentWorkspacesStmt: Statement;
   readonly #archiveWorkspaceStmt: Statement;
   readonly #detachMountStmt: Statement;
+  readonly #detachCascade: Transaction<
+    (repoMountId: string, now: string) => readonly DependentWorkspaceRow[]
+  >;
 
   constructor(deps: RepoMountServiceDeps) {
     if (deps.resolver !== undefined && deps.gitExecutablePath !== undefined) {
-      // Loud rather than a precedence rule. See the header's Windows section:
-      // the failure mode of quietly preferring one is a daemon that believes it
-      // pinned an absolute `git` and did not.
+      // Loud, not a precedence rule: preferring one would leave a daemon that believes it pinned
+      // an absolute `git` and did not.
       throw new TypeError(
         "RepoMountService: supply either a ready-made resolver or a gitExecutablePath, not both. " +
-          "A gitExecutablePath is only honoured by the resolver this service constructs, so passing " +
-          "both would silently drop the pinned executable path.",
+          "A gitExecutablePath is only honored by the resolver this service constructs, so " +
+          "passing both would silently drop the pinned executable path.",
       );
     }
 
@@ -496,28 +214,22 @@ export class RepoMountService {
       deps.resolver === undefined &&
       deps.gitExecutablePath === undefined
     ) {
-      // FAIL CLOSED. Constructing the stock resolver here would spawn bare
-      // `git`, and libuv searches a bare name in the spawning process's
-      // current directory before `PATH` on Windows — so a `git.exe` planted
-      // in the daemon's own working directory would run. That is the whole
-      // hazard the seam exists for, and defaulting past it silently is worse
-      // than not having the seam: the daemon would believe it was pinned.
+      // Fail closed: the stock resolver spawns bare `git`, and a `git.exe` planted in the
+      // working directory would run.
       throw new TypeError(
         "RepoMountService: on win32 you must supply either an absolute gitExecutablePath or a " +
           "ready-made resolver. Spawning bare `git` there lets a git.exe in the daemon's own " +
-          "working directory execute instead of the system one (2026-07-25).",
+          "working directory execute instead of the system one.",
       );
     }
 
     this.#events = deps.events;
-    this.#workspaces = deps.workspaces;
-    this.#sessions = deps.sessions;
+    this.#nodeId = deps.nodeId;
     this.#resolver =
       deps.resolver ??
       new RepoRootResolver(
-        // Conditional spread rather than `{ gitExecutablePath: deps.… }`: under
-        // `exactOptionalPropertyTypes` an explicit `undefined` is not the same
-        // as an absent key, and the resolver's own default would be skipped.
+        // Conditional spread: under `exactOptionalPropertyTypes` an explicit `undefined` is not an
+        // absent key, and the resolver's own default would be skipped.
         deps.gitExecutablePath === undefined ? {} : { gitExecutablePath: deps.gitExecutablePath },
       );
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
@@ -526,66 +238,53 @@ export class RepoMountService {
 
     const database = deps.database;
 
-    // `state` is a literal rather than a parameter: this is the only INSERT into
-    // `repo_mounts`, and a mount is born `attached` or not at all. `metadata`
-    // takes the DDL default, as the workspace INSERT does.
     this.#insertMountStmt = database.prepare(
       `INSERT INTO repo_mounts (
-         id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
+         id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at,
+         metadata
        ) VALUES (
-         @id, @session_id, @node_id, @local_path, @canonical_root, @vcs_type, '${ATTACHED_MOUNT_STATE}', @now, @now, '{}'
+         @id, @node_id, @local_path, @canonical_root, @vcs_type, '${ATTACHED_MOUNT_STATE}', @now,
+         @now, '{}'
        )`,
     );
 
-    // UNSCOPED by state, unlike the mount lookup. A read must answer for a
-    // `detached` mount: `RepoMountReadResponse.state` composes the full 3-value
-    // union, and keeps the durable record precisely so a detached mount stays
-    // inspectable.
+    // Unscoped by state: a read must answer for a `detached` mount.
     this.#selectMountStmt = database.prepare(
-      `SELECT id, session_id, node_id, local_path, canonical_root, vcs_type, state, attached_at
+      `SELECT id, node_id, local_path, canonical_root, vcs_type, state, attached_at
          FROM repo_mounts
         WHERE id = @repo_mount_id`,
     );
 
-    // The conflict lookup behind `repo.already_attached`. Its predicate is the
-    // `idx_repo_mounts_active_root` key, column for column — if the two ever
-    // diverge, the translation silently stops finding the row the index
-    // refused, and the refusal degrades to an anonymous internal error.
+    // Behind `repo.already_attached`. The predicate mirrors `idx_repo_mounts_active_root`; if they
+    // diverge, the refusal degrades to an internal error.
     this.#selectActiveMountByRootStmt = database.prepare(
       `SELECT id
          FROM repo_mounts
-        WHERE session_id = @session_id
-          AND node_id = @node_id
+        WHERE node_id = @node_id
           AND canonical_root = @canonical_root
           AND state = '${ATTACHED_MOUNT_STATE}'`,
     );
 
-    // Read INSIDE the detach transaction — see the header's race section. Every
-    // dependent regardless of state: the busy check needs `busy` rows, the
-    // cascade needs the rest, and already-`archived` rows have to be VISIBLE to
-    // be skipped rather than merely absent. `created_at, id` for the same
-    // reason orders its lists that way: attach writes a mount and its workspace
-    // at one instant, so `created_at` alone ties.
+    // Every state: the running check needs `busy` rows, and `archived` rows must be seen to be
+    // skipped. A run releases its workspace hold and its execution root separately, so an
+    // unreleased run context marks a running agent on a workspace that is no longer `busy`. `id`
+    // breaks ties between workspaces created in the same tick.
     this.#selectDependentWorkspacesStmt = database.prepare(
-      `SELECT id, state
+      `SELECT id, session_id, state,
+              EXISTS (
+                SELECT 1
+                  FROM run_execution_contexts AS run_context
+                 WHERE run_context.workspace_id = workspaces.id
+                   AND run_context.released_at IS NULL
+              ) AS has_running_agent
          FROM workspaces
         WHERE repo_mount_id = @repo_mount_id
         ORDER BY created_at ASC, id ASC`,
     );
 
-    // The one write this service makes to a table it does not own, and it lives
-    // here because the mount flip and the archive must share a transaction (see
-    // the class docstring). `state <> 'archived'` makes the skip a PREDICATE
-    // rather than a branch: a re-archive matches zero rows even if the
-    // caller-side filter is ever wrong, so the "no second `workspace.archived`"
-    // guarantee does not rest on the loop above it.
-    //
-    // `metadata` is untouched. The only key that could be stale on an archived
-    // row is `holdingRunId`, and it cannot be present: `markBusy` is its sole
-    // writer, `busy` refuses the detach outright, and `busy` is not a legal
-    // predecessor of any other state that keeps the hold. Reaching into another
-    // module's metadata keys to clear a value that cannot be there would couple
-    // the two for nothing.
+    // Writes a table this service does not own so the archive shares the mount flip's
+    // transaction. `state <> 'archived'` makes a re-archive match zero rows. `metadata` is
+    // untouched: a `busy` workspace refuses the detach, so no stale `holdingRunId` exists.
     this.#archiveWorkspaceStmt = database.prepare(
       `UPDATE workspaces
           SET state = '${ARCHIVED_WORKSPACE_STATE}',
@@ -593,240 +292,101 @@ export class RepoMountService {
         WHERE id = @workspace_id AND state <> '${ARCHIVED_WORKSPACE_STATE}'`,
     );
 
-    // Compare-and-swap. `attached` in the predicate is both the legal-predecessor
-    // rule and the mutual exclusion: two concurrent detaches produce exactly one
-    // `changes === 1`.
+    // Compare-and-swap: `attached` in the predicate is the legal-predecessor rule and the mutual
+    // exclusion between concurrent detaches.
     this.#detachMountStmt = database.prepare(
       `UPDATE repo_mounts
           SET state = '${DETACHED_MOUNT_STATE}',
               updated_at = @now
         WHERE id = @repo_mount_id AND state = '${ATTACHED_MOUNT_STATE}'`,
     );
+
+    this.#detachCascade = database.transaction(
+      (repoMountId: string, now: string): readonly DependentWorkspaceRow[] =>
+        this.#runDetachCascade(repoMountId, now),
+    );
   }
 
-  // ------------------------------------------------------------------------
-  // Attach
-  // ------------------------------------------------------------------------
-
   /**
-   * Attach a local path to a session: resolve its canonical root, persist the
-   * mount, and create its default read-only workspace — `repo.attach`.
-   *
-   * The refusal order and the transaction shape are the header's subject; the
-   * short version is that nothing is written until the session is known to exist
-   * and the root is known, and then everything is written at once.
-   *
-   * A non-git directory is NOT a failure: it lands `vcs_type: 'none'` and gets
-   * the same default workspace a git mount does (the single funnel, the honest
-   * classification).
-   *
-   * @throws {SessionNotFoundError} when `sessionId` names no session.
-   * @throws {RepoRootResolutionError} when the path resolves to no canonical
-   *   Nothing is persisted and no event is appended.
-   * @throws {RepoAlreadyAttachedError} when the resolved root is already
-   *   actively attached to this session on this node.
+   * Attach a local path: resolve its canonical root and persist the mount. Throws
+   * `RepoRootResolutionError` (nothing persisted) or `RepoAlreadyAttachedError`.
    */
-  async attach(input: AttachRepoMountInput): Promise<RepoAttachResponse> {
-    const actor = input.actor ?? null;
-    const correlationId = input.correlationId ?? null;
-
-    // Step 1 — session existence, before the subprocess and before the writes.
-    if (this.#sessions.replay(input.sessionId) === null) {
-      throw new SessionNotFoundError(`session ${input.sessionId} does not exist`, {
-        sessionId: input.sessionId,
-      });
-    }
-
-    // Step 2 — canonicalize. Throws typed `repo.root_resolution_failed` on every
-    // non-resolution; there is no fallback to the entered path (2).
+  async attach(input: RepoAttachPathRequest): Promise<RepoAttachResponse> {
+    // No fallback to the entered path: a non-resolution throws.
     const resolution = await this.#resolver.resolveCanonicalRoot(input.localPath);
-
-    // Step 3 — NO containment check. Attach IS envelope admission; see header.
 
     const repoMountId = this.#newRepoMountId();
     const attachedAt = this.#now();
 
-    const creation = this.#workspaces.createDefaultWorkspace({
-      repoMountId,
-      sessionId: input.sessionId,
-      canonicalRoot: resolution.canonicalRoot,
-      actor,
-      correlationId,
-    });
-
-    // Step 4 — project the response BEFORE the writes, so an identity the wire
-    // shape cannot carry (a non-UUID id from an injected source, a
-    // `canonicalRoot` past the wire cap) fails while nothing is durable. Doing
-    // it after the commit would leave a mount that exists and cannot be
-    // reported — and, because `attach` is how a caller LEARNS the mount id, one
-    // it could not even name to detach.
+    // Project before the write, so an identity the wire cannot carry fails while nothing is
+    // durable.
     const response = this.#projectAttachResponse({
       repoMountId,
       canonicalRoot: resolution.canonicalRoot,
       vcsType: resolution.vcsType,
-      defaultWorkspaceId: creation.workspaceId,
     });
 
-    // Step 5 — mount row + workspace row + `repo.attached`, atomically.
-    await this.#events.emitRepoAttached({
-      sessionId: input.sessionId,
+    this.#insertMountRow({
       repoMountId,
-      actor,
-      correlationId,
-      transactionalPrelude: (): void => {
-        this.#insertMountRow({
-          repoMountId,
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          // PROVENANCE: the path the operator typed, verbatim. Never the
-          // resolved root, and never the other way round — the two differ
-          // whenever someone attaches from a subdirectory or through a
-          // symlink, which is the case that makes both values worth keeping.
-          localPath: input.localPath,
-          canonicalRoot: resolution.canonicalRoot,
-          vcsType: resolution.vcsType,
-          attachedAt,
-        });
-        creation.insertRow();
-      },
+      // Provenance: the path as typed, which differs from the root under a subdirectory or symlink.
+      localPath: input.localPath,
+      canonicalRoot: resolution.canonicalRoot,
+      vcsType: resolution.vcsType,
+      attachedAt,
     });
-
-    // Step 6 — announce the workspace. Deliberately after the commit: the
-    // split puts the ROW in the transaction and the EVENT after it.
-    await creation.emitReady();
 
     return response;
   }
 
-  // ------------------------------------------------------------------------
-  // Read
-  // ------------------------------------------------------------------------
-
   /**
-   * Read one mount with a freshly probed health verdict — `repo.mountRead`.
-   *
-   * Answers for mounts in EVERY state, not just `attached`. An UNKNOWN id is the
-   * only miss, and it is `repo.not_found`.
-   *
-   * The projector's own docstring makes that call — folding lifecycle into
-   * health "would invent a semantics neither the spec nor the ratified shape
-   * carries".
-   *
-   * The probe targets `canonical_root` VERBATIM, straight off the row. Not a
-   * re-resolved, re-normalized, or otherwise "improved" spelling: the
-   * `assertProbeTargets` compares the probed path to the row's path BYTE for
-   * byte, and a normalization here would be indistinguishable from a probe of
-   * some other path that merely normalizes alike.
-   *
-   * Takes the BRANDED `RepoMountId` because that is what
-   * `RepoMountReadRequest.repoMountId` declares — `attach`/`detach` get theirs
-   * from the request interfaces they extend, and this method is the one public
-   * entry point that would otherwise widen to bare `string`. The private
-   * `#requireMountRow` stays `string`: it is shared with `detach` and is a row
-   * lookup, not a wire boundary.
-   *
-   * @throws {RepoMountNotFoundError} when no row carries this id.
+   * Read one mount's facts, in any state, with a freshly probed health verdict. Throws
+   * `RepoMountNotFoundError`. The probe gets `canonical_root` verbatim: the projector compares
+   * paths byte for byte.
    */
-  async read(repoMountId: RepoMountId): Promise<RepoMountReadResponse> {
+  async read(repoMountId: RepoMountId): Promise<RepoMountRecord> {
     const row = this.#requireMountRow(repoMountId);
     const probe = await this.#probePath(row.canonical_root);
-    return this.#projectMountRead(row, probe);
+    return this.#projectMountRecord(row, probe);
   }
 
-  // ------------------------------------------------------------------------
-  // Detach
-  // ------------------------------------------------------------------------
-
   /**
-   * Detach a mount and archive its dependent workspaces — `repo.detach`.
-   *
-   * in order: refuse while any dependent workspace is `busy` (there is no
-   * force-detach in V1); otherwise archive every dependent and transition the
-   * mount to the terminal `detached`, emitting `repo.detached` plus one
-   * `workspace.archived` per workspace the cascade actually moved.
-   *
-   * Detaching a mount that is ALREADY `detached` (or `archived`) is a no-op
-   * success: the current state, an empty `archivedWorkspaceIds`, and no event.
-   * Three things force that shape. The response contract anticipates it —
-   * `state` carries the full union and an empty `archivedWorkspaceIds` is
-   * explicitly valid.
-   *
-   * If a post-commit `workspace.archived` append FAILS, the remaining ones are
-   * still attempted and the call then rejects with
-   * `detach_notification_incomplete`. What the caller can conclude: the rows are
-   * committed — every dependent is `archived` and the mount is `detached` — and
-   * the log under-reports it. What the caller CANNOT do is recover the missing
-   * events by calling again: a second detach finds the mount already `detached`
-   * and takes the no-op path above, returning an empty `archivedWorkspaceIds`
-   * without re-announcing anything. Re-announcing would be the worse bug, since
-   * nothing here can distinguish "this event failed to append" from "this event
-   * appended and I failed to observe it". The rows remain the source of truth,
-   * and a projector rebuilding from them sees the correct end state.
-   *
-   * @throws {RepoMountNotFoundError} when no row carries this id.
-   * @throws {RepoDetachConflictError} when a dependent workspace is `busy`.
-   *   Nothing is archived, the mount does not move, and no event is appended.
-   * @throws {RepoMountServiceInvariantError} (`detach_notification_incomplete`)
-   *   when the transaction committed but a dependent announcement did not.
+   * Detach a mount and archive its workspaces (a no-op if not `attached`); refuses with
+   * `RepoDetachConflictError`, naming the running session, while an agent runs in any of them
+   * (`busy`, or a run whose execution root is unreleased). Rejects with
+   * `detach_notification_incomplete` if committed but an event append failed; the rows are the
+   * truth and a rerun is a no-op.
    */
-  async detach(input: DetachRepoMountInput): Promise<RepoDetachResponse> {
+  async detach(input: DetachRepoMountInput): Promise<RepoMountDetachOutcome> {
     const actor = input.actor ?? null;
     const correlationId = input.correlationId ?? null;
     const repoMountId = input.repoMountId;
 
     const row = this.#requireMountRow(repoMountId);
     if (row.state !== ATTACHED_MOUNT_STATE) {
-      return this.#projectDetachResponse(repoMountId, row.state, []);
+      return this.#projectDetachOutcome(repoMountId, row.state, []);
     }
 
     const now = this.#now();
-    // Filled by the prelude, read after the commit. The prelude cannot RETURN a
-    // value — the append seam takes a `() => void` — and it must not, because a
-    // returned value would be read even on the abort paths. Assigning into this
-    // binding is safe for the opposite reason: every abort path throws, so the
-    // only way execution reaches the read below is a committed transaction.
-    let archivedWorkspaceIds: readonly string[] = [];
-
+    let archivedWorkspaces: readonly DependentWorkspaceRow[];
     try {
-      await this.#events.emitRepoDetached({
-        sessionId: row.session_id,
-        repoMountId,
-        actor,
-        correlationId,
-        transactionalPrelude: (): void => {
-          archivedWorkspaceIds = this.#runDetachCascade(repoMountId, now);
-        },
-      });
+      archivedWorkspaces = this.#detachCascade.immediate(repoMountId, now);
     } catch (error) {
       if (!(error instanceof MountDetachRaceError)) {
         throw error;
       }
-      // A concurrent detach won. Its transaction did the archiving and appended
-      // the one `repo.detached` this transition gets; ours rolled back whole.
-      // Re-read rather than assuming `detached`: the winner's outcome is the
-      // honest answer, and `archivedWorkspaceIds` stays empty because THIS call
-      // archived nothing.
+      // A concurrent detach won and ours rolled back whole: report the winner's state.
       const current = this.#requireMountRow(repoMountId);
-      return this.#projectDetachResponse(repoMountId, current.state, []);
+      return this.#projectDetachOutcome(repoMountId, current.state, []);
     }
 
-    // Post-commit. See the header for why these follow the mount event and what
-    // crash window that accepts.
-    //
-    // EVERY append is attempted even after one fails. Returning early on the
-    // first failure would strand every LATER workspace's event too, turning one
-    // failed append into an arbitrarily large hole — and the events are
-    // independent, so a failure to announce workspace A says nothing about
-    // whether B can be announced. Failures are collected and rethrown below;
-    // they are never swallowed.
+    // After the commit, so a crash cannot log archivals for rows that never moved. Every append
+    // is attempted even after a failure; failures are rethrown below.
     const failures: unknown[] = [];
-    for (const workspaceId of archivedWorkspaceIds) {
+    for (const workspace of archivedWorkspaces) {
       try {
         await this.#events.emitWorkspaceArchived({
-          sessionId: row.session_id,
-          workspaceId,
-          // The archival is a detach cascade's dependent transition, which is
-          // exactly when asks for the mount id.
+          sessionId: workspace.session_id,
+          workspaceId: workspace.id,
           repoMountId,
           actor,
           correlationId,
@@ -836,20 +396,14 @@ export class RepoMountService {
       }
     }
 
+    const archivedWorkspaceIds = archivedWorkspaces.map((workspace) => workspace.id);
     if (failures.length > 0) {
-      // Cause-chained to the FIRST failure rather than collected into an
-      // `AggregateError`: `cause` is the daemon's established chaining idiom
-      // (`pty-host-selector.ts`, `session-service.ts`, and this module's other
-      // carriers) and the daemon has no `AggregateError` precedent to match.
-      //
-      // Wrapped rather than rethrown bare, which loses the underlying error's
-      // type. That is the deliberate trade: a bare append failure reads as
-      // "detach failed, retry it", and the caller would retry a detach that
-      // ALREADY COMMITTED. The wrapper's message is what says otherwise.
+      // Wrapped, not rethrown bare: a bare append failure reads as "detach failed, retry it",
+      // but the detach committed.
       throw new RepoMountServiceInvariantError(
         `repo mount "${repoMountId}" detached and archived ${archivedWorkspaceIds.length} ` +
-          `workspace(s), but ${failures.length} workspace.archived append(s) failed; the rows are ` +
-          `committed and the log under-reports them`,
+          `workspace(s), but ${failures.length} workspace.archived append(s) failed; the rows ` +
+          `are committed and the log under-reports them`,
         {
           kind: "detach_notification_incomplete",
           repoMountId,
@@ -858,55 +412,33 @@ export class RepoMountService {
       );
     }
 
-    return this.#projectDetachResponse(repoMountId, DETACHED_MOUNT_STATE, archivedWorkspaceIds);
+    return this.#projectDetachOutcome(repoMountId, DETACHED_MOUNT_STATE, archivedWorkspaceIds);
   }
 
-  // ------------------------------------------------------------------------
-  // Internals
-  // ------------------------------------------------------------------------
-
   /**
-   * The whole detach write set, as one synchronous prelude body.
-   *
-   * Read → refuse → archive → flip, all inside the caller's transaction. The
-   * read must be in here rather than in `detach`; the header explains what a
-   * read outside this transaction lets a concurrent bind commit.
-   *
-   * Returns the ids it actually transitioned, so the caller emits one event per
-   * real archival and none for a dependent that was already `archived`.
+   * The detach write set, run as the transaction body so the dependent read holds the write lock.
+   * Returns the dependents it transitioned, one event each.
    */
-  #runDetachCascade(repoMountId: string, now: string): readonly string[] {
+  #runDetachCascade(repoMountId: string, now: string): readonly DependentWorkspaceRow[] {
     const dependents = this.#selectDependentWorkspacesStmt.all({
       repo_mount_id: repoMountId,
     }) as DependentWorkspaceRow[];
 
-    const busyWorkspaceIds = dependents
-      .filter((dependent) => dependent.state === BUSY_WORKSPACE_STATE)
-      .map((dependent) => dependent.id);
-    if (busyWorkspaceIds.length > 0) {
-      // Throwing from the prelude aborts before the event INSERT, so the refusal
-      // persists nothing at all — not the archives (none have run yet), not the
-      // mount flip, not the `repo.detached` row.
-      throw new RepoDetachConflictError(busyWorkspaceIds);
+    // The refusal names one running session; the oldest running workspace's, by the query's order.
+    const runningDependent = dependents.find(
+      (dependent) => dependent.state === BUSY_WORKSPACE_STATE || dependent.has_running_agent === 1,
+    );
+    if (runningDependent !== undefined) {
+      throw new RepoDetachConflictError(runningDependent.session_id);
     }
 
-    const archivedWorkspaceIds: string[] = [];
+    const archivedWorkspaces: DependentWorkspaceRow[] = [];
     for (const dependent of dependents) {
       if (dependent.state === ARCHIVED_WORKSPACE_STATE) {
         continue;
       }
-      const result = this.#archiveWorkspaceStmt.run({ workspace_id: dependent.id, now });
-      if (result.changes !== 1) {
-        // Unreachable by concurrency: better-sqlite3 is synchronous, so nothing
-        // can interleave between the read above and this write. Asserting it
-        // anyway makes the atomicity claim testable instead of assumed, and
-        // turns a silent under-archival into a loud abort.
-        throw new RepoMountServiceInvariantError(
-          `detach cascade read workspace "${dependent.id}" as ${dependent.state} but archived ${result.changes} rows`,
-          { kind: "detach_cascade_diverged", repoMountId },
-        );
-      }
-      archivedWorkspaceIds.push(dependent.id);
+      this.#archiveWorkspaceStmt.run({ workspace_id: dependent.id, now });
+      archivedWorkspaces.push(dependent);
     }
 
     const flip = this.#detachMountStmt.run({ repo_mount_id: repoMountId, now });
@@ -914,22 +446,15 @@ export class RepoMountService {
       throw new MountDetachRaceError(repoMountId);
     }
 
-    return archivedWorkspaceIds;
+    return archivedWorkspaces;
   }
 
   /**
    * Insert the mount row, translating the active-root uniqueness failure into
-   * `repo.already_attached`.
-   *
-   * Runs inside the attach transaction. A constraint failure leaves the
-   * TRANSACTION usable (SQLite's default `ON CONFLICT ABORT` rolls back the
-   * statement, not the transaction), which is what lets the lookup below run —
-   * and the throw that follows is what rolls back the rest.
+   * `repo.already_attached`. The failed INSERT is undone alone, so the lookup sees the old rows.
    */
   #insertMountRow(fields: {
     readonly repoMountId: string;
-    readonly sessionId: string;
-    readonly nodeId: string;
     readonly localPath: string;
     readonly canonicalRoot: string;
     readonly vcsType: string;
@@ -938,28 +463,23 @@ export class RepoMountService {
     try {
       this.#insertMountStmt.run({
         id: fields.repoMountId,
-        session_id: fields.sessionId,
-        node_id: fields.nodeId,
+        node_id: this.#nodeId,
         local_path: fields.localPath,
         canonical_root: fields.canonicalRoot,
         vcs_type: fields.vcsType,
         now: fields.attachedAt,
       });
     } catch (error) {
-      if (!isConstraintViolation(error)) {
+      if (!hasSqliteErrorCode(error, "SQLITE_CONSTRAINT")) {
         throw error;
       }
       const conflict = this.#selectActiveMountByRootStmt.get({
-        session_id: fields.sessionId,
-        node_id: fields.nodeId,
+        node_id: this.#nodeId,
         canonical_root: fields.canonicalRoot,
       }) as { readonly id: string } | undefined;
       if (conflict === undefined) {
-        // Some OTHER constraint — a minted-id collision, a CHECK on an
-        // out-of-vocabulary `vcs_type`. Rethrowing untranslated is the honest
-        // answer: `repo.already_attached` names a specific conflict, and
-        // claiming it for a different failure would send the caller to detach a
-        // mount that does not exist.
+        // Another constraint (id collision, `vcs_type` CHECK): rethrow, or the caller would be
+        // sent to detach a mount that does not exist.
         throw error;
       }
       throw new RepoAlreadyAttachedError(conflict.id);
@@ -981,7 +501,6 @@ export class RepoMountService {
     readonly repoMountId: string;
     readonly canonicalRoot: string;
     readonly vcsType: string;
-    readonly defaultWorkspaceId: string;
   }): RepoAttachResponse {
     try {
       return RepoAttachResponseSchema.parse({
@@ -989,7 +508,6 @@ export class RepoMountService {
         state: ATTACHED_MOUNT_STATE,
         vcsType: fields.vcsType,
         canonicalRoot: fields.canonicalRoot,
-        defaultWorkspaceId: fields.defaultWorkspaceId,
       });
     } catch (error) {
       throw new RepoMountServiceInvariantError(
@@ -999,94 +517,46 @@ export class RepoMountService {
     }
   }
 
-  #projectMountRead(row: RepoMountRow, probe: FilesystemPathProbe): RepoMountReadResponse {
+  /** Parses each fact through its contract schema so an unrepresentable row fails here. */
+  #projectMountRecord(row: RepoMountRow, probe: FilesystemPathProbe): RepoMountRecord {
     try {
-      return RepoMountReadResponseSchema.parse({
-        // BARE `id` — the read projection's key name, per the contract's note.
-        id: row.id,
-        sessionId: row.session_id,
-        nodeId: row.node_id,
+      return {
+        id: RepoMountIdSchema.parse(row.id),
+        nodeId: NodeIdSchema.parse(row.node_id),
         localPath: row.local_path,
         canonicalRoot: row.canonical_root,
-        vcsType: row.vcs_type,
-        state: row.state,
-        // Throws on a mispaired probe, and that throw is attributed to this row
-        // rather than swallowed: a health verdict measured against a different
-        // path is a confident wrong answer no downstream surface can detect.
+        vcsType: VcsTypeSchema.parse(row.vcs_type),
+        state: RepoMountStateSchema.parse(row.state),
+        // A mispaired probe throws: a health verdict for another path is a confident wrong answer.
         health: computeRepoMountHealth({ canonicalRoot: row.canonical_root }, probe),
         attachedAt: row.attached_at,
-      });
+      };
     } catch (error) {
       throw new RepoMountServiceInvariantError(
-        `repo mount "${row.id}" cannot be projected onto the mount read response`,
+        `repo mount "${row.id}" cannot be projected onto the mount record`,
         { kind: "repo_mount_row_unprojectable", repoMountId: row.id, cause: error },
       );
     }
   }
 
-  #projectDetachResponse(
+  #projectDetachOutcome(
     repoMountId: string,
     state: string,
     archivedWorkspaceIds: readonly string[],
-  ): RepoDetachResponse {
+  ): RepoMountDetachOutcome {
     try {
-      return RepoDetachResponseSchema.parse({
-        repoMountId,
-        state,
-        archivedWorkspaceIds: [...archivedWorkspaceIds],
-      });
+      return {
+        repoMountId: RepoMountIdSchema.parse(repoMountId),
+        state: RepoMountStateSchema.parse(state),
+        archivedWorkspaceIds: archivedWorkspaceIds.map((workspaceId) =>
+          WorkspaceIdSchema.parse(workspaceId),
+        ),
+      };
     } catch (error) {
       throw new RepoMountServiceInvariantError(
-        `repo mount "${repoMountId}" cannot be projected onto the detach response`,
+        `repo mount "${repoMountId}" cannot be projected onto the detach outcome`,
         { kind: "repo_mount_row_unprojectable", repoMountId, cause: error },
       );
     }
   }
 }
-
-// --------------------------------------------------------------------------
-// Module-private helpers
-// --------------------------------------------------------------------------
-
-/**
- * Is this better-sqlite3 failure a constraint violation?
- *
- * Prefix-matched rather than compared to `SQLITE_CONSTRAINT_UNIQUE` exactly.
- * The extended code for a PARTIAL unique index is not something to hard-code
- * from memory, and widening the test costs nothing here: the caller's conflict
- * LOOKUP is the real discrimination, and a constraint failure with no
- * conflicting active mount is rethrown untranslated.
- */
-function isConstraintViolation(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const code: unknown = (error as Error & { code?: unknown }).code;
-  return typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT");
-}
-
-/**
- * The production probe: read the clock, then measure.
- *
- * Clock first so `checkedAt` is never NEWER than the observation it stamps.
- * `probedPath` is the argument, unmodified — the byte-equality subject binding
- * the projector enforces. A deliberate twin of the identical helper: both are
- * module-private there and here, and hoisting one into a shared module is a
- * file neither task owns.
- */
-function createDefaultPathProbe(): FilesystemPathProbeFn {
-  return async (path: string): Promise<FilesystemPathProbe> => {
-    const checkedAt = new Date().toISOString();
-    let reachable = true;
-    try {
-      await readDirectory(path);
-    } catch {
-      reachable = false;
-    }
-    return { probedPath: path, reachable, checkedAt };
-  };
-}
-
-// Indirection so the default probe binds the same readability primitive use —
-// one implementation of "can the daemon open this directory?".
-const readDirectory: DirectoryReadabilityProbe = DEFAULT_DIRECTORY_READABILITY_PROBE;

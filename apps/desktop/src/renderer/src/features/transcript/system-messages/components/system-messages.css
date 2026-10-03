@@ -1,0 +1,22 @@
+/* The system message (`SystemMessage`): one line marking a provider switch, compaction or
+ * rollback.
+ */
+
+/* One line: a glyph and the act's name. */
+.meridian-system-message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-system-message__label {
+  color: var(--meridian-text);
+}
+
+/* The failed provider switch is the only caution binding. */
+.meridian-system-message--caution .meridian-system-message__label {
+  color: var(--meridian-red-text);
+}

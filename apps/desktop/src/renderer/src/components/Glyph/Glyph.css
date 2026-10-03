@@ -1,0 +1,11 @@
+/*
+ * `--meridian-glyph-color` is the public API: a caller sets it on its own class to draw the
+ * glyph in another hue. Unset, the glyph takes the surrounding ink.
+ */
+.meridian-glyph {
+  display: inline-block;
+  flex: none;
+  color: var(--meridian-glyph-color, currentcolor);
+  /* Optical: a 16 px square beside 14 px text sits high until nudged down. */
+  vertical-align: -0.125em;
+}

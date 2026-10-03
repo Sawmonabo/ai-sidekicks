@@ -1,0 +1,30 @@
+/*
+ * The partial-read notice: a reading that arrived and is not the whole of it.
+ *
+ * Neither amber (a person is needed) nor red (something failed): the rows beneath are still the
+ * best reading there is. A nested refusal carries its own red. No dotted boundary, which is
+ * `not-checked`'s, so "nobody asked" is not confused with "the answer is short". Sits above the
+ * rows inside their measure, as a qualification of the list.
+ */
+.meridian-partial-read {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-block-end: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-partial-read__copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.45;
+}
+
+/* The nested refusal sits flush under the sentence, so its own leading margin is cleared. */
+.meridian-partial-read {
+  --meridian-refusal-inline-margin-block-start: 0;
+}

@@ -21,7 +21,7 @@ One paragraph: what exists when this plan is done, and why it matters.
 
 ## Phases
 
-Each phase is one pull request. Keep the precondition to one sentence naming the plan phases it needs (`Precondition: Plan-004 Phase 2 merged.` or `Precondition: none.`), and the done-when to one sentence a reviewer can check.
+Each phase is one pull request. Keep the precondition to one sentence naming the plan phases it needs (`Precondition: Plan-003 Phase 2 merged.` or `Precondition: none.`), and the done-when to one sentence a reviewer can check.
 
 ### Phase 1 — Short title
 

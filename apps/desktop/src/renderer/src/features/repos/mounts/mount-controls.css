@@ -1,0 +1,196 @@
+/*
+ * Rules shared by every mount act dialog (`attach/`, `bind/`, `execution-roots/`), which each
+ * keep a sheet of their own; declared once here so the three cannot drift. It must load before
+ * the dialogs' own sheets, so a per-dialog override (the excluded mode's `cursor`) comes after.
+ * The shared `display` / `gap` / `margin` / `font-size` selectors are disjoint from the
+ * per-dialog ones, so they never compete in one element's cascade. Every color is a custom
+ * property.
+ */
+
+/*
+ * One control shape for every act button (trigger, cancel, confirm) and the open-changes
+ * control, declared once.
+ */
+.meridian-repo-attach__trigger,
+.meridian-repo-attach__cancel,
+.meridian-repo-attach__confirm,
+.meridian-bind__trigger,
+.meridian-bind__cancel,
+.meridian-bind__confirm,
+.meridian-reattach__trigger,
+.meridian-reattach__cancel,
+.meridian-reattach__confirm,
+.meridian-prepare-root__confirm,
+.meridian-prepare-root__reread,
+.meridian-root-removal__trigger,
+.meridian-root-removal__cancel,
+.meridian-root-removal__confirm,
+.meridian-open-diff {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-repo-attach__trigger:hover:enabled,
+.meridian-bind__trigger:hover:enabled,
+.meridian-reattach__trigger:hover:enabled,
+.meridian-prepare-root__confirm:hover:enabled,
+.meridian-root-removal__trigger:hover:enabled,
+.meridian-open-diff:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-repo-attach__confirm:disabled,
+.meridian-bind__confirm:disabled,
+.meridian-reattach__trigger:disabled,
+.meridian-prepare-root__confirm:disabled,
+.meridian-root-removal__trigger:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/*
+ * The open-changes control alone carries a glyph beside its word, so it needs a baseline and
+ * a gap; the rest of its shape comes from the rules above.
+ */
+.meridian-open-diff {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+}
+
+/* The four popups share one geometry, declared once here. */
+.meridian-repo-attach__backdrop,
+.meridian-bind__backdrop,
+.meridian-reattach__backdrop,
+.meridian-root-removal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-repo-attach__dialog,
+.meridian-bind__dialog,
+.meridian-reattach__dialog,
+.meridian-root-removal__dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-repo-attach__title,
+.meridian-bind__title,
+.meridian-reattach__title,
+.meridian-root-removal__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-repo-attach__body,
+.meridian-bind__body,
+.meridian-reattach__body {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-repo-attach__acts,
+.meridian-bind__acts,
+.meridian-reattach__acts,
+.meridian-root-removal__acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-repo-attach__path,
+.meridian-bind__directory,
+.meridian-prepare-root__branch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* The field labels, at one size. */
+.meridian-repo-attach__legend,
+.meridian-bind__legend,
+.meridian-prepare-root__legend {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * A path and a branch name are wire values a person is composing, so both use the mono face
+ * the console renders wire strings in.
+ */
+.meridian-repo-attach__path-input,
+.meridian-bind__directory-input,
+.meridian-prepare-root__branch-input {
+  font: inherit;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-bind__modes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-bind__mode {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-repo-attach__attached,
+.meridian-bind__settlement,
+.meridian-reattach__attached {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The sentence saying why a control is closed. Amber rather than red: nothing has
+ * failed, something is missing.
+ */
+.meridian-repo-attach__blocked,
+.meridian-bind__blocked,
+.meridian-prepare-root__blocked {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}

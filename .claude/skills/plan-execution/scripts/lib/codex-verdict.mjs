@@ -20,7 +20,7 @@
  * of those ship untested.
  */
 
-/** Window in which a review's threads may still be materialising. */
+/** Window in which a review's threads may still be materializing. */
 export const DEFAULT_SETTLE_WINDOW_MS = 120_000;
 
 /**
@@ -204,7 +204,7 @@ export function selectNewestRunPerName(checks) {
  * its own: if the rows that happen to exist are all green advisories, this
  * reports green while the checks that actually gate have not run. computeVerdict
  * does not merge on it — `mergeStateStatus` is the conjunct that holds the line,
- * and on this path it is load-bearing rather than defence in depth. The returned
+ * and on this path it is load-bearing rather than defense in depth. The returned
  * `mode` is what the caller prints, so a degraded run is visible rather than
  * quietly permissive.
  *
@@ -378,7 +378,7 @@ const FINDINGS_SUMMARY_PATTERN = /###\s*.{0,4}\s*Codex Review|!\[P\d+ Badge\]/u;
  * live text rather than deleted history.
  *
  * Combined with `max` rather than by replacement, so the anchor can only move
- * LATER than the previous behaviour, never earlier — and the baseline joins the
+ * LATER than the previous behavior, never earlier — and the baseline joins the
  * same `max` for the same reason, so no floor this function found is ever given
  * back. Three residuals of the FALLBACK path, worth naming rather than implying
  * they are closed:
@@ -609,7 +609,7 @@ function newestCreatedAge(rows, nowMs) {
  * them together was a false pass. Citing a sha proves only that Codex looked at
  * this commit; it says nothing whatever about what it found. A findings-bearing
  * comment naming HEAD therefore satisfied the ack leg on its own, and in the
- * window before its inline threads materialise the gate saw an ack with zero
+ * window before its inline threads materialize the gate saw an ack with zero
  * open threads and called it `ack_clean`. `commentAssertsClean` is the narrower
  * fact — a comment that both names this commit and declares it clean, or a
  * clean verdict fresh enough to belong to this push.
@@ -639,7 +639,7 @@ function newestCreatedAge(rows, nowMs) {
  * usage-limits notice posted before this gate first ran would be dropped, and
  * the gate would report `no_ack_yet` — "keep waiting" — at a PR where waiting
  * is precisely what will not help. `freshnessAnchorMs` defaults to
- * `ackAnchorMs` so a caller that has only one floor keeps the old behaviour.
+ * `ackAnchorMs` so a caller that has only one floor keeps the old behavior.
  *
  * @param {Array<object>} comments
  * @param {{headShaShort: string, ackAnchorMs: number, freshnessAnchorMs?: number,
@@ -684,7 +684,7 @@ export function deriveCommentSignals(
   // then 8 sha-bearing from 2026-06-22 to 2026-07-27 (#166, #195, #197, #199,
   // #206, #238, #255, #256). Codex changed its clean-verdict format once, on a
   // datable boundary. So requiring the sha would work perfectly against current
-  // behaviour and break the day the format moves back — while TESTING it when
+  // behavior and break the day the format moves back — while TESTING it when
   // present costs nothing in either regime. A predicate keyed to an external
   // party's wording has to degrade, not depend.
   //
@@ -956,7 +956,7 @@ export function selectUnresolvedBotThreads(threadNodes) {
  * fail every `<` test identically, so mapping the second case to Infinity told
  * `computeVerdict` the ack was comfortably outside the settle window and let it
  * score `ack_clean` + `merge_ok=1` before any delayed review thread could
- * materialise — the exact false pass the window exists to hold.
+ * materialize — the exact false pass the window exists to hold.
  *
  * 0 is the fail-closed reading: an ack you cannot date is treated as one that
  * landed this instant, so the window holds it. That is deliberately sticky — an
@@ -969,7 +969,7 @@ export function selectUnresolvedBotThreads(threadNodes) {
  * point rather than a side effect. Infinity-as-missing-value is the exact
  * sentinel the defect was built on — the old deriver returned it for a review it
  * could not date — so a caller still on that convention hands one in here, and
- * honouring it as "infinitely old, therefore settled" would re-open R4-1 through
+ * honoring it as "infinitely old, therefore settled" would re-open R4-1 through
  * the front door. No ack is infinitely old; the derivers reserve Infinity for a
  * leg that did not fire, and that case never reaches this function.
  *
@@ -1045,7 +1045,7 @@ export function computeVerdict(signals, options = {}) {
 
   // The settle window covers every ack leg that can be FOLLOWED by inline
   // threads — the review object and the acking comment — because the race it
-  // guards is thread materialisation lagging the ack that announces it. Scoping
+  // guards is thread materialization lagging the ack that announces it. Scoping
   // it to the review leg let a findings-bearing comment slip through the same
   // window on the comment side. The reaction leg stays out on purpose — a +1
   // means "no suggestions", so nothing is pending behind it, and gating it would
@@ -1060,7 +1060,7 @@ export function computeVerdict(signals, options = {}) {
   // mapping it to Infinity read as "safely outside the window" and produced
   // `ack_clean` + `merge_ok=1` before any delayed thread could appear. Applying
   // `firingLegAgeMs` on the firing branch alone is what keeps those apart, and
-  // it is defence in depth: the derivers already normalise, and a caller that
+  // it is defense in depth: the derivers already normalize, and a caller that
   // hands in a NaN anyway still fails closed here.
   const reviewAckAgeMs = signals.reviewAcksHead
     ? firingLegAgeMs(signals.latestReviewAgeMs)
@@ -1167,7 +1167,7 @@ export function computeVerdict(signals, options = {}) {
     // told where the findings actually are.
     //
     // Ahead of `unsettled` deliberately. The settle window exists to avoid
-    // mistaking "threads not yet materialised" for "clean"; here the answer is
+    // mistaking "threads not yet materialized" for "clean"; here the answer is
     // already in hand, so waiting a window to re-ask a settled question would
     // only delay an actionable report.
     verdict = "ack_findings_no_threads";
@@ -1212,8 +1212,8 @@ export function computeVerdict(signals, options = {}) {
     // Codex has not looked at all: here waiting is still right, but the reader
     // is waiting on a verdict rather than on a review.
     //
-    // Reached only by a citation with no recognisable body, so it is also where
-    // an UNRECOGNISED comment shape lands — which is the fail-closed direction
+    // Reached only by a citation with no recognizable body, so it is also where
+    // an UNRECOGNIZED comment shape lands — which is the fail-closed direction
     // and the reason this branch sits ahead of `ack_clean` rather than falling
     // through to it. Zero live instances across the 48-comment corpus survey;
     // every real findings pass carries a marker and lands on the branch above.
@@ -1247,7 +1247,7 @@ export function computeVerdict(signals, options = {}) {
   // ciStatus "none" is an empty gating set — absence of evidence, not a pass.
   // `!signalTruncated` is redundant against the ladder above and deliberately
   // kept: it is the conjunct that survives a future reordering of the verdict
-  // branches, the same defence the `unsettled` guard gets from `ack_clean`.
+  // branches, the same defense the `unsettled` guard gets from `ack_clean`.
   //
   // `!ackAttributionAmbiguous` is kept for the same reason and NOT by oversight
   // that `unsettled` lacks one. Both are redundant against `verdict ===
@@ -1262,7 +1262,7 @@ export function computeVerdict(signals, options = {}) {
   //
   // `isOpen` is NOT redundant against mergeStateStatus. A merged PR happens to
   // report UNKNOWN today, which the last conjunct already refuses — but that is
-  // an observed GitHub behaviour, not a documented contract, and nothing
+  // an observed GitHub behavior, not a documented contract, and nothing
   // promises a merged PR will never report CLEAN. Asking the question directly
   // also lets the caller name the real reason instead of blaming a phantom
   // merge requirement. Compared `=== true` so an absent signal fails closed,
@@ -1310,7 +1310,7 @@ export function computeVerdict(signals, options = {}) {
   // `headUnchanged` is compared `=== true` while the verdict branch above tests
   // `=== false`, and the asymmetry is the point: a caller that never re-read
   // HEAD leaves the field undefined, which must not be reported as a move that
-  // was observed, but equally must not authorise a merge on a head nobody
+  // was observed, but equally must not authorize a merge on a head nobody
   // confirmed. Undefined therefore names no verdict and grants no merge.
   const refusedAckIsTheOnlyAck = signals.ackPredatesBaseline === true && !ackOfHead;
 

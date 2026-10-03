@@ -1,60 +1,30 @@
-// `budgets.json` as bytes, validated into a document.
-//
-// One half of what `budget-registry.mts` used to be. This module answers "is this
-// file a budget document, and what does it say?" and nothing else: it reads the
-// bytes, parses the JSON, checks every field a row must carry and every rule the
-// envelope must satisfy, and refuses with `ConsoleBudgetRegistryError` rather
-// than producing a partial document — because a budget that silently vanishes is
+// Reads `budgets.json` and validates it into a `BudgetDocument`. It refuses with
+// `BudgetRegistryError` rather than return a partial document: a budget that silently vanishes is
 // a gate nobody notices is off.
-//
-// Querying that document, comparing a measurement against one of its rows, and
-// printing a report over it are three other jobs, and they are three other
-// modules (`budget-registry.mts`, `budget-evaluation.mts`, `budget-report.mts`).
-// The split is by concern rather than by size: validation is the only half that
-// reads the filesystem and the only half that refuses, so it is the half a reader
-// checking "can a malformed row get through?" should be able to read alone.
 
 import { readFileSync } from "node:fs";
 
+import { z } from "zod";
+
 /**
- * The only registry revision this reader accepts.
- *
- * 2 added the required `scope` field. 3 added the required `subjectSymbol`, which
- * is what turns `measuredBy` from a path that merely EXISTS into a claim a test
- * can check: the harness has to hold the symbol the row is about. Older documents
- * parse into a registry that would answer "which rows are the spec's?" or "does
- * this harness touch its subject?" wrongly rather than loudly, so they are
- * refused instead of defaulted.
+ * The only registry revision this reader accepts. An older document is refused rather than
+ * defaulted, because a default would answer registry queries wrongly instead of loudly.
  */
 const SUPPORTED_SCHEMA_VERSION = 3;
 
-/** Every budget is a ceiling. A floor would need a different verdict shape. */
-type ConsoleBudgetComparison = "<=";
+const NonEmptyStringSchema = z.string().refine((value) => value.trim() !== "", {
+  error: "must be a non-empty string",
+});
 
-type ConsoleBudgetStatus = "enforced" | "n/a";
+/** An optional text field; an absent, `null` or empty value reads as `null`. */
+const OptionalStringSchema = z
+  .string()
+  .nullish()
+  .transform((value) => (value === undefined || value === null || value === "" ? null : value));
 
-const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enforced", "n/a"]);
-
-/**
- * Where a budget's figure comes from, and what it is therefore a claim about.
- *
- * `product` rows are the console's own product budgets, and their set is
- * closed: the eight of them are the whole list and nothing else may join.
- * `harness` rows are the complement — a bound with NO product figure behind it,
- * whether the scaffolding applies it to itself (the five launch slices) or a
- * harness applies it to a shipped artifact the product list does not bound in
- * that unit (`renderer-initial-fonts`, raw bytes beside a gzip row). They share
- * this file rather than getting one of their own because a budget with a second
- * home is a budget that will disagree with itself — and they are discriminated
- * rather than merged so the completeness claim over the product list stays
- * checkable by counting, which is the property a ninth `product` id would cost.
- */
-type ConsoleBudgetScope = "product" | "harness";
-
-const BUDGET_SCOPE_VALUES: readonly ConsoleBudgetScope[] = Object.freeze(["product", "harness"]);
-
-interface ConsoleBudgetLimit {
-  readonly comparison: ConsoleBudgetComparison;
+interface BudgetLimit {
+  /** Every budget is a ceiling. A floor would need a different verdict shape. */
+  readonly comparison: "<=";
   /** The figure as the spec writes it, in `unit`. */
   readonly value: number;
   readonly unit: string;
@@ -63,206 +33,131 @@ interface ConsoleBudgetLimit {
   readonly canonicalUnit: string;
 }
 
-export interface ConsoleBudget {
+/** One row of `budgets.json`, validated. */
+export interface Budget {
   readonly id: string;
   readonly label: string;
   readonly subject: string;
-  /** The figure as its own source writes it: the product figure for a `product` row, the derivation for a `harness` one. */
+  /** The figure as its source writes it: the product figure, or a `harness` row's derivation. */
   readonly specTarget: string;
-  readonly limit: ConsoleBudgetLimit;
-  readonly scope: ConsoleBudgetScope;
-  readonly status: ConsoleBudgetStatus;
+  readonly limit: BudgetLimit;
+  /**
+   * `product` rows are the app's own product budgets, a closed list. `harness` rows bound the test
+   * scaffolding or a shipped artifact the product list does not cover.
+   */
+  readonly scope: "product" | "harness";
+  readonly status: "enforced" | "n/a";
   /** Repo-relative harness path; `null` exactly when `status` is `"n/a"`. */
   readonly measuredBy: string | null;
   /**
-   * The exported symbol `measuredBy` must hold; `null` exactly when `status` is `"n/a"`.
-   *
-   * `existsSync` over `measuredBy` passed for two rows that named a file which
-   * never touches their subject — the frame-witness and cleanup bounds both
-   * pointed at `test/helpers/launch-deadline.test.ts`, which compares registry
-   * figures with imported constants and drives neither `FrameWitness` nor
-   * `BoundedCleanup`. A path is not evidence; the symbol the harness has to hold
-   * is, so this parser refuses an `enforced` row that names none. Whether the named
-   * symbol is the one that suite actually drives is a reviewer's read.
+   * The exported symbol `measuredBy` must hold; `null` exactly when `status` is `"n/a"`. A path
+   * alone is not evidence that a harness touches the row's subject.
    */
   readonly subjectSymbol: string | null;
   /** Why it is not measurable yet; non-null exactly when `status` is `"n/a"`. */
   readonly notMeasurableReason: string | null;
-  /**
-   * The size, in bytes, of the smallest additional subject this row's ceiling was
-   * derived to REFUSE; `null` for a row whose figure was not chosen against one.
-   *
-   * A ceiling picked for a refusal property carries the figure that property is
-   * about, and the harness that plants a control needs exactly that number — plant
-   * anything larger and the control proves only that some larger number is over.
-   * It lives on the row because the row's `notes` already state it in prose, and a
-   * threshold restated in a test beside a file the test already loads is the second
-   * home the config-single-sourcing rule in `apps/desktop/AGENTS.md` rejects.
-   */
-  readonly refusalControlBytes: number | null;
   readonly notes: string;
-  /** Non-numeric conditions the budget also carries; gated elsewhere. */
-  readonly additionalCriteria: readonly string[];
 }
 
 /** A validated `budgets.json`, before anything is asked of it. */
-export interface ConsoleBudgetDocument {
+export interface BudgetDocument {
   readonly schemaVersion: number;
   /**
-   * Why the `harness` rows carry the figures they do, stated once for the set.
-   *
-   * A document-level field rather than a sentence per row, because those bounds
-   * are slices of one deadline: the derivation is a property of the set, and a
-   * rule restated per row is a rule with as many places to drift as there are
-   * rows — which is what it did, three copies deep and already imprecise about
-   * which tier the sum is held against. `null` exactly when the document
-   * declares no `harness` row at all.
+   * Why the `harness` rows carry the figures they do, stated once for the set. Required when any
+   * `harness` row exists.
    */
   readonly harnessBudgetDerivation: string | null;
-  readonly budgets: readonly ConsoleBudget[];
+  readonly budgets: readonly Budget[];
 }
 
-export class ConsoleBudgetRegistryError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ConsoleBudgetRegistryError";
-  }
-}
-
-function refuse(message: string): never {
-  throw new ConsoleBudgetRegistryError(message);
-}
-
-function requireObject(candidate: unknown, where: string): Record<string, unknown> {
-  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
-    refuse(`${where} must be an object.`);
-  }
-  return candidate as Record<string, unknown>;
-}
-
-function requireString(owner: Record<string, unknown>, field: string, where: string): string {
-  const value = owner[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    refuse(`${where}: \`${field}\` must be a non-empty string.`);
-  }
-  return value;
-}
-
-function optionalString(owner: Record<string, unknown>, field: string): string | null {
-  const value = owner[field];
-  return typeof value === "string" && value !== "" ? value : null;
-}
-
-/** A positive figure where the field is present at all, refusing anything else. */
-function optionalPositiveNumber(
-  owner: Record<string, unknown>,
-  field: string,
-  where: string,
-): number | null {
-  const value = owner[field];
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    refuse(`${where}: \`${field}\` must be a positive finite number where it is present.`);
-  }
-  return value;
-}
-
-function requireNumber(owner: Record<string, unknown>, field: string, where: string): number {
-  const value = owner[field];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    refuse(`${where}: \`${field}\` must be a finite number.`);
-  }
-  return value;
-}
-
-function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
-  const entry = requireObject(rawEntry, `budgets[${entryIndex}]`);
-  const id = requireString(entry, "id", `budgets[${entryIndex}]`);
-  const where = `budgets[${entryIndex}] (${id})`;
-
-  const status = requireString(entry, "status", where);
-  if (!BUDGET_STATUS_VALUES.includes(status as ConsoleBudgetStatus)) {
-    refuse(`${where}: \`status\` must be one of ${BUDGET_STATUS_VALUES.join(", ")}.`);
-  }
-
-  const scope = requireString(entry, "scope", where);
-  if (!BUDGET_SCOPE_VALUES.includes(scope as ConsoleBudgetScope)) {
-    refuse(`${where}: \`scope\` must be one of ${BUDGET_SCOPE_VALUES.join(", ")}.`);
-  }
-
-  const rawLimit = requireObject(entry["limit"], `${where}.limit`);
-  const comparison = requireString(rawLimit, "comparison", `${where}.limit`);
-  if (comparison !== "<=") {
-    refuse(`${where}.limit: \`comparison\` must be "<=" — every budget is a ceiling.`);
-  }
-
-  const measuredBy = optionalString(entry, "measuredBy");
-  const subjectSymbol = optionalString(entry, "subjectSymbol");
-  const notMeasurableReason = optionalString(entry, "notMeasurableReason");
-  if (status === "enforced" && measuredBy === null) {
-    refuse(`${where}: an \`enforced\` budget must name its harness in \`measuredBy\`.`);
-  }
-  if (status === "enforced" && subjectSymbol === null) {
-    refuse(
-      `${where}: an \`enforced\` budget must name the symbol its harness holds in ` +
-        "`subjectSymbol` — a path that exists is not evidence that it measures anything.",
-    );
-  }
-  if (status === "n/a" && measuredBy !== null) {
-    refuse(`${where}: an \`n/a\` budget must set \`measuredBy\` to null.`);
-  }
-  if (status === "n/a" && subjectSymbol !== null) {
-    refuse(`${where}: an \`n/a\` budget must set \`subjectSymbol\` to null.`);
-  }
-  if (status === "n/a" && notMeasurableReason === null) {
-    refuse(`${where}: an \`n/a\` budget must say why in \`notMeasurableReason\`.`);
-  }
-
-  const additionalCriteria = entry["additionalCriteria"];
-  return Object.freeze({
-    id,
-    label: requireString(entry, "label", where),
-    subject: requireString(entry, "subject", where),
-    specTarget: requireString(entry, "specTarget", where),
-    limit: Object.freeze({
-      comparison,
-      value: requireNumber(rawLimit, "value", `${where}.limit`),
-      unit: requireString(rawLimit, "unit", `${where}.limit`),
-      canonicalValue: requireNumber(rawLimit, "canonicalValue", `${where}.limit`),
-      canonicalUnit: requireString(rawLimit, "canonicalUnit", `${where}.limit`),
+const BudgetSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    label: NonEmptyStringSchema,
+    subject: NonEmptyStringSchema,
+    specTarget: NonEmptyStringSchema,
+    limit: z.object({
+      comparison: z.literal("<="),
+      value: z.number(),
+      unit: NonEmptyStringSchema,
+      canonicalValue: z.number(),
+      canonicalUnit: NonEmptyStringSchema,
     }),
-    scope: scope as ConsoleBudgetScope,
-    status: status as ConsoleBudgetStatus,
-    measuredBy,
-    subjectSymbol,
-    notMeasurableReason,
-    refusalControlBytes: optionalPositiveNumber(entry, "refusalControlBytes", where),
-    notes: requireString(entry, "notes", where),
-    additionalCriteria: Object.freeze(
-      Array.isArray(additionalCriteria)
-        ? additionalCriteria.filter(
-            (criterion): criterion is string => typeof criterion === "string",
-          )
-        : [],
-    ),
+    scope: z.enum(["product", "harness"]),
+    status: z.enum(["enforced", "n/a"]),
+    measuredBy: OptionalStringSchema,
+    subjectSymbol: OptionalStringSchema,
+    notMeasurableReason: OptionalStringSchema,
+    notes: NonEmptyStringSchema,
+  })
+  .superRefine((budget, context) => {
+    const enforced = budget.status === "enforced";
+    if (enforced && budget.measuredBy === null) {
+      context.addIssue("an `enforced` budget must name its harness in `measuredBy`");
+    }
+    if (enforced && budget.subjectSymbol === null) {
+      context.addIssue(
+        "an `enforced` budget must name the symbol its harness holds in `subjectSymbol`: " +
+          "a path that exists is not evidence that it measures anything",
+      );
+    }
+    if (!enforced && budget.measuredBy !== null) {
+      context.addIssue("an `n/a` budget must set `measuredBy` to null");
+    }
+    if (!enforced && budget.subjectSymbol !== null) {
+      context.addIssue("an `n/a` budget must set `subjectSymbol` to null");
+    }
+    if (!enforced && budget.notMeasurableReason === null) {
+      context.addIssue("an `n/a` budget must say why in `notMeasurableReason`");
+    }
   });
+
+const BudgetDocumentSchema: z.ZodType<BudgetDocument> = z
+  .object({
+    schemaVersion: z.literal(SUPPORTED_SCHEMA_VERSION),
+    harnessBudgetDerivation: OptionalStringSchema,
+    budgets: z.array(BudgetSchema).min(1),
+  })
+  .superRefine((document, context) => {
+    const seenIds = new Set<string>();
+    for (const budget of document.budgets) {
+      if (seenIds.has(budget.id)) {
+        context.addIssue(`duplicate budget id \`${budget.id}\``);
+      }
+      seenIds.add(budget.id);
+    }
+    // A `harness` row's figure is ours, so a document that declares one and never says why has a
+    // bound with no reviewable source.
+    const declaresHarnessRow = document.budgets.some((budget) => budget.scope === "harness");
+    if (declaresHarnessRow && document.harnessBudgetDerivation === null) {
+      context.addIssue(
+        "a `harness` row needs `harnessBudgetDerivation`, stated once for the set rather than " +
+          "copied into each row",
+      );
+    }
+  });
+
+/** Thrown when the budget registry is unreadable, malformed, or breaks a rule of the format. */
+export class BudgetRegistryError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "BudgetRegistryError";
+  }
 }
 
 /**
  * Read and validate the document at `budgetsFilePath`.
  *
- * @throws {ConsoleBudgetRegistryError} on a missing, unreadable, or malformed registry.
+ * @throws {BudgetRegistryError} on a missing, unreadable, or malformed registry.
  */
-export function readBudgetDocument(budgetsFilePath: string): ConsoleBudgetDocument {
+export function readBudgetDocument(budgetsFilePath: string): BudgetDocument {
   let text: string;
   try {
     text = readFileSync(budgetsFilePath, "utf8");
   } catch (readError) {
-    refuse(
-      `Cannot read the budget registry at ${budgetsFilePath}: ` +
-        `${readError instanceof Error ? readError.message : String(readError)}`,
+    throw new BudgetRegistryError(
+      `Cannot read the budget registry at ${budgetsFilePath}: ${errorText(readError)}`,
+      { cause: readError },
     );
   }
 
@@ -270,50 +165,22 @@ export function readBudgetDocument(budgetsFilePath: string): ConsoleBudgetDocume
   try {
     parsed = JSON.parse(text);
   } catch (parseError) {
-    refuse(
-      `${budgetsFilePath} is not valid JSON: ` +
-        `${parseError instanceof Error ? parseError.message : String(parseError)}`,
+    throw new BudgetRegistryError(
+      `${budgetsFilePath} is not valid JSON: ${errorText(parseError)}`,
+      { cause: parseError },
     );
   }
 
-  const document = requireObject(parsed, budgetsFilePath);
-  const schemaVersion = requireNumber(document, "schemaVersion", budgetsFilePath);
-  if (schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
-    refuse(
-      `${budgetsFilePath}: unsupported \`schemaVersion\` ${schemaVersion} ` +
-        `(expected ${SUPPORTED_SCHEMA_VERSION}).`,
+  const result = BudgetDocumentSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new BudgetRegistryError(
+      `${budgetsFilePath} breaks the registry format:\n${z.prettifyError(result.error)}`,
     );
   }
-  const rawBudgets = document["budgets"];
-  if (!Array.isArray(rawBudgets) || rawBudgets.length === 0) {
-    refuse(`${budgetsFilePath}: \`budgets\` must be a non-empty array.`);
-  }
+  return result.data;
+}
 
-  const budgets = rawBudgets.map(parseBudget);
-  const seenIds = new Set<string>();
-  for (const budget of budgets) {
-    if (seenIds.has(budget.id)) {
-      refuse(`${budgetsFilePath}: duplicate budget id \`${budget.id}\`.`);
-    }
-    seenIds.add(budget.id);
-  }
-
-  // A `product` row's figure is the product list's and needs no derivation here; a
-  // `harness` row's figure is ours, so a document that declares one and says
-  // nowhere why is a bound with no reviewable source — the shape this file
-  // exists to refuse. Required for the SET rather than per row, which is what
-  // keeps it stated once.
-  const harnessBudgetDerivation = optionalString(document, "harnessBudgetDerivation");
-  if (budgets.some((budget) => budget.scope === "harness") && harnessBudgetDerivation === null) {
-    refuse(
-      `${budgetsFilePath}: a \`harness\` row needs \`harnessBudgetDerivation\` — ` +
-        "the derivation is stated once for the set, never copied into each row.",
-    );
-  }
-
-  return Object.freeze({
-    schemaVersion,
-    harnessBudgetDerivation,
-    budgets: Object.freeze(budgets),
-  });
+/** The message of a caught failure, for a refusal that names its cause. */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

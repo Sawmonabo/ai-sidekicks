@@ -2,86 +2,89 @@
 
 ## Purpose
 
-Recover the Control Plane when device linking, device presence, the session directory, or relay coordination are failing.
+Recover the person's own control plane and relay, on their Cloudflare account or their own Compose server, when linking a device, signing a machine in, or reaching a machine from a device is failing.
 
 ## Symptoms
 
-- A device cannot link to the account, or its registered identity key no longer resolves
-- A linked device cannot read the session directory or open a session the user owns
-- Device presence becomes stale across many sessions
-- Scope and blast radius: every session reached through the affected Control Plane
+- A device cannot link: the new device never shows the six digits, or the linking device never sees it confirm
+- A machine card reads `Not reachable · last seen <when>` while that machine's service is running
+- A device card reads `Seen in two places at once. Revoke it if you did not expect this.`
+- `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`
+- `sidekicks sign-in` fails on a machine
+- Scope and blast radius: every device's reach to every machine through that relay. Sessions keep running on their machines, and the desktop app on each machine keeps driving its own sessions over the machine's local connection.
 
 ## Detection
 
-- Read control-plane health plus failure-category projections for auth, shared database, the device registry, device presence, and relay coordination.
-- Inspect recent device-link, session-directory read, and presence-write failure rates.
-- Compare the last successful shared write timestamp with current projection freshness for session directory and presence reads.
+- On the machine, run `sidekicks daemon status`. While a relay is configured it prints the relay block: each linked device by name, connected or not, the age of the last frame out and the last frame in, the reconnect count and the rejected-frame count, each counted since the service started. With no relay configured the block is absent.
+- Every device not connected, with an old last frame in, means the machine's own relay connection is down. One device that keeps reconnecting means its key is in two places.
+- `sidekicks devices` prints the account's machines and devices, as the Devices page's cards show them.
+- Read the relay's own logs: the Worker's logs in the person's Cloudflare account, or `docker compose logs` on the Compose server.
 
 ## Preconditions
 
-- Operator access to Control Plane services and shared Postgres
-- Access to Control Plane logs, traces, and deployment controls
-- Ability to pause or rate-limit device-link or session-directory traffic if needed
+- The `sidekicks` command line on one of the person's machines
+- For the Workers relay, the person's own Cloudflare account; for the Compose relay, a shell on the server that runs its `docker-compose.yml` (Node, Caddy and Postgres)
+- A device already linked, or a passkey, to link a device again after a revoke
 
 ## Recovery Steps
 
-1. Confirm whether the primary failure category is auth, shared database, the device registry, presence projection, or relay coordination.
-2. If shared database connectivity is impaired, restore shared Postgres availability before restarting higher services.
-3. If auth is impaired, recover auth reachability and token validation before accepting new device-link or session-directory traffic.
-4. Restart only the unhealthy Control Plane services after persistent dependencies are healthy again.
-5. Rebuild or refresh session-directory and presence projections if writes recovered but reads remain stale.
-6. Re-run one device-link flow and one session-open flow before declaring recovery complete.
+1. Run `sidekicks daemon status` on the machine and read the relay block against Detection.
+2. If the machine's own relay connection is down, check the machine's network, then the relay: the Worker's deployment in the Cloudflare account, or the containers on the Compose server. On the Compose server, bring Postgres back before restarting the Node service.
+3. If `sidekicks sign-in` fails, fix the relay first. Sign-in runs only while the service is stopped, so stop it (`sidekicks daemon stop`, or `Stop` on Settings › Runtime), run `sidekicks sign-in` on the machine, and start the service again (`sidekicks daemon start`).
+4. If a device card reads `Seen in two places at once`, its key is in two places. If that is not expected, revoke the device (`Revoke` on its card, or `sidekicks devices revoke <device>`) and link the real device again as a new one.
+5. If a device refuses a machine with `<machine> is using a new key, so it was not connected.`, the machine was reinstalled: remove it on Devices and link it again. Linked again, it mints a new identity key under its same machine id, and its new `runtimenode.added` moves every device's pin for that id; its store, sessions and id stay.
+6. If `sidekicks daemon status` prints `refused: the relay's key does not match the one pinned when it was linked`, and the relay was redeployed on purpose with a new key, run `sidekicks relay repin --force` with the new key's hash. Only a relay without a publicly trusted certificate is pinned; a pinned relay's key that changed without a deliberate redeploy is treated as an attack and left refused.
+7. Link one device and open one known session from it before declaring recovery complete.
 
 ## Validation
 
-- A device links and its registered identity key resolves
-- A linked device opens at least one known-good session through the directory
-- Device presence updates resume within normal heartbeat windows
-- Session-directory and presence projections show current timestamps after recovery
+- The relay block of `sidekicks daemon status` shows each expected device connected, with a recent last frame out and in
+- Each machine card reads `Reachable` on a linked device
+- A device links, with the same six digits confirmed on both screens, and opens a known session on the machine that holds it
 
 ## Escalation
 
-- Escalate when shared Postgres recovery requires failover or restore, or when auth and relay services fail simultaneously
+- When the relay stays unreachable after a redeploy, or the Compose server's Postgres cannot be brought back, report it to the project as a bug with the relay block and the relay's logs attached
 
 ## CLI Commands
 
 ```bash
-sidekicks cp status
-sidekicks cp sessions --state active
-sidekicks cp health
-sidekicks cp migrate --status
-sidekicks cp sessions --state degraded --since 1h
-sidekicks cp presence --session <id>
+sidekicks daemon status          # the relay block, and a refused relay pin
+sidekicks devices                # the machines and the linked devices
+sidekicks devices revoke <device>
+sidekicks daemon stop            # sign-in runs only while the service is stopped
+sidekicks sign-in
+sidekicks daemon start
+sidekicks relay repin --force    # a relay without a publicly trusted certificate, redeployed on purpose
 ```
 
 ## SLOs and Thresholds
 
-| Metric                     | Target                    |
-| -------------------------- | ------------------------- |
-| API p99 latency            | < 200ms                   |
-| Availability               | 99.9% uptime              |
-| Error rate                 | < 0.1% of requests        |
-| Session open latency (p95) | < 500ms                   |
-| Device presence staleness  | < 30s from last heartbeat |
+| Threshold | Value |
+| --- | --- |
+| Machine shown `Not reachable` | 45 seconds without a frame on its relay connection |
+| Live connections per key | One; a new connection closes the one before it |
+| Key in two places | Three displacements within a minute; the newest connection stays and the relay flags the key |
+| Channel rekey | A fresh handshake on every connection and every 10 minutes on a long one |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
-- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
-- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
-- **Severity 3** (warning): Log alert. Review during business hours.
-- **Domain routing**: Control-plane issues route to **backend on-call**.
+- The relay belongs to one person, who runs this procedure on their machine and their own relay; there is no paging, no chat alert and no on-call rotation.
+- A relay that stays unreachable after these steps is reported to the project as a bug, with the relay block and the relay's logs attached.
 
 ## Related Architecture Docs
 
-- [Component Architecture Control Plane](../architecture/component-architecture-control-plane.md)
+- [Control Plane Architecture](../architecture/control-plane.md)
 - [Data Architecture](../architecture/data-architecture.md)
 - [Security Architecture](../architecture/security-architecture.md)
 
 ## Related Specs
 
 - [Identity And User State](../specs/016-identity-and-user-state.md)
+- [Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md)
+- [Remote Control](../specs/027-remote-control.md)
 
 ## Related Plans
 
 - [Session Core](../plans/001-session-core.md)
-- [Runtime Node Attach](../plans/002-runtime-node-attach.md)
+- [Remote Control](../plans/025-remote-control.md)

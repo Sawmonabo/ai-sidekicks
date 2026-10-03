@@ -1,4 +1,3 @@
-/** @type {import("@commitlint/types").UserConfig} */
 export default {
   extends: ["@commitlint/config-conventional"],
   rules: {
@@ -15,6 +14,7 @@ export default {
         "contracts",
         "crypto-paseto",
         "client-sdk",
+        "search-ranking",
         "daemon",
         "control-plane",
         "desktop",
@@ -29,11 +29,8 @@ export default {
       ],
     ],
     "scope-empty": [1, "never"],
-    // Subject case follows config-conventional default — disallow sentence/start/
-    // pascal/upper case starts (so subjects begin lowercase) but allow proper-
-    // noun caps inside the subject. Strict "always lower-case" would reject valid
-    // subjects like `feat(daemon): wire BLAKE3 hash chain` or `feat(contracts):
-    // add PASETO v4 token shape`.
+    // Subjects begin lowercase but may carry proper-noun caps inside, so "always lower-case"
+    // would wrongly reject `feat(daemon): wire BLAKE3 hash chain`.
     "subject-case": [2, "never", ["sentence-case", "start-case", "pascal-case", "upper-case"]],
     "subject-full-stop": [2, "never", "."],
     "header-max-length": [2, "always", 72],

@@ -1,0 +1,227 @@
+// The brokered sign-in and the non-interactive token registration: what each call answers,
+// and what the page holds while it is in flight.
+//
+// A flow ending is never a verdict that the account is authenticated, so every settled arm
+// is a state of the flow and the page learns the account's fate by re-reading the registry.
+// A token exists here only for the length of one registration call, never in a state.
+
+import {
+  type BillingMode,
+  type ProviderAccountId,
+  type ProviderAccountLoginCancelResponse,
+  type ProviderAccountLoginResponse,
+  type ProviderAccountRegisterRequest,
+  type ProviderAccountRegisterResponse,
+  type ProviderName,
+} from "@ai-sidekicks/contracts";
+
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+
+/**
+ * Where a brokered sign-in has got to.
+ *
+ * The three held arms carry the account, so a disabled row can say which account holds
+ * the flow.
+ */
+export type ProviderSignInFlowState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "starting"; readonly accountId: ProviderAccountId }
+  | {
+      readonly kind: "live";
+      readonly accountId: ProviderAccountId;
+      readonly attempt: ProviderAccountLoginResponse;
+    }
+  | {
+      readonly kind: "canceling";
+      readonly accountId: ProviderAccountId;
+      readonly attempt: ProviderAccountLoginResponse;
+    }
+  | { readonly kind: "ended"; readonly because: string };
+
+/** The state a flow starts in and returns to. Shared so it has one spelling. */
+export const IDLE_PROVIDER_SIGN_IN_FLOW: ProviderSignInFlowState = { kind: "idle" };
+
+/**
+ * What a flow ending on the registry's own tail says.
+ *
+ * Its own sentence: this ending is neither a cancellation nor a reply to a call. The
+ * report comes from the provider and is not a claim the account is authenticated.
+ */
+export const PROVIDER_SIGN_IN_ENDED_BY_REGISTRY =
+  "This machine reports the provider's sign-in finished. That is not a claim the account is authenticated — the registry is being read again to see what became of it.";
+
+/**
+ * Whether the daemon is running a flow of this window's making, per kind.
+ *
+ * A `Record` over the union's discriminant, so a new arm is a compile error here rather
+ * than a control that silently stays pressable.
+ */
+const PROVIDER_SIGN_IN_RUNNING_BY_KIND: Readonly<Record<ProviderSignInFlowState["kind"], boolean>> =
+  {
+    idle: false,
+    starting: true,
+    live: true,
+    canceling: true,
+    ended: false,
+  };
+
+/**
+ * What one start attempt answered: a live flow. It carries the account so the tracker
+ * can record it, and it is the only arm because a start that never became a flow raises.
+ */
+export interface ProviderSignInStartOutcome {
+  readonly kind: "live";
+  readonly accountId: ProviderAccountId;
+  readonly attempt: ProviderAccountLoginResponse;
+}
+
+/** What one cancel answered: the flow is over. */
+export interface ProviderSignInCancelOutcome {
+  readonly kind: "ended";
+  readonly because: string;
+}
+
+/** What a token registration did, as far as this fixture body may claim. */
+export type TokenRegistrationOutcome =
+  | { readonly kind: "idle" }
+  | { readonly kind: "submitting" }
+  | { readonly kind: "registered"; readonly account: ProviderAccountRegisterResponse["account"] }
+  | { readonly kind: "refused"; readonly refusal: Refusal };
+
+/**
+ * Starts a brokered sign-in for one account.
+ */
+export type ProviderAccountLoginCall = (request: {
+  readonly accountId: ProviderAccountId;
+}) => Promise<ProviderAccountLoginResponse>;
+
+/**
+ * Cancels a sign-in that is still in flight.
+ */
+export type ProviderAccountLoginCancelCall = (request: {
+  readonly attemptId: string;
+}) => Promise<ProviderAccountLoginCancelResponse>;
+
+/**
+ * Registers an account, optionally carrying the one write-only token member.
+ */
+export type ProviderAccountRegisterCall = (
+  request: ProviderAccountRegisterRequest,
+) => Promise<ProviderAccountRegisterResponse>;
+
+/** Whether this flow is running. The one reading of the table above. */
+export function isProviderSignInRunning(flow: ProviderSignInFlowState): boolean {
+  return PROVIDER_SIGN_IN_RUNNING_BY_KIND[flow.kind];
+}
+
+/**
+ * The account this flow is about, where the arm carries one.
+ *
+ * Reads the union's own arms, so the set of kinds that carry an account is stated once.
+ */
+export function readProviderSignInAccountId(
+  flow: ProviderSignInFlowState,
+): ProviderAccountId | undefined {
+  return "accountId" in flow ? flow.accountId : undefined;
+}
+
+/** Start a brokered sign-in for one account. */
+export async function startProviderSignIn(
+  login: ProviderAccountLoginCall,
+  accountId: ProviderAccountId,
+): Promise<ProviderSignInStartOutcome> {
+  return { kind: "live", accountId, attempt: await login({ accountId }) };
+}
+
+/**
+ * Cancel a sign-in that is still in flight.
+ *
+ * `canceled` is the daemon stopping a running flow; `notFound` means there was nothing to
+ * stop because it finished or expired first. Reporting that as a cancellation would claim
+ * the console stopped something it did not.
+ */
+export async function cancelProviderSignIn(
+  cancel: ProviderAccountLoginCancelCall,
+  attempt: ProviderAccountLoginResponse,
+): Promise<ProviderSignInCancelOutcome> {
+  const reply = await cancel({ attemptId: attempt.attemptId });
+  return {
+    kind: "ended",
+    because:
+      reply.status === "canceled"
+        ? "The sign-in was canceled. Nothing about this account has changed until the registry is read again."
+        : "There was no sign-in left to cancel — it had already finished or expired. Read the registry again to see what became of the account.",
+  };
+}
+
+/** The outcome a form starts in and returns to. Shared so it has one spelling. */
+export const IDLE_TOKEN_REGISTRATION: TokenRegistrationOutcome = { kind: "idle" };
+
+/** The subsystem name the refusals the form raises on its own carry. */
+export const TOKEN_REGISTRATION_REFUSAL_ORIGIN = "provider-account-registration";
+
+/** The code a rejected registration that carried none of its own is reported under. */
+const REGISTRATION_FAILED_CODE = "registration-failed";
+
+/** The three fields a registration needs beside the write-only token. */
+export interface AdmittedRegistrationFields {
+  readonly provider: ProviderName;
+  readonly displayLabel: string;
+  readonly billingMode: BillingMode;
+}
+
+/** What the form's own fields amount to: a request it can send, or a refusal to show. */
+export type RegistrationFieldReading =
+  | { readonly kind: "admitted"; readonly fields: AdmittedRegistrationFields }
+  | { readonly kind: "refused"; readonly refusal: Refusal };
+
+/**
+ * Read the form's ordinary fields, before anything is sent and before the token is read.
+ *
+ * Runs before the token exists in the submit handler, so a refused label cannot discard a
+ * typed credential; a label of only spaces passes the browser's `required` check and is
+ * refused here. The refusal never echoes the label, which is user content.
+ */
+export function readRegistrationFields(typed: {
+  readonly displayLabel: string;
+  readonly provider: ProviderName;
+  readonly billingMode: BillingMode;
+}): RegistrationFieldReading {
+  const displayLabel = typed.displayLabel.trim();
+  if (displayLabel === "") {
+    return {
+      kind: "refused",
+      refusal: refuse(
+        TOKEN_REGISTRATION_REFUSAL_ORIGIN,
+        "registration-label-blank",
+        "Give the account a label with at least one visible character — spaces alone are not a name anything can be found by. Nothing was sent, and the token field still holds what you typed.",
+      ),
+    };
+  }
+  return {
+    kind: "admitted",
+    fields: { provider: typed.provider, displayLabel, billingMode: typed.billingMode },
+  };
+}
+
+/**
+ * Submit a registration, optionally carrying the one write-only token member.
+ *
+ * The caller composes the whole request, which keeps the token's lifetime inside its submit
+ * handler; the outcome carries the account only, as the reply does. A rejected call answers
+ * `refused` with the service's own words, so the form's control comes back.
+ */
+export async function submitTokenRegistration(
+  register: ProviderAccountRegisterCall,
+  request: ProviderAccountRegisterRequest,
+): Promise<TokenRegistrationOutcome> {
+  try {
+    return { kind: "registered", account: (await register(request)).account };
+  } catch (error) {
+    return {
+      kind: "refused",
+      refusal: coerceToRefusal(error, TOKEN_REGISTRATION_REFUSAL_ORIGIN, REGISTRATION_FAILED_CODE),
+    };
+  }
+}

@@ -1,0 +1,54 @@
+/*
+ * Figures: the mono wire signature, and the derived form beside it.
+ *
+ * A global sheet, loaded through `global-sheets.ts`. Hand-authored composition: the generated
+ * token sheet (from `styles/palette.ts`) carries only values, while this sheet reads every value
+ * back as a custom property. Mono is the signature that a figure came from the wire.
+ */
+
+/* Tabular figures for the platform fallback faces, whose digits are not tabular by construction. */
+.meridian-figure {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Mono is the provenance signature: both classes of wire figure (a byte-for-byte string and an
+ * `Intl`-formatted quantity) wear it, so a reader can see which numbers the daemon sent.
+ *
+ * `user-select: text` is stated because a digest a person cannot select must be retyped, and
+ * app chrome is routinely unselectable.
+ *
+ * The two custom properties below are this class's public API: a container that wants the
+ * figure quieter or smaller sets them on its own class and the value inherits down. Nobody
+ * redeclares this class, so source order never decides which sheet wins.
+ */
+.meridian-figure--wire {
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-figure-wire-color, inherit);
+  /* Mono runs optically larger than sans at the same size; a hair under 1em balances them. */
+  font-size: var(--meridian-figure-wire-size, 0.93em);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * Truncated at the measure, never in the string: the `title` keeps the whole value and the copy
+ * control carries it out, so figures that differ only in their tail stay distinguishable. The
+ * flex sizing rides this modifier because truncation in a row needs a shrinkable flex child; on
+ * a figure that is not a flex item both declarations are inert.
+ */
+.meridian-figure--truncate {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The app's own reading, never the wire's: proportional and muted so it is not mistaken for
+ * something the daemon said.
+ */
+.meridian-figure--derived {
+  color: var(--meridian-text-muted);
+}

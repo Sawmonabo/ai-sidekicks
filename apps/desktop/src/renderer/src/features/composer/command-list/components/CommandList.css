@@ -1,0 +1,116 @@
+/* The discovery popover, sitting above the line it watches. Meridian tokens only. */
+
+.meridian-command-discovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-command-discovery__lede {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  max-height: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.meridian-command-discovery__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-command-discovery__row--active {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-command-discovery__name {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-command-discovery__binding {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__description {
+  flex: 1 1 auto;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__run {
+  flex: 0 0 auto;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__state {
+  display: flex;
+}
+
+/* The answer to a key press the command list could not honor. Muted, since it explains the
+   list rather than reporting a failure. */
+.meridian-command-discovery__notice {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/* An entry the provider declared disabled. Dimmed rather than hidden, because the driver
+   returns it so a disabled command is distinguishable from one that does not exist. The
+   declared state keeps the secondary weight; dimming it would hide what this row adds. */
+.meridian-command-discovery__row--unavailable .meridian-command-discovery__name,
+.meridian-command-discovery__row--unavailable .meridian-command-discovery__description {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-command-discovery__unavailable {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/* One labeled group inside the discovery listbox. `display: contents` is not used: the group
+   is a real row of the list's flex column, which keeps the heading above its rows without a
+   second gap rule. The nested list has no marker or indent, which would imply a hierarchy. */
+.meridian-command-discovery__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-command-discovery__group-label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meridian-command-discovery__group-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

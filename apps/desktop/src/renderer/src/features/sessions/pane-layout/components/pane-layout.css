@@ -1,0 +1,105 @@
+/* The pane layout: the panes, the separators between them, and the density presets. */
+
+/*
+ * The pane layout is bounded by the region it sits in, and `max-height` says so.
+ * `min-height: 0` lets a flex child shrink but not stop growing. With no ceiling a pane
+ * whose body overflowed pushed the pane layout past the session screen region, so the pane's
+ * own scroller never engaged and every list inside it mounted every row.
+ * `.meridian-session-screen-container` (in the transcript's sheet) carries the same ceiling
+ * one level up. A ceiling and not a `height`, so it bounds the broken case and moves no
+ * layout that already fitted.
+ */
+.meridian-pane-layout {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+}
+
+/*
+ * The panel group itself. `react-resizable-panels` fixes `display`, `flex-direction`,
+ * `flex-wrap` and `overflow` on it and documents that they cannot be overridden, so the
+ * pane layout's frame above carries anything that would have fought them.
+ */
+.meridian-pane-layout__group {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* One pane's frame. The panel owns the width, and the density floor rides its `minSize`. */
+.meridian-pane-layout__pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+/*
+ * The drop indicator: a bar on the edge the pane would land against. Own-built because the
+ * drag library ships no indicator, and drawn as a pseudo-element so it costs no node and no
+ * React render.
+ */
+.meridian-pane-layout__pane--drop-before::after,
+.meridian-pane-layout__pane--drop-after::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 2px;
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-pane-layout__pane--drop-before::after {
+  inset-inline-start: 0;
+}
+
+.meridian-pane-layout__pane--drop-after::after {
+  inset-inline-end: 0;
+}
+
+/*
+ * The separator is the library's widget wearing our chrome: focusable, arrow-operable, with
+ * the window-splitter ARIA, so every line below is paint. Drawn as a hairline and hit as a
+ * bar: the width is the target and the gradient is the line.
+ */
+.meridian-pane-layout__separator {
+  width: var(--meridian-space-2);
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent 40%,
+    var(--meridian-edge) 40% 60%,
+    transparent 60%
+  );
+  cursor: col-resize;
+}
+
+.meridian-pane-layout__separator:hover {
+  background: linear-gradient(
+    to right,
+    transparent 30%,
+    var(--meridian-accent) 30% 70%,
+    transparent 70%
+  );
+}
+
+/* --- Density presets ---------------------------------------------------- */
+
+/*
+ * The preset's minimum width is carried inline by the pane, from `pane-layout-density.ts`.
+ * The rhythm that goes with it is set here as custom properties on the pane layout, never as
+ * rules on the pane's own classes: `meridian-pane__head` is `PaneFrame.css`'s, and a second
+ * sheet writing against it would make the cascade answer by bundler emit order. This sheet
+ * states values and `PaneFrame.css` spends them.
+ */
+.meridian-pane-layout[data-density="comfortable"] {
+  --meridian-pane-head-padding-block: var(--meridian-space-3);
+}
+
+.meridian-pane-layout[data-density="compact"] {
+  --meridian-pane-head-padding-block: var(--meridian-space-1);
+  --meridian-pane-head-font-size: var(--meridian-text-xs);
+}

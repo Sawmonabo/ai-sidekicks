@@ -1,0 +1,51 @@
+/*
+ * The workflows screen's own composition: the runs column and the open pane that replaces it.
+ * Values come from the generated token sheet; nothing animates.
+ */
+
+/*
+ * The scroll lives on this element, not an inner wrapper: the element that scrolls must
+ * contain the focusable controls, or axe reports `scrollable-region-focusable`.
+ */
+.meridian-workflows-destination {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  block-size: 100%;
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
+/* Inset by the same gutter as `.meridian-workflow__strip` so the two columns line up. */
+.meridian-workflows-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding-inline: var(--meridian-space-5);
+  padding-block-end: var(--meridian-space-5);
+}
+
+.meridian-workflows-runs__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--meridian-text);
+}
+
+/*
+ * On a bare route there is no pane layout, so the opened pane takes the destination's place
+ * under one control back.
+ */
+.meridian-workflows-open-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-height: 0;
+}
+
+/* Shares `.meridian-workflow__action`'s look; this rule only adds where the button sits. */
+.meridian-workflows-open-pane__back {
+  align-self: flex-start;
+}

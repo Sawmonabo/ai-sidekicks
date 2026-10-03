@@ -1,0 +1,51 @@
+/* The preview pane's box, chrome bar and address field. No literal color: every value is read
+   from a Meridian custom property. */
+
+/*
+ * The pane body in two bands: a chrome bar that cannot grow and a viewport that takes the rest.
+ * The frame, boundary and background are drawn by `components/PaneFrame/PaneFrame.css`.
+ */
+.meridian-preview-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+.meridian-preview-chrome {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border-block-end: 1px solid var(--meridian-edge);
+  /* The bar is one centered row, so the shared button takes its arrangement through the custom
+     properties `../controls.css` declares, never by redeclaring its class here. */
+  --meridian-preview-action-align-self: center;
+  --meridian-preview-action-display: inline-flex;
+  --meridian-preview-action-align-items: center;
+  --meridian-preview-action-gap: var(--meridian-space-1);
+  --meridian-preview-action-white-space: nowrap;
+}
+
+.meridian-preview-chrome__address {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+/*
+ * The viewport clips: its reported rectangle positions a native view, and an unclipped box
+ * reports coordinates that reach past the pane.
+ */
+.meridian-preview-pane__viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: hidden;
+}

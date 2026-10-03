@@ -1,34 +1,21 @@
-// GOLDEN VECTOR - Claude turn-evidence result frames.
+// Golden vectors: Claude `result` frames recorded from Claude Code 2.1.251 (native single-file
+// build). Source: three live `claude -p --output-format stream-json` runs against that build,
+// same model and session shape, differing only in the message body (a command-shaped first
+// word, the same body with one prepended newline, ordinary prose). Every number is a reading.
+// The behavior also reproduced unchanged at 2.1.245.
 //
-//   Pin             : Claude Code 2.1.251 (the native single-file build)
-//   Provenance      : Binary probe. Three live `claude -p --output-format
-//                     stream-json` runs against the on-disk build on
-//                     2026-08-29, in one pass, same model and same session
-//                     shape, differing only in the message body: a
-//                     command-shaped first word, that same body with one
-//                     prepended newline, and ordinary prose.
-//   Trust           : Verified at 2.1.251. Every number below is a reading, not
-//                     an illustration. The same behaviour recorded at `2.1.245`
-//                     reproduced unchanged at this pin, so it is a standing
-//                     property of this input surface rather than one build's
-//                     regression.
+// The zero-turn frame is the instance every driver's turn-evidence classifier must trip on: a
+// client-composed reply with no model-turn attribution and no token usage, inside a
+// well-formed success envelope. The other two are negative controls. The API-errored one is
+// the sharper: a real, billed turn that ended in a provider-side refusal reports
+// `is_error: true` and renders its assistant message with the same synthetic model marker
+// the swallowed reply wears, so a classifier keyed on either field passes the swallow and
+// fails the real turn.
 //
-// WHAT THIS FIXTURE IS FOR.
-//
-// The zero-turn body is the normative instance every driver's turn-evidence
-// classifier must trip on: a client-composed reply with no model-turn
-// attribution and no token usage, delivered inside a well-formed SUCCESS
-// envelope. The other two are its negative controls, and the second of them is
-// the sharper one - a genuine, billed turn that ended in a provider-side
-// refusal, which reports `is_error: true` and renders its assistant message
-// with the same synthetic model marker the swallowed reply wears. A classifier
-// keyed on either field passes the swallow and fails the real turn.
-//
-// Frozen, and typed as a read-only record: these are shared module-level
-// singletons, and a consumer mutating one would silently re-point every other
-// consumer's control.
+// The frames are frozen: they are shared module-level singletons, and a consumer mutating
+// one would re-point every other consumer's control.
 
-/** The recorded zero-turn synthetic reply - the swallowed turn. */
+/** The recorded zero-turn synthetic reply: the swallowed turn a classifier must trip on. */
 export const CLAUDE_ZERO_TURN_RESULT_FRAME: Readonly<Record<string, unknown>> = Object.freeze({
   type: "result",
   subtype: "success",
@@ -41,7 +28,7 @@ export const CLAUDE_ZERO_TURN_RESULT_FRAME: Readonly<Record<string, unknown>> = 
   session_id: "32712e4d-5593-4b99-a93d-a9ae2af46bb7",
 });
 
-/** The recorded ordinary turn - the primary negative control. */
+/** The recorded ordinary turn: the primary negative control. */
 export const CLAUDE_ORDINARY_TURN_RESULT_FRAME: Readonly<Record<string, unknown>> = Object.freeze({
   type: "result",
   subtype: "success",
@@ -56,10 +43,7 @@ export const CLAUDE_ORDINARY_TURN_RESULT_FRAME: Readonly<Record<string, unknown>
   session_id: "f35a6a12-0bd6-48e7-a4cf-e4e977f84031",
 });
 
-/**
- * The recorded turn that reached the model and then hit a provider-side
- * refusal - the counterexample to `is_error` and to the synthetic model marker.
- */
+/** The recorded turn that reached the model and hit a provider-side refusal. */
 export const CLAUDE_API_ERRORED_TURN_RESULT_FRAME: Readonly<Record<string, unknown>> =
   Object.freeze({
     type: "result",

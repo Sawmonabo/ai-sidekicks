@@ -1,0 +1,116 @@
+/* The agent card and the agent list's allowlist note; the axis field, library and pane column have
+ * their own sheets. An absent axis is text, never a gap, so a blank never has to be read as
+ * "default" or "nobody asked".
+ */
+
+.meridian-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block: var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-agent-card:last-child {
+  border-block-end: 0;
+}
+
+.meridian-agent-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  flex-wrap: wrap;
+}
+
+.meridian-agent-card__name {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+/* Lifecycle, not binding: it shares the head with the name and is pushed to the end
+   of it, so the name stays the first thing read. */
+.meridian-agent-card__created {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  margin-inline-start: auto;
+}
+
+.meridian-agent-card__observed-reason,
+.meridian-agent-card__axis-absent {
+  color: var(--meridian-text-muted);
+}
+
+/* A figure the console derived rather than one the wire carried: it reads as text
+   at full weight, so a restriction somebody chose is never mistaken for an absence. */
+.meridian-agent-card__axis-derived {
+  color: var(--meridian-text);
+}
+
+.meridian-agent-card__effective,
+.meridian-agent-card__observed,
+.meridian-agent-card__tool-allowlist {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-agent-card__line-label,
+.meridian-agent-card__axis-label,
+.meridian-axis-field__label {
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-agent-card__axis {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-agent-card__disclosure-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-agent-card__resolved {
+  margin: var(--meridian-space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-agent-card__resolved-row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-agent-card__resolved-row dt {
+  min-width: 9ch;
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-agent-card__resolved-row dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-agents__allowlist-note {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

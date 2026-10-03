@@ -4,7 +4,7 @@ How work lands (branches, squash-merge, what CI and review mean on `develop`, th
 
 ## Commits
 
-Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package nouns (`contracts`, `crypto-paseto`, `client-sdk`, `daemon`, `control-plane`, `desktop`, `sidecar-rust-pty`, `pty-sidecar-publishing`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
+Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package nouns (`contracts`, `crypto-paseto`, `client-sdk`, `search-ranking`, `daemon`, `control-plane`, `desktop`, `sidecar-rust-pty`, `pty-sidecar-publishing`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
 
 ## Branch names
 
@@ -12,7 +12,7 @@ Cut every branch from `develop` as `<type>/<topic>` in kebab-case, where `type` 
 
 ## Hooks
 
-`pnpm install` installs them. Pre-commit: lint-staged (ESLint fix, Prettier) then a secret scan (gitleaks); commit-msg: commitlint. Never `--no-verify`. The worktree hook needs `jq` and `python3`; the secret scan uses `gitleaks` 8.30.1 or later and only warns when it is missing; `lychee` is optional locally (CI installs its own); Claude Code's code-intelligence plugins need `typescript-language-server` and the `rust-analyzer` rustup component. When several worktrees commit at once, a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) serialises them.
+`pnpm install` installs them. Pre-commit: lint-staged (ESLint fix, Prettier) then a secret scan (gitleaks); commit-msg: commitlint. Never `--no-verify`. The worktree hook needs `jq` and `python3`; the secret scan uses `gitleaks` 8.30.1 or later and only warns when it is missing; `lychee` is optional locally (CI installs its own); Claude Code's code-intelligence plugins need `typescript-language-server` and the `rust-analyzer` rustup component. When several worktrees commit at once, a repository-wide lock (`tools/lefthook-worktree-lock.mjs`) serializes them.
 
 ## Pull requests
 

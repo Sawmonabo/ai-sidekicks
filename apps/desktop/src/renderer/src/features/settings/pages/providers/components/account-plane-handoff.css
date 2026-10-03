@@ -1,0 +1,33 @@
+/* The line under an account-plane refusal that names where it is answered.
+
+   Its own sheet beside the component, since the block is one subject.
+
+   The action is a text button: the refusal above is already the loud thing on the page, and
+   a second emphatic control would compete with the sentence a person still has to read. */
+
+.meridian-account-handoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-2) 0 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-account-handoff__sentence {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.meridian-account-handoff__action {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}

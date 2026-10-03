@@ -1,74 +1,35 @@
-//! Pure POSIX→Win32 kill-semantics translator.
+//! Pure POSIX-to-Win32 kill translator.
 //!
-//! `PtyHost.kill(sessionId, signal)` on Windows MUST translate POSIX signal
-//! semantics to the Win32 `GenerateConsoleCtrlEvent` API
-//! `microsoft/node-pty#167`):
+//! Maps a [`PtySignal`] to a Win32 action:
 //!
-//! - `SIGINT`  → `CTRL_C_EVENT`     (graceful Ctrl+C delivery)
-//! - `SIGTERM` → `CTRL_BREAK_EVENT` (graceful break, escalate)
-//! - `SIGKILL` → tree-kill direct   (no console-control event; route to
-//! - `SIGHUP`  → tree-kill direct   (treat as hard-stop; matches the
-//!                                    `node-pty-host.ts` Phase 2 cascade)
+//! - `SIGINT` -> `CTRL_C_EVENT` (graceful).
+//! - `SIGTERM` -> `CTRL_BREAK_EVENT`, which the caller escalates if the child does not exit.
+//! - `SIGKILL` and `SIGHUP` -> tree kill (`taskkill /T /F`), with no console event.
 //!
-//! ## Why a separate module instead of inline match in `pty_session.rs`?
-//!
-//! The translator is **pure** — no I/O, no Win32 calls, no PTY state. A
-//! standalone module gives us:
-//!
-//!   1. A single point of truth for the POSIX→Win32 mapping that both the
-//!      sidecar's `pty_session::kill` (Phase 3 follow-up) and any future
-//!      higher-layer Windows-control surface can call into.
-//!   3. Stable scope-isolation: modifying the mapping (e.g., changing
-//!      SIGHUP's escalation) touches one file and surfaces the change in
-//!      the test diff rather than buried in a 900-line PTY holder.
-//!
-//! ## Phase boundary note
-//!
-//! The module ships with its tests so the mapping is locked-in before
-//! the wire-through PR; the reviewer can diff this single file when the
-//! wire-through lands.
-//!
+//! The mapping is pure, so it lives in one place and its tests need no Win32 mock.
 
 #![cfg(target_os = "windows")]
 
 use crate::protocol::PtySignal;
 
-/// Outcome of translating a POSIX signal for Windows delivery.
-///
-/// Either issue a `GenerateConsoleCtrlEvent` of the named code, or skip
-/// the console-control hop entirely and go straight to the
-/// `taskkill /T /F /PID <pid>` tree-kill path. The dispatcher is the
-/// caller; it pattern-matches and dispatches to either
-/// `windows-sys::Win32::System::Console::GenerateConsoleCtrlEvent` (the
-/// FFI binding lives outside this module — see follow-up task) or
-/// [`crate::tree_kill::taskkill_argv`].
+/// How to deliver a translated signal on Windows: as a console control event, or straight to
+/// `taskkill /T /F /PID <pid>` (see [`crate::tree_kill::taskkill_argv`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowsKillAction {
-    /// Issue `GenerateConsoleCtrlEvent(event, pid)` — graceful console
-    /// control event delivery. The dispatcher MUST follow up with an
-    /// escalation timer for `CTRL_BREAK_EVENT` `CTRL_C_EVENT` does not
-    /// auto-escalate (the consumer caller already chose the gentlest
-    /// signal).
+    /// Send `GenerateConsoleCtrlEvent(event, pid)`. The caller must follow `CTRL_BREAK_EVENT` with
+    /// an escalation timer; `CTRL_C_EVENT` is not escalated.
     ConsoleCtrlEvent(ConsoleCtrlEvent),
 
-    /// Skip console-control entirely; invoke `taskkill /T /F /PID <pid>`
-    /// directly. Reserved for `SIGKILL` and `SIGHUP` per the cascade
-    /// table above.
+    /// Skip console events and run `taskkill /T /F /PID <pid>`; used for `SIGKILL` and `SIGHUP`.
     TreeKill,
 }
 
-/// Win32 `GenerateConsoleCtrlEvent` event codes the sidecar issues.
+/// Win32 `GenerateConsoleCtrlEvent` event codes: `CTRL_C_EVENT` = 0 and `CTRL_BREAK_EVENT` = 1.
 ///
-/// Documented in [Win32 GenerateConsoleCtrlEvent docs](https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent):
+/// <https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent>
 ///
-/// - `CTRL_C_EVENT     = 0` — generates a CTRL+C signal (SIGINT analog)
-/// - `CTRL_BREAK_EVENT = 1` — generates a CTRL+BREAK signal (graceful
-///                            stop; `node-pty` treats this as the
-///                            hard-stop entry point per Phase 2)
-///
-/// Cast to `u32` at the FFI boundary — the underlying API takes a
-/// `DWORD`. The repr-numeric mapping is asserted by the unit tests so a
-/// future enum reordering breaks the build deliberately.
+/// Cast to `u32` at the FFI boundary (the API takes a `DWORD`); a unit test asserts the numeric
+/// values, since sending the wrong one turns a graceful interrupt into a hard stop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum ConsoleCtrlEvent {
@@ -77,9 +38,8 @@ pub enum ConsoleCtrlEvent {
 }
 
 impl ConsoleCtrlEvent {
-    /// Numeric code passed to `GenerateConsoleCtrlEvent`'s `dwCtrlEvent`
-    /// parameter. Matches the `repr(u32)` discriminant 1:1; exposed as
-    /// a method so callers can avoid `as u32` casts at every FFI site.
+    /// Numeric code for `GenerateConsoleCtrlEvent`'s `dwCtrlEvent` argument; saves `as u32` casts
+    /// at FFI sites.
     #[inline]
     #[must_use]
     pub fn as_u32(self) -> u32 {
@@ -87,45 +47,19 @@ impl ConsoleCtrlEvent {
     }
 }
 
-/// Translate a POSIX [`PtySignal`] to its Windows kill action.
-///
-/// Pure function: no I/O, no Win32 calls, deterministic. Total over the
-/// closed [`PtySignal`] enum.
-///
-/// See the module rustdoc for the full POSIX→Win32 cascade table. The
-/// returned [`WindowsKillAction`] MUST be dispatched by the caller; this
-/// function does not invoke `GenerateConsoleCtrlEvent` or `taskkill`
-/// directly so its testability is unconditional (no Win32 mock needed
-/// for the translator's unit tests).
+/// Translates a POSIX [`PtySignal`] to its Windows kill action; pure and total over the enum. The
+/// caller performs the action.
 #[must_use]
 pub fn translate(signal: PtySignal) -> WindowsKillAction {
     match signal {
         PtySignal::Sigint => WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
         PtySignal::Sigterm => WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
-        // SIGKILL is the immediate-hard-stop contract; skip the
-        // console-control-event hop and invoke taskkill directly
-        // "`SIGKILL` (immediate hard-stop) → `taskkill /T /F /PID
-        // <pid>` directly, skipping `CTRL_BREAK_EVENT`").
+        // Immediate hard stop: skip the console event.
         PtySignal::Sigkill => WindowsKillAction::TreeKill,
-        // SIGHUP is not pinned to a specific Windows mapping. Matching
-        // the most conservative graceful-then- force shape would be
-        // CTRL_BREAK_EVENT-then-escalate; matching the hard-stop
-        // semantics POSIX users typically associate with
-        // SIGHUP-on-controlling-terminal is taskkill direct. The
-        // `node-pty-host.ts` Phase 2 implementation chose
-        // CTRL_BREAK_EVENT-then-escalate (mirroring SIGTERM); the
-        // sidecar deliberately diverges to `TreeKill` direct because:
-        //   - `node-pty-host.ts` SIGHUP path goes through the same
-        //     2 s timer + escalation that SIGTERM uses, which is
-        //     observably equivalent to TreeKill direct from the
-        //     daemon's perspective on a child that ignores
-        //     CTRL_BREAK.
-        //   - The Phase 3 sidecar dispatcher does not need to
-        //     synthesize a 2 s timer for a signal whose terminal
-        //     semantics map cleanly to "kill the tree."
-        // The divergence is documented; if a future consumer needs
-        // matching behavior across hosts, switch the variant here and
-        // update `kill_translation_translates_sighup_to_tree_kill`.
+        // SIGHUP has no fixed Windows mapping. `node-pty-host.ts` sends it down the SIGTERM path
+        // (CTRL_BREAK, then taskkill after 2 s). The sidecar goes straight to tree kill, which is
+        // where a child that ignores CTRL_BREAK ends up anyway, and needs no sidecar-side timer. To
+        // match the host, change this arm and its row in the tests.
         PtySignal::Sighup => WindowsKillAction::TreeKill,
     }
 }
@@ -134,85 +68,30 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
 mod tests {
     use super::*;
 
-    // Verification — exhaustive unit coverage of the POSIX→Win32
-    // mapping. One test per [`PtySignal`] variant so a partial
-    // enum match (or a future variant added without updating this
-    // module) is caught at compile time AND at test time.
-
     #[test]
-    fn translates_sigint_to_ctrl_c_event() {
-        // `SIGINT` MUST map to `CTRL_C_EVENT`.
-        assert_eq!(
-            translate(PtySignal::Sigint),
-            WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
-        );
-    }
-
-    #[test]
-    fn translates_sigterm_to_ctrl_break_event() {
-        // `SIGTERM` (graceful hard-stop) MUST map to
-        // `CTRL_BREAK_EVENT` first.
-        assert_eq!(
-            translate(PtySignal::Sigterm),
-            WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
-        );
-    }
-
-    #[test]
-    fn translates_sigkill_to_tree_kill_direct() {
-        // `SIGKILL` (immediate hard-stop) skips `CTRL_BREAK_EVENT`
-        // and invokes `taskkill /T /F /PID <pid>` directly.
-        assert_eq!(translate(PtySignal::Sigkill), WindowsKillAction::TreeKill);
-    }
-
-    #[test]
-    fn translates_sighup_to_tree_kill_direct() {
-        // SIGHUP→TreeKill divergence from `node-pty-host.ts` is
-        // documented in `translate`'s match arm. Pin the chosen
-        // mapping so a future regression to CTRL_BREAK_EVENT-then-
-        // escalate is a deliberate choice with a test diff, not a
-        // silent behavioral flip.
-        assert_eq!(translate(PtySignal::Sighup), WindowsKillAction::TreeKill);
-    }
-
-    // ConsoleCtrlEvent numeric codes — load-bearing because the FFI
-    // binding casts via `as u32` at the call site. A future enum
-    // reordering MUST trip these tests rather than silently changing
-    // the wire-level Win32 call.
-
-    #[test]
-    fn ctrl_c_event_numeric_code_is_zero() {
-        // CTRL_C_EVENT = 0 per Win32 docs (linked in module rustdoc).
-        assert_eq!(ConsoleCtrlEvent::CtrlC.as_u32(), 0);
-        assert_eq!(ConsoleCtrlEvent::CtrlC as u32, 0);
-    }
-
-    #[test]
-    fn ctrl_break_event_numeric_code_is_one() {
-        // CTRL_BREAK_EVENT = 1 per Win32 docs.
-        assert_eq!(ConsoleCtrlEvent::CtrlBreak.as_u32(), 1);
-        assert_eq!(ConsoleCtrlEvent::CtrlBreak as u32, 1);
-    }
-
-    // Total-coverage exhaustiveness check: enumerate every PtySignal
-    // variant via a let-match over a synthetic instance and ensure
-    // `translate` returns a non-panicking value. Also serves as a
-    // compile-time tripwire — adding a new variant to `PtySignal`
-    // without updating `translate` triggers `non_exhaustive_patterns`
-    // here too. (The match in `translate` itself is the primary
-    // tripwire; this is belt-and-braces.)
-    #[test]
-    fn translate_is_total_over_pty_signal() {
-        for signal in [
-            PtySignal::Sigint,
-            PtySignal::Sigterm,
-            PtySignal::Sigkill,
-            PtySignal::Sighup,
+    fn translates_each_signal_to_its_windows_action() {
+        // SIGINT is the graceful CTRL_C; SIGTERM is CTRL_BREAK, which the caller escalates; SIGKILL
+        // and SIGHUP skip the console event for a tree kill.
+        for (signal, action) in [
+            (
+                PtySignal::Sigint,
+                WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
+            ),
+            (
+                PtySignal::Sigterm,
+                WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
+            ),
+            (PtySignal::Sigkill, WindowsKillAction::TreeKill),
+            (PtySignal::Sighup, WindowsKillAction::TreeKill),
         ] {
-            // Just exercise — the per-variant assertions above pin the
-            // exact return values. Here we ensure `translate` does not
-            // panic on any input.
-            let _ = translate(signal);
+            assert_eq!(translate(signal), action, "{signal:?}");
         }
+    }
+
+    #[test]
+    fn console_events_carry_the_win32_codes() {
+        // Win32 defines CTRL_C_EVENT as 0 and CTRL_BREAK_EVENT as 1.
+        assert_eq!(ConsoleCtrlEvent::CtrlC.as_u32(), 0);
+        assert_eq!(ConsoleCtrlEvent::CtrlBreak.as_u32(), 1);
     }
 }

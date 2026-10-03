@@ -1,0 +1,209 @@
+// The renderer's test tiers as Vitest projects: renderer (unit), browser, accessibility, bundle,
+// e2e and endurance, plus two kept off the aggregate `test` script: `screenshot`, a local capture
+// aid that compares nothing, and `bench`, which appends to the benchmark ledger.
+//
+// No tier is configured by a Playwright runner config, and none exists. `e2e` and `endurance` are
+// Vitest projects in a Node environment, because the test file drives the app, which runs in
+// another process launched through `tests/helpers/electron-harness.ts`, the package's single
+// `_electron` launch. Browser mode drives Playwright for the page tiers.
+//
+// They live beside `vitest.config.ts` because the tiers share the fixture define, the
+// source-condition resolution and the browser-mode options.
+
+import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
+
+import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../tests/helpers/launch-budgets.js";
+import { tierTimeoutFor } from "../tests/helpers/launch-deadline.js";
+import {
+  browserModeOptions,
+  BROWSER_MODE_DEDUPE,
+  BROWSER_MODE_OPTIMIZE_DEPS,
+  BROWSER_MODE_SETUP_FILES,
+  WORKSPACE_SOURCE_CONDITIONS,
+} from "./browser-mode.js";
+import {
+  pinScreenshotTierUpdateMode,
+  SCREENSHOT_TIER_MATCH_OPTIONS,
+  SCREENSHOT_TIER_PROVIDER_OPTIONS,
+  SCREENSHOT_TIER_TIMEOUT_MS,
+} from "./screenshot-pins.js";
+import { iconCompilationPlugin } from "./icon-compilation.js";
+import { PATH_ALIASES } from "./path-aliases.js";
+
+// Always write, never compare. Called while this module is evaluated, before any project's
+// snapshot mode is decided, so a bare `vitest run --project=screenshot` behaves as the package
+// script does. `screenshot-pins.ts` says why it is an environment variable.
+pinScreenshotTierUpdateMode();
+
+/**
+ * The renderer unit tests that sit outside `src/renderer/src/`: the scenario contract check in
+ * `tests/helpers/`. They run under the renderer project's DOM, so the Node projects whose globs
+ * reach the same folders exclude them.
+ */
+export const RENDERER_TESTS_OUTSIDE_SOURCE: readonly string[] = [
+  "tests/helpers/scenario-contract-check/**/*.test.ts",
+];
+
+/** Every tier that runs under Vitest, in the order they run, before the shared plugins. */
+const TIERS: readonly TestProjectInlineConfiguration[] = [
+  {
+    // Tier: unit. Store transitions, projection arms, exhaustiveness, the refusal grammar,
+    // co-located with the code they prove.
+    define: { __FIXTURE_BUILD__: "true" },
+    resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS },
+    ssr: { resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS } },
+    test: {
+      name: "renderer",
+      environment: "happy-dom",
+      include: ["src/renderer/src/**/*.test.{ts,tsx}", ...RENDERER_TESTS_OUTSIDE_SOURCE],
+      globals: true,
+    },
+  },
+  {
+    // Tier: browser. Geometry and pixel invariants a DOM shim cannot answer: happy-dom returns
+    // zeroes for every rect, so a reading-anchor or scroll assertion would pass vacuously.
+    define: { __FIXTURE_BUILD__: "true" },
+    resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
+    optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+    test: {
+      name: "browser",
+      include: ["tests/browser/**/*.test.{ts,tsx}"],
+      globals: true,
+      setupFiles: BROWSER_MODE_SETUP_FILES,
+      browser: browserModeOptions(),
+    },
+  },
+  {
+    // Tier: screenshot (component half), a local capture aid. It writes every surface's picture
+    // into the gitignored `__screenshots__/` and compares against nothing, so it gates no branch
+    // and runs in no CI job.
+    define: { __FIXTURE_BUILD__: "true" },
+    resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
+    optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+    test: {
+      name: "screenshot",
+      include: ["tests/screenshot/**/*.test.{ts,tsx}"],
+      globals: true,
+      setupFiles: BROWSER_MODE_SETUP_FILES,
+      // Derived from the wait a capture at the window ceiling is given, never written down;
+      // `screenshot-pins.ts` owns the arithmetic. Both figures, because a suite here mounts its
+      // surface in a hook.
+      testTimeout: SCREENSHOT_TIER_TIMEOUT_MS,
+      hookTimeout: SCREENSHOT_TIER_TIMEOUT_MS,
+      browser: {
+        ...browserModeOptions(SCREENSHOT_TIER_PROVIDER_OPTIONS),
+        expect: { toMatchScreenshot: SCREENSHOT_TIER_MATCH_OPTIONS },
+      },
+    },
+  },
+  {
+    // Tier: accessibility. `axe-core` runs inside the browser-mode page rather than through
+    // `@axe-core/playwright`, which needs a `@playwright/test` `Page`; Vitest browser mode hands
+    // that only to server-side custom commands, and it is the orchestrator page, not the tester
+    // iframe.
+    define: { __FIXTURE_BUILD__: "true" },
+    resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
+    optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+    test: {
+      name: "accessibility",
+      include: ["tests/accessibility/**/*.test.{ts,tsx}"],
+      globals: true,
+      setupFiles: BROWSER_MODE_SETUP_FILES,
+      browser: browserModeOptions(),
+    },
+  },
+  {
+    // Tier: bundle. Chunk sizes against `budgets.json`, and claims about what a release bundle
+    // does not contain, since both need the built tree and no other tier has one.
+    //
+    // It names renderer constants so a rename breaks it at compile time, and those modules read
+    // the renderer's build-time gate, which is `false` here because this process is not a build.
+    define: {
+      __FIXTURE_BUILD__: "false",
+    },
+    test: {
+      name: "bundle",
+      environment: "node",
+      include: ["tests/budget/**/*.test.ts"],
+    },
+  },
+  {
+    // Tier: end-to-end. A real Electron process and window driven through Playwright's
+    // `_electron`, the path a person installing the app runs, which no other tier renders. Node
+    // environment because the test file is the driver and the code under test runs in another
+    // process. Each file is named for the defect it reproduces, not the module it touches.
+    //
+    // Playwright's auto-retrying `expect` is not used: its web-assertion timeouts come from a
+    // test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
+    // `expect.poll`), asserting is Vitest's, and every wait is handed
+    // `bodyAllowance.boundedMs(<its own bound>)` so the first wait that cannot fit names its step.
+    //
+    // Requires `pnpm build:fixtures`; the tests skip when the bundle is absent
+    // (`fixtureBundleExists`) instead of failing inside Electron's startup.
+    //
+    // It imports renderer constants so a rename breaks it at compile time. Their build-time gate
+    // is `false` because the driver is not a fixture build; the window it launches is.
+    define: {
+      __FIXTURE_BUILD__: "false",
+    },
+    test: {
+      name: "e2e",
+      environment: "node",
+      include: ["tests/e2e/**/*.test.ts"],
+      // Derived from the registered bounds, never written down: the launch budget, this tier's
+      // body allowance and the settlement residual. Every phase reports its own overrun first, so
+      // vitest's generic kill is only the backstop.
+      testTimeout: tierTimeoutFor(BODY_ALLOWANCE_MS),
+      hookTimeout: tierTimeoutFor(BODY_ALLOWANCE_MS),
+      // One Electron at a time: each holds a GPU context and a profile directory, and parallel
+      // files would make a four-core runner the thing being measured.
+      fileParallelism: false,
+    },
+  },
+  {
+    // Tier: endurance. The same application, held open and driven, with the heap read at both
+    // ends of the run. Its own project so `pnpm test:e2e` stays a fast gate and the slow tier is
+    // opted into by name.
+    //
+    // It imports renderer source, and the global it asserts on belongs to the renderer in another
+    // process, so the fixture flag is `false` as in `e2e`, like `main-unit`'s
+    // `__SMOKE_BUILD__` define.
+    define: {
+      __FIXTURE_BUILD__: "false",
+    },
+    test: {
+      name: "endurance",
+      environment: "node",
+      include: ["tests/endurance/**/*.test.ts"],
+      // Derived from this tier's own body allowance: hundreds of driven churn cycles with settling
+      // heap samples either side are a different subject from an end-to-end body.
+      testTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
+      hookTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
+      fileParallelism: false,
+    },
+  },
+  {
+    // Tier: bench. It gates on a speed-up ratio with a wide margin rather than a time, and stays
+    // off the aggregate `test` script because each run appends to `tests/bench/ledger.json`. The
+    // fixture flag is `false`: a benchmark measures the shipping path, and the flag decides whether
+    // imported renderer modules publish tripwires onto `globalThis`.
+    define: { __FIXTURE_BUILD__: "false" },
+    test: {
+      name: "bench",
+      environment: "node",
+      include: ["tests/bench/**/*.test.ts"],
+    },
+  },
+];
+
+/**
+ * The same tiers, each resolving `~icons/*` and the path aliases. Declared as a map so no tier can
+ * forget one, which would fail at import with an unplaceable specifier only for the tiers that
+ * reach it. Each tier gets a fresh plugin, since a Vite plugin instance belongs to the config that
+ * installs it.
+ */
+export const TIER_PROJECTS: readonly TestProjectConfiguration[] = TIERS.map((tier) => ({
+  ...tier,
+  resolve: { ...tier.resolve, alias: PATH_ALIASES },
+  plugins: [iconCompilationPlugin()],
+}));

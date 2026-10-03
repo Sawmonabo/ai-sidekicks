@@ -1,10 +1,6 @@
-/**
- * Error taxonomy for `@ai-sidekicks/crypto-paseto`.
- *
- * Messages are structural only — they carry no key, signature, plaintext,
- * or ciphertext bytes (invariant I4 in the design spec).
- */
+// Messages are structural only: they never carry key, signature, plaintext or ciphertext bytes.
 
+/** Thrown when a token is malformed or fails verification; its message names the failed check. */
 export class InvalidTokenError extends Error {
   constructor(message: string) {
     super(message);
@@ -12,6 +8,7 @@ export class InvalidTokenError extends Error {
   }
 }
 
+/** Thrown when a key or nonce has the wrong length, or a key ring breaks its invariants. */
 export class InvalidKeyError extends Error {
   constructor(message: string) {
     super(message);
@@ -19,6 +16,7 @@ export class InvalidKeyError extends Error {
   }
 }
 
+/** An {@link InvalidTokenError} for a v4.local token whose authentication tag does not match. */
 export class MacMismatchError extends InvalidTokenError {
   constructor(message: string = "MAC mismatch") {
     super(message);

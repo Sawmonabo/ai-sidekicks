@@ -1,18 +1,10 @@
-// A measurement against a budget's ceiling.
-//
-// The comparison, alone, so that every harness runs the SAME one: `<=` written a
-// second time in a measuring script is a second place a budget can be loosened,
-// and `endurance/heap-at-rest.test.ts` plants a ceiling one byte under its own
-// reading to prove this function bites rather than returning `withinBudget: true`
-// unconditionally.
-//
-// It takes a row rather than a registry, so it depends on the document's shape
-// and on nothing that reads a file — which is what keeps `budget-registry.mts`
-// free to re-export it without the two modules importing each other.
+// Compares a measurement with a budget's ceiling. Every harness runs this one comparison, so `<=`
+// is never written a second time in a measuring script, where a budget could be loosened.
 
-import { type ConsoleBudget } from "./budget-document.mts";
+import { type Budget } from "./budget-document.mts";
 
-export interface ConsoleBudgetVerdict {
+/** The outcome of comparing one measurement with one budget, in the canonical unit. */
+export interface BudgetVerdict {
   readonly budgetId: string;
   readonly measuredCanonicalValue: number;
   readonly limitCanonicalValue: number;
@@ -22,10 +14,8 @@ export interface ConsoleBudgetVerdict {
   readonly utilizationFraction: number;
 }
 
-export function evaluateBudget(
-  budget: ConsoleBudget,
-  measuredCanonicalValue: number,
-): ConsoleBudgetVerdict {
+/** Compares a measurement with the budget's canonical limit; a value equal to it passes. */
+export function evaluateBudget(budget: Budget, measuredCanonicalValue: number): BudgetVerdict {
   const limitCanonicalValue = budget.limit.canonicalValue;
   return Object.freeze({
     budgetId: budget.id,

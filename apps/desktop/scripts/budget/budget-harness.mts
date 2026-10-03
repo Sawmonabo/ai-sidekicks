@@ -1,33 +1,19 @@
-// The shell both budget harnesses run inside.
+// The runner both budget harnesses run inside. It owns the report skeleton and the mapping from a
+// verdict to a process exit code, so two harnesses cannot disagree on how a verdict reads or what
+// "over budget" exits with.
 //
-// A measuring harness owns its own reading and nothing else: this file owns the
-// report skeleton every reading prints inside, and the mapping from a verdict to
-// a process exit code. Two harnesses therefore cannot drift apart on how a
-// budget verdict reads, or on what "over budget" exits with.
-//
-// ONE MEASUREMENT, N GATES. A harness declares a list of gates rather than a
-// single budget id, because one walk of one subject can answer more than one row
-// and re-walking it per row is both slower and a second reading that can disagree
-// with the first. The renderer bundle is the case that forced it: its initial
-// graph carries two classes of byte measured in two units — compressed code
-// against `renderer-initial-bundle`, raw font files against `renderer-initial-fonts`
-// — and gzip over a `woff2` is not a measurement of anything, since the container
-// is Brotli-compressed already. A harness bounding one row passes a one-gate list.
-//
-// Split from `budget-registry.mts`, which parses `budgets.json` and is a
-// registry of budgets and nothing else. This module reads that one; nothing
-// reads this one but the two harnesses.
+// A harness declares a list of gates rather than one budget id, because one walk of one subject
+// can answer several rows, and re-walking it per row is slower and can disagree with the first
+// reading. The renderer bundle needs it: code is gated gzipped and fonts raw.
 
 import console from "node:console";
 
-import {
-  ConsoleBudgetRegistry,
-  evaluateBudget,
-  formatUnavailableBudgetReport,
-  type ConsoleBudget,
-  type ConsoleBudgetVerdict,
-} from "./budget-registry.mts";
+import { BudgetRegistry } from "./budget-registry.mts";
+import { evaluateBudget, type BudgetVerdict } from "./budget-evaluation.mts";
+import { formatUnavailableBudgetReport } from "./budget-report.mts";
+import { type Budget } from "./budget-document.mts";
 
+/** Formats a byte count with thousands separators, for example `92,497 B`. */
 export function formatBytes(byteCount: number): string {
   return `${byteCount.toLocaleString("en-US")} B`;
 }
@@ -38,14 +24,14 @@ function formatByteDelta(byteDelta: number): string {
 }
 
 /** The provenance line every harness prints above its own reading. */
-function formatBudgetRegistryHeaderLines(registry: ConsoleBudgetRegistry): readonly string[] {
+function formatBudgetRegistryHeaderLines(registry: BudgetRegistry): readonly string[] {
   return [`  registry:      ${registry.budgetsFilePath}`];
 }
 
 /** One gate, resolved against the registry and evaluated against a reading. */
 export interface BudgetGateReading {
-  readonly budget: ConsoleBudget;
-  readonly verdict: ConsoleBudgetVerdict;
+  readonly budget: Budget;
+  readonly verdict: BudgetVerdict;
   /** What the compared figure is a figure of, for the verdict line. */
   readonly measuredDescription: string;
 }
@@ -77,7 +63,7 @@ interface BudgetReportSections {
 export function formatBudgetReport(
   sections: BudgetReportSections,
   gateReadings: readonly BudgetGateReading[],
-  registry: ConsoleBudgetRegistry,
+  registry: BudgetRegistry,
 ): string {
   return [
     sections.title,
@@ -92,9 +78,8 @@ export function formatBudgetReport(
 }
 
 /**
- * Thrown by a harness whose subject does not exist — no build to measure. The
- * shell prints it and exits 2, so a budget is never reported green for a
- * subject nobody read.
+ * Thrown by a harness whose subject does not exist, such as a missing build. The runner prints it
+ * and exits 2, so a budget is never reported green for a subject nobody read.
  */
 export class BudgetSubjectMissingError extends Error {
   constructor(message: string) {
@@ -115,7 +100,7 @@ export interface BudgetGate<TMeasurement> {
 /** A gate paired with the row it named, so no later step re-looks one up by index. */
 interface ResolvedBudgetGate<TMeasurement> {
   readonly gate: BudgetGate<TMeasurement>;
-  readonly budget: ConsoleBudget;
+  readonly budget: Budget;
 }
 
 interface BudgetHarness<TMeasurement> {
@@ -126,28 +111,23 @@ interface BudgetHarness<TMeasurement> {
   readonly format: (
     measurement: TMeasurement,
     gateReadings: readonly BudgetGateReading[],
-    registry: ConsoleBudgetRegistry,
+    registry: BudgetRegistry,
   ) => string;
 }
 
 /**
- * The tail both budget CLIs share: resolve every row, take the one reading,
- * print it, and map the outcome to the exit code — 0 within budget, 1 over, 2
- * when there was nothing to read. A harness's own usage errors are its own exit
- * 2, raised before this is reached.
- *
- * Every row is resolved BEFORE the subject is measured, so an id no registry row
- * carries refuses at once rather than after the walk; and every gate is evaluated
- * even once one is over, so a run reports the whole picture rather than the first
- * failure.
+ * The tail both budget CLIs share: resolve every row, take the one reading, print it, and return
+ * the exit code: 0 within budget, 1 over, 2 when there was nothing to read. Rows are resolved
+ * before measuring so an unknown id refuses at once, and every gate is evaluated even once one is
+ * over so a run reports the whole picture.
  */
 export async function runBudgetHarness<TMeasurement>(
   harness: BudgetHarness<TMeasurement>,
 ): Promise<number> {
-  const registry = ConsoleBudgetRegistry.load();
+  const registry = BudgetRegistry.load();
   if (harness.gates.length === 0) {
-    // `every` over an empty list is true, so a gate-less harness would print a
-    // reading and exit 0 having compared it against nothing.
+    // `every` over an empty list is true, so a gate-less harness would exit 0 having compared
+    // nothing.
     throw new Error("A budget harness must declare at least one gate.");
   }
   const resolvedGates: readonly ResolvedBudgetGate<TMeasurement>[] = harness.gates.map((gate) => ({

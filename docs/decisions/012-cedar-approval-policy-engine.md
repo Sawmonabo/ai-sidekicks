@@ -11,25 +11,25 @@
 
 ## Context
 
-The system defines 9 approval categories that govern what actions agents may take autonomously versus what requires human confirmation. Microsoft's Agent Governance Toolkit uses Cedar for agent policy enforcement. Cedar's principal-action-resource-context model maps directly to approval decisions (who is requesting, what action, on what resource, under what session context). Externalizing policies from application code makes them auditable and changeable without redeployment.
+The system defines approval categories that govern what actions agents may take autonomously versus what requires human confirmation. Microsoft's Agent Governance Toolkit uses Cedar for agent policy enforcement. Cedar's principal-action-resource-context model maps directly to approval decisions (who is requesting, what action, on what resource, under what session context). Keeping the rules as policy text in their own files, apart from the code that asks for a decision, makes them one rule set that can be read and tested on its own.
 
 ## Problem Statement
 
-What policy engine should evaluate the 9 approval categories so that authorization decisions stay auditable, operator-tunable, and decoupled from application release cadence?
+What policy engine should evaluate the approval categories so that authorization decisions stay readable, testable as one rule set, and separate from the code that asks for them?
 
 ### Trigger
 
-Approval logic was accumulating inside application code, making it impossible to audit or modify policies without a full deploy. The architecture program needs to pick a dedicated policy engine before approval specs and UI surface freeze.
+Approval logic spread through application code has no single rule set to read or to test against reference cases. A dedicated policy engine has to be chosen before the approval specs and UI surface are built.
 
 ## Decision
 
-Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in YAML that are compiled to Cedar at build time and evaluated in-process by the resident, signature-verified `@cedar-policy/cedar-wasm` authorizer — the compiled set is parsed once at startup and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale. Decision caching is rejected for this local in-process authorizer: it buys nothing at in-process latency and adds policy-update staleness. WASM is the V1 evaluation substrate, not a V1.1 arrival. V1.1 adds runtime policy-bundle loading, enabling dynamic policy updates without redeployment.
+Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval rules are `.cedar` files in the service's own source, compiled into the service with it, and changed and shipped only by an app update, like any other code. The service evaluates them in-process with the resident `@cedar-policy/cedar-wasm` authorizer: the policy set and schema are parsed once at start and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale against a changed approval rule, project trust or posture. A decision cache buys nothing at in-process latency for this local authorizer.
 
 ## Alternatives Considered
 
-### Option A: Cedar with YAML Policy Definitions (Chosen)
+### Option A: Cedar with rules written in Cedar (Chosen)
 
-- **What:** Define approval policies in YAML, compile to Cedar policy sets, evaluate in-process with the resident Cedar WASM authorizer from V1. Runtime policy-bundle loading arrives in V1.1.
+- **What:** Write the approval rules as `.cedar` files in the service's own source, compile them into the service with it, and evaluate them in-process with the resident Cedar WASM authorizer.
 - **Steel man:** Cedar's principal-action-resource-context model is purpose-built for authorization. CNCF backing signals longevity. WASM target enables in-process evaluation without native FFI.
 
 ### Option B: OPA / Rego (Rejected)
@@ -40,153 +40,57 @@ Use Cedar (CNCF sandbox) as the approval policy engine. V1 defines policies in Y
 ### Option C: Hardcoded Approval Logic (Rejected)
 
 - **What:** Implement approval checks directly in application code.
-- **Why rejected:** Not auditable. Every policy change requires a code change, review, and deployment. Cannot be inspected or overridden by administrators without developer involvement.
+- **Why rejected:** The rules end up spread across the code that calls them, with no single rule set to read or to test against reference cases, and every new category becomes another branch in that code.
 
 ## Assumptions Audit
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Cedar's principal-action-resource-context model can express all 9 approval categories without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
+| 1 | Cedar's principal-action-resource-context model can express every approval category without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for categories that do not fit, fragmenting the engine. |
 | 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; the microsecond policy-evaluation benchmarks are **native-engine** figures — the WASM path (including JS↔WASM marshaling) has no published benchmark and stays unvalidated until the end-to-end benchmark in §Decision Validation is run. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
-| 3 | YAML-to-Cedar compilation in V1 gives operators enough authoring ergonomics until runtime **policy-bundle loading** ships in V1.1 (the resident WASM evaluator itself ships at V1; this assumption is only about bundle-loading timing). | YAML captures the structural aspects of policies; runtime bundle loading arrives as soon as the signing/custody pipeline is proven. | Operators demand live policy edits before V1.1, forcing an earlier bundle-loading ship with more risk. |
-| 4 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
+| 3 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
 
 ## Failure Mode Analysis
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| A policy category cannot be expressed cleanly in Cedar | Med | Med | Policy review during spec implementation; unit tests against reference cases | Extend Cedar context attributes or fall back to an application-level pre-check for that category |
-| Cedar WASM has a correctness bug that allows or denies unintended actions | Low | High | Policy test suite plus canary evaluation comparing WASM vs reference interpreter | Pin Cedar versions, add dual-evaluation for sensitive categories, and ship rapid rollback for policy sets |
-| Policy authoring (YAML→Cedar) surprises operators with unexpected denials | Med | Med | Dry-run evaluation UI and deny-rate dashboards | Ship policy simulation tooling and staged rollout per category |
-| Cedar upstream introduces breaking changes that invalidate stored policies | Low | Med | Upstream release notes and pinned CI on new Cedar versions | Version-tag compiled policy sets; run migrations during upgrades |
+| A policy category cannot be expressed cleanly in Cedar | Med | Med | Policy review during spec implementation; unit tests against reference cases | Extend the Cedar context attributes the service passes for that category |
+| Cedar WASM has a correctness bug that allows or denies unintended actions | Low | High | The policy test suite's reference cases for every category | Pin the Cedar version, and fix forward with an app update that carries a corrected Cedar release or a rule written around the bug |
+| A rule written in Cedar produces an unexpected refusal or an unexpected allow | Med | Med | The policy test suite's reference cases for every category, run with the service's tests on every change to the rules | Correct the `.cedar` file and ship it in the next app update |
+| Cedar upstream introduces breaking changes that invalidate the rules | Low | Med | Upstream release notes and the policy test suite run against each new Cedar release | A Cedar upgrade ships in an app update together with the rules adjusted to it |
 
 ## Reversibility Assessment
 
 - **Reversal cost:** Medium. Policies and their evaluation sites are well isolated, but every approval path calls the policy engine, so replacement touches each integration.
-- **Blast radius:** Approval service, CLI/desktop approval prompts, audit logs, and any runtime code that branches on approval decisions.
-- **Migration path:** Introduce an engine-agnostic policy interface, run Cedar and a replacement engine in shadow mode, diff decisions, then cut over once divergence is zero.
-- **Point of no return:** After operator-authored policies accumulate in production and audit logs reference Cedar policy identifiers, replacement requires a coordinated policy-translation effort.
+- **Blast radius:** Approval service, CLI/desktop approval prompts, approval records, and any runtime code that branches on approval decisions.
+- **Migration path:** Every check goes through the daemon's one permission-check service, so replacing Cedar means rewriting the `.cedar` rules for the new engine, swapping the evaluator behind that service, and passing the same reference cases, shipped in one app update.
+- **Point of no return:** The rule set grows with each approval category, so a later replacement means translating every rule.
 
 ## Consequences
 
 ### Positive
 
-- Policies are externalized, auditable, and modifiable without code changes (V1.1)
+- Policies are one rule set, kept apart from the code that asks for a decision, and testable against reference cases
 - Cedar's authorization model is a natural fit for approval decisions
 - WASM target keeps policy evaluation in-process with no sidecar
 
 ### Negative (accepted trade-offs)
 
 - Cedar is newer and less widely adopted than OPA; smaller ecosystem of tooling and examples
-- V1 uses YAML-to-Cedar compilation, adding a redeploy per policy change (the compiled set is build-embedded); V1.1 removes that cost with runtime policy-bundle loading — the deferral is bundle loading only, the resident WASM evaluator ships at V1
+- A rule change ships only with an app update, like any other code change
 
-## Policy Chain of Custody
+## Cedar Version Pin
 
-Cedar's security model assumes trustworthy policy input. A daemon that evaluates attacker-controlled policy text produces attacker-controlled authorization decisions. This section defines how policy artifacts are signed, distributed, verified, versioned, and rotated so that the integrity assumption Cedar relies on is actually established at runtime.
-
-### Scope By Phase
-
-**V1 (compiled policy set embedded at build time; resident in-process WASM evaluation).** Policy text is compiled to a Cedar policy set and embedded in the daemon artifact at build time per §Decision, and evaluated from V1 by the resident, signature-verified `@cedar-policy/cedar-wasm` authorizer — parse-once at startup, per-request evaluation, **no decision cache**. The in-process verified artifact is the **compiled policy set** — a detached signature under the operator release key (pinned algorithm per §Signing Algorithm: Ed25519 by default, ECDSA P-256 compliance fallback), verified on every daemon start before any `PermissionCheck` is served, in both topologies — while whole-image signing remains the distribution pipeline's supply-chain layer: images are signed by the operator's release signing key, and containerized daemons additionally refuse to start if the image they were launched from cannot be verified against the pinned operator public key.
-
-**V1.1 (runtime policy-bundle loading).** Policy text ships as a detached bundle `policy-bundle-v{N}.cedar.tar.gz` with a companion detached signature `policy-bundle-v{N}.cedar.tar.gz.sig`. The daemon loads the bundle into the **already-resident** `@cedar-policy/cedar-wasm` evaluator at runtime — the evaluator itself ships at V1; V1.1 adds dynamic loading, not WASM evaluation. Policy chain of custody becomes a distinct concern from image signing. This section's bundle-level rules apply from V1.1 forward; the V1 rules above remain the floor.
-
-### Signing Key Identity
-
-A single operator signing keypair (the _operator release key_) signs daemon images, the V1 build-embedded compiled policy set (its detached signature), and, from V1.1, policy bundles. The private half is held by the operator release infrastructure. The public half is pinned in the daemon at build time:
-
-- **Hosted Sidekicks daemons:** pinned to the Sidekicks operator public key baked into the official daemon image at build.
-- **Self-hosted daemons:** the operator public key is injected at image build time via an `OPERATOR_PUBLIC_KEY` build argument. Self-hosters rebuild the daemon image with their organization's operator public key substituted in. Self-hosters who run unmodified hosted images implicitly trust the Sidekicks operator key; this is the same trust boundary any signed-container-image ecosystem imposes.
-
-The operator signing key is distinct from user identity keys ([ADR-010](./010-paseto-webauthn-mls-auth.md), [ADR-021](./021-cli-identity-key-storage-custody.md)). It never signs user-scoped artifacts. It signs only operator-produced, operator-released artifacts (daemon images; the V1 compiled policy set's detached signature; V1.1+ policy bundles).
-
-### Signing Algorithm
-
-- **Primary:** Ed25519 (FIPS 186-5 approved; consistent with ADR-010 PASETO v4 and ADR-021 user identity keys; small signatures; constant-time implementations widely available).
-- **Configurable fallback:** ECDSA P-256 for deployments requiring FIPS 140-3 module validation where an Ed25519 module is not yet available in the operator's compliance envelope.
-
-Signature algorithm is selected at build time per daemon image. Daemons reject bundles signed with an algorithm other than the one their pinned key uses.
-
-### Policy Bundle Format (V1.1+)
-
-```
-policy-bundle-v{N}.cedar.tar.gz
-  manifest.json           # bundle version N, build timestamp, algorithm, hash
-  policies/*.cedar        # Cedar policy files
-  schema.cedarschema.json # Cedar schema the policies validate against
-policy-bundle-v{N}.cedar.tar.gz.sig  # detached signature over the tar.gz
-```
-
-The manifest records the bundle version `N` (monotonic unsigned integer), the build timestamp, the signing algorithm, and the SHA-256 hash of the tarball contents. The detached signature covers the tarball bytes.
-
-### Atomic, Versioned Updates
-
-The bundle version `N` is a monotonic unsigned integer baked into the signed manifest. The daemon persists `last_verified_bundle_version` in its local SQLite store. When evaluating a candidate bundle:
-
-- If `candidate.N <= last_verified_bundle_version`: **reject** (rollback protection; prevents an attacker who captures an older signed bundle from replaying it against a daemon that has already accepted a newer one).
-- If `candidate.N > last_verified_bundle_version` and signature verifies and manifest timestamp is within freshness window: **accept atomically** (swap the evaluator's policy set, then persist the new `last_verified_bundle_version` in the same local transaction).
-
-Partial-apply is not permitted. A bundle is accepted whole or rejected whole.
-
-### Verification On Daemon Start And Update
-
-**V1 (build-embedded compiled policy set).** On every daemon start, before any `PermissionCheck` is served, the daemon verifies the detached signature over the build-embedded compiled Cedar policy set against the pinned operator public key, using the algorithm pinned at build time (§Signing Algorithm). There is no manifest, tarball hash, freshness window, or monotonic version counter at V1 — those are the V1.1 bundle-only checks below, and a V1 daemon MUST NOT apply the `policy-bundle-*` checks to the build-embedded set. On failure — signature invalid, or the compiled set absent/corrupt — the daemon **fails closed and refuses to start**, emitting the typed log `policy-artifact-signature-invalid`, in both topologies per §Scope By Phase. Whole-image signature verification (containerized daemons only) is a separate supply-chain layer, not this in-process check.
-
-**V1.1 (runtime policy bundle).** On every daemon start and on every bundle-update attempt, the daemon:
-
-1. Parses the detached `.sig` using the algorithm pinned at the daemon's build time (not a value read from `manifest.algorithm`). A bundle whose `manifest.algorithm` disagrees with the pinned algorithm is rejected with `policy-bundle-algorithm-mismatch` before any cryptographic verification is attempted, closing the attack where a malicious bundle advertises the pinned algorithm while its `.sig` is produced under a different one.
-2. Verifies the signature against the pinned operator public key.
-3. Recomputes the SHA-256 hash of the bundle tarball and checks against the manifest hash.
-4. Checks the manifest timestamp is within the daemon's freshness window (V1.1 default: 180 days; operator-configurable at build time).
-5. Checks the monotonic version counter per the rule above.
-
-If any step fails, the daemon **fails closed**: it does not evaluate approvals against the unverified bundle, it does not fall back to any previous in-memory bundle, and it reports `ApprovalPolicyEngineUnavailable` via `RecoveryStatusRead`. Operators resolve the failure via the runbook (see below).
-
-### V1 Operator Key Lifecycle
-
-V1 is deliberately minimal. Pretending otherwise would be the larger risk.
-
-- **Normal rotation:** The operator generates a new signing keypair, builds a new daemon image with the new public key pinned in place of the old, **re-signs the build-embedded compiled policy set under the new key and verifies it locally before publishing** (all topologies — an image pinned to the new key but carrying a policy set still signed by the old key fails startup with `policy-artifact-signature-invalid`), releases the new image, and notifies daemon operators to upgrade. V1 does not support dual-pinning, so rotation is a coordinated upgrade event, not a hot rotation. Full procedure: [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md) §Scenario C.
-- **Compromise response:** The operator revokes the compromised key from release infrastructure, generates a replacement keypair, publishes an emergency daemon image pinned to the replacement public key **with the build-embedded compiled policy set re-signed under the replacement key and locally verified — so the compromised key is out of the policy-artifact chain, not just the image signature**, and advises daemon operators to upgrade immediately. Daemons that have not yet upgraded will continue to accept artifacts signed by the compromised key until they upgrade — this gap is acknowledged and not papered over. Operators requiring stronger compromise semantics must forward-declare to V2+ (see below).
-- **Multi-signature thresholds:** Not supported in V1. The operator release key is a single keypair held by the operator release infrastructure.
-
-### Forward Declarations For V2+
-
-The V1/V1.1 design deliberately leaves the following for V2+:
-
-- **TUF (The Update Framework):** role-based multi-signature thresholds with snapshot/targets/timestamp/root role separation and rollback protection beyond the monotonic counter (TUF spec v1.0.34 as of 2026-01-22).
-- **Sigstore keyless (Fulcio):** short-lived OIDC-bound signing certificates, eliminating long-lived operator key custody as a category.
-- **Rekor transparency log:** third-party tamper-evident append-only record of operator signing events (Rekor v2 GA as of 2026).
-- **Post-quantum signatures:** ML-DSA (FIPS 204) or SLH-DSA (FIPS 205) hybrids alongside Ed25519. NIST finalized Aug 2024; no production-grade PQC signing tooling integrates cleanly into container-image and policy-bundle release pipelines as of 2026-04.
-- **Online revocation / CRL:** V1 has no way to revoke a published bundle or image short of publishing a newer one with a higher version counter. An online revocation channel is V2+ scope.
-- **HSM-backed operator key custody:** V1 assumes the operator release infrastructure holds the signing key. Hardware root-of-trust custody of the operator key is V2+ scope.
-
-### Cedar Version Pin
-
-The daemon pins `@cedar-policy/cedar-wasm` at Cedar **v4.11** from **V1** (current stable as of 2026-06, verified against the npm registry; 12.9 MB unpacked at 4.11.2, and the registry's latest is 4.13.0 at 13.1 MB as of 2026-09-21 while the pin stays on the 4.11 line; [Plan-010](../plans/010-approvals-permissions-and-trust-boundaries.md) pins 4.11.x on the embedded set). Policy bundles (V1.1+) declare their target Cedar version in the manifest. Daemons reject bundles whose target version does not match the daemon's compiled cedar-wasm version. A Cedar major-version upgrade is a coordinated daemon-image upgrade event and changes this decision, so it is recorded here before it ships.
-
-### Related Operational Docs
-
-The operational procedures for signing a V1.1 policy bundle, diagnosing a daemon that refuses to enforce approvals because signature verification failed, rotating the operator signing key, and responding to a suspected operator-key compromise are in:
-
-- [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md)
+The daemon depends on `@cedar-policy/cedar-wasm` on the Cedar **v4.11** line (12.9 MB unpacked at 4.11.2; [Plan-009](../plans/009-approvals-permissions-and-trust-boundaries.md) pins 4.11.x). A Cedar upgrade ships in an app update, with the built-in rules checked against it by the policy test suite.
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Approval categories expressible purely in Cedar (no app-side fallback) | 9 / 9 categories from the canonical `ApprovalCategory` enum | Policy spec review | `2026-07-01` |
-| Cedar end-to-end policy decision latency per request — WASM build, **including JS↔WASM marshaling** (empirical target; no published WASM benchmark exists) | < 1 ms at p95 | End-to-end benchmark, then approval service metrics | `2026-10-01` |
-| Operator-initiated policy updates that ship without a code deploy (V1.1) | 100% of tuning changes post-V1.1 | Policy-set releases compared against code releases | `2026-12-01` |
+| Approval categories expressible purely in Cedar (no app-side fallback) | Every category of the canonical `ApprovalCategory` enum | Policy spec review | When the approval policy set lands |
+| Cedar end-to-end policy decision latency per request — WASM build, **including JS↔WASM marshaling** (empirical target; no published WASM benchmark exists) | < 1 ms at p95 | End-to-end benchmark, then approval service metrics | When the composed approval gate is benchmarked, before it ships |
 
 ## References
 

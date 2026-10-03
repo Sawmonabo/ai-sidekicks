@@ -1,23 +1,19 @@
-# Doc-corpus integrity CI, two checks and one aggregator.
+# Doc-corpus integrity CI: two checks and one aggregator.
 #
-#   1. lychee-inbound — file:// + anchor integrity, offline. The PR-introduced
-#      regression we own: a broken `[text](./file.md#anchor)` cite. Required via
-#      docs-corpus-gate, and path-filtered — a PR touching no markdown skips it.
-#   2. lychee-outbound — outbound HTTP probe, online. Third-party drift and link
-#      rot we do not own (WAFs rejecting bot user agents, remotes timing out).
-#      It runs on a weekly schedule, never on a PR, and files an issue when it
-#      finds rot. The split reflects the real error model: an outbound failure
-#      means a third-party server misbehaved; an inbound failure means the PR
-#      introduced a broken anchor.
+#   1. lychee-inbound: `file://` and anchor integrity, offline. It catches a PR that breaks a
+#      `[text](./file.md#anchor)` cite. Required via docs-corpus-gate and path-filtered, so a PR
+#      touching no markdown skips it.
+#   2. lychee-outbound: outbound HTTP probe, online. Third-party drift and link rot we do not own
+#      (WAFs rejecting bot user agents, remotes timing out). It runs weekly, never on a PR, and
+#      files an issue when it finds rot. The split follows the error model: an outbound failure is a
+#      third-party server misbehaving; an inbound failure is a broken anchor the PR introduced.
 #
-# Branch protection on main requires the `docs-corpus-gate` job (only); develop
-# requires no check. Per ADR-023 §Axis 1, individual jobs are not stable
-# required-check targets — the aggregator pattern is. The gate treats a skipped
-# job as success, so a path filter never leaves it pending.
+# Branch protection on main requires only the `docs-corpus-gate` job; develop requires no check.
+# Individual jobs are not stable required-check targets; the aggregator is. The gate treats a
+# skipped job as success, so a path filter never leaves it pending.
 #
-# The lychee install is duplicated across the inbound + outbound jobs (inline
-# curl + sha256 verify against the v0.24.2 musl-static asset). Keep the two
-# `LYCHEE_VERSION` constants in sync — two sites, one binary.
+# The lychee install is duplicated across the two jobs (inline curl plus a sha256 check against the
+# musl-static asset). Keep the two `LYCHEE_VERSION` constants in sync.
 
 name: docs-corpus
 
@@ -117,11 +113,8 @@ jobs:
 
   lychee-outbound:
     name: lychee — outbound HTTP (weekly)
-    # Weekly only. It used to run on every PR as an advisory check, where its
-    # single product was a yellow annotation nobody was accountable for: a
-    # third-party 502 is not caused by the PR it appears on and cannot be fixed
-    # by its author. On a schedule the same finding becomes an issue with an
-    # owner and a log, and PR runs lose a whole-repo HTTP sweep.
+    # Weekly only: a third-party 502 is not caused by the PR it appears on and its author cannot fix
+    # it. On a schedule the finding becomes an issue with an owner and a log.
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
@@ -157,25 +150,18 @@ jobs:
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Run lychee (online — outbound HTTP probes) and file an issue on rot
-        # Whole-repo HTTP probing for outbound link rot. `--include-fragments=
-        # none` disables anchor checking on HTTP-fetched pages (anchors on
-        # JS-rendered third-party docs aren't in the static HTML lychee parses
-        # — Node.js / NIST / Cloudflare / Docusaurus / Sphinx / Swagger UI all
-        # do this). Inbound `file.md#anchor` checks are covered by the offline
-        # pass in `lychee-inbound`. The accept-list for 200..=299 and 429 lives
-        # in `.lychee.toml` so the same policy applies whichever runner invokes
-        # lychee.
+        # Whole-repo HTTP probe for outbound link rot. `--include-fragments=none` disables anchor
+        # checking on fetched pages, because anchors on JS-rendered third-party docs are not in the
+        # static HTML lychee parses. Inbound `file.md#anchor` checks are the offline pass in
+        # `lychee-inbound`. The accept-list (200..=299 and 429) lives in `.lychee.toml` so any
+        # runner applies the same policy.
         #
-        # The retry absorbs transient runner-network flakes ("Connection failed"
-        # on healthy hosts that answer 200 from any other vantage). lychee's
-        # per-URL `max_retries` is already 2, but a whole-run flake (DNS hiccup,
-        # a packet drop in the runner's egress path) retries every URL together.
-        # One outer attempt after a 15s pause catches the observed flakes and
-        # still surfaces real rot when both passes agree.
+        # One outer retry after a 15s pause absorbs whole-run flakes (a DNS hiccup or dropped packet
+        # retries every URL together, beyond lychee's per-URL `max_retries`) and still surfaces real
+        # rot when both passes agree.
         #
-        # The step exits 0 after filing the issue: the issue IS the signal, and
-        # a red weekly run that nobody owns is the noise this job was moved off
-        # pull requests to escape.
+        # The step exits 0 after filing the issue: the issue is the signal, and a red weekly run
+        # nobody owns is noise.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -219,16 +205,14 @@ jobs:
     if: always()
     steps:
       - name: Aggregate required-checks status
-        # One predicate for every job: `skipped` counts as success, so a
-        # path-filtered job that did not need to run cannot hold the gate
-        # pending. `cancelled` and `failure` are neither accepted result and
-        # still fail here.
+        # One predicate for every job: `skipped` counts as success, so a path-filtered job that did
+        # not need to run cannot hold the gate pending. `cancelled` and `failure` are not accepted
+        # and still fail.
         #
-        # `changes` is checked too. A path filter that ERRORS skips every job
-        # that needs it, and a skip is indistinguishable from a filter miss — so
-        # without this line a broken filter would take `lychee-inbound` down
-        # with it and still leave the gate green. On the weekly schedule
-        # `changes` is legitimately skipped, which the helper accepts.
+        # `changes` is checked too: a path filter that errors skips every job that needs it,
+        # indistinguishable from a filter miss, so without this line a broken filter would take
+        # `lychee-inbound` with it and leave the gate green. On the weekly schedule `changes` is
+        # legitimately skipped, which the helper accepts.
         run: |
           fail=0
           check() {

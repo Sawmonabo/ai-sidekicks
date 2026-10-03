@@ -1,38 +1,22 @@
-// The window lifecycle-reachability probe.
+// The window lifecycle-reachability probe. The caller's compile-time `__SMOKE_BUILD__`
+// gate means a release build references nothing here and Rollup drops the module.
 //
-// Lives beside the entrypoint for the reason its sibling gives: `index.ts` is
-// the startup ORDER, and a probe body inlined there hides the next step of it.
-// The caller's `__SIDEKICKS_SMOKE_BUILD__` gate is compile-time-static, so a
-// release build references nothing here and Rollup drops the whole module.
+// It runs GC-pressure cycles sampling `v8.queryObjects(BrowserWindow)`, closes every window,
+// collects, takes one post-close sample, and prints one `[SIDEKICKS_GC_PROBE]` line that
+// `tests/lifecycle.gc.test.ts` parses. The contract: the count is stable across the cycles,
+// `window-all-closed` does not fire mid-loop, and the count drops by at least one per window
+// after close. The per-window drop tells the user-created instance apart from a fixed
+// non-instance match that a bare "count >= 1" would let pass.
 //
-// WHAT IT MEASURES. The probe drives K iterations of GC pressure and samples
-// `v8.queryObjects(BrowserWindow)` after each cycle, then closes every window,
-// lets the close unwind, collects once more, and takes one post-close sample —
-// and emits one summary line tagged `[SIDEKICKS_GC_PROBE]` that
-// `apps/desktop/test/lifecycle.gc.test.ts` parses. It asserts the observable
-// lifecycle contract: the count is stable across the cycles (the window stays
-// reachable across the `.then(...)` callback unwind), `window-all-closed` does
-// not fire mid-loop, and the count drops by at least one per window once the
-// windows are closed. That last, per-window delta is what tells the
-// user-created instance apart from the fixed non-instance match a count-only
-// sample cannot identify: a bare "count >= 1" would still pass with the
-// instance gone and that match remaining.
-//
-// The load-bearing reachability mechanism is Electron's native-side
-// `BaseWindow::self_ref_`
-// (a `v8::Global<v8::Value>` strong-rooted from `InitWith` to native
-// destruction); the user-side module-scope window handle in `index.ts` is
-// defensive consistency with the canonical community pattern, not the GC
-// anchor. So this probe is a future-regression guard against Electron
-// internals shifting `self_ref_` semantics — not proof that removing that
-// handle would break a fix-state.
+// The window is kept reachable by Electron's native `BaseWindow::self_ref_` (a strong
+// `v8::Global` rooted until native destruction), so this probe guards against Electron
+// changing those semantics.
 
 import { BrowserWindow, type App } from "electron";
 import { setImmediate as nextMacrotask, setTimeout as wait } from "node:timers/promises";
 import { queryObjects } from "node:v8";
 
-/** The stdout marker `apps/desktop/test/lifecycle.gc.test.ts` parses. */
-export const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
+import { GC_PROBE_TAG } from "@shared/probe-tags.js";
 
 /** GC cycles per run. Twenty is enough for a retention leak to show as drift. */
 const PROBE_ITERATIONS = 20;
@@ -43,28 +27,35 @@ const PROBE_ALLOCATION_BYTES = 8 * 1024 * 1024;
 /** Settle time after each allocation, so a collection has a chance to run. */
 const PROBE_SETTLE_MS = 50;
 
+/** The summary line's payload: one probe run's samples and what they show. */
+export interface GcProbeReading {
+  readonly ok: boolean;
+  readonly queryObjectsAvailable: boolean;
+  readonly globalGcAvailable: boolean;
+  readonly iterations: number;
+  readonly counts: readonly number[];
+  readonly min: number;
+  readonly max: number;
+  /** Windows open when the loop ended; the per-window delta's denominator. */
+  readonly windowsOpened: number;
+  /** The loop's last sample, taken with every window still open. */
+  readonly openCount: number;
+  /** One sample after every window closed, the close unwound, and a collection. */
+  readonly closedCount: number;
+  readonly allClosedFired: boolean;
+}
+
 /**
- * One probe run and the one fact it observes about the app.
- *
- * A class because the run and the `window-all-closed` observation are ONE piece
- * of state: the flag is written by an app-level listener and read by the run's
- * own summary line, and holding it as a free module-level `let` — which is what
- * this was — lets any later edit add a second writer with nothing to stop it.
- * Private field, one writer, one reader.
+ * One probe run and the one fact it observes about the app: whether `window-all-closed` fired.
+ * A class so the flag has a single writer (the app listener) and a single reader (the summary).
  */
 export class GcProbe {
   #windowAllClosedFired = false;
 
   /**
-   * Registers the probe-scoped `window-all-closed` listener.
-   *
-   * `index.ts` registers its own `window-all-closed` handler at module-eval
-   * time, synchronously, before `whenReady` resolves — so this listener is
-   * invoked second. That is fine: `EventEmitter` invokes every registered
-   * listener synchronously within a single `emit()`, so the flag is set during
-   * the same pass as the `app.quit()` in the first listener, and `app.quit`
-   * only SCHEDULES the quit sequence (`before-quit` / `will-quit` / `quit`) on
-   * later ticks, so it cannot pre-empt this one.
+   * Registers the probe-scoped `window-all-closed` listener. `index.ts` registers its own
+   * handler first; both run in the same `emit()`, and `app.quit` only schedules the quit
+   * sequence, so it cannot pre-empt this listener.
    */
   public observe(electronApp: App): void {
     electronApp.on("window-all-closed", () => {
@@ -76,19 +67,14 @@ export class GcProbe {
   public async run(electronApp: App): Promise<void> {
     const counts: number[] = [];
     const queryObjectsAvailable = typeof queryObjects === "function";
-    const globalGcAvailable = typeof globalThis.gc === "function";
+    const collectGarbage = globalThis.gc;
+    const globalGcAvailable = collectGarbage !== undefined;
 
     for (let iteration = 0; iteration < PROBE_ITERATIONS; iteration++) {
-      if (globalGcAvailable) {
-        globalThis.gc?.();
-        globalThis.gc?.();
-      }
+      collectTwice(collectGarbage);
       const throwaway = new Uint8Array(PROBE_ALLOCATION_BYTES);
       throwaway[0] = iteration & 0xff;
-      if (globalGcAvailable) {
-        globalThis.gc?.();
-        globalThis.gc?.();
-      }
+      collectTwice(collectGarbage);
       await wait(PROBE_SETTLE_MS);
       counts.push(queryObjects(BrowserWindow, { format: "count" }));
     }
@@ -96,57 +82,54 @@ export class GcProbe {
     const min = counts.length > 0 ? Math.min(...counts) : 0;
     const max = counts.length > 0 ? Math.max(...counts) : 0;
     const openCount = counts.at(-1) ?? 0;
-    // Read before the close phase: closing the last window is what fires
-    // `window-all-closed`, so the flag is only a mid-loop observation up to here.
+    // Read before the close phase: closing the last window is what fires `window-all-closed`.
     const allClosedFiredDuringLoop = this.#windowAllClosedFired;
     const windowsOpened = BrowserWindow.getAllWindows().length;
 
-    // The app-level `window-all-closed` handler schedules `app.quit()`; this
-    // preventer keeps the process alive for the post-close sample, and the
-    // `app.exit(0)` below bypasses `before-quit` entirely.
+    // The app-level `window-all-closed` handler schedules `app.quit()`; this keeps the process
+    // alive for the post-close sample, and the `app.exit(0)` below bypasses `before-quit`.
     electronApp.on("before-quit", (event) => {
       event.preventDefault();
     });
     await closeEveryWindow();
-    // Two macrotasks so the `closed` dispatch and its native frames unwind, then
-    // a precise collection — the settling procedure a post-close reading needs
-    // to be trustworthy.
+    // Two macrotasks let the `closed` dispatch and its native frames unwind before a collection.
     await nextMacrotask();
     await nextMacrotask();
-    if (globalGcAvailable) {
-      globalThis.gc?.();
-      globalThis.gc?.();
-    }
+    collectTwice(collectGarbage);
     await wait(PROBE_SETTLE_MS);
     const closedCount = queryObjects(BrowserWindow, { format: "count" });
 
-    console.log(
-      `${GC_PROBE_TAG} ${JSON.stringify({
-        ok: true,
-        queryObjectsAvailable,
-        globalGcAvailable,
-        iterations: PROBE_ITERATIONS,
-        counts,
-        min,
-        max,
-        windowsOpened,
-        openCount,
-        closedCount,
-        allClosedFired: allClosedFiredDuringLoop,
-      })}`,
-    );
+    const reading: GcProbeReading = {
+      ok: true,
+      queryObjectsAvailable,
+      globalGcAvailable,
+      iterations: PROBE_ITERATIONS,
+      counts,
+      min,
+      max,
+      windowsOpened,
+      openCount,
+      closedCount,
+      allClosedFired: allClosedFiredDuringLoop,
+    };
+    console.log(`${GC_PROBE_TAG} ${JSON.stringify(reading)}`);
     electronApp.exit(0);
   }
 }
 
+/** Two collections, where the process exposes `gc`; nothing where it does not. */
+function collectTwice(collectGarbage: (() => void) | undefined): void {
+  if (collectGarbage === undefined) {
+    return;
+  }
+  collectGarbage();
+  collectGarbage();
+}
+
 /**
- * Closes every open window and resolves once each has emitted `closed`.
- *
- * A helper rather than a loop in `run()` on purpose: a `for … of` over the
- * windows inside `run()`'s suspended async frame would keep the final iteration
- * binding alive across the post-close sample and root the very wrapper the
- * sample is meant to see released. Here the `map` callback's frame returns
- * before the caller awaits, and the resolved promises hold no window.
+ * Closes every open window and resolves once each has emitted `closed`. A helper, not a loop
+ * in `run()`, because a `for … of` in `run()`'s suspended frame would keep the last window
+ * bound across the post-close sample and root the wrapper the sample expects released.
  */
 function closeEveryWindow(): Promise<void> {
   const closing = BrowserWindow.getAllWindows().map((browserWindow) => {
@@ -162,15 +145,9 @@ function closeEveryWindow(): Promise<void> {
 }
 
 /**
- * Starts one probe run on a fresh event-loop tick.
- *
- * The deferral lets the caller's `whenReady` continuation unwind its locals
- * before the loop samples the heap — and the scheduled arrow is authored HERE,
- * closing over this module's `probe` alone, so it cannot capture the caller's
- * `BrowserWindow` local and root the very window the probe is measuring. That
- * capture hazard is the reason the state used to sit at module scope in
- * `index.ts`; moving the closure into this module removes the hazard instead of
- * working around it.
+ * Starts one probe run on a fresh tick, so the caller's `whenReady` locals unwind before the
+ * heap is sampled. The scheduled arrow closes over `probe` alone, so it cannot capture and
+ * root the caller's window.
  */
 export function startGcProbe(electronApp: App): void {
   const probe = new GcProbe();

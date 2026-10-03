@@ -1,45 +1,10 @@
-// Client-side JSON-RPC transport contract surface
+// The client-side transport contract: type-only, so it emits as a `.d.ts`.
 //
-// It deliberately contains NO runtime imports — every export is a type or
-// interface so the file emits as `.d.ts`-only at the isolated-declarations
-// boundary.
-//
-//   * typed JSON-RPC client transport surface owed to desktop renderer + CLI
-//     consumers.
-//     + `transport/types.ts` CREATE.
-//   * task contract for the file pair (the `JsonRpcClient` class signature +
-//     `LocalSubscriptionConsumer<T>` / `Handler<Req, Res>` shapes). The original
-//     plan body named the consumer interface `LocalSubscription<T>` renamed it to
-//     `LocalSubscriptionConsumer<T>` to disambiguate from the server-side
-//     producer in `@ai-sidekicks/contracts`.
-//
-// What this file does NOT define (deferred to sibling files / phases):
-//   * The runtime `JsonRpcClient` class implementation — owned by
-//     `./jsonRpcClient.ts` (sibling).
-//   * Concrete transport implementations (Node net.Socket, in-memory, browser
-//     MessagePort) — downstream test fixtures.
-//   * The `sessionClient` SDK methods.
-//
-// Naming-collision history (resolved landed 2026-05-19):
-//   The CLIENT-side `LocalSubscriptionConsumer<T>` declared here is
-//   INTENTIONALLY distinct from the SERVER-side `LocalSubscriptionProducer<T>`
-//   in `@ai-sidekicks/contracts/jsonrpc-streaming.ts`. The two are NOT
-//   structurally compatible:
-//     * Server producer (`LocalSubscriptionProducer<T>`): `next(value: T): void`,
-//       `complete(): void`, `cancel(): void` — the handler EMITS values into
-//       this handle.
-//     * Client consumer (this file, `LocalSubscriptionConsumer<T>`):
-//       `next(): Promise<T | undefined>`, `cancel(): Promise<void>`,
-//       `[Symbol.asyncIterator](): AsyncIterator<T>` — the SDK caller
-//       CONSUMES values out of this handle.
-//   Both interfaces were originally declared as `LocalSubscription<T>`, which
-//   collided. The producer/consumer suffix rename resolves it so
-//   call-site imports unambiguously select the correct shape: SDK consumers
-//   import `LocalSubscriptionConsumer` from this file; server-side primitives
-//   import `LocalSubscriptionProducer` from `@ai-sidekicks/contracts`.
-//
-// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string): mirrors
-// the narrowed `JsonRpcRequest.protocolVersion` at the contracts layer.
+// `LocalSubscriptionConsumer<T>` here is deliberately not the server-side
+// `LocalSubscriptionProducer<T>` in `@ai-sidekicks/contracts`. The producer is what a daemon
+// handler emits values into (`next(value)`, `complete()`, `cancel()`); the consumer is what an SDK
+// caller pulls values out of (`next()`, `cancel()`, `[Symbol.asyncIterator]()`). The two shapes are
+// not structurally compatible.
 
 import type {
   HandlerContext,
@@ -48,252 +13,89 @@ import type {
   JsonRpcResponseEnvelope,
 } from "@ai-sidekicks/contracts";
 
-// --------------------------------------------------------------------------
-// ClientTransport — pluggable byte-frame transport
-// --------------------------------------------------------------------------
-
 /**
- * The pluggable byte-frame transport boundary the `JsonRpcClient` consumes.
- * Implementations OWN:
- *   * Establishing and tearing down the underlying connection (Unix socket,
- *     Windows named pipe, in-memory MessagePort, etc.).
- *   * The substrate's `parseFrame` / `encodeFrame` (in
- *     `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`) is the
- *     canonical algorithm; transport implementations on the SDK side
- *     reimplement (or import via a future framing-helper move) the same
- *     framing rules.
- *   * Backpressure handling for outbound writes. The interface declares
- *     `send` as `void | Promise<void>` so Node `net.Socket` implementations
- *     can return the awaitable that resolves when the kernel buffer drains.
- *
- * The `JsonRpcClient` works at the JSON-RPC envelope layer above framing —
- * it produces `JsonRpcRequest` / `JsonRpcNotification` objects and consumes
- * `JsonRpcResponseEnvelope` / `JsonRpcNotification` objects. Bytes are the
- * transport's concern.
- *
- * Design note: this matches the MCP TypeScript SDK transport boundary
- * (reference). Their `Transport` interface has `send`, `onmessage`, `onclose`,
- * `onerror`, `start`, `close`. We collapse `start` into the constructor (the
- * transport is connected by the time it reaches the client) and treat `onerror`
- * as a specialization of `onClose(reason)`.
+ * The byte-frame transport a `JsonRpcClient` runs over. An implementation owns the connection (Unix
+ * socket, Windows named pipe, in-memory double), the framing (the same rules as the daemon's
+ * `parseFrame` in `content-length-framing.ts` and `encodeFrame` in `local-ipc-gateway.ts`), and
+ * backpressure on outbound writes. The client works on JSON-RPC envelopes above the framing and
+ * never sees bytes.
  */
 export interface ClientTransport {
   /**
-   * Send a JSON-RPC envelope (request or notification) to the daemon.
+   * Send a JSON-RPC envelope to the daemon: JSON-encode it, frame it with the LSP
+   * `Content-Length: <bytes>\r\n\r\n<body>` header, and write the bytes.
    *
-   * Implementations MUST:
-   *   1. JSON-encode the envelope (`JSON.stringify`).
-   *   2. Frame it with the LSP `Content-Length: <bytes>\r\n\r\n<body>`
-   *      header.
-   *   3. Write the framed bytes to the underlying transport.
-   *
-   * The return type is `void | PromiseLike<void>` so synchronous
-   * transports (in-memory test doubles), asynchronous transports (Node
-   * `net.Socket` write paths that await drain), AND non-native thenables
-   * (cross-realm Promises from workers/iframes, custom thenable wrappers)
-   * all fit. Callers route the awaitable through `Promise.resolve(...)`
-   * to absorb arbitrary thenables before attaching rejection handlers,
-   * since `PromiseLike` only contractually exposes `.then` (TC39 spec)
-   * — `.catch` and `.finally` are NOT guaranteed.
+   * The return may be synchronous, a native promise (a socket write that awaits drain) or any
+   * thenable; callers wrap it in `Promise.resolve` because `PromiseLike` guarantees only `.then`.
    */
   send(envelope: JsonRpcRequest | JsonRpcNotification): void | PromiseLike<void>;
 
   /**
-   * Register the inbound message dispatcher. The transport MUST call the
-   * handler EXACTLY ONCE per parsed inbound envelope; the handler is
-   * responsible for discriminating response-vs-notification (`"id" in msg`
-   * → response; otherwise notification).
-   *
-   * Per the JSON-RPC section 5 contract, the inbound stream may carry:
-   *   * `JsonRpcResponseEnvelope` — success or error responses to outbound
-   *     requests (correlated by `id`).
-   *   * `JsonRpcNotification` — server-emitted notifications (e.g.
-   *     `$/subscription/notify` per the streaming primitive).
-   *
-   * The handler is registered ONCE and called for every inbound frame.
-   * Implementations SHOULD throw if `onMessage` is called more than once
-   * per transport instance (a single client owns the inbound stream).
+   * Register the inbound message dispatcher. The transport calls it exactly once per parsed
+   * envelope, either a response to an outbound request (told apart by `"id" in msg`) or a
+   * notification such as `$/subscription/notify`. A single client owns the inbound stream, so an
+   * implementation should throw if this is called more than once.
    */
   onMessage(handler: (msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void): void;
 
   /**
-   * Register a transport-close observer. Called EXACTLY ONCE when the
-   * transport disconnects (peer-initiated, local-initiated, or error).
-   *
-   * The optional `reason` carries the underlying error when available.
-   * Clean shutdowns invoke the handler with `reason: undefined`. The
-   * `JsonRpcClient` uses this hook to reject every in-flight request with
-   * a typed transport-closed error.
+   * Register a close observer, called exactly once when the transport disconnects. `reason`
+   * carries the underlying error; a clean shutdown passes `undefined`. The client rejects every
+   * in-flight request with a transport-closed error.
    */
   onClose(handler: (reason?: Error) => void): void;
 
   /**
-   * Initiate transport shutdown. Returns a promise that resolves when the
-   * underlying connection is fully torn down (kernel buffers drained,
-   * socket closed). After `close()` resolves:
-   *   * The `onClose` handler has fired.
-   *   * Subsequent `send()` calls MUST throw.
-   *   * The transport instance is single-use; reuse requires a fresh
-   *     instance.
+   * Shut the transport down; resolves once the connection is fully torn down. Afterward the
+   * `onClose` handler has fired, `send()` must throw, and the instance is single-use.
    */
   close(): Promise<void>;
 }
 
-// --------------------------------------------------------------------------
-// LocalSubscriptionConsumer<T> — client-side consumer handle
-// --------------------------------------------------------------------------
-
 /**
- * Client-side consumer handle returned by `JsonRpcClient.subscribe<T>`.
- * The Phase 5 `sessionClient.subscribe(...)` method (ownership) wraps
- * this with typed `EventEnvelope` consumption.
+ * The handle `JsonRpcClient.subscribe` returns synchronously. Each validated
+ * `$/subscription/notify` value lands in one bounded internal queue that `next()` and `for await`
+ * both drain; `cancel()` sends `$/subscription/cancel` and awaits the ack.
  *
- * Lifecycle:
- *   1. `JsonRpcClient.subscribe(method, params, valueSchema)` returns a
- *      handle SYNCHRONOUSLY. The `subscriptionId` is initially the empty
- *      string `""` and is mutated to the daemon-issued UUID once the
- *      initial JSON-RPC response arrives. See the `subscriptionId` JSDoc
- *      below for the visibility contract.
- *   2. The daemon emits zero or more `$/subscription/notify` frames; each
- *      validated value lands in this handle's internal queue.
- *   3. The consumer calls `next()` (one-shot polling) or iterates via
- *      `for await (const v of sub)` (the iterator interface). Both paths
- *      drain the same internal queue.
- *   4. The consumer calls `cancel()` to terminate. The client emits a
- *      `$/subscription/cancel` request to the daemon and awaits the ack.
- *      Subsequent `next()` calls return `undefined` (stream complete).
- *
- * Stream-completion semantics:
- *   * Server-initiated cancel → `next()` returns `undefined` once the
- *     queue drains.
- *   * Transport disconnect → `next()` rejects with the transport-closed
- *     error from `onClose`'s reason.
- *   * Client `cancel()` → `next()` returns `undefined` once the queue
- *     drains; the cancel ack is awaited inside `cancel()`.
- *
- * Naming intentionally distinct from the SERVER-side
- * `LocalSubscriptionProducer<T>` in
- * `@ai-sidekicks/contracts/jsonrpc-streaming.ts` (see file header comment
- * for the rationale). Consumers MUST import `LocalSubscriptionConsumer`
- * from this file; importing `LocalSubscriptionProducer` from
- * `@ai-sidekicks/contracts` would resolve to the producer shape and fail
- * the call-site type-check.
+ * The stream completes with `undefined` (after the queue drains) on a server cancel or a client
+ * `cancel()`. `next()` rejects with the transport's close reason when the transport drops, and
+ * with `JsonRpcSubscriptionOverflowError` when the consumer let the queue fill.
  */
 export interface LocalSubscriptionConsumer<T> {
   /**
-   * The opaque subscription identifier issued by the daemon. Populated AFTER
-   * the initial JSON-RPC response resolves; appears as the empty-string
-   * sentinel `""` to readers before that point. **Read-only on the public
-   * interface — only the SDK's internal subscribe path writes this field.**
-   * Readers MUST NOT consume this field synchronously after `subscribe()`
-   * returns.
-   *
-   * Visibility contract:
-   *   * Before the initial response: empty string `""`.
-   *   * After the initial response (or first iterator tick / first
-   *     `next()` settle): the daemon-issued UUID per the `SubscriptionId`
-   *     brand in `@ai-sidekicks/contracts/jsonrpc-streaming.ts`.
-   *
-   * Why `string` and not `SubscriptionId` (the branded type): the plan body names
-   * `subscriptionId: string` literally, and the brand is a server-side
-   * construction concern. SDK consumers that need the brand can
-   * `SubscriptionIdSchema.parse()` from `@ai-sidekicks/ contracts` after the
-   * field is populated.
-   *
-   * Alternative considered: expose as `Promise<string>` getter. Rejected
-   * because the plan body is explicit on the synchronous shape, and the
-   * mutation pattern matches the documented "initial response carries
-   * subscriptionId" contract. Trade-off accepted: callers reading
-   * `subscriptionId` synchronously see the empty-string sentinel — JSDoc
-   * documents the contract.
+   * The daemon-issued subscription id: `""` until the initial response arrives, and populated
+   * before the first `next()` or iterator tick settles. Do not read it synchronously after
+   * `subscribe()` returns. A plain `string`; use `SubscriptionIdSchema` from
+   * `@ai-sidekicks/contracts` to get the branded type.
    */
   readonly subscriptionId: string;
 
   /**
-   * Pull the next value from the subscription's queue.
-   *
-   *   * Resolves with the next value when one is available.
-   *   * Resolves with `undefined` once the stream completes (server-side
-   *     cancel, client `cancel()`, or natural termination).
-   *   * Rejects when the transport closes with a non-nominal reason —
-   *     surfaces the transport's reason as the rejection error.
-   *
-   * Callers SHOULD NOT mix `next()` polling with iterator consumption;
-   * both paths drain the same underlying queue and interleaved consumption
-   * is implementation-defined.
+   * Pull the next value: resolves with it, with `undefined` once the stream completes, or rejects
+   * with the transport's reason when the transport closes abnormally. Do not mix `next()` with
+   * iterator consumption; both drain the same queue.
    */
   next(): Promise<T | undefined>;
 
   /**
-   * Initiate client-side cancellation. The client emits a
-   * `$/subscription/cancel` JSON-RPC request to the daemon and awaits the
-   * ack. After this resolves:
-   *   * The daemon has removed the subscription from its per-transport map.
-   *   * Subsequent `next()` calls drain any queued values, then return
-   *     `undefined`.
-   *   * Inbound `$/subscription/notify` frames carrying this
-   *     `subscriptionId` are silently dropped (race-tolerant per the
-   *     wire-frame contract — server may have queued frames before the
-   *     cancel arrived).
-   *
-   * Idempotent: a second `cancel()` call resolves immediately without
-   * re-emitting the wire frame.
+   * Cancel on the daemon and await its ack, waiting first for the subscribe reply if it has not
+   * arrived. Never rejects: afterward `next()` drains any queued values and then returns
+   * `undefined`, or throws the cancel's failure. Frames that arrive after the call are dropped.
+   * Idempotent: a repeat call sends no second wire request.
    */
   cancel(): Promise<void>;
 
   /**
-   * Asynchronous iterator factory. Returns a FRESH iterator object whose
-   * `next()` resolves an `IteratorResult<T>`:
-   *   * `{ value: T, done: false }` while the queue has values.
-   *   * `{ value: undefined, done: true }` once the stream completes.
-   *
-   * Implementation detail: the returned iterator shares the same
-   * underlying queue as the handle's `next()` method — `for await` over
-   * this subscription is mutually exclusive with direct `next()` polling.
-   *
-   * Returns `AsyncIterator<T>` (not `AsyncIterableIterator<T>`) task contract
-   * verbatim. Callers using `for await` directly on the subscription work because
-   * the JS runtime invokes `[Symbol.asyncIterator]()` once at loop start; mixing
-   * repeated `for await` blocks against the same subscription is implementation-
-   * defined for the same reason as the `next()` / iterator interleaving note
-   * above.
+   * A fresh iterator over the same queue as `next()`, so `for await` and direct `next()` polling
+   * are mutually exclusive, as are repeated `for await` blocks on one subscription.
    */
   [Symbol.asyncIterator](): AsyncIterator<T>;
 }
 
-// --------------------------------------------------------------------------
-// Handler<Req, Res> — client-side handler shape
-// --------------------------------------------------------------------------
-
 /**
- * Type alias for a typed JSON-RPC handler function. Structurally identical to
- * `Handler<P, R>` in `@ai-sidekicks/contracts/jsonrpc-registry.ts` (lines
- * 105-123); the rename to `<Req, Res>` follows task contract verbatim.
- *
- * Why redeclare instead of re-export under an alias: TypeScript's
- * `export type Handler<Req, Res> = ContractsHandler<Req, Res>` pattern
- * works at the type level but loses the JSDoc surface — IDE hover on
- * `Handler<Req, Res>` would show the contracts-side `<P, R>` parameter
- * names, contradicting the SDK's documented signature. A direct
- * redeclaration keeps the parameter names and JSDoc local.
- *
- * The handler is GUARANTEED:
- *   * `params: Req` — already validated against the registered `paramsSchema`
- *     by the registry's enforcement (the handler never observes malformed
- *     payloads).
- *   * `ctx: HandlerContext` — the per-dispatch context populated by the
- *     substrate (`transportId` available when wired through the gateway).
- *
- * The handler MUST resolve to `Res` — the registry validates the result
- * against the registered `resultSchema` after the handler returns (defensive
- * programmer-error surface; failures map to JSON-RPC `-32603` per
- * `mapJsonRpcError`).
- *
- * SDK-side relevance: this type is exported for symmetry with the
- * server-side registration surface and for use by future SDK utilities that
- * mock handler implementations (e.g. unit tests that route SDK calls
- * through an in-process registry without the wire substrate). Phase 3 itself
- * does not consume `Handler<Req, Res>` inside `jsonRpcClient.ts` — the
- * client side calls handlers via the wire, not by direct invocation.
+ * A typed JSON-RPC handler function, structurally identical to `Handler<P, R>` in
+ * `@ai-sidekicks/contracts`. The registry has already validated `params` against the registered
+ * schema, and it validates the resolved `Res` before replying. The SDK itself never invokes one:
+ * the client calls handlers over the wire.
  */
 export type Handler<Req, Res> = (params: Req, ctx: HandlerContext) => Promise<Res>;

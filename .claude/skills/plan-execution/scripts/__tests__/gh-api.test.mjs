@@ -2,7 +2,7 @@
 // Run via:
 //   node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 //
-// The drain behaviours are unit-tested rather than probed against live PRs
+// The drain behaviors are unit-tested rather than probed against live PRs
 // because none of them is reachable from real data: both GraphQL connections
 // drain in one page on any PR in this repo, so no live probe ever reaches a
 // truncation branch, and a server that stops advancing its own cursor cannot be

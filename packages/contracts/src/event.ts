@@ -1,3424 +1,124 @@
-// Session event contracts — the canonical event-type census, the named
-// canonical `EventEnvelopeSchema` carrier, plus the V1 subset of payload
-// variants of the canonical EventEnvelope shape.
-//
-// The two original event types the session vertical slice needs:
-//   • session.created    — emitted on `SessionCreate` admit
-//   • channel.created    — emitted when a session's main channel materializes
-//
-// Adds six more through the union-registration seam: `repo.attached`,
-// `repo.detached`, and the four `workspace.*` lifecycle types, all sharing
-// one payload schema imported from repo.ts.
-//
-// Adds the five `worktree.*` lifecycle types through the same seam,
-// carrying the family payload instantiated over its own
-// `WorktreeStateSchema` and imported from worktree.ts. No `worktree.failed`
-// and no ephemeral-clone variants — registry stays closed.
-//
-// Adds the six variants emits ITSELF — the three `audit_integrity` types and
-// the three `event_maintenance` types. Unlike the eleven above they import no
-// payload schema: emitter-authors-payload puts them in the emitting plan's
-// file, and owns this one, so their payload schemas are declared and exported
-// here.
-//
-// Adds the five daemon-reachable `runtime_node.*` variants — `registered`,
-// `online`, `offline`, `capability_declared`, `capability_updated` —
-// discharging leg (a) of: authors the payload SHAPES (runtime-node.ts) owns
-// the union REGISTRATION. `degraded` / `revoked` stay unregistered —
-// V1.1-gated on the node-identity trust anchor, so the registered set is five
-// of the seven `runtime_node.*` census names.
-//
-// The discriminated-union `SessionEvent` discriminates on the wire `type`
-// string. Adding a new variant later is additive. The taxonomy closed):
-// `SessionEventType` (147 literals), the per-category `*_EVENT_TYPES` arrays,
-// and `SESSION_EVENT_CATEGORY_BY_TYPE` (20 categories). Payload variants remain
-// intentionally a strict subset, and each is owned by its EMITTING plan:
-// sixteen reach `SessionEventSchema` from another plan's file through the
-// cross-plan union-registration seam (class), eleven are authored in this file
-// because emits them and owns it (six five), and the two session originals
-// below (`session.created`, `channel.created`) have been authored here from the
-// start. In all three cases census membership is type registration, not payload
-// support.
-//
-// Both original wire strings register under `session_lifecycle`. The
-// `<category>.<verb>` namespace convention is governed the
-// resource-lifecycle naming (`<resource>.created`) parallels
-// `session.created` / `channel.created`.
-//
-// Versioning: `version` is an `EventEnvelopeVersion` — a semver `"MAJOR.MINOR"` STRING.
-// It is NEVER numeric on the wire (lexical compare on strings like "1.10" vs "1.9" is
-// unsafe; the reader parses MAJOR/MINOR as integers). The format check lives on
-// `EventEnvelopeVersionSchema` — declared in `./event-core.js`, re-exported through the
-// hoist seam below — and enforces the regex.
-//
+// The strict session event parser: one arm per registered payload variant, discriminated on `type`.
+// Every type in the closed `SessionEventType` set is registered, but only some have a payload
+// variant.
+
 import { z } from "zod";
-
-// The three symbols this file still CONSUMES from its own hoisted leaf. The
-// leaf's other exports reach the public API through the re-export seam below,
-// which is a separate statement pair by design (`export … from` introduces no
-// local binding, so the two forms never collide — the same shape
-// `runtime-node.ts` uses over `./node-id.js`).
+// None of the payload files imported below imports this file, directly or through another module:
+// such a cycle would leave their eagerly built Zod schemas undefined at import.
 import {
-  EVENT_FIELD_MAX_LEN,
-  EventEnvelopeVersionSchema,
-  type EventEnvelopeVersion,
-} from "./event-core.js";
-// DIRECT import from the `./node-id.js` leaf, never from `./runtime-node.js`
-// — the same eager-Zod-cycle discipline repo.ts's header records: the leaf is
-// dependency-free, so importing it can never close a module-scope cycle.
-import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
-// One-way import (leg (a)): the five `runtime_node.*` payload schemas authors,
-// registered as union arms below. runtime-node.ts imports NOTHING from this
-// file — its three former value imports now come from `./event-core.js`, which
-// is what keeps this edge acyclic (see that file's header).
+  AgentProviderBindingChangeFailedPayloadSchema,
+  AgentProviderBindingChangedPayloadSchema,
+} from "./agent-provider-binding.js";
 import {
-  RuntimeNodeCapabilityDeclaredPayloadSchema,
-  RuntimeNodeCapabilityUpdatedPayloadSchema,
-  RuntimeNodeOfflinePayloadSchema,
-  RuntimeNodeOnlinePayloadSchema,
-  RuntimeNodeRegisteredPayloadSchema,
-  type RuntimeNodeCapabilityDeclaredPayload,
-  type RuntimeNodeCapabilityUpdatedPayload,
-  type RuntimeNodeOfflinePayload,
-  type RuntimeNodeOnlinePayload,
-  type RuntimeNodeRegisteredPayload,
-} from "./runtime-node.js";
+  ApprovalCanceledPayloadSchema,
+  ApprovalDenialOverriddenPayloadSchema,
+  ApprovalRememberedPayloadSchema,
+  ApprovalRequestedPayloadSchema,
+  ApprovalResolvedPayloadSchema,
+  ApprovalReviewerDeniedPayloadSchema,
+  ApprovalRuleRevokedPayloadSchema,
+} from "./approval.js";
+import { CloudTaskUpdatedPayloadSchema } from "./cloud.js";
+import { CommandEndedPayloadSchema } from "./command.js";
 import {
-  CHANNEL_NAME_MAX_LEN,
-  ChannelIdSchema,
-  UserIdSchema,
+  BackupCompletedPayloadSchema,
+  BackupFailedPayloadSchema,
+  BackupRestoredPayloadSchema,
+} from "./daemon-backup.js";
+import { EVENT_FIELD_MAX_LEN } from "./event-core.js";
+import {
+  EventCompactedPayloadSchema,
+  assistantMessagePayloadSchema,
+  assistantThinkingUpdatePayloadSchema,
+  buildMachineContentDescriptorShape,
+  toolErrorPayloadSchema,
+  toolInvokedPayloadSchema,
+  toolResultPayloadSchema,
+} from "./event-declared-variants.js";
+import { buildCommonShape, withEpochStamp, type EventCategory } from "./event-envelope.js";
+import type { SessionEventType } from "./event-registry.js";
+import type {
+  ApprovalReviewerDeniedEvent,
+  CommandEndedEvent,
+  SessionEvent,
+} from "./event-variant-types.js";
+import { GitSettledPayloadSchema } from "./gitflow/local.js";
+import { uuidTextFormSchema } from "./internal/branded.js";
+import {
+  McpServerOauthCompletedPayloadSchema,
+  McpServerStatusChangedPayloadSchema,
+} from "./mcp-governance.js";
+import {
+  PlanAcceptedPayloadSchema,
+  PlanHandedOffPayloadSchema,
+  PlanProposedPayloadSchema,
+} from "./plan.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema } from "./provider-driver.js";
+import { PtyControlChangedPayloadSchema } from "./pty.js";
+import { QuestionAskedPayloadSchema } from "./question.js";
+import { RelayPinRefusedPayloadSchema } from "./relay.js";
+import { RepoWorkspaceLifecyclePayloadSchema } from "./repo.js";
+import { RunRecoveryResolvedPayloadSchema } from "./run-control.js";
+import {
+  RunRefusalChoiceRequestedPayloadSchema,
+  RunRefusalChoiceResolvedPayloadSchema,
+  RunUsageCreditsChoiceRequestedPayloadSchema,
+  RunUsageCreditsChoiceResolvedPayloadSchema,
+} from "./run-provider-choice.js";
+import { RunQueuedPayloadSchema } from "./run-queued.js";
+import {
+  ModerationReviewFlaggedPayloadSchema,
+  RunStepLimitReachedPayloadSchema,
+  RunTokenLimitReachedPayloadSchema,
+  SessionNoticePayloadSchema,
+  SessionSideQuestionAnsweredPayloadSchema,
+  SessionSpendLimitReachedPayloadSchema,
+} from "./session-controls.js";
+import { SessionConvertedPayloadSchema } from "./session-convert.js";
+import { SessionCreatedPayloadSchema } from "./session-created.js";
+import {
+  SessionGoalClearedPayloadSchema,
+  SessionGoalUpdatedPayloadSchema,
+} from "./session-goal.js";
+import { SessionRestoreFinishedPayloadSchema } from "./session-restore.js";
+import {
   SessionIdSchema,
+  SessionLifecycleChangePayloadSchema,
+  SessionMarkChangePayloadSchema,
+  SessionRenamedPayloadSchema,
   wireFreeFormString,
-  type ChannelId,
-  type UserId,
-  type SessionId,
 } from "./session.js";
-// Dependency-free leaf (imports nothing at all), so this edge can close no
-// cycle — the `./node-id.js` discipline above. Used for ONE set key; see the
-// `key_reuse_detected.observedIdentities` note.
-import { canonicalizeUuid } from "./uuid-canonical.js";
-// One-way import: worktree.ts imports nothing from this file — same
-// eager-Zod-cycle discipline as the repo.js import above.
-import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from "./worktree.js";
-
-// --------------------------------------------------------------------------
-// EventCategory — canonical taxonomy enum.
-// --------------------------------------------------------------------------
-//
-// Mirrors the EventCategory registry. Code ships all 20: the 16-category V1 set plus
-// `channel_arbitration`, `onboarding_lifecycle`, `cross_node_dispatch` and
-// `mcp_governance` (closing the 2026-07-22 B18 amendment). specifies that `category`
-// participates in the canonical-bytes computation that backs the integrity protocol's
-// BLAKE3 hash chain and Ed25519 signature; producers MUST emit the category that matches
-// the type's namespace, and consumers MUST NOT silently coerce mismatches. The literal
-// `category` per variant in the discriminatedUnion below enforces this on the wire — a
-// `{type: "session.created", category: "presence"}` payload is rejected at parse time,
-// BEFORE it can be hashed under the wrong category string and break replay.
-//
-// ORDER IS NOT LOAD-BEARING — specifies RFC 8785 JCS canonicalization, which serializes
-// the LITERAL wire string ("session_ lifecycle", "presence", etc.) into the canonical
-// bytes that back the BLAKE3 hash chain and Ed25519 signature. The TypeScript enum's
-// declaration order does not affect canonical bytes; reordering, inserting, or appending
-// categories is byte-equivalent at the integrity layer (it IS still a contract bump
-// additions are MINOR).
-
-export type EventCategory =
-  | "run_lifecycle"
-  | "assistant_output"
-  | "tool_activity"
-  | "interactive_request"
-  | "artifact_publication"
-  | "presence"
-  | "session_lifecycle"
-  | "approval_flow"
-  | "usage_telemetry"
-  | "runtime_node_lifecycle"
-  | "recovery_events"
-  | "user_lifecycle"
-  | "audit_integrity"
-  | "security_events"
-  | "event_maintenance"
-  | "policy_events"
-  | "channel_arbitration"
-  | "onboarding_lifecycle"
-  | "cross_node_dispatch"
-  | "mcp_governance";
-export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
-  "run_lifecycle",
-  "assistant_output",
-  "tool_activity",
-  "interactive_request",
-  "artifact_publication",
-  "presence",
-  "session_lifecycle",
-  "approval_flow",
-  "usage_telemetry",
-  "runtime_node_lifecycle",
-  "recovery_events",
-  "user_lifecycle",
-  "audit_integrity",
-  "security_events",
-  "event_maintenance",
-  "policy_events",
-  "channel_arbitration",
-  "onboarding_lifecycle",
-  "cross_node_dispatch",
-  "mcp_governance",
-]);
-
-// --------------------------------------------------------------------------
-// HOISTED CLUSTER — RE-EXPORT SEAM (declarations moved to `./event-core.js`).
-// --------------------------------------------------------------------------
-//
-// `EVENT_ENVELOPE_VERSION_PATTERN` / `EVENT_ENVELOPE_VERSION_MAX_LEN` /
-// `EventEnvelopeVersion` / `EventEnvelopeVersionSchema`, `EVENT_FIELD_MAX_LEN`,
-// `CAPABILITY_CONTRACT_VERSION_MAX_LEN`, and the `CapabilityDetails` pair
-// (interface + schema) are declared VERBATIM in `./event-core.js` — a module
-// that can reach `zod`, `./session.js` and `./provider-driver.js` and nothing
-// else — and re-exported here, so this file's public API is exactly what it was
-// before the hoist: the barrel's `export * from "./event.js"` carries all eight
-// onward (six values + two types — the two re-export statements below), and
-// every in-tree importer (runtime-node.ts's three value imports aside, which
-// now bind the leaf directly) keeps importing them from here unchanged.
-//
-// Still OWNS every shape; only their physical home moved. The hoist exists
-// because registers the five `runtime_node.*` payload variants below, which
-// adds a VALUE edge from this file to `runtime-node.ts` — and `runtime-node.ts`
-// already read three values back out of this one, closing the eager cycle
-// `event.ts` → `runtime-node.ts` → `event.ts` that throws `ReferenceError` at
-// import time from every entry point (full rationale, with the per-edge
-// evidence, in `./event-core.js`'s header). Amending any of these eight is
-// still a contract change — make it in `./event-core.js`.
-//
-// Type-only re-exports MUST use `export type { ... }` (the `isolatedModules` +
-// `verbatimModuleSyntax` posture from tsconfig.base.json forbids erased
-// re-exports on the runtime form) — the same two-statement shape
-// `runtime-node.ts` uses for its `./node-id.js` re-exports.
-export type { CapabilityDetails, EventEnvelopeVersion } from "./event-core.js";
-export {
-  CAPABILITY_CONTRACT_VERSION_MAX_LEN,
-  CapabilityDetailsSchema,
-  EVENT_ENVELOPE_VERSION_MAX_LEN,
-  EVENT_ENVELOPE_VERSION_PATTERN,
-  EVENT_FIELD_MAX_LEN,
-  EventEnvelopeVersionSchema,
-} from "./event-core.js";
-
-// --------------------------------------------------------------------------
-// compareEventEnvelopeVersion — total ordering of EventEnvelopeVersion.
-// --------------------------------------------------------------------------
-//
-// Returns -1 / 0 / 1 (a < b / a == b / a > b) — the standard three-way
-// comparator shape (Array.prototype.sort, semver.compare). Callers express the
-// predicate at the call site: a below-floor check is
-// `compareEventEnvelopeVersion(clientVersion, floor) < 0`.
-//
-// Lives here (not in a consumer package) because it is the ordering of a
-// contracts value type: the control-plane version-floor gate AND the daemon's
-// envelope version negotiation both compare EventEnvelopeVersion values.
-// Contracts is their only shared ancestor; a consumer-local helper would force
-// the other consumer to depend upward or re-implement the comparison (the
-// lexical "10" < "9" bug, twice).
-//
-// Numeric MAJOR-then-MINOR tuple compare — deliberately NOT the `semver`
-// library: the type is strictly two-segment (EVENT_ENVELOPE_VERSION_PATTERN),
-// so semver's coercion / range / prerelease machinery is dead weight and a
-// needless dependency.
-//
-// Inputs are brand-validated EventEnvelopeVersion, so the regex already
-// guarantees exactly two non-negative-integer, leading-zero-free segments:
-// `split(".")` yields a length-2 array of valid integer literals. The brand IS
-// the proof of well-formedness — this function does NOT re-validate (that would
-// contradict the brand). The guard against a malformed string lives at the
-// PARSE boundary (callers must `EventEnvelopeVersionSchema.parse`, never
-// `as`-cast). A caller that defeats the brand with a cast carrying a
-// NON-integer segment now THROWS (`SyntaxError` at `BigInt()`) instead of
-// silently mis-ordering — a fail-loud, not fail-silent, improvement: a wrong
-// answer from the version-floor gate becomes an exception at the boundary
-// rather than a covert admit.
-
-export function compareEventEnvelopeVersion(
-  a: EventEnvelopeVersion,
-  b: EventEnvelopeVersion,
-): -1 | 0 | 1 {
-  // The `as [bigint, bigint]` is justified by the brand: the regex guarantees
-  // exactly two segments, each a valid non-negative integer literal. The schema
-  // also bounds input length (EVENT_ENVELOPE_VERSION_MAX_LEN), so the comparator
-  // only ever receives a string within that cap. Within that bound, `BigInt`
-  // (not `Number`) makes the compare EXACT above `Number.MAX_SAFE_INTEGER` —
-  // where a `Number` parse would collapse two distinct large versions to the
-  // same float. That exactness is the point: the version floor reads this
-  // ordering, so an off-by-a-float result there is a security boundary, not a
-  // rounding nit.
-  const [aMajor, aMinor] = a.split(".").map(BigInt) as [bigint, bigint];
-  const [bMajor, bMinor] = b.split(".").map(BigInt) as [bigint, bigint];
-  if (aMajor !== bMajor) return aMajor < bMajor ? -1 : 1;
-  if (aMinor !== bMinor) return aMinor < bMinor ? -1 : 1;
-  return 0;
-}
-
-// --------------------------------------------------------------------------
-// Per-field length caps — defense-in-depth bounds on free-form strings.
-// --------------------------------------------------------------------------
-//
-// The HTTP/tRPC framework layer (005) is authoritative on total request-body
-// size. These per-field caps live in the contracts package as a SECOND line
-// of defense so a future non-HTTP caller (daemon-internal IPC, replay
-// machinery, fixtures) can't smuggle a single pathological field past the
-// parser. Values are conservative defaults; raising them is a contract bump.
-//
-// Rationale per cap:
-//   • EVENT_FIELD_MAX_LEN (256)        — id / actor / correlationId /
-//     causationId. UUIDs are 36 chars; 256 leaves plenty of headroom for any
-//     composite identifier scheme without enabling DoS. Declared in
-//     event-core.ts — `runtime-node.ts` reads it at module scope, so it rides
-//     the hoisted leaf; the seam above re-exports it from this file.
-//   • ERROR_MESSAGE_MAX_LEN (8192)     — top-level `message` field on error
-//     envelopes. 8 KiB is well above any human-readable error string but
-//     still bounded. Defined in error.ts (co-located with the error
-//     envelope schema that consumes it).
-//   • CHANNEL_NAME_MAX_LEN (128)       — channel display labels (UI-visible).
-//     Defined in session.ts (co-located with `ChannelSummarySchema`); re-
-//     imported here for the channel.created payload.
-//
-// Free-form string fields (id / actor / correlationId / causationId / message
-// / details.resource / channel name) all consume the
-// `wireFreeFormString(maxLen, label)` helper from session.ts, which applies
-// the length bounds AND a whitespace-only rejection AND a NUL-byte rejection.
-// The trust boundary lives at the wire layer because the daemon accepts
-// input from external (cross-node, future RPC) callers — producer trust is
-// a weaker argument once a non-trusted process can synthesize a wire
-// envelope. NUL bytes also corrupt OpenTelemetry trace lines that the
-// observability layer emits from `correlationId` / `causationId`.
-
-// --------------------------------------------------------------------------
-// EventEnvelope — the canonical event message.
-// --------------------------------------------------------------------------
-//
-// Two layers share this file, and the split is deliberate:
-//
-//   • ENVELOPE layer (`EventEnvelopeSchema`) — the version-TOLERANT carrier.
-//     `type` is a bounded free-form string, NOT the `SessionEventType`
-//     census union: MINOR envelope bumps may introduce new event types (#8,
-//     additive-only), and a reader MUST persist an envelope whose `type` it
-//     cannot interpret as a version stub — never drop or reject it (#5, #9
-//     accept-and-stub). A census-typed envelope schema would reject exactly
-//     the envelopes the stub path exists to preserve. `payload` is likewise
-//     an open record: unknown payload fields from a higher-MINOR producer
-//     are preserved verbatim for future upcasting, never stripped.
-//   • STRICT layer (`SessionEventSchema` + `SESSION_EVENT_CATEGORY_BY_TYPE`
-//     below) — the interpretation surface, where unknown types and
-//     category/type mismatches fail loud at parse time.
-//
-// Bounds on the tolerance, both mirrored from the wire authority:
-//   • `category` stays the closed canonical enum (`EventCategorySchema`):
-//     the wire authority types it `EventCategory`, `category` participates
-//     in the canonical bytes, and a reader with no registry rows for a
-//     category cannot route or verify under it — category additions are
-//     code-accompanied MINOR contract bumps (see the EventCategory note
-//     above), not runtime-tolerated strings.
-//   • The TOP-LEVEL member set is CLOSED (`.strict()`): fixes membership at
-//     exactly the eleven fields below, and `pii_payload` is a storage
-//     column, deliberately NOT an envelope member. Default Zod stripping
-//     would silently desync the parse output from the canonical bytes the
-//     integrity protocol hashes and signs; the additive channel for new
-//     data is `payload`, never a new envelope member.
-
-// --------------------------------------------------------------------------
-// Sequence ceiling — a hash-collision guard, NOT a policy knob.
-// --------------------------------------------------------------------------
-//
-// The largest `sequence` an envelope may carry: accepted at exactly this
-// value, refused one above it.
-//
-// WHY THE BOUND EXISTS — it is an INJECTIVITY requirement of the integrity
-// protocol, not a capacity estimate. `sequence` is contracted as an integer
-// but travels as an IEEE-754 binary64 double, which represents integers
-// faithfully only up to 2^53 − 1. Above that, DISTINCT integers collapse onto
-// the SAME double — `9007199254740992 === 9007199254740993` evaluates to
-// `true` in ECMAScript. Two genuinely different events would then canonicalize
-// to IDENTICAL RFC 8785 bytes, produce an identical `row_hash`, and collide in
-// the tamper-evidence chain builds. Nothing downstream can detect that: by the
-// time the canonicalizer sees the value, the two inputs ARE the same number,
-// and RFC 8785 faithfully serializes the collapsed one. Faithful
-// representation of `sequence` is therefore a PRECONDITION of the hash chain
-// being injective — which is the entire property the chain exists to provide.
-//
-// WHY IT IS NAMED rather than left implicit: Zod's `.int()` already bounds the
-// safe-integer range, so the parse boundary rejected out-of-range values
-// before this const existed — but only as an INCIDENTAL side effect of the
-// integer check, reported as a bare "too big", and invisible to anyone reading
-// the schema. An intentional bound produces an intentional error and documents
-// itself. Enforcement outside the parse boundary is the canonicalizer's, in
-// `packages/runtime-daemon/src/events/canonicalizer.ts` — an in-process caller
-// that constructs an envelope without parsing reaches the hash chain without
-// ever meeting this schema.
-//
-// NOT A TUNABLE — and this is the one thing a future reader must not get
-// wrong. Every other cap this file surfaces (`EVENT_FIELD_MAX_LEN`,
-// `EVENT_ENVELOPE_VERSION_MAX_LEN` — both declared on the `./event-core.js`
-// leaf and re-exported through the seam above) is a policy knob chosen for
-// headroom, raisable as a MINOR widening. This one is not raisable at all: it
-// is pinned to a property of the number REPRESENTATION, `.int()` enforces the
-// identical ceiling independently so raising this const alone would change
-// nothing, and past it the canonical bytes stop being injective. A reader who
-// finds the limit inconvenient needs a WIDER WIRE TYPE — a string-encoded
-// bigint, the same remedy `pty-host-protocol.ts`'s `DataFrame.seq` note
-// reserves against the same hazard — never a larger number here.
-//
-// Headroom is not the binding constraint regardless: at a sustained one
-// million events per second, one session needs ~285 years to reach this
-// ceiling.
-export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
-
-// Append-time ceiling on `canonical_bytes(row)` — 32 KiB. A SERVICEABILITY
-// bound, not hygiene: re-publishes canonical bytes base64-encoded inside a
-// chunk riding ONE 64 KB relay frame with no fragmentation or reassembly
-// protocol, so an unbounded canonical form would mint rows that can never
-// legally travel that seam (32 KiB canonical → ≈43.7 KiB base64 + signature,
-// origin, stub, anchor, chunk, and AEAD overhead ≈45 KiB — inside the frame
-// with headroom). Enforced at the sole append path (`event-log-service.ts`,
-// refusing with `daemon.event_canonical_bytes_exceeded`) and at the
-// compactor's stub construction (the projection replaces `payload` after the
-// append check has passed). UNLIKE its neighbor above this IS a policy knob:
-// the payload catalog is metadata-shaped by construction (content lengths,
-// refs, digests — never inline bulk content), so the value is headroom over
-// every cataloged shape, and raising it is a coordinated corpus-first edit
-// (then here, then both enforcement sites), never a lone constant bump.
-export const EVENT_CANONICAL_BYTES_MAX: number = 32768;
-
-/**
- * The daemon-scope sentinel `sessionId` — RFC 9562 section 5.10 Max UUID.
- *
- * NODE-scope events (the four `mcp_governance` types, and every daemon-scope
- * row that describes the machine rather than a conversation) have no owning
- * session, but `session_events` partitions the hash chain BY `session_id` and
- * `EventEnvelope.sessionId` is non-nullable. This sentinel is the anchor those
- * rows bind to: it gives node-scope events a chain of their own, disjoint from
- * every real session's, with the session-scoped INITIATOR living in the payload
- * (`initiatingSessionId`) rather than in the row's own `sessionId`.
- *
- * Disjointness is structural, not conventional: real session ids are drawn
- * from the v4 space (`gen_random_uuid()`), and the all-ones Max UUID has no
- * valid version nibble, so no real session can ever collide with the sentinel
- * chain.
- *
- * LOWERCASE IS LOAD-BEARING. Zod's unversioned uuid check reaches the Max UUID
- * only through a lowercase string-literal alternative carrying no `i` flag —
- * its general alternative demands a `[1-8]` version nibble that `f` fails — so
- * `FFFFFFFF-…` is REJECTED even though RFC 9562 section 4 makes UUID text
- * case-insensitive. Producers owe "emit the sentinel LOWERCASE", not merely
- * "emit the sentinel". Minting this constant THROUGH `SessionIdSchema` rather
- * than casting the literal is what keeps that obligation honest: if the check
- * ever stops admitting the Max UUID, this module throws at import — in every
- * consumer, in every test run — instead of the daemon silently emitting a
- * sentinel that no longer parses. The literal is handed to `parse` UNCAST:
- * `parse` takes `unknown`, so a cast here would suppress the very type error
- * that catches a wrong-typed input rather than enable anything.
- *
- * Callers that must REFUSE the sentinel — `IngestHaltRegistry`'s write path is
- * the shipped one, since halting "the node" is not a coherent operation —
- * compare against this constant rather than respelling the literal.
- */
-export const DAEMON_SCOPE_SENTINEL_SESSION_ID: SessionId = SessionIdSchema.parse(
-  "ffffffff-ffff-ffff-ffff-ffffffffffff",
-);
-
-/**
- * The canonical event message — every session event travels in this
- * envelope ({@link EventEnvelopeSchema} is the runtime validator).
- *
- * Storage mirror: each canonical member maps to a `session_events` column whose
- * column comments mirror this envelope field-by-field (bijection; storage-only
- * columns are deliberately non-members).
- */
-export interface EventEnvelope {
-  // Opaque on the wire — see the `id` note in `buildCommonShape()`.
-  id: string;
-  sessionId: SessionId;
-  // Daemon-assigned, strictly monotonic per session — the canonical replay
-  // key. Bounded above by {@link EVENT_ENVELOPE_SEQUENCE_MAX}: past that
-  // value distinct sequences collapse onto one IEEE-754 double and the
-  // canonical bytes stop being injective, so two different events could
-  // share a `row_hash`.
-  sequence: number;
-  // ISO 8601. The narrower CANONICAL form (RFC 3339 UTC, ms precision) is
-  // enforced at hashing time by Phase 2's normalization, not here.
-  occurredAt: string;
-  category: EventCategory;
-  /**
-   * Deliberately `string`, NOT `SessionEventType` — the envelope is the
-   * version-tolerant carrier (see the layering note above): a reader must
-   * parse an envelope whose `type` it does not know yet in order to
-   * persist it as a version stub. Do not "tighten" this member to the
-   * census union.
-   */
-  type: string;
-  /**
-   * `actor` is `string | null` the zod schema also makes it optional (key may be
-   * absent), so we match the inferred output: `actor?: string | null | undefined`. It is
-   * the canonical set's only nullable member — present-null and absent are
-   * wire-distinguishable. Empty string is rejected — a present-but-empty actor is a
-   * producer bug (a system event should send `null` or omit the key, not an empty
-   * string).
-   */
-  actor?: string | null | undefined;
-  /**
-   * Category-specific fields, open by design (higher-MINOR fields are
-   * preserved verbatim) — with one carve-out: an own `__proto__` payload key
-   * is rejected loud, because Zod's record parser cannot preserve it and
-   * silent stripping is forbidden under the no-collapse rationale (see the
-   * pre-guard on {@link EventEnvelopeSchema}). May carry the cross-cutting
-   * sourceEpoch + sourcePosition pair; the typed stamp shapes are {@link
-   * SourceEpochSchema} / {@link SourcePositionSchema} and the {@link
-   * withEpochStamp} composition helper below.
-   */
-  payload: Record<string, unknown>;
-  // Optional, NOT nullable (wire authority: `correlationId?: string`) —
-  // absent is the correlation pair's only no-value wire state; `actor`
-  // alone carries the null-for-system convention.
-  correlationId?: string | undefined;
-  causationId?: string | undefined;
-  /**
-   * Producer-set `"MAJOR.MINOR"` semver string, never numeric on the wire:
-   * written by the emitting daemon at emit time, never copied from a
-   * received event, and never rewritten on read — upcasters transform the
-   * in-memory representation at dispatch time only, so the log row's
-   * `.version` is part of the event's durable identity.
-   * {@link EventEnvelopeVersion} brand keeps unvalidated strings out.
-   */
-  version: EventEnvelopeVersion;
-}
-
-// --------------------------------------------------------------------------
-// Common envelope fields shared by EventEnvelopeSchema and every
-// SessionEvent variant.
-// --------------------------------------------------------------------------
-//
-// Defined as a shape factory (not a schema) so the envelope schema and each variant can
-// spread it — the envelope supplying the tolerant `category`/`type`/`payload` trio, each
-// variant supplying its own `type` literal, its own literal `category`, and its own
-// `payload`. `sequence` is the canonical replay key.
-//
-// Note that `category` is NOT in `buildCommonShape()` — the variants need
-// it literal-typed per variant so the parser rejects category/type
-// mismatches, while the envelope binds it to the full canonical enum.
-//
-// The factory pattern is for stylistic consistency: the per-variant schema
-// declarations also need to be reproduced in the `discriminatedUnion` block
-// below (because `z.ZodType<T>` erases the literal-typed discriminator),
-// and reusing the same factory in both places keeps the two surfaces in
-// lockstep — divergence would surface as a TypeScript error at the
-// `z.ZodType<...Event>` annotation. (Zod 4 check chains are immutable and
-// safe to share, so a shared `const` would also be correct; the factory
-// just makes accidental drift between the variant schemas and the union
-// branch schemas harder.)
-
-const buildCommonShape = () => ({
-  // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns UUID v7
-  // internally but the wire contract is `id: string`. A future spec edit may tighten
-  // this to the branded-id text form; until then, accepting any non-empty bounded string
-  // (length cap + whitespace + NUL guards) matches the documented contract.
-  id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.id"),
-  sessionId: SessionIdSchema,
-  // `sequence` is a non-negative integer. The daemon assigns a strictly
-  // monotonic per-session sequence on append; gaps are an integrity bug.
-  //
-  // The `.max()` is REDUNDANT with the safe-integer ceiling `.int()` already
-  // applies, and that redundancy is the point. It shifts NO accept/reject
-  // decision — every value admitted before is admitted now, every value
-  // refused before is still refused — so it is not an contract narrowing and
-  // needs no MINOR bump. What it changes is the DIAGNOSIS: an over-range
-  // `sequence` now reports why the ceiling exists instead of a bare "too big"
-  // that reads like an arbitrary limit.
-  // {@link EVENT_ENVELOPE_SEQUENCE_MAX}. (`.int({ error })` would have carried
-  // the same message on one check, but Zod applies a check-level `error` to
-  // every issue that check raises — including the `invalid_type` a
-  // non-integer like `1.5` triggers — so a fractional sequence would be
-  // misreported as an overflow. Two checks, two honest messages.)
-  sequence: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
-      message: `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same IEEE-754 double, so two different events would canonicalize to identical RFC 8785 bytes and collide in the row_hash chain.`,
-    }),
-  // `occurredAt` is ISO 8601. `{ offset: true }` widens default Z-only acceptance to
-  // include numeric RFC 3339 section 5.6 offsets ("+00:00", "-05:00"). The narrower
-  // CANONICAL form for the integrity protocol (Z-suffixed UTC, ms precision) is enforced
-  // at hashing time by the normalization step, NOT at the wire layer here.
-  occurredAt: z.iso.datetime({ offset: true }),
-  // `actor` is a user_id, agent_id, or null/absent for system-emitted events ("or
-  // null for system"). The helper rejects empty/whitespace-only/NUL strings — a system
-  // event must use `null` or omit the key, NOT send an empty string. `.nullable()` is
-  // composed AFTER the helper so the inner string checks only run on string values (Zod
-  // evaluates the wrapped schema only when the value is a string; `null` short-circuits
-  // past the chain).
-  actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.actor").nullable().optional(),
-  correlationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.correlationId").optional(),
-  causationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.causationId").optional(),
-  version: EventEnvelopeVersionSchema,
-});
-
-/**
- * Runtime validator for the canonical {@link EventEnvelope} carrier — declares
- * exactly the canonical 11-field set serialized order is mandated by RFC 8785
- * section 3.2.3 UTF-16 code-unit lex-sort of member names per that section's
- * amendment (this schema fixes MEMBERSHIP; Phase 2's canonicalizer produces the
- * bytes). `version` remains the branded, producer-set {@link
- * EventEnvelopeVersion} — never rewritten on read.
- */
-export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
-  .object({
-    // id / sessionId / sequence / occurredAt / actor / correlationId /
-    // causationId / version — single-sourced with the SessionEvent
-    // variants below, so the carrier and the strict layer cannot drift on
-    // shared-field validation.
-    ...buildCommonShape(),
-    category: EventCategorySchema,
-    // Bounded free-form, NOT the census union (see the layering note
-    // above). Same wire guards as every free-form field — length cap,
-    // whitespace-only rejection, NUL rejection; all census literals pass.
-    type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.type"),
-    // Open record behind a raw-input pre-guard: category-specific fields
-    // are validated by the strict layer; unknown keys from a higher-MINOR
-    // producer are preserved verbatim, never stripped — with ONE carve-out.
-    // Zod's record parser unconditionally SKIPS an own `__proto__` input
-    // key (anti-pollution hardening), so preserve-verbatim is impossible
-    // for that key, and the default outcome would be a silent drop: two
-    // distinct wire byte-strings collapsing to one parse output — the
-    // exact no-collapse hazard the `.strict()` note below forbids. The
-    // pre-guard therefore rejects an own `__proto__` payload key loud.
-    // It MUST inspect the raw pre-record value (superRefine BEFORE the
-    // .pipe into the record stage): a refine on the record's output can
-    // never see the already-dropped key.
-    payload: z
-      .unknown()
-      .superRefine((value, ctx) => {
-        if (typeof value === "object" && value !== null && Object.hasOwn(value, "__proto__")) {
-          ctx.addIssue({
-            code: "custom",
-            message:
-              "EventEnvelope.payload MUST NOT carry an own __proto__ key — the record parser cannot preserve it, and silent stripping is forbidden.",
-          });
-        }
-      })
-      .pipe(z.record(z.string(), z.unknown())),
-  })
-  // Top-level membership is CLOSED even though the carrier is otherwise
-  // tolerant — the canonical set is fixed, and stripping an unknown
-  // member silently would desync parse output from the hashed canonical
-  // bytes. `pii_payload` is the named non-member: a storage column,
-  // never an envelope field.
-  .strict();
-
-// --------------------------------------------------------------------------
-// Cross-cutting epoch-attribution carrier ().
-// --------------------------------------------------------------------------
-//
-// `sourceEpoch` + `sourcePosition` are the ONE cross-cutting payload field
-// pair in the taxonomy (registered 2026-07-20): a late-appended
-// NON-LIFECYCLE row that the run engine attributes to a SUPERSEDED
-// execution epoch carries the pair; a current-epoch row carries neither.
-// Absence IS the current-epoch signal — the stamp is never fabricated at
-// read time.
-//
-// PAYLOAD FIELD, NOT AN ENVELOPE FIELD. The pair rides inside `payload`, so it
-// sits in the RFC 8785 canonical bytes (signed, hash-chained, shred-safe like
-// any payload field) while the canonical envelope member set stays the fixed
-// eleven — is untouched and NO version bump is taken. That no-bump path holds
-// because the point of no return is an EMISSION event, not a code merge: the
-// project is pre-first-release with no production deployment, so no `"1.0"`
-// envelope has been emitted in a non-test environment — shipped emitter code
-// on `develop` (runtime-node emitter's `RUNTIME_NODE_EVENT_VERSION`) does not
-// cross it. The pair is therefore part of the v1.0 baseline payload contract
-// from first emit, the same baseline-membership path the earlier campaign
-// field registrations rode. Had that point been crossed first, the
-// registration would instead take the MINOR envelope bump (`"1.1"`) #8's
-// new-optional-field rule.
-//
-// WRAP ADMISSION — which payload branches take the stamp. Admission is keyed
-// on RUN-SCOPEDNESS (the variant's payload carries `runId`), NOT on family
-// membership alone: the late-append window covers the five run-scoped
-// families (`assistant_output`, `tool_activity`, `usage_telemetry`,
-// `artifact_publication`, and the `interactive_request` CLOSED PAIR
-// `driver_ask.requested` + `driver_ask.canceled`), and within them only the
-// run-attributed variants admit the pair. The account-plane
-// `usage.rate_limit_update` (no `runId`) is the named exclusion: an epoch
-// stamp on a row with no run identity is unattributable by construction.
-// `run_lifecycle` branches never admit it either — a lifecycle straggler is
-// ABSORBED, never late-appended.
-//
-// The wrap set IS NO LONGER EMPTY (2026-08-30). It holds exactly the five
-// body-bearing variants registered below — `assistant.message`,
-// `assistant.thinking_update`, `tool.invoked`, `tool.result`, `tool.error` —
-// which are the first payloads in this union to carry `runId` and therefore
-// the first to meet the admission rule. Every other branch stays unwrapped,
-// and the reasoning that keeps them so is unchanged: `SessionEventSchema`
-// carries the two session variants (`session.created`, `channel.created`), the
-// six `repo.*` / `workspace.*` variants, the five `worktree.*` variants, the
-// six `audit_integrity` / `event_maintenance` variants, and the five
-// `runtime_node.*` variants (leg (a)). The first fourteen are LIFECYCLE rows;
-// the six registrants are DAEMON-SCOPE infrastructure rows fired at process
-// scope across every hosted session; the five registrants are NODE-scoped
-// attachment-lifecycle rows, keyed on `nodeId` and bound to the session of the
-// attachment they describe. None of those twenty-five is run-scoped — none of
-// their payloads carries `runId` — so none composes the helper. Later
-// registrants of the five families arriving through the union-registration
-// seam (class) inherit the admission requirement — a strict payload schema
-// that skipped the wrap would REJECT a stamped row at every site that parses
-// through the STRICT layer. Scoped honestly: the tolerant
-// `EventEnvelopeSchema` carrier accepts a stamped row either way (its
-// `payload` is an open record that preserves unknown keys verbatim), so what
-// an unwrapped branch costs is INTERPRETATION at the strict layer, not
-// transport, append, or the canonical bytes.
-// __tests__/event-source-epoch.test.ts walks the live union and fails when a
-// run-scoped branch of an admitting family lands unwrapped, or when any other
-// branch lands wrapped.
-//
-// OWNERSHIP BOUNDARY — this file owns the TYPED SHAPE only. Execution-epoch
-// semantics (`0` is the pre-any-rollback epoch; the epoch advances with each
-// ACCEPTED `run.rolled_back` rewind) belong to `Run State Machine `; the
-// stamp's value source is the per-event operation association; the stamping
-// and consumption invariants are the (late-event absorption supersede
-// marking).
-
-/**
- * The pre-rollback execution epoch a late-appended non-lifecycle row is
- * attributed to — a nonnegative integer, `0` being the pre-any-rollback
- * epoch (owns the advance semantics; see the ownership boundary above).
- *
- * Spelled as an alias rather than a `z.infer` of the schema below for the
- * same `isolatedDeclarations` reason as {@link EventCategory} /
- * {@link EventEnvelope}: the exported schema needs the explicit
- * `z.ZodType<T>` annotation, so the type must exist first. It is exactly the
- * schema's inferred output.
- */
-export type SourceEpoch = number;
-export const SourceEpochSchema: z.ZodType<SourceEpoch> = z.number().int().nonnegative();
-
-/**
- * The normalized session position (the turn-boundary vocabulary of the
- * `targetPosition`) a stamped row occupies within its source epoch — a
- * nonnegative integer.
- *
- * Registered as the stamp's companion because no run-scoped family's payload
- * carries a native position key, and the supersede cutoff
- * (`turn > targetPosition`) cannot rank a late row against its epoch's
- * surviving prefix without one.
- */
-export type SourcePosition = number;
-export const SourcePositionSchema: z.ZodType<SourcePosition> = z.number().int().nonnegative();
-
-// The three shared wire literals. Exported as consts — not inlined at each
-// use site — because a later rename is forbidden-non-additive and each
-// literal is shared across two plans' code: stamps the pair at ingestion
-// and reads it in the supersede projection, while compactor writes the
-// resolved originating position into the audit stub under `originPosition`,
-// which rewind-span check reads back. The stamp keys are the registered
-// payload-field names of `originPosition` is the audit-stub PROJECTION key
-// of — a stub-projection field, never a `session_events` column and never a
-// live payload key.
-//
-// `as const` rather than a written literal annotation: the literal type stays
-// syntactically evident (so `isolatedDeclarations` is satisfied) and the keys
-// stay usable as computed property names in the composition helper below.
-export const SOURCE_EPOCH_PAYLOAD_KEY = "sourceEpoch" as const;
-export const SOURCE_POSITION_PAYLOAD_KEY = "sourcePosition" as const;
-export const ORIGIN_POSITION_STUB_KEY = "originPosition" as const;
-
-/**
- * Composes the optional `sourceEpoch` + `sourcePosition` stamp onto a
- * run-scoped payload schema, with the pairing refinement that keeps a
- * half-stamped or unattributable row off the wire.
- *
- * Admission is the caller's decision and is keyed on run-scopedness — see
- * the WRAP ADMISSION note above before wrapping a new branch.
- *
- * Four properties are load-bearing:
- *
- *   • THE PAIR IS DECLARED HERE, ONCE. The generic constraint rejects a
- *     payload shape that already declares `sourceEpoch` or `sourcePosition`,
- *     so a registrant cannot hand-roll the cross-cutting pair alongside the
- *     canonical one — and cannot double-wrap. This is the one admission rule
- *     the compiler enforces; the rest live in the ratchet.
- *   • `.extend()` preserves the object's catchall config, so a composed
- *     payload rejects unknown keys exactly as it did before — composition
- *     never widens a payload into accepting arbitrary keys (the no-collapse
- *     stance of). Strictness is INHERITED, not imposed: the `$strict`
- *     parameter annotation states the precondition, but Zod's object-config
- *     type parameters are structurally interchangeable, so a caller CAN
- *     pass a non-strict payload and get a non-strict composition back.
- *     Wrapping a non-strict payload is a contract violation the admission
- *     ratchet in __tests__/event-source-epoch.test.ts rejects.
- *   • THE STAMP IS OPTIONAL, AND ABSENCE IS MEANINGFUL. An unstamped
- *     payload stays valid: absence means current-epoch, so a required key
- *     would force producers to fabricate an attribution.
- *   • THE PAIR TRAVELS WITH RUN IDENTITY. Either stamp key present ⇒ BOTH
- *     present AND `runId` PRESENT AND NON-NULL. Epochs and positions are
- *     run-local and the supersede cutoff reads run identity, epoch, and
- *     position together, so a stamp missing any leg is unattributable —
- *     rejected at parse time rather than persisted as an un-rankable row.
- *     Null is rejected alongside absent because a nullable `runId` spells
- *     "no run" in exactly the way absence does; admitting it would let an
- *     un-rankable row through the one check that exists to stop it. Only
- *     those two values are rejected — an empty-string `runId` is the base
- *     schema's business, not the refinement's. The `runId` leg is checked
- *     at RUNTIME (the helper is generic over the payload shape, so it
- *     cannot see the key at compile time): a payload schema with no `runId`
- *     key at all — `usage.rate_limit_update` foremost — therefore rejects
- *     every stamped row, which is the correct outcome for a branch that
- *     should not have been wrapped in the first place.
- */
-export function withEpochStamp<
-  Shape extends z.core.$ZodShape & { sourceEpoch?: never; sourcePosition?: never },
->(
-  payloadSchema: z.ZodObject<Shape, z.core.$strict>,
-): z.ZodObject<
-  Shape & {
-    sourceEpoch: z.ZodOptional<z.ZodType<SourceEpoch>>;
-    sourcePosition: z.ZodOptional<z.ZodType<SourcePosition>>;
-  },
-  z.core.$strict
-> {
-  // The return cast is justified by Zod's own typing of the two composition
-  // steps: `.extend()` returns `ZodObject<util.Extend<Shape, U>, Config>` —
-  // Config (here `$strict`) carried through — and `.superRefine()` returns
-  // `this`, so the value IS the annotated shape at runtime. What TypeScript
-  // cannot do is REDUCE `util.Extend` while `Shape` is generic: it is
-  // `Flatten<keyof A & keyof B extends never ? A & B : …>`, and that
-  // conditional stays deferred until `keyof Shape` is known, so no
-  // relation to the written intersection can be proven here. Note the
-  // branch it would take: for a `Shape` that declares NEITHER stamp key —
-  // the only shape the constraint admits in practice — `keyof Shape &
-  // keyof U` is `never`, making `A & B`, this exact intersection, the arm
-  // that fires once `Shape` resolves. So the cast asserts the branch the
-  // constraint steers every real caller into; it is not papering over a
-  // mismatch. (The constraint is satisfiable by a pathological `Shape` that
-  // declares `sourceEpoch?: never` explicitly, which would take the other
-  // arm; nothing in the taxonomy spells a payload that way.) Same stance as
-  // `EventEnvelopeVersionSchema`'s brand cast above.
-  //
-  // Residual, for JS callers who bypass the constraint: a colliding base
-  // schema that carries any refinement THROWS out of `util.extend`
-  // ("Cannot overwrite keys on object schemas containing refinements"),
-  // while a check-free colliding base is silently overridden — the spread
-  // order puts the canonical stamp schemas last, so they win. Neither path
-  // can be reached from TypeScript.
-  //
-  // Runtime behavior is pinned independently by
-  // __tests__/event-source-epoch.test.ts — strictness preserved, stamp
-  // optional, pairing enforced.
-  return (
-    payloadSchema
-      // Keyed off the exported consts (not re-typed literals) so the schema
-      // keys and the pinned wire names cannot drift apart.
-      .extend({
-        [SOURCE_EPOCH_PAYLOAD_KEY]: SourceEpochSchema.optional(),
-        [SOURCE_POSITION_PAYLOAD_KEY]: SourcePositionSchema.optional(),
-      })
-      .superRefine((value, ctx) => {
-        // Cast justified by the parameter type: `value` is the parsed output
-        // of a `.strict()` ZodObject, so it is a plain own-property object.
-        // The helper is generic over the payload shape, so the stamp and
-        // `runId` keys are only reachable by index here.
-        const stamped = value as Record<string, unknown>;
-        const hasEpoch = stamped[SOURCE_EPOCH_PAYLOAD_KEY] !== undefined;
-        const hasPosition = stamped[SOURCE_POSITION_PAYLOAD_KEY] !== undefined;
-        // Unstamped is the current-epoch default, not a violation.
-        if (!hasEpoch && !hasPosition) return;
-        if (!hasPosition) {
-          ctx.addIssue({
-            code: "custom",
-            path: [SOURCE_POSITION_PAYLOAD_KEY],
-            message: `A ${SOURCE_EPOCH_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_POSITION_PAYLOAD_KEY}: the supersede cutoff cannot rank the row against its epoch's surviving prefix without a position.`,
-          });
-        }
-        if (!hasEpoch) {
-          ctx.addIssue({
-            code: "custom",
-            path: [SOURCE_EPOCH_PAYLOAD_KEY],
-            message: `A ${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_EPOCH_PAYLOAD_KEY}: a position without its epoch names no epoch to supersede against.`,
-          });
-        }
-        // `runId` is the payload-level run-identity key every run-scoped
-        // family carries; epochs and positions are run-local, so a stamp
-        // without it is unattributable by construction. Explicit
-        // `undefined`-or-`null` rather than a truthiness test: `null` is a
-        // real "no run" value a nullable payload field can carry and must be
-        // rejected, but `!stamped["runId"]` would ALSO reject `""`, and an
-        // empty-string runId is the base schema's lane (a `.min(1)` there),
-        // not the pairing refinement's. Two `===` clauses rather than
-        // `== null` because `eqeqeq` forbids the loose form.
-        if (stamped["runId"] === undefined || stamped["runId"] === null) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["runId"],
-            message: `A ${SOURCE_EPOCH_PAYLOAD_KEY}/${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs a present, non-null runId: epochs and positions are run-local, so an epoch stamp on a row with no run identity is unattributable.`,
-          });
-        }
-      }) as unknown as z.ZodObject<
-      Shape & {
-        sourceEpoch: z.ZodOptional<z.ZodType<SourceEpoch>>;
-        sourcePosition: z.ZodOptional<z.ZodType<SourcePosition>>;
-      },
-      z.core.$strict
-    >
-  );
-}
-
-// --------------------------------------------------------------------------
-// The PII indirection descriptor.
-// --------------------------------------------------------------------------
-
-/**
- * The payload key carrying the BLAKE3 digest of the stored
- * `session_events.pii_payload` ciphertext — the commitment that binds the
- * sealed user partition to the row's signature without carrying the
- * plaintext into the signed bytes.
- *
- * SNAKE_CASE beside camelCase neighbours, deliberately: spells both members of
- * this pair that way, and rows have been signed under these exact literals
- * since the sealing codec shipped. A spelling "cleanup" here would not tidy
- * anything — it would break signature verification on every existing PII row.
- *
- * Declared HERE rather than in the daemon codec that embeds it, on the
- * {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} / {@link
- * SOURCE_EPOCH_PAYLOAD_KEY} convention: the strict layer below now REGISTERS
- * the member, which makes this package a consumer of the literal and the
- * lowest tier holding one. `runtime-daemon`'s `events/pii-indirection.ts`
- * re-exports both names, so the codec, the append service, the `0007`
- * migration, and the verifier keep their import path and no second spelling
- * comes into existence.
- *
- * The wire ENCODING is deliberately not pinned by the shape below — the same
- * restraint {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} takes. says "BLAKE3
- * over the ciphertext bytes" and fixes no spelling; the sealing codec writes
- * lowercase hex and owns that as a one-way door, and pinning it here would be
- * a narrowing nothing could relax.
- */
-export const PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "pii_ciphertext_digest" as const;
-
-/**
- * The payload key carrying the user whose content key sealed the
- * `pii_payload` ciphertext — the owner stamp requires BESIDE the digest, so
- * the signature binds the row's PII owner as well as its bytes. Once a Path 1
- * key destruction makes the retained ciphertext permanently un-attributable,
- * this stamp is the sole surviving evidence of whose data the row held.
- */
-export const PII_USER_ID_PAYLOAD_KEY = "pii_user_id" as const;
-
-/**
- * The two codec-owned indirection members a row carrying a user PII
- * partition embeds in its payload. Both are OPTIONAL: the pair is present
- * exactly when `session_events.pii_payload` is non-NULL, which the vast
- * majority of rows of every registered type never are.
- *
- * Declared as a TYPE ALIAS rather than an interface for the same load-bearing
- * reason {@link MachineContentDescriptor} is — see the note on that
- * declaration.
- *
- * NO PAIRING REFINEMENT, matching {@link MachineContentDescriptor}'s three
- * members rather than {@link withEpochStamp}'s two. The both-or-neither binding
- * between digest and stamp is already adjudicated — and adjudicated where it
- * can actually be checked — by the read-side `pii_owner_stamp_unbound`
- * verification mode names for exactly this purpose: it holds the signed claim
- * against the durable `session_events.pii_user_id` column, a comparison
- * no parse-time check can make because the column is not in the parsed object.
- * Encoding the pairing here as well would make this schema a second source of
- * truth for a binding the corpus has already assigned.
- *
- * The member names are spelled LITERALLY here while the schema factory below
- * composes them from the exported constants, and the asymmetry is deliberate.
- * The runtime keys are what the codec writes by, so composing them from the
- * constants is what keeps a rename from silently making every registered
- * variant reject every PII row. A type alias is a compile-time mirror with no
- * such coupling, so it takes {@link MachineContentDescriptor}'s plain-key form
- * and stays comparable to it side by side. Both spellings are held to the
- * runtime one by the round-trip assertions in
- * __tests__/event-source-epoch.test.ts, which read the members off this type
- * BY the constants.
- */
-export type PiiIndirectionDescriptor = {
-  /** BLAKE3 over the STORED `pii_payload` ciphertext bytes. */
-  pii_ciphertext_digest?: string | undefined;
-  /** The user whose content key sealed that ciphertext. */
-  pii_user_id?: string | undefined;
-};
-
-// The shared shape factory — `buildMachineContentDescriptorShape()`'s principle
-// applied to the sibling partition. Every payload shape that may legally carry
-// the pair spreads THIS, so the members cannot drift across the twenty-four
-// variants that admit them.
-//
-// COMPUTED keys rather than repeated literals, so the two exported constants
-// above are the single source of the strings that the schema, the codec, the
-// migration, and the verifier all index this payload by.
-//
-// `pii_user_id` is a BOUNDED FREE-FORM STRING and deliberately NOT
-// `UserIdSchema`. That schema is `brandedUuidIdSchema`, so it would
-// refuse every stamp that is not a canonical UUID — while the codec that embeds
-// this member types the value as a plain `string` on a documented narrowing
-// (`pii-indirection.ts`: "nothing on this path mints that brand, and its schema
-// requires a UUID this module has no standing to demand of an injected key
-// holder"). A strict layer that refused rows the append path legally signs
-// would refuse them AFTER the seal — the exact defect class this registration
-// exists to close, reintroduced from the other side.
-const buildPiiIndirectionDescriptorShape = () => ({
-  [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "pii partition pii_ciphertext_digest",
-  ).optional(),
-  [PII_USER_ID_PAYLOAD_KEY]: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "pii partition pii_user_id",
-  ).optional(),
-});
-
-// Minimal structural view of the ZodObject surface {@link
-// withPiiIndirectionMembers} reads. Same affordance the wrap-admission ratchet
-// takes over this union's branches: the imported payload schemas are annotated
-// `z.ZodType<T>` for `isolatedDeclarations`, which erases the ZodObject surface
-// that `.extend()` and the catchall live on, so composition has to re-widen it.
-type ExtendableStrictObjectView = {
-  readonly def: { readonly catchall?: { readonly def: { readonly type: string } } | undefined };
-  readonly extend: (shape: Record<string, unknown>) => unknown;
-};
-
-/**
- * Compose {@link buildPiiIndirectionDescriptorShape} onto a payload schema this
- * file does not DECLARE.
- *
- * WHY A WRAPPER HERE AND A PLAIN SPREAD EVERYWHERE ELSE. The eight payload
- * schemas authored in this file take the spread directly, at their shape
- * factories. The seven imported from `repo.ts` / `worktree.ts` /
- * `runtime-node.ts` must not: those exports are PRODUCER-INPUT surfaces, parsed
- * with `.parse()` at the emission boundary by `workspace-event-emitter.ts`,
- * `node-event-emitter.ts`, and `schema-migration-emitter.ts`, whose PARSED
- * OUTPUT is what gets persisted. Widening them at their declarations would let
- * an emitter hand-embed a reserved key and pass its own strict parse — weakening
- * a shipped seam to fix an interpretation-layer gap. So the widening lands on
- * a DERIVED const used at both the standalone `*EventSchema` export and the
- * union branch, which keeps the no-drift property those families already claim
- * while the input schema they are built from stays exactly as shipped.
- *
- * BOTH REFUSALS ARE LOUD AND FIRE AT MODULE LOAD. A payload whose ZodObject
- * surface cannot be read would otherwise compose into a silent no-op, and a
- * non-strict one would compose into a schema that STRIPS unknown keys — parse
- * output diverging from the hashed canonical bytes, which is the failure the
- * epoch helper's own strictness pin exists to prevent.
- */
-function withPiiIndirectionMembers<TPayload extends Record<string, unknown>>(
-  payloadSchema: z.ZodType<TPayload>,
-  schemaName: string,
-): z.ZodType<TPayload & PiiIndirectionDescriptor> {
-  const objectView = payloadSchema as unknown as Partial<ExtendableStrictObjectView>;
-  if (typeof objectView.extend !== "function") {
-    throw new Error(
-      `withPiiIndirectionMembers: ${schemaName} exposes no ZodObject \`.extend()\`, so the ` +
-        `PII indirection members cannot be composed onto it. Composing nothing would leave the ` +
-        `variant rejecting the very rows the sealing codec signs.`,
-    );
-  }
-  if (objectView.def?.catchall?.def.type !== "never") {
-    throw new Error(
-      `withPiiIndirectionMembers: ${schemaName} is not \`.strict()\`. Composition inherits ` +
-        `strictness, so wrapping a loose payload would silently strip unknown keys away from ` +
-        `the canonical bytes the row was signed over.`,
-    );
-  }
-  return (objectView as ExtendableStrictObjectView).extend(
-    buildPiiIndirectionDescriptorShape(),
-  ) as z.ZodType<TPayload & PiiIndirectionDescriptor>;
-}
-
-// --------------------------------------------------------------------------
-// Per-variant payload schemas — extracted as named consts to deduplicate
-// between the standalone `*EventSchema` exports and the discriminated-union
-// branch schemas. Same principle as `buildCommonShape()`.
-// --------------------------------------------------------------------------
-
-const sessionCreatedPayloadSchema = z
-  .object({
-    sessionId: SessionIdSchema,
-    config: z.record(z.string(), z.unknown()),
-    metadata: z.record(z.string(), z.unknown()),
-    ...buildPiiIndirectionDescriptorShape(),
-  })
-  .strict();
-
-const channelCreatedPayloadSchema = z
-  .object({
-    channelId: ChannelIdSchema,
-    // `name` is optional; the implicit `main` channel is unnamed on the
-    // wire (matches ChannelSummary.name optionality in session.ts). When
-    // present, the same `wireFreeFormString` guards apply (length cap +
-    // whitespace + NUL rejection) — channel names are user-visible UI
-    // labels, same trust-boundary stance as `identityHandle`.
-    name: wireFreeFormString(CHANNEL_NAME_MAX_LEN, "channel.created.name").optional(),
-    ...buildPiiIndirectionDescriptorShape(),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// session.created — emitted on session admit.
-// --------------------------------------------------------------------------
-//
-// Payload mirrors the session-bootstrap projection: the new session id
-// (redundant with the envelope's `sessionId`, kept for projector convenience)
-// plus the resolved config + metadata.
-
-// Variant interfaces extend the canonical EventEnvelope, narrowing the
-// tolerant `type` / `category` / `payload` members to the variant's
-// literals + typed payload. The subtype relation is compile-checked, with
-// scoped reach: ADDING or NARROWING an envelope member ripples into every
-// variant schema annotation as a type error, while REMOVING one compiles
-// clean (ZodType's output parameter is covariant, so a schema emitting an
-// extra property stays assignable to the shrunken interface) — the remove
-// direction is caught by the 11-key membership pin in the test suite
-// instead. Together they are drift guard.
-export interface SessionCreatedEvent extends EventEnvelope {
-  type: "session.created";
-  category: "session_lifecycle";
-  payload: PiiIndirectionDescriptor & {
-    sessionId: SessionId;
-    config: Record<string, unknown>;
-    metadata: Record<string, unknown>;
-  };
-}
-export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("session.created"),
-    category: z.literal("session_lifecycle"),
-    payload: sessionCreatedPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// channel.created — emitted when a session channel materializes.
-// --------------------------------------------------------------------------
-
-export interface ChannelCreatedEvent extends EventEnvelope {
-  type: "channel.created";
-  category: "session_lifecycle";
-  payload: PiiIndirectionDescriptor & {
-    channelId: ChannelId;
-    name?: string | undefined;
-  };
-}
-export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("channel.created"),
-    category: z.literal("session_lifecycle"),
-    payload: channelCreatedPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// repo.* / workspace.* — the six lifecycle variants.
-// --------------------------------------------------------------------------
-//
-// All six type strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
-// VARIANTS, which is what moves a type from a registered name the tolerant
-// carrier accepts to one the strict layer can interpret. The census is
-// untouched — still 147 types across 20 categories.
-//
-// ONE SHARED PAYLOAD SCHEMA. gives the whole eleven-member family a single
-// payload shape, so all six compose the same
-// `RepoWorkspaceLifecyclePayloadSchema` (authored in repo.ts per
-// emitter-authors-payload — precedent carried forward) rather than six
-// copies of one contract. The five `worktree.*` members are registered in
-// the block below through carrying the SAME FAMILY SHAPE instantiated over
-// its own `WorktreeStateSchema` (the factory path) rather
-// than this two-vocabulary instantiation. Import direction is one-way:
-// repo.ts imports nothing from this file.
-//
-// NO EPOCH STAMP. These are `session_lifecycle`, not run-scoped — their
-// payload carries no `runId`, so the cross-cutting `sourceEpoch` /
-// `sourcePosition` pair would be unattributable and the WRAP ADMISSION note
-// above excludes them. __tests__/event-source-epoch.test.ts walks the live
-// union and fails a non-admitting branch that lands wrapped.
-//
-// PII INDIRECTION MEMBERS, composed onto a DERIVED const. All six ADMIT the
-// pair: they are neither `audit_integrity` nor `event_maintenance`, so the
-// sealing codec will seal a row of one of these types on request, and a strict
-// layer that then rejected the composed row would refuse it AFTER the encrypt
-// — the parse-what-you-sign gap this registration closes. The composition wraps
-// a derived const rather than widening the imported
-// `RepoWorkspaceLifecyclePayloadSchema` itself, because that export is a
-// producer-INPUT surface parsed at the emission boundary; see
-// {@link withPiiIndirectionMembers}. The derived const is used at BOTH the
-// standalone `*EventSchema` exports below and the union branches, so the
-// family's no-drift property is preserved rather than traded away.
-type RepoWorkspaceLifecycleVariantPayload = RepoWorkspaceLifecyclePayload &
-  PiiIndirectionDescriptor;
-const repoWorkspaceLifecycleVariantPayloadSchema: z.ZodType<RepoWorkspaceLifecycleVariantPayload> =
-  withPiiIndirectionMembers(
-    RepoWorkspaceLifecyclePayloadSchema,
-    "RepoWorkspaceLifecyclePayloadSchema",
-  );
-
-// Emitted when `repo.attach` admits a local path as a durable repo
-// mount.
-export interface RepoAttachedEvent extends EventEnvelope {
-  type: "repo.attached";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecycleVariantPayload;
-}
-export const RepoAttachedEventSchema: z.ZodType<RepoAttachedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("repo.attached"),
-    category: z.literal("session_lifecycle"),
-    payload: repoWorkspaceLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted when a mount transitions to the terminal `detached`
-// state.
-export interface RepoDetachedEvent extends EventEnvelope {
-  type: "repo.detached";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecycleVariantPayload;
-}
-export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("repo.detached"),
-    category: z.literal("session_lifecycle"),
-    payload: repoWorkspaceLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted at the head of a (re)provisioning transition — the
-// `WorkspaceService.beginReprovision`.
-export interface WorkspaceProvisioningEvent extends EventEnvelope {
-  type: "workspace.provisioning";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecycleVariantPayload;
-}
-export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.provisioning"),
-    category: z.literal("session_lifecycle"),
-    payload: repoWorkspaceLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted when provisioning completes and the execution root is bound —
-// `WorkspaceService.completeReprovision`.
-export interface WorkspaceReadyEvent extends EventEnvelope {
-  type: "workspace.ready";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecycleVariantPayload;
-}
-export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.ready"),
-    category: z.literal("session_lifecycle"),
-    payload: repoWorkspaceLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted on the availability-loss transition — a failed reprovision
-// (`WorkspaceService.failReprovision`) or a workspace path that became
-// unavailable after binding, after which write runs are blocked until
-// repair.
-export interface WorkspaceStaleEvent extends EventEnvelope {
-  type: "workspace.stale";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecycleVariantPayload;
-}
-export const WorkspaceStaleEventSchema: z.ZodType<WorkspaceStaleEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.stale"),
-    category: z.literal("session_lifecycle"),
-    payload: repoWorkspaceLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted once per dependent workspace archived by the detach
-// cascade.
-export interface WorkspaceArchivedEvent extends EventEnvelope {
-  type: "workspace.archived";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecycleVariantPayload;
-}
-export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("workspace.archived"),
-    category: z.literal("session_lifecycle"),
-    payload: repoWorkspaceLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// worktree.* — the five lifecycle variants.
-// --------------------------------------------------------------------------
-//
-// All five type strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
-// VARIANTS. The census is untouched — still 147 types across 20 categories.
-//
-// SAME FAMILY, OWN VOCABULARY. These five complete the eleven-member family
-// block above began, but they do NOT compose
-// `RepoWorkspaceLifecyclePayloadSchema`: their payload is the family factory
-// instantiated over the `WorktreeStateSchema` —
-// `WorktreeLifecyclePayloadSchema`, authored in worktree.ts per
-// emitter-authors-payload — so a worktree event claiming a repo/workspace
-// state, or a workspace event claiming `merged`, stays a parse error.
-// Import direction is one-way: worktree.ts imports nothing
-// from this file.
-//
-// THE REGISTRY STAYS CLOSED. Five arms, not six: the worktree ROW vocabulary
-// has six states, but the `-> failed` transition emits no worktree event
-// (the failure incident is already evented as `workspace.stale` by the
-// coupled `failReprovision`), and ephemeral-clone transitions emit none at
-// all. `worktree.failed` is not a census member and MUST stay rejected by
-// `SessionEventSchema` (pinned in __tests__/worktree.test.ts).
-//
-// NO EPOCH STAMP. `session_lifecycle`, not run-scoped — the same WRAP
-// ADMISSION exclusion as the six above; __tests__/event-source-epoch.test.ts
-// walks the live union and fails a non-admitting branch that lands wrapped.
-//
-// PII INDIRECTION MEMBERS, on the derived-const pattern the six above take —
-// `session_lifecycle` admits the pair, and `WorktreeLifecyclePayloadSchema` is
-// the same kind of producer-input surface, so the widening lands on a const
-// derived from it and used at both registration sites.
-type WorktreeLifecycleVariantPayload = WorktreeLifecyclePayload & PiiIndirectionDescriptor;
-const worktreeLifecycleVariantPayloadSchema: z.ZodType<WorktreeLifecycleVariantPayload> =
-  withPiiIndirectionMembers(WorktreeLifecyclePayloadSchema, "WorktreeLifecyclePayloadSchema");
-
-// Emitted transactionally with worktree row creation.
-export interface WorktreeCreatedEvent extends EventEnvelope {
-  type: "worktree.created";
-  category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
-}
-export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.created"),
-    category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted on the `creating -> ready` transition — the provisioned checkout is
-// materialized and bound as an execution root.
-export interface WorktreeReadyEvent extends EventEnvelope {
-  type: "worktree.ready";
-  category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
-}
-export const WorktreeReadyEventSchema: z.ZodType<WorktreeReadyEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.ready"),
-    category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted on the `-> dirty` transition — uncommitted work observed in the
-// checkout.
-export interface WorktreeDirtyEvent extends EventEnvelope {
-  type: "worktree.dirty";
-  category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
-}
-export const WorktreeDirtyEventSchema: z.ZodType<WorktreeDirtyEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.dirty"),
-    category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted on the `-> merged` transition — the worktree's branch has merged
-// back.
-export interface WorktreeMergedEvent extends EventEnvelope {
-  type: "worktree.merged";
-  category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
-}
-export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.merged"),
-    category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted on the `-> retired` transition — recorded and evented BEFORE any
-// disk mutation; cleanup is asynchronous and idempotent.
-export interface WorktreeRetiredEvent extends EventEnvelope {
-  type: "worktree.retired";
-  category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
-}
-export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("worktree.retired"),
-    category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// audit_integrity + event_maintenance — the six variants.
-// --------------------------------------------------------------------------
-//
-// All six type strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
-// VARIANTS. The census is untouched — still 147 types across 20 categories.
-//
-// The eleven registrants above import their payload schema from the EMITTING
-// plan's module.
-//
-// `audit_integrity_verified`, `audit_integrity_failed`, and
-// `key_reuse_detected` carry NO dot namespace — verbatim and immutable wire
-// identifiers however they read beside the `<resource>.<verb>` majority.
-//
-// ENVELOPE-REDUNDANT MEMBERS ARE KEPT. The spec's payload cells re-spell
-// `sessionId` (`audit_integrity`) and `occurredAt` (`event_maintenance`)
-// alongside the envelope's own. They are transcribed verbatim rather than
-// deduplicated: the payload shapes are the spec's, and both members sit in the
-// RFC 8785 canonical bytes, so dropping either would change what the hash
-// chain commits to (`session.created`'s payload re-spells `sessionId` on the
-// same reasoning).
-//
-// DAEMON-SCOPE SESSION BINDING IS AN EMITTER OBLIGATION. Four of the six —
-// `key_reuse_detected` plus all three `event_maintenance` types — are node-level
-// observations bound to the reserved RFC 9562 section 5.10 Max UUID sentinel
-// `session_id`. The envelope's `sessionId` is `SessionIdSchema` (the RFC 9562
-// predicate), which already admits that sentinel, and no schema-level narrowing to it
-// is taken here: the spec grants real-id carve-outs the narrowing would reject (an
-// `event.compacted` scoped to ONE session MAY carry that session's id;
-// `audit_integrity_*` carry the verified range's real id, the sentinel only when
-// verifying the node-scope chain; the `signing_key_slot_conflict` arm carries the
-// refused registration's real id and NEVER the sentinel).
-//
-// NO EPOCH STAMP. None of the six is run-scoped — no payload carries `runId`
-// — so the WRAP ADMISSION note above excludes all six;
-// __tests__/event-source-epoch.test.ts walks the live union and fails any of
-// them that lands wrapped.
-
-/**
- * A `session_events.sequence` value carried INSIDE a payload — a range
- * endpoint or an implicated row pointer.
- *
- * Takes the same ceiling as the envelope's own `sequence` (see the
- * {@link EVENT_ENVELOPE_SEQUENCE_MAX} note above): a payload endpoint that
- * cannot be represented faithfully cannot name the row it points at, and the
- * two would disagree about which rows a range covers.
- */
-const payloadSequenceSchema = z
-  .number()
-  .int()
-  .nonnegative()
-  .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
-    message: `A payload sequence value must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER), the same injectivity ceiling EventEnvelope.sequence takes.`,
-  });
-
-/**
- * Length ceiling for the `audit_integrity_failed` payload's `detail` — the
- * operator-facing failure description (the refused registration's
- * `(session_id, node_id)` pair on the registrar arm, the verifier's finding on
- * the sixteen verifier failure modes).
- *
- * 512 is the package's short human-reason class (`RuntimeNodeDetachReason`),
- * not the 8192 error-detail class: `detail` is a
- * one-line operator signal on a row that is never compacted and never
- * shredded, so it is retained forever.
- */
-export const AUDIT_INTEGRITY_DETAIL_MAX_LEN = 512;
-
-/**
- * Length ceiling for the `schema.migrated` payload's `description` — the
- * migration's human label, Flyway's `description` column by precedent. Same
- * short-reason class as {@link AUDIT_INTEGRITY_DETAIL_MAX_LEN}.
- */
-export const SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN = 512;
-
-/**
- * The seventeen `audit_integrity_failed` failure modes of — sixteen
- * read-side verifier verdicts plus the daemon-side registrar's
- * `signing_key_slot_conflict`.
- *
- * Named for the verifier because sixteen of seventeen are its verdicts and
- * because the plan names the schema `VerifierFailureModeSchema`; the
- * seventeenth is emitted by the registrar's conflict handler, which is exactly
- * why the payload below is DISCRIMINATED on this field rather than flat.
- */
-export type VerifierFailureMode =
-  | "hash_mismatch"
-  | "signature_mismatch"
-  | "anchor_mismatch"
-  | "inclusion_proof_failed"
-  | "consistency_proof_failed"
-  | "log_file_missing"
-  | "log_file_moved"
-  | "anchor_missing_for_compacted_range"
-  | "anchor_signature_invalid"
-  | "stub_signature_invalid"
-  | "stub_scalar_mismatch"
-  | "signature_placeholder"
-  | "occurred_at_not_canonical"
-  | "pii_ciphertext_digest_unbound"
-  | "pii_owner_stamp_unbound"
-  | "content_ciphertext_digest_unbound"
-  | "signing_key_slot_conflict";
-
-// Exported ENUM-typed rather than as `z.ZodType<VerifierFailureMode>`, and the
-// difference is load-bearing: `.exclude()` lives on Zod's `ZodEnum` surface,
-// which the `z.ZodType` annotation ERASES. documents its consumer derivation as
-// `VerifierFailureModeSchema.exclude(['signing_key_slot_conflict'])`. Under the
-// erasing annotation that expression still compiled HERE — this file kept an
-// unannotated module-local twin to derive from — while failing at its own
-// module boundary: the worst shape of type error, invisible to the file that
-// ships the symbol. The twin is retired for exactly that reason.
-//
-// The annotation is spelled out because `isolatedDeclarations` is repo-wide.
-// `{ [K in VerifierFailureMode]: K }` is structurally what `z.enum([...])`
-// infers for a string-array input — `util.ToEnum<T> = Flatten<{[k in T]: k}>`
-// and `util.Flatten` is `Identity` (zod@4 `v4/core/util.d.ts`) — so this is an
-// annotation, never a widening and never a cast.
-//
-// `VerifierFailurePathSchema` below deliberately keeps the `z.ZodType`
-// annotation: no documented consumer derives from its enum surface, and the
-// narrower annotation is the conservative default. The asymmetry is the
-// consumer requirement, not a style drift.
-//
-// The verifier arm derives its sixteen-mode discriminator from THIS exported
-// symbol, so the seventeen-mode vocabulary is single-sourced AND this file
-// exercises exactly the surface will. The compile-time binding to the type union
-// stays the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">` on the
-// payload type alias, which is a real check rather than a comment.
-export const VerifierFailureModeSchema: z.ZodEnum<{ [K in VerifierFailureMode]: K }> = z.enum([
-  "hash_mismatch",
-  "signature_mismatch",
-  "anchor_mismatch",
-  "inclusion_proof_failed",
-  "consistency_proof_failed",
-  "log_file_missing",
-  "log_file_moved",
-  "anchor_missing_for_compacted_range",
-  "anchor_signature_invalid",
-  "stub_signature_invalid",
-  "stub_scalar_mismatch",
-  "signature_placeholder",
-  "occurred_at_not_canonical",
-  "pii_ciphertext_digest_unbound",
-  "pii_owner_stamp_unbound",
-  "content_ciphertext_digest_unbound",
-  "signing_key_slot_conflict",
-]);
-
-/**
- * The verification GUARANTEE that failed — not the column the defect
- * occupies. `inclusion` is the chain path, `consistency` the anchor path, and
- * `signature` the signature-binding path (which is why the four
- * signature-survives-but-binding-broke modes — `occurred_at_not_canonical`,
- * `pii_ciphertext_digest_unbound`, `pii_owner_stamp_unbound`,
- * `content_ciphertext_digest_unbound` — all pair with it). No fourth PATH
- * value is minted: each of the three routes to one tamper-response owner.
- */
-export type VerifierFailurePath = "inclusion" | "consistency" | "signature";
-export const VerifierFailurePathSchema: z.ZodType<VerifierFailurePath> = z.enum([
-  "inclusion",
-  "consistency",
-  "signature",
-]);
-
-// The `audit_integrity` payload base — `{sessionId, anchorId?,
-// verifierNodeId}` verbatim. A builder, not a shared const, for the same
-// reason `buildCommonShape()` is one: each caller spreads a FRESH shape
-// rather than aliasing one Zod object across schemas.
-//
-// Not every consumer takes the full base. The `audit_integrity_failed`
-// REGISTRAR arm takes the REDUCED `{sessionId, verifierNodeId}` — it spreads
-// this builder and DROPS `anchorId` (see that arm below), so a later base-shape
-// change still propagates there instead of stopping at a hand-copied pair.
-//
-// `key_reuse_detected` deliberately does NOT compose it — its spec cell is a
-// standalone shape with no `base +` prefix, and it names `detectorNodeId`
-// rather than `verifierNodeId` because the emitter is an observer/monitor,
-// not a verifier.
-const buildAuditIntegrityBaseShape = () => ({
-  sessionId: SessionIdSchema,
-  // Opaque on the wire, deliberately NOT a branded/UUID-narrowed id: the
-  // control-plane `event_log_anchors.id` is a UUID while the local
-  // `pending_anchor_uploads.id` is `TEXT`, and no `AnchorId` vocabulary is
-  // declared anywhere in the corpus. Minting one here would pre-commit every
-  // importer to a shape no authority has fixed. Bounded free-form is the
-  // conservative admission (length cap + whitespace-only + NUL guards); a
-  // later narrowing is the owning plan's to take.
-  anchorId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "audit_integrity.anchorId").optional(),
-  verifierNodeId: NodeIdSchema,
-});
-
-/**
- * `audit_integrity_verified` — a read-side verifier completed hash,
- * signature, and anchor checks over a range successfully.
- *
- * `rootHash` is bounded free-form, not a 64-hex pin: the house digest form is
- * 64-char lowercase hex (`daemon_signing_public_keys`' fingerprint,
- * `pii_ciphertext_digest`), but no authority pins THIS member's wire
- * spelling, and a pin here would be a narrowing nothing could relax (#8 makes
- * removals/narrowings MAJOR). The hex form is the emitter's obligation, not
- * the parser's. Same for `signatureAlgorithm` — the spec enumerates no
- * algorithm vocabulary, so no enum is invented for it.
- */
-export type AuditIntegrityVerifiedPayload = {
-  sessionId: SessionId;
-  anchorId?: string | undefined;
-  verifierNodeId: NodeId;
-  treeSize: number;
-  rootHash: string;
-  fromSeq: number;
-  toSeq: number;
-  verifiedAt: string;
-  signatureAlgorithm: string;
-};
-export const AuditIntegrityVerifiedPayloadSchema: z.ZodType<AuditIntegrityVerifiedPayload> = z
-  .object({
-    ...buildAuditIntegrityBaseShape(),
-    // Leaf count of the verified Merkle tree (RFC 9162 `tree_size`).
-    treeSize: z.number().int().nonnegative(),
-    rootHash: wireFreeFormString(EVENT_FIELD_MAX_LEN, "audit_integrity_verified.rootHash"),
-    fromSeq: payloadSequenceSchema,
-    toSeq: payloadSequenceSchema,
-    verifiedAt: z.iso.datetime({ offset: true }),
-    signatureAlgorithm: wireFreeFormString(
-      EVENT_FIELD_MAX_LEN,
-      "audit_integrity_verified.signatureAlgorithm",
-    ),
-  })
-  .strict();
-
-// The two arms of the payload below. Module-local: a consumer that needs one
-// of them narrows through `Extract<AuditIntegrityFailedPayload, …>` on the
-// `failureMode` discriminator, so exporting them would add surface no caller
-// needs. The verifier arm's mode set is bound to the seventeen-mode vocabulary
-// by `Exclude<…>` rather than re-typed, so the two cannot drift.
-type AuditIntegrityFailedVerifierPayload = {
-  sessionId: SessionId;
-  anchorId?: string | undefined;
-  verifierNodeId: NodeId;
-  treeSize: number;
-  expectedRootHash: string;
-  observedRootHash: string;
-  fromSeq: number;
-  toSeq: number;
-  // The `failureMode` × `failurePath` PRODUCT, deliberately — ten of the
-  // sixteen pairings are fixed by authority and enforced at parse (see the
-  // arm schema's mode/path check), but the TYPE stays the product the spec
-  // cell describes. A distributive-narrowed annotation (a sixteen-member
-  // union pairing each mode with its own path) cannot be satisfied by the
-  // object schema's inference without a cast, and buying compile-time
-  // narrowing with an `as unknown as` bridge on a signed-payload schema is a
-  // bad trade: the cast would assert exactly what the runtime check proves.
-  failureMode: Exclude<VerifierFailureMode, "signing_key_slot_conflict">;
-  failurePath: VerifierFailurePath;
-  offendingSeq?: number | undefined;
-  detail: string;
-};
-// REDUCED base — `{sessionId, verifierNodeId}`, no `anchorId` (2026-08-03
-// amendment). The member is not merely unset on this arm, it is refused: the
-// row is never compacted, never shredded, and never rewritten, so an anchor
-// association written here would be permanently false. The two
-// `runtime_node.capability_*` rows are the spec's reduced-base precedent.
-type AuditIntegrityFailedRegistrarPayload = {
-  sessionId: SessionId;
-  verifierNodeId: NodeId;
-  failureMode: "signing_key_slot_conflict";
-  failurePath: "signature";
-  detail: string;
-};
-/**
- * `audit_integrity_failed` — DISCRIMINATED on `failureMode`, not flat
- *
- * The Merkle triple (`treeSize`, `expectedRootHash`, `observedRootHash`)
- * describes a VERIFIED RANGE. The sixteen read-side verifier modes walked one
- * and REQUIRE it; the registrar's `signing_key_slot_conflict` walked none, so a
- * flat seventeen-mode object would force its emitter to fabricate roots for a
- * tree it never touched. One event type, one wire schema, two arms: the
- * verifier can never silently omit its roots and the registrar can never invent
- * them. The verified RANGE splits the same way and for the same reason —
- * `fromSeq` / `toSeq` are required on the verifier arm (the dedupe key
- * specifies) and absent from the registrar's, which walked no range — and the
- * verifier arm additionally enforces the ten authority-fixed `failureMode` →
- * `failurePath` pairings at parse. `anchorId` splits the same way once more
- * (2026-08-03): optional on the verifier arm, whose range an anchor can cover,
- * and EXCLUDED from the registrar's, which has no range to be covered — refused
- * there rather than left unset, because the row is never rewritten and a false
- * anchor association would be permanent.
- */
-export type AuditIntegrityFailedPayload =
-  | AuditIntegrityFailedVerifierPayload
-  | AuditIntegrityFailedRegistrarPayload;
-
-// Authority, rule by rule, from `Security Architecture `: rule 1 pins
-// `hash_mismatch` → `inclusion`; rule 2 pins `signature_mismatch`,
-// `signature_placeholder`, `occurred_at_not_canonical`,
-// `pii_ciphertext_digest_unbound`, `pii_owner_stamp_unbound` and
-// `content_ciphertext_digest_unbound` → `signature`; rule 3 pins
-// `anchor_mismatch` → `consistency`; rule 4 pins `stub_signature_invalid` and
-// `stub_scalar_mismatch` → `signature`. independently ratifies the placeholder
-// / `occurred_at` / PII trio ("ratified 2026-07-26 so implementations mirror
-// this assignment rather than infer one") — a mandate to ENFORCE the
-// assignment, which a three-value enum alone does not.
-//
-// The six `null` modes have NO corpus-fixed path: rule 3 names
-// `anchor_missing_for_compacted_range` / `anchor_signature_invalid` and the
-// four substrate modes WITHOUT a `failurePath`, so pinning one here would mint
-// an authority that does not exist and be a narrowing nothing could relax (#8
-// makes narrowings MAJOR) — the same restraint the `rootHash` note above
-// takes.
-//
-// The map is TOTAL over the wire enum (`null` is a value, not an omission), so
-// `satisfies` breaks loudly in both directions: a mode added to the vocabulary
-// leaves a missing key, a mode renamed or retired leaves an excess one.
-// Totality over all SEVENTEEN rather than the verifier's sixteen is deliberate on
-// two counts: the lookup below is then index-safe however `.exclude()` infers
-// its narrowed key type, and the registrar's own pin is a fact worth recording
-// beside its siblings. Its arm pins the identical value with `z.literal`, so
-// the two agree by construction and the verifier arm never reads that row.
-const VERIFIER_FAILURE_PATH_BY_MODE = {
-  hash_mismatch: "inclusion",
-  signature_mismatch: "signature",
-  anchor_mismatch: "consistency",
-  inclusion_proof_failed: null,
-  consistency_proof_failed: null,
-  log_file_missing: null,
-  log_file_moved: null,
-  anchor_missing_for_compacted_range: null,
-  anchor_signature_invalid: null,
-  stub_signature_invalid: "signature",
-  stub_scalar_mismatch: "signature",
-  signature_placeholder: "signature",
-  occurred_at_not_canonical: "signature",
-  pii_ciphertext_digest_unbound: "signature",
-  pii_owner_stamp_unbound: "signature",
-  content_ciphertext_digest_unbound: "signature",
-  // The registrar's seventeenth mode — pinned and by its own arm's `z.literal`
-  // below; present here only to keep the map total.
-  signing_key_slot_conflict: "signature",
-} satisfies Record<VerifierFailureMode, VerifierFailurePath | null>;
-
-const auditIntegrityFailedVerifierArmSchema = z
-  .object({
-    ...buildAuditIntegrityBaseShape(),
-    treeSize: z.number().int().nonnegative(),
-    expectedRootHash: wireFreeFormString(
-      EVENT_FIELD_MAX_LEN,
-      "audit_integrity_failed.expectedRootHash",
-    ),
-    observedRootHash: wireFreeFormString(
-      EVENT_FIELD_MAX_LEN,
-      "audit_integrity_failed.observedRootHash",
-    ),
-    // REQUIRED, both — the verified range endpoints the dedupe key needs
-    // (consumers dedupe on `(verifierNodeId, fromSeq, toSeq, verifiedAt)`;
-    // the IdempotencyClass on the first three). The FOURTH member is
-    // deliberately not added here: `verifiedAt` describes a COMPLETED
-    // verification and stays an `audit_integrity_verified` member, so on this
-    // arm three of the four key members are payload-resident and the fourth
-    // is the envelope's own `occurredAt`. Every verifier invocation HAS a
-    // request range, the whole-range modes included — which is exactly why
-    // they may omit `offendingSeq` and still name the range they were asked
-    // to walk. NO `fromSeq <= toSeq` cross-field refinement: the shipped
-    // `audit_integrity_verified` sibling carries none, and minting one here
-    // would be a new invariant with no authority behind it.
-    fromSeq: payloadSequenceSchema,
-    toSeq: payloadSequenceSchema,
-    // Derived from the EXPORTED seventeen-mode schema so the two arms cannot
-    // drift apart — and so this file exercises the exact `.exclude()` call
-    // documents for its own consumer derivation.
-    failureMode: VerifierFailureModeSchema.exclude(["signing_key_slot_conflict"]),
-    failurePath: VerifierFailurePathSchema,
-    // OPTIONAL — several modes implicate no single row (`log_file_missing`,
-    // `anchor_missing_for_compacted_range`).
-    offendingSeq: payloadSequenceSchema.optional(),
-    detail: wireFreeFormString(AUDIT_INTEGRITY_DETAIL_MAX_LEN, "audit_integrity_failed.detail"),
-  })
-  .strict()
-  // The ten fixed pairings, enforced rather than narrated. The enum pair
-  // alone admits all 48 combinations, so a `signature_placeholder` row could
-  // claim `failurePath: 'inclusion'` and parse green — routing a never-signed
-  // row to the chain-tamper responder on a row that is never compacted and
-  // never shredded, so the misrouting is permanent. The six unfixed modes keep
-  // the full three-value latitude. `.superRefine()` returns `this`, so this
-  // stays a ZodObject and remains a valid `z.discriminatedUnion` option (the
-  // `withEpochStamp` note above records the same Zod-4 property).
-  .superRefine((payload, ctx) => {
-    const fixedPath = VERIFIER_FAILURE_PATH_BY_MODE[payload.failureMode];
-    if (fixedPath !== null && payload.failurePath !== fixedPath) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["failurePath"],
-        message: `audit_integrity_failed.failureMode '${payload.failureMode}' is fixed to failurePath '${fixedPath}' by Security Architecture this payload offers '${payload.failurePath}'.`,
-      });
-    }
-  });
-
-// Destructure-and-drop rather than a hand-copied `{sessionId, verifierNodeId}`
-// pair: a later change to the shared base still reaches this arm, and only the
-// ONE excluded member is spelled out here. `_anchorIdExcluded` is unread by
-// construction and rides the `varsIgnorePattern: "^_"` the `_AssertExtends`
-// pins use — no suppression comment is needed.
-//
-// The exclusion is ENFORCED, not conventional: `.strict()` below turns an
-// unrecognized key into a parse failure, so a registrar payload offering
-// `anchorId` is REFUSED. Dropping the member without `.strict()` would only
-// have made it ignored — the value would still be accepted at the seam and
-// could still be persisted by a caller reading the raw input.
-const { anchorId: _anchorIdExcluded, ...auditIntegrityRegistrarBaseShape } =
-  buildAuditIntegrityBaseShape();
-
-const auditIntegrityFailedRegistrarArmSchema = z
-  .object({
-    ...auditIntegrityRegistrarBaseShape,
-    failureMode: z.literal("signing_key_slot_conflict"),
-    // Pinned, not the three-value enum: the spec fixes this arm's path at
-    // `signature` — the guarantee broken is the roster's binding of this
-    // node's signing key.
-    failurePath: z.literal("signature"),
-    detail: wireFreeFormString(AUDIT_INTEGRITY_DETAIL_MAX_LEN, "audit_integrity_failed.detail"),
-  })
-  .strict();
-
-export const AuditIntegrityFailedPayloadSchema: z.ZodType<AuditIntegrityFailedPayload> =
-  z.discriminatedUnion("failureMode", [
-    auditIntegrityFailedVerifierArmSchema,
-    auditIntegrityFailedRegistrarArmSchema,
-  ]);
-
-/**
- * `key_reuse_detected` — one Ed25519 public key observed under MORE THAN ONE
- * identity.
- *
- * NO `base +` PREFIX in the spec cell, and the omission is load-bearing: this
- * is an observer's node-level finding, so it carries `detectorNodeId` and no
- * `sessionId` / `anchorId` / `verifierNodeId` at payload level. The envelope's
- * `sessionId` is the daemon-scope sentinel.
- */
-export type KeyReuseDetectedPayload = {
-  offendingKeyFingerprint: string;
-  observedIdentities: Array<{ sessionId: SessionId; nodeId: NodeId }>;
-  firstSeenAt: string;
-  rotationInvariantViolated: "refuse_on_rotation";
-  detectorNodeId: NodeId;
-};
-export const KeyReuseDetectedPayloadSchema: z.ZodType<KeyReuseDetectedPayload> = z
-  .object({
-    // Bounded free-form: V1 pins no fingerprint grammar (see the `rootHash`
-    // note above).
-    offendingKeyFingerprint: wireFreeFormString(
-      EVENT_FIELD_MAX_LEN,
-      "key_reuse_detected.offendingKeyFingerprint",
-    ),
-    // AT LEAST TWO, AND PAIRWISE DISTINCT — both halves are the spec's own
-    // words rather than a local narrowing: the detected condition is a key
-    // "registered under MORE THAN ONE identity — the same key material under
-    // two distinct `(session_id, node_id)` pairs". A one-entry list describes a
-    // key held by the identity that minted it, and a two-entry list that names
-    // ONE identity twice describes that same compliant state redundantly —
-    // neither is a collision. `.min(2)` counts HOW MANY, the refinement counts
-    // HOW MANY DIFFERENT; cardinality alone would let a duplicated pair mint a
-    // false reuse alarm on a row that is never compacted and never shredded,
-    // so it is retained forever. The set key is built with `JSON.stringify`
-    // over a two-string array — that serialization is injective, so no
-    // separator character has to be assumed absent from either id.
-    //
-    // `sessionId` is CANONICALIZED into the key, `nodeId` is not, and the
-    // asymmetry is the authority difference. UUID hex is case-INSENSITIVE
-    // (RFC 9562 section 4), the branded schemas normalize nothing, and
-    // `uuid-canonical.ts` requires canonicalizing at every Map-key / hash-input
-    // boundary — this set key is one. Without it, one logical identity spelled
-    // two ways reads as two distinct identities and mints a permanent FALSE
-    // `key_reuse_detected` alarm on a row that is never compacted and never
-    // shredded. `NodeId` (node-id.ts) is a bounded free-form brand, NOT a UUID:
-    // no authority makes it case-insensitive, so lowercasing it would INVENT
-    // one and could collapse two genuinely distinct nodes into one key —
-    // failing open on the alarm this event exists to raise. Key construction
-    // only: the stored wire values pass through as emitted (no `.transform()`),
-    // so the canonical bytes are untouched.
-    observedIdentities: z
-      .array(z.object({ sessionId: SessionIdSchema, nodeId: NodeIdSchema }).strict())
-      .min(2, {
-        message:
-          "key_reuse_detected.observedIdentities must name at least two distinct (sessionId, nodeId) identities — one identity holding its own key is the register-once posture, not a collision.",
-      })
-      .refine(
-        (identities) =>
-          new Set(
-            identities.map((identity) =>
-              JSON.stringify([canonicalizeUuid(identity.sessionId), identity.nodeId]),
-            ),
-          ).size === identities.length,
-        {
-          message:
-            "key_reuse_detected.observedIdentities must not name one (sessionId, nodeId) identity twice — a repeated pair is one identity holding its own key, which is the register-once posture, not a collision.",
-        },
-      ),
-    firstSeenAt: z.iso.datetime({ offset: true }),
-    // The single violated invariant name, pinned as a literal: V1 specifies
-    // exactly one rotation posture (`refuse_on_rotation`), so an open string
-    // would admit a vocabulary that does not exist.
-    rotationInvariantViolated: z.literal("refuse_on_rotation"),
-    detectorNodeId: NodeIdSchema,
-  })
-  .strict();
-
-// The `event_maintenance` payload base — `{nodeId, operationId, occurredAt}`
-// verbatim. All three members are shared by all three types; `occurredAt`
-// re-spells the envelope's own (see the envelope-redundant-members note
-// above).
-const buildEventMaintenanceBaseShape = () => ({
-  nodeId: NodeIdSchema,
-  // The batch/pass correlation id — Liquibase's `DEPLOYMENT_ID` by precedent.
-  // Opaque and bounded free-form; the corpus fixes no format for it.
-  operationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "event_maintenance.operationId"),
-  occurredAt: z.iso.datetime({ offset: true }),
-});
-
-/**
- * `schema.migrated` — one migration BATCH completed (Flyway's
- * `AFTER_MIGRATE_OPERATION_FINISH` granularity, not per-statement).
- *
- * `success` stays a plain boolean: the spec's field set carries it, so a
- * `z.literal(true)` narrowing would make the failed-migration row —
- * the one worth auditing — unrepresentable.
- */
-export type SchemaMigratedPayload = {
-  nodeId: NodeId;
-  operationId: string;
-  occurredAt: string;
-  fromVersion: string;
-  toVersion: string;
-  migrationId: string;
-  description: string;
-  checksum: string;
-  appliedBy: string;
-  executionMs: number;
-  success: boolean;
-};
-export const SchemaMigratedPayloadSchema: z.ZodType<SchemaMigratedPayload> = z
-  .object({
-    ...buildEventMaintenanceBaseShape(),
-    // Schema versions, NOT `EventEnvelopeVersion`: these name migration
-    // revisions of the local store (Flyway's `version` column), which take no
-    // "MAJOR.MINOR" protocol grammar. Coupling them to the envelope's version
-    // schema would be a false binding.
-    fromVersion: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.fromVersion"),
-    toVersion: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.toVersion"),
-    migrationId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.migrationId"),
-    description: wireFreeFormString(
-      SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN,
-      "schema.migrated.description",
-    ),
-    // BLAKE3 over the concatenated migration file contents — bounded
-    // free-form on the same reasoning as `rootHash` above.
-    checksum: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.checksum"),
-    appliedBy: wireFreeFormString(EVENT_FIELD_MAX_LEN, "schema.migrated.appliedBy"),
-    executionMs: z.number().int().nonnegative(),
-    success: z.boolean(),
-  })
-  .strict();
-
-/**
- * `event.compacted` — a compaction pass replaced full payloads in a range with
- * audit stubs.
- *
- * `sessionId` is OPTIONAL here and required nowhere else in the family: the
- * spec grants a single-session pass the option of carrying that session's real
- * id while the daemon-scope row binds the sentinel at the ENVELOPE.
- */
-export type EventCompactedPayload = {
-  nodeId: NodeId;
-  operationId: string;
-  occurredAt: string;
-  sessionId?: SessionId | undefined;
-  fromSeq: number;
-  toSeq: number;
-  eventsBefore: number;
-  eventsAfter: number;
-  bytesReclaimed: number;
-  tombstoneCount: number;
-  compactionReason: "age_threshold" | "count_threshold" | "storage_threshold";
-};
-export const EventCompactedPayloadSchema: z.ZodType<EventCompactedPayload> = z
-  .object({
-    ...buildEventMaintenanceBaseShape(),
-    sessionId: SessionIdSchema.optional(),
-    fromSeq: payloadSequenceSchema,
-    toSeq: payloadSequenceSchema,
-    eventsBefore: z.number().int().nonnegative(),
-    eventsAfter: z.number().int().nonnegative(),
-    bytesReclaimed: z.number().int().nonnegative(),
-    tombstoneCount: z.number().int().nonnegative(),
-    // Closed vocabulary — the three triggers.
-    compactionReason: z.enum(["age_threshold", "count_threshold", "storage_threshold"]),
-  })
-  .strict();
-
-/**
- * `event.shredded` — a crypto-shred cleared a user's PII across the
- * affected sessions (owns the fan-out mechanism).
- *
- * `affectedSessionIds` takes NO cardinality floor: an idempotent re-run, or a
- * purge of a user whose rows carried no PII, legitimately affects zero
- * sessions, and the row is still the audit record of the operation. (Contrast
- * `key_reuse_detected.observedIdentities` above, whose floor the spec's own
- * "more than one identity" wording entails.)
- */
-export type EventShreddedPayload = {
-  nodeId: NodeId;
-  operationId: string;
-  occurredAt: string;
-  userId: UserId;
-  affectedSessionIds: SessionId[];
-  piiPayloadsCleared: number;
-  shredReason: "gdpr_article_17" | "retention_policy" | "admin_action";
-};
-export const EventShreddedPayloadSchema: z.ZodType<EventShreddedPayload> = z
-  .object({
-    ...buildEventMaintenanceBaseShape(),
-    userId: UserIdSchema,
-    affectedSessionIds: z.array(SessionIdSchema),
-    piiPayloadsCleared: z.number().int().nonnegative(),
-    shredReason: z.enum(["gdpr_article_17", "retention_policy", "admin_action"]),
-  })
-  .strict();
-
-// Emitted when a read-side verifier completes hash, signature, and anchor
-// checks over a range successfully.
-export interface AuditIntegrityVerifiedEvent extends EventEnvelope {
-  type: "audit_integrity_verified";
-  category: "audit_integrity";
-  payload: AuditIntegrityVerifiedPayload;
-}
-export const AuditIntegrityVerifiedEventSchema: z.ZodType<AuditIntegrityVerifiedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("audit_integrity_verified"),
-    category: z.literal("audit_integrity"),
-    payload: AuditIntegrityVerifiedPayloadSchema,
-  })
-  .strict();
-
-// Emitted when a verifier detects a chain break, signature failure, or anchor
-// mismatch, and when the daemon-side registrar's conflict handler observes a
-// usurped signing-key slot.
-export interface AuditIntegrityFailedEvent extends EventEnvelope {
-  type: "audit_integrity_failed";
-  category: "audit_integrity";
-  payload: AuditIntegrityFailedPayload;
-}
-export const AuditIntegrityFailedEventSchema: z.ZodType<AuditIntegrityFailedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("audit_integrity_failed"),
-    category: z.literal("audit_integrity"),
-    payload: AuditIntegrityFailedPayloadSchema,
-  })
-  .strict();
-
-// Emitted when the key-reuse monitor observes one public key under two
-// identities.
-export interface KeyReuseDetectedEvent extends EventEnvelope {
-  type: "key_reuse_detected";
-  category: "audit_integrity";
-  payload: KeyReuseDetectedPayload;
-}
-export const KeyReuseDetectedEventSchema: z.ZodType<KeyReuseDetectedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("key_reuse_detected"),
-    category: z.literal("audit_integrity"),
-    payload: KeyReuseDetectedPayloadSchema,
-  })
-  .strict();
-
-// Emitted once per completed migration batch.
-export interface SchemaMigratedEvent extends EventEnvelope {
-  type: "schema.migrated";
-  category: "event_maintenance";
-  payload: SchemaMigratedPayload;
-}
-export const SchemaMigratedEventSchema: z.ZodType<SchemaMigratedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("schema.migrated"),
-    category: z.literal("event_maintenance"),
-    payload: SchemaMigratedPayloadSchema,
-  })
-  .strict();
-
-// Emitted once per compaction pass.
-export interface EventCompactedEvent extends EventEnvelope {
-  type: "event.compacted";
-  category: "event_maintenance";
-  payload: EventCompactedPayload;
-}
-export const EventCompactedEventSchema: z.ZodType<EventCompactedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("event.compacted"),
-    category: z.literal("event_maintenance"),
-    payload: EventCompactedPayloadSchema,
-  })
-  .strict();
-
-// Emitted once per crypto-shred fan-out.
-export interface EventShreddedEvent extends EventEnvelope {
-  type: "event.shredded";
-  category: "event_maintenance";
-  payload: EventShreddedPayload;
-}
-export const EventShreddedEventSchema: z.ZodType<EventShreddedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("event.shredded"),
-    category: z.literal("event_maintenance"),
-    payload: EventShreddedPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// runtime_node.* — the five lifecycle variants.
-// --------------------------------------------------------------------------
-//
-// All five type strings were ALREADY in the census (`SessionEventType` +
-// `SESSION_EVENT_CATEGORY_BY_TYPE`); what lands here is their PAYLOAD
-// VARIANTS. The census is untouched — still 147 types across 20 categories.
-//
-// Authors the payload SHAPES in runtime-node.ts per emitter-authors-payload
-// (its Phase-2 node-registry and capability-service producers `.parse()`
-// through the very same consts) owns the discriminated-union REGISTRATION. So
-// each arm below IMPORTS its `*PayloadSchema` rather than restating it, and no
-// shape is edited here — the same split as blocks above.
-//
-// FIVE OF SEVEN, deliberately. `runtime_node.degraded` and
-// `runtime_node.revoked` stay census members with NO payload variant: both are
-// server-derived rows with no sound V1 author, V1.1-gated on the node-identity
-// trust anchor, so ships no payload shape for them and the strict layer keeps
-// REJECTING them until it does.
-//
-// SESSION BINDING — a `runtime_node.*` row carries the REAL `sessionId` of the
-// attachment it describes, NOT the daemon-scope sentinel infrastructure rows
-// anchor on. The PAYLOAD's `sessionId` is `.optional()` because the base
-// spells it `sessionId?`; the ENVELOPE's `sessionId` member stays required, as
-// on every other arm.
-//
-// NO EPOCH STAMP. Node-scoped, not run-scoped — these payloads carry `nodeId`
-// and no `runId`, so the cross-cutting `sourceEpoch` / `sourcePosition` pair
-// would be unattributable and the WRAP ADMISSION note above excludes them.
-// __tests__/event-source-epoch.test.ts walks the live union and fails a
-// non-admitting branch that lands wrapped.
-//
-// PII INDIRECTION MEMBERS, on the derived-const pattern the repo/worktree
-// families take. `runtime_node_lifecycle` is neither refused category, so all
-// five ADMIT the pair; the five imported `*PayloadSchema` exports are
-// producer-input surfaces `node-event-emitter.ts` parses against and stay
-// exactly as shipped, with the widening on consts derived from them and used
-// at both the standalone exports and the union branches.
-type RuntimeNodeRegisteredVariantPayload = RuntimeNodeRegisteredPayload & PiiIndirectionDescriptor;
-const runtimeNodeRegisteredVariantPayloadSchema: z.ZodType<RuntimeNodeRegisteredVariantPayload> =
-  withPiiIndirectionMembers(
-    RuntimeNodeRegisteredPayloadSchema,
-    "RuntimeNodeRegisteredPayloadSchema",
-  );
-type RuntimeNodeOnlineVariantPayload = RuntimeNodeOnlinePayload & PiiIndirectionDescriptor;
-const runtimeNodeOnlineVariantPayloadSchema: z.ZodType<RuntimeNodeOnlineVariantPayload> =
-  withPiiIndirectionMembers(RuntimeNodeOnlinePayloadSchema, "RuntimeNodeOnlinePayloadSchema");
-type RuntimeNodeOfflineVariantPayload = RuntimeNodeOfflinePayload & PiiIndirectionDescriptor;
-const runtimeNodeOfflineVariantPayloadSchema: z.ZodType<RuntimeNodeOfflineVariantPayload> =
-  withPiiIndirectionMembers(RuntimeNodeOfflinePayloadSchema, "RuntimeNodeOfflinePayloadSchema");
-type RuntimeNodeCapabilityDeclaredVariantPayload = RuntimeNodeCapabilityDeclaredPayload &
-  PiiIndirectionDescriptor;
-const runtimeNodeCapabilityDeclaredVariantPayloadSchema: z.ZodType<RuntimeNodeCapabilityDeclaredVariantPayload> =
-  withPiiIndirectionMembers(
-    RuntimeNodeCapabilityDeclaredPayloadSchema,
-    "RuntimeNodeCapabilityDeclaredPayloadSchema",
-  );
-type RuntimeNodeCapabilityUpdatedVariantPayload = RuntimeNodeCapabilityUpdatedPayload &
-  PiiIndirectionDescriptor;
-const runtimeNodeCapabilityUpdatedVariantPayloadSchema: z.ZodType<RuntimeNodeCapabilityUpdatedVariantPayload> =
-  withPiiIndirectionMembers(
-    RuntimeNodeCapabilityUpdatedPayloadSchema,
-    "RuntimeNodeCapabilityUpdatedPayloadSchema",
-  );
-
-// Emitted node-registry when a node is accepted into the roster (attach
-// admission).
-export interface RuntimeNodeRegisteredEvent extends EventEnvelope {
-  type: "runtime_node.registered";
-  category: "runtime_node_lifecycle";
-  payload: RuntimeNodeRegisteredVariantPayload;
-}
-export const RuntimeNodeRegisteredEventSchema: z.ZodType<RuntimeNodeRegisteredEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("runtime_node.registered"),
-    category: z.literal("runtime_node_lifecycle"),
-    payload: runtimeNodeRegisteredVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted only AFTER `runtime_node.capability_declared` succeeds
-// (ordering).
-export interface RuntimeNodeOnlineEvent extends EventEnvelope {
-  type: "runtime_node.online";
-  category: "runtime_node_lifecycle";
-  payload: RuntimeNodeOnlineVariantPayload;
-}
-export const RuntimeNodeOnlineEventSchema: z.ZodType<RuntimeNodeOnlineEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("runtime_node.online"),
-    category: z.literal("runtime_node_lifecycle"),
-    payload: runtimeNodeOnlineVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted on detach (`explicit_shutdown` in V1); the payload's `reason` enum
-// also carries the two V1.1 server-derived reasons, shape-stable ahead of
-// their producers.
-export interface RuntimeNodeOfflineEvent extends EventEnvelope {
-  type: "runtime_node.offline";
-  category: "runtime_node_lifecycle";
-  payload: RuntimeNodeOfflineVariantPayload;
-}
-export const RuntimeNodeOfflineEventSchema: z.ZodType<RuntimeNodeOfflineEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("runtime_node.offline"),
-    category: z.literal("runtime_node_lifecycle"),
-    payload: runtimeNodeOfflineVariantPayloadSchema,
-  })
-  .strict();
-
-// Emitted capability-service when a node declares a capability after
-// registration. `capabilityDetails` is the canonical-first TOLERANT UNION
-// (`CapabilityDetailsSchema` first, an open record behind it) bound in
-// runtime-node.ts — registration composes it EXACTLY as shipped: tightening
-// the arm to canonical-only here would reject previously-valid wire
-// payloads, a MAJOR narrowing #8.
-export interface RuntimeNodeCapabilityDeclaredEvent extends EventEnvelope {
-  type: "runtime_node.capability_declared";
-  category: "runtime_node_lifecycle";
-  payload: RuntimeNodeCapabilityDeclaredVariantPayload;
-}
-export const RuntimeNodeCapabilityDeclaredEventSchema: z.ZodType<RuntimeNodeCapabilityDeclaredEvent> =
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.capability_declared"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeCapabilityDeclaredVariantPayloadSchema,
-    })
-    .strict();
-
-// Emitted on a capability health/config change. `previousState` / `newState`
-// are CapabilityDetails SNAPSHOTS, not `NodeState` values, and carry the same
-// canonical-first tolerant union as `capability_declared` above.
-export interface RuntimeNodeCapabilityUpdatedEvent extends EventEnvelope {
-  type: "runtime_node.capability_updated";
-  category: "runtime_node_lifecycle";
-  payload: RuntimeNodeCapabilityUpdatedVariantPayload;
-}
-export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapabilityUpdatedEvent> =
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.capability_updated"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeCapabilityUpdatedVariantPayloadSchema,
-    })
-    .strict();
-
-// --------------------------------------------------------------------------
-// Machine-authored content payload — the five body-bearing
-// variants.
-// --------------------------------------------------------------------------
-//
-// `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
-// `tool.result`, and `tool.error` are the types whose rows carry the prose the
-// MACHINE side of a session produced. Until this registration the union
-// carried no assistant and no tool variant at all, so both shipped provider
-// normalizers resolved every one of these types as payload-variant-pending and
-// refused envelope construction: the column that holds the body could be
-// created, sealed, and cleared, but never written to.
-//
-// NO BODY MEMBER, DELIBERATELY. Each payload below declares the DESCRIPTIVE
-// members only. The body itself lives in `session_events.content_payload`,
-// sealed under the session-scoped content key and excluded from the canonical
-// bytes exactly as `pii_payload` is; what rides inside `payload` — and
-// therefore inside the signed bytes — is the digest that commits to those
-// sealed bytes. A reader that wants the prose pairs the verified event with
-// the opened body ({@link HydratedSessionEvent} below). Splicing the body INTO
-// `payload` is prohibited rather than merely discouraged: these schemas are
-// `.strict()`, so a spliced member either fails validation outright or makes
-// an already-verified payload differ from the bytes its signature covers.
-//
-// TWO FAMILIES, NOT ONE SCHEMA. The assistant pair carries `contentType` (the
-// body's media type) and no tool identity; the tool trio carries a REQUIRED
-// `toolName` beside the optional `toolCallId` / `durationMs` and no
-// `contentType`. Collapsing them into one shape would admit a `toolName` on an
-// assistant row and a `contentType` on a tool row, neither of which or
-// defines.
-//
-// MEMBER OWNERSHIP SPLITS AT THE SEALING CODEC, and the split is what makes
-// the refusal arm below checkable. `contentType` is the PRODUCER's to set — it
-// knows the media type of what it emitted. The three members of
-// {@link MachineContentDescriptor} are the CODEC's and no one else's: they are
-// facts about what it sealed, determined after the plaintext bound was
-// applied. A producer that pre-carries any of the three is refused at the
-// write path rather than trusted.
-//
-// WRAPPED, BECAUSE RUN-SCOPED. All five sit in the `assistant_output` /
-// `tool_activity` families and all five carry `runId`, so the WRAP ADMISSION
-// rule above requires the epoch-stamp pair on every one of them. These are the
-// first branches in this union to take it.
-
-/**
- * The payload key carrying the BLAKE3 digest of the stored
- * `session_events.content_payload` ciphertext — the commitment that binds the
- * sealed body to the row's signature without carrying the body into the signed
- * bytes.
- *
- * Exported so producers, the compactor, the verifier, and the hydrated read
- * path never duplicate the literal — the `SOURCE_EPOCH_PAYLOAD_KEY`
- * convention, for the same reason: three modules index this payload by runtime
- * string.
- *
- * The wire ENCODING of the digest is deliberately not pinned by the schema
- * below. The sealing codec spells it lowercase hex and owns that as a one-way
- * door, but no corpus authority fixes this member's spelling, and pinning one
- * here would be a narrowing nothing could relax — the same restraint the
- * `rootHash` note above takes.
- */
-export const CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "contentCiphertextDigest" as const;
-
-/**
- * The payload key carrying the body's PRE-TRUNCATION UTF-8 byte length. Kept
- * at the pre-truncation figure precisely so a truncated row still reports how
- * much was dropped; survives compaction in the audit stub, where it is the
- * whole remaining record of the destroyed body's size.
- */
-export const CONTENT_LENGTH_PAYLOAD_KEY = "contentLength" as const;
-
-/**
- * The payload key marking a body stored as a prefix. Present ONLY as `true`
- * and OMITTED when the stored body is complete — never written as `false`.
- * Absence is the completeness signal, and an omitted key keeps the canonical
- * JCS bytes of a complete row byte-identical to what they would be if the
- * bound had never existed.
- */
-export const CONTENT_TRUNCATED_PAYLOAD_KEY = "contentTruncated" as const;
-
-/**
- * The per-row plaintext ceiling for `session_events.content_payload` — 262144 bytes (256
- * KiB) of UTF-8.
- *
- * Unlike `pii_payload`, whose size is bounded in practice by human typing, this
- * column admits machine-scale text: a tool result is routinely a file dump or a
- * command's whole stdout. An over-bound body is TRUNCATED at a codepoint
- * boundary — never refused and never dropped — because refusing the append
- * would lose the turn entirely and dropping it would misreport that the turn
- * never happened.
- */
-export const CONTENT_PAYLOAD_PLAINTEXT_MAX: number = 262_144;
-
-/**
- * The three codec-owned descriptive members every body-bearing payload
- * carries. Each is OPTIONAL on the wire: a row of one of these five types that
- * carries no body at all (an `assistant.message` whose body the driver could
- * not read, a `tool.invoked` with no arguments) is a valid row, and requiring
- * the members would force its producer to fabricate a length and a digest for
- * bytes that do not exist.
- */
-// Declared as TYPE ALIASES rather than interfaces, and the difference is
-// load-bearing rather than stylistic: `EventEnvelope.payload` is
-// `Record<string, unknown>`, and TypeScript grants an implicit index signature
-// to object-literal types and their intersections but never to an interface —
-// so an interface payload cannot satisfy the envelope it extends.
-export type MachineContentDescriptor = {
-  /** Pre-truncation UTF-8 byte length of the body that was sealed. */
-  contentLength?: number | undefined;
-  /** Present as `true` only when the stored body is a prefix; never `false`. */
-  contentTruncated?: true | undefined;
-  /** BLAKE3 over the STORED ciphertext bytes. */
-  contentCiphertextDigest?: string | undefined;
-};
-
-/** `assistant.message` / `assistant.thinking_update` payload shape. */
-export type AssistantOutputPayload = MachineContentDescriptor &
-  PiiIndirectionDescriptor & {
-    sessionId: SessionId;
-    runId: string;
-    channelId?: ChannelId | undefined;
-    /** Media type of the body, set by the PRODUCER and not by the codec. */
-    contentType?: string | undefined;
-    sourceEpoch?: SourceEpoch | undefined;
-    sourcePosition?: SourcePosition | undefined;
-  };
-
-/** `tool.invoked` / `tool.result` / `tool.error` payload shape. */
-export type ToolActivityPayload = MachineContentDescriptor &
-  PiiIndirectionDescriptor & {
-    sessionId: SessionId;
-    runId: string;
-    /**
-     * A tool row with no tool name is unattributable — every consumer of keys on it —
-     * and unlike the descriptive members it is never something the codec could supply.
-     */
-    toolName: string;
-    toolCallId?: string | undefined;
-    channelId?: ChannelId | undefined;
-    durationMs?: number | undefined;
-    sourceEpoch?: SourceEpoch | undefined;
-    sourcePosition?: SourcePosition | undefined;
-  };
-
-// Shared shape factories, the `buildCommonShape()` principle applied one level
-// down: the five payload schemas below and the five union branches share these
-// two, so a member cannot drift between the assistant pair or across the tool
-// trio.
-const buildMachineContentDescriptorShape = () => ({
-  contentLength: z.number().int().nonnegative().optional(),
-  // `z.literal(true)` rather than `z.boolean()`: the omit-never-false rule is
-  // a wire contract (a `false` on the wire would canonicalize into bytes a
-  // complete row must not have), so it is enforced at parse rather than
-  // narrated.
-  contentTruncated: z.literal(true).optional(),
-  contentCiphertextDigest: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "content payload contentCiphertextDigest",
-  ).optional(),
-});
-
-const buildAssistantOutputPayloadShape = () => ({
-  sessionId: SessionIdSchema,
-  // No `RunIdSchema` exists in this package — `RunId` is branded in the
-  // daemon's own driver contract, and importing it here would close a module
-  // cycle. The bounded free-form guard is the same one `EventEnvelope.id`
-  // takes for an identifier this file does not own.
-  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId"),
-  channelId: ChannelIdSchema.optional(),
-  contentType: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "assistant output payload contentType",
-  ).optional(),
-  ...buildMachineContentDescriptorShape(),
-  ...buildPiiIndirectionDescriptorShape(),
-});
-
-const buildToolActivityPayloadShape = () => ({
-  sessionId: SessionIdSchema,
-  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload runId"),
-  toolName: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload toolName"),
-  toolCallId: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "tool activity payload toolCallId",
-  ).optional(),
-  channelId: ChannelIdSchema.optional(),
-  durationMs: z.number().int().nonnegative().optional(),
-  ...buildMachineContentDescriptorShape(),
-  ...buildPiiIndirectionDescriptorShape(),
-});
-
-const assistantMessagePayloadSchema = withEpochStamp(
-  z.object(buildAssistantOutputPayloadShape()).strict(),
-);
-const assistantThinkingUpdatePayloadSchema = withEpochStamp(
-  z.object(buildAssistantOutputPayloadShape()).strict(),
-);
-const toolInvokedPayloadSchema = withEpochStamp(z.object(buildToolActivityPayloadShape()).strict());
-const toolResultPayloadSchema = withEpochStamp(z.object(buildToolActivityPayloadShape()).strict());
-const toolErrorPayloadSchema = withEpochStamp(z.object(buildToolActivityPayloadShape()).strict());
-
-export interface AssistantMessageEvent extends EventEnvelope {
-  type: "assistant.message";
-  category: "assistant_output";
-  payload: AssistantOutputPayload;
-}
-export const AssistantMessageEventSchema: z.ZodType<AssistantMessageEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("assistant.message"),
-    category: z.literal("assistant_output"),
-    payload: assistantMessagePayloadSchema,
-  })
-  .strict();
-
-export interface AssistantThinkingUpdateEvent extends EventEnvelope {
-  type: "assistant.thinking_update";
-  category: "assistant_output";
-  payload: AssistantOutputPayload;
-}
-export const AssistantThinkingUpdateEventSchema: z.ZodType<AssistantThinkingUpdateEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("assistant.thinking_update"),
-    category: z.literal("assistant_output"),
-    payload: assistantThinkingUpdatePayloadSchema,
-  })
-  .strict();
-
-export interface ToolInvokedEvent extends EventEnvelope {
-  type: "tool.invoked";
-  category: "tool_activity";
-  payload: ToolActivityPayload;
-}
-export const ToolInvokedEventSchema: z.ZodType<ToolInvokedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("tool.invoked"),
-    category: z.literal("tool_activity"),
-    payload: toolInvokedPayloadSchema,
-  })
-  .strict();
-
-export interface ToolResultEvent extends EventEnvelope {
-  type: "tool.result";
-  category: "tool_activity";
-  payload: ToolActivityPayload;
-}
-export const ToolResultEventSchema: z.ZodType<ToolResultEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("tool.result"),
-    category: z.literal("tool_activity"),
-    payload: toolResultPayloadSchema,
-  })
-  .strict();
-
-export interface ToolErrorEvent extends EventEnvelope {
-  type: "tool.error";
-  category: "tool_activity";
-  payload: ToolActivityPayload;
-}
-export const ToolErrorEventSchema: z.ZodType<ToolErrorEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("tool.error"),
-    category: z.literal("tool_activity"),
-    payload: toolErrorPayloadSchema,
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// HydratedSessionEvent — the read projection that pairs a verified row with
-// its opened body.
-// --------------------------------------------------------------------------
-//
-// The whole point of the type is that `event` and `content` are SEPARATE
-// members. The body is never merged into `event.payload`: the five payload
-// schemas above are strict and declare no body member, so a merge would either
-// add an undeclared member that fails validation or make an already-verified
-// payload differ byte-for-byte from what its signature covers.
-//
-// `event` is typed as the tolerant {@link EventEnvelope} rather than the strict
-// {@link SessionEvent} union deliberately: a stored row is rebuilt through the
-// envelope carrier, and narrowing to the strict union is a separate step the
-// caller chooses. Typing the projection on the union would force every reader
-// to re-parse a row before it could ask whether the body opened.
-
-/**
- * Why a body is not available — a CLOSED set, because the read path exists to
- * replace "the key is missing, therefore assume loss" with a reason a caller
- * can act on. `absent` and `compacted` in particular are distinguishable only
- * from the row's retention class, which is why the reader takes it as input.
- *
- * The distinction between the tamper reasons and the loss reasons is the
- * substance: `digest_unbound` means the stored ciphertext does not match what
- * the signature commits to, and reporting that as ordinary loss would make the
- * transcript-fold loss vocabulary unsound.
- */
-export type HydratedContentUnavailableReason =
-  /** The row never carried a body: live row, NULL column, no signed digest. */
-  | "absent"
-  /** The row was compacted; the body was destroyed with its payload. */
-  | "compacted"
-  /** The daemon master key could not be obtained, so no wrapped key opens. */
-  | "master_key_unavailable"
-  /** The session has a sealed body but no wrapped key row to open it with. */
-  | "wrapped_key_missing"
-  /** The stored ciphertext is not bound to the signed digest — tamper, not loss. */
-  | "digest_unbound"
-  /**
-   * Sealed material refused to open. Covers the session key's own envelope
-   * (wrong master, a blob moved between rows, a replay under a superseded key
-   * version) as well as the body ciphertext failing its AEAD tag or decoding to
-   * invalid UTF-8 — the AEAD refuses these identically, and guessing between
-   * them here would put a cause in the record that nothing established.
-   */
-  | "decrypt_failed";
-
-/** The closed two-arm content union of a {@link HydratedSessionEvent}. */
-export type HydratedSessionEventContent =
-  | {
-      readonly status: "available";
-      /** The opened body — a PREFIX when `contentTruncated` is `true`. */
-      readonly body: string;
-      /** Echoed from the signed payload, never recomputed from `body`. */
-      readonly contentLength?: number | undefined;
-      readonly contentTruncated?: true | undefined;
-    }
-  | {
-      readonly status: "unavailable";
-      readonly reason: HydratedContentUnavailableReason;
-    };
-
-/**
- * A verified event paired with its machine-authored body — never a mutated
- * event.
- */
-export interface HydratedSessionEvent {
-  /** Byte-identical to the row the signature covers. */
-  readonly event: EventEnvelope;
-  readonly content: HydratedSessionEventContent;
-}
-
-// --------------------------------------------------------------------------
-// SessionEvent — discriminated union over `type`.
-// --------------------------------------------------------------------------
-//
-// `z.discriminatedUnion` requires every variant to be a literal-typed
-// ZodObject sharing the same discriminator key. This gives O(1) parse-time
-// dispatch and narrowed inferred types at the consumption site
-// (e.g. `if (e.type === "session.created") e.payload.config // typed`).
-//
-// We rebuild the variant schemas here (not the exported `*EventSchema`
-// values) because `z.ZodType<T>` erases the literal-typed `type` field
-// that `discriminatedUnion` needs to discriminate. This duplication is
-// load-bearing: it lets the public API surface stay `isolatedDeclarations`-
-// friendly while preserving Zod's discriminator dispatch internally.
-// Payloads are shared via the named `*PayloadSchema` consts above so
-// payload shapes can't drift between the two surfaces.
-
-export type SessionEvent =
-  | SessionCreatedEvent
-  | ChannelCreatedEvent
-  | RepoAttachedEvent
-  | RepoDetachedEvent
-  | WorkspaceProvisioningEvent
-  | WorkspaceReadyEvent
-  | WorkspaceStaleEvent
-  | WorkspaceArchivedEvent
-  | WorktreeCreatedEvent
-  | WorktreeReadyEvent
-  | WorktreeDirtyEvent
-  | WorktreeMergedEvent
-  | WorktreeRetiredEvent
-  | AuditIntegrityVerifiedEvent
-  | AuditIntegrityFailedEvent
-  | KeyReuseDetectedEvent
-  | SchemaMigratedEvent
-  | EventCompactedEvent
-  | EventShreddedEvent
-  | RuntimeNodeRegisteredEvent
-  | RuntimeNodeOnlineEvent
-  | RuntimeNodeOfflineEvent
-  | RuntimeNodeCapabilityDeclaredEvent
-  | RuntimeNodeCapabilityUpdatedEvent
-  | AssistantMessageEvent
-  | AssistantThinkingUpdateEvent
-  | ToolInvokedEvent
-  | ToolResultEvent
-  | ToolErrorEvent;
-export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("session.created"),
-      category: z.literal("session_lifecycle"),
-      payload: sessionCreatedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("channel.created"),
-      category: z.literal("session_lifecycle"),
-      payload: channelCreatedPayloadSchema,
-    })
-    .strict(),
-  // The six repo/workspace arms. Each shares the single
-  // `repoWorkspaceLifecycleVariantPayloadSchema` derived above from repo.ts's family
-  // schema, so these branch schemas and the `*EventSchema` exports above cannot drift on
-  // payload shape — the same single-sourcing the local `*PayloadSchema` consts give the
-  // three arms. None is wrapped with `withEpochStamp`; see the no-epoch-stamp note on
-  // their declarations above.
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("repo.attached"),
-      category: z.literal("session_lifecycle"),
-      payload: repoWorkspaceLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("repo.detached"),
-      category: z.literal("session_lifecycle"),
-      payload: repoWorkspaceLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.provisioning"),
-      category: z.literal("session_lifecycle"),
-      payload: repoWorkspaceLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.ready"),
-      category: z.literal("session_lifecycle"),
-      payload: repoWorkspaceLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.stale"),
-      category: z.literal("session_lifecycle"),
-      payload: repoWorkspaceLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("workspace.archived"),
-      category: z.literal("session_lifecycle"),
-      payload: repoWorkspaceLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  // The five worktree arms. Each shares
-  // `worktreeLifecycleVariantPayloadSchema`, derived above from worktree.ts's
-  // `WorktreeLifecyclePayloadSchema` — the family factory instantiated over
-  // `WorktreeStateSchema` — so these branch schemas and the `*EventSchema`
-  // exports above cannot drift on payload shape. No `worktree.failed` arm
-  // exists, and none is wrapped with `withEpochStamp` (`session_lifecycle`,
-  // not run-scoped; see the no-epoch-stamp note on their declarations above).
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.created"),
-      category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.ready"),
-      category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.dirty"),
-      category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.merged"),
-      category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("worktree.retired"),
-      category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
-    })
-    .strict(),
-  // The six `audit_integrity` / `event_maintenance` arms. Each shares the
-  // payload const declared above — authored in THIS file rather than
-  // imported, because both owns the file and emits the rows — so these
-  // branch schemas and the `*EventSchema` exports above cannot drift on
-  // payload shape. None is wrapped with `withEpochStamp` (daemon-scope, not
-  // run-scoped; see the no-epoch-stamp note on their declarations above).
-  //
-  // THE ONLY SIX BRANCHES THAT REFUSE THE PII INDIRECTION MEMBERS, and the
-  // refusal is a positive statement rather than an omission: holds these two
-  // categories' `pii_payload` NULL by construction — they are never compacted
-  // and never crypto-shredded — and the sealing codec refuses them by name
-  // before it encrypts anything. A variant that admitted the pair here would
-  // declare legal a row the append path will not produce.
-  // __tests__/event-source-epoch.test.ts walks the live union and fails either
-  // direction: an admitting branch missing the pair, or one of these six
-  // carrying it.
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("audit_integrity_verified"),
-      category: z.literal("audit_integrity"),
-      payload: AuditIntegrityVerifiedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("audit_integrity_failed"),
-      category: z.literal("audit_integrity"),
-      payload: AuditIntegrityFailedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("key_reuse_detected"),
-      category: z.literal("audit_integrity"),
-      payload: KeyReuseDetectedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("schema.migrated"),
-      category: z.literal("event_maintenance"),
-      payload: SchemaMigratedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("event.compacted"),
-      category: z.literal("event_maintenance"),
-      payload: EventCompactedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("event.shredded"),
-      category: z.literal("event_maintenance"),
-      payload: EventShreddedPayloadSchema,
-    })
-    .strict(),
-  // The five `runtime_node.*` arms (leg (a)). Each shares the
-  // `*VariantPayloadSchema` derived above from runtime-node.ts's export, so
-  // these branch schemas and the `*EventSchema` exports above cannot drift on
-  // payload shape. No `runtime_node.degraded` / `runtime_node.revoked` arm
-  // exists (V1.1-gated), the two capability arms carry the canonical-first
-  // tolerant unions exactly as shipped, and none is wrapped with
-  // `withEpochStamp` (node-scoped, not run-scoped; see the no-epoch-stamp note
-  // on their declarations above).
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.registered"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeRegisteredVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.online"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeOnlineVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.offline"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeOfflineVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.capability_declared"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeCapabilityDeclaredVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("runtime_node.capability_updated"),
-      category: z.literal("runtime_node_lifecycle"),
-      payload: runtimeNodeCapabilityUpdatedVariantPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("assistant.message"),
-      category: z.literal("assistant_output"),
-      payload: assistantMessagePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("assistant.thinking_update"),
-      category: z.literal("assistant_output"),
-      payload: assistantThinkingUpdatePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("tool.invoked"),
-      category: z.literal("tool_activity"),
-      payload: toolInvokedPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("tool.result"),
-      category: z.literal("tool_activity"),
-      payload: toolResultPayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("tool.error"),
-      category: z.literal("tool_activity"),
-      payload: toolErrorPayloadSchema,
-    })
-    .strict(),
-]);
-
-// --------------------------------------------------------------------------
-// SessionEventType — the canonical event-type census.
-// --------------------------------------------------------------------------
-//
-// Every wire `type` string registered below comes. reads 158 types across
-// 20 categories; this union deliberately registers the post-B18 147 until
-// widens it by two — the registry-leads-code lag that spec records in the
-// same row. Every count below is therefore code truth at 147, not a
-// restatement of the spec census. The fifteen minted by the 2026-07-22 B18
-// amendment — three provider-surface `session.*`, three forward, non-state
-// `run.*`, three `usage.*`, `user.message`, and the five `mcp.*` under the
-// `mcp_governance` category — were registered here.
-//
-//   • Category/type bijection: every type belongs to exactly one category,
-//     `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 147 types, and its
-//     values span all 20 shipped categories. The type-level leg is the
-//     `satisfies Record<SessionEventType, EventCategory>` totality check
-//     below (missing, unknown, or duplicate keys are compile errors); the
-//     runtime leg (size === 147, 20 distinct categories, per-category
-//     partition) lives in __tests__/session-event.test.ts.
-//   • Event-type-string immutability: type strings are immutable wire
-//     identifiers (MINOR bumps are additive-only), so renaming a registered
-//     literal is forbidden. The two session literals (`session.created`,
-//     `channel.created`) are byte-identical to their original registration.
-//
-// Blocks are grouped by category in `EventCategory` declaration order;
-// within a block, types follow. Declaration order is NOT load-bearing (RFC
-// 8785 JCS serializes the literal strings — see the EventCategory note
-// above); the grouping exists so reviewers can reconcile each block against
-// its spec section and against the same-ordered per-category arrays +
-// registry entries below.
-//
-// A type's category is the REGISTRY entry, never the namespace prefix:
-// `session.clock_unsynced` / `session.clock_corrected` are
-// `runtime_node_lifecycle` (the `session.` prefix is preserved because a
-// rename is wire-breaking — "Name preservation"), `daemon.*` are
-// `security_events`, `schema.migrated` is `event_maintenance`,
-// `moderation.review_flagged` is `approval_flow`, and
-// `orchestration.rejected` is `channel_arbitration`.
-export type SessionEventType =
-  // run_lifecycle (13) — the B1 forward non-terminal rollback event,
-  // and the three B18 forward, non-state rows.
-  | "run.queued"
-  | "run.starting"
-  | "run.running"
-  | "run.waiting_for_approval"
-  | "run.waiting_for_input"
-  | "run.paused"
-  | "run.completed"
-  | "run.interrupted"
-  | "run.failed"
-  | "run.rolled_back"
-  | "run.provider_initialized"
-  | "run.turn_started"
-  | "run.worker_shutdown"
-  | "assistant.message"
-  | "assistant.thinking_update"
-  // tool_activity (7) — two recovery rows, two B1 subagent-lifecycle
-  // rows.
-  | "tool.invoked"
-  | "tool.result"
-  | "tool.error"
-  | "tool.replayed"
-  | "tool.skipped_during_recovery"
-  | "subagent.started"
-  | "subagent.completed"
-  // + intervention (6) + B1 driver-ask (4) subfamilies, plus the B18
-  // `user.message` row registered here.
-  | "queue_item.created"
-  | "queue_item.admitted"
-  | "queue_item.superseded"
-  | "queue_item.canceled"
-  | "queue_item.expired"
-  | "intervention.requested"
-  | "intervention.accepted"
-  | "intervention.applied"
-  | "intervention.rejected"
-  | "intervention.degraded"
-  | "intervention.expired"
-  | "driver_ask.requested"
-  | "driver_ask.responded"
-  | "driver_ask.expired"
-  | "driver_ask.canceled"
-  | "user.message"
-  | "artifact.published"
-  | "artifact.visibility_updated"
-  | "artifact.superseded"
-  | "diff.created"
-  | "pr.prepared"
-  | "pr.submitted"
-  // presence (4) — per-device presence transitions for the one user.
-  | "presence.online"
-  | "presence.idle"
-  | "presence.reconnecting"
-  | "presence.offline"
-  // session_lifecycle (31) — incl. the three B18 rows) +) + Workspace, and
-  // Worktree Lifecycle (11) +.
-  | "session.created"
-  | "session.activated"
-  | "session.archived"
-  | "session.reactivated"
-  | "session.closed"
-  | "session.purge_requested"
-  | "session.purged"
-  | "session.goal_updated"
-  | "session.goal_cleared"
-  | "session.provider_status"
-  | "session.notice"
-  | "session.renamed"
-  | "channel.created"
-  | "channel.muted"
-  | "channel.unmuted"
-  | "channel.archived"
-  | "agent.attached"
-  | "agent.detached"
-  | "agent.config_updated"
-  | "repo.attached"
-  | "repo.detached"
-  | "workspace.provisioning"
-  | "workspace.ready"
-  | "workspace.stale"
-  | "workspace.archived"
-  | "worktree.created"
-  | "worktree.ready"
-  | "worktree.dirty"
-  | "worktree.merged"
-  | "worktree.retired"
-  | "pty.control_changed"
-  | "approval.requested"
-  | "approval.approved"
-  | "approval.rejected"
-  | "approval.expired"
-  | "approval.canceled"
-  | "approval.remembered"
-  | "approval.rule_revoked"
-  | "moderation.review_flagged"
-  // + budget warning + account-plane rate-limit snapshot + the three B18
-  | "usage.token_count"
-  | "usage.cost_update"
-  | "usage.context_window_update"
-  | "usage.budget_warning"
-  | "usage.rate_limit_update"
-  | "usage.api_retry"
-  | "usage.context_compacted"
-  | "usage.model_rerouted"
-  // runtime_node_lifecycle (9) — `runtime_node.*` + the two
-  // name-preserved `session.clock_*` events.
-  | "runtime_node.registered"
-  | "runtime_node.online"
-  | "runtime_node.degraded"
-  | "runtime_node.offline"
-  | "runtime_node.revoked"
-  | "runtime_node.capability_declared"
-  | "runtime_node.capability_updated"
-  | "session.clock_unsynced"
-  | "session.clock_corrected"
-  | "recovery.attempted"
-  | "recovery.succeeded"
-  | "recovery.failed"
-  | "user.exported"
-  | "user.purge_requested"
-  | "user.purged"
-  | "user.tokens_revoked_all"
-  | "user.device_reset"
-  // Flat underscore names (no dot namespace), verbatim from the
-  // spec.
-  | "audit_integrity_verified"
-  | "audit_integrity_failed"
-  | "key_reuse_detected"
-  | "security.default.override"
-  | "security.update.available"
-  | "daemon.master_key_source"
-  | "daemon.pii_split_ambiguous"
-  | "schema.migrated"
-  | "event.compacted"
-  | "event.shredded"
-  | "policy_bundle.loaded"
-  | "policy_bundle.rejected"
-  | "arbitration.paused"
-  | "arbitration.resumed"
-  | "orchestration.rejected"
-  | "onboarding.choice_made"
-  | "onboarding.choice_reset"
-  | "dispatch.sent"
-  | "dispatch.received"
-  | "dispatch.rejected"
-  | "dispatch.approval_requested"
-  | "dispatch.approved"
-  | "dispatch.denied"
-  | "dispatch.executed"
-  | "dispatch.completed"
-  | "dispatch.failed"
-  | "dispatch.expired"
-  | "dispatch.result_buffered"
-  | "dispatch.approval_observed"
-  | "dispatch.result_observed"
-  // mcp_governance (5) — the B18 category minted 2026-07-22 as the audit
-  // surface of V1 feature #18. Emission, payload semantics, and
-  // authorization live elsewhere; this census owns registration only.
-  | "mcp.server_status_changed"
-  | "mcp.server_config_changed"
-  | "mcp.server_trust_changed"
-  | "mcp.tool_override_changed"
-  | "mcp.server_oauth_completed";
-
-// The SCHEMA-registered subset — the types whose payload variants are
-// registered in `SessionEventSchema` above — NOT the taxonomy census (that
-// is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 147 registered
-// types). The `SessionEvent["type"]` element annotation binds membership to
-// the schema union at COMPILE time: a census literal without a registered
-// payload variant is rejected here (a plain `SessionEventType` annotation
-// would admit any of the 147), and the admissible set widens as emitting
-// plans land variants through the union-registration seam. Exposed as a
-// const tuple so consumers can iterate the registered payload variants
-// without re-parsing the schemas.
-//
-// The ROSTER, unlike the admissible SET, does not widen on its own: it is a
-// hand-written list, so a plan that registers a union arm MUST add its type
-// here in the same diff. `__tests__/event-source-epoch.test.ts`'s
-// non-vacuity guard asserts set-equality between this roster and the live
-// union's branches, so a forgotten entry fails there rather than silently
-// under-reporting the registered surface.
-//
-// Membership today (29): the two session variants, the six repo/workspace
-// variants, the five worktree variants, the six audit-integrity /
-// event-maintenance variants, the five runtime-node variants (leg (a)), and
-// the five body-bearing assistant / tool variants. Order mirrors the
-// declaration order of the union arms above.
-export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
-  "session.created",
-  "channel.created",
-  "repo.attached",
-  "repo.detached",
-  "workspace.provisioning",
-  "workspace.ready",
-  "workspace.stale",
-  "workspace.archived",
-  "worktree.created",
-  "worktree.ready",
-  "worktree.dirty",
-  "worktree.merged",
-  "worktree.retired",
-  "audit_integrity_verified",
-  "audit_integrity_failed",
-  "key_reuse_detected",
-  "schema.migrated",
-  "event.compacted",
-  "event.shredded",
-  "runtime_node.registered",
-  "runtime_node.online",
-  "runtime_node.offline",
-  "runtime_node.capability_declared",
-  "runtime_node.capability_updated",
-  "assistant.message",
-  "assistant.thinking_update",
-  "tool.invoked",
-  "tool.result",
-  "tool.error",
-] as const;
-
-// --------------------------------------------------------------------------
-// Per-category event-type arrays — the census partitioned by category.
-// --------------------------------------------------------------------------
-//
-// One exported const per `EventCategory` value, named
-// `<CATEGORY_IN_SCREAMING_SNAKE>_EVENT_TYPES` so the const name is
-// mechanically derivable from the category string (which is why the
-// `*_events` categories read `..._EVENTS_EVENT_TYPES`). Each array's member
-// set MUST equal `SESSION_EVENT_CATEGORY_BY_TYPE`'s keys filtered to that
-// category, and the 20 arrays partition the 147-type census — both asserted
-// per-category in __tests__/session-event.test.ts. Explicit `readonly
-// SessionEventType[]` annotations keep the exported surface
-// `--isolatedDeclarations`-clean, matching `SESSION_EVENT_TYPES` above.
-
-export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "run.queued",
-  "run.starting",
-  "run.running",
-  "run.waiting_for_approval",
-  "run.waiting_for_input",
-  "run.paused",
-  "run.completed",
-  "run.interrupted",
-  "run.failed",
-  "run.rolled_back",
-  "run.provider_initialized",
-  "run.turn_started",
-  "run.worker_shutdown",
-] as const;
-
-export const ASSISTANT_OUTPUT_EVENT_TYPES: readonly SessionEventType[] = [
-  "assistant.message",
-  "assistant.thinking_update",
-] as const;
-
-export const TOOL_ACTIVITY_EVENT_TYPES: readonly SessionEventType[] = [
-  "tool.invoked",
-  "tool.result",
-  "tool.error",
-  "tool.replayed",
-  "tool.skipped_during_recovery",
-  "subagent.started",
-  "subagent.completed",
-] as const;
-
-export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
-  "queue_item.created",
-  "queue_item.admitted",
-  "queue_item.superseded",
-  "queue_item.canceled",
-  "queue_item.expired",
-  "intervention.requested",
-  "intervention.accepted",
-  "intervention.applied",
-  "intervention.rejected",
-  "intervention.degraded",
-  "intervention.expired",
-  "driver_ask.requested",
-  "driver_ask.responded",
-  "driver_ask.expired",
-  "driver_ask.canceled",
-  "user.message",
-] as const;
-
-export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
-  "artifact.published",
-  "artifact.visibility_updated",
-  "artifact.superseded",
-  "diff.created",
-  "pr.prepared",
-  "pr.submitted",
-] as const;
-
-export const PRESENCE_EVENT_TYPES: readonly SessionEventType[] = [
-  "presence.online",
-  "presence.idle",
-  "presence.reconnecting",
-  "presence.offline",
-] as const;
-
-// Four subsections flattened in spec order: session (12, incl. the three B18
-// rows), channel/agent (7), repo/workspace/worktree (11), pty (1).
-export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "session.created",
-  "session.activated",
-  "session.archived",
-  "session.reactivated",
-  "session.closed",
-  "session.purge_requested",
-  "session.purged",
-  "session.goal_updated",
-  "session.goal_cleared",
-  "session.provider_status",
-  "session.notice",
-  "session.renamed",
-  "channel.created",
-  "channel.muted",
-  "channel.unmuted",
-  "channel.archived",
-  "agent.attached",
-  "agent.detached",
-  "agent.config_updated",
-  "repo.attached",
-  "repo.detached",
-  "workspace.provisioning",
-  "workspace.ready",
-  "workspace.stale",
-  "workspace.archived",
-  "worktree.created",
-  "worktree.ready",
-  "worktree.dirty",
-  "worktree.merged",
-  "worktree.retired",
-  "pty.control_changed",
-] as const;
-
-export const APPROVAL_FLOW_EVENT_TYPES: readonly SessionEventType[] = [
-  "approval.requested",
-  "approval.approved",
-  "approval.rejected",
-  "approval.expired",
-  "approval.canceled",
-  "approval.remembered",
-  "approval.rule_revoked",
-  "moderation.review_flagged",
-] as const;
-
-export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] = [
-  "usage.token_count",
-  "usage.cost_update",
-  "usage.context_window_update",
-  "usage.budget_warning",
-  "usage.rate_limit_update",
-  "usage.api_retry",
-  "usage.context_compacted",
-  "usage.model_rerouted",
-] as const;
-
-// Includes the two name-preserved `session.clock_*` events — category
-// authority is the registry, not the namespace prefix (see the census
-// comment above).
-export const RUNTIME_NODE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "runtime_node.registered",
-  "runtime_node.online",
-  "runtime_node.degraded",
-  "runtime_node.offline",
-  "runtime_node.revoked",
-  "runtime_node.capability_declared",
-  "runtime_node.capability_updated",
-  "session.clock_unsynced",
-  "session.clock_corrected",
-] as const;
-
-export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "recovery.attempted",
-  "recovery.succeeded",
-  "recovery.failed",
-] as const;
-
-export const USER_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "user.exported",
-  "user.purge_requested",
-  "user.purged",
-  "user.tokens_revoked_all",
-  "user.device_reset",
-] as const;
-
-export const AUDIT_INTEGRITY_EVENT_TYPES: readonly SessionEventType[] = [
-  "audit_integrity_verified",
-  "audit_integrity_failed",
-  "key_reuse_detected",
-] as const;
-
-export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "security.default.override",
-  "security.update.available",
-  "daemon.master_key_source",
-  "daemon.pii_split_ambiguous",
-] as const;
-
-export const EVENT_MAINTENANCE_EVENT_TYPES: readonly SessionEventType[] = [
-  "schema.migrated",
-  "event.compacted",
-  "event.shredded",
-] as const;
-
-export const POLICY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "policy_bundle.loaded",
-  "policy_bundle.rejected",
-] as const;
-
-export const CHANNEL_ARBITRATION_EVENT_TYPES: readonly SessionEventType[] = [
-  "arbitration.paused",
-  "arbitration.resumed",
-  "orchestration.rejected",
-] as const;
-
-export const ONBOARDING_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
-  "onboarding.choice_made",
-  "onboarding.choice_reset",
-] as const;
-
-export const CROSS_NODE_DISPATCH_EVENT_TYPES: readonly SessionEventType[] = [
-  "dispatch.sent",
-  "dispatch.received",
-  "dispatch.rejected",
-  "dispatch.approval_requested",
-  "dispatch.approved",
-  "dispatch.denied",
-  "dispatch.executed",
-  "dispatch.completed",
-  "dispatch.failed",
-  "dispatch.expired",
-  "dispatch.result_buffered",
-  "dispatch.approval_observed",
-  "dispatch.result_observed",
-] as const;
-
-// Four of the five bind to the daemon-scope sentinel;
-// `mcp.server_status_changed` binds per-event
-export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
-  "mcp.server_status_changed",
-  "mcp.server_config_changed",
-  "mcp.server_trust_changed",
-  "mcp.tool_override_changed",
-  "mcp.server_oauth_completed",
-] as const;
-
-// --------------------------------------------------------------------------
-// SESSION_EVENT_CATEGORY_BY_TYPE — canonical type → category registry.
-// --------------------------------------------------------------------------
-//
-// Internal Record backing the exported ReadonlyMap. The `satisfies
-// Record<SessionEventType, EventCategory>` check is the compile-time
-// totality leg: a union member missing here, an unregistered key, or a
-// duplicate key is a compile error, so the registry can never silently
-// drift from `SessionEventType`. Entries mirror the union's category-block
-// order (same reconciliation affordance; order is not load-bearing).
+import {
+  WorkflowCanceledPayloadSchema,
+  WorkflowResultsPostedPayloadSchema,
+  WorkflowResumedPayloadSchema,
+  WorkflowStartedPayloadSchema,
+} from "./workflow-run-control.js";
+import {
+  WorkflowGateResolvedPayloadSchema,
+  WorkflowStepCanceledPayloadSchema,
+  WorkflowStepFailedPayloadSchema,
+  WorkflowStepFinishedPayloadSchema,
+  WorkflowStepSkippedPayloadSchema,
+  WorkflowStepStartedPayloadSchema,
+} from "./workflow-run-step.js";
+import {
+  SessionBranchChangedPayloadSchema,
+  SessionSweptToRepoRootPayloadSchema,
+  WorktreeCreatedPayloadSchema,
+  WorktreeRetiredPayloadSchema,
+} from "./worktree-events.js";
+import { WorktreeLifecyclePayloadSchema } from "./worktree.js";
+
+// The `satisfies` check makes a missing, unregistered or duplicate type a compile error.
 const SESSION_EVENT_CATEGORY_RECORD = {
-  // run_lifecycle (13)
+  // run_lifecycle
   "run.queued": "run_lifecycle",
   "run.starting": "run_lifecycle",
   "run.running": "run_lifecycle",
   "run.waiting_for_approval": "run_lifecycle",
   "run.waiting_for_input": "run_lifecycle",
+  "run.pausing": "run_lifecycle",
   "run.paused": "run_lifecycle",
   "run.completed": "run_lifecycle",
   "run.interrupted": "run_lifecycle",
@@ -3427,10 +127,17 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.provider_initialized": "run_lifecycle",
   "run.turn_started": "run_lifecycle",
   "run.worker_shutdown": "run_lifecycle",
-  // assistant_output (2)
+  "run.step_limit_reached": "run_lifecycle",
+  "run.token_limit_reached": "run_lifecycle",
+  "run.recovery_resolved": "run_lifecycle",
+  "run.refusal_choice_requested": "run_lifecycle",
+  "run.refusal_choice_resolved": "run_lifecycle",
+  "run.usage_credits_choice_requested": "run_lifecycle",
+  "run.usage_credits_choice_resolved": "run_lifecycle",
+  // assistant_output
   "assistant.message": "assistant_output",
   "assistant.thinking_update": "assistant_output",
-  // tool_activity (7)
+  // tool_activity
   "tool.invoked": "tool_activity",
   "tool.result": "tool_activity",
   "tool.error": "tool_activity",
@@ -3438,58 +145,48 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "tool.skipped_during_recovery": "tool_activity",
   "subagent.started": "tool_activity",
   "subagent.completed": "tool_activity",
-  // interactive_request (16)
+  "command.ended": "tool_activity",
+  // interactive_request
   "queue_item.created": "interactive_request",
   "queue_item.admitted": "interactive_request",
   "queue_item.superseded": "interactive_request",
   "queue_item.canceled": "interactive_request",
-  "queue_item.expired": "interactive_request",
+  "queue_item.not_delivered": "interactive_request",
   "intervention.requested": "interactive_request",
   "intervention.accepted": "interactive_request",
   "intervention.applied": "interactive_request",
   "intervention.rejected": "interactive_request",
   "intervention.degraded": "interactive_request",
   "intervention.expired": "interactive_request",
-  "driver_ask.requested": "interactive_request",
-  "driver_ask.responded": "interactive_request",
-  "driver_ask.expired": "interactive_request",
-  "driver_ask.canceled": "interactive_request",
   "user.message": "interactive_request",
-  // artifact_publication (6)
+  "question.asked": "interactive_request",
+  // artifact_publication
   "artifact.published": "artifact_publication",
-  "artifact.visibility_updated": "artifact_publication",
   "artifact.superseded": "artifact_publication",
   "diff.created": "artifact_publication",
-  "pr.prepared": "artifact_publication",
-  "pr.submitted": "artifact_publication",
-  // presence (4)
-  "presence.online": "presence",
-  "presence.idle": "presence",
-  "presence.reconnecting": "presence",
-  "presence.offline": "presence",
-  // session_lifecycle (31)
+  "git.settled": "artifact_publication",
+  // session_lifecycle
   "session.created": "session_lifecycle",
   "session.activated": "session_lifecycle",
   "session.archived": "session_lifecycle",
   "session.reactivated": "session_lifecycle",
   "session.closed": "session_lifecycle",
-  "session.purge_requested": "session_lifecycle",
-  "session.purged": "session_lifecycle",
   "session.goal_updated": "session_lifecycle",
   "session.goal_cleared": "session_lifecycle",
   "session.provider_status": "session_lifecycle",
   "session.notice": "session_lifecycle",
   "session.renamed": "session_lifecycle",
-  "channel.created": "session_lifecycle",
-  "channel.muted": "session_lifecycle",
-  "channel.unmuted": "session_lifecycle",
-  "channel.archived": "session_lifecycle",
-  "agent.attached": "session_lifecycle",
-  "agent.detached": "session_lifecycle",
-  "agent.config_updated": "session_lifecycle",
-  "repo.attached": "session_lifecycle",
-  "repo.detached": "session_lifecycle",
-  "workspace.provisioning": "session_lifecycle",
+  "session.pinned": "session_lifecycle",
+  "session.unpinned": "session_lifecycle",
+  "session.muted": "session_lifecycle",
+  "session.unmuted": "session_lifecycle",
+  "session.converted": "session_lifecycle",
+  "session.side_question_answered": "session_lifecycle",
+  "session.spend_limit_reached": "session_lifecycle",
+  "session.restore_finished": "session_lifecycle",
+  "agent.provider_binding_changed": "session_lifecycle",
+  "agent.provider_binding_change_failed": "session_lifecycle",
+  "workspace.preparing": "session_lifecycle",
   "workspace.ready": "session_lifecycle",
   "workspace.stale": "session_lifecycle",
   "workspace.archived": "session_lifecycle",
@@ -3498,547 +195,610 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "worktree.dirty": "session_lifecycle",
   "worktree.merged": "session_lifecycle",
   "worktree.retired": "session_lifecycle",
+  "session.branch_changed": "session_lifecycle",
+  "session.swept_to_repo_root": "session_lifecycle",
   "pty.control_changed": "session_lifecycle",
-  // approval_flow (8)
+  "cloud.task_updated": "session_lifecycle",
+  // approval_flow
   "approval.requested": "approval_flow",
   "approval.approved": "approval_flow",
   "approval.rejected": "approval_flow",
-  "approval.expired": "approval_flow",
   "approval.canceled": "approval_flow",
   "approval.remembered": "approval_flow",
   "approval.rule_revoked": "approval_flow",
+  "approval.reviewer_denied": "approval_flow",
+  "approval.denial_overridden": "approval_flow",
   "moderation.review_flagged": "approval_flow",
-  // usage_telemetry (8)
+  "plan.proposed": "approval_flow",
+  "plan.accepted": "approval_flow",
+  "plan.handed_off": "approval_flow",
+  // usage_telemetry
   "usage.token_count": "usage_telemetry",
   "usage.cost_update": "usage_telemetry",
   "usage.context_window_update": "usage_telemetry",
-  "usage.budget_warning": "usage_telemetry",
   "usage.rate_limit_update": "usage_telemetry",
   "usage.api_retry": "usage_telemetry",
   "usage.context_compacted": "usage_telemetry",
   "usage.model_rerouted": "usage_telemetry",
-  // runtime_node_lifecycle (9)
-  "runtime_node.registered": "runtime_node_lifecycle",
-  "runtime_node.online": "runtime_node_lifecycle",
-  "runtime_node.degraded": "runtime_node_lifecycle",
-  "runtime_node.offline": "runtime_node_lifecycle",
-  "runtime_node.revoked": "runtime_node_lifecycle",
-  "runtime_node.capability_declared": "runtime_node_lifecycle",
-  "runtime_node.capability_updated": "runtime_node_lifecycle",
-  "session.clock_unsynced": "runtime_node_lifecycle",
-  "session.clock_corrected": "runtime_node_lifecycle",
-  // recovery_events (3)
+  // recovery_events
   "recovery.attempted": "recovery_events",
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
-  // user_lifecycle (5)
-  "user.exported": "user_lifecycle",
-  "user.purge_requested": "user_lifecycle",
-  "user.purged": "user_lifecycle",
-  "user.tokens_revoked_all": "user_lifecycle",
-  "user.device_reset": "user_lifecycle",
-  // audit_integrity (3)
-  audit_integrity_verified: "audit_integrity",
-  audit_integrity_failed: "audit_integrity",
-  key_reuse_detected: "audit_integrity",
-  // security_events (4)
-  "security.default.override": "security_events",
+  // security_events
   "security.update.available": "security_events",
-  "daemon.master_key_source": "security_events",
-  "daemon.pii_split_ambiguous": "security_events",
-  // event_maintenance (3)
-  "schema.migrated": "event_maintenance",
+  "relay.pin_refused": "security_events",
+  // event_maintenance
   "event.compacted": "event_maintenance",
-  "event.shredded": "event_maintenance",
-  // policy_events (2)
-  "policy_bundle.loaded": "policy_events",
-  "policy_bundle.rejected": "policy_events",
-  // channel_arbitration (3)
-  "arbitration.paused": "channel_arbitration",
-  "arbitration.resumed": "channel_arbitration",
-  "orchestration.rejected": "channel_arbitration",
-  // onboarding_lifecycle (2)
-  "onboarding.choice_made": "onboarding_lifecycle",
-  "onboarding.choice_reset": "onboarding_lifecycle",
-  // cross_node_dispatch (13)
-  "dispatch.sent": "cross_node_dispatch",
-  "dispatch.received": "cross_node_dispatch",
-  "dispatch.rejected": "cross_node_dispatch",
-  "dispatch.approval_requested": "cross_node_dispatch",
-  "dispatch.approved": "cross_node_dispatch",
-  "dispatch.denied": "cross_node_dispatch",
-  "dispatch.executed": "cross_node_dispatch",
-  "dispatch.completed": "cross_node_dispatch",
-  "dispatch.failed": "cross_node_dispatch",
-  "dispatch.expired": "cross_node_dispatch",
-  "dispatch.result_buffered": "cross_node_dispatch",
-  "dispatch.approval_observed": "cross_node_dispatch",
-  "dispatch.result_observed": "cross_node_dispatch",
-  // mcp_governance (5)
+  "backup.completed": "event_maintenance",
+  "backup.failed": "event_maintenance",
+  "backup.restored": "event_maintenance",
+  // orchestration_admission
+  "orchestration.rejected": "orchestration_admission",
+  // mcp_governance
   "mcp.server_status_changed": "mcp_governance",
-  "mcp.server_config_changed": "mcp_governance",
-  "mcp.server_trust_changed": "mcp_governance",
-  "mcp.tool_override_changed": "mcp_governance",
   "mcp.server_oauth_completed": "mcp_governance",
+  // workflow_lifecycle
+  "workflow.created": "workflow_lifecycle",
+  "workflow.started": "workflow_lifecycle",
+  "workflow.gated": "workflow_lifecycle",
+  "workflow.failed": "workflow_lifecycle",
+  "workflow.completed": "workflow_lifecycle",
+  "workflow.resumed": "workflow_lifecycle",
+  "workflow.canceled": "workflow_lifecycle",
+  "workflow.run_waiting": "workflow_lifecycle",
+  "workflow.schedule_armed": "workflow_lifecycle",
+  "workflow.schedule_fired": "workflow_lifecycle",
+  "workflow.trigger_armed": "workflow_lifecycle",
+  "workflow.trigger_fired": "workflow_lifecycle",
+  "workflow.results_posted": "workflow_lifecycle",
+  // workflow_phase_lifecycle
+  "workflow.phase_admitted": "workflow_phase_lifecycle",
+  "workflow.phase_waiting_on_pool": "workflow_phase_lifecycle",
+  "workflow.phase_started": "workflow_phase_lifecycle",
+  "workflow.phase_progressed": "workflow_phase_lifecycle",
+  "workflow.phase_canceling": "workflow_phase_lifecycle",
+  "workflow.phase_failed": "workflow_phase_lifecycle",
+  "workflow.phase_retried": "workflow_phase_lifecycle",
+  "workflow.phase_suspended": "workflow_phase_lifecycle",
+  "workflow.phase_resumed": "workflow_phase_lifecycle",
+  "workflow.phase_completed": "workflow_phase_lifecycle",
+  "workflow.step_started": "workflow_phase_lifecycle",
+  "workflow.step_finished": "workflow_phase_lifecycle",
+  "workflow.step_failed": "workflow_phase_lifecycle",
+  "workflow.step_canceled": "workflow_phase_lifecycle",
+  "workflow.step_skipped": "workflow_phase_lifecycle",
+  // workflow_parallel_coordination
+  "workflow.parallel_join_cancellation": "workflow_parallel_coordination",
+  // workflow_gate_resolution
+  "workflow.gate_resolved": "workflow_gate_resolution",
 } satisfies Record<SessionEventType, EventCategory>;
 
-// Map from each registered wire type to its canonical category. Exposed so
-// consumers (projectors, replay machinery, integrity verifiers) can assert
-// category/type consistency without re-parsing the schema.
-//
-// `ReadonlyMap` (NOT a plain object literal) so that a downstream caller
-// who passes an untrusted string into `.get(evt.type)` cannot accidentally
-// resolve a prototype-chain walk:
-//   • Object literal: `lookup['__proto__']` returns `[Object: null prototype] {}`
-//     and `lookup['constructor']` returns `[Function: Object]` — both
-//     truthy, both non-EventCategory values that break downstream string
-//     operations.
-//   • Map: `lookup.get('__proto__')` and `lookup.get('constructor')` both
-//     return `undefined` — the only truthy results are the explicit entries.
-// Integrity verifiers walk this lookup BEFORE re-parsing through
-// `SessionEventSchema`, so the prototype-chain immunity is load-bearing.
-// (The backing Record above is module-internal and never looked up — it
-// exists solely for the compile-time totality check.)
+/**
+ * Each registered wire type's category. A `ReadonlyMap`, not an object, so an untrusted
+ * `.get(type)` read before parsing cannot walk the prototype chain to `__proto__` or `constructor`.
+ */
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
-  // Cast justified by the `satisfies` check above: the record's own
-  // enumerable keys are exactly the 147 SessionEventType literals (totality
-  // + excess-property checks), so `Object.entries` narrowing from
-  // `[string, ...]` is sound.
+  // Sound by the `satisfies` check above: the record's keys are exactly the `SessionEventType`
+  // literals.
   Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,
 );
 
-// --------------------------------------------------------------------------
-// NormalizedEventKind — surveyed-runtime normalized census + disposition
-// registry.
-// --------------------------------------------------------------------------
-//
-// The provider drivers normalize both provider wires into a 35-kind
-// normalized event vocabulary BEFORE the taxonomy maps each kind onto the
-// `SessionEventType` census. `EVENT_DISPOSITION_BY_KIND` below is the
-// machine-readable form of — the single source of disposition truth
-// normalizers (the B10 bundle) consume. Every kind resolves to exactly one
-// disposition under the no-silent-capability-loss default:
-// `adopt`/`rename` is the default, and every `correlate`/`discard` carries
-// a stated reason, so a capability-bearing kind is never dropped silently.
-//
-// Registry scope is the 35 CENSUS kinds only. The nine wire-level Claude
-// system-channel discards and the current-wire delta families in the same
-// plan table are normalizer's wire layer, NOT registry keys — the
-// `worker_shutting_down` delta orphan foremost (the ninth B18 target; its
-// literal `run.worker_shutdown` was closed by the union widening alone,
-// with no registry entry). The unknown residual — a wire kind outside this
-// census — is backstopped at runtime normalizer's structured
-// default-branch diagnostic (B10), never by this registry.
-//
-// Eight census kinds' exact `SessionEventType` literals were minted by the
-// 2026-07-22 B18 census amendment ahead of their registration in this
-// file, so their entries carried `typePending: "B18"` in place of
-// `eventType`. registered all fifteen B18 literals in the census above and
-// flipped each of the eight to its `eventType`, so the two-file
-// shrink-only ratchet that guarded the gap is CONSUMED: the pinned pending
-// set is empty and no registry entry uses the `typePending` arm.
-//
-// The arm itself is RETAINED, not removed — it is the reusable mechanism
-// for a future census amendment that mints a literal ahead of its
-// registration, and __tests__/event-disposition.test.ts keeps compile pins
-// on its shape that fire at zero registry instances. What guards
-// registry/census agreement from here is the standing bijection pair: the
-// `satisfies Record<SessionEventType, EventCategory>` totality check above
-// (a census literal cannot go unregistered) plus the both-direction
-// set-equality assertions in __tests__/session-event.test.ts, with every
-// `eventType` cross-checked against `SESSION_EVENT_CATEGORY_BY_TYPE` in the
-// disposition suite (a flip to a category the census disagrees with fails
-// there). Registration is not emission license, and all fifteen B18
-// literals are variantless today, so normalizers keep routing every flipped
-// kind to the B10 diagnostic until its payload variant is registered in
-// `SessionEventSchema` by its owning surface — emission turns on
-// variant-by-variant, never on the registry flip alone. Should the arm ever
-// be used again, a pending kind routes to that same diagnostic rather than
-// constructing an envelope against a missing type — no envelope, no silent
-// drop.
+// Builds one union arm. It is not exported, so its inferred return type keeps the literal `type`
+// the discriminated union dispatches on; the category comes from the record above, so an arm filed
+// under another category is a compile error.
 
-// The closed 35-kind normalized census, named per the `EventCategory` /
-// `SessionEventType` convention above. Blocks mirror the plan table's
-// Group column (14 + 3 + 1 + 6 + 4 + 2 + 1 + 4 = 35); within a block,
-// kinds follow table row order. Order is not load-bearing — the grouping
-// exists so reviewers can reconcile each block against its table rows.
-export type NormalizedEventKind =
-  // Inline timeline (14) — rows 1–14.
-  | "init"
-  | "text_delta"
-  | "tool_start"
-  | "tool_complete"
-  | "turn_start"
-  | "turn_complete"
-  | "approval_request"
-  | "approval_resolved"
-  | "user_input_request"
-  | "user_input_resolved"
-  | "session_status"
-  | "token_usage"
-  | "error"
-  | "todo_update"
-  // Task mirror (3) — rows 15–17.
-  | "task_create"
-  | "task_update"
-  | "notification"
-  // Transient retry (1) — row 18.
-  | "api_retry"
-  // System, no timeline row (6) — rows 19–24.
-  | "compact_boundary"
-  | "rate_limits"
-  | "model_rerouted"
-  | "thread_renamed"
-  | "content_block_start"
-  | "content_block_stop"
-  // Background/subagent (4) — rows 25–28.
-  | "background_task_terminal"
-  | "background_task_notification"
-  | "subagent_notification"
-  | "subagent_status"
-  // Codex process/terminal (2) — rows 29–30.
-  | "codex_exec_result"
-  | "terminal_interaction"
-  // Wire echo (1) — row 31.
-  | "user_text"
-  // Heavy, persisted (4) — rows 32–35.
-  | "diff"
-  | "command_output"
-  | "thinking"
-  | "proposed_plan";
+const buildSessionEventVariantSchema = <
+  TType extends SessionEventType,
+  TPayload extends z.ZodType<object>,
+>(
+  type: TType,
+  category: (typeof SESSION_EVENT_CATEGORY_RECORD)[TType],
+  payload: TPayload,
+) =>
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal(type),
+      category: z.literal(category),
+      payload,
+    })
+    .strict();
 
-// The census as an iterable const tuple (same affordance as the
-// per-category `*_EVENT_TYPES` arrays above; same isolatedDeclarations-
-// clean annotation). The union keying of `EVENT_DISPOSITION_RECORD` below
-// already makes a MISSING kind a compile error; the runtime both-direction
-// set-equality check in __tests__/event-disposition.test.ts additionally
-// catches a tuple/union drift (this annotation admits any subset of the
-// union, so the tuple alone cannot prove completeness at compile time).
-export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
-  "init",
-  "text_delta",
-  "tool_start",
-  "tool_complete",
-  "turn_start",
-  "turn_complete",
-  "approval_request",
-  "approval_resolved",
-  "user_input_request",
-  "user_input_resolved",
-  "session_status",
-  "token_usage",
-  "error",
-  "todo_update",
-  "task_create",
-  "task_update",
-  "notification",
-  "api_retry",
-  "compact_boundary",
-  "rate_limits",
-  "model_rerouted",
-  "thread_renamed",
-  "content_block_start",
-  "content_block_stop",
-  "background_task_terminal",
-  "background_task_notification",
-  "subagent_notification",
-  "subagent_status",
-  "codex_exec_result",
-  "terminal_interaction",
-  "user_text",
-  "diff",
-  "command_output",
-  "thinking",
-  "proposed_plan",
+// `withEpochStamp` takes a strict ZodObject, but the `z.ZodType<T>` annotation erases its object
+// methods; it is a strict object at runtime, so the cast restores them for the call.
+const commandEndedVariantPayloadSchema = withEpochStamp(
+  CommandEndedPayloadSchema as unknown as z.ZodObject<Record<never, never>, z.core.$strict>,
+) as unknown as z.ZodType<CommandEndedEvent["payload"]>;
+
+const usageModelReroutedVariantPayloadSchema = withEpochStamp(
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      runId: RunIdSchema,
+      agentId: uuidTextFormSchema.optional(),
+      fromModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.fromModel"),
+      toModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.toModel"),
+      scope: z.enum(["turn", "session", "local"]),
+      sentence: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "UsageModelReroutedPayload.sentence",
+      ).optional(),
+      explanation: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "UsageModelReroutedPayload.explanation",
+      ).optional(),
+      cause: z.enum(["safety", "model_unavailable", "model_blocked", "out_of_credits"]),
+      safetyCategory: wireFreeFormString(
+        EVENT_FIELD_MAX_LEN,
+        "UsageModelReroutedPayload.safetyCategory",
+      ).optional(),
+    })
+    .strict(),
+);
+
+const approvalRejectedVariantSchema = buildSessionEventVariantSchema(
+  "approval.rejected",
+  "approval_flow",
+  ApprovalResolvedPayloadSchema,
+);
+const approvalCanceledVariantSchema = buildSessionEventVariantSchema(
+  "approval.canceled",
+  "approval_flow",
+  ApprovalCanceledPayloadSchema,
+);
+const approvalRememberedVariantSchema = buildSessionEventVariantSchema(
+  "approval.remembered",
+  "approval_flow",
+  ApprovalRememberedPayloadSchema,
+);
+const approvalRuleRevokedVariantSchema = buildSessionEventVariantSchema(
+  "approval.rule_revoked",
+  "approval_flow",
+  ApprovalRuleRevokedPayloadSchema,
+);
+const moderationReviewFlaggedVariantSchema = buildSessionEventVariantSchema(
+  "moderation.review_flagged",
+  "approval_flow",
+  ModerationReviewFlaggedPayloadSchema,
+);
+const planProposedVariantSchema = buildSessionEventVariantSchema(
+  "plan.proposed",
+  "approval_flow",
+  PlanProposedPayloadSchema,
+);
+const planAcceptedVariantSchema = buildSessionEventVariantSchema(
+  "plan.accepted",
+  "approval_flow",
+  PlanAcceptedPayloadSchema,
+);
+const planHandedOffVariantSchema = buildSessionEventVariantSchema(
+  "plan.handed_off",
+  "approval_flow",
+  PlanHandedOffPayloadSchema,
+);
+const questionAskedVariantSchema = buildSessionEventVariantSchema(
+  "question.asked",
+  "interactive_request",
+  QuestionAskedPayloadSchema,
+);
+const mcpServerStatusChangedVariantSchema = buildSessionEventVariantSchema(
+  "mcp.server_status_changed",
+  "mcp_governance",
+  McpServerStatusChangedPayloadSchema,
+);
+const mcpServerOauthCompletedVariantSchema = buildSessionEventVariantSchema(
+  "mcp.server_oauth_completed",
+  "mcp_governance",
+  McpServerOauthCompletedPayloadSchema,
+);
+const cloudTaskUpdatedVariantSchema = buildSessionEventVariantSchema(
+  "cloud.task_updated",
+  "session_lifecycle",
+  CloudTaskUpdatedPayloadSchema,
+);
+const sessionRestoreFinishedVariantSchema = buildSessionEventVariantSchema(
+  "session.restore_finished",
+  "session_lifecycle",
+  SessionRestoreFinishedPayloadSchema,
+);
+const sessionGoalClearedVariantSchema = buildSessionEventVariantSchema(
+  "session.goal_cleared",
+  "session_lifecycle",
+  SessionGoalClearedPayloadSchema,
+);
+const sessionNoticeVariantSchema = buildSessionEventVariantSchema(
+  "session.notice",
+  "session_lifecycle",
+  SessionNoticePayloadSchema,
+);
+const sessionSideQuestionAnsweredVariantSchema = buildSessionEventVariantSchema(
+  "session.side_question_answered",
+  "session_lifecycle",
+  SessionSideQuestionAnsweredPayloadSchema,
+);
+const sessionSpendLimitReachedVariantSchema = buildSessionEventVariantSchema(
+  "session.spend_limit_reached",
+  "session_lifecycle",
+  SessionSpendLimitReachedPayloadSchema,
+);
+const gitSettledVariantSchema = buildSessionEventVariantSchema(
+  "git.settled",
+  "artifact_publication",
+  GitSettledPayloadSchema,
+);
+const relayPinRefusedVariantSchema = buildSessionEventVariantSchema(
+  "relay.pin_refused",
+  "security_events",
+  RelayPinRefusedPayloadSchema,
+);
+const commandEndedVariantSchema = buildSessionEventVariantSchema(
+  "command.ended",
+  "tool_activity",
+  commandEndedVariantPayloadSchema,
+);
+const sessionArchivedVariantSchema = buildSessionEventVariantSchema(
+  "session.archived",
+  "session_lifecycle",
+  SessionLifecycleChangePayloadSchema,
+);
+const sessionReactivatedVariantSchema = buildSessionEventVariantSchema(
+  "session.reactivated",
+  "session_lifecycle",
+  SessionLifecycleChangePayloadSchema,
+);
+const sessionClosedVariantSchema = buildSessionEventVariantSchema(
+  "session.closed",
+  "session_lifecycle",
+  SessionLifecycleChangePayloadSchema,
+);
+const sessionPinnedVariantSchema = buildSessionEventVariantSchema(
+  "session.pinned",
+  "session_lifecycle",
+  SessionMarkChangePayloadSchema,
+);
+const sessionUnpinnedVariantSchema = buildSessionEventVariantSchema(
+  "session.unpinned",
+  "session_lifecycle",
+  SessionMarkChangePayloadSchema,
+);
+const sessionMutedVariantSchema = buildSessionEventVariantSchema(
+  "session.muted",
+  "session_lifecycle",
+  SessionMarkChangePayloadSchema,
+);
+const sessionUnmutedVariantSchema = buildSessionEventVariantSchema(
+  "session.unmuted",
+  "session_lifecycle",
+  SessionMarkChangePayloadSchema,
+);
+const usageModelReroutedVariantSchema = buildSessionEventVariantSchema(
+  "usage.model_rerouted",
+  "usage_telemetry",
+  usageModelReroutedVariantPayloadSchema,
+);
+const sessionConvertedVariantSchema = buildSessionEventVariantSchema(
+  "session.converted",
+  "session_lifecycle",
+  SessionConvertedPayloadSchema,
+);
+const sessionBranchChangedVariantSchema = buildSessionEventVariantSchema(
+  "session.branch_changed",
+  "session_lifecycle",
+  SessionBranchChangedPayloadSchema,
+);
+const sessionSweptToRepoRootVariantSchema = buildSessionEventVariantSchema(
+  "session.swept_to_repo_root",
+  "session_lifecycle",
+  SessionSweptToRepoRootPayloadSchema,
+);
+const agentProviderBindingChangedVariantSchema = buildSessionEventVariantSchema(
+  "agent.provider_binding_changed",
+  "session_lifecycle",
+  AgentProviderBindingChangedPayloadSchema,
+);
+const agentProviderBindingChangeFailedVariantSchema = buildSessionEventVariantSchema(
+  "agent.provider_binding_change_failed",
+  "session_lifecycle",
+  AgentProviderBindingChangeFailedPayloadSchema,
+);
+const approvalRequestedVariantSchema = buildSessionEventVariantSchema(
+  "approval.requested",
+  "approval_flow",
+  ApprovalRequestedPayloadSchema,
+);
+const approvalApprovedVariantSchema = buildSessionEventVariantSchema(
+  "approval.approved",
+  "approval_flow",
+  ApprovalResolvedPayloadSchema,
+);
+// The `z.ZodType<T>` annotation erases the `.extend()` the payload needs; it is a strict object at
+// runtime, so the cast restores it for the call.
+const approvalReviewerDeniedVariantPayloadSchema = (
+  ApprovalReviewerDeniedPayloadSchema as unknown as z.ZodObject<
+    Record<never, never>,
+    z.core.$strict
+  >
+).extend(buildMachineContentDescriptorShape()) as unknown as z.ZodType<
+  ApprovalReviewerDeniedEvent["payload"]
+>;
+const approvalReviewerDeniedVariantSchema = buildSessionEventVariantSchema(
+  "approval.reviewer_denied",
+  "approval_flow",
+  approvalReviewerDeniedVariantPayloadSchema,
+);
+const approvalDenialOverriddenVariantSchema = buildSessionEventVariantSchema(
+  "approval.denial_overridden",
+  "approval_flow",
+  ApprovalDenialOverriddenPayloadSchema,
+);
+const runQueuedVariantSchema = buildSessionEventVariantSchema(
+  "run.queued",
+  "run_lifecycle",
+  RunQueuedPayloadSchema,
+);
+const runStepLimitReachedVariantSchema = buildSessionEventVariantSchema(
+  "run.step_limit_reached",
+  "run_lifecycle",
+  RunStepLimitReachedPayloadSchema,
+);
+const runTokenLimitReachedVariantSchema = buildSessionEventVariantSchema(
+  "run.token_limit_reached",
+  "run_lifecycle",
+  RunTokenLimitReachedPayloadSchema,
+);
+const runRecoveryResolvedVariantSchema = buildSessionEventVariantSchema(
+  "run.recovery_resolved",
+  "run_lifecycle",
+  RunRecoveryResolvedPayloadSchema,
+);
+const runRefusalChoiceRequestedVariantSchema = buildSessionEventVariantSchema(
+  "run.refusal_choice_requested",
+  "run_lifecycle",
+  RunRefusalChoiceRequestedPayloadSchema,
+);
+const runRefusalChoiceResolvedVariantSchema = buildSessionEventVariantSchema(
+  "run.refusal_choice_resolved",
+  "run_lifecycle",
+  RunRefusalChoiceResolvedPayloadSchema,
+);
+const runUsageCreditsChoiceRequestedVariantSchema = buildSessionEventVariantSchema(
+  "run.usage_credits_choice_requested",
+  "run_lifecycle",
+  RunUsageCreditsChoiceRequestedPayloadSchema,
+);
+const runUsageCreditsChoiceResolvedVariantSchema = buildSessionEventVariantSchema(
+  "run.usage_credits_choice_resolved",
+  "run_lifecycle",
+  RunUsageCreditsChoiceResolvedPayloadSchema,
+);
+const sessionGoalUpdatedVariantSchema = buildSessionEventVariantSchema(
+  "session.goal_updated",
+  "session_lifecycle",
+  SessionGoalUpdatedPayloadSchema,
+);
+const sessionRenamedVariantSchema = buildSessionEventVariantSchema(
+  "session.renamed",
+  "session_lifecycle",
+  SessionRenamedPayloadSchema,
+);
+const ptyControlChangedVariantSchema = buildSessionEventVariantSchema(
+  "pty.control_changed",
+  "session_lifecycle",
+  PtyControlChangedPayloadSchema,
+);
+const workflowStartedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.started",
+  "workflow_lifecycle",
+  WorkflowStartedPayloadSchema,
+);
+const workflowResumedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.resumed",
+  "workflow_lifecycle",
+  WorkflowResumedPayloadSchema,
+);
+const workflowCanceledVariantSchema = buildSessionEventVariantSchema(
+  "workflow.canceled",
+  "workflow_lifecycle",
+  WorkflowCanceledPayloadSchema,
+);
+const workflowResultsPostedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.results_posted",
+  "workflow_lifecycle",
+  WorkflowResultsPostedPayloadSchema,
+);
+const workflowStepStartedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.step_started",
+  "workflow_phase_lifecycle",
+  WorkflowStepStartedPayloadSchema,
+);
+const workflowStepFinishedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.step_finished",
+  "workflow_phase_lifecycle",
+  WorkflowStepFinishedPayloadSchema,
+);
+const workflowStepFailedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.step_failed",
+  "workflow_phase_lifecycle",
+  WorkflowStepFailedPayloadSchema,
+);
+const workflowStepCanceledVariantSchema = buildSessionEventVariantSchema(
+  "workflow.step_canceled",
+  "workflow_phase_lifecycle",
+  WorkflowStepCanceledPayloadSchema,
+);
+const workflowStepSkippedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.step_skipped",
+  "workflow_phase_lifecycle",
+  WorkflowStepSkippedPayloadSchema,
+);
+const workflowGateResolvedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.gate_resolved",
+  "workflow_gate_resolution",
+  WorkflowGateResolvedPayloadSchema,
+);
+const backupCompletedVariantSchema = buildSessionEventVariantSchema(
+  "backup.completed",
+  "event_maintenance",
+  BackupCompletedPayloadSchema,
+);
+const backupFailedVariantSchema = buildSessionEventVariantSchema(
+  "backup.failed",
+  "event_maintenance",
+  BackupFailedPayloadSchema,
+);
+const backupRestoredVariantSchema = buildSessionEventVariantSchema(
+  "backup.restored",
+  "event_maintenance",
+  BackupRestoredPayloadSchema,
+);
+
+// One arm per registered payload variant. The parser and the type list below both read it, so
+// the two cannot disagree.
+const SESSION_EVENT_VARIANT_SCHEMAS = [
+  buildSessionEventVariantSchema(
+    "session.created",
+    "session_lifecycle",
+    SessionCreatedPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.preparing",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.ready",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.stale",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "workspace.archived",
+    "session_lifecycle",
+    RepoWorkspaceLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.created",
+    "session_lifecycle",
+    WorktreeCreatedPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.ready",
+    "session_lifecycle",
+    WorktreeLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.dirty",
+    "session_lifecycle",
+    WorktreeLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.merged",
+    "session_lifecycle",
+    WorktreeLifecyclePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "worktree.retired",
+    "session_lifecycle",
+    WorktreeRetiredPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "event.compacted",
+    "event_maintenance",
+    EventCompactedPayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "assistant.message",
+    "assistant_output",
+    assistantMessagePayloadSchema,
+  ),
+  buildSessionEventVariantSchema(
+    "assistant.thinking_update",
+    "assistant_output",
+    assistantThinkingUpdatePayloadSchema,
+  ),
+  buildSessionEventVariantSchema("tool.invoked", "tool_activity", toolInvokedPayloadSchema),
+  buildSessionEventVariantSchema("tool.result", "tool_activity", toolResultPayloadSchema),
+  buildSessionEventVariantSchema("tool.error", "tool_activity", toolErrorPayloadSchema),
+  approvalRejectedVariantSchema,
+  approvalCanceledVariantSchema,
+  approvalRememberedVariantSchema,
+  approvalRuleRevokedVariantSchema,
+  moderationReviewFlaggedVariantSchema,
+  planProposedVariantSchema,
+  planAcceptedVariantSchema,
+  planHandedOffVariantSchema,
+  questionAskedVariantSchema,
+  mcpServerStatusChangedVariantSchema,
+  mcpServerOauthCompletedVariantSchema,
+  cloudTaskUpdatedVariantSchema,
+  sessionRestoreFinishedVariantSchema,
+  sessionGoalClearedVariantSchema,
+  sessionNoticeVariantSchema,
+  sessionSideQuestionAnsweredVariantSchema,
+  sessionSpendLimitReachedVariantSchema,
+  gitSettledVariantSchema,
+  relayPinRefusedVariantSchema,
+  commandEndedVariantSchema,
+  usageModelReroutedVariantSchema,
+  sessionArchivedVariantSchema,
+  sessionReactivatedVariantSchema,
+  sessionClosedVariantSchema,
+  sessionPinnedVariantSchema,
+  sessionUnpinnedVariantSchema,
+  sessionMutedVariantSchema,
+  sessionUnmutedVariantSchema,
+  sessionConvertedVariantSchema,
+  sessionBranchChangedVariantSchema,
+  sessionSweptToRepoRootVariantSchema,
+  agentProviderBindingChangedVariantSchema,
+  agentProviderBindingChangeFailedVariantSchema,
+  approvalRequestedVariantSchema,
+  approvalApprovedVariantSchema,
+  approvalReviewerDeniedVariantSchema,
+  approvalDenialOverriddenVariantSchema,
+  runQueuedVariantSchema,
+  runStepLimitReachedVariantSchema,
+  runTokenLimitReachedVariantSchema,
+  runRecoveryResolvedVariantSchema,
+  runRefusalChoiceRequestedVariantSchema,
+  runRefusalChoiceResolvedVariantSchema,
+  runUsageCreditsChoiceRequestedVariantSchema,
+  runUsageCreditsChoiceResolvedVariantSchema,
+  sessionGoalUpdatedVariantSchema,
+  sessionRenamedVariantSchema,
+  ptyControlChangedVariantSchema,
+  workflowStartedVariantSchema,
+  workflowResumedVariantSchema,
+  workflowCanceledVariantSchema,
+  workflowResultsPostedVariantSchema,
+  workflowStepStartedVariantSchema,
+  workflowStepFinishedVariantSchema,
+  workflowStepFailedVariantSchema,
+  workflowStepCanceledVariantSchema,
+  workflowStepSkippedVariantSchema,
+  workflowGateResolvedVariantSchema,
+  backupCompletedVariantSchema,
+  backupFailedVariantSchema,
+  backupRestoredVariantSchema,
 ] as const;
 
 /**
- *
- * A discriminated union whose arms make illegal states unrepresentable at
- * the type level (the compiler enforces SHAPE; the Vitest suite verifies
- * census CONTENT):
- *   • `adopt`/`rename` entries name a canonical {@link EventCategory} and
- *     carry EXACTLY ONE of `eventType` — a registered
- *     {@link SessionEventType} census literal — or `typePending: "B18"`
- *     (a literal minted by a census amendment ahead of its registration
- *     here). flipped the last eight `typePending` rows, so the pending arm
- *     currently has ZERO registry instances; it is retained as the
- *     mechanism for the next such amendment. The `?: never` keys forbid
- *     both-present; the arm split forbids neither-present. `eventType`
- *     names the row's PRIMARY target only — outcome-dependent fan-out
- *     (`tool.error`, `approval.rejected` / `.expired` / `.canceled`,
- *     `driver_ask.expired` / `.canceled`, `subagent.completed`) is
- *     normalizer detail, not registry data.
- *   • `correlate`/`discard` entries carry only the non-empty `reason` —
- *     the no-silent-capability-loss justification — and NO taxonomy
- *     target: a correlate folds into an existing row via `correlation_id`
- *     and a discard is consumed transiently, so neither maps onto the
- *     census. `reason` is likewise forbidden on `adopt`/`rename` arms:
- *     its contract role is justifying the two lossy dispositions, and a
- *     taxonomy target needs no justification beyond itself.
- *
- * Every property on every arm is `readonly`: {@link EVENT_DISPOSITION_BY_KIND}
- * hands out module-level shared singletons, and `ReadonlyMap` blocks `.set()`
- * but not property writes on an entry it returned — so without this, one
- * consumer's `entry.category = …` would corrupt disposition truth
- * process-wide.
+ * Strict parser for {@link SessionEvent}: an unknown type or a category that does not match its
+ * type fails to parse.
  */
-export type EventKindDisposition =
-  | {
-      readonly disposition: "adopt" | "rename";
-      readonly category: EventCategory;
-      readonly eventType: SessionEventType;
-      readonly typePending?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly disposition: "adopt" | "rename";
-      readonly category: EventCategory;
-      readonly typePending: "B18";
-      readonly eventType?: never;
-      readonly reason?: never;
-    }
-  | {
-      readonly disposition: "correlate";
-      readonly reason: string;
-      readonly category?: never;
-      readonly eventType?: never;
-      readonly typePending?: never;
-    }
-  | {
-      readonly disposition: "discard";
-      readonly reason: string;
-      readonly category?: never;
-      readonly eventType?: never;
-      readonly typePending?: never;
-    };
+export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
+  "type",
+  SESSION_EVENT_VARIANT_SCHEMAS,
+);
 
-// Internal Record backing the exported ReadonlyMap — same idiom as
-// `SESSION_EVENT_CATEGORY_RECORD` above. The `satisfies
-// Record<NormalizedEventKind, EventKindDisposition>` check is the
-// compile-time totality leg: a census kind missing here, an unregistered
-// key, or a duplicate key is a compile error — and the
-// `EventKindDisposition` union arms reject an entry carrying both
-// `eventType` and `typePending`, either alongside a `reason`, or a
-// correlate/discard smuggling a taxonomy target. Entries mirror the plan
-// table's row order (blocks per its Group column; order is not
-// load-bearing). Fan-out notes ("fans to …") are normalizer detail — the
-// registry names each row's PRIMARY target.
-const EVENT_DISPOSITION_RECORD = {
-  // Inline timeline (rows 1–14).
-  // Run-start marker: records the provider's OWN init report; the daemon's
-  // `run.*` state transitions stay daemon-emitted, never provider-init-
-  // mapped.
-  init: {
-    disposition: "adopt",
-    category: "run_lifecycle",
-    eventType: "run.provider_initialized",
-  },
-  text_delta: {
-    disposition: "adopt",
-    category: "assistant_output",
-    eventType: "assistant.message",
-  },
-  tool_start: { disposition: "adopt", category: "tool_activity", eventType: "tool.invoked" },
-  // Tool-lifecycle completion; a failure outcome fans to `tool.error`.
-  tool_complete: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Turn boundary.
-  turn_start: { disposition: "adopt", category: "run_lifecycle", eventType: "run.turn_started" },
-  // Turn complete; `completionKind` turn-vs-task carve per the B1 taxonomy.
-  turn_complete: { disposition: "adopt", category: "run_lifecycle", eventType: "run.completed" },
-  // Permission ask.
-  approval_request: {
-    disposition: "adopt",
-    category: "interactive_request",
-    eventType: "driver_ask.requested",
-  },
-  // Approval resolution; fans by outcome to `approval.rejected` /
-  // `approval.expired` / `approval.canceled`.
-  approval_resolved: {
-    disposition: "adopt",
-    category: "approval_flow",
-    eventType: "approval.approved",
-  },
-  // Input ask (same driver-ask family as approval_request).
-  user_input_request: {
-    disposition: "adopt",
-    category: "interactive_request",
-    eventType: "driver_ask.requested",
-  },
-  // Driver-ask resolution; fans to `driver_ask.expired` /
-  // `driver_ask.canceled`.
-  user_input_resolved: {
-    disposition: "adopt",
-    category: "interactive_request",
-    eventType: "driver_ask.responded",
-  },
-  // Coarse provider status under the B18-pinned no-fabricated-transition
-  // rule: provider status observations never drive the nine `session.*`
-  // state transitions.
-  session_status: {
-    disposition: "adopt",
-    category: "session_lifecycle",
-    eventType: "session.provider_status",
-  },
-  token_usage: {
-    disposition: "adopt",
-    category: "usage_telemetry",
-    eventType: "usage.token_count",
-  },
-  // Run-failure envelope.
-  error: { disposition: "adopt", category: "run_lifecycle", eventType: "run.failed" },
-  // Todo-snapshot projection (TodoWrite-family result row).
-  todo_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Task mirror (rows 15–17): per-task CRUD → per-thread task mirror →
-  // `todo_update` snapshots.
-  task_create: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  task_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Generic user-facing notice — the CODEX-FED census kind; the discarded
-  // Claude system-channel `notification` subtype is wire-layer, not a
-  // registry key.
-  notification: {
-    disposition: "adopt",
-    category: "session_lifecycle",
-    eventType: "session.notice",
-  },
-  // Transient retry (row 18): transient-retry record; the Claude
-  // `system.api_retry` typed-error enum enriches this same kind —
-  // capability-bearing, never dropped.
-  api_retry: { disposition: "adopt", category: "usage_telemetry", eventType: "usage.api_retry" },
-  // System, no timeline row (rows 19–24).
-  // Provider context-window compaction — distinct from the daemon
-  // `event.compacted` retention pass.
-  compact_boundary: {
-    disposition: "adopt",
-    category: "usage_telemetry",
-    eventType: "usage.context_compacted",
-  },
-  // The Claude wire string `rate_limit_event` RENAMES onto `rate_limits`:
-  // an account-plane quota snapshot, never context-window telemetry.
-  rate_limits: {
-    disposition: "rename",
-    category: "usage_telemetry",
-    eventType: "usage.rate_limit_update",
-  },
-  // Mid-run model-reroute telemetry — capability-bearing.
-  model_rerouted: {
-    disposition: "adopt",
-    category: "usage_telemetry",
-    eventType: "usage.model_rerouted",
-  },
-  // Session/thread rename.
-  thread_renamed: {
-    disposition: "adopt",
-    category: "session_lifecycle",
-    eventType: "session.renamed",
-  },
-  content_block_start: {
-    disposition: "discard",
-    reason:
-      "streaming-structural envelope boundary; the wrapped text_delta kind carries the durable content — no separate timeline or persistence capability",
-  },
-  content_block_stop: {
-    disposition: "discard",
-    reason:
-      "paired streaming envelope boundary; same streaming-structural reason as content_block_start — the wrapped text_delta kind carries the durable content",
-  },
-  // Background/subagent (rows 25–28).
-  // Richer sibling completion; never replaces the tool-lifecycle
-  // completion row.
-  background_task_terminal: {
-    disposition: "adopt",
-    category: "tool_activity",
-    eventType: "subagent.completed",
-  },
-  // Non-lifecycle task notice; may carry a durable output-file path.
-  background_task_notification: {
-    disposition: "adopt",
-    category: "tool_activity",
-    eventType: "tool.result",
-  },
-  // Codex detached-child terminal injected into the parent's next turn.
-  subagent_notification: {
-    disposition: "adopt",
-    category: "tool_activity",
-    eventType: "subagent.completed",
-  },
-  // Subagent-lifecycle row / internal child-thread status; fans to
-  // `subagent.completed`.
-  subagent_status: {
-    disposition: "adopt",
-    category: "tool_activity",
-    eventType: "subagent.started",
-  },
-  // Codex process/terminal (rows 29–30).
-  // Raw exec-output signal — exited-during-wait vs
-  // yielded-with-resumable-session.
-  codex_exec_result: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Stdin writes to a backgrounded PTY; non-empty stdin redacted from
-  // durable metadata.
-  terminal_interaction: {
-    disposition: "adopt",
-    category: "tool_activity",
-    eventType: "tool.invoked",
-  },
-  // Wire echo (row 31).
-  user_text: {
-    disposition: "correlate",
-    reason:
-      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22, registered in this census so the target literal resolves; the echo keeps routing to normalizer default-branch diagnostic until user.message payload variant joins the union)",
-  },
-  // Heavy, persisted (rows 32–35): payload persisted to SQLite; light
-  // meta to the client.
-  diff: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  command_output: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  thinking: {
-    disposition: "adopt",
-    category: "assistant_output",
-    eventType: "assistant.thinking_update",
-  },
-  // Plan proposal.
-  proposed_plan: {
-    disposition: "adopt",
-    category: "assistant_output",
-    eventType: "assistant.message",
-  },
-} satisfies Record<NormalizedEventKind, EventKindDisposition>;
+/** The event types with a payload variant registered in {@link SessionEventSchema}. */
+export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = Object.freeze(
+  SESSION_EVENT_VARIANT_SCHEMAS.map((variant) => variant.shape.type.value),
+);
 
-/**
- * Machine-readable disposition registry over the 35 normalized census
- * kinds. normalizers (the B10 bundle) consume it as the single source of
- * disposition truth; see the section comment above for scope (census kinds
- * only, wire-layer discards and delta families excluded) and the
- * closed-out B18 `typePending` ratchet.
- *
- * `ReadonlyMap` (NOT a plain object) for the same `.get()`-safety as
- * {@link SESSION_EVENT_CATEGORY_BY_TYPE}: a normalizer passing an
- * untrusted wire kind into `.get(kind)` resolves prototype-chain keys
- * (`__proto__`, `constructor`, …) to `undefined`, never a truthy
- * non-disposition value. (The backing Record above is module-internal and
- * never looked up — it exists solely for the compile-time totality check.)
- */
-export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> =
-  new Map(
-    // Cast justified by the `satisfies` check above: the record's own
-    // enumerable keys are exactly the 35 NormalizedEventKind literals
-    // (totality + excess-property checks), so `Object.entries` narrowing
-    // from `[string, ...]` is sound.
-    Object.entries(EVENT_DISPOSITION_RECORD) as ReadonlyArray<
-      [NormalizedEventKind, EventKindDisposition]
-    >,
-  );
-
-// --------------------------------------------------------------------------
-// CapabilityDetails — HOISTED (declarations in event-core.ts).
-// --------------------------------------------------------------------------
-//
-// The move was forced by the cycle: `runtime-node.ts` reads
-// `CapabilityDetailsSchema` at module scope for the canonical-first tolerant
-// unions, and this file now reads runtime-node.ts's payload schemas at module
-// scope for arms above.
-
-// Note: cross-file ID types (`SessionId`, `ChannelId`, …) are not re-
-// exported here — they are surfaced from `session.ts` and reach the public
-// API via `index.ts`'s `export * from "./session.js"`. Re-exporting them
-// from this file too would create a duplicate-export conflict at the
-// package barrel.
+// Cross-file ID types (`SessionId`, `UserId`, ...) are not re-exported here: the package barrel
+// already exports them from session.ts, and a second export would conflict.

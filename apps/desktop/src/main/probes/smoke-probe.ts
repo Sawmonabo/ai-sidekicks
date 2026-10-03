@@ -1,38 +1,12 @@
-// The substrate-boots smoke probe.
-//
-// Lives beside the entrypoint rather than inside it. `index.ts` is the startup
-// ORDER — scheme, lock, ready, protocol, menu, window — and a reader checking
-// that order should not have to page past ninety lines of probe body to find
-// the next step of it. What stays in `index.ts` is the one gated call.
-//
-// PRODUCTION SAFETY is unchanged by the move, and slightly strengthened. The
-// caller's `__SIDEKICKS_SMOKE_BUILD__` gate is a compile-time-static identifier
-// Vite substitutes with the literal `false` in a default `electron-vite build`,
-// so the call collapses to dead code and Rollup strips it — and because this
-// module is then referenced by nothing and declares only a `const` and a
-// `function` (no top-level side effects), Rollup drops the whole module from
-// `out/main/index.js` rather than merely the call. `grep -c
-// SIDEKICKS_SMOKE_PROBE out/main/index.js` returns 0 for a release build, which
-// the smoke suite asserts against the smoke bundle — the one where the body
-// actually survives.
+// The smoke probe. The caller's compile-time `__SMOKE_BUILD__` gate means a release
+// build references nothing here and, with no top-level side effects, Rollup drops the whole
+// module from `out/main/index.js`.
 
 import { app, net, type BrowserWindow } from "electron";
 
-import { RENDERER_INDEX_URL } from "../renderer-scheme.js";
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
-/** The stdout marker `apps/desktop/test/launch.smoke.test.ts` parses. */
-export const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
-
-/**
- * The stderr marker for the corroborating readiness breadcrumbs.
- *
- * `did-finish-load` stays the ONLY signal the smoke test asserts on. These
- * record how far the boot got when the probe line never arrives, which turns
- * one indistinguishable timeout into several distinguishable ones. Kept off
- * stdout so the harness's probe-line scanner still sees exactly one tagged
- * line there.
- */
-export const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
+import { RENDERER_INDEX_URL } from "../services/renderer-scheme.js";
 
 /** Per-invocation opt-in for the breadcrumb trail. */
 const READINESS_TRACE_ENV = "SIDEKICKS_SMOKE_TRACE_READINESS";
@@ -41,20 +15,11 @@ const READINESS_TRACE_ENV = "SIDEKICKS_SMOKE_TRACE_READINESS";
 export type ReadinessTracer = (readinessEvent: string) => void;
 
 /**
- * Registers the pre-load readiness listeners and returns the tracer for the
- * milestones the caller reaches itself.
- *
- * Call it from the window factory's `beforeLoad` hook: the load starts inside
- * the factory, so registering there is what makes "no breadcrumb can be missed
- * by a fast load" a structural property rather than a timing accident.
- *
- * `dom-ready` is a `webContents` event and `ready-to-show` is a `BrowserWindow`
- * event, so they are registered on their own emitters rather than through one
- * loop — a wrong-emitter registration is then a compile error instead of a
- * listener that never fires.
- *
- * With tracing off the returned tracer is a no-op, so the caller has no second
- * gate to keep in step with this one.
+ * Registers the pre-load readiness listeners and returns the tracer for the milestones the
+ * caller reaches itself. Call it from the window factory's `beforeLoad` hook: the load starts
+ * inside the factory, so registering there means a fast load cannot miss a breadcrumb.
+ * `dom-ready` and `ready-to-show` are registered on their own emitters, so a wrong emitter
+ * is a compile error. With tracing off the tracer is a no-op.
  */
 export function installReadinessBreadcrumbs(
   browserWindow: BrowserWindow,
@@ -83,45 +48,24 @@ export function installReadinessBreadcrumbs(
 }
 
 /**
- * Runs the smoke probe once the REAL renderer bundle has finished loading, then
- * exits the process.
+ * Runs the smoke probe once the real renderer bundle has finished loading, then exits the
+ * process. Two readings from the trusted side ride one stdout line: `executeJavaScript`
+ * against the renderer (bridge present; `require`, `process`, `global` absent; the
+ * privileged scheme's origin properties: protocol, host, `indexedDB`, a `localStorage`
+ * round-trip, a mounted React tree), and `net.fetch` of the served `index.html` to read back
+ * the `Content-Security-Policy` header, which is the policy's only carrier.
  *
- * Two readings, both taken from the trusted side:
- *
- *   1. `executeJavaScript` against the renderer, asserting the hardening
- *      guarantees at runtime (bridge present; `require` / `process` / `global`
- *      all absent) AND the origin properties the privileged scheme is what makes
- *      true — the `sidekicks-renderer:` protocol, the `app` host, a live
- *      `indexedDB`, a `localStorage` round-trip, and a mounted React tree. A
- *      scheme registered without `standard: true` has no origin, so the storage
- *      readings would be the first thing to fail.
- *   2. `net.fetch` from the main process against the served `index.html`, to
- *      read back the `Content-Security-Policy` header the handler attaches. The
- *      header is the policy's ONLY carrier — the shipped `index.html` has no
- *      meta tag — so a header that silently stopped being attached would
- *      otherwise be invisible to every automated check.
- *
- * Both readings ride ONE stdout line so the test parses one JSON object.
- *
- * The renderer expression resolves a promise rather than reading `#root`
- * synchronously: React 19's `createRoot().render()` schedules the initial mount
- * through the Scheduler's `MessageChannel` task, which is not guaranteed to have
- * flushed by `did-finish-load`. The wait is bounded and its timer is cleared on
- * every exit path, so an unmounted tree fails the assertion instead of hanging
- * the probe.
- *
- * The probe mechanism lives on the trusted side deliberately. External CDP /
- * `chrome-remote-interface` attachment was rejected as too heavyweight and a new
- * dependency family, and renderer `console.log` parsing was rejected because
- * renderer source is untrusted — adding a probe there would couple a non-test
- * surface to the test mechanism.
+ * The renderer expression watches the root, for at most three seconds, because React's initial
+ * render is not guaranteed to have flushed at `did-finish-load`. The probe runs on the
+ * trusted side because CDP attachment is too heavy and renderer `console.log` parsing would
+ * couple untrusted product code to the test mechanism.
  */
 export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: number): Promise<void> {
   const rendererReadings = `
     (() => {
       const readLocalStorage = () => {
         try {
-          const probeKey = "__console_smoke_probe__";
+          const probeKey = "__sidekicks_smoke_probe__";
           window.localStorage.setItem(probeKey, "ok");
           const readBack = window.localStorage.getItem(probeKey);
           window.localStorage.removeItem(probeKey);
@@ -132,17 +76,23 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
       };
       const rootChildren = () =>
         new Promise((resolve) => {
-          const deadline = Date.now() + 3000;
-          const poll = () => {
-            const rootElement = document.getElementById("root");
-            const childCount = rootElement === null ? 0 : rootElement.childElementCount;
-            if (childCount > 0 || Date.now() >= deadline) {
-              resolve(childCount);
-              return;
+          const rootElement = document.getElementById("root");
+          if (rootElement === null || rootElement.childElementCount > 0) {
+            resolve(rootElement === null ? 0 : rootElement.childElementCount);
+            return;
+          }
+          const observer = new MutationObserver(() => {
+            if (rootElement.childElementCount > 0) {
+              observer.disconnect();
+              window.clearTimeout(deadline);
+              resolve(rootElement.childElementCount);
             }
-            window.setTimeout(poll, 25);
-          };
-          poll();
+          });
+          observer.observe(rootElement, { childList: true });
+          const deadline = window.setTimeout(() => {
+            observer.disconnect();
+            resolve(rootElement.childElementCount);
+          }, 3000);
         });
       return rootChildren().then((childCount) =>
         JSON.stringify({
@@ -160,9 +110,9 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
     })()
   `;
 
-  let serialisedReadings: string;
+  let serializedReadings: string;
   try {
-    serialisedReadings = (await browserWindow.webContents.executeJavaScript(
+    serializedReadings = (await browserWindow.webContents.executeJavaScript(
       rendererReadings,
     )) as string;
   } catch (error: unknown) {
@@ -175,8 +125,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
   try {
     const indexResponse = await net.fetch(RENDERER_INDEX_URL);
     contentSecurityPolicy = indexResponse.headers.get("content-security-policy");
-    // Release the streamed body rather than leaving the file handle open for
-    // the (short) remainder of the process's life.
+    // Release the streamed body rather than leaving the file handle open.
     await indexResponse.body?.cancel();
   } catch (error: unknown) {
     console.error(`${SMOKE_PROBE_TAG} index fetch failed:`, error);
@@ -188,7 +137,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
     `${SMOKE_PROBE_TAG} ${JSON.stringify({
       ok: true,
       windowMs,
-      probe: JSON.parse(serialisedReadings) as Record<string, unknown>,
+      probe: JSON.parse(serializedReadings) as Record<string, unknown>,
       contentSecurityPolicy,
     })}`,
   );

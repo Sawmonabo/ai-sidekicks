@@ -3,6 +3,7 @@
   "files": [],
   "references": [
     { "path": "./packages/contracts" },
+    { "path": "./packages/search-ranking" },
     { "path": "./packages/client-sdk" },
     { "path": "./packages/runtime-daemon" },
     { "path": "./packages/control-plane" },

@@ -1,0 +1,164 @@
+// Attaching a repository by path: the one entry point for a mount, which belongs to the
+// machine rather than the session. A plain `Dialog`, not `AlertDialog`: this is abandonable
+// data entry, not consent to a consequence. Attach is not followed by a bind, since that would
+// pick an execution mode nobody asked for.
+
+import "./attach.css";
+
+import { Dialog } from "@base-ui/react/dialog";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import type { RepoOperations } from "../../repo-operations.js";
+import { type AttachRequestReading } from "./attach-controller.js";
+import { useAttachController } from "./hooks/useAttachController.js";
+import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-form.js";
+
+/** What the attach dialog is bound to: the session section, and the call it sends. */
+export interface AttachRepositoryDialogProps {
+  readonly bridge: PlatformBridge;
+  /** The attach the dialog sends. */
+  readonly operations: Pick<RepoOperations, "attachRepository">;
+  /** The session whose section the dialog is drawn in. */
+  readonly sessionId: string;
+  /** Ask the section to read again once an attach has minted a mount. */
+  readonly onAttached: () => void;
+}
+
+/** The dialog that attaches one local checkout to the session by its path. */
+export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): React.JSX.Element {
+  const { reading, attach, clearAct } = useAttachController(
+    props.bridge,
+    props.sessionId,
+    props.operations,
+  );
+  const [form, setForm] = useState<AttachFormState>(EMPTY_ATTACH_FORM);
+  const verdict = resolveAttachForm(form);
+
+  const openChanged = useCallback(
+    (isOpen: boolean) => {
+      if (isOpen) {
+        return;
+      }
+      // Closing clears the settlement with what was typed, so a reopened dialog does not greet
+      // the user with the previous path or success sentence.
+      setForm(EMPTY_ATTACH_FORM);
+      clearAct();
+    },
+    [clearAct],
+  );
+
+  // Re-read on the mint, not the close, keyed on the minted mount id in a ref so one attach
+  // asks for one read however often this re-renders.
+  const announcedMountId = useRef<string | undefined>(undefined);
+  const mintedMountId = reading.status === "attached" ? reading.response.repoMountId : undefined;
+  const { onAttached } = props;
+  useEffect(() => {
+    if (mintedMountId === undefined || announcedMountId.current === mintedMountId) {
+      return;
+    }
+    announcedMountId.current = mintedMountId;
+    onAttached();
+  }, [mintedMountId, onAttached]);
+
+  const submit = useCallback(() => {
+    if (verdict.status !== "sendable") {
+      return;
+    }
+    attach(verdict.localPath);
+  }, [attach, verdict]);
+
+  return (
+    <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
+      <Dialog.Trigger className="meridian-repo-attach__trigger">Attach a repository</Dialog.Trigger>
+      {/* The portal, backdrop and popup are the primitive's, which also registers this dialog in
+          the window's airspace so a native browser-pane view yields to it. */}
+      <OverlayDialogPopup
+        backdropClassName="meridian-repo-attach__backdrop"
+        className="meridian-repo-attach__dialog"
+      >
+        <Dialog.Title className="meridian-repo-attach__title">Attach a repository</Dialog.Title>
+        <Dialog.Description className="meridian-repo-attach__body">
+          Attaching adds the repository to this machine. Choosing an execution mode is a separate
+          step, taken when a workspace is bound on it.
+        </Dialog.Description>
+
+        <label className="meridian-repo-attach__path">
+          <span className="meridian-repo-attach__legend">Path</span>
+          <input
+            type="text"
+            className="meridian-repo-attach__path-input"
+            value={form.localPath}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => {
+              // Keep what was typed: a leading or trailing space is a legal POSIX filename
+              // character, so trimming would attach a different directory.
+              setForm((current) => ({ ...current, localPath: event.target.value }));
+            }}
+          />
+        </label>
+
+        {renderSettlement(reading)}
+
+        <div className="meridian-repo-attach__acts">
+          <Dialog.Close className="meridian-repo-attach__cancel">Cancel</Dialog.Close>
+          <button
+            type="button"
+            className="meridian-repo-attach__confirm"
+            disabled={verdict.status !== "sendable" || reading.status === "sending"}
+            onClick={submit}
+          >
+            Attach
+          </button>
+        </div>
+        {/* The reason the control is closed is always said; a grayed button reports nothing. */}
+        {verdict.status === "incomplete" ? (
+          <p className="meridian-repo-attach__blocked" role="status">
+            {verdict.because}
+          </p>
+        ) : null}
+      </OverlayDialogPopup>
+    </Dialog.Root>
+  );
+}
+
+/**
+ * What the attach did. The attached arm names the mount and its resolved root so a person can
+ * find the mount the section is about to grow.
+ */
+function renderSettlement(reading: AttachRequestReading): React.JSX.Element | null {
+  switch (reading.status) {
+    case "idle":
+      return null;
+    case "sending":
+      return <Nothing kind="computing" title="Attaching." />;
+    case "refused":
+      return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
+    case "attached":
+      return (
+        <div className="meridian-repo-attach__attached" role="status">
+          <p>Attached.</p>
+          <dl className="meridian-repo-attach__minted">
+            <dt>Mount</dt>
+            <dd>
+              <WireFigure
+                value={reading.response.repoMountId}
+                title={reading.response.repoMountId}
+              />
+            </dd>
+            <dt>Resolved root</dt>
+            <dd>
+              <WireFigure
+                value={reading.response.canonicalRoot}
+                title={reading.response.canonicalRoot}
+              />
+            </dd>
+          </dl>
+        </div>
+      );
+  }
+}

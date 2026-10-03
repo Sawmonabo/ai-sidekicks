@@ -1,0 +1,96 @@
+# Daemon Architecture
+
+## Purpose
+
+Define the internal components owned by the machine-local execution daemon, the Local Runtime Daemon.
+
+## Scope
+
+This document covers execution, orchestration, persistence, and local control components owned by the Local Runtime Daemon.
+
+## Context
+
+The Local Runtime Daemon is the local execution kernel. It must own the parts of the product that touch provider sessions, repositories, tools, terminals, and recovery state.
+
+## Responsibilities
+
+- host the session engine and local scheduling logic
+- manage provider drivers, and re-read what each provider can do when its command path changes, when the person presses `Check again`, when a provider process starts, and when a model catalog goes stale
+- manage repo mounts, workspaces, worktrees, and git actions
+- execute tools and terminals within local trust policy
+- persist local events, receipts, projections, and runtime bindings
+- expose the local control surface used by the desktop app and CLI
+- sign the machine in and register it with the Control Plane over tRPC request-response, keep the account's statement chain in step, and keep one outbound relay connection while the service runs, carrying each linked device's channel as binary wire frames (not JSON-RPC) — per ADR-013 and [Spec-027](../specs/027-remote-control.md)
+- authenticate to the Control Plane using short-lived PASETO v4 tokens presented with a proof from the machine's own DPoP key
+
+## Component Boundaries
+
+| Component | Responsibility |
+| --- | --- |
+| `Local Session Engine` | Applies commands, emits canonical events, owns run and queue semantics, and maintains session-scoped projections for the local node. |
+| `Provider Driver Manager` | Creates, resumes, interrupts, and closes provider-backed execution sessions through normalized driver contracts. |
+| `Git Engine` | Owns repo attach, worktree lifecycle, branch strategy, diff generation, and PR preparation. |
+| `Workspace Service` | Resolves execution roots, file access policy, attachments, and local filesystem context. |
+| `Tool And Terminal Service` | Runs shell commands, terminal sessions, and local tools under policy control. All PTY access flows through the `PtyHost` interface in `packages/contracts/` (see §PTY Backend Strategy). |
+| `Local Persistence Layer` | Stores canonical local event log, command receipts, runtime bindings, projections, and recovery metadata. All SQLite writes are isolated to a single writer worker thread per [Spec-013 §Writer Concurrency](../specs/013-persistence-recovery-and-replay.md#writer-concurrency); V1 driver pin is `better-sqlite3` **13.0.3** exact (Node-API, per [ADR-021](../decisions/021-v1-toolchain-selection.md) and [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)). |
+| `Local IPC Gateway` | Exposes stable local control APIs to the desktop app's main process and to CLI clients. The renderer reaches them only through the main process. |
+| `Control-Plane Adapter` | Signs the machine in and registers it under its own id and owning user, keeps the account's statement chain in step and verifies it, holds the machine's one outbound relay connection, and ends each linked device's Noise channel: the method proxy through which a device drives this machine. It sends the control plane the push notices it has sealed for each device. |
+
+## Implementation Home
+
+- Primary implementation root: `packages/runtime-daemon/`
+- Shared contracts consumed here: `packages/contracts/`
+- Shared client-facing transport types consumed here: `packages/client-sdk/`
+
+## PTY Backend Strategy
+
+Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-sidecar.md), all PTY access flows through a `PtyHost` interface declared in `packages/contracts/` with two implementations under one platform selector:
+
+- **`RustSidecarPtyHost`** — primary on Windows. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
+- **`NodePtyHost`** — primary on macOS and Linux (in-process, zero per-spawn process overhead). Also ships as the Windows fallback for cases where the sidecar binary is missing, fails to start, or is explicitly disabled for debugging.
+
+The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-021.
+
+## Data Flow
+
+1. A local client submits a command through IPC.
+2. The local session engine validates the command against the calling device's place on the account's statement chain and policy state, and records that device on what the command writes.
+3. The session engine invokes provider, git, workspace, or tool services as needed.
+4. Resulting state changes become canonical local events and projection updates.
+5. Live subscribers receive normalized updates, and recovery metadata is persisted for restart safety.
+
+## Trust Boundaries
+
+- The daemon trusts its own local persistence and execution policy decisions more than any remote client input.
+- Provider drivers run at the daemon edge and must not leak provider-native semantics into the core engine.
+- Tool and terminal execution cross from normalized orchestration into machine-side effects and therefore require explicit approval and policy enforcement.
+
+## Failure Modes
+
+- A provider driver cannot resume a prior session handle.
+- The local event store is unavailable or inconsistent.
+- Worktree creation or repo binding fails before a run can start.
+- Terminal or tool subprocesses outlive the client connection and require daemon-owned cleanup.
+- The daemon loses its relay connection; work on this machine continues, but remote devices cannot reach it and show it as `Not reachable · last seen <when>` until the connection is back, per [Spec-027 §Fallback Behavior](../specs/027-remote-control.md#fallback-behavior).
+
+## Related Domain Docs
+
+- [Runtime Node Model](../domain/runtime-node-model.md)
+- [Agent And Run Model](../domain/agent-and-run-model.md)
+- [Run State Machine](../domain/run-state-machine.md)
+- [Repo Workspace Worktree Model](../domain/repo-workspace-worktree-model.md)
+
+## Related Specs
+
+- [Machine Registration](../specs/002-machine-registration.md)
+- [Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
+- [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
+- [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
+- [Worktree Lifecycle And Execution Modes](../specs/008-worktree-lifecycle-and-execution-modes.md)
+
+## Related ADRs
+
+- [Local Execution Shared Control Plane](../decisions/002-local-execution-shared-control-plane.md)
+- [Provider Drivers Use A Normalized Interface](../decisions/005-provider-drivers-use-a-normalized-interface.md)
+- [Worktree First Execution Mode](../decisions/006-worktree-first-execution-mode.md)
+- [Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows-v1-tier-and-pty-sidecar.md)

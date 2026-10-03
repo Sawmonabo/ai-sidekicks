@@ -1,0 +1,9 @@
+/* The tool-kind badge on a tool row's header (`ToolKindBadge`). The chip and the wire figures
+ * dress themselves through their shared components; only the row of them is styled here. */
+
+.meridian-tool-kind-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}

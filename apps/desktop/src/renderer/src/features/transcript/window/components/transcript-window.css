@@ -1,0 +1,24 @@
+/* Skeleton rows a window draws before its first read lands. */
+
+/*
+ * A column of row-shaped bars rather than a spinner, so the first read replaces the skeleton with
+ * content of the same shape. It sits in the window's own cell, where those rows will land.
+ */
+.meridian-transcript-window-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+}
+
+/*
+ * One skeleton row. The pulse is `Nothing`'s own `meridian-skeleton-pulse` keyframe
+ * (components/Nothing/Nothing.css), so every skeleton in the app breathes together.
+ */
+.meridian-transcript-window-skeleton__row {
+  height: var(--meridian-space-4);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  animation: meridian-skeleton-pulse 1100ms var(--meridian-ease-settle) infinite alternate;
+}

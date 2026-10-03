@@ -1,56 +1,46 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates renderer test files without emitting. The production
-  // renderer `tsconfig.json` excludes both `__tests__/**` and every
-  // `*.test.{ts,tsx}` so test files don't ship in `out/renderer/`; this config
-  // covers them via a `noEmit` typecheck pass.
+  // Type-validates renderer test files, their support files, the fixtures' tests and the scenario
+  // tests without emitting. The production renderer `tsconfig.json` excludes every
+  // `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}` so test files don't ship in `out/renderer/`;
+  // this config covers them via a `noEmit` pass. Tests sit beside the module they cover
+  // (`apps/desktop/AGENTS.md`); a test nothing typechecks can assert against a type that no longer
+  // exists.
   //
-  // BOTH test layouts are included, because the tree has two by design and the
-  // production config excludes both. The three legacy renderer families keep
-  // their `__tests__/` directories; `console/` co-locates `*.test.{ts,tsx}`
-  // beside the module it covers, which `apps/desktop/AGENTS.md` binds for that
-  // subtree. Until the co-located glob was added here, every console unit test
-  // was in NO tsconfig program — excluded from the production config and
-  // unmatched by this one — so `pnpm typecheck` type-checked none of them and
-  // vitest transformed them without checking. A test nothing typechecks is a
-  // test that can assert against a type that no longer exists.
-  //
-  // Why a separate config (not just widening tsconfig.json): adding
-  // `vitest/globals` to the production renderer config would leak `vi`,
-  // `expect`, `describe`, etc. into the renderer's production typegraph — a
-  // `vi.fn()` call in `SessionBootstrap.tsx` would typecheck and only fail at
-  // bundle time. Isolating the test types here keeps the production graph
-  // hermetic. Mirrors the shape of the sibling `apps/desktop/tsconfig.test.json`
-  // (Node-context tests) and `packages/runtime-daemon/tsconfig.test.json`.
+  // A separate config, not a widened tsconfig.json: adding `vitest/globals` to the production
+  // renderer config would leak `vi`, `expect` and `describe` into the production typegraph, so a
+  // `vi.fn()` in a production source file would typecheck and fail only at bundle time. It mirrors
+  // `apps/desktop/tsconfig.test.json` (Node-context tests) and
+  // `packages/runtime-daemon/tsconfig.test.json`.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    // `isolatedDeclarations` (inherited from base) requires either `declaration`
-    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
-    // the typechecker honors `isolatedDeclarations` constraints without writing
-    // files (see TS5069). `composite: false` and a null buildinfo prevent this
-    // config from polluting the project-references graph — `tsc -b` walks
-    // only composite refs, so it never picks this up. Only the explicit
-    // `tsc -p src/renderer/tsconfig.test.json` pass in the `typecheck` script
-    // exercises this config.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph (`tsc -b` walks only composite refs). Only the explicit
+    // `tsc -p src/renderer/tsconfig.test.json` pass in the `typecheck` script exercises it.
     "composite": false,
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
     "types": ["vitest/globals"]
   },
-  // `src/**/*.d.ts` is globbed in alongside the test files because a
-  // module-scoped `declare global` only augments `Window` when its declaring
-  // file is part of THIS program. TS `extends` REPLACES (does not merge) the
-  // parent `tsconfig.json`'s `include: ["**/*"]`, so renderer ambient `.d.ts`
-  // files (e.g. `src/desktop-bridge.d.ts`, which types the `window.desktopBridge`
-  // contextBridge global) would otherwise be absent from this config's program
-  // — and the transitively-imported renderer source under test (e.g.
-  // `SessionBootstrap.tsx` reading `window.desktopBridge`) would lose the
-  // augmentation and fail with TS2339 under this pass only. The glob is scoped
-  // to `*.d.ts` so it pulls in ambient declarations only, never production
-  // `.tsx`, preserving the hermetic "vitest globals don't leak into the
-  // production typegraph" property documented above.
-  "include": ["**/__tests__/**/*", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.d.ts"],
+  // `src/**/*.d.ts` is globbed in alongside the test files because a module-scoped `declare global`
+  // augments `Window` only when its declaring file is part of this program. TS `extends` replaces
+  // (does not merge) the parent `include: ["**/*"]`, so renderer ambient `.d.ts` files (e.g.
+  // `src/desktop-bridge.d.ts`, which types the `window.desktopBridge` contextBridge global) would
+  // otherwise be absent, and the transitively imported renderer source under test (e.g.
+  // `services/platform/live-bridge.ts`) would lose the augmentation and fail with TS2339 under this
+  // pass only. The glob is scoped to `*.d.ts` so it pulls in ambient declarations only, never
+  // production `.tsx`, preserving the hermetic property above.
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.test-support.ts",
+    "src/**/*.test-support.tsx",
+    "src/**/*.d.ts",
+    // The renderer unit tests outside `src/`, the list `vitest/tier-projects.ts`
+    // runs under the renderer project (`RENDERER_TESTS_OUTSIDE_SOURCE`).
+    "../../tests/helpers/scenario-contract-check/**/*.test.ts"
+  ],
   "exclude": []
 }
