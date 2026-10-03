@@ -480,7 +480,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `provider.install {provider}`; `provider.installSubscribe` → `{state: running \| installed \| failed {reason, command}}`, its first message the last outcome; `provider.installStop` | Install a missing provider with one press, where the service runs, on every platform | [Spec-025 §Interfaces And Contracts](../../specs/025-provider-accounts-and-credential-homes.md#interfaces-and-contracts) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
-| `provider.list` | Provider status and the provider's own knobs. The status is `installed {rawVersion, parsedVersion?}`, `tooOld {rawVersion, parsedVersion, neededVersion}`, `notInstalled` or `indeterminate`: `rawVersion` is the version as the command printed it, `parsedVersion` is present only where it parses, and a provider whose version does not parse still runs | [Spec-025 §Interfaces And Contracts](../../specs/025-provider-accounts-and-credential-homes.md#interfaces-and-contracts), [Spec-004 §Provider Parameter Vocabularies](../../specs/004-provider-driver-contract-and-capabilities.md#provider-parameter-vocabularies) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
+| `provider.list` | Provider status and the provider's own knobs. The status is `installed {rawVersion, parsedVersion?}`, `notInstalled` or `indeterminate`: `rawVersion` is the version as the command printed it, `parsedVersion` is present only where it parses, and a provider whose version does not parse still runs | [Spec-025 §Interfaces And Contracts](../../specs/025-provider-accounts-and-credential-homes.md#interfaces-and-contracts), [Spec-004 §Provider Parameter Vocabularies](../../specs/004-provider-driver-contract-and-capabilities.md#provider-parameter-vocabularies) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
 | `provider.probe {provider}` | `Check again` on a provider's Command: resolve the executable again and re-read its version | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
 | `provider.protectedPathList` | Read the protected paths, with the source of each | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
 | `provider.standingRuleList` | Read the provider's own standing rules on this machine, each in the provider's own words | [Spec-025](../../specs/025-provider-accounts-and-credential-homes.md) | [Plan-023](../../plans/023-provider-accounts-and-credential-homes.md) Phase 4 T4.4 |
@@ -2271,11 +2271,8 @@ interface NormalizedProviderToolMetadata {
 // always present (untrusted provider output on the nominal `GetCapabilitiesResult` return — bounded at
 // the Plan-003 write seam like `contractVersion`, not the Zod trust boundary); `parsedVersion` is the
 // driver-parsed MAJOR.MINOR.PATCH, present only when the printed version parses. Nothing writes
-// `"unknown"` as a version. The minimum-version check runs only on a parsed version, against the
-// per-driver minimum Spec-004 §Required Behavior states (a pin is cited from the provider-wire
-// reference family, and neither is restated here): a parsed version below it refuses as
-// `driver.cli_version_below_floor`, and a provider whose printed version the parser cannot read
-// still runs. Both values are read from the version the SPAWNED process reports in-band, not from
+// `"unknown"` as a version. Every version runs, parsed or not; nothing refuses on it. Both values
+// are read from the version the SPAWNED process reports in-band, not from
 // a launcher symlink.
 interface DriverCliVersionReport {
   rawVersion: string;
