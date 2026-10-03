@@ -64,7 +64,7 @@ A skeptical reviewer would add that a two-host design doubles the test surface, 
 
 ### Synthesis — Why It Still Holds [T2]
 
-1. **The alpha pin is answered by not taking the package.** `@playwright/mcp` is a seven-file shim whose entry re-exports `tools.createConnection` from `playwright-core/lib/coreBundle`, a declared subpath export of the stable `playwright-core` already in the tree; the server and its tools live in that bundle. The daemon calls the export directly, so no pre-release enters the tree and there is exactly one element-reference implementation. The export and the element-reference format are re-checked on every `playwright-core` bump, and a bump that fails the check does not land; should the export ever leave the package, the fallback is the shim held to the stable pair by a pnpm override. The server is used through one entry point, which narrows what a change can break.
+1. **The alpha pin is answered by not taking the package.** `@playwright/mcp` is a seven-file shim whose entry re-exports `tools.createConnection` from `playwright-core/lib/coreBundle`, a declared subpath export of the stable `playwright-core` already in the tree; the server and its tools live in that bundle. The daemon calls the export directly, so no pre-release enters the tree and there is exactly one element-reference implementation. Nothing is re-checked on a version bump: a change to the export or the element-reference format shows as a failing test or in the daemon's logs and is investigated when seen. Should the export ever leave the package, the fallback is the shim held to the stable pair by a pnpm override. The server is used through one entry point, which narrows what a change can break.
 2. **Electron support is not needed, because the server never owns or launches a browser.** Each connection is handed its own session's browser context from the resolver and acts on a browser the machine already has. The package's own warning that a persistent profile can serve only one browser instance does not bind, for the same reason. Isolation between sessions comes from the context each connection is given, not from the server.
 3. **The debug exposure is answered by opening no debug port on either host.** On the desktop, main attaches Electron's in-process debugger to each Preview view and to nothing else, carries its traffic on the connection the app already dials to the service, and the daemon's relay joins the views into one browser that Playwright connects to over a transport rather than a socket. The relay's page-session filter, a hard requirement, refuses every `Target.*` and `Browser.*` command a page session sends beyond the ones it needs, so a page's debugger, which reaches every target in the app, cannot list or attach to the console's own interface. The headless host is driven over Playwright's own launch pipe. So no program on the machine has a debug port to reach, and the console's own window is never in a target list. Measured through the relay on Electron 44.5.1 with `playwright-core` 1.63.0: a first connect in 21 to 31 milliseconds, a page usable in 24 to 37, the screencast at 57 to 97 frames a second, and clicks, typing, page snapshots and new and closed tabs all working. `--remote-debugging-pipe` is not among Electron's documented switches and is not built on. The project maintains the relay.
 
@@ -78,7 +78,7 @@ The two hosts share every layer above the resolver, so the second host adds test
 
 - **What:** As decided above.
 - **Steel man:** A real page for the person, a maintained and familiar tool set for the agent, and one path for every consumer on every host.
-- **Weaknesses:** A relay that the project maintains, experimental debug-protocol fields (the fitted size's `scale` and `dontSetVisibleSize`, the screencast and focus-emulation commands) re-probed on every Electron bump before the pin moves, and a `playwright-core` export and element-reference format re-checked on every Playwright bump.
+- **Weaknesses:** A relay that the project maintains, experimental debug-protocol fields (the fitted size's `scale` and `dontSetVisibleSize`, the screencast and focus-emulation commands) that a later Chromium may change, and a `playwright-core` export and element-reference format that a later Playwright may change.
 
 ### Option B: Tool handlers built by hand on Electron's in-process debugger (Rejected)
 
@@ -117,7 +117,7 @@ The two hosts share every layer above the resolver, so the second host adds test
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
 | A Preview page's debugger session reaches the console's own interface | Low | High | The relay's filter tests, which send every refused `Target.*` and `Browser.*` command from a page session and expect a refusal | The page-session filter is a hard requirement; the relay's target list holds only Preview pages, and no side pane's own window is ever in it |
-| A `playwright-core` bump changes the reference format or drops the `lib/coreBundle` export | High | Med | The export and reference-format check on every bump | The bump does not land until the check passes; if the export leaves the package, the shim is taken under a pnpm override that holds it to the stable pair |
+| A `playwright-core` bump changes the reference format or drops the `lib/coreBundle` export | High | Med | A failing test, or the tool's error in the daemon's logs | Investigated when seen; if the export leaves the package, the shim is taken under a pnpm override that holds it to the stable pair |
 | A Playwright client's emulation changes what the person sees | Med | Low | The pane's theme or motion changes when a tool attaches | Emulation state, device metrics and interception each have one owner in the daemon, so a tool's change is known and can be undone |
 | Pages exhaust memory | Med | Med | The process inventory and each process's working set, read from the application's metrics | The caps: release the oldest idle page first, release unseen pages after ten minutes |
 | The screencast stalls | Low | Low | Frames stop after three | Acknowledge with `Page.screencastFrameAck`; any other name stalls the queue at three frames in flight |
@@ -140,12 +140,12 @@ The two hosts share every layer above the resolver, so the second host adds test
 ### Negative (accepted trade-offs)
 
 - A relay that the project maintains, built against the feature set of VS Code's relay.
-- Experimental debug-protocol fields and commands on Preview's path, each named with its reason and re-probed on every Electron bump before the pin moves, and a `playwright-core` export checked on every Playwright bump.
+- Experimental debug-protocol fields and commands on Preview's path, each named with its reason, and a `playwright-core` export a later release may change; a change shows as a failing test or in the daemon's logs and is investigated when seen.
 - A download saves only through the system save dialog on the machine's own desktop window and is refused everywhere else, a popup becomes a page, nothing typed in the address becomes a web search, and there is no developer-tools button: Preview is not a general browser.
 
 ### Unknowns
 
-- Whether a later Chromium keeps the experimental fields the fitted size and the live picture rely on (`scale` and `dontSetVisibleSize` on the device-metrics override, the screencast commands, `Emulation.setFocusEmulationEnabled`). The resize and screencast probes run again on every Electron bump before the pin moves.
+- Whether a later Chromium keeps the experimental fields the fitted size and the live picture rely on (`scale` and `dontSetVisibleSize` on the device-metrics override, the screencast commands, `Emulation.setFocusEmulationEnabled`).
 - Whether `--disable-gpu`, `--renderer-process-limit` and `--in-process-gpu` reduce the page cost. They are undocumented tuning switches and are measured before adoption.
 
 ---

@@ -882,7 +882,7 @@ All 22 IPC channels are wired to `ipcRenderer.invoke` or `ipcRenderer.sendSync`.
 
 ### CLAUDE.md / AGENTS.md (identical content)
 
-**Project identity:** "T3 Code" -- minimal web GUI for coding agents (Codex and Claude). Very early WIP.
+**Project identity:** a minimal web GUI for coding agents (Codex and Claude). Very early WIP.
 
 **Core priorities:** Performance first, reliability first, predictable behavior under load/failures.
 
