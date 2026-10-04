@@ -278,7 +278,7 @@ Plan-024 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ### Phase 2 — Registry service, CLI, and client SDK
 
-**Precondition:** Phase 1 merged; Plan-005 Phase R3 merged; Plan-014 Phase 1 merged (T2.2's `workflowUsage` reads its workflow definitions).
+**Precondition:** Phase 1 merged; Plan-005 Phase R3's scaffold (T-005r-3-1 to T-005r-3-3) merged; Plan-014 Phase 1 merged (T2.2's `workflowUsage` reads its workflow definitions).
 
 **Goal:** definitions can be created, listed, updated, renamed, and deleted from the CLI — through the typed client SDK that surface consumes — with uniqueness enforced in storage.
 

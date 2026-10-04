@@ -142,7 +142,7 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 
 ### Phase 1 — The daemon's secrets (Steps 1–2)
 
-**Precondition:** Plan-005 Phase R2 merged — T-005r-2-2 ships the `DaemonKeyStore` interface + test-only stub at `bootstrap/daemon-key-store.ts` (CP-005-7); this phase's production store (T22.1.2) implements that interface and must not author Plan-005's file. T22.1.3, the Windows arm, is built in Phase 10, Other platforms, after Plan-005 Phase R4 — T-005r-4-10 builds the Windows half's credential verbs, which `WindowsCredentialStore` calls over the Windows half's channel and one-shot (CP-019-5); the rest of the phase builds on macOS without it ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
+**Precondition:** Plan-005 T-005r-2-2's `DaemonKeyStore` interface and test-only stub at `bootstrap/daemon-key-store.ts` (CP-005-7) are built together with this phase's production store (T22.1.2), which implements that interface; the rest of Plan-005 Phase R2 is not a precondition. T22.1.3, the Windows arm, is built in Phase 10, Other platforms, after Plan-005 Phase R4 — T-005r-4-10 builds the Windows half's credential verbs, which `WindowsCredentialStore` calls over the Windows half's channel and one-shot (CP-019-5); the rest of the phase builds on macOS without it ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
 
 #### Tasks
 
