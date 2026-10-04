@@ -262,7 +262,7 @@ PASETO wiring — the decomposition CP-015-7 schedules here: the real `DaemonCre
 - **T5.6 — PASETO on the maintained `paseto` package.**
   - Files: `packages/crypto-paseto/src/v4-public.ts` and `packages/crypto-paseto/src/v4-local.ts` (REWRITE), `packages/crypto-paseto/src/index.ts` (EXTEND), `packages/crypto-paseto/package.json` (EXTEND — `paseto` 4.x), and `packages/crypto-paseto/src/pae.ts`, `src/internal/base64url.ts` and `src/internal/v4-local-deterministic.ts` (DELETE) + tests
   - **Spec coverage:** Spec-016 §Required Behavior (daemon-resident control-plane caller credentials)
-  - **Verifies invariant:** I-015-4
+  - **Verifies invariant:** none (the library swap; the official PASETO v4 vectors are its tests)
   - Consumes: the `paseto` 4.x package and `@noble/ciphers` / `@noble/hashes` ([ADR-010 §PASETO v4 Implementation Library](../decisions/010-tokens-passkeys-and-the-remote-channel.md#paseto-v4-implementation-library))
   - Provides: the `v4.public` and `v4.local` sign, verify, encrypt and decrypt T4.3, T5.1, T5.2 and T5.4 call
   - Waits on: nothing; lands before T4.3 and T5.1 call the package.
