@@ -71,7 +71,7 @@ A device moves through three states and does not come back:
 
 - `Example: A user starts a session on their laptop. The laptop's account is the user's, so the user owns the session, and the laptop's daemon holds it. The laptop is the runtime node, and its desktop app acts with the laptop's own key, so the laptop is one machine card and never also a device.`
 - `Example: The user links their phone. The phone mints an identity key, the laptop signs a device.linked statement for its public half, and the phone appears under Devices on the laptop's Settings › Devices. It opens the same session and drives it — the work still runs on the laptop.`
-- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the transcript, recorded as sent from the phone.`
+- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the transcript, and the log records them as sent from the phone.`
 
 ## Edge Cases
 

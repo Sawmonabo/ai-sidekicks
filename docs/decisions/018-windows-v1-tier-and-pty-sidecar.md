@@ -157,14 +157,14 @@ The antithesis is the correct default position for a team that is one major bug 
 
 ### Unknowns
 
-- Actual sidecar spawn-latency overhead in production workloads; measured once, before and after, in Plan-021 T-021-4-2's PR.
+- Actual sidecar spawn-latency overhead in production workloads; measured once in Plan-021 T-021-4-2's PR, the sidecar against `NodePtyHost` on the same workload.
 - SignPath Foundation's eligibility answer; known once the release workflow applies.
 
 ## Decision Validation
 
 ### Success Criteria
 
-Both rows are items of Plan-021's Done Checklist. Row 1 is run by Plan-021 Phase 5 T-021-5-3 as an ordinary CI job; row 2 is measured once, before and after, in Plan-021 Phase 4 T-021-4-2's PR.
+Both rows are items of Plan-021's Done Checklist. Row 1 is run by Plan-021 Phase 5 T-021-5-3 as an ordinary CI job; row 2 is measured once in Plan-021 Phase 4 T-021-4-2's PR, the sidecar against `NodePtyHost` on the same workload.
 
 | Metric | Target | Measurement Method |
 | --- | --- | --- |
@@ -175,7 +175,7 @@ Both rows are items of Plan-021's Done Checklist. Row 1 is run by Plan-021 Phase
 
 1. **A sidecar-originated bug traceable to `portable-pty`.** — Evaluate sidecar sunset; reassess whether `node-pty` primary is viable with targeted workarounds.
 2. **SignPath Foundation finds the project ineligible, or withdraws it.** — The choice goes back to the person with the remaining paths (the Microsoft Store, a bought certificate, or unsigned with SmartScreen's block at install); nothing changes in the release workflow until they choose.
-3. **`node-pty` v1.2.0 stable ships with the ThreadSafeFunction race fixed AND the Windows shell suite passes through `NodePtyHost` against the patched version.** — Evaluate sidecar sunset as a cost-reduction move; `node-pty` primary returns as a viable Windows option.
+3. **`node-pty` v1.2.0 stable ships with the ThreadSafeFunction race fixed AND the Windows shell suite passes through `NodePtyHost` in a one-off evaluation build against the patched version.** — Evaluate sidecar sunset as a cost-reduction move; `node-pty` primary returns as a viable Windows option.
 4. **A field report of turn-snapshot data loss traceable to filesystem name-aliasing (case-folding or Unicode normalization) on any V1 platform.** — Promote a capture-time collision diagnostic — detect fold-colliding pairs within the snapshot's recorded sets, the snapshot tree and the sparse boundary set, and enumerate them on the capture diagnostic channel, contract unchanged — as the first response. Any change to the byte-exact matching semantics of §Decision item 11 belongs to [Spec-008 §Turn-Boundary Snapshots](../specs/008-worktree-lifecycle-and-execution-modes.md#turn-boundary-snapshots), not this ADR.
 
 ## References
