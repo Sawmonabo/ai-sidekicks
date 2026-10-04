@@ -17,7 +17,8 @@
 // Categories are read from the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) rather than a
 // `kind.startsWith("run.")` test: the census is the wire's own answer, a prefix test a guess.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 import type { ScenarioBeat } from "../../fixtures/scenario.js";
 
 /**

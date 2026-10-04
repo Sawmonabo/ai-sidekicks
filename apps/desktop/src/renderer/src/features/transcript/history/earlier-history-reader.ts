@@ -3,7 +3,10 @@
 // `beforeCursor` page moves it. This holds a position and a verdict, not rows: pages go
 // into the session store through `prependEarlierEvents`.
 
-import { type TimelineReadRequest, type TimelineReadResponse } from "@ai-sidekicks/contracts";
+import type {
+  TimelineReadRequest,
+  TimelineReadResponse,
+} from "@ai-sidekicks/contracts/timeline/operations";
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

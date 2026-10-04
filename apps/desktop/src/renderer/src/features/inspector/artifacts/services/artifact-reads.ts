@@ -1,10 +1,10 @@
 // The artifact list read, and what its answer reads as. The reader owns who asked and when.
 
+import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
 import type {
-  ArtifactManifest,
   ArtifactReadRequest,
   ArtifactReadResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/artifacts/operations";
 
 import { artifactManifestRowFrom, type ArtifactsSectionState } from "../artifact-model.js";
 

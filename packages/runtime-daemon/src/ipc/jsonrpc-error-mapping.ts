@@ -15,8 +15,8 @@ import type {
   JsonRpcErrorData,
   JsonRpcErrorResponse,
   JsonRpcId,
-} from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
 import { FramingError } from "./content-length-framing.js";

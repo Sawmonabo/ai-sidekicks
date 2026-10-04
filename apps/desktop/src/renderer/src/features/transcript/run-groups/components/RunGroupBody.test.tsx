@@ -10,7 +10,7 @@ import { RunGroupBody } from "./RunGroupBody.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";
 import { runRow } from "../../timeline-rows.test-support.js";
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 const RUN_ID = "run-a";
 

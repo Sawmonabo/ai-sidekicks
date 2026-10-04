@@ -3,17 +3,16 @@
 // console window listens on.
 import {
   DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
-  JsonRpcErrorCode,
   MACHINE_SETTINGS_METHOD_DESCRIPTORS,
   environmentNameRefusal,
   type DaemonEnvironmentNameRefusedDetails,
-  type Handler,
   type MachineSettingsChange,
   type MachineSettingsReading,
   type MachineSettingsSubscribeRequest,
-  type MethodRegistry,
-  type SubscribeAckResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/machine-settings";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";

@@ -5,8 +5,8 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { captureThrow } from "../__fixtures__/capture-throw.js";
-import type { ProviderName } from "@ai-sidekicks/contracts";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";

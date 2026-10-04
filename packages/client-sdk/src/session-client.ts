@@ -15,18 +15,18 @@
 
 import type {
   EventCursor,
-  SessionCreateRequest,
-  SessionCreateResponse,
-  SessionEvent,
   SessionId,
   SessionReadRequest,
   SessionReadResponse,
   SessionStreamFrame,
-} from "@ai-sidekicks/contracts";
-import {
-  SESSION_DIRECTORY_METHOD_DESCRIPTORS,
-  SESSION_METHOD_DESCRIPTORS,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/session";
+import type {
+  SessionCreateRequest,
+  SessionCreateResponse,
+} from "@ai-sidekicks/contracts/session-directory";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-directory";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session";
 
 import {
   callMethod,

@@ -231,7 +231,7 @@ CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
   type                   TEXT NOT NULL
-                         CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
+                         CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's text among them as plain text (Spec-003 §Required Behavior)
@@ -241,7 +241,7 @@ CREATE TABLE interventions (
                          CHECK(origin IN ('user', 'system')),
   device_id              TEXT,                       -- the device a 'user' intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL on 'system' (Queue And Intervention Model)
   result                 TEXT,                       -- JSON: outcome details
-  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-002 T1.4/T3.14)
+  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   CHECK((origin = 'user') = (device_id IS NOT NULL)),
@@ -691,7 +691,7 @@ Full workflow-engine schema. Its tables hold the definitions and their version c
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
-**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-34)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-34)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, its account attention key and its deadline on the step's row; its always-on engine event record lands on the Plan-017-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-42)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-42)), whose bucket registration — including the new bucket's storage shape and any table it adds to this schema, the existing buckets being SQLite tables of this schema — is Plan-017's to record when it registers the bucket (Plan-014 CP-014-9); no bucket for it exists in this schema today and none is added here.
+**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-34)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-34)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, its account attention key and its deadline on the step's row; its always-on engine event record lands on the Plan-017-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-42)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-42)), whose buckets are log files in the daemon's data folder, never tables of this schema (Plan-014 CP-014-9).
 
 ```sql
 -- ========================================================================
@@ -1242,71 +1242,6 @@ CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id
 
 ---
 
-## Diagnostic Bucket Tables (Plan-017)
-
-Runtime-local bounded-retention buckets for raw diagnostic material. These tables may contain personal content in raw driver events, command output and tool traces, so they stay in Local SQLite only, never leave the machine, and expire past `Keep diagnostic logs for`.
-
-```sql
--- Owner: Plan-017
-CREATE TABLE driver_raw_events (
-  id                  TEXT PRIMARY KEY,
-  session_id          TEXT NOT NULL,
-  run_id              TEXT,
-  source_ref          TEXT,
-  content_kind        TEXT NOT NULL DEFAULT 'driver_raw_event',
-  bucket_payload      BLOB NOT NULL,
-  payload_digest      BLOB NOT NULL,
-  metadata            TEXT NOT NULL DEFAULT '{}',
-  created_at          TEXT NOT NULL,
-  expires_at          TEXT NOT NULL,
-  purged_at           TEXT
-);
-
-CREATE INDEX idx_driver_raw_events_session ON driver_raw_events(session_id, created_at);
-CREATE INDEX idx_driver_raw_events_expiry ON driver_raw_events(expires_at)
-  WHERE purged_at IS NULL;
-
--- Owner: Plan-017
-CREATE TABLE command_output (
-  id                  TEXT PRIMARY KEY,
-  session_id          TEXT NOT NULL,
-  run_id              TEXT,
-  source_ref          TEXT,
-  content_kind        TEXT NOT NULL DEFAULT 'command_output',
-  bucket_payload      BLOB NOT NULL,
-  payload_digest      BLOB NOT NULL,
-  metadata            TEXT NOT NULL DEFAULT '{}',
-  created_at          TEXT NOT NULL,
-  expires_at          TEXT NOT NULL,
-  purged_at           TEXT
-);
-
-CREATE INDEX idx_command_output_session ON command_output(session_id, created_at);
-CREATE INDEX idx_command_output_expiry ON command_output(expires_at)
-  WHERE purged_at IS NULL;
-
--- Owner: Plan-017
-CREATE TABLE tool_traces (
-  id                  TEXT PRIMARY KEY,
-  session_id          TEXT NOT NULL,
-  run_id              TEXT,
-  source_ref          TEXT,
-  content_kind        TEXT NOT NULL DEFAULT 'tool_trace',
-  bucket_payload      BLOB NOT NULL,
-  payload_digest      BLOB NOT NULL,
-  metadata            TEXT NOT NULL DEFAULT '{}',
-  created_at          TEXT NOT NULL,
-  expires_at          TEXT NOT NULL,
-  purged_at           TEXT
-);
-
-CREATE INDEX idx_tool_traces_session ON tool_traces(session_id, created_at);
-CREATE INDEX idx_tool_traces_expiry ON tool_traces(expires_at)
-  WHERE purged_at IS NULL;
-```
-
----
-
 ## MCP Governance Tables (Plan-022)
 
 Node-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; status transitions and settled sign-ins are the `mcp.*` event types in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path (receipts are retry-window dedup evidence, deliberately not audit rows).
@@ -1368,7 +1303,7 @@ The FK targets the binding table because first observation of any binding upsert
 ```sql
 -- Owner: Plan-022
 CREATE TABLE mcp_mutation_receipts (
-  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (the Spec-004/B3 clientIdempotencyKey discipline; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to node-scoped operations with no run axis)
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (Spec-004's mandatory clientIdempotencyKey; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to node-scoped operations with no run axis)
   operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the governance mutations, mcp.oauthLogin and mcp.oauthLogout; mcp.reconnect is unreceipted)
   status                  TEXT NOT NULL
                           CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-012 command_receipts discipline, Spec-024 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes — closing both crash windows around the external provider side effect (a durable provider write can never be left unfinalized: startup reconciliation completes any pending intent — verifying provider state, finishing store writes exactly once — or expires an intent whose provider leg never ran)

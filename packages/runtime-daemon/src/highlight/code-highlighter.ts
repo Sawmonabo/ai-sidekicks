@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { totalmem } from "node:os";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
-import type { HighlightLanguage } from "@ai-sidekicks/contracts";
+import type { HighlightLanguage } from "@ai-sidekicks/contracts/highlight";
 import { LRUCache } from "lru-cache";
 import type { GrammarState, HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/types";
 

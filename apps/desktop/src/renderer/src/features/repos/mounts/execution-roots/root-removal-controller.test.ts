@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorktreeRetireRequest } from "@ai-sidekicks/contracts";
+import type { WorktreeRetireRequest } from "@ai-sidekicks/contracts/worktree";
 
 import {
   RootRemovalController,

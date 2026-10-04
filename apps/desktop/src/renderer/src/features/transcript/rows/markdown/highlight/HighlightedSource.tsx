@@ -6,7 +6,7 @@ import {
   HIGHLIGHT_SPAN_CLASSES,
   HIGHLIGHT_SPAN_WIDTH,
   type HighlightLanguage,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/highlight";
 
 import { useCodeSpans } from "./hooks/useCodeSpans.js";
 

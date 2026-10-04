@@ -178,7 +178,11 @@ export interface DaemonConfigMethodDescriptors {
     DaemonPackageCacheReading
   >;
 }
-/** The config and package-cache methods' names, procedure types and shapes. */
+/**
+ * The config and package-cache methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's config handlers
+ */
 export const DAEMON_CONFIG_METHOD_DESCRIPTORS: DaemonConfigMethodDescriptors =
   defineMethodDescriptors({
     "daemon.configRead": {

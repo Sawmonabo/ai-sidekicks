@@ -2,7 +2,10 @@
 // read: these cases need a `Map`, not a bridge, a frozen clock and a mounted probe.
 
 import { describe, expect, it } from "vitest";
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+} from "@ai-sidekicks/contracts/provider-driver";
 import type { DriverCapabilityReadout } from "./driver-capability-readout.js";
 import { boundDriverNameForRun, readingForRun } from "./driver-capability-readings.js";
 

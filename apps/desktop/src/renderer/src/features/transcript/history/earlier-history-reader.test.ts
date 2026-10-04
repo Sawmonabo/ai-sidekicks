@@ -7,11 +7,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   TimelineReadResponseSchema,
-  type SessionId,
   type TimelineReadRequest,
   type TimelineReadResponse,
-  type TimelineRow,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/timeline/operations";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

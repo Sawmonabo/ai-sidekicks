@@ -8,14 +8,13 @@
 // `ClaudeProviderProcess` ports: this module spawns nothing and reads no environment variable, so
 // it cannot leak a `CLAUDE_CODE_OAUTH_TOKEN`. Errors here carry a registered `driver.*` code.
 
-import {
-  type DriverCompactionResult,
-  type InterruptRunParams,
-  type ProviderCommandListResult,
-  type ProviderOutputSpeedState,
-  type RunId,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import type {
+  DriverCompactionResult,
+  ProviderCommandListResult,
+  ProviderOutputSpeedState,
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { ThreadFrameRouter, type ThreadFrameRoute } from "../../thread-frame-router.js";

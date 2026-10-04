@@ -7,7 +7,7 @@
 // last one seen would re-signal on every transition, and forgetting the `<=` guard would
 // re-signal on one that admitted nothing.
 
-import type { SessionEventType } from "@ai-sidekicks/contracts";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 import type { SessionStore } from "./session-store.js";
 

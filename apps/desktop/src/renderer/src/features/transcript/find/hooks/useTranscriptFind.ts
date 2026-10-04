@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import {
   emptyFindResult,

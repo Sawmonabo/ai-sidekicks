@@ -287,7 +287,11 @@ const agentDefinitionFields = {
   updatedAt: isoDateTimeSchema,
 };
 
-/** Parses an {@link AgentDefinition}. */
+/**
+ * Parses an {@link AgentDefinition}.
+ *
+ * @consumedBy the daemon's read and write of our own agent files, which hold the full record
+ */
 export const AgentDefinitionSchema: z.ZodType<AgentDefinition> = z
   .object(agentDefinitionFields)
   .strict();
@@ -670,7 +674,11 @@ export const AgentDefinitionImportResponseSchema: z.ZodType<AgentDefinitionImpor
 
 /** An export with a definition file that could not be written into the folder. */
 export type AgentExportWriteFailedCode = "agent.export_write_failed";
-/** The code of an export with a definition file that could not be written. */
+/**
+ * The code of an export with a definition file that could not be written.
+ *
+ * @consumedBy the handler that returns the `agent.export_write_failed` error
+ */
 export const AGENT_EXPORT_WRITE_FAILED_CODE: AgentExportWriteFailedCode =
   "agent.export_write_failed";
 
@@ -678,14 +686,22 @@ export const AGENT_EXPORT_WRITE_FAILED_CODE: AgentExportWriteFailedCode =
 export interface AgentExportWriteFailedDetails {
   cause: string;
 }
-/** Parses {@link AgentExportWriteFailedDetails}. */
+/**
+ * Parses {@link AgentExportWriteFailedDetails}.
+ *
+ * @consumedBy the handler that returns the `agent.export_write_failed` error
+ */
 export const AgentExportWriteFailedDetailsSchema: z.ZodType<AgentExportWriteFailedDetails> = z
   .object({ cause: wireFreeFormString(AGENT_REASON_MAX_LEN, "cause") })
   .strict();
 
 /** A definition that exists and cannot produce a runnable agent now. */
 export type AgentResolutionRefusedCode = "agent.resolution_refused";
-/** The code of a definition that cannot produce a runnable agent now. */
+/**
+ * The code of a definition that cannot produce a runnable agent now.
+ *
+ * @consumedBy the handler that returns the `agent.resolution_refused` error
+ */
 export const AGENT_RESOLUTION_REFUSED_CODE: AgentResolutionRefusedCode = "agent.resolution_refused";
 
 /**
@@ -699,7 +715,11 @@ export const AGENT_RESOLUTION_REFUSED_REASONS = [
   "allowlist_unrealizable",
   "provider_unsupported",
 ] as const;
-/** One of {@link AGENT_RESOLUTION_REFUSED_REASONS}. */
+/**
+ * One of {@link AGENT_RESOLUTION_REFUSED_REASONS}.
+ *
+ * @consumedBy the handler that returns the `agent.resolution_refused` error
+ */
 export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REASONS)[number];
 
 /**
@@ -789,7 +809,11 @@ export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefus
 
 /** A definition update the daemon refused. */
 export type AgentUpdateRefusedCode = "agent.update_refused";
-/** The code of a definition update the daemon refused. */
+/**
+ * The code of a definition update the daemon refused.
+ *
+ * @consumedBy the handler that returns the `agent.update_refused` error
+ */
 export const AGENT_UPDATE_REFUSED_CODE: AgentUpdateRefusedCode = "agent.update_refused";
 
 /**
@@ -805,7 +829,11 @@ export interface AgentUpdateRefusedDetails {
   definitionId: AgentDefinitionId;
   reason: AgentUpdateRefusedReason;
 }
-/** Parses {@link AgentUpdateRefusedDetails}. */
+/**
+ * Parses {@link AgentUpdateRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `agent.update_refused` error
+ */
 export const AgentUpdateRefusedDetailsSchema: z.ZodType<AgentUpdateRefusedDetails> = z
   .object({ definitionId: AgentDefinitionIdSchema, reason: z.enum(AGENT_UPDATE_REFUSED_REASONS) })
   .strict();

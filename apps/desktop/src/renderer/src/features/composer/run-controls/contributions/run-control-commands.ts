@@ -7,7 +7,7 @@
 // Steer opens the composer rather than sending, because it needs a body not yet written.
 
 import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
-import type { RunState } from "@ai-sidekicks/contracts";
+import type { RunState } from "@ai-sidekicks/contracts/run-state";
 
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import { offeredRunControls } from "../run-control-gating.js";

@@ -4,7 +4,7 @@
 // session. Bodies register through `registerWorkflowPanes`, as the pane layout would.
 import { fireEvent } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";

@@ -5,7 +5,8 @@
 // workspace rows, read shapes) and renders nothing. This one mounts a React tree with a live
 // announcer, so it is a `.tsx`.
 
-import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
 import { act, render } from "@testing-library/react";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -16,7 +17,7 @@ import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAn
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
-import type { SettingsPageContext } from "../../../types.js";
+import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounted-folders.test-support.js";
 import { MountedFolderList } from "./MountedFolderList.js";
 import type { MountInventoryCalls } from "./mount-inventory.js";

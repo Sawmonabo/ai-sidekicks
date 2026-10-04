@@ -5,7 +5,7 @@
 // Collapsing the last two would offer consent for a refusal that consent does not lift. An
 // unanswered check is a fourth situation, so the form reads a standing, not a bare verdict.
 
-import type { WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
+import type { WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts/worktree";
 
 import type { ActPrerequisiteReading } from "../../acts/act-reading.js";
 

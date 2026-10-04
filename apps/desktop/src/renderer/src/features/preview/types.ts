@@ -1,6 +1,6 @@
 // Types the preview pane's modules share.
 
-import type { PreviewPage } from "@ai-sidekicks/contracts";
+import type { PreviewPage } from "@ai-sidekicks/contracts/preview";
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ReadingState } from "@renderer/lib/partial-read.js";

@@ -1,6 +1,9 @@
 // Capability readings for the registry, the capability writer and the suites that compose them.
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+} from "@ai-sidekicks/contracts/provider-driver";
 
 import type { DriverCapabilityHydrationResult } from "../driver-capabilities-writer.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../provider-driver.js";

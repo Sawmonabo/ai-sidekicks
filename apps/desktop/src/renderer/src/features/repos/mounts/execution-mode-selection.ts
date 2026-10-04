@@ -6,7 +6,7 @@
 // rejected switch publishes the service's refusal on its workspace, beside the picker, until that
 // workspace's next switch is sent.
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import type { Refusal } from "@renderer/lib/refusal.js";

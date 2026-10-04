@@ -5,7 +5,7 @@ import { act, render } from "@testing-library/react";
 import type { UpdateState } from "@shared/preload-api.js";
 
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts";
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
 

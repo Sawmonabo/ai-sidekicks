@@ -14,7 +14,10 @@
 // A reading behind its own account's current `credentialGeneration` is stale as a fact, since a
 // credential-home rebuild does not clear stored readings.
 
-import type { ProviderAccount, ProviderAccountUsageWindow } from "@ai-sidekicks/contracts";
+import type {
+  ProviderAccount,
+  ProviderAccountUsageWindow,
+} from "@ai-sidekicks/contracts/provider-account";
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { structuralKey } from "@renderer/lib/structural-key.js";

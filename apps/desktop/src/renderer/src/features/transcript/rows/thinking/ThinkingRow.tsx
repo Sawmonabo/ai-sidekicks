@@ -4,7 +4,11 @@
 // and a disabled control would claim an action that exists but is not permitted.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import type { ReasoningEntry, ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
+import type {
+  ReasoningEntry,
+  ReasoningSurfaceReadResponse,
+} from "@ai-sidekicks/contracts/timeline/operations";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 import {
   REASONING_AVAILABILITY_COPY,
   reasoningTailOf,

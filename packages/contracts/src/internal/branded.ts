@@ -1,4 +1,4 @@
-// Internal helpers for the contracts package; not re-exported from `src/index.ts`.
+// Internal helpers for the contracts package; the package's exports map closes `internal/*`.
 import { z } from "zod";
 
 // The RFC 9562 UUID text form shared by every branded UUID id, in any case, plus the Nil and Max

@@ -56,7 +56,9 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 // Declared in `./event-core.js`, the leaf below this file, and re-exported here.
 export type { EventEnvelopeVersion } from "./event-core.js";
 export {
+  /** @consumedBy a reader that checks an event envelope's version */
   EVENT_ENVELOPE_VERSION_MAX_LEN,
+  /** @consumedBy a reader that checks an event envelope's version */
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
   EventEnvelopeVersionSchema,

@@ -9,7 +9,7 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import type { QueueItemSummary } from "@ai-sidekicks/contracts";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
 
 /** The origin a refused cancel is reported under. */
 const QUEUE_CANCEL_ORIGIN = "queue-cancel";

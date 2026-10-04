@@ -275,7 +275,11 @@ export interface OrchestrationMethodDescriptors {
   >;
 }
 
-/** The `orchestration.*` method table. */
+/**
+ * The `orchestration.*` method table.
+ *
+ * @consumedBy the daemon's `orchestration.*` handlers
+ */
 export const ORCHESTRATION_METHOD_DESCRIPTORS: OrchestrationMethodDescriptors =
   defineMethodDescriptors({
     "orchestration.runCreate": {

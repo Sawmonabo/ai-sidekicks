@@ -2,14 +2,14 @@
 // `session_events.content_payload` beside the event, with the description members it adds to
 // `payload`, and the two checks both append branches run on the envelope about to be stored.
 // `EventLogService` writes the row; this module touches no database.
-import type { EventEnvelope, SessionEvent } from "@ai-sidekicks/contracts";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-  SESSION_EVENT_TYPES,
-  SessionEventSchema,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/event-declared-variants";
+import { SESSION_EVENT_TYPES, SessionEventSchema } from "@ai-sidekicks/contracts/event";
 
 import { findUnpairedSurrogateIndex } from "./canonicalizer.js";
 

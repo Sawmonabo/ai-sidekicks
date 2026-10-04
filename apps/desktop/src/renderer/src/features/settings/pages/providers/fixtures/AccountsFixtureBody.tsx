@@ -10,7 +10,7 @@
 
 import "./accounts-fixture-body.css";
 
-import type { ProviderAccount } from "@ai-sidekicks/contracts";
+import type { ProviderAccount } from "@ai-sidekicks/contracts/provider-account";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";

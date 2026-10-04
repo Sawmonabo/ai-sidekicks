@@ -3,7 +3,7 @@
  * configuration failures.
  */
 
-import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   boundFailureDetail,

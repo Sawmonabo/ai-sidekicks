@@ -5,7 +5,7 @@
 
 import { useMemo } from "react";
 
-import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider-driver";
 import { Collapsible } from "@base-ui/react/collapsible";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";

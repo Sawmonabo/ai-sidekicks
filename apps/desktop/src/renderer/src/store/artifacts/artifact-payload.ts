@@ -3,11 +3,11 @@
 
 import {
   decodeArtifactPayloadText,
-  type ArtifactId,
   type ArtifactPayloadEncoding,
   type ArtifactPayloadText,
   type ArtifactReadResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/artifacts/operations";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 
 /**
  * What one artifact's payload fetch has established.

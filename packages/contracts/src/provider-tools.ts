@@ -21,7 +21,11 @@ export interface SessionSendArguments {
   message: string;
   files?: string[] | undefined;
 }
-/** Parses {@link SessionSendArguments}. */
+/**
+ * Parses {@link SessionSendArguments}.
+ *
+ * @consumedBy the daemon's `session_send` tool, which checks its arguments where the call arrives
+ */
 export const SessionSendArgumentsSchema: z.ZodType<SessionSendArguments> = z
   .object({
     to: wireFreeFormString(SESSION_NAME_MAX_LEN, "session_send.to"),
@@ -32,7 +36,11 @@ export const SessionSendArgumentsSchema: z.ZodType<SessionSendArguments> = z
 
 /** `session_list` takes no arguments. */
 export type SessionListArguments = Record<string, never>;
-/** Parses {@link SessionListArguments}: an empty object. */
+/**
+ * Parses {@link SessionListArguments}: an empty object.
+ *
+ * @consumedBy the daemon's `session_list` tool, which checks its arguments where the call arrives
+ */
 export const SessionListArgumentsSchema: z.ZodType<SessionListArguments, SessionListArguments> = z
   .object({})
   .strict();
@@ -45,7 +53,11 @@ export interface TaskOutputArguments {
   task_id: string;
   wait_seconds?: number | undefined;
 }
-/** Parses {@link TaskOutputArguments}. */
+/**
+ * Parses {@link TaskOutputArguments}.
+ *
+ * @consumedBy the daemon's `task_output` tool, which checks its arguments where the call arrives
+ */
 export const TaskOutputArgumentsSchema: z.ZodType<TaskOutputArguments> = z
   .object({
     task_id: wireUncappedFreeFormString("task_output.task_id"),
@@ -57,7 +69,11 @@ export const TaskOutputArgumentsSchema: z.ZodType<TaskOutputArguments> = z
 export interface TaskStopArguments {
   task_id: string;
 }
-/** Parses {@link TaskStopArguments}. */
+/**
+ * Parses {@link TaskStopArguments}.
+ *
+ * @consumedBy the daemon's `task_stop` tool, which checks its arguments where the call arrives
+ */
 export const TaskStopArgumentsSchema: z.ZodType<TaskStopArguments> = z
   .object({ task_id: wireUncappedFreeFormString("task_stop.task_id") })
   .strict();

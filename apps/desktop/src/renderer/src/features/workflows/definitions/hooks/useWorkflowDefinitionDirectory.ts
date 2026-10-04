@@ -5,7 +5,7 @@
 
 import { useCallback } from "react";
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
 import { subjectReadStart, type SubjectRead } from "../../subject-read-start.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 

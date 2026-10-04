@@ -13,14 +13,16 @@
 
 import type {
   ApplyInterventionParams,
-  DriverCompactionResult,
-  ProviderCommandListResult,
   DriverInterventionResult,
   InterruptRunParams,
   ProviderModel,
+} from "@ai-sidekicks/contracts/provider-driver";
+import type {
+  DriverCompactionResult,
+  ProviderCommandListResult,
   ProviderOutputSpeedState,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import { resolveClaudeModelCatalog, type ClaudeModelCatalogExchange } from "./capabilities.js";
 import { ClaudeInterventionDispatcher } from "./intervention.js";

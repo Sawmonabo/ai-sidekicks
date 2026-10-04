@@ -2,7 +2,7 @@
 // agents' declared drivers. A run whose agent cannot be resolved contributes nothing rather
 // than a default, so a gated control is taken off screen instead of guessed.
 
-import type { ProviderName } from "@ai-sidekicks/contracts";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import {
   readAgentDriverNames,

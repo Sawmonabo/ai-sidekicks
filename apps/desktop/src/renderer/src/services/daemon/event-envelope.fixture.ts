@@ -11,13 +11,13 @@
 // judges are the schemas, run by `tests/helpers/scenario-contract-check/contract-check.ts` on every
 // beat before a scenario ships and by `session-event-payload.ts` on every delivery.
 
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
 import {
-  SESSION_EVENT_CATEGORY_BY_TYPE,
   STREAM_FRAME_MAX_CHANGES,
-  type EventCategory,
-  type SessionEventType,
   type StreamFrame,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

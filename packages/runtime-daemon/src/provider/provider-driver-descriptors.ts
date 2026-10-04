@@ -1,7 +1,7 @@
 // Every provider's descriptor, keyed by provider name: the one place shared code finds a
 // provider's static facts, and the only file outside `drivers/` that imports from it.
 
-import type { ProviderName } from "@ai-sidekicks/contracts";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { CLAUDE_DRIVER_DESCRIPTOR } from "./drivers/claude/claude-driver-descriptor.js";
 import { CODEX_DRIVER_DESCRIPTOR } from "./drivers/codex/codex-driver-descriptor.js";

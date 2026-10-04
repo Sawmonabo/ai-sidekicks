@@ -33,11 +33,11 @@ const steerCarryingArtifactIds = {
 };
 
 // @ts-expect-error — a raw `string` is not an `ArtifactId`.
-export const steerWithRawIds: InterventionRequestPayload = steerCarryingRawStringIds;
+const _steerWithRawIds: InterventionRequestPayload = steerCarryingRawStringIds;
 
 // @ts-expect-error — the arm is `ArtifactId[]`, so an object element is refused.
-export const steerWithObjects: InterventionRequestPayload = steerCarryingObjectAttachments;
+const _steerWithObjects: InterventionRequestPayload = steerCarryingObjectAttachments;
 
 // Positive control: branded ids assign off the same shape, so the refusals above are about the
 // element type alone.
-export const steerWithArtifactIds: InterventionRequestPayload = steerCarryingArtifactIds;
+const _steerWithArtifactIds: InterventionRequestPayload = steerCarryingArtifactIds;

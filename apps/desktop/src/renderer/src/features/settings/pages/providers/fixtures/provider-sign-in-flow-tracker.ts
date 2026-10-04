@@ -13,7 +13,8 @@
 // refuses is drawn on that account's row in the service's own words: a refused start frees
 // the flow, and a refused cancel leaves it running.
 
-import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider-account-sign-in";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";

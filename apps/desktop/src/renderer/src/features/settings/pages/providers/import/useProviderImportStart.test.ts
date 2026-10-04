@@ -5,7 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ProviderImportId, ProviderImportProviderRequest } from "@ai-sidekicks/contracts";
+import type {
+  ProviderImportId,
+  ProviderImportProviderRequest,
+} from "@ai-sidekicks/contracts/provider-import";
 import { ProviderImportStart, type StartedImport } from "./useProviderImportStart.js";
 
 const REQUEST: ProviderImportProviderRequest = { provider: "claude" };

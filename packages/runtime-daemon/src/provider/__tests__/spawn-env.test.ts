@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { captureThrow } from "../__fixtures__/capture-throw.js";
-import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
+import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 import {

@@ -21,12 +21,18 @@ import {
 
 // Refusals
 
-/** A workflow turned on with a trigger that cannot be armed; nothing turns on. */
+/**
+ * A workflow turned on with a trigger that cannot be armed; nothing turns on.
+ *
+ * @consumedBy the handler that returns the `workflow.trigger_unarmable` error
+ */
 export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as const;
 
 /**
  * A webhook call whose bearer token does not match the workflow's, or that came while
  * the workflow has no token. It is recorded as the workflow's last fire.
+ *
+ * @consumedBy the handler that returns the `workflow.webhook_token_mismatch` error
  */
 export const WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE = "workflow.webhook_token_mismatch" as const;
 

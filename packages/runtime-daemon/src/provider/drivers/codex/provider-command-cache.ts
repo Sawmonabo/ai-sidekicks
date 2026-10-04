@@ -1,12 +1,12 @@
 // The Codex leg's held provider-command enumeration: read from `skills/list` once per session,
 // discarded on `skills/changed` and with the session, and trimmed to the wire cap per reply.
 
-import {
-  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
-  type ProviderCommandEntry,
-  type ProviderCommandListResult,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider-driver";
+import type {
+  ProviderCommandEntry,
+  ProviderCommandListResult,
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   type CodexLifecycleOptions,

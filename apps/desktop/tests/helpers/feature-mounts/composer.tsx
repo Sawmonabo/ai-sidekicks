@@ -26,8 +26,8 @@
 import type { ReactElement } from "react";
 
 import { renderSettled } from "../app-harness.js";
-import { WAITING_FOR_INPUT_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
-import { scenarioLeadAgentId } from "../../../fixtures/data/opening-entries.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
+import { scenarioLeadAgentId } from "@fixtures/data/opening-entries.js";
 import {
   createFixtureBridge,
   type FixtureBridge,

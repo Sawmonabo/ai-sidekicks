@@ -15,6 +15,8 @@ import { countSchema } from "./internal/wire-scalars.js";
 /**
  * How long a stop or restart waits for the other connected clients to leave
  * when the request names no deadline.
+ *
+ * @consumedBy the daemon's stop and restart, when a request names no deadline
  */
 export const DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS = 5_000;
 
@@ -101,7 +103,11 @@ export interface DaemonLifecycleMethodDescriptors {
   readonly "daemon.ping": MethodDescriptor<"daemon.ping", DaemonPingRequest, EmptyPayload>;
 }
 
-/** The lifecycle methods' names, procedure types and shapes. */
+/**
+ * The lifecycle methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's stop, restart and flush handlers
+ */
 export const DAEMON_LIFECYCLE_METHOD_DESCRIPTORS: DaemonLifecycleMethodDescriptors =
   defineMethodDescriptors({
     "daemon.stop": {

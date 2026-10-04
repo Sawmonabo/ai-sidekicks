@@ -21,7 +21,7 @@ import {
   type WorkflowDefinitionCreateBody,
   type WorkflowVersionBody,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import type { WorkflowDefinitionScope } from "@ai-sidekicks/contracts";
+import type { WorkflowDefinitionScope } from "@ai-sidekicks/contracts/workflow-definition";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 
 /** The top-level member a definition file carries its schema marker under. */

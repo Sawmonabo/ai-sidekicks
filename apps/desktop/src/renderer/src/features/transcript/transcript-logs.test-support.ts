@@ -3,7 +3,7 @@
 // `feed/components/TranscriptFeed.test-support.tsx`.
 // Every event carries a real row id, because the hydrated-event read is keyed by it.
 
-import { EVENT_ID_STEM } from "../../../../../fixtures/scenarios/transcript-states.js";
+import { EVENT_ID_STEM } from "@fixtures/scenarios/transcript-states.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /** The session every fixture log belongs to. */

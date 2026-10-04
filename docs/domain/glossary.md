@@ -22,7 +22,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Run` | A single execution episode performed by one agent inside one session. |
 | `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-003 (provider driver contract), extended by Plan-012 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-recovery-and-replay.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
-| `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or cancels active or queued work. |
+| `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or interrupts active or queued work. |
 | `RepoMount` | A git repository attached to the machine as a project's folder, once per machine; every session of that project binds to it. A chat's managed workspace is a mount too, owned by its one chat. |
 | `Workspace` | A session's execution context, rooted at one checkout: the project's checkout, a worktree the daemon made, or a chat's managed workspace. |
 | `Worktree` | An isolated checkout derived from a repository and typically used as the default write target for coding runs. |

@@ -6,7 +6,7 @@
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
+import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,

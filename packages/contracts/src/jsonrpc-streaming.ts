@@ -13,7 +13,11 @@ import { brandedUuidIdSchema } from "./internal/branded.js";
  * registers no handler for it.
  */
 export const SUBSCRIPTION_NOTIFY_METHOD = "$/subscription/notify" as const;
-/** The type of {@link SUBSCRIPTION_NOTIFY_METHOD}. */
+/**
+ * The type of {@link SUBSCRIPTION_NOTIFY_METHOD}.
+ *
+ * @consumedBy the subscription transport's `$/subscription/notify` frames
+ */
 export type SubscriptionNotifyMethod = typeof SUBSCRIPTION_NOTIFY_METHOD;
 
 /**
@@ -21,7 +25,11 @@ export type SubscriptionNotifyMethod = typeof SUBSCRIPTION_NOTIFY_METHOD;
  * non-mutating, so a client can still clean up after a failed version handshake.
  */
 export const SUBSCRIPTION_CANCEL_METHOD = "$/subscription/cancel" as const;
-/** The type of {@link SUBSCRIPTION_CANCEL_METHOD}. */
+/**
+ * The type of {@link SUBSCRIPTION_CANCEL_METHOD}.
+ *
+ * @consumedBy the subscription transport's `$/subscription/cancel` frames
+ */
 export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
 
 /** The opaque id of one subscription: a UUID string at runtime, nominally typed at compile time. */

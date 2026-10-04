@@ -2,7 +2,7 @@
 // drawn and unpickable, one selection per change, and the group held while the mount
 // withholds its controls or a switch is on the wire.
 
-import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
+import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

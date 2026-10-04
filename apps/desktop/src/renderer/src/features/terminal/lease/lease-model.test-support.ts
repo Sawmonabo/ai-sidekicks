@@ -4,18 +4,15 @@
 // structured builder is expressed over the raw one, so there is one answer to what an event's
 // id, session and instant look like.
 
-import {
-  PTY_CONTROL_CHANGED_EVENT,
-  type CommandId,
-  type RunId,
-  type TerminalId,
-} from "@ai-sidekicks/contracts";
+import { PTY_CONTROL_CHANGED_EVENT, type TerminalId } from "@ai-sidekicks/contracts/pty";
+import type { CommandId } from "@ai-sidekicks/contracts/command";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   TERMINAL_LEASE_SCENARIO,
   TERMINAL_SCENARIO_ROLES,
-} from "../../../../../../fixtures/scenarios/terminal-lease.js";
+} from "@fixtures/scenarios/terminal-lease.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 
 /**

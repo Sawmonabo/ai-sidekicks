@@ -5,35 +5,39 @@
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
+import type { AgentId } from "@ai-sidekicks/contracts/agent-definition";
 import type {
-  AgentId,
   EventCursor,
-  HandlerContext,
-  JsonRpcNotification,
-  SessionEvent,
   SessionId,
-  SessionCreateRequest,
-  SessionCreateResponse,
   SessionReadRequest,
   SessionStreamChange,
   SessionStreamFrame,
   SessionSubscribeRequest,
   SessionSubscribeResponse,
+} from "@ai-sidekicks/contracts/session";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
+import type {
+  SessionCreateRequest,
+  SessionCreateResponse,
+} from "@ai-sidekicks/contracts/session-directory";
+import type {
   SubscriptionId,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session";
 import {
-  JSONRPC_VERSION,
-  JsonRpcErrorCode,
-  SessionReadResponseSchema,
   STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../registry.js";
 import { SessionNotFoundError } from "../../session-errors.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
+import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 
 import { registerSessionCreate, type SessionCreateDeps } from "../session-create.js";
 import { registerSessionRead, type SessionLogRead, type SessionReadDeps } from "../session-read.js";
@@ -571,12 +575,9 @@ describe("session.read", () => {
     // `invalid_result` become `RegistryDispatchError`), and the gateway passes the raw throw to
     // `mapJsonRpcError`.
     const ctx: HandlerContext = {};
-    let caught: unknown = null;
-    try {
-      await registry.dispatch("session.read", { sessionId: UNKNOWN_SESSION_ID }, ctx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(
+      registry.dispatch("session.read", { sessionId: UNKNOWN_SESSION_ID }, ctx),
+    );
     expect(caught).toBeInstanceOf(SessionNotFoundError);
 
     const envelope = mapJsonRpcError(caught, 7);

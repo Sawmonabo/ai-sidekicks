@@ -28,6 +28,28 @@ export const LAYOUT = `${RENDERER}/layout/`;
 const APP = `${RENDERER}/app/`;
 
 /**
+ * Where a renderer module may live: the top-level folders, and at the root only the entry and
+ * its two ambient declarations.
+ */
+export const RENDERER_HOMES = [
+  LIB,
+  STYLES,
+  ASSETS,
+  ROUTING,
+  COMPONENTS,
+  HOOKS,
+  STORE,
+  SERVICES,
+  REGISTRIES,
+  FEATURES,
+  LAYOUT,
+  APP,
+  `${RENDERER}/main\\.tsx$`,
+  `${RENDERER}/desktop-bridge\\.d\\.ts$`,
+  `${RENDERER}/vite-env\\.d\\.ts$`,
+];
+
+/**
  * The two stores held apart inside `store/`: one per window, one per open session.
  *
  * A flag copied across that line is a second record of one fact that the reconnect path cannot

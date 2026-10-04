@@ -3,7 +3,7 @@
 // carried and an unknown one is refused: dropping `toolBindings` or `config` would hand back a
 // definition that hashes differently while reporting success. Absence is never read as a value.
 
-import type { WorkflowToolBinding } from "@ai-sidekicks/contracts";
+import type { WorkflowToolBinding } from "@ai-sidekicks/contracts/workflow-definition";
 
 import {
   WORKFLOW_FAILURE_BEHAVIORS,

@@ -12,11 +12,11 @@
 // - `workspace.busy` and `repo.not_found` stay with `WorkspaceBusyError` and
 //   `RepoMountNotFoundError`, so `instanceof` never depends on which module a throw site imported.
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 import {
-  JsonRpcErrorCode,
   WORKTREE_RETIRE_CONFLICT_CODE,
   type WorktreeRetireConflictCode,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/worktree";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 

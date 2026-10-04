@@ -7,7 +7,7 @@ import {
   REMEMBERED_SCOPE_KINDS,
   type RememberedScope,
   type RememberedScopeKind,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/approval";
 import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Select } from "@base-ui/react/select";

@@ -58,7 +58,11 @@ const CloudEnvironmentLabelSchema = wireFreeFormString(
  * claude.ai Pro, Max or Team sign-in, or a project with no GitHub remote.
  */
 export const CLOUD_UNAVAILABLE_CODE = "cloud.unavailable" as const;
-/** Type of {@link CLOUD_UNAVAILABLE_CODE}. */
+/**
+ * Type of {@link CLOUD_UNAVAILABLE_CODE}.
+ *
+ * @consumedBy the handler that returns the `cloud.unavailable` error
+ */
 export type CloudUnavailableCode = typeof CLOUD_UNAVAILABLE_CODE;
 
 const CLOUD_UNAVAILABLE_REASON_VALUES = [
@@ -68,7 +72,11 @@ const CLOUD_UNAVAILABLE_REASON_VALUES = [
 ] as const;
 /** Why {@link CLOUD_UNAVAILABLE_CODE} refused. */
 export type CloudUnavailableReason = (typeof CLOUD_UNAVAILABLE_REASON_VALUES)[number];
-/** Every {@link CloudUnavailableReason}. */
+/**
+ * Every {@link CloudUnavailableReason}.
+ *
+ * @consumedBy the session menu's `Send to the cloud…` row, which shows why a session cannot use it
+ */
 export const CLOUD_UNAVAILABLE_REASONS: readonly CloudUnavailableReason[] =
   CLOUD_UNAVAILABLE_REASON_VALUES;
 
@@ -80,7 +88,11 @@ export interface CloudUnavailableDetails {
   reason: CloudUnavailableReason;
   provider: ProviderName;
 }
-/** Parses {@link CloudUnavailableDetails}. */
+/**
+ * Parses {@link CloudUnavailableDetails}.
+ *
+ * @consumedBy the handler that returns the `cloud.unavailable` error
+ */
 export const CloudUnavailableDetailsSchema: z.ZodType<CloudUnavailableDetails> = z
   .object({ reason: z.enum(CLOUD_UNAVAILABLE_REASON_VALUES), provider: ProviderNameSchema })
   .strict();
@@ -342,7 +354,11 @@ export interface CloudMethodDescriptors {
   >;
 }
 
-/** The `cloud.*` methods' names, procedure types and shapes. */
+/**
+ * The `cloud.*` methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's `cloud.*` handlers
+ */
 export const CLOUD_METHOD_DESCRIPTORS: CloudMethodDescriptors = defineMethodDescriptors({
   "cloud.taskStart": {
     method: "cloud.taskStart",

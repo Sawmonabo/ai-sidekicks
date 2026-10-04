@@ -130,7 +130,11 @@ export interface RuntimeNodeProcedureDescriptors {
   >;
 }
 
-/** The runtime-node procedures the control plane serves, each with its schemas. */
+/**
+ * The runtime-node procedures the control plane serves, each with its schemas.
+ *
+ * @consumedBy the control plane's `runtimenode.*` procedures
+ */
 export const RUNTIMENODE_PROCEDURE_DESCRIPTORS: RuntimeNodeProcedureDescriptors =
   defineMethodDescriptors({
     "runtimenode.register": {

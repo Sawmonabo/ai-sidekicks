@@ -1,7 +1,7 @@
 // What a Claude process is spawned under: the spawn-bound legs every spawn path realizes, the
 // binding a later run is checked against, and the check itself.
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type ClaudeSessionTransport,

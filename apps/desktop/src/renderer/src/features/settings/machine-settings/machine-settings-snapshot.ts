@@ -7,7 +7,7 @@ import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
   type MachineSettingsReading,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/machine-settings";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp";
 
 /**
  * One binding's configuration, exactly as the daemon serves it back.

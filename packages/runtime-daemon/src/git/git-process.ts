@@ -74,7 +74,7 @@ const NEUTRALIZED_GIT_ENV_KEYS_UPPERCASED = new Set(
 );
 
 /** Per-invocation bounds and inputs. */
-export interface GitInvocationOptions {
+interface GitInvocationOptions {
   /** Wall-clock ceiling; the child is killed past it. */
   readonly timeoutMs: number;
   /**

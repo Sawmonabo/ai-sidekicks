@@ -67,7 +67,11 @@ export interface AccountProcedureDescriptors {
   >;
 }
 
-/** The hosted account's procedures the control plane serves. */
+/**
+ * The hosted account's procedures the control plane serves.
+ *
+ * @consumedBy the control plane's `account.*` procedures
+ */
 export const ACCOUNT_PROCEDURE_DESCRIPTORS: AccountProcedureDescriptors = defineMethodDescriptors({
   "account.delete": {
     method: "account.delete",

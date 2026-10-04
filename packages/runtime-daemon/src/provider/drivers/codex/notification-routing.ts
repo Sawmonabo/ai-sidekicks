@@ -2,7 +2,7 @@
 // routing every inbound notification through the session's thread-frame router, and applying each
 // decision (usage metering, compaction boundaries, child completion, the normalize hand-off).
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { ThreadFrameRouter, ThreadFrameRoute } from "../../thread-frame-router.js";

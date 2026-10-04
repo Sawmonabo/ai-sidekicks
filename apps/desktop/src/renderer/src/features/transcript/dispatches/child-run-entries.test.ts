@@ -3,7 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ChildRunSummary, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
+import type { ChildRunSummary } from "@ai-sidekicks/contracts/timeline/child-run-summary";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
 import { deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";

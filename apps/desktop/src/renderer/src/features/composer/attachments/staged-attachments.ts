@@ -5,7 +5,7 @@
 // disclosure deadline re-stamps the same entries; it reads nothing and there is no interval.
 // The local id is this list's counter, not the file name, since two files can share a name.
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { earliestFutureDeadline } from "@renderer/lib/deadlines.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

@@ -11,7 +11,9 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { NodeId, RepoMountId, SessionId } from "@ai-sidekicks/contracts";
+import type { NodeId } from "@ai-sidekicks/contracts/node-id";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
@@ -33,7 +35,6 @@ import { WorkspaceService } from "../workspace-service.js";
 import {
   bindReadyWorkspace,
   buildFixtureEnvironment,
-  captureRejection,
   readLifecycleEnvelopes,
   readLifecycleEventTypes,
   requireMountRow,
@@ -42,6 +43,7 @@ import {
   seedSession,
   steppingClock,
 } from "./workspace.test-support.js";
+import { captureRejection, captureThrow } from "../../__fixtures__/capture-failure.js";
 
 const SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000002" as SessionId;
@@ -188,15 +190,6 @@ function countMountRows(): number {
       readonly total: number;
     }
   ).total;
-}
-
-function captureThrow(body: () => unknown): unknown {
-  try {
-    body();
-  } catch (error: unknown) {
-    return error;
-  }
-  throw new Error("expected the operation to throw, but it returned");
 }
 
 /**

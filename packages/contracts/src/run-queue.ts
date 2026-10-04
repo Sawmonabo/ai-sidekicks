@@ -225,6 +225,8 @@ export const QueueReorderRequestSchema: z.ZodType<QueueReorderRequest, QueueReor
 /**
  * The refusal of a change to a waiting message: an edit of a message the agent
  * has already taken, or a reorder whose list is not exactly the waiting items.
+ *
+ * @consumedBy the handler that returns the `queue.change_refused` error
  */
 export const QUEUE_CHANGE_REFUSED_CODE = "queue.change_refused" as const;
 
@@ -237,7 +239,11 @@ export type QueueChangeRefusedReason = (typeof QUEUE_CHANGE_REFUSED_REASONS)[num
 export interface QueueChangeRefusedDetails {
   reason: QueueChangeRefusedReason;
 }
-/** Parses {@link QueueChangeRefusedDetails}. */
+/**
+ * Parses {@link QueueChangeRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `queue.change_refused` error
+ */
 export const QueueChangeRefusedDetailsSchema: z.ZodType<QueueChangeRefusedDetails> = z
   .object({ reason: z.enum(QUEUE_CHANGE_REFUSED_REASONS) })
   .strict();

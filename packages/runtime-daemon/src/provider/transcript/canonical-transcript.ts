@@ -10,7 +10,8 @@
 //   from `TranscriptContentSource`, which this module declares and does not implement. Payloads
 //   carry metadata only, so reading `payload.message` here would silently erase every user turn.
 
-import type { RunId, SessionId } from "@ai-sidekicks/contracts";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import type { StoredEvent } from "../../session/types.js";
 import type {

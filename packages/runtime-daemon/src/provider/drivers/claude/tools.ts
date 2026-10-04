@@ -16,7 +16,7 @@ import type {
   McpServerStatus,
   NormalizedProviderToolMetadata,
   ProviderToolMetadata,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
 
 import {
   boundMcpServerStatusEmission,

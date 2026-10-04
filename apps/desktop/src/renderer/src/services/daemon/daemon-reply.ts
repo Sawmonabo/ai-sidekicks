@@ -17,7 +17,7 @@
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.not_found` into
 // `call-rejected`.
 
-import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts";
+import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon-methods";
 
 import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";

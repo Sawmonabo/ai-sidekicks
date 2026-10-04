@@ -18,15 +18,19 @@ import type {
   McpServerBindingRef,
   McpServerConfigChangedNotice,
   McpServerInventoryEntry,
+} from "@ai-sidekicks/contracts/mcp";
+import type {
   ProviderAccountNotification,
   ProviderAccount,
   ProviderAccountId,
   ProviderAccountListResponse,
+} from "@ai-sidekicks/contracts/provider-account";
+import type {
   ProviderAccountLoginCancelResponse,
   ProviderAccountLoginResponse,
   ProviderAccountRegisterResponse,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-account-sign-in";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type {
   ScenarioNotice,
   ScenarioReply,

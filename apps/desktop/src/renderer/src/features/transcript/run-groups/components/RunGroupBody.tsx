@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {

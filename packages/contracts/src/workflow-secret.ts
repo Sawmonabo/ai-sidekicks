@@ -185,7 +185,11 @@ export const WorkflowSecretListResponseSchema: z.ZodType<WorkflowSecretListRespo
 
 // Refusals
 
-/** A secret name that breaks the rule, or that its place already holds. */
+/**
+ * A secret name that breaks the rule, or that its place already holds.
+ *
+ * @consumedBy the handler that returns the `workflow.secret_name_invalid` error
+ */
 export const WORKFLOW_SECRET_NAME_INVALID_CODE = "workflow.secret_name_invalid" as const;
 
 /** Why a name was refused: it breaks the rule, or the place already holds it. */
@@ -197,7 +201,11 @@ export type WorkflowSecretNameInvalidReason = (typeof WORKFLOW_SECRET_NAME_INVAL
 export interface WorkflowSecretNameInvalidDetails {
   reason: WorkflowSecretNameInvalidReason;
 }
-/** Wire schema for {@link WorkflowSecretNameInvalidDetails}. */
+/**
+ * Wire schema for {@link WorkflowSecretNameInvalidDetails}.
+ *
+ * @consumedBy the handler that returns the `workflow.secret_name_invalid` error
+ */
 export const WorkflowSecretNameInvalidDetailsSchema: z.ZodType<WorkflowSecretNameInvalidDetails> = z
   .object({ reason: z.enum(WORKFLOW_SECRET_NAME_INVALID_REASONS) })
   .strict();
@@ -205,6 +213,8 @@ export const WorkflowSecretNameInvalidDetailsSchema: z.ZodType<WorkflowSecretNam
 /**
  * A step whose secret the keychain does not hold. It carries only the reference and
  * offers `Retry from this step`.
+ *
+ * @consumedBy the handler that returns the `workflow.secret_not_found` error
  */
 export const WORKFLOW_SECRET_NOT_FOUND_CODE = "workflow.secret_not_found" as const;
 
@@ -241,7 +251,11 @@ export type WorkflowSecretStoreUnavailableCause =
 export interface WorkflowSecretStoreUnavailableDetails {
   cause: WorkflowSecretStoreUnavailableCause;
 }
-/** Wire schema for {@link WorkflowSecretStoreUnavailableDetails}. */
+/**
+ * Wire schema for {@link WorkflowSecretStoreUnavailableDetails}.
+ *
+ * @consumedBy the handler that returns the `workflow.secret_store_unavailable` error
+ */
 export const WorkflowSecretStoreUnavailableDetailsSchema: z.ZodType<WorkflowSecretStoreUnavailableDetails> =
   z.object({ cause: z.enum(WORKFLOW_SECRET_STORE_UNAVAILABLE_CAUSES) }).strict();
 
@@ -271,7 +285,11 @@ export interface WorkflowSecretMethodDescriptors {
   >;
 }
 
-/** The workflow secrets' method table. */
+/**
+ * The workflow secrets' method table.
+ *
+ * @consumedBy the daemon's workflow secret handlers
+ */
 export const WORKFLOW_SECRET_METHOD_DESCRIPTORS: WorkflowSecretMethodDescriptors =
   defineMethodDescriptors({
     "workflow.secretCreate": {

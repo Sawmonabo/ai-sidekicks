@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";

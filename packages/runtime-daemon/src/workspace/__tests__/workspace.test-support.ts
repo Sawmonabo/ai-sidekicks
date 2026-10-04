@@ -4,7 +4,8 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 
-import type { RepoMountId, SessionId } from "@ai-sidekicks/contracts";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import type { Database } from "better-sqlite3";
 
@@ -144,16 +145,6 @@ export function steppingClock(): () => string {
 
 /** A readability probe that admits every directory, for resolvers over synthetic paths. */
 export const alwaysReadableProbe: DirectoryReadabilityProbe = () => Promise.resolve();
-
-/** Runs `body` and returns what it rejected with; throws if it resolved. */
-export async function captureRejection(body: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await body();
-  } catch (error: unknown) {
-    return error;
-  }
-  throw new Error("expected the operation to reject, but it resolved");
-}
 
 // Row and event readers use raw SQL, not a service call: durability is a claim about what is on
 // disk, and reading back through the writing service would prove only that it agrees with itself.

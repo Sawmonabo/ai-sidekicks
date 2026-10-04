@@ -117,7 +117,11 @@ export interface DaemonRetentionMethodDescriptors {
   >;
 }
 
-/** The retention methods' names, procedure types and shapes. */
+/**
+ * The retention methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's retention handlers
+ */
 export const DAEMON_RETENTION_METHOD_DESCRIPTORS: DaemonRetentionMethodDescriptors =
   defineMethodDescriptors({
     "daemon.retentionRead": {

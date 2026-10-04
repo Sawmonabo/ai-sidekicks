@@ -17,10 +17,10 @@ import type { Database, Statement } from "better-sqlite3";
 
 import {
   ExecutionModeSchema,
-  WorktreeStateSchema,
   type ExecutionMode,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/repo";
+import { WorktreeStateSchema } from "@ai-sidekicks/contracts/worktree";
 
 import {
   WorkspaceBranchMismatchError,

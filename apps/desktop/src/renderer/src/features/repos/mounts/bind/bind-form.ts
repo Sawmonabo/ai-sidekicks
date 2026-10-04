@@ -3,11 +3,9 @@
 // never dropped from the list. One `directory` field covers both wire forms (a subtree of the
 // mount root or an absolute working-tree path); empty means the mount root.
 
-import {
-  FILE_PATH_MAX_LEN,
-  type ExecutionMode,
-  type WorkspaceExecutionModeCapabilitiesReadResponse,
-} from "@ai-sidekicks/contracts";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/session";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 import {
   resolveServedSelection,

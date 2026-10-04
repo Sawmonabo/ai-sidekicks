@@ -227,7 +227,11 @@ export interface PreviewPageLinkMethodDescriptors {
   >;
 }
 
-/** The `preview.*` link methods the daemon answers, each with its schemas. */
+/**
+ * The `preview.*` link methods the daemon answers, each with its schemas.
+ *
+ * @consumedBy the daemon's `preview.pageTargetReport` and `preview.pageDebuggerReport` handlers
+ */
 export const PREVIEW_PAGE_LINK_METHOD_DESCRIPTORS: PreviewPageLinkMethodDescriptors =
   defineMethodDescriptors({
     "preview.pageTargetReport": {
@@ -278,7 +282,11 @@ export interface PreviewPageHostMethodDescriptors {
   >;
 }
 
-/** The `preview.*` methods main's page host answers, each with its schemas. */
+/**
+ * The `preview.*` methods main's page host answers, each with its schemas.
+ *
+ * @consumedBy the Preview page host in main
+ */
 export const PREVIEW_PAGE_HOST_METHOD_DESCRIPTORS: PreviewPageHostMethodDescriptors =
   defineMethodDescriptors({
     "preview.pageDebuggerSend": {

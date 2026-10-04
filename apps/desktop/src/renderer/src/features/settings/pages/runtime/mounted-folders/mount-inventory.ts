@@ -15,10 +15,12 @@
 import type {
   RepoMountReadRequest,
   RepoMountReadResponse,
-  SessionEventType,
+} from "@ai-sidekicks/contracts/repo-folders";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import type {
   WorkspaceListRequest,
   WorkspaceListResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/workspace";
 
 import { RefusalError } from "@renderer/lib/refusal.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./mount-inventory-caps.js";

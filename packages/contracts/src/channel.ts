@@ -53,13 +53,21 @@ export const ChannelOfferSchema: z.ZodType<ChannelOffer, ChannelOffer> = z
 export interface ChannelAnswer {
   profile: ChannelProfile;
 }
-/** Parses a {@link ChannelAnswer}. */
+/**
+ * Parses a {@link ChannelAnswer}.
+ *
+ * @consumedBy the device channel's handshake answer
+ */
 export const ChannelAnswerSchema: z.ZodType<ChannelAnswer> = z
   .object({ profile: z.enum(CHANNEL_PROFILES) })
   .strict();
 
 /** The machine runs none of the offered profiles, and closes the connection. */
 export type ChannelNoCommonProfileCode = "channel.no_common_profile";
-/** The machine runs none of the offered profiles, and closes the connection. */
+/**
+ * The machine runs none of the offered profiles, and closes the connection.
+ *
+ * @consumedBy the handler that returns the `channel.no_common_profile` error
+ */
 export const CHANNEL_NO_COMMON_PROFILE_CODE: ChannelNoCommonProfileCode =
   "channel.no_common_profile";

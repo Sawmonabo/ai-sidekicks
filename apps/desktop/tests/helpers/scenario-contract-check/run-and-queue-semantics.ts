@@ -11,25 +11,27 @@
 //   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
 //   `priority` and `createdAt`, which only the queue rows' own read supplies.
 
+import { RunIdSchema } from "@ai-sidekicks/contracts/provider-driver";
+import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run-queued";
+import { RunRecoveryResolvedPayloadSchema } from "@ai-sidekicks/contracts/run-control";
 import {
-  RunIdSchema,
-  RunQueuedPayloadSchema,
-  RunRecoveryResolvedPayloadSchema,
   RunRefusalChoiceRequestedPayloadSchema,
   RunRefusalChoiceResolvedPayloadSchema,
-  RunStepLimitReachedPayloadSchema,
-  RunTokenLimitReachedPayloadSchema,
   RunUsageCreditsChoiceRequestedPayloadSchema,
   RunUsageCreditsChoiceResolvedPayloadSchema,
-  SessionIdSchema,
-} from "@ai-sidekicks/contracts";
-import type { SessionEventType } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/run-provider-choice";
+import {
+  RunStepLimitReachedPayloadSchema,
+  RunTokenLimitReachedPayloadSchema,
+} from "@ai-sidekicks/contracts/session-controls";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 import { z } from "zod";
 import type { ZodType } from "zod";
 
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
 import { projectRunStreamDelivery } from "@renderer/services/run-streams/run-stream-projection.fixture.js";
-import type { ScenarioBeat } from "../../../fixtures/scenario.js";
+import type { ScenarioBeat } from "@fixtures/scenario.js";
 import { RUN_STATE_EVENT_STREAM } from "@renderer/services/daemon/session-event-streams.js";
 import {
   runQueueStreamStateFor,

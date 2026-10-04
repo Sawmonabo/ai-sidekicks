@@ -5,15 +5,17 @@
 // is a state of the flow and the page learns the account's fate by re-reading the registry.
 // A token exists here only for the length of one registration call, never in a state.
 
-import {
-  type BillingMode,
-  type ProviderAccountId,
-  type ProviderAccountLoginCancelResponse,
-  type ProviderAccountLoginResponse,
-  type ProviderAccountRegisterRequest,
-  type ProviderAccountRegisterResponse,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+import type {
+  BillingMode,
+  ProviderAccountId,
+  ProviderName,
+} from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderAccountLoginCancelResponse,
+  ProviderAccountLoginResponse,
+  ProviderAccountRegisterRequest,
+  ProviderAccountRegisterResponse,
+} from "@ai-sidekicks/contracts/provider-account-sign-in";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";

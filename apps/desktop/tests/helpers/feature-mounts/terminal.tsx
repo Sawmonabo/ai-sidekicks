@@ -10,7 +10,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { fixtureSessionBaseState } from "@renderer/services/daemon/session-base-state.fixture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { TERMINAL_LEASE_SCENARIO } from "../../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
 import { renderSettled } from "../app-harness.js";
 import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
 import { paneContext } from "../pane-context.js";

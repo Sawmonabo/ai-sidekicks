@@ -3,7 +3,8 @@
  * arrived before their run, the lifecycle options, and the readers for frames it routes.
  */
 
-import { type ExecutionPosture, type RunId, type SessionId } from "@ai-sidekicks/contracts";
+import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type ChildThreadAnnouncement,

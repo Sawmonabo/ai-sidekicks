@@ -12,7 +12,7 @@ import type {
   QuestionAnswer,
   QuestionResolveRequest,
   QuestionResolveResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/question";
 import {
   UNSENT_ANSWER_DELIVERY,
   type AnswerDelivery,

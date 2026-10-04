@@ -7,7 +7,7 @@ import type {
   ApprovalDecision,
   ApprovalProjectionRow,
   ApprovalResolveRequest,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/approval";
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { ACCENT_FILL_CLASS } from "../../accent-fill.js";

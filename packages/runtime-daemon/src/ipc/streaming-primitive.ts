@@ -9,24 +9,22 @@
 //   callback the caller connects to the per-transport write path.
 // - A subscription id is a `crypto.randomUUID()` string, which satisfies `SubscriptionIdSchema`.
 
+import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
 import type {
-  Handler,
-  JsonRpcNotification,
   LocalSubscriptionProducer,
-  MethodRegistry,
   SubscriptionCancelParams,
   SubscriptionCancelResult,
   SubscriptionId,
   SubscriptionNotifyParams,
-  ZodType,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
 import {
-  JSONRPC_VERSION,
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
   SubscriptionCancelParamsSchema,
   SubscriptionCancelResultSchema,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 /**
  * Thrown synchronously from `next(value)` when the value fails the subscription's `valueSchema`: a

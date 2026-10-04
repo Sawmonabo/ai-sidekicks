@@ -5,7 +5,7 @@
 // in and which home it writes into are the daemon's to disclose on the readiness entry, so
 // these are fixed strings and not assembled from a refusal's payload.
 
-import type { ProviderRemedy } from "@ai-sidekicks/contracts";
+import type { ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
 
 /** The fixed sentence the handoff shows for each remedy kind. */
 export const ACCOUNT_PLANE_HANDOFF_SENTENCES: Readonly<Record<ProviderRemedy["kind"], string>> = {

@@ -1,7 +1,7 @@
 // Codex per-tool metadata: a tool authored without an `idempotency_class` floors at
 // `manual_reconcile_only`, so it is never retried.
 
-import type { NormalizedProviderToolMetadata } from "@ai-sidekicks/contracts";
+import type { NormalizedProviderToolMetadata } from "@ai-sidekicks/contracts/provider-driver";
 import { describe, expect, it } from "vitest";
 
 import { CODEX_TOOL_METADATA } from "../tools.js";

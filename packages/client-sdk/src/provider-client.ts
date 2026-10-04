@@ -22,23 +22,23 @@
 
 import type {
   ApplyInterventionParams,
-  CompactContextRequest,
-  EmptyPayload,
-  DriverCompactionResult,
-  DriverEvent,
   DriverInterventionResult,
+  InterruptRunParams,
+} from "@ai-sidekicks/contracts/provider-driver";
+import type {
+  CompactContextRequest,
   DriverReadParams,
   DriverSubscribeEventsParams,
-  InterruptRunParams,
   ListCapabilitiesResult,
   ListModelsRequest,
   ListModelsResult,
   ListModesResult,
-} from "@ai-sidekicks/contracts";
-import {
-  DRIVER_EVENT_METHOD_DESCRIPTORS,
-  DRIVER_METHOD_DESCRIPTORS,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver-wire";
+import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { DriverEvent } from "@ai-sidekicks/contracts/driver-event";
+import { DRIVER_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/driver-event";
+import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-driver-wire";
 
 import { callMethod, subscribeMethod, type JsonRpcClient } from "./transport/json-rpc-client.js";
 import type { LocalSubscriptionConsumer } from "./transport/types.js";

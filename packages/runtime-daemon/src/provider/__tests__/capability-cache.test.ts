@@ -5,11 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DRIVER_CAPABILITY_FLAGS,
-  DriverCapabilityReportSchema,
   type DriverCapabilities,
   type DriverCapabilityFlag,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import { DriverCapabilityReportSchema } from "@ai-sidekicks/contracts/provider-driver-wire";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { DriverCapabilityCache } from "../capability-cache.js";
 import type { DriverCapabilityHydrationResult } from "../driver-capabilities-writer.js";

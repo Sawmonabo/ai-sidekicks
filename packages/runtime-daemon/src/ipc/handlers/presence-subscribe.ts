@@ -9,18 +9,17 @@
 // it is keyed by. The registration is not `mutating`, so a connection with an incompatible
 // protocol version can still follow presence.
 
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
 import type {
-  Handler,
   MachinePresence,
-  MethodRegistry,
   PresenceSubscribeRequest,
   PresenceSubscribeResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/presence";
 import {
   MachinePresenceSchema,
   PresenceSubscribeRequestSchema,
   PresenceSubscribeResponseSchema,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/presence";
 
 import type { StreamingPrimitive } from "../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";

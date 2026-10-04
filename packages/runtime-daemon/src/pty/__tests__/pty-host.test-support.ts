@@ -9,7 +9,8 @@ import { vi } from "vitest";
 
 import type { NodePtyChild } from "../node-pty-host.js";
 import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
-import type { Envelope } from "../pty-host-protocol.js";
+import type { Envelope, SpawnRequest } from "../pty-host-protocol.js";
+import type { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 
 // Matches `NodePtyChild.onExit`'s event type. Under `exactOptionalPropertyTypes` the
 // `| undefined` on `signal` also permits an explicit `{ signal: undefined }`.
@@ -165,4 +166,30 @@ export function parseFramesFromStdin(stdinBuf: Buffer): Envelope[] {
 export async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+/** A shell spawn request; the fake sidecar never runs it, so its fields matter only as a frame. */
+export const SHELL_SPAWN_REQUEST: SpawnRequest = {
+  kind: "spawn_request",
+  command: "/bin/sh",
+  args: [],
+  env: [],
+  cwd: "/",
+  rows: 24,
+  cols: 80,
+};
+
+/**
+ * Spawns one session and answers its `SpawnResponse` with `sessionId` through the fake sidecar.
+ * `child` is read after the spawn starts, since the host launches the sidecar on its first spawn.
+ */
+export async function spawnAnsweredSession(
+  host: RustSidecarPtyHost,
+  child: () => FakeSidecarChild,
+  sessionId: string,
+): Promise<void> {
+  const spawning = host.spawn(SHELL_SPAWN_REQUEST);
+  await flushMicrotasks();
+  child().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: sessionId }));
+  await spawning;
 }

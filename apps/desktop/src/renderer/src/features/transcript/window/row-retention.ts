@@ -3,7 +3,7 @@
 // `run-group-fold.ts`. A pass keeps only what it republishes, so the table never outgrows the
 // window.
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 

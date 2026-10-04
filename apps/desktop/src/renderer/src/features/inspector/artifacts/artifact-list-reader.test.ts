@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactManifest } from "@ai-sidekicks/contracts";
+import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";

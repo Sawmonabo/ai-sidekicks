@@ -5,7 +5,7 @@
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
 
-import { RememberedRuleSchema, type RememberedRule } from "@ai-sidekicks/contracts";
+import { RememberedRuleSchema, type RememberedRule } from "@ai-sidekicks/contracts/approval";
 
 import { RememberedRules } from "./components/RememberedRules.js";
 

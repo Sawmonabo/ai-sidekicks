@@ -3,7 +3,8 @@
 // contract does not register, a compile error. The contract import is type-only: a value import
 // would pull the event taxonomy and its schemas into the shipped bundle.
 
-import type { RunState, SessionEventType } from "@ai-sidekicks/contracts";
+import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 

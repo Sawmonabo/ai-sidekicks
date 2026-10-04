@@ -67,7 +67,7 @@ const APPROVAL_CATEGORY_VALUES = [
   "destructive_git",
   "plan_approval",
   "gate",
-  "human_phase_contribution",
+  "human_step_contribution",
 ] as const;
 
 /**
@@ -75,7 +75,11 @@ const APPROVAL_CATEGORY_VALUES = [
  * asks: they are the one question record, so neither is a category here.
  */
 export type ApprovalCategory = (typeof APPROVAL_CATEGORY_VALUES)[number];
-/** Every {@link ApprovalCategory}. */
+/**
+ * Every {@link ApprovalCategory}.
+ *
+ * @consumedBy the approval category each agent tool carries
+ */
 export const APPROVAL_CATEGORIES: readonly ApprovalCategory[] = APPROVAL_CATEGORY_VALUES;
 /** Parses an {@link ApprovalCategory}. */
 export const ApprovalCategorySchema: z.ZodType<ApprovalCategory, ApprovalCategory> =
@@ -88,7 +92,11 @@ const APPROVAL_STATE_VALUES = ["pending", "approved", "rejected", "canceled"] as
  * answered, and the only ends besides an answer cancel it with its run.
  */
 export type ApprovalState = (typeof APPROVAL_STATE_VALUES)[number];
-/** Every {@link ApprovalState}. */
+/**
+ * Every {@link ApprovalState}.
+ *
+ * @consumedBy the approval card's ask, pending until answered or canceled with its run
+ */
 export const APPROVAL_STATES: readonly ApprovalState[] = APPROVAL_STATE_VALUES;
 /** Parses an {@link ApprovalState}. */
 export const ApprovalStateSchema: z.ZodType<ApprovalState, ApprovalState> =
@@ -98,7 +106,11 @@ const APPROVAL_DECISION_VALUES = ["approved", "rejected"] as const;
 
 /** The person's answer to an ask. */
 export type ApprovalDecision = (typeof APPROVAL_DECISION_VALUES)[number];
-/** Every {@link ApprovalDecision}. */
+/**
+ * Every {@link ApprovalDecision}.
+ *
+ * @consumedBy the approval card's Allow and Deny
+ */
 export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = APPROVAL_DECISION_VALUES;
 /** Parses an {@link ApprovalDecision}. */
 export const ApprovalDecisionSchema: z.ZodType<ApprovalDecision, ApprovalDecision> =
@@ -134,7 +146,11 @@ const INVALIDATION_TRIGGER_VALUES = ["explicit", "session_end", "server_removed"
  * was removed. A project's rules live in the project's own folder and stay with it.
  */
 export type InvalidationTrigger = (typeof INVALIDATION_TRIGGER_VALUES)[number];
-/** Every {@link InvalidationTrigger}. */
+/**
+ * Every {@link InvalidationTrigger}.
+ *
+ * @consumedBy the inspector's Rules section, whose `Revoke` takes a remembered rule away
+ */
 export const INVALIDATION_TRIGGERS: readonly InvalidationTrigger[] = INVALIDATION_TRIGGER_VALUES;
 /** Parses an {@link InvalidationTrigger}. */
 export const InvalidationTriggerSchema: z.ZodType<InvalidationTrigger, InvalidationTrigger> =
@@ -675,7 +691,11 @@ export interface ApprovalMethodDescriptors {
   >;
 }
 
-/** The `approval.*` descriptor table. */
+/**
+ * The `approval.*` descriptor table.
+ *
+ * @consumedBy the daemon's `approval.*` handlers
+ */
 export const APPROVAL_METHOD_DESCRIPTORS: ApprovalMethodDescriptors = defineMethodDescriptors({
   "approval.resolve": {
     method: "approval.resolve",

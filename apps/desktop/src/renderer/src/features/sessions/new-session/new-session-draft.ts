@@ -5,7 +5,7 @@
 // be read may have made a session it cannot name, so every later send answers from memory with
 // nothing on the wire. `new-session-send.ts` owns what the choices become on the wire.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent-definition";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

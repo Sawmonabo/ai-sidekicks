@@ -20,7 +20,7 @@ import {
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 import { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { createFixtureDaemon } from "@renderer/services/daemon/daemon.fixture.js";
-import type { Scenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "@fixtures/scenario.js";
 
 /** Fixed `app` meta, so a screenshot does not move with the machine. */
 export const FIXTURE_APP_META: PlatformBridge["app"] = {

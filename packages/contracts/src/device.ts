@@ -519,7 +519,11 @@ export interface DeviceProcedureDescriptors {
   >;
 }
 
-/** The device procedures the control plane serves. */
+/**
+ * The device procedures the control plane serves.
+ *
+ * @consumedBy the control plane's `device.*` procedures
+ */
 export const DEVICE_PROCEDURE_DESCRIPTORS: DeviceProcedureDescriptors = defineMethodDescriptors({
   "device.list": {
     method: "device.list",
@@ -615,7 +619,11 @@ export interface DeviceMethodDescriptors {
   >;
 }
 
-/** The device methods a machine's service answers over the channel. */
+/**
+ * The device methods a machine's service answers over the channel.
+ *
+ * @consumedBy a machine's service answering `device.*` over the channel
+ */
 export const DEVICE_METHOD_DESCRIPTORS: DeviceMethodDescriptors = defineMethodDescriptors({
   "device.statementApply": {
     method: "device.statementApply",
@@ -705,7 +713,11 @@ export interface ControlPlaneMethodDescriptors {
   >;
 }
 
-/** The one method the service answers for the window's control-plane calls. */
+/**
+ * The one method the service answers for the window's control-plane calls.
+ *
+ * @consumedBy the daemon's `controlPlane.call` handler
+ */
 export const CONTROL_PLANE_METHOD_DESCRIPTORS: ControlPlaneMethodDescriptors =
   defineMethodDescriptors({
     "controlPlane.call": {

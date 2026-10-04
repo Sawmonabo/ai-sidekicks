@@ -66,13 +66,13 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 ## Default Behavior
 
-- A run's failure detail, carried on its run event, remains durable after bounded raw diagnostic payloads are compacted or removed.
+- A run's failure detail, carried on its run event, remains durable after the diagnostic log files that hold raw payloads are deleted.
 
 ## Fallback Behavior
 
 - If projection rebuild fails, the system enters degraded read-only mode instead of accepting unsafe new mutable work.
 - If provider recovery fails, the affected run remains visible in canonical state `failed` with `provider failure` detail and `recovery-needed` condition rather than disappearing.
-- If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events, the run event's failure detail, and any retained summaries rather than failing closed.
+- If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events and the run event's failure detail rather than failing closed.
 
 ## Interfaces And Contracts
 
@@ -94,9 +94,8 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 ### Required Behavior (policy)
 
 - **Nothing leaves the machine.** The daemon runs no telemetry exporter and sends no diagnostic content to any sink off the machine. The providers' own telemetry is pointed at the daemon on this machine and written to the service's own diagnostic logs, which drop it past `Keep diagnostic logs for`; none of it is forwarded to a telemetry destination the person set. Each request the daemon prices from it becomes an event on its session, the same spend event stream-priced requests write, so the inspector's `Cost` section counts it; it is never a transcript row. A crash report is built on the machine that crashed, stripped of personal data there, and kept there under `Keep crash reports`.
-- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-42)](015-workflow-authoring-and-execution.md#engine-event-record-sa-42) writes, per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) MUST apply a ≤ 7-day TTL by default. `Keep diagnostic logs for` sets the TTL and takes any period.
-- **Bound and erase.** Every diagnostic bucket that stores PII MUST drop its rows past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes it with the data folder. A diagnostic pipeline that keeps PII-carrying records outside both is a spec violation. There is no per-person flush.
-- **Summary-only retention.** Where high-volume tool traces are compacted, the summary form MUST be constructed from non-PII signals (counts, categories, durations) by construction. A summary derived by truncation of free-text input is NOT compliant because truncated PII is still PII.
+- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-42)](015-workflow-authoring-and-execution.md#engine-event-record-sa-42) writes, per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) are log files in the daemon's data folder, never database tables, and MUST apply a ≤ 7-day TTL by default. `Keep diagnostic logs for` sets the TTL and takes any period.
+- **Bound and erase.** Every diagnostic log file MUST be deleted whole once it is past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes it with the data folder. A diagnostic pipeline that keeps PII-carrying records outside both is a spec violation. There is no per-person flush.
 
 ### Cross-Reference To Spec-020
 

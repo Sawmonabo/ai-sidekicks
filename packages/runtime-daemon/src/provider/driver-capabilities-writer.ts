@@ -18,8 +18,8 @@ import {
   ProviderToolMetadataSchema,
   type DriverCapabilityFlag,
   type NormalizedProviderToolMetadata,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {

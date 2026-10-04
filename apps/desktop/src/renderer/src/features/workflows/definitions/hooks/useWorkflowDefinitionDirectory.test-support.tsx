@@ -1,7 +1,8 @@
 // What the directory suite needs to watch the hook: a probe that renders nothing and collects
 // every directory it is handed.
 
-import type { WorkflowDefinitionId, WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
+import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow-definition";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
 import { render } from "@testing-library/react";
 
 import { SECOND_PAGE_CURSOR, definition } from "../../workflows-probe.test-support.js";

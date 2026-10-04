@@ -9,7 +9,7 @@ import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/viewport-constants.js"
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
-import { EMPTY_SESSION_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { registerTranscriptCommands } from "../../contributions/commands.js";

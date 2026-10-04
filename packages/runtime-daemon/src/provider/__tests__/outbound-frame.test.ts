@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { captureThrow } from "../__fixtures__/capture-throw.js";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import { classifyClaudeTurnEvidence } from "../drivers/claude/turn-evidence.js";
 import { CLAUDE_ZERO_TURN_RESULT_FRAME } from "../drivers/claude/__fixtures__/turn-evidence-transcripts.js";
 import {

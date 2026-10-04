@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 import { RefusalError } from "@renderer/lib/refusal.js";
 import { sessionReadThroughDaemon } from "./session-read.js";
 

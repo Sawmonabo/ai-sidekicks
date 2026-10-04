@@ -3,7 +3,7 @@
 // live. It is never re-read from the definition registry, whose row may already have moved.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts";
+import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts/agent-definition";
 import { type AgentToolAllowlistPosition } from "../tool-allowlist.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";

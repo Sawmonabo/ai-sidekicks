@@ -127,12 +127,20 @@ export const McpServerOauthCompletedPayloadSchema: z.ZodType<McpServerOauthCompl
 
 /** No binding with the requested provider, scope, folder and name exists. */
 export type McpServerNotFoundCode = "mcp.server_not_found";
-/** The value of {@link McpServerNotFoundCode}. */
+/**
+ * The value of {@link McpServerNotFoundCode}.
+ *
+ * @consumedBy the handler that returns the `mcp.server_not_found` error
+ */
 export const MCP_SERVER_NOT_FOUND_CODE: McpServerNotFoundCode = "mcp.server_not_found";
 
 /** The submitted configuration failed validation before anything was written. */
 export type McpConfigInvalidCode = "mcp.config_invalid";
-/** The value of {@link McpConfigInvalidCode}. */
+/**
+ * The value of {@link McpConfigInvalidCode}.
+ *
+ * @consumedBy the handler that returns the `mcp.config_invalid` error
+ */
 export const MCP_CONFIG_INVALID_CODE: McpConfigInvalidCode = "mcp.config_invalid";
 
 /**
@@ -140,13 +148,21 @@ export const MCP_CONFIG_INVALID_CODE: McpConfigInvalidCode = "mcp.config_invalid
  * twice, or a Codex project file no longer hashes to what the daemon last read.
  */
 export type McpConfigWriteConflictCode = "mcp.config_write_conflict";
-/** The value of {@link McpConfigWriteConflictCode}. */
+/**
+ * The value of {@link McpConfigWriteConflictCode}.
+ *
+ * @consumedBy the handler that returns the `mcp.config_write_conflict` error
+ */
 export const MCP_CONFIG_WRITE_CONFLICT_CODE: McpConfigWriteConflictCode =
   "mcp.config_write_conflict";
 
 /** The sign-in could not be started. A failure after it started arrives as an event. */
 export type McpOauthFlowFailedCode = "mcp.oauth_flow_failed";
-/** The value of {@link McpOauthFlowFailedCode}. */
+/**
+ * The value of {@link McpOauthFlowFailedCode}.
+ *
+ * @consumedBy the handler that returns the `mcp.oauth_flow_failed` error
+ */
 export const MCP_OAUTH_FLOW_FAILED_CODE: McpOauthFlowFailedCode = "mcp.oauth_flow_failed";
 
 // The method table

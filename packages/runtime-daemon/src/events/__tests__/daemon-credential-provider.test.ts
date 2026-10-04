@@ -9,6 +9,7 @@ import {
   DPOP_AUTHORIZATION_SCHEME,
   DPOP_PROOF_HEADER_NAME,
 } from "../daemon-credential-provider.js";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 describe("assertDpopCredentialMaterial", () => {
   it("REFUSES a Bearer-schemed credential", () => {
@@ -28,17 +29,14 @@ describe("assertDpopCredentialMaterial", () => {
     // Treating a separator-less value as the scheme would put the whole token in the message,
     // and a refusal message gets logged or stored.
     const bareToken = "v4.public.SUPERSECRETTOKENBYTES.deadbeef";
-    let raised: unknown;
-    try {
+    const raised = captureThrow(() =>
       assertDpopCredentialMaterial({
         headers: {
           [AUTHORIZATION_HEADER_NAME]: bareToken,
           [DPOP_PROOF_HEADER_NAME]: "fake.dpop.proof",
         },
-      });
-    } catch (error: unknown) {
-      raised = error;
-    }
+      }),
+    );
 
     expect(raised).toBeInstanceOf(Error);
     const message = (raised as Error).message;

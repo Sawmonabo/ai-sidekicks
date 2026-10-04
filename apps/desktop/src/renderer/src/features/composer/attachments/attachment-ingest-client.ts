@@ -3,7 +3,7 @@
 // synchronous: a press moves the record and returns, and the stream driver's promise, which
 // never rejects, is not awaited. There is no timer, backoff or automatic re-drive.
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";

@@ -12,7 +12,7 @@ import {
   type DriverCapabilityFlag,
   type InterruptRunParams,
   type RunId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
 
 import {
   CodexInterventionDispatcher,

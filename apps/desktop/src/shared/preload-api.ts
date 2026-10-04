@@ -24,14 +24,16 @@ import type {
   DaemonParams,
   DaemonResult,
   DaemonSubscribeParams,
+} from "@ai-sidekicks/contracts/daemon-methods";
+import type {
   MachineSettings,
   MachineSettingsChange,
   MachineSettingsReading,
-  ServicePlaceLocation,
-  SessionId,
   SettingsFileRepair,
-  WorkflowRunId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/machine-settings";
+import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
 
 import type { AppFacts } from "./app-facts.js";
 

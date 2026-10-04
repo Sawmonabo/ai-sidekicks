@@ -309,7 +309,11 @@ export interface RepoMethodDescriptors {
   >;
 }
 
-/** Every `repo.*` method's contract. */
+/**
+ * Every `repo.*` method's contract.
+ *
+ * @consumedBy the daemon's `repo.*` handlers
+ */
 export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescriptors({
   "repo.attach": {
     method: "repo.attach",

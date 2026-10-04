@@ -9,7 +9,7 @@ import type {
   ChangeRequestReviewDecision,
   ChangeRequestState,
   ReviewerVerdict,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/gitflow/hosting";
 
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 

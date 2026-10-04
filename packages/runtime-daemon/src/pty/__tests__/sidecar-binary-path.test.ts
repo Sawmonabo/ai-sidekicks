@@ -4,7 +4,7 @@
 
 import { sep as pathSep } from "node:path";
 
-import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
+import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/error";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,7 +12,7 @@ import {
   resolveSidecarBinaryPath,
   type ResolveSidecarBinaryPathOptions,
 } from "../sidecar-binary-path.js";
-import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
   // Builds injectable deps whose defaults (empty env, throwing require, false existsSync) make

@@ -25,7 +25,7 @@ import { useImportProgress } from "./useImportProgress.js";
 import type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-import";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 

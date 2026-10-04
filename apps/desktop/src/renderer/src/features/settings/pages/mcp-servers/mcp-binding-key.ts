@@ -1,6 +1,6 @@
 // The key one MCP server binding is identified by on the MCP servers page.
 
-import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp";
 
 import { structuralKey } from "@renderer/lib/structural-key.js";
 

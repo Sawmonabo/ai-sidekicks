@@ -14,7 +14,7 @@ import { ScenarioFixtureControl } from "@renderer/services/daemon/selection.fixt
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { readFixtureLaunch } from "@renderer/services/platform/live-bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { findScenario } from "../../../../fixtures/index.js";
+import { findScenario } from "@fixtures/index.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,

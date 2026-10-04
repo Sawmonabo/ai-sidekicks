@@ -7,7 +7,10 @@
 // one edit here, and `readVocabularyMember` and `firstUnadmittedKey` narrow untyped input
 // against those sets for the definition-file readers.
 
-import type { WorkflowDefinitionScope, WorkflowToolBinding } from "@ai-sidekicks/contracts";
+import type {
+  WorkflowDefinitionScope,
+  WorkflowToolBinding,
+} from "@ai-sidekicks/contracts/workflow-definition";
 
 /** The four phase types these screens draw. */
 export const WORKFLOW_PHASE_TYPES = ["single-agent", "multi-agent", "automated", "human"] as const;

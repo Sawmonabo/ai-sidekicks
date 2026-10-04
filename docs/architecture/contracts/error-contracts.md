@@ -190,8 +190,8 @@ WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **contro
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `user.webauthn_challenge_invalid` | The WebAuthn ceremony challenge presented at verification is unknown, already consumed, or expired — challenges are single-use and short-lived, consumed atomically by the fence's `DELETE ... RETURNING` (Plan-015 T6.4 / I-015-8). Domain validation code. | 400 |
-| `user.webauthn_verification_failed` | A WebAuthn registration or assertion response failed verification. Deliberately **one** code for every arm — bad signature, wrong origin, wrong `rpId`, unknown credential, regressed signature counter, and a user-verification bit disagreeing with the mode stored at registration — so the reply is no oracle for which check failed (Plan-015 T6.2 / T6.3 / I-015-9). Domain validation code. | 400 |
+| `user.webauthn_challenge_invalid` | The WebAuthn ceremony challenge presented at verification is unknown, already consumed, or expired — challenges are single-use and short-lived, consumed atomically by the fence's `DELETE ... RETURNING` (Plan-015 T6.4 / I-015-7). Domain validation code. | 400 |
+| `user.webauthn_verification_failed` | A WebAuthn registration or assertion response failed verification. Deliberately **one** code for every arm — bad signature, wrong origin, wrong `rpId`, unknown credential, regressed signature counter, and a user-verification bit disagreeing with the mode stored at registration — so the reply is no oracle for which check failed (Plan-015 T6.2 / T6.3 / I-015-8). Domain validation code. | 400 |
 
 ### Runtime Node
 

@@ -2,7 +2,7 @@
 // actionable split.
 
 import { describe, expect, it } from "vitest";
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { AttentionSummary } from "./attention-summary.js";
 import { attentionCountOf } from "./attention-count.js";
 

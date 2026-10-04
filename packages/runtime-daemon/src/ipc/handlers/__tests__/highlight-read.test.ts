@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { HIGHLIGHT_READ_METHOD } from "@ai-sidekicks/contracts";
+import { HIGHLIGHT_READ_METHOD } from "@ai-sidekicks/contracts/highlight";
 
 import { CodeHighlighter } from "../../../highlight/code-highlighter.js";
 import { MethodRegistryImpl } from "../../registry.js";

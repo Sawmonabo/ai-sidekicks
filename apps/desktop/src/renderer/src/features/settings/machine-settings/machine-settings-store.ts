@@ -1,7 +1,10 @@
 // The store that folds the service's answers about the machine's settings file into a
 // snapshot; `machine-settings-holder.ts` owns its lifetime.
 
-import type { MachineSettings, MachineSettingsChange } from "@ai-sidekicks/contracts";
+import type {
+  MachineSettings,
+  MachineSettingsChange,
+} from "@ai-sidekicks/contracts/machine-settings";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "@renderer/lib/emitter.js";

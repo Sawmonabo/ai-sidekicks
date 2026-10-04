@@ -3,7 +3,7 @@
  * websocket) and composes the command line each choice needs.
  */
 
-import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts";
+import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
 import { CodexDriverConfigError } from "./session-errors.js";
 
 /**

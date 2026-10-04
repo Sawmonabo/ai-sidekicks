@@ -13,9 +13,9 @@ import {
   type ExecutionMode,
   type RepoMountHealth,
   type VcsType,
-  type WorkspaceExecutionModeCapabilitiesReadResponse,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/repo";
+import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 /**
  * One synchronous filesystem measurement, handed in by the service layer. Every projection checks

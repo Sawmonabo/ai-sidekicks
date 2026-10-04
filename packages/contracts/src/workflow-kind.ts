@@ -202,7 +202,11 @@ export interface WorkflowKindMethodDescriptors {
   >;
 }
 
-/** The node catalog's method table. */
+/**
+ * The node catalog's method table.
+ *
+ * @consumedBy the daemon's `workflow.kindList` handler
+ */
 export const WORKFLOW_KIND_METHOD_DESCRIPTORS: WorkflowKindMethodDescriptors =
   defineMethodDescriptors({
     "workflow.kindList": {

@@ -3,7 +3,10 @@
 // the card's own offer rule, so the palette cannot offer an act the card has withdrawn. A record
 // with a resolve in flight contributes no rows.
 
-import type { ApprovalProjectionRow, ApprovalResolveRequest } from "@ai-sidekicks/contracts";
+import type {
+  ApprovalProjectionRow,
+  ApprovalResolveRequest,
+} from "@ai-sidekicks/contracts/approval";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";

@@ -5,7 +5,11 @@ import { z } from "zod";
 
 /** The JSON-RPC method name of the negotiation handshake. */
 export const DAEMON_HELLO_METHOD = "daemon.hello" as const;
-/** The type of {@link DAEMON_HELLO_METHOD}. */
+/**
+ * The type of {@link DAEMON_HELLO_METHOD}.
+ *
+ * @consumedBy the client's `daemon.hello` negotiation
+ */
 export type DaemonHelloMethod = typeof DAEMON_HELLO_METHOD;
 
 /**

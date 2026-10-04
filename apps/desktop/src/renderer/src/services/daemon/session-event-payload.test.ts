@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type EventCategory } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
+import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

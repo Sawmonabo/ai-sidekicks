@@ -2,12 +2,9 @@
 // with no socket or external state. Covers ascending replay with `afterCursor` resume, restore from
 // the daemon's state rather than a client cache, and the abort-signal races.
 
-import {
-  type EventCursor,
-  type SessionEvent,
-  type SessionId,
-  SUBSCRIPTION_CANCEL_METHOD,
-} from "@ai-sidekicks/contracts";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
+import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc-streaming";
 import { describe, expect, it, vi } from "vitest";
 
 import { createDaemonSessionClient } from "../session-client.js";

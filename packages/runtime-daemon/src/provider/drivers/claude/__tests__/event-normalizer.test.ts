@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { captureThrow } from "../../../__fixtures__/capture-throw.js";
+import { captureThrow } from "../../../../__fixtures__/capture-failure.js";
 import {
   CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM,
   CLAUDE_RESULT_SUBTYPES,

@@ -3,7 +3,8 @@
  * the descriptors that read them, and the decisions and responders that answer them.
  */
 
-import { type RunId, type SessionId } from "@ai-sidekicks/contracts";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { ProviderAskOption } from "./ask-option-sets.js";
 
 /**

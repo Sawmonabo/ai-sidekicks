@@ -17,7 +17,7 @@ import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-meth
 import { daemonMethodBindingFor } from "@renderer/services/daemon/daemon-reply-registry.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
-import type { Scenario } from "../../../fixtures/scenario.js";
+import type { Scenario } from "@fixtures/scenario.js";
 
 /**
  * Every reply defect in one scenario: unreachable entries, unregistered calls, unspendable

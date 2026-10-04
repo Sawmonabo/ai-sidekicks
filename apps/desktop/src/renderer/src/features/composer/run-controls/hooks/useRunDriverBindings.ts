@@ -1,6 +1,6 @@
 // One session's run-to-driver bindings, read off its store.
 
-import type { ProviderName } from "@ai-sidekicks/contracts";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 import { useMemo } from "react";
 
 import { foldRunDriverBindings } from "../run-driver-bindings.js";

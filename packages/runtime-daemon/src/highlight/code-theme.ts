@@ -4,7 +4,7 @@
 // its scopes resolve to. Here a foreground is the name of a span class, not a color, so the
 // class falls out of the theme's own scope resolution and the colors stay with the surface that
 // paints them. A token that resolves to the theme's own foreground is plain and carries no span.
-import { HIGHLIGHT_SPAN_CLASSES, type HighlightSpanClass } from "@ai-sidekicks/contracts";
+import { HIGHLIGHT_SPAN_CLASSES, type HighlightSpanClass } from "@ai-sidekicks/contracts/highlight";
 import type { ThemeRegistrationRaw } from "shiki/types";
 
 /** The name the highlighter knows this theme by. */

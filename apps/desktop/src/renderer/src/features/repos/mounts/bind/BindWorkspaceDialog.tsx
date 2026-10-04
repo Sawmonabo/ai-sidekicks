@@ -8,7 +8,7 @@ import "./bind.css";
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

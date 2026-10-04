@@ -2,7 +2,7 @@
 // intervention recorded but not applied latches the confirm, since a second one would double it.
 
 import { describe, expect, it } from "vitest";
-import type { InterventionRequestResponse } from "@ai-sidekicks/contracts";
+import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run-control";
 
 import { readInterventionFormSettlement } from "./intervention-form-settlement.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";

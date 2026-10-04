@@ -1,22 +1,24 @@
 // The provider registry's capability gate: it refuses fail-closed with the wire's `driver.*`
 // codes, a failed registration leaves no entry, and the latest registration's snapshot wins.
 
-import {
-  type ApplyInterventionParams,
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
-  type DriverCompactionResult,
-  type DriverInterventionResult,
-  type InterruptRunParams,
-  type ProviderCommandListResult,
-  type ProviderModel,
-  type ProviderMode,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+import type {
+  ApplyInterventionParams,
+  DriverCapabilities,
+  DriverCapabilityFlag,
+  DriverInterventionResult,
+  InterruptRunParams,
+  ProviderModel,
+  ProviderMode,
+} from "@ai-sidekicks/contracts/provider-driver";
+import type {
+  DriverCompactionResult,
+  ProviderCommandListResult,
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 import { describe, expect, it } from "vitest";
 
 import { CLI_VERSION_REPORT, makeFlags } from "../__fixtures__/capability-results.js";
-import { captureThrow } from "../__fixtures__/capture-throw.js";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import {
   DriverCapabilityUnsupportedError,
   DriverUnavailableError,

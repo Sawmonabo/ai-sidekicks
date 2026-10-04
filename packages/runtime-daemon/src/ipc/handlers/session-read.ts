@@ -3,13 +3,13 @@
 // from the draft store that `session.draftUpdate` writes. The descriptor is not `mutating`,
 // so a read-only client can still read across a protocol version mismatch.
 
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
 import type {
-  MethodRegistry,
   SessionReadRequest,
   SessionReadResponse,
   SessionRecord,
-} from "@ai-sidekicks/contracts";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/session";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session";
 
 import type { SessionDraftStore } from "../../session/session-draft-store.js";
 

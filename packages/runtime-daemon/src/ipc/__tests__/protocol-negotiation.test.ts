@@ -4,13 +4,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonHello, DaemonHelloAck, Handler, HandlerContext } from "@ai-sidekicks/contracts";
+import type { DaemonHello, DaemonHelloAck } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
 import {
   DAEMON_HELLO_METHOD,
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
 
 import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
 import {
@@ -20,6 +21,7 @@ import {
 } from "../protocol-negotiation.js";
 
 import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // A negotiator with its raw and gated registries; `daemon.hello` is registered on the gated one,
 // as bootstrap does.
@@ -134,12 +136,7 @@ describe("the mutating-method gate", () => {
     const ctx: HandlerContext = { transportId: 201 };
     const result = await gated.dispatch("math.read", {}, ctx);
     expect(result).toStrictEqual({ ok: true });
-    let caught: unknown = null;
-    try {
-      await gated.dispatch("math.write", {}, ctx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
     expect(caught).toBeInstanceOf(NegotiationError);
     if (caught instanceof NegotiationError) {
       expect(caught.negotiationCode).toBe("protocol.handshake_required");
@@ -151,12 +148,7 @@ describe("the mutating-method gate", () => {
     const ctx: HandlerContext = { transportId: 204 };
     // With no handshake, the gate must still let an unregistered method reach the inner
     // registry; refusing it would hide the not-found error behind a handshake error.
-    let caught: unknown = null;
-    try {
-      await gated.dispatch("not.registered", {}, ctx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(gated.dispatch("not.registered", {}, ctx));
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("method_not_found");
@@ -209,12 +201,7 @@ describe("the mutating-method gate", () => {
     expect(ack.compatible).toBe(false);
     const readResult = await gated.dispatch("math.read", {}, ctx);
     expect(readResult).toStrictEqual({ ok: true });
-    let caught: unknown = null;
-    try {
-      await gated.dispatch("math.write", {}, ctx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
     expect(caught).toBeInstanceOf(NegotiationError);
     if (caught instanceof NegotiationError) {
       expect(caught.negotiationCode).toBe("protocol.version_mismatch");

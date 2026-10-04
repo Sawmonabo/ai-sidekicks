@@ -2,8 +2,11 @@
 // Spans go out as the flat `[offset, length, class]` list the colorer keeps. The response schema
 // refuses a list too big for one reply frame, so an oversized reply fails the read instead of
 // closing the connection.
-import { HIGHLIGHT_METHOD_DESCRIPTORS, HIGHLIGHT_READ_METHOD } from "@ai-sidekicks/contracts";
-import type { MethodRegistry } from "@ai-sidekicks/contracts";
+import {
+  HIGHLIGHT_METHOD_DESCRIPTORS,
+  HIGHLIGHT_READ_METHOD,
+} from "@ai-sidekicks/contracts/highlight";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
 import type { CodeHighlighter } from "../../highlight/code-highlighter.js";
 import { registerDescribedMethod } from "./register-described-method.js";

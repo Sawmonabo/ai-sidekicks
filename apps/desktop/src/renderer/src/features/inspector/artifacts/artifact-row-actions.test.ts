@@ -3,7 +3,7 @@
 
 import { type Mock, describe, expect, it, vi } from "vitest";
 
-import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
+import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

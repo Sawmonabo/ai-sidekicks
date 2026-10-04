@@ -1,7 +1,8 @@
 // Dispatching the provider's `/compact` command frame on a live Claude channel and waiting for the
 // typed compaction frame that proves it ran.
 
-import type { DriverCompactionResult, SessionId } from "@ai-sidekicks/contracts";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { OutboundTextFrameWriter } from "../../outbound-frame.js";

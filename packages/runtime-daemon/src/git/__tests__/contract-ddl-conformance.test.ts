@@ -8,13 +8,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DRIVER_CAPABILITY_FLAGS,
-  type ExecutionMode,
   type IdempotencyClass,
-  type InterventionState,
   type InterventionType,
-  type QueueItemState,
-  type WorktreeState,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { InterventionState } from "@ai-sidekicks/contracts/run-control";
+import type { QueueItemState } from "@ai-sidekicks/contracts/run-queue";
+import type { WorktreeState } from "@ai-sidekicks/contracts/worktree";
 
 import { applyMigrations, applyPragmas } from "../../session/migration-runner.js";
 

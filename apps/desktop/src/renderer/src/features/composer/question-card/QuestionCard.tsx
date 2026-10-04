@@ -5,7 +5,7 @@
 // `Answer` stays closed until every question has an answer, then sends one per question in
 // one call. The card never settles the question itself.
 
-import type { QuestionAnswer, QuestionAskedPersonalData } from "@ai-sidekicks/contracts";
+import type { QuestionAnswer, QuestionAskedPersonalData } from "@ai-sidekicks/contracts/question";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useQuestionDrafts } from "./hooks/useQuestionDrafts.js";

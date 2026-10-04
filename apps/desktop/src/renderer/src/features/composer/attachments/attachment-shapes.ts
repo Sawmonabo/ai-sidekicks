@@ -5,7 +5,7 @@
 // `Blob`, because a kept handle pins a finished upload's file until the composer unmounts. No
 // shape carries payload bytes, and the caller's filename is never rebuilt into a path.
 
-import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts";
+import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session-draft";
 
 import type { IngestRefusalDisposition } from "./attachment-policy.js";
 

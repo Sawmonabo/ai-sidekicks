@@ -215,7 +215,7 @@ The phase builds on the shipped contracts package.
 
 #### Tasks
 
-- **T21.1-1 — `packages/control-plane/src/rate-limit/rate-limiter.ts` and `packages/contracts/src/rate-limiter.ts`.** In the control plane's file, author `RateLimitEndpointGroup` (registry-key union, D-018-3), `RateLimitCheckRequest`, `RateLimitCheckResponse` and the `RateLimiter` interface. In contracts, author the `RateLimitResponse` wire envelope + `RateLimitResponseSchema` (Zod; both timing fields required, [Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)), and re-export from `packages/contracts/src/index.ts`.
+- **T21.1-1 — `packages/control-plane/src/rate-limit/rate-limiter.ts` and `packages/contracts/src/rate-limiter.ts`.** In the control plane's file, author `RateLimitEndpointGroup` (registry-key union, D-018-3), `RateLimitCheckRequest`, `RateLimitCheckResponse` and the `RateLimiter` interface. In contracts, author the `RateLimitResponse` wire envelope + `RateLimitResponseSchema` (Zod; both timing fields required, [Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); the module is reached at its own subpath, `@ai-sidekicks/contracts/rate-limiter`, with nothing to re-export.
   - **Spec coverage:** Spec-019 §Interfaces And Contracts (RateLimitCheck shape), Spec-019 §Deployment-Aware Abstraction (same programmatic interface in both deployments), Spec-019 §Implementation Notes (single RateLimiter interface), Spec-019 §Overflow Response (standard RateLimitResponse envelope)
   - **Verifies invariant:** I-018-4
   - **Consumes:** [Spec-019 §Canonical Endpoint Group Registry](../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) (a doc contract); zod (workspace dep).
@@ -349,7 +349,7 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 
 ## Dependencies
 
-Strictly **downstream of the control-plane host** for the CP-018-1 tRPC mount, and **upstream of the self-host relay node** (which instantiates the in-memory counter + `createAdmissionCheck` inside its compose-deployed process, CP-018-2). Plan-018's place in the build order is the dispatch group [cross-plan-dependencies §Dispatch groups](../architecture/cross-plan-dependencies.md#dispatch-groups) lists it in.
+Strictly **downstream of the control-plane host** for the CP-018-1 tRPC mount, and **upstream of the self-host relay node** (which instantiates the in-memory counter + `createAdmissionCheck` inside its compose-deployed process, CP-018-2). Its tasks land in the `sign-in-rate-limiter` unit, and T21.3-3 also in `passkey-relying-party`, `devices-and-push` and `control-plane-account`, each for the routes it adds ([cross-plan-dependencies §Remote Control](../architecture/cross-plan-dependencies.md#remote-control)).
 
 ## References
 

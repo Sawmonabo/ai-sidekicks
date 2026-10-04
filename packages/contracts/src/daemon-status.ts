@@ -209,7 +209,11 @@ export interface DaemonStatusMethodDescriptors {
   >;
 }
 
-/** The status and crash-list methods' names, procedure types and shapes. */
+/**
+ * The status and crash-list methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's `daemon.crashList` handler
+ */
 export const DAEMON_STATUS_METHOD_DESCRIPTORS: DaemonStatusMethodDescriptors =
   defineMethodDescriptors({
     "daemon.status.read": {

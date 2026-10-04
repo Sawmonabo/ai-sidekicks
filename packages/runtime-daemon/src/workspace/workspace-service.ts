@@ -17,12 +17,14 @@ import {
   WorkspaceIdSchema,
   type ExecutionMode,
   type VcsType,
-  type WorkspaceBindRequest,
-  type WorkspaceBindResponse,
-  type WorkspaceListRequest,
-  type WorkspaceListResponse,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/repo";
+import type {
+  WorkspaceBindRequest,
+  WorkspaceBindResponse,
+  WorkspaceListRequest,
+  WorkspaceListResponse,
+} from "@ai-sidekicks/contracts/workspace";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { RepoMountNotFoundError } from "./repo-errors.js";
 import { TrustEnvelopeValidator } from "./trust-envelope.js";

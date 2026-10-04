@@ -3,7 +3,7 @@ import {
   PROVIDER_NAMES,
   type BillingMode,
   type ProviderName,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-account";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "./RegistrationOutcomeLine.js";

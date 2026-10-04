@@ -13,9 +13,9 @@
   //
   // The per-symbol dead-code lever: knip reads JSDoc/TSDoc tags off an export, and `-consumedBy`
   // excludes every export carrying `@consumedBy` from the report (the documented `tags` option,
-  // which `apps/desktop/AGENTS.md` binds to a plain-word reason). It is per symbol, unlike `ignore`
-  // (file globs) and `ignoreIssues` (issue types per file pattern), neither of which is used here:
-  // exempting a file would exempt every export it ever grows.
+  // which root `AGENTS.md` engineering rule 13 binds to a plain-word reason). It is per symbol,
+  // unlike `ignore` (file globs) and `ignoreIssues` (issue types per file pattern), neither of
+  // which is used here: exempting a file would exempt every export it ever grows.
   //
   // The one per-file lever is `ignoreFiles`, for a whole file kept for a consumer that is not built
   // yet: one exact path per entry, never a directory or a glob, each with a comment saying what the
@@ -25,10 +25,12 @@
   // The tag must sit on every place knip reports (measured). For a barrelled symbol that is the
   // barrel's own re-export specifier (knip reads per-specifier tags on an `export { … } from`);
   // when the barrel is the defining file's only importer, knip reports the defining declaration
-  // too, so it carries the tag as well. A tag anywhere knip does not report suppresses nothing and
-  // raises an "unused tag" hint, and `--treat-tag-hints-as-errors` turns that hint into a gate
-  // failure, so a marker that outlived its consumer fails the run instead of rotting: the PR that
-  // imports the symbol deletes the tag in the same diff.
+  // too, so it carries the tag as well. A tag on an export something imports raises an "unused
+  // tag" hint, and `--treat-tag-hints-as-errors` turns that hint into a gate failure, so a marker
+  // that outlived its consumer fails the run instead of rotting: the PR that imports the symbol
+  // deletes the tag in the same diff (measured). A tag on an export knip excuses for another
+  // reason, such as a reference in its own file under `ignoreExportsUsedInFile`, raises no hint, so
+  // nothing catches it: it is removed by reading.
   "tags": ["-consumedBy"],
 
   // The root workspace is declared with empty globs on purpose: knip then reads its manifest for
@@ -85,8 +87,8 @@
       // specifiers from the unresolved report and `@iconify-json/*` from the dependency one. The
       // icon sets are reached only through those virtual specifiers, so without the plugin
       // `@iconify-json/tabler` is an unused dependency that in fact supplies the renderer's glyphs,
-      // and the only other way to say so would be an `ignoreDependencies` entry, which
-      // `apps/desktop/AGENTS.md` admits only for a library no code imports yet.
+      // and the only other way to say so would be an `ignoreDependencies` entry, which root
+      // `AGENTS.md` engineering rule 13 admits only for a library no code imports yet.
       "unplugin-icons": true,
 
       // The Vitest plugin reads the config and treats every project's `include` globs as entries,
@@ -100,8 +102,8 @@
       // directory reachable, so no orphan below it can be reported. Measured: a wholly unreachable
       // module planted at `src/renderer/src/lib/` was reported by nothing (rc 0), while the same
       // plant under `scripts/budget/` failed the run (rc 1). No setting here can see that, so the
-      // rule lives where the pattern is written: the test rules in `apps/desktop/AGENTS.md` forbid
-      // a directory glob in any module under `src/`, and `no-restricted-syntax` in
+      // rule lives where the pattern is written: mechanical gate 8 in `apps/desktop/AGENTS.md`
+      // forbids a directory glob in any module under `src/`, and `no-restricted-syntax` in
       // `apps/desktop/eslint.config.mjs` enforces it.
       "vitest": { "config": ["vitest.config.ts"] },
 
@@ -225,7 +227,13 @@
     "packages/contracts": {
       // The conditional-type tests beside the contracts; `tsc -p tsconfig.test.json` checks
       // them, and nothing imports them.
-      "entry": ["src/**/*.test-d.ts"]
+      "entry": ["src/**/*.test-d.ts"],
+      // Every contracts module is a package entry (`exports` maps `./*` onto `src/`), so without
+      // this an export no other workspace imports would never be reported.
+      "includeEntryExports": true,
+      // A same-file consumer counts as a consumer: a schema, closed set or type that only its own
+      // module's exported shapes reference is still part of the contract those shapes describe.
+      "ignoreExportsUsedInFile": true
     },
     "packages/crypto-paseto": {},
     "packages/search-ranking": {},

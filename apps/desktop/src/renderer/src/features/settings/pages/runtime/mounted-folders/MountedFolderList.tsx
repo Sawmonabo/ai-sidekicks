@@ -7,7 +7,7 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
 import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
-import type { SettingsPageContext } from "../../../types.js";
+import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 import { MountedFolderRow } from "./MountedFolderRow.js";
 import { type PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";
 import {

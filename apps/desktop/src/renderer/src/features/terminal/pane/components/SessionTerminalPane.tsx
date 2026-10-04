@@ -6,7 +6,7 @@
 
 import { useMemo } from "react";
 
-import type { TerminalId } from "@ai-sidekicks/contracts";
+import type { TerminalId } from "@ai-sidekicks/contracts/pty";
 
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

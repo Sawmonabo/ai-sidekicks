@@ -8,9 +8,11 @@ import type {
   InterventionRequestPayload,
   InterventionRequestResponse,
   InterventionState,
+} from "@ai-sidekicks/contracts/run-control";
+import type {
   QueueItemCreateRequest,
   QueueItemCreateResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/run-queue";
 
 import { interventionNotApplied } from "./send-refusals.js";
 import type { ComposerMessageOutcome } from "./send-resolutions.js";

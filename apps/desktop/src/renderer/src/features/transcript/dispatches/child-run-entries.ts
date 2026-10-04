@@ -3,11 +3,9 @@
 // `fromActor`, `toActor` and `reason` are read off the payload and rendered verbatim or as an
 // absence, never inferred.
 
-import {
-  type ChildRunSummary,
-  type SessionEventType,
-  type TimelineRow,
-} from "@ai-sidekicks/contracts";
+import type { ChildRunSummary } from "@ai-sidekicks/contracts/timeline/child-run-summary";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 // The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an

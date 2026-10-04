@@ -3,7 +3,7 @@
 // the shape is read. It is test support because nothing in production decodes a timeline row: the
 // app produces them.
 
-import { TimelineRowSchema } from "@ai-sidekicks/contracts";
+import { TimelineRowSchema } from "@ai-sidekicks/contracts/timeline/row";
 
 /**
  * Whether one projected row satisfies the registered timeline-row contract. It uses the real

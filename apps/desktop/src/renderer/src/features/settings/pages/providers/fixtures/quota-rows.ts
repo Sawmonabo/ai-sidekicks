@@ -11,7 +11,7 @@ import type {
   ProviderAccount,
   ProviderAccountUsageWindow,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-account";
 
 import type { ProviderAccountReadout } from "../provider-account-readout.js";
 import { MILLISECONDS_PER_DAY, parseInstant } from "@renderer/lib/instant.js";

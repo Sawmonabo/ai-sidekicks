@@ -19,7 +19,11 @@ import {
 
 /** The refusal of a connection to a pinned relay whose key no longer matches the pin. */
 export const RELAY_SPKI_MISMATCH_CODE = "relay.spki_mismatch" as const;
-/** The type of {@link RELAY_SPKI_MISMATCH_CODE}. */
+/**
+ * The type of {@link RELAY_SPKI_MISMATCH_CODE}.
+ *
+ * @consumedBy the handler that returns the `relay.spki_mismatch` error
+ */
 export type RelaySpkiMismatchCode = typeof RELAY_SPKI_MISMATCH_CODE;
 
 const SpkiPrefixSchema = z
@@ -66,7 +70,11 @@ export interface RelayMethodDescriptors {
   readonly "relay.repin": MethodDescriptor<"relay.repin", RelayRepinRequest, EmptyPayload>;
 }
 
-/** The relay method the service answers, with its schemas. */
+/**
+ * The relay method the service answers, with its schemas.
+ *
+ * @consumedBy the daemon's `relay.repin` handler
+ */
 export const RELAY_METHOD_DESCRIPTORS: RelayMethodDescriptors = defineMethodDescriptors({
   "relay.repin": {
     method: "relay.repin",

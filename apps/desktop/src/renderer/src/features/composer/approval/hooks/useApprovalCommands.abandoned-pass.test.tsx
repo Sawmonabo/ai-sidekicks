@@ -7,7 +7,7 @@ import { render } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts";
+import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";

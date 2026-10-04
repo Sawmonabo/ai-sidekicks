@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { paneContext } from "@test/helpers/pane-context.js";
-import { EMPTY_SESSION_SCENARIO } from "../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {

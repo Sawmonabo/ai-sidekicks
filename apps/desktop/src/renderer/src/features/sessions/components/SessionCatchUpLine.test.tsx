@@ -14,7 +14,7 @@ import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBrid
 import { OpenSessionEntry } from "@renderer/store/session/open-session-entry.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { failingRepoMountsReader } from "@test/helpers/failing-repo-mounts-reader.js";
-import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
 import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
 

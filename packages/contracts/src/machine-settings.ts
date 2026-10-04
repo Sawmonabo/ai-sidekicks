@@ -120,7 +120,11 @@ export interface DaemonEnvironmentNameRefusedDetails {
   name: string;
   reason: EnvironmentNameRefusalReason;
 }
-/** Parses {@link DaemonEnvironmentNameRefusedDetails}. */
+/**
+ * Parses {@link DaemonEnvironmentNameRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `daemon.environment_name_refused` error
+ */
 export const DaemonEnvironmentNameRefusedDetailsSchema: z.ZodType<DaemonEnvironmentNameRefusedDetails> =
   z
     .object({

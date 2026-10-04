@@ -1,7 +1,7 @@
 // Which body a message row renders, the inline cards it hosts, and what its receipt leaves out.
 
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +15,7 @@ import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
-import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";
 
 function renderMessageCard(
   overrides: {

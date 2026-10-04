@@ -207,7 +207,11 @@ export interface ReviewNoteMethodDescriptors {
   >;
 }
 
-/** The held-note methods, each with its schemas. */
+/**
+ * The held-note methods, each with its schemas.
+ *
+ * @consumedBy the daemon's review note handlers
+ */
 export const REVIEW_NOTE_METHOD_DESCRIPTORS: ReviewNoteMethodDescriptors = defineMethodDescriptors({
   "session.reviewNoteAdd": {
     method: "session.reviewNoteAdd",

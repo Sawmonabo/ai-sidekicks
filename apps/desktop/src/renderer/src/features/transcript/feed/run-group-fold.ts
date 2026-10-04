@@ -3,7 +3,7 @@
 // does, this changes when a person toggles a disclosure, and folding inside would
 // re-project every row on each toggle.
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
 import { readRunGroupKey, type RunGroup } from "../run-groups/run-groups.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/run-group-body.js";

@@ -7,7 +7,7 @@ import "./PageTabStrip.css";
 
 import { useState } from "react";
 
-import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts";
+import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview";
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";

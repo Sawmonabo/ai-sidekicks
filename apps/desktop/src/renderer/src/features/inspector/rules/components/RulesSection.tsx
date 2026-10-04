@@ -1,7 +1,7 @@
 // The standing-permission list's own read state. Its phase is separate from the approvals
 // projection's, so neither list hides behind the other's loading.
 
-import type { RememberedRule } from "@ai-sidekicks/contracts";
+import type { RememberedRule } from "@ai-sidekicks/contracts/approval";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { RememberedRules } from "./RememberedRules.js";

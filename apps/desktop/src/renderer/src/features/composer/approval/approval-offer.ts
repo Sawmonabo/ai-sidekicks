@@ -8,7 +8,7 @@ import type {
   ApprovalProjectionRow,
   ApprovalResolveRequest,
   RememberedScope,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/approval";
 
 import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
 import { type Refusal } from "@renderer/lib/refusal.js";

@@ -6,7 +6,7 @@
 import {
   PtyControlChangedPayloadSchema,
   type PtyControlChangedPayload,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/pty";
 
 /** Read a `pty.control_changed` payload, or `undefined` where the wire's is off contract. */
 export function readPtyControlChangedPayload(

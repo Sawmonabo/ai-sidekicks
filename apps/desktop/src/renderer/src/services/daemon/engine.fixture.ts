@@ -21,7 +21,7 @@ import {
   type ScenarioSubscribeOptions,
 } from "./event-delivery.fixture.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
-import type { Scenario } from "../../../../../fixtures/scenario.js";
+import type { Scenario } from "@fixtures/scenario.js";
 
 /**
  * Scripted replies the engine holds waiting for the frozen clock. A held reply is one

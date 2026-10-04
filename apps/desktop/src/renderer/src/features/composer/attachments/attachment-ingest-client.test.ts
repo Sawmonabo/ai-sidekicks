@@ -2,7 +2,8 @@
 // declares, which bytes go and in which order, what an acknowledgement may move, how retry
 // resumes or restarts, that an abandonment stops the bytes, and when the user's payload is let go.
 
-import { ARTIFACT_CHUNK_MAX_BYTES, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts/artifacts/ingest";
+import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc";
 import { describe, expect, it } from "vitest";
 
 import { encodeBase64 } from "./base64.js";

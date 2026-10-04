@@ -5,11 +5,11 @@
 
 import type {
   BranchContextId,
-  RepoMountReadResponse,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
   WorktreeId,
   WorktreeStatusRecord,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/worktree";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 import { act } from "@testing-library/react";
 

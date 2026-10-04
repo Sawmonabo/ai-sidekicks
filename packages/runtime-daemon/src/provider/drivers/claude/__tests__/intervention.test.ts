@@ -2,7 +2,7 @@
 // daemon queues it and a written steer would apply twice; interrupt and cancel map onto the
 // interrupt control request, and a cancel whose receipt lists survivors degrades.
 
-import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
+import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts/provider-driver";
 import { describe, expect, it } from "vitest";
 
 import { ClaudeInterventionDispatcher } from "../intervention.js";

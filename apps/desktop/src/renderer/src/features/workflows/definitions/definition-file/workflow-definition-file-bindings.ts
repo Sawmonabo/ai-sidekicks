@@ -3,12 +3,9 @@
 // an ordinary parse error naming the field. `user` bindings carry no `scopeRef`; `project` and
 // `local` require one.
 
-import {
-  MCP_CONFIG_SCOPES,
-  PROVIDER_NAMES,
-  type McpServerBindingRef,
-  type WorkflowToolBinding,
-} from "@ai-sidekicks/contracts";
+import { MCP_CONFIG_SCOPES, type McpServerBindingRef } from "@ai-sidekicks/contracts/mcp";
+import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider-account";
+import type { WorkflowToolBinding } from "@ai-sidekicks/contracts/workflow-definition";
 
 import {
   firstUnadmittedKey,

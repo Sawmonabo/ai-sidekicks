@@ -3,7 +3,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
+import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { isAcceptedAnswer, pendingRecord } from "../approval-record.test-support.js";

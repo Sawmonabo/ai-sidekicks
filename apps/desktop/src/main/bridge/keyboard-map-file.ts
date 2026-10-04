@@ -11,7 +11,10 @@ import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { SettingsFileRepair, SettingsFileRepairCause } from "@ai-sidekicks/contracts";
+import type {
+  SettingsFileRepair,
+  SettingsFileRepairCause,
+} from "@ai-sidekicks/contracts/machine-settings";
 import * as z from "zod/mini";
 
 import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";

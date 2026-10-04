@@ -3,11 +3,14 @@
  * sandbox.
  */
 
-import { type ExecutionPosture, type SessionCallbackTool } from "@ai-sidekicks/contracts";
+import type {
+  ExecutionPosture,
+  SessionCallbackTool,
+} from "@ai-sidekicks/contracts/provider-driver";
 import { CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS } from "./subagent-policy.js";
 
 /** The server every callback tool is served under; the provider namespaces tools by server. */
-export const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sessions";
+const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sessions";
 
 /** Why the registry is withheld: the bound transport does not write the `--mcp-config` for it. */
 export const CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL: string =
@@ -17,7 +20,7 @@ export const CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL: string =
  * Composes the provider-facing name `mcp__<server>__<tool>`. It is never parsed back, since a tool
  * name containing the separator would be ambiguous; the descriptor carries a reverse map instead.
  */
-export function composeClaudeProviderToolName(serverName: string, toolName: string): string {
+function composeClaudeProviderToolName(serverName: string, toolName: string): string {
   return `mcp__${serverName}__${toolName}`;
 }
 

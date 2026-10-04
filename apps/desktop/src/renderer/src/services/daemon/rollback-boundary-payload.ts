@@ -4,7 +4,10 @@
 // not `RunRolledBackEventSchema`. The schema refines `position` against `payload.targetPosition`,
 // so a payload that fails it has no trustworthy cutoff and the caller drops and counts the row.
 
-import { RunRolledBackEventSchema, type RunRolledBackEvent } from "@ai-sidekicks/contracts";
+import {
+  RunRolledBackEventSchema,
+  type RunRolledBackEvent,
+} from "@ai-sidekicks/contracts/run-control";
 
 /**
  * Read a `run.rolled_back` payload, or `undefined` where the wire's is off contract. Not a throw

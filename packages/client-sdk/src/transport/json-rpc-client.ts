@@ -15,18 +15,20 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
+} from "@ai-sidekicks/contracts/jsonrpc";
+import type {
   MethodDescriptor,
   SubscriptionMethodDescriptor,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/method-descriptor";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
 import {
-  JSONRPC_VERSION,
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
   SubscriptionCancelResultSchema,
   SubscriptionIdSchema,
   type SubscriptionId,
   SubscriptionNotifyParamsSchema,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
 import { z } from "zod";
 import type { ZodType } from "zod";
 

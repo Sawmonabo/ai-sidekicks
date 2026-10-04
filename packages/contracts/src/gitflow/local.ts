@@ -76,13 +76,21 @@ export type DiffFileUnreadableReason = (typeof DIFF_FILE_UNREADABLE_REASONS)[num
  * words travel in the details, and nothing falls back to the other provider.
  */
 export const GITFLOW_GENERATE_FAILED_CODE = "gitflow.generate_failed" as const;
-/** The code string of {@link GITFLOW_GENERATE_FAILED_CODE}. */
+/**
+ * The code string of {@link GITFLOW_GENERATE_FAILED_CODE}.
+ *
+ * @consumedBy the handler that returns the `gitflow.generate_failed` error
+ */
 export type GitflowGenerateFailedCode = typeof GITFLOW_GENERATE_FAILED_CODE;
 /** The details of a {@link GITFLOW_GENERATE_FAILED_CODE} refusal. */
 export interface GitflowGenerateFailedDetails {
   providerFailureDetail: string;
 }
-/** Wire schema for {@link GitflowGenerateFailedDetails}. */
+/**
+ * Wire schema for {@link GitflowGenerateFailedDetails}.
+ *
+ * @consumedBy the handler that returns the `gitflow.generate_failed` error
+ */
 export const GitflowGenerateFailedDetailsSchema: z.ZodType<GitflowGenerateFailedDetails> = z
   .object({
     providerFailureDetail: wireFreeFormString(
@@ -97,7 +105,11 @@ export const GitflowGenerateFailedDetailsSchema: z.ZodType<GitflowGenerateFailed
  * pane shows its own error state and keeps what it already drew.
  */
 export const GITFLOW_READ_FAILED_CODE = "gitflow.read_failed" as const;
-/** The code string of {@link GITFLOW_READ_FAILED_CODE}. */
+/**
+ * The code string of {@link GITFLOW_READ_FAILED_CODE}.
+ *
+ * @consumedBy the handler that returns the `gitflow.read_failed` error
+ */
 export type GitflowReadFailedCode = typeof GITFLOW_READ_FAILED_CODE;
 
 // Branch facts

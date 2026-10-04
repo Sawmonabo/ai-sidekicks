@@ -177,7 +177,11 @@ const CommandWriteResponseSchema: z.ZodType<CommandWriteResponse> = z.null();
 
 // command.ended — the stored ending of one command
 
-/** The event a command's ending is stored as. */
+/**
+ * The event a command's ending is stored as.
+ *
+ * @consumedBy the daemon's command runner, which stores a command's ending
+ */
 export const COMMAND_ENDED_EVENT = "command.ended" as const;
 
 /** How a command ended: it finished, it failed, or the person stopped it. */
@@ -234,7 +238,11 @@ export interface CommandMethodDescriptors {
   >;
 }
 
-/** The `command.*` methods' names, procedure types and shapes. */
+/**
+ * The `command.*` methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's `command.*` handlers
+ */
 export const COMMAND_METHOD_DESCRIPTORS: CommandMethodDescriptors = defineMethodDescriptors({
   "command.list": {
     method: "command.list",

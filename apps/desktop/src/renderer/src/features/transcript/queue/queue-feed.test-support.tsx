@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
-import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
+import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
 
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";

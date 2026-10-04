@@ -1,7 +1,7 @@
 // The queue's ordering rule: how a snapshot and the live tail combine when they disagree about
 // a row. Kept apart from the subscription so it can be tested with no bridge, session or React.
 
-import type { QueueItemSummary } from "@ai-sidekicks/contracts";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 

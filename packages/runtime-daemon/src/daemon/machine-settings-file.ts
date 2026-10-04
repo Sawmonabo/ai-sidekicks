@@ -21,7 +21,7 @@ import {
   type MachineSettingsReading,
   type SettingsFileRepair,
   type SettingsFileRepairCause,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/machine-settings";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;

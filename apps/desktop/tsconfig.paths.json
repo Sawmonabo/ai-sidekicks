@@ -6,7 +6,8 @@
       "@main/*": ["./src/main/*"],
       "@preload/*": ["./src/preload/*"],
       "@shared/*": ["./src/shared/*"],
-      "@test/*": ["./tests/*"]
+      "@test/*": ["./tests/*"],
+      "@fixtures/*": ["./fixtures/*"]
     }
   }
 }

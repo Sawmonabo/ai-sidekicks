@@ -7,7 +7,8 @@
 // decides, and a rejected call propagates. Trimming only decides blankness; the wire gets the
 // user's bytes, and slash rules read the raw text, so indented text starting with `/` is prose.
 
-import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
+import type { InterventionRequestPayload } from "@ai-sidekicks/contracts/run-control";
+import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run-queue";
 
 import {
   readInterventionRequest,

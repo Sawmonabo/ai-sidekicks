@@ -26,13 +26,19 @@ export const VOICE_DICTATION_FRAME_MAX_BYTES: number = (16_000 * 2) / 10;
 /**
  * Voice is refused on an account its provider gives no voice: on Claude Code, an
  * account that is neither a Claude sign-in nor a pasted Claude token.
+ *
+ * @consumedBy the handler that returns the `voice.unavailable` error
  */
 export const VOICE_UNAVAILABLE_CODE = "voice.unavailable" as const;
 
 const VOICE_UNAVAILABLE_REASON_VALUES = ["provider_sign_in_required"] as const;
 /** Why {@link VOICE_UNAVAILABLE_CODE} refused. */
 export type VoiceUnavailableReason = (typeof VOICE_UNAVAILABLE_REASON_VALUES)[number];
-/** Every {@link VoiceUnavailableReason}, as a value. */
+/**
+ * Every {@link VoiceUnavailableReason}, as a value.
+ *
+ * @consumedBy the composer strip's voice refusal, `Voice isn't available on <account>.`
+ */
 export const VOICE_UNAVAILABLE_REASONS: readonly VoiceUnavailableReason[] =
   VOICE_UNAVAILABLE_REASON_VALUES;
 
@@ -44,12 +50,20 @@ export interface VoiceUnavailableDetails {
   reason: VoiceUnavailableReason;
   provider: ProviderName;
 }
-/** Parses {@link VoiceUnavailableDetails}. */
+/**
+ * Parses {@link VoiceUnavailableDetails}.
+ *
+ * @consumedBy the handler that returns the `voice.unavailable` error
+ */
 export const VoiceUnavailableDetailsSchema: z.ZodType<VoiceUnavailableDetails> = z
   .object({ reason: z.enum(VOICE_UNAVAILABLE_REASON_VALUES), provider: ProviderNameSchema })
   .strict();
 
-/** Codex could not start the call. */
+/**
+ * Codex could not start the call.
+ *
+ * @consumedBy the handler that returns the `voice.call_start_failed` error
+ */
 export const VOICE_CALL_START_FAILED_CODE = "voice.call_start_failed" as const;
 
 // Which session voice is on in
@@ -128,7 +142,11 @@ const VOICE_DICTATION_FAILURE_REASON_VALUES = [
  * refused; the speech service refused the account's sign-in.
  */
 export type VoiceDictationFailureReason = (typeof VOICE_DICTATION_FAILURE_REASON_VALUES)[number];
-/** Every {@link VoiceDictationFailureReason}, as a value. */
+/**
+ * Every {@link VoiceDictationFailureReason}, as a value.
+ *
+ * @consumedBy the composer strip's one-line refusal when dictation ends without words
+ */
 export const VOICE_DICTATION_FAILURE_REASONS: readonly VoiceDictationFailureReason[] =
   VOICE_DICTATION_FAILURE_REASON_VALUES;
 
@@ -310,7 +328,11 @@ export interface VoiceMethodDescriptors {
   readonly "voice.voiceList": MethodDescriptor<"voice.voiceList", EmptyPayload, VoiceListResponse>;
 }
 
-/** The `voice.*` method table. */
+/**
+ * The `voice.*` method table.
+ *
+ * @consumedBy the daemon's `voice.*` handlers
+ */
 export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = defineMethodDescriptors({
   "voice.stateUpdate": {
     method: "voice.stateUpdate",

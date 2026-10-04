@@ -3,7 +3,7 @@
 // `authenticated` means a credential is present and not locally known dead, not that the
 // provider accepts it. A remedy is named as an act, never as a command to run.
 
-import type { ProviderAccount, ProviderRemedy } from "@ai-sidekicks/contracts";
+import type { ProviderAccount, ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
 
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { advisoryChoiceIn, type AccountAxisReading, type AccountChoice } from "./account-axis.js";

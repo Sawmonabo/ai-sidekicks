@@ -86,7 +86,11 @@ export interface TurnMethodDescriptors {
     TurnTasksUpdate
   >;
 }
-/** The `turn.*` method table: two subscriptions that follow one run's current turn. */
+/**
+ * The `turn.*` method table: two subscriptions that follow one run's current turn.
+ *
+ * @consumedBy the daemon's `turn.usage` and `turn.tasks` handlers
+ */
 export const TURN_METHOD_DESCRIPTORS: TurnMethodDescriptors = defineMethodDescriptors({
   "turn.usage": {
     method: "turn.usage",

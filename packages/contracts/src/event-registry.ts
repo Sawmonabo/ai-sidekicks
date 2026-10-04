@@ -122,7 +122,6 @@ export type SessionEventType =
   | "recovery.succeeded"
   | "recovery.failed"
   // security_events
-  | "security.update.available"
   | "relay.pin_refused"
   // event_maintenance
   | "event.compacted"
@@ -194,24 +193,46 @@ export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] =
  * The event types of the `session_lifecycle` category: session (including the side question, the
  * undo record, the pin and mute marks and a chat's conversion), agent, repo, workspace and
  * worktree (including the branch change and the sweep to the repository root), pty and cloud task.
+ *
+ * @consumedBy a reader of the `session_lifecycle` events
  */
 export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("session_lifecycle");
-/** The event types of the `approval_flow` category. */
+/**
+ * The event types of the `approval_flow` category.
+ *
+ * @consumedBy a reader of the `approval_flow` events
+ */
 export const APPROVAL_FLOW_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn("approval_flow");
 /** The event types of the `usage_telemetry` category. */
 export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("usage_telemetry");
-/** The event types of the `recovery_events` category. */
+/**
+ * The event types of the `recovery_events` category.
+ *
+ * @consumedBy a reader of the `recovery_events` events
+ */
 export const RECOVERY_EVENTS_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("recovery_events");
-/** The event types of the `security_events` category. */
+/**
+ * The event types of the `security_events` category.
+ *
+ * @consumedBy a reader of the `security_events` events
+ */
 export const SECURITY_EVENTS_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("security_events");
-/** The event types of the `event_maintenance` category. */
+/**
+ * The event types of the `event_maintenance` category.
+ *
+ * @consumedBy a reader of the `event_maintenance` events
+ */
 export const EVENT_MAINTENANCE_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("event_maintenance");
-/** The event types of the `orchestration_admission` category. */
+/**
+ * The event types of the `orchestration_admission` category.
+ *
+ * @consumedBy a reader of the `orchestration_admission` events
+ */
 export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("orchestration_admission");
 /**
@@ -220,18 +241,34 @@ export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] =
  */
 export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("mcp_governance");
-/** The event types of the `workflow_lifecycle` category. */
+/**
+ * The event types of the `workflow_lifecycle` category.
+ *
+ * @consumedBy a reader of the `workflow_lifecycle` events
+ */
 export const WORKFLOW_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("workflow_lifecycle");
-/** The event types of the `workflow_phase_lifecycle` category. */
+/**
+ * The event types of the `workflow_phase_lifecycle` category.
+ *
+ * @consumedBy a reader of the `workflow_phase_lifecycle` events
+ */
 export const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn(
   "workflow_phase_lifecycle",
 );
-/** The event types of the `workflow_parallel_coordination` category. */
+/**
+ * The event types of the `workflow_parallel_coordination` category.
+ *
+ * @consumedBy a reader of the `workflow_parallel_coordination` events
+ */
 export const WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn(
   "workflow_parallel_coordination",
 );
-/** The event types of the `workflow_gate_resolution` category. */
+/**
+ * The event types of the `workflow_gate_resolution` category.
+ *
+ * @consumedBy a reader of the `workflow_gate_resolution` events
+ */
 export const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn(
   "workflow_gate_resolution",
 );

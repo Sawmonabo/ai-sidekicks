@@ -65,7 +65,11 @@ export interface PushProcedureDescriptors {
   readonly "push.send": MethodDescriptor<"push.send", PushSendRequest, EmptyPayload>;
 }
 
-/** The push procedure the control plane serves, with its schemas. */
+/**
+ * The push procedure the control plane serves, with its schemas.
+ *
+ * @consumedBy the control plane's `push.*` procedures
+ */
 export const PUSH_PROCEDURE_DESCRIPTORS: PushProcedureDescriptors = defineMethodDescriptors({
   "push.send": {
     method: "push.send",

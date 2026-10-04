@@ -9,13 +9,13 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { WorkspaceState } from "@ai-sidekicks/contracts";
+import type { WorkspaceState } from "@ai-sidekicks/contracts/repo";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { EventLogAppendReceipt } from "../../events/event-log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
-import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import type { EmitWorktreeEventInput } from "../worktree-event-emitter.js";
 import {

@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 
-import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider-driver";
 
 /**
  * The registry in the two states the callback tools section keeps apart. Both carry entries:

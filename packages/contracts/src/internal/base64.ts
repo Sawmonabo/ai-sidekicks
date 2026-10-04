@@ -1,4 +1,4 @@
-// Internal helper for the contracts package; not re-exported from `src/index.ts`.
+// Internal helper for the contracts package; the package's exports map closes `internal/*`.
 
 /**
  * The decoded byte count of a standard-alphabet base64 string, or -1 if the value does not decode.

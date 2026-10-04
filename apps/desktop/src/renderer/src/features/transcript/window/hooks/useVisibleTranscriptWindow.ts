@@ -4,7 +4,7 @@
 
 import { useMemo } from "react";
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TranscriptWindowModel } from "../transcript-window.js";

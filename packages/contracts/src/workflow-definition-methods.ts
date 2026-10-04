@@ -72,10 +72,18 @@ import {
 
 // Refusals
 
-/** An update whose expected version is no longer the latest; nothing is written. */
+/**
+ * An update whose expected version is no longer the latest; nothing is written.
+ *
+ * @consumedBy the handler that returns the `workflow.version_stale` error
+ */
 export const WORKFLOW_VERSION_STALE_CODE = "workflow.version_stale" as const;
 
-/** An imported file whose schema version this daemon does not know. */
+/**
+ * An imported file whose schema version this daemon does not know.
+ *
+ * @consumedBy the handler that returns the `workflow.import_schema_unknown` error
+ */
 export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unknown" as const;
 
 // workflow.definitionCreate
@@ -724,7 +732,11 @@ export interface WorkflowDefinitionMethodDescriptors {
   >;
 }
 
-/** The `workflow.*` method table over definitions. */
+/**
+ * The `workflow.*` method table over definitions.
+ *
+ * @consumedBy the daemon's workflow definition handlers
+ */
 export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDescriptors =
   defineMethodDescriptors({
     "workflow.definitionCreate": {

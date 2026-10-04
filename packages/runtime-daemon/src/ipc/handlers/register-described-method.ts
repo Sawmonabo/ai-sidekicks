@@ -3,11 +3,10 @@
 // another method's shapes.
 import type {
   AnyMethodDescriptor,
-  Handler,
-  MethodRegistry,
   MethodRequestOf,
   MethodResponseOf,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/method-descriptor";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
 /** A descriptor answered with one result: a subscription streams and binds elsewhere. */
 type SingleResultDescriptor = AnyMethodDescriptor & {

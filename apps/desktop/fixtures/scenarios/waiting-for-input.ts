@@ -26,18 +26,19 @@
 // first entry, so a second `driver.listProviderCommands` refusal would be unreachable. That arm
 // is tested in `features/composer/command-list/`, over a bridge whose scenario refuses the call.
 
+import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent-definition";
 import {
-  AgentIdSchema,
   UserIdSchema,
-  RunIdSchema,
   SessionIdSchema,
-  type AgentId,
   type UserId,
-  type RunId,
   type SessionId,
+} from "@ai-sidekicks/contracts/session";
+import {
+  RunIdSchema,
+  type RunId,
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
 import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

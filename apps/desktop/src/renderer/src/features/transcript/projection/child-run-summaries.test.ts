@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
+import { EVENT_ID_STEM } from "@fixtures/scenarios/transcript-states.js";
 import { projectTranscriptRows } from "./transcript-row-projection.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 

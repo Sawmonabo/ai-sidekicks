@@ -10,7 +10,7 @@ import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegi
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import { requestComposerFocus } from "../../../composer-focus-requests.js";
+import { requestComposerFocus } from "@renderer/features/composer/composer-focus-requests.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_COMMAND_PREFILL,

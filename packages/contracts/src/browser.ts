@@ -226,7 +226,11 @@ export interface BrowserMethodDescriptors {
   >;
 }
 
-/** The `browser.*` methods the daemon answers, each with its schemas. */
+/**
+ * The `browser.*` methods the daemon answers, each with its schemas.
+ *
+ * @consumedBy the daemon's `browser.*` handlers
+ */
 export const BROWSER_METHOD_DESCRIPTORS: BrowserMethodDescriptors = defineMethodDescriptors({
   "browser.siteDataList": {
     method: "browser.siteDataList",

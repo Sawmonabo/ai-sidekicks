@@ -11,13 +11,12 @@
 //   guard. `driverName` is typed at the write and parsed as a provider name on every read.
 //   `update` runs IMMEDIATE (see the `#updateTxn` field).
 
-import {
-  ProviderNameSchema,
-  type ExecutionPosture,
-  type ProviderName,
-  type SessionCallbackTool,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { ProviderNameSchema, type ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ExecutionPosture,
+  SessionCallbackTool,
+} from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {

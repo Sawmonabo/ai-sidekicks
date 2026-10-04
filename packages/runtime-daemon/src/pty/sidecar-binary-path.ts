@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   PTY_BACKEND_UNAVAILABLE_CODE,
   type PtyBackendUnavailableDetails,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/error";
 
 /**
  * Thrown when no PTY backend is usable (binary missing, crash budget exhausted). `details` is the
