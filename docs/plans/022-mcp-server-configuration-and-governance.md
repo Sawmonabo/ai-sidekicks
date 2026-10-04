@@ -546,6 +546,16 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** the inventory ← T28.2.4 (Phase 2, merged); the session sets ← T28.3.3 and T28.3.8 (Phase 3, merged).
   - **Not built:** all these operations.
 
+- **T28.5.13 — The person's own tool servers in the session's sandbox at `Sandboxed`.**
+  - Files: `packages/runtime-daemon/src/mcp/` (EXTEND — the daemon's own client's stdio start, T28.5.9, and the Claude session-set builder, T28.3.3); `packages/runtime-daemon/package.json` (`@anthropic-ai/sandbox-runtime`)
+  - At `Sandboxed`, every stdio server a session starts runs in the session's own sandbox. Codex: the daemon's client starts the server as `codex sandbox --permission-profile <the session's profile> --cd <the worktree> -- <command> <args>`, the per-repository profile Plan-003 T3.20 builds. Claude Code: each stdio entry in the session's `mcp_set_servers` set becomes `srt --settings <the session's file> <command> <args>`; the file, written by the daemon with owner-only access and removed with the session, holds `filesystem.allowWrite` from the session's writable roots, `denyWrite` for the git folder's `hooks` and `config` and the worktree's `.git` pointer, `denyRead` for the curated credential paths, and `network.allowedDomains` and `deniedDomains` from the person's own Claude Code `sandbox.network` settings across Claude Code's scopes. A server at an address is unchanged; below `Sandboxed` nothing is wrapped; a workflow step at `Sandboxed` gets the same wrap.
+  - Dependency choice: `@anthropic-ai/sandbox-runtime` (Apache-2.0, Anthropic, the engine Claude Code's own sandbox runs on) for the Claude leg, and Codex's own `codex sandbox` for the Codex leg, so each server is held by the same engine as that provider's commands. Hand-written Seatbelt and bubblewrap profiles were rejected as code the project would maintain forever; one engine for both legs was rejected because the Codex profile, with the person's own Codex network settings, is only applied exactly by Codex.
+  - **Spec coverage:** Spec-024 §A session's own tool servers; Spec-010 §Required Behavior (`sandboxed`)
+  - **Verifies invariant:** none (asserted at T28.5.8)
+  - **Consumes:** the session's permission level and posture ← Plan-009; the per-repository profile ← Plan-003 T3.20; the daemon's client ← T28.5.9; the Claude session set ← T28.3.3.
+  - Tests: at `Sandboxed` on each provider, a stdio server that writes outside the worktree is refused, one that reads a curated credential path is refused, and one that reaches a host the person's settings do not give is refused, while a write inside the worktree and an allowed host succeed; at `Ask` the same server is started unwrapped. Measured at `codex-cli 0.160.0` and sandbox-runtime 0.0.78 on macOS: both refused a write outside the folder, `srt` refused a denied read and an unlisted host and passed a listed one, and the `:workspace` profile kept the network off by default.
+  - **Not built:** all of it.
+
 ## Rollout Order
 
 1. Phases 1–5 as sequenced above.
