@@ -12,11 +12,12 @@ import {
   composeCodexSubagentConfigOverrides,
   composeCodexThreadPosture,
   composeCodexTurnSandboxPolicy,
+  findCodexSandboxModeDivergence,
   parseCodexSessionConfig,
   resolveBoundProviderAccountId,
 } from "./session-config.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
-import { CodexDriverConfigError } from "./session-errors.js";
+import { CodexDriverConfigError, CodexTransportError } from "./session-errors.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "./server-requests.js";
 import type {
@@ -159,9 +160,8 @@ export class CodexSpawnPosture {
   }
 
   /**
-   * The spawn-time posture legs (`sandbox`, `approvalPolicy`). Presets are expanded daemon-side, so
-   * the profile name is not forwarded; the credential deny-list is realized in the child
-   * environment, so no credential axis is read here.
+   * The spawn-time posture legs (`sandbox`, `approvalPolicy`). The credential deny-list is realized
+   * in the child environment, so no credential axis is read here.
    */
   #composeSpawnPostureParams(posture: ExecutionPosture | undefined): Record<string, unknown> {
     if (posture === undefined) {
@@ -169,6 +169,41 @@ export class CodexSpawnPosture {
     }
     const { sandbox, approvalPolicy } = composeCodexThreadPosture(posture);
     return { sandbox, approvalPolicy };
+  }
+
+  /**
+   * Refuses a run that declares a posture on a session established with none, or whose posture maps
+   * to another Codex sandbox mode than the session's: the person's own network setting is known
+   * only for the thread's own sandbox, and moving a conversation's level is a thread-level change,
+   * not a turn override. Throws `CodexTransportError`.
+   */
+  assertRunSandboxModeMatchesSession(record: CodexSessionRecord, params: StartRunParams): void {
+    const runPosture = params.executionPosture;
+    if (runPosture === undefined) {
+      return;
+    }
+    const sessionPosture = record.executionPosture;
+    if (sessionPosture === undefined) {
+      throw new CodexTransportError(
+        `The run declares execution posture ${runPosture.mode}, but session "${record.sessionId}" was established with none.`,
+        {
+          sessionId: record.sessionId,
+          runId: params.runId,
+          reason: "execution_posture_mismatch",
+        },
+      );
+    }
+    const divergence = findCodexSandboxModeDivergence(runPosture, sessionPosture);
+    if (divergence !== undefined) {
+      throw new CodexTransportError(
+        `The run's execution posture ${runPosture.mode} runs Codex in the ${divergence.run} sandbox, but session "${record.sessionId}" was established at ${sessionPosture.mode} in the ${divergence.session} sandbox.`,
+        {
+          sessionId: record.sessionId,
+          runId: params.runId,
+          reason: "execution_posture_mismatch",
+        },
+      );
+    }
   }
 
   /**

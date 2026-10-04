@@ -126,27 +126,40 @@ export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThrea
 }
 
 /**
+ * Names the Codex sandbox modes two postures map to when they differ, or `undefined` when both run
+ * in the same mode.
+ */
+export function findCodexSandboxModeDivergence(
+  runPosture: ExecutionPosture,
+  sessionPosture: ExecutionPosture,
+): { readonly run: CodexSandboxMode; readonly session: CodexSandboxMode } | undefined {
+  const run = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[runPosture.mode];
+  const session = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[sessionPosture.mode];
+  return run === session ? undefined : { run, session };
+}
+
+/**
  * Per-turn `sandboxPolicy`, sent every turn because it carries the writable roots the thread-level
  * mode cannot; the two exclude flags are pinned `true` so `writableRoots` is the complete list.
- * `providerNetworkAccess` is the person's own network setting, read from the thread reply.
+ * `providerNetworkAccess` is the person's own workspace network setting, read from the thread reply.
  */
 export function composeCodexTurnSandboxPolicy(
   posture: ExecutionPosture,
   providerNetworkAccess: boolean | undefined,
 ): Record<string, unknown> {
-  // Echoed, never omitted when known: Codex reads an omitted `networkAccess` as off.
-  const networkAccessMember =
-    providerNetworkAccess === undefined ? {} : { networkAccess: providerNetworkAccess };
   switch (CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode]) {
     case "danger-full-access":
       return { type: "dangerFullAccess" };
     case "read-only":
-      return { type: "readOnly", ...networkAccessMember };
+      // The person's network setting drives only the workspace sandbox; Codex's own Read Only
+      // omits the member.
+      return { type: "readOnly" };
     case "workspace-write":
       return {
         type: "workspaceWrite",
         writableRoots: posture.writableRoots,
-        ...networkAccessMember,
+        // Echoed, never omitted when known: Codex reads an omitted `networkAccess` as off.
+        ...(providerNetworkAccess === undefined ? {} : { networkAccess: providerNetworkAccess }),
         excludeTmpdirEnvVar: true,
         excludeSlashTmp: true,
       };

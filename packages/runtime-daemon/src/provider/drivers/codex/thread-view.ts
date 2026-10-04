@@ -31,13 +31,17 @@ export function readThread(response: unknown, method: string): ThreadView {
 }
 
 /**
- * Reads the network access a thread reply's realized `sandbox` carries, which reflects the person's
- * own Codex config; `undefined` when the policy has no boolean member (Full Access has none).
+ * Reads the network access a thread reply's realized workspace sandbox carries, which reflects the
+ * person's own Codex config; `undefined` for any other sandbox, since that setting drives only the
+ * workspace one, or when the member is not a boolean.
  */
 export function readThreadNetworkAccess(response: unknown): boolean | undefined {
   const record = isPlainObject(response) ? response : {};
   const sandbox = record["sandbox"];
-  const networkAccess = isPlainObject(sandbox) ? sandbox["networkAccess"] : undefined;
+  if (!isPlainObject(sandbox) || sandbox["type"] !== "workspaceWrite") {
+    return undefined;
+  }
+  const networkAccess = sandbox["networkAccess"];
   return typeof networkAccess === "boolean" ? networkAccess : undefined;
 }
 

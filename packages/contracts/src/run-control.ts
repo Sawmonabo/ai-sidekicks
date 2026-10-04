@@ -292,10 +292,6 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z
   .object({
     mode: PermissionLevelSchema,
     writableRoots: z.array(filesystemPathSchema),
-    profileName: wireFreeFormString(
-      DRIVER_WIRE_HANDLE_MAX_LEN,
-      "ExecutionPosture.profileName",
-    ).optional(),
     credentialPolicyRef: wireFreeFormString(
       DRIVER_WIRE_HANDLE_MAX_LEN,
       "ExecutionPosture.credentialPolicyRef",

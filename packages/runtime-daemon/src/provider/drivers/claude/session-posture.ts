@@ -11,7 +11,7 @@ import { canonicalizeJson } from "../../../events/canonicalizer.js";
 // differing on any (see `assertClaudeSpawnBoundRealization`). Enumerated from the contract type,
 // not sampled: a skipped axis would admit a run into a process whose sandbox differs from its
 // posture. Set axes compare order-insensitively, scalars strictly.
-const CLAUDE_POSTURE_SCALAR_AXES = ["mode", "credentialPolicyRef", "profileName"] as const;
+const CLAUDE_POSTURE_SCALAR_AXES = ["mode", "credentialPolicyRef"] as const;
 
 const CLAUDE_POSTURE_SET_AXES = ["writableRoots"] as const;
 

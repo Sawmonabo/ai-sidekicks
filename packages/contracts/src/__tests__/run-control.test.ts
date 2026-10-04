@@ -187,12 +187,12 @@ describe("RunStateChangeEvent", () => {
   describe("the executionPosture member", () => {
     const base = { writableRoots: ["/workspace"], credentialPolicyRef: "policy://default" };
 
-    it("admits a posture at each permission level, with or without a profile name", () => {
+    it("admits a posture at each permission level", () => {
       const postures = [
         { ...base, mode: "readonly", writableRoots: [] },
         { ...base, mode: "sandboxed" },
         { ...base, mode: "reviewed" },
-        { ...base, mode: "ask", profileName: "default" },
+        { ...base, mode: "ask" },
         { ...base, mode: "yolo", writableRoots: [] },
       ];
       for (const executionPosture of postures) {

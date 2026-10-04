@@ -325,7 +325,6 @@ export const DriverInterventionResultSchema: z.ZodType<
 export type ExecutionPosture = {
   mode: PermissionLevel;
   writableRoots: string[];
-  profileName?: string | undefined;
   credentialPolicyRef: string;
 };
 

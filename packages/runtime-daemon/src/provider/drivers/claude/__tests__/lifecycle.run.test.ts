@@ -52,7 +52,6 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
     mode: "sandboxed",
     credentialPolicyRef: "policy://default",
     writableRoots: ["/workspace", "/tmp/scratch"],
-    profileName: "default",
   };
   const SPAWN_SCHEMA: Record<string, unknown> = {
     type: "object",
@@ -96,12 +95,6 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
       label: "a run under another credential policy",
       spawn: { executionPosture: SPAWN_POSTURE },
       run: { executionPosture: { ...SPAWN_POSTURE, credentialPolicyRef: "policy://elevated" } },
-      refusal: "execution_posture_mismatch",
-    },
-    {
-      label: "a run under another sandbox profile",
-      spawn: { executionPosture: SPAWN_POSTURE },
-      run: { executionPosture: { ...SPAWN_POSTURE, profileName: "permissive" } },
       refusal: "execution_posture_mismatch",
     },
     {
