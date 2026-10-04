@@ -5,7 +5,7 @@ import type { ProjectedSessionEvent } from "../../session/entities/entities.js";
 import { useSessionDegradedCause } from "../../session/hooks/useSessionInitialized.js";
 import { useSessionStore } from "../../session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "../../session/session-store.js";
-import { type SessionStoreState } from "../../session/session-state.js";
+import { selectTranscript } from "../../session/session-selectors.js";
 
 /**
  * The two triggers that are properties of one session: the repair edge and the transcript.
@@ -92,8 +92,4 @@ class ReadTriggerMemory {
     this.#requestedThroughSequence = this.#latestSignalSequence;
     return true;
   }
-}
-
-function selectTranscript(state: SessionStoreState): readonly ProjectedSessionEvent[] {
-  return state.transcript;
 }

@@ -6,5 +6,5 @@ import { ScreenNotice } from "@renderer/components/ScreenNotice/ScreenNotice.js"
 
 /** The route's frame before its screen. */
 export function PendingScreenBody(): React.JSX.Element {
-  return <ScreenNotice>{null}</ScreenNotice>;
+  return <ScreenNotice />;
 }

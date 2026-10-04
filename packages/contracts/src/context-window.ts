@@ -1,5 +1,5 @@
-// The context-window figures a `usage.context_window_update` row carries: how full a run's
-// conversation is, and where the window's size came from.
+// Where the window size on a `usage.context_window_update` row came from: the closed set both the
+// daemon and the renderer read.
 
 /**
  * Where a context window's figures came from: the provider reported them, or the window is the

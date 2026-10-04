@@ -14,9 +14,8 @@ export interface PendingPaneBodyProps {
 }
 
 /**
- * The pane before its body: the chrome needs no module-loading prop. The close control is not
- * passed: it reaches the chrome through the layout's context, so the strip is identical across
- * the swap.
+ * The pane before its body. The close control is not passed: it reaches the chrome through the
+ * layout's context, so the strip is identical across the swap.
  */
 export function PendingPaneBody(props: PendingPaneBodyProps): React.JSX.Element {
   const { context } = props;
@@ -25,8 +24,6 @@ export function PendingPaneBody(props: PendingPaneBodyProps): React.JSX.Element 
       kind={context.kind}
       sessionId={context.sessionStore?.sessionId}
       entity={"entity" in context ? context.entity : undefined}
-    >
-      {null}
-    </PaneFrame>
+    />
   );
 }

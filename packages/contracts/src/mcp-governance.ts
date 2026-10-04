@@ -1,5 +1,4 @@
-// The `mcp.*` method table, the sign-in event payload, the status notice payload and the refusal
-// codes. A payload names a binding by its provider, scope and server name, never its folder.
+// The `mcp.*` method table, the sign-in event payload, the status notice and the refusal codes. A payload names a binding by its provider, scope and server name, never its folder.
 import { z } from "zod";
 
 import {
@@ -81,29 +80,36 @@ const initiatingSessionShape = { initiatingSessionId: SessionIdSchema.optional()
 
 /**
  * `mcp.server_status_changed`, the live notice of a status change on `mcp.subscribe`, written to
- * no log. A `session_feed` observation names the live leg it came from; a `node_probe`
- * observation has no leg and carries no `bindingId`.
+ * no log. A `session_feed` observation names the session and the live leg it came from; a
+ * `node_probe` observation has neither.
  */
-export type McpServerStatusChangedPayload = McpServerBindingAuditRef & {
+export type McpServerStatusChangedNotice = McpServerBindingAuditRef & {
+  type: "mcp.server_status_changed";
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string | undefined;
   origin: "session_feed" | "node_probe";
+  sessionId?: SessionId | undefined;
   bindingId?: string | undefined;
 };
-/** Parses an {@link McpServerStatusChangedPayload}. */
-export const McpServerStatusChangedPayloadSchema: z.ZodType<McpServerStatusChangedPayload> =
+/** Parses an {@link McpServerStatusChangedNotice}. */
+export const McpServerStatusChangedNoticeSchema: z.ZodType<McpServerStatusChangedNotice> =
   auditAddressed({
+    type: z.literal("mcp.server_status_changed"),
     previousStatus: McpServerStatusSchema,
     status: McpServerStatusSchema,
     failureReason: z.string().optional(),
     origin: z.enum(["session_feed", "node_probe"]),
+    sessionId: SessionIdSchema.optional(),
     bindingId: z.string().min(1).optional(),
   }).refine(
-    (payload) => (payload.origin === "session_feed") === (payload.bindingId !== undefined),
+    (notice) =>
+      notice.origin === "session_feed"
+        ? notice.sessionId !== undefined && notice.bindingId !== undefined
+        : notice.sessionId === undefined && notice.bindingId === undefined,
     {
-      message: "bindingId is carried exactly when the observation came from a session's leg.",
-      path: ["bindingId"],
+      message: "sessionId and bindingId are carried exactly when a session's leg saw the change.",
+      path: ["origin"],
     },
   );
 

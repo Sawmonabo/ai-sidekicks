@@ -14,7 +14,7 @@
 import { expect } from "vitest";
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
-import { scenarioDeliverySchedule } from "../helpers/scenario-delivery-schedule.js";
+import { scenarioDeliverySchedule } from "./scenario-delivery-schedule.js";
 import {
   CLOSE_CONTROL_LABEL,
   OPEN_CONTROL_LABEL,

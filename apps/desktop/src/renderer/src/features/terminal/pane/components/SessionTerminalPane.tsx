@@ -10,7 +10,7 @@ import type { TerminalId } from "@ai-sidekicks/contracts/pty";
 
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type SessionStoreState } from "@renderer/store/session/session-state.js";
+import { selectTranscript } from "@renderer/store/session/session-selectors.js";
 import { LeaseLine } from "../../lease/components/LeaseLine.js";
 import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../lease/lease-model.js";
@@ -49,9 +49,4 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
       />
     </>
   );
-}
-
-/** Stored reference, never a built value — the store's own equality rests on it. */
-function selectTranscript(state: SessionStoreState): SessionStoreState["transcript"] {
-  return state.transcript;
 }

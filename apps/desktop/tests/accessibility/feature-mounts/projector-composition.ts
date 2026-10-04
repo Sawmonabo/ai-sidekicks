@@ -3,16 +3,16 @@
 // The partition set is one claim, and it is the window's to make, once, in `app/registrations.ts`.
 // A mount that named its own registrars would choose which partitions its view can read: one that
 // folds `approval` but not `run` leaves a view that reads the run a decision names with nothing to
-// find, and both tiers pass on it. A store opened with no projectors folds nothing, which looks
+// find, and the audit passes on it. A store opened with no projectors folds nothing, which looks
 // exactly like a session with no runs. So mounts take the production composition (the snapshot
 // `registerFeatureContributions` produces), and a feature that claims a new event kind is folded
-// by every capture and audit the day it lands. No module under this directory reaches a projector
-// registrar directly.
+// by every audit the day it lands. No module under this directory reaches a projector registrar
+// directly.
 //
 // It is composed into registries this module owns, which is what makes module scope safe:
 // `registerFeatureContributions` writes only into the registries it is handed
 // (`app/registrations.test.ts` asserts it). A constant rather than a factory, since the snapshot
-// is frozen at the registry's edge and every mount in a tier then folds with one table.
+// is frozen at the registry's edge and every mount then folds with one table.
 
 import { registerFeatureContributions } from "@renderer/app/registrations.js";
 import { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";

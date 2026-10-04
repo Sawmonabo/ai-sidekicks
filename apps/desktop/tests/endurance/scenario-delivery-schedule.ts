@@ -3,8 +3,8 @@
 // Steps rather than one jump: a delivered beat is applied through a coalescing window armed on the
 // same frozen clock, and the engine emits its beats after moving the clock, so one advance past
 // the last beat leaves the last batch queued behind a deadline nothing reaches. The drain steps
-// carry that window past its deadline. Every walker, in the driver process or inside the
-// renderer, takes its steps from here.
+// carry that window past its deadline. Every endurance walker, in the driver process or inside
+// the renderer, takes its steps from here.
 
 import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 

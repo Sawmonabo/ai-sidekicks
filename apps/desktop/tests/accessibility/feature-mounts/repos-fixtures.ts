@@ -38,8 +38,8 @@ export function scenarioBridgeAndStore(): {
  * The change set the diff pane is drawn over, on the shape carrying a header-only file.
  *
  * `EXTENDED_HEADER_DIFF_SHAPE` includes a rename with no hunks, which the views must draw with its
- * header note rather than `+0 −0` under a bare path; an image holds that claim and a DOM
- * assertion does not. Built per call so two tiers do not share one model.
+ * header note rather than `+0 −0` under a bare path. Built per call so two mounts do not share one
+ * model.
  */
 export function extendedHeaderChangeSet(): DiffModel {
   return buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);

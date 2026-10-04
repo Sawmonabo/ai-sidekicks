@@ -39,9 +39,8 @@ async function loadRegisteredBodies(): Promise<void> {
  *
  * Not by stamping the scheme attribute: `AppProviders` writes its own store's preference into it
  * in a layout effect, so a value set before mounting is overwritten with the default `"system"`
- * on first paint. Emulating
- * `prefers-color-scheme` drives the layer a default install uses. Chromium-only, through CDP;
- * the browser-mode tiers pin Chromium.
+ * on first paint. Emulating `prefers-color-scheme` drives the layer a default install uses.
+ * Chromium-only, through CDP; the browser-mode tiers pin Chromium.
  */
 export async function emulateSystemScheme(scheme: ColorScheme): Promise<void> {
   await cdp().send("Emulation.setEmulatedMedia", {
@@ -65,15 +64,15 @@ interface AppMount {
 /**
  * Mounts at window size and lets every settled promise land.
  *
- * The container is sized to the viewport: Testing Library's default is an unstyled `div`, and
- * the frame's full-height layout in a shrink-to-fit box lays out at the height of its text,
- * making a geometry assertion measure the wrong box. The wait is a
- * macrotask boundary, not a counted number of flushes: the persistence upgrade resolves a
- * promise whose continuation schedules another, and a chain one link deeper than a count would
- * stop being waited for. It waits on no clock: a view over a fixture scenario schedules its
- * reads on the scenario's frozen clock, which `scheduled-read.ts`'s `settleScheduledRead`
- * advances. A caller holding a bridge settles both (`accessibility/feature-mounts/composer.tsx`);
- * a caller mounting `AppProviders`, which builds its own bridge, has only this.
+ * The container is sized to the viewport: Testing Library's default is an unstyled `div`, and the
+ * frame's full-height layout in a shrink-to-fit box lays out at the height of its text, making a
+ * geometry assertion measure the wrong box. The wait is a macrotask boundary, not a counted number
+ * of flushes: the persistence upgrade resolves a promise whose continuation schedules another, and
+ * a chain one link deeper than a count would stop being waited for. It waits on no clock: a view
+ * over a fixture scenario schedules its reads on the scenario's frozen clock, which
+ * `scheduled-read.ts`'s `settleScheduledRead` advances. A caller holding a bridge settles both
+ * (`accessibility/feature-mounts/composer.tsx`); a caller mounting `AppProviders`, which builds its
+ * own bridge, has only this.
  */
 export async function renderSettled(element: ReactElement): Promise<AppMount> {
   const container: HTMLElement = document.createElement("div");

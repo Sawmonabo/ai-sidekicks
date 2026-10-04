@@ -12,7 +12,7 @@ import { ChordHint } from "../ChordHint/ChordHint.js";
 import { COMMAND_PALETTE_OPEN_CHORD } from "@renderer/lib/chord-format.js";
 
 /** Centers `children` on a measure with the command palette hint beneath. */
-export function ScreenNotice(props: { readonly children: React.ReactNode }): React.JSX.Element {
+export function ScreenNotice(props: { readonly children?: React.ReactNode }): React.JSX.Element {
   return (
     <div className="meridian-screen-notice">
       <div className="meridian-screen-notice__body">{props.children}</div>

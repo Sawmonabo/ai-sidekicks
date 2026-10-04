@@ -29,7 +29,7 @@ import { closePalette, openPalette } from "../helpers/palette-interaction.js";
 import {
   scenarioDeliverySchedule,
   type ScenarioDeliverySchedule,
-} from "../helpers/scenario-delivery-schedule.js";
+} from "./scenario-delivery-schedule.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,

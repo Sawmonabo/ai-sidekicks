@@ -8,7 +8,7 @@
 //
 // The destination is mounted with a session in scope by navigating into a session and then to
 // workflows: the window store's retention of the last opened session is its own rule, and
-// writing the field directly could pin a frame the store cannot produce.
+// writing the field directly could mount a frame the store cannot produce.
 //
 // A pane is a region named by its crumb trail through `aria-labelledby`, so it is found by its
 // current crumb. The destination is not a region and is found by its root class.
@@ -95,7 +95,7 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * The screen body the rail holds for the workflows screen, as a component, or a throw.
  *
  * It throws, not returns undefined, so a feature that stopped claiming its screen fails here by
- * name instead of a tier comparing an empty box against a baseline.
+ * name instead of the audit passing over an empty box.
  */
 async function screenBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
   const render = await resolvedScreenBody("workflows", registerWorkflowScreens);
@@ -189,8 +189,8 @@ export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
 /**
  * The builder pane on a definition, the one arm that renders a body.
  *
- * Addressed rather than empty: the unaddressed arm draws one empty-state block the frame tier
- * already covers, while this one composes the node graph and draft regions. It needs no wait
+ * Addressed rather than empty: the unaddressed arm draws one empty-state block, while this one
+ * composes the node graph and draft regions. It needs no wait
  * because the pane puts no read in flight.
  */
 export async function mountWorkflowBuilderPane(): Promise<MountedView> {

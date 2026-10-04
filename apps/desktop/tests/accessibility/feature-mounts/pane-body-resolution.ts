@@ -1,8 +1,8 @@
-// How every tier that mounts a pane body gets one: preload, then resolve.
+// How a feature mount gets a pane body: preload, then resolve.
 //
 // One home because the wait is one claim: pane bodies are loader-backed, and a per-module copy is
-// how a tier ends up with mounts that await the body and one that races it, and an audit of a
-// body that had not arrived is green and about the wrong thing.
+// how mounts end up awaiting the body while one races it, and an audit of a body that had not
+// arrived is green and about the wrong thing.
 //
 // Preload rather than a wider settle. A loader-backed registration renders the pending fallback
 // until its module lands on a dynamic import, which under Vitest takes more than the one
@@ -21,10 +21,10 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
  * The body the pane layout holds for a kind, with its module already loaded.
  *
  * Takes the feature's own registrar and builds the registry here: the registry is owner-scoped
- * state, so two tiers sharing one would make the second's mount depend on whether the first had
- * run, and a mount composes exactly the body it audits. Throws if the kind is unregistered, so
- * a tier never audits an empty box. `render` is returned for React to mount
- * rather than called, since bodies hold hooks.
+ * state, so two mounts sharing one would make the second depend on whether the first had run,
+ * and a mount composes exactly the body it audits. Throws if the kind is unregistered, so an
+ * audit never passes over an empty box. `render` is returned for React to mount rather than
+ * called, since bodies hold hooks.
  */
 export async function resolvedPaneBody(
   kind: PaneKind,

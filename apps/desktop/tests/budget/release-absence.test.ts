@@ -11,7 +11,7 @@
 // outcome wrong. It reads no source text: every subject is the build's own output or a constant
 // imported from the module that declares it.
 //
-// Two checks, because fixture code lives in two places:
+// Two checks, because fixture code lives in two places, and a third for the main process:
 //
 // - Whole modules. Every build target writes hidden source maps whose `sources` list the
 //   modules that rendered code into each file. `isFixtureOnlyModule` in
@@ -21,6 +21,9 @@
 // - Names inside production modules. The fixture launch's page property is read by a module
 //   that ships, and the perf meters ship as a module whose recordings fold under
 //   `import.meta.env.DEV`, so the shipped text is swept for those names.
+// - The smoke and GC probes. They drive the untrusted renderer with `executeJavaScript` and sit
+//   behind `__SMOKE_BUILD__`, which a release build folds, so no main source map may list a
+//   module under `src/main/probes/`.
 //
 // Stylesheets are neither: no source map lists one, and a feature fixture's sheet ships its
 // rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that case as an
@@ -77,6 +80,9 @@ const RELEASE_ABSENT_METER_KINDS = [
   "apply-latency",
   "store-size",
 ] as const satisfies readonly PerformanceMeterKind[];
+
+/** The folder of the main-process probes, which only a smoke build may ship. */
+const SMOKE_PROBE_FOLDER = "/src/main/probes/";
 
 /** Which built files carry a marker. */
 function carriersOf(marker: string, files: readonly BuiltFile[]): readonly string[] {
@@ -163,6 +169,21 @@ describe("release build — the fixture code is absent, not merely unreachable",
         "`__FIXTURE_BUILD__` branch. The `define` folds a guarded call site " +
         "but not a static import edge, so a value a shipped module reads from the fixture " +
         "belongs in a production module instead.",
+    ).toStrictEqual([]);
+  });
+
+  it("no smoke or GC probe module rendered code into the main bundle", () => {
+    const probeModules = readSourceMapsOrFailLoudly("main").flatMap((map) =>
+      map.sources
+        .filter((source) => source.includes(SMOKE_PROBE_FOLDER))
+        .map((source) => `${map.relativePath}: ${source}`),
+    );
+    expect(
+      probeModules,
+      "a release main bundle carries a probe, so it embeds `executeJavaScript` against the " +
+        "untrusted renderer. Either `out/` currently holds a smoke build — `pnpm build:smoke` " +
+        "and `pnpm build` write the same directory — or a probe's call site left " +
+        "its `__SMOKE_BUILD__` guard in `src/main/index.ts`.",
     ).toStrictEqual([]);
   });
 

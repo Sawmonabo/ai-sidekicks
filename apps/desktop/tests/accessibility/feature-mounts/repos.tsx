@@ -10,9 +10,9 @@
 //     scripted). It holds three mounts: a healthy one, one whose root is `unreachable`, and one
 //     whose root is no longer the repository it was attached as (`identity_mismatch`).
 //   • The diff pane takes its model as a prop and no wire produces one, so the pane layout's own
-//     body renders the `not-checked` empty state, which would pin a picture of an empty box. The
-//     pane is mounted with `extendedHeaderChangeSet()`, the composition `DiffPane.tsx` draws. The
-//     empty-state arm stays pinned by `DiffPane.test.tsx`, where a DOM assertion can say which
+//     body renders the `not-checked` empty state, which would audit an empty box. The pane is
+//     mounted with `extendedHeaderChangeSet()`, the composition `DiffPane.tsx` draws. The
+//     empty-state arm is covered by `DiffPane.test.tsx`, where a DOM assertion can say which
 //     empty state it is.
 
 import { advanceScenarioUntil } from "../../helpers/scenario-manual-clock.js";
@@ -39,7 +39,7 @@ import { requireLabeledRegion, type MountedView } from "./mount-queries.js";
  * The mount list with its three mounts read.
  *
  * Waited on rather than read straight after the mount: the reader reads the workspace list and
- * then each mount, so a tier capturing immediately would pin the pre-read frame. All three cards
+ * then each mount, so an audit run immediately would read the pre-read frame. All three cards
  * are waited for because the first to land is not the last.
  */
 export async function mountMountList(): Promise<MountedView> {
@@ -71,7 +71,7 @@ export async function mountDiffPane(): Promise<MountedView> {
   const { container } = await renderSettled(
     <DiffPane
       context={paneContext(
-        // The session's own workspace, named from the mounts fixture so the subject the tier pins
+        // The session's own workspace, named from the mounts fixture so the subject the audit reads
         // and the workspace the list states cannot drift.
         { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
         { paneId: "pane-diff", bridge, sessionStore },
